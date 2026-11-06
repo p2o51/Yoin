@@ -1,6 +1,7 @@
 import AVFoundation
 import MediaPlayer
 import Network
+import Observation
 import UIKit
 import os
 import YoinShared
@@ -28,6 +29,15 @@ final class PlaybackSystem {
     private(set) var spotifyOutput: SpotifyAudioOutput?
     /// MusicKit owns the lock screen card and remote commands while it plays.
     private var nowPlayingWritten = false
+    /// The heart behind the lock screen's like button: whether the song is
+    /// liked, whether this source can be liked from here, and the flip (the
+    /// same `FavoritesStore` write Now Playing's heart makes). Set by `live()`.
+    var favorite = FavoriteHooks()
+
+    struct FavoriteHooks {
+        var isFavorite: (PlayableTrack) -> Bool = { _ in false }
+        var toggle: (PlayableTrack) -> Void = { _ in }
+    }
 
     /// The app's engine: AVQueuePlayer for streams, ApplicationMusicPlayer for
     /// Apple Music, wired to the OS.
@@ -55,6 +65,12 @@ final class PlaybackSystem {
         AudioCache.shared.warmUp()
         system.appleOutput = apple
         system.spotifyOutput = spotify
+        system.favorite = FavoriteHooks(
+            isFavorite: { NowPlayingData.shared.isFavorite($0) },
+            toggle: { t in
+                let model = AppModel.shared
+                NowPlayingData.shared.toggleFavorite(t, client: model.session.client, apple: model.store.apple)
+            })
         return system
     }
 
@@ -202,7 +218,33 @@ final class PlaybackSystem {
             MainActor.assumeIsolated { self?.engine.seek(to: sec) }
             return .success
         }
-        for unused in [c.likeCommand, c.dislikeCommand, c.bookmarkCommand, c.skipForwardCommand,
+        c.changeShuffleModeCommand.isEnabled = true
+        c.changeShuffleModeCommand.addTarget { [weak self] event in
+            guard let e = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
+            let on = RemoteCommandState.shuffle(e.shuffleType)
+            MainActor.assumeIsolated { self?.engine.setShuffle(on) }
+            return .success
+        }
+        c.changeRepeatModeCommand.isEnabled = true
+        c.changeRepeatModeCommand.addTarget { [weak self] event in
+            guard let e = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
+            let mode = RemoteCommandState.repeatMode(e.repeatType)
+            MainActor.assumeIsolated { self?.engine.setRepeat(mode) }
+            return .success
+        }
+        // The heart (Android's quick-action favorite): the same write Now
+        // Playing's heart makes. Enabled per song in `refreshFavoriteCommand`.
+        c.likeCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let t = self.engine.currentTrack,
+                      RemoteCommandState.canLike(provider: t.provider) else { return MPRemoteCommandHandlerStatus.commandFailed }
+                self.favorite.toggle(t)
+                self.refreshRemoteCommandState()
+                return .success
+            }
+        }
+        refreshRemoteCommandState()
+        for unused in [c.dislikeCommand, c.bookmarkCommand, c.skipForwardCommand,
                        c.skipBackwardCommand, c.seekForwardCommand, c.seekBackwardCommand] {
             unused.isEnabled = false
         }
@@ -213,14 +255,51 @@ final class PlaybackSystem {
         commandsInstalled = false
         let c = MPRemoteCommandCenter.shared()
         for command in [c.playCommand, c.pauseCommand, c.togglePlayPauseCommand, c.nextTrackCommand,
-                        c.previousTrackCommand, c.changePlaybackPositionCommand] {
+                        c.previousTrackCommand, c.changePlaybackPositionCommand, c.changeShuffleModeCommand,
+                        c.changeRepeatModeCommand, c.likeCommand] {
             command.removeTarget(nil)
         }
+        c.changeShuffleModeCommand.isEnabled = false
+        c.changeRepeatModeCommand.isEnabled = false
+        c.likeCommand.isEnabled = false
+        favoriteObservation = false
     }
 
     // MARK: Lock screen
 
+    /// Whether the heart is being watched for changes (one pending observation).
+    private var favoriteObservation = false
+
+    /// Shuffle, repeat and the heart as the lock screen shows them. The heart
+    /// re-reads itself when the favorites store changes (a tap here, in Now
+    /// Playing, or a server answer rolling it back).
+    private func refreshRemoteCommandState() {
+        guard commandsInstalled else { return }
+        let c = MPRemoteCommandCenter.shared()
+        let track = engine.currentTrack
+        // One pending observation at a time: re-armed by its own firing.
+        let watch = !favoriteObservation
+        let liked: Bool = track.map { t in
+            guard watch else { return favorite.isFavorite(t) }
+            favoriteObservation = true
+            return withObservationTracking({ favorite.isFavorite(t) }, onChange: { [weak self] in
+                Task { @MainActor in
+                    self?.favoriteObservation = false
+                    self?.refreshRemoteCommandState()
+                }
+            })
+        } ?? false
+        let state = RemoteCommandState(shuffle: engine.shuffle, repeatMode: engine.repeatMode,
+                                       provider: track?.provider, liked: liked)
+        c.changeShuffleModeCommand.currentShuffleType = state.shuffleType
+        c.changeRepeatModeCommand.currentRepeatType = state.repeatType
+        c.likeCommand.isEnabled = state.likeEnabled
+        c.likeCommand.isActive = state.liked
+        c.likeCommand.localizedTitle = state.liked ? String(localized: "Unfavorite") : String(localized: "Favorite")
+    }
+
     private func refreshNowPlaying() {
+        refreshRemoteCommandState()
         if isAppleMusic {
             // Clear our card once; after that the card is MusicKit's.
             if nowPlayingWritten {
@@ -343,5 +422,42 @@ final class StreamQualityConditions {
             output=\(output.name, privacy: .public) -> \(quality.key, privacy: .public)
             """)
         return quality
+    }
+}
+
+
+/// What the lock screen and Control Center show of the play modes and the
+/// heart, and how their commands map onto the engine (Android
+/// `SessionQuickActions`: shuffle and favorite).
+struct RemoteCommandState: Equatable {
+    var shuffle: Bool
+    var repeatMode: RepeatMode
+    var provider: String?
+    var liked: Bool
+
+    var shuffleType: MPShuffleType { shuffle ? .items : .off }
+    var repeatType: MPRepeatType {
+        switch repeatMode {
+        case .all: .all
+        case .one: .one
+        case .off: .off
+        }
+    }
+    /// The heart shows only where this app writes it from here.
+    var likeEnabled: Bool { provider.map(Self.canLike) ?? false }
+
+    /// Subsonic only: Apple Music and Spotify songs play outside this
+    /// session (their own card and commands), so the commands aren't ours.
+    static func canLike(provider: String) -> Bool { provider == MediaRef.companion.PROVIDER_SUBSONIC }
+
+    static func shuffle(_ type: MPShuffleType) -> Bool { type != .off }
+
+    static func repeatMode(_ type: MPRepeatType) -> RepeatMode {
+        switch type {
+        case .one: .one
+        case .all: .all
+        case .off: .off
+        @unknown default: .all
+        }
     }
 }

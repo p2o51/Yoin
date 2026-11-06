@@ -285,6 +285,8 @@ final class PlayerEngine {
     func setShuffle(_ on: Bool) {
         guard on != shuffle else { return }
         shuffle = on
+        // The lock screen's shuffle state follows (PlaybackSystem).
+        defer { onStateChange?() }
         guard let i = currentIndex else { return }
         let current = queue[i]
         if on {
@@ -318,6 +320,7 @@ final class PlayerEngine {
     func setRepeat(_ mode: RepeatMode) {
         guard mode != repeatMode else { return }
         repeatMode = mode
+        defer { onStateChange?() }
         syncPreload()
         output.playModesDidChange(shuffle: shuffle, repeatMode: repeatMode)
     }
