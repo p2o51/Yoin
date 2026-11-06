@@ -63,8 +63,20 @@ class SpotifyUnreachableTest {
         players.forEach { it.disconnect(resetState = true) }
     }
 
+    /**
+     * [runTest] that lets the players go before it drains the scheduler: following another
+     * device polls for as long as a Yoin screen is up, which a drain would never see the end of.
+     */
+    private fun playerTest(body: suspend TestScope.() -> Unit) = runTest {
+        try {
+            body()
+        } finally {
+            players.forEach { it.disconnect(resetState = true) }
+        }
+    }
+
     @Test
-    fun should_sayItIsAsleep_when_spotifyDoesntAnswerTheStartInTime() = runTest {
+    fun should_sayItIsAsleep_when_spotifyDoesntAnswerTheStartInTime() = playerTest {
         val player = hostedPlayer()
 
         tap(player)
@@ -83,7 +95,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_startOnTheOtherDevice_when_spotifyPlaysThereAndTheAppHereIsAsleep() = runTest {
+    fun should_startOnTheOtherDevice_when_spotifyPlaysThereAndTheAppHereIsAsleep() = playerTest {
         val player = hostedPlayer()
         web.state = speaker(uri = "spotify:track:theirs")
 
@@ -98,7 +110,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_driveTheOtherDevice_when_theUserPausesThere() = runTest {
+    fun should_driveTheOtherDevice_when_theUserPausesThere() = playerTest {
         val player = hostedPlayer()
         web.state = speaker(uri = "spotify:track:theirs")
         tap(player)
@@ -120,7 +132,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_showTheOtherDevicesSong_when_yoinOpensWithoutTheAppHere() = runTest {
+    fun should_showTheOtherDevicesSong_when_yoinOpensWithoutTheAppHere() = playerTest {
         val player = hostedPlayer()
         web.state = speaker(uri = "spotify:track:theirs")
 
@@ -135,7 +147,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_startOnTheOtherDevice_when_appRemoteIsConnectedAndASpeakerPlays() = runTest {
+    fun should_startOnTheOtherDevice_when_appRemoteIsConnectedAndASpeakerPlays() = playerTest {
         appRemote.answers = true
         val player = hostedPlayer()
         player.warmConnection()
@@ -151,7 +163,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_startOnThisPhone_when_nothingPlaysElsewhere() = runTest {
+    fun should_startOnThisPhone_when_nothingPlaysElsewhere() = playerTest {
         appRemote.answers = true
         val player = hostedPlayer()
         player.warmConnection()
@@ -167,7 +179,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_hintAfterTheSilentRetry_when_theConnectFailsAtOnce() = runTest {
+    fun should_hintAfterTheSilentRetry_when_theConnectFailsAtOnce() = playerTest {
         appRemote.failWith = SpotifyDisconnectedException()
         val player = hostedPlayer()
 
@@ -180,7 +192,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_playTheHeldSong_when_theUserOpenedSpotifyAndItIsPaused() = runTest {
+    fun should_playTheHeldSong_when_theUserOpenedSpotifyAndItIsPaused() = playerTest {
         val player = hintShown()
 
         assertTrue(player.openSpotify())
@@ -191,7 +203,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_notCutIn_when_spotifyIsAlreadyPlayingOnTheWayBack() = runTest {
+    fun should_notCutIn_when_spotifyIsAlreadyPlayingOnTheWayBack() = playerTest {
         val player = hintShown()
 
         player.openSpotify()
@@ -203,7 +215,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_dropTheHeldSong_when_theHintWasDismissed() = runTest {
+    fun should_dropTheHeldSong_when_theHintWasDismissed() = playerTest {
         val player = hintShown()
 
         comeBack(player, spotifyState = state(paused = true))
@@ -213,7 +225,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_tryAgainFromScratch_when_theUserTapsAnotherSongAfterTheHint() = runTest {
+    fun should_tryAgainFromScratch_when_theUserTapsAnotherSongAfterTheHint() = playerTest {
         val player = hintShown()
         appRemote.answers = true
 
@@ -224,7 +236,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_keepTheTypedFailure_when_theConnectSaysWhatIsWrong() = runTest {
+    fun should_keepTheTypedFailure_when_theConnectSaysWhatIsWrong() = playerTest {
         appRemote.failWith = NotLoggedInException("not logged in", null)
         val player = hostedPlayer()
 
@@ -236,7 +248,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_playTheNewTap_when_itComesInWhileTheHeldStartIsLookedAt() = runTest {
+    fun should_playTheNewTap_when_itComesInWhileTheHeldStartIsLookedAt() = playerTest {
         val player = hintShown()
         player.openSpotify()
         player.onHostStop()
@@ -258,7 +270,7 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_lookAgain_when_yoinLeavesDuringTheLook() = runTest {
+    fun should_lookAgain_when_yoinLeavesDuringTheLook() = playerTest {
         val player = hintShown()
         player.openSpotify()
         player.onHostStop()
