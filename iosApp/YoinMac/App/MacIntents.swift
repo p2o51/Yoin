@@ -18,7 +18,8 @@ struct AlbumQuery: EntityStringQuery {
     @MainActor private func all() async -> [AlbumEntity] {
         guard let lib = MacModel.current?.library else { return [] }
         await lib.loadAlbums()
-        return lib.albums.map { AlbumEntity(id: $0.id.rawId, title: $0.title, artist: $0.artist) }
+        let scope = MacModel.current?.session.accountKey ?? ""
+        return lib.albums.map { AlbumEntity(id: ScopedId.make(scope, $0.id.rawId), title: $0.title, artist: $0.artist) }
     }
 
     func entities(for identifiers: [String]) async throws -> [AlbumEntity] {
@@ -46,7 +47,8 @@ struct PlaylistQuery: EntityStringQuery {
     @MainActor private func all() async -> [PlaylistEntity] {
         guard let lib = MacModel.current?.library else { return [] }
         await lib.loadPlaylists()
-        return lib.playlists.map { PlaylistEntity(id: $0.id.rawId, title: $0.title) }
+        let scope = MacModel.current?.session.accountKey ?? ""
+        return lib.playlists.map { PlaylistEntity(id: ScopedId.make(scope, $0.id.rawId), title: $0.title) }
     }
 
     func entities(for identifiers: [String]) async throws -> [PlaylistEntity] {
@@ -59,6 +61,19 @@ struct PlaylistQuery: EntityStringQuery {
     }
 
     func suggestedEntities() async throws -> [PlaylistEntity] { Array(await all().prefix(30)) }
+}
+
+/// An entity's id carries the account it came from ("<account>\u{1F}<raw id>"): a shortcut saved for one
+/// account never plays another account's album or playlist that happens to share the raw id.
+enum ScopedId {
+    static func make(_ scope: String, _ raw: String) -> String { "\(scope)\u{1F}\(raw)" }
+
+    /// The raw id when [id] belongs to the account in use; else nil.
+    @MainActor static func raw(_ id: String, in m: MacModel) -> String? {
+        let parts = id.split(separator: "\u{1F}", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, String(parts[0]) == m.session.accountKey else { return nil }
+        return String(parts[1])
+    }
 }
 
 struct YoinIntentError: Error, CustomLocalizedStringResourceConvertible {
@@ -109,7 +124,9 @@ struct LikeCurrentSongIntent: AppIntent {
         let m = try model()
         guard let t = m.player.currentTrack else { throw YoinIntentError(localizedStringResource: "Nothing is playing") }
         if !m.library.isStarred(songId: t.id, fallback: false) {
-            m.library.toggleStar(songId: t.id, current: false)
+            do { try await m.library.like(songId: t.id) } catch {
+                throw YoinIntentError(localizedStringResource: "Couldn't like \(t.title)")
+            }
         }
         return .result(dialog: "Liked \(t.title)")
     }
@@ -121,10 +138,11 @@ struct PlayAlbumIntent: AppIntent {
 
     @MainActor func perform() async throws -> some IntentResult {
         let m = try model()
-        guard let a = m.library.albums.first(where: { $0.id.rawId == album.id }) else {
-            throw YoinIntentError(localizedStringResource: "That album isn't in this account's library")
+        guard let raw = ScopedId.raw(album.id, in: m), let a = m.library.albums.first(where: { $0.id.rawId == raw }) else {
+            throw YoinIntentError(localizedStringResource: "That album isn't in the account in use")
         }
-        m.play(album: await m.library.fullAlbum(a))
+        // Awaited through the load, under the request / account guards play(album:) uses.
+        guard await m.playAlbum(a) else { throw YoinIntentError(localizedStringResource: "Couldn't play that album") }
         return .result()
     }
 }
@@ -134,7 +152,11 @@ struct PlayPlaylistIntent: AppIntent {
     @Parameter(title: "Playlist") var playlist: PlaylistEntity
 
     @MainActor func perform() async throws -> some IntentResult {
-        try model().play(playlist: playlist.id)
+        let m = try model()
+        guard let raw = ScopedId.raw(playlist.id, in: m) else {
+            throw YoinIntentError(localizedStringResource: "That playlist isn't in the account in use")
+        }
+        guard await m.playPlaylist(raw) else { throw YoinIntentError(localizedStringResource: "Couldn't play that playlist") }
         return .result()
     }
 }

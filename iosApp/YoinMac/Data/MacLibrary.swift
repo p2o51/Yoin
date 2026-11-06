@@ -590,6 +590,25 @@ final class MacLibrary {
         }
     }
 
+    /// Likes a song and waits for the service to take it (Shortcuts): Spotify's Liked Songs, Apple Music's
+    /// library, the Subsonic server's star. Throws when the write fails; the heart shows it once it's in.
+    func like(songId: String) async throws {
+        let key = "song:\(songId)"
+        let gen = generation
+        if let spotify {
+            try await spotify.save(songId)
+        } else if let apple {
+            try await apple.addToLibrary(songId)
+        } else if let client {
+            try await client.star(id: songId, albumId: nil, artistId: nil)
+        } else {
+            throw CancellationError()
+        }
+        guard gen == generation else { return }
+        starredOverride[key] = true
+        if spotify != nil || apple != nil { inLibrary[songId] = true }
+    }
+
     func toggleStar(songId: String, current: Bool) {
         let key = "song:\(songId)"
         let gen = generation

@@ -273,16 +273,22 @@ final class MacModel {
     /// Play / Shuffle keep the listener's play mode (docs/design.md): Shuffle plays the album in a random
     /// order. Only the newest request plays, and only for the account it was made in.
     func play(album: Album, shuffle: Bool = false, startAt: Int = 0) {
+        Task { await playAlbum(album, shuffle: shuffle, startAt: startAt) }
+    }
+
+    /// The same, awaited (Shortcuts): true once the album's songs are the queue; false when it had no songs,
+    /// a newer request came, or the account changed.
+    @discardableResult
+    func playAlbum(_ album: Album, shuffle: Bool = false, startAt: Int = 0) async -> Bool {
         playRequest += 1
         let token = playRequest
         let gen = library.accountGeneration
-        Task {
-            let full = await library.fullAlbum(album)
-            guard token == playRequest, gen == library.accountGeneration else { return }
-            var entries = full.tracks.map { PlaylistEntry(album: full, track: $0) }
-            if shuffle { entries.shuffle() }
-            play(entries, startAt: shuffle ? 0 : startAt)
-        }
+        let full = await library.fullAlbum(album)
+        guard token == playRequest, gen == library.accountGeneration, !full.tracks.isEmpty else { return false }
+        var entries = full.tracks.map { PlaylistEntry(album: full, track: $0) }
+        if shuffle { entries.shuffle() }
+        play(entries, startAt: shuffle ? 0 : startAt)
+        return true
     }
 
     @ObservationIgnored private var playRequest = 0
@@ -537,16 +543,21 @@ final class MacModel {
 
     /// A playlist's songs, shuffled or in order (the play mode stays the listener's).
     func play(playlist id: String, shuffle: Bool = false) {
+        Task { await playPlaylist(id, shuffle: shuffle) }
+    }
+
+    /// The same, awaited (Shortcuts).
+    @discardableResult
+    func playPlaylist(_ id: String, shuffle: Bool = false) async -> Bool {
         playRequest += 1
         let token = playRequest
         let gen = library.accountGeneration
-        Task {
-            await library.loadPlaylist(id)
-            guard token == playRequest, gen == library.accountGeneration,
-                  var entries = library.playlist(id)?.entries, !entries.isEmpty else { return }
-            if shuffle { entries.shuffle() }
-            play(entries)
-        }
+        await library.loadPlaylist(id)
+        guard token == playRequest, gen == library.accountGeneration,
+              var entries = library.playlist(id)?.entries, !entries.isEmpty else { return false }
+        if shuffle { entries.shuffle() }
+        play(entries)
+        return true
     }
 
     /// Empties what's after the current song.

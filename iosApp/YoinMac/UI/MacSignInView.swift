@@ -122,13 +122,13 @@ struct MacSignInView: View {
 
     private func useSpotify() {
         guard !busy else { return }
-        if SpotifyConfig.clientId == nil {
-            let id = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !id.isEmpty else {
-                withAnimation(Yoin.spatial) { askClientId = true }
-                return
-            }
+        // The field's Client ID applies (a retry after a wrong one included); none set and none typed: ask.
+        let id = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if askClientId, !id.isEmpty {
             SpotifyConfig.setClientId(id)
+        } else if SpotifyConfig.clientId == nil {
+            withAnimation(Yoin.spatial) { askClientId = true }
+            return
         }
         busy = true
         error = nil
@@ -141,6 +141,9 @@ struct MacSignInView: View {
                 if adding { model.signedOut(); model.addingAccount = false }
             } catch is MacSession.Superseded {
             } catch {
+                // A wrong Client ID fails here: it can be corrected and tried again.
+                if clientId.isEmpty { clientId = SpotifyConfig.clientId ?? "" }
+                withAnimation(Yoin.spatial) { askClientId = true }
                 self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
