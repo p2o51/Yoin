@@ -22,7 +22,8 @@ enum LaunchConfig {
 /// step closes it, and it ends back in the app).
 struct MacLandingView: View {
     var mode: LandingMode = .firstRun
-    var onFinish: () -> Void
+    /// With the services picked (they're connected next, in order).
+    var onFinish: (Set<LandingService>) -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var mascot: MascotModel = {
         let m = MascotModel()
@@ -133,7 +134,7 @@ struct MacLandingView: View {
         switch step {
         case .hello: "Get started"
         case .pick: picked.isEmpty && mode == .rerun ? "Skip" : "Next"
-        default: mode == .rerun ? "Done" : "Sign in"
+        default: picked.isEmpty && mode == .rerun ? "Done" : "Sign in"
         }
     }
 
@@ -145,7 +146,7 @@ struct MacLandingView: View {
             mascot.cheer()
             Task {
                 try? await Task.sleep(for: .milliseconds(650))
-                onFinish()
+                onFinish(picked)
             }
             return
         }
@@ -155,7 +156,7 @@ struct MacLandingView: View {
 
     private func back() {
         guard let i = Self.steps.firstIndex(of: step), i > 0 else {
-            if mode == .rerun { onFinish() }
+            if mode == .rerun { onFinish([]) }
             return
         }
         forward = false

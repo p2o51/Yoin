@@ -10,9 +10,12 @@ struct MacGate: View {
     var body: some View {
         Group {
             if let landing = model.landing {
-                MacLandingView(mode: landing.mode) {
+                MacLandingView(mode: landing.mode) { picked in
                     if landing.persists { DefaultsLandingStore().markDone() }
-                    withAnimation(Yoin.spatial) { model.landing = nil }
+                    withAnimation(Yoin.spatial) {
+                        model.startConnecting(picked)
+                        model.landing = nil
+                    }
                 }
                 .transition(.opacity)
             } else if model.session.isSignedIn && !model.addingAccount {

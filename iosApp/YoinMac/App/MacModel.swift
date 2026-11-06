@@ -62,6 +62,24 @@ final class MacModel {
     var searchScope: MacLibrary.SearchScope = .library
     /// The sign-in page is up to add another account (the current one stays until that works).
     var addingAccount = false
+    /// The services picked in the welcome guide, still to connect, in order (Android LandingScreen.kt:545):
+    /// the sign-in page takes them one at a time; Skip or a connection moves on to the next.
+    var connectQueue: [LandingService] = []
+    private(set) var connectTotal = 0
+
+    func startConnecting(_ picked: Set<LandingService>) {
+        connectQueue = LandingService.allCases.filter(picked.contains)
+        connectTotal = connectQueue.count
+        if !connectQueue.isEmpty, session.isSignedIn { addingAccount = true }
+    }
+
+    /// The current service is connected or skipped: the next one, or the app.
+    func connectNext() {
+        guard !connectQueue.isEmpty else { return }
+        connectQueue.removeFirst()
+        if connectQueue.isEmpty { connectTotal = 0 }
+        addingAccount = !connectQueue.isEmpty && session.isSignedIn
+    }
     /// The mini player window is showing.
     var miniOpen = false
     var selectedTrack: String?

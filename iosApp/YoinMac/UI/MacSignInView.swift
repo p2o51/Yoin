@@ -12,59 +12,30 @@ struct MacSignInView: View {
     @State private var askClientId = false
     @State private var clientId = ""
 
+    private var current: LandingService? { model.connectQueue.first }
+
+    /// Signed in: an added account starts the app over on it; then the next picked service, or the app.
+    private func connected(adding: Bool) {
+        if adding { model.signedOut() }
+        error = nil
+        askClientId = false
+        withAnimation(Yoin.spatial) {
+            if model.connectQueue.isEmpty { model.addingAccount = false } else { model.connectNext() }
+        }
+    }
+
     var body: some View {
         ZStack {
             Yoin.surface
             EllipticalGradient(colors: [Yoin.violet.opacity(0.16), .clear], center: .top, endRadiusFraction: 0.7)
             VStack(alignment: .leading, spacing: 0) {
-                Text("Yoin").font(.gsf(40, .semibold)).foregroundStyle(Yoin.ink)
-                Text("Sign in to your Subsonic or Navidrome server.")
-                    .font(.gsf(15)).foregroundStyle(Yoin.inkVariant).padding(.top, 4)
-                VStack(spacing: 10) {
-                    field("Server", text: $url, prompt: "music.example.com")
-                    field("Username", text: $username, prompt: "")
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Password").font(.gsf(12, .medium)).foregroundStyle(Yoin.inkVariant)
-                        SecureField("", text: $password).textFieldStyle(.plain).font(.gsf(15))
-                            .padding(.horizontal, 14).frame(height: 40)
-                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Yoin.surfaceContainerHigh))
-                            .onSubmit(submit)
-                    }
-                }
-                .padding(.top, 28)
-                if let error {
+                header
+                if current == nil || current == .subsonic { subsonicForm }
+                if current == .appleMusic || current == .spotify { serviceButton.padding(.top, 28) }
+                if current != .subsonic, let error {
                     Text(error).font(.gsf(13)).foregroundStyle(.red).padding(.top, 12)
                 }
-                Button(action: submit) {
-                    HStack(spacing: 8) {
-                        if busy { ProgressView().controlSize(.small) }
-                        Text(busy ? "Connecting" : "Sign In").font(.gsf(15, .semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity).frame(height: 44)
-                    .background(Capsule().fill(Yoin.violet))
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(busy || url.isEmpty || username.isEmpty)
-                .opacity(url.isEmpty || username.isEmpty ? 0.6 : 1)
-                .padding(.top, 22)
-                // The other source: the system asks for Apple Music access (the listener answers).
-                Button(action: useAppleMusic) {
-                    Text("Use Apple Music instead").font(.gsf(14, .medium)).foregroundStyle(Yoin.violet)
-                        .frame(maxWidth: .infinity).frame(height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(busy)
-                .padding(.top, 10)
-                Button(action: useSpotify) {
-                    Text("Use Spotify instead").font(.gsf(14, .medium)).foregroundStyle(Yoin.violet)
-                        .frame(maxWidth: .infinity).frame(height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(busy)
+                if current == nil { otherSources }
                 // Spotify's Client ID is the account's own setting (its page in Settings); a first Spotify
                 // account asks for it here.
                 if askClientId {
@@ -72,16 +43,7 @@ struct MacSignInView: View {
                         .onSubmit(useSpotify)
                         .transition(.opacity)
                 }
-                if model.addingAccount {
-                    Button("Cancel") {
-                        model.supersedeSignIn()
-                        busy = false
-                        withAnimation(Yoin.spatial) { model.addingAccount = false }
-                    }
-                        .font(.gsf(14)).buttonStyle(.plain).foregroundStyle(Yoin.inkVariant)
-                        .frame(maxWidth: .infinity).padding(.top, 4)
-                        .keyboardShortcut(.cancelAction)
-                }
+                footer
             }
             .frame(width: 360)
             .padding(32)
@@ -89,6 +51,112 @@ struct MacSignInView: View {
         }
         .ignoresSafeArea()
         .task { await MacQA.autoSignIn(model) }
+    }
+
+    @ViewBuilder private var header: some View {
+        if let current {
+            // The welcome guide's picks, one at a time (Android LandingScreen.kt:545).
+            Text("Step \(model.connectTotal - model.connectQueue.count + 1) of \(model.connectTotal)")
+                .font(.gsf(13, .medium)).foregroundStyle(Yoin.inkVariant)
+            Text(current.name).font(.gsf(40, .semibold)).foregroundStyle(Yoin.ink)
+        } else {
+            Text("Yoin").font(.gsf(40, .semibold)).foregroundStyle(Yoin.ink)
+        }
+    }
+
+    @ViewBuilder private var subsonicForm: some View {
+        Text("Sign in to your Subsonic or Navidrome server.")
+            .font(.gsf(15)).foregroundStyle(Yoin.inkVariant).padding(.top, 4)
+        VStack(spacing: 10) {
+            field("Server", text: $url, prompt: "music.example.com")
+            field("Username", text: $username, prompt: "")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Password").font(.gsf(12, .medium)).foregroundStyle(Yoin.inkVariant)
+                SecureField("", text: $password).textFieldStyle(.plain).font(.gsf(15))
+                    .padding(.horizontal, 14).frame(height: 40)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Yoin.surfaceContainerHigh))
+                    .onSubmit(submit)
+            }
+        }
+        .padding(.top, 28)
+        if let error {
+            Text(error).font(.gsf(13)).foregroundStyle(.red).padding(.top, 12)
+        }
+        Button(action: submit) {
+            HStack(spacing: 8) {
+                if busy { ProgressView().controlSize(.small) }
+                Text(busy ? "Connecting" : "Sign In").font(.gsf(15, .semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity).frame(height: 44)
+            .background(Capsule().fill(Yoin.violet))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy || url.isEmpty || username.isEmpty)
+        .opacity(url.isEmpty || username.isEmpty ? 0.6 : 1)
+        .padding(.top, 22)
+    }
+
+    private func primaryButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if busy { ProgressView().controlSize(.small) }
+                Text(busy ? "Connecting" : "Sign In").font(.gsf(15, .semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity).frame(height: 44)
+            .background(Capsule().fill(Yoin.violet))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var serviceButton: some View {
+        primaryButton(current == .appleMusic ? useAppleMusic : useSpotify).disabled(busy)
+    }
+
+    @ViewBuilder private var otherSources: some View {
+        // The other source: the system asks for Apple Music access (the listener answers).
+        Button(action: useAppleMusic) {
+            Text("Use Apple Music instead").font(.gsf(14, .medium)).foregroundStyle(Yoin.violet)
+                .frame(maxWidth: .infinity).frame(height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .padding(.top, 10)
+        Button(action: useSpotify) {
+            Text("Use Spotify instead").font(.gsf(14, .medium)).foregroundStyle(Yoin.violet)
+                .frame(maxWidth: .infinity).frame(height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+    }
+
+    @ViewBuilder private var footer: some View {
+        if current != nil {
+            Button("Skip") {
+                model.supersedeSignIn()
+                busy = false
+                error = nil
+                askClientId = false
+                withAnimation(Yoin.spatial) { model.connectNext() }
+            }
+                .font(.gsf(14)).buttonStyle(.plain).foregroundStyle(Yoin.inkVariant)
+                .frame(maxWidth: .infinity).padding(.top, 4)
+                .keyboardShortcut(.cancelAction)
+        } else if model.addingAccount {
+            Button("Cancel") {
+                model.supersedeSignIn()
+                busy = false
+                withAnimation(Yoin.spatial) { model.addingAccount = false }
+            }
+                .font(.gsf(14)).buttonStyle(.plain).foregroundStyle(Yoin.inkVariant)
+                .frame(maxWidth: .infinity).padding(.top, 4)
+                .keyboardShortcut(.cancelAction)
+        }
     }
 
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
@@ -112,7 +180,7 @@ struct MacSignInView: View {
                 let adding = model.addingAccount
                 let token = model.authToken
                 try await model.session.useAppleMusic { token == model.authToken }
-                if adding { model.signedOut(); model.addingAccount = false }
+                connected(adding: adding)
             } catch is MacSession.Superseded {
             } catch {
                 self.error = AppleMusicSource.message(for: error)
@@ -138,7 +206,7 @@ struct MacSignInView: View {
                 let adding = model.addingAccount
                 let token = model.authToken
                 try await model.session.useSpotify { token == model.authToken }
-                if adding { model.signedOut(); model.addingAccount = false }
+                connected(adding: adding)
             } catch is MacSession.Superseded {
             } catch {
                 // A wrong Client ID fails here: it can be corrected and tried again.
@@ -161,7 +229,7 @@ struct MacSignInView: View {
                 try await model.session.signIn(url: url, username: username, password: password) {
                     token == model.authToken
                 }
-                if adding { model.signedOut(); model.addingAccount = false }
+                connected(adding: adding)
             } catch is MacSession.Superseded {
             } catch {
                 self.error = MacSession.message(for: error)
