@@ -46,7 +46,7 @@ struct MacLibraryView: View {
                 }
             }
             .padding(.horizontal, 32)
-            .padding(.bottom, 130)
+            .padding(.bottom, 142)
         }
         .overlay(alignment: .topLeading) {
             FilterRail(selection: $model.libraryKind)

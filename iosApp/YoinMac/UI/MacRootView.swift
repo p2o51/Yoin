@@ -106,7 +106,7 @@ struct MacShell: View {
                 .frame(height: 44)
             Spacer()
             LinearGradient(colors: [Yoin.surface.opacity(0), Yoin.surface.opacity(0.7)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 96)
+                .frame(height: 110)
         }
         .frame(width: width, height: height)
         .allowsHitTesting(false)

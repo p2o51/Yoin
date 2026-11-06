@@ -79,7 +79,7 @@ struct MacHomeView: View {
                 ForEach(layout.visible, id: \.self) { section($0, home: home) }
             }
             .padding(.horizontal, 32)
-            .padding(.bottom, 130)
+            .padding(.bottom, 142)
         }
         .scrollIndicators(.automatic)
         .task(id: model.session.accountKey) {

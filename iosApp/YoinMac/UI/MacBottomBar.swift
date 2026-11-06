@@ -24,7 +24,7 @@ struct MacBottomBar: View {
             }
             .animation(Yoin.spatial, value: showsPill)
             .padding(10)
-            .frame(height: 64)
+            .frame(height: 76)
             .glassEffect(.regular, in: .capsule)
         }
     }
@@ -34,11 +34,11 @@ struct MacBottomBar: View {
         return Button { model.select(t) } label: {
             HStack(spacing: 10) {
                 YoinIcon(on ? "\(icon)_filled" : icon, size: 22)
-                Text(label).font(.gsf(15, on ? .semibold : .regular))
+                Text(label).font(.gsf(15, on ? .semibold : .regular)).lineLimit(1).fixedSize()
             }
             .foregroundStyle(on ? tint.onPrimary : Yoin.ink)
             .padding(.horizontal, 20)
-            .frame(height: 48)
+            .frame(height: 56)
             .background(Capsule().fill(on ? tint.primary.opacity(0.85) : .clear))
             .contentShape(Capsule())
         }
@@ -50,22 +50,28 @@ struct MacBottomBar: View {
     private var detailPlay: some View {
         HStack(spacing: 4) {
             Button { playDetail(shuffle: false) } label: {
-                HStack(spacing: 6) { YoinIcon("play_filled", size: 20); Text("Play").font(.gsf(15, .semibold)) }
-                    .padding(.leading, 18).padding(.trailing, 14).frame(height: 48)
-                    .background(UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22,
+                HStack(spacing: 6) {
+                    YoinIcon("play_filled", size: 20)
+                    Text("Play").font(.gsf(15, .semibold)).lineLimit(1).fixedSize()
+                }
+                    .foregroundStyle(tint.onPrimary)
+                    .padding(.leading, 18).padding(.trailing, 14).frame(height: 56)
+                    .background(UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 28,
                                                        bottomTrailingRadius: 8, topTrailingRadius: 8)
                         .fill(tint.primary.opacity(0.85)))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .fixedSize()
             Menu {
                 Button("Play") { playDetail(shuffle: false) }
                 Button("Shuffle") { playDetail(shuffle: true) }
             } label: {
                 YoinIcon("chevron_down", size: 18)
-                    .frame(width: 38, height: 48)
+                    .foregroundStyle(tint.onPrimary)
+                    .frame(width: 38, height: 56)
                     .background(UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8,
-                                                       bottomTrailingRadius: 22, topTrailingRadius: 22)
+                                                       bottomTrailingRadius: 28, topTrailingRadius: 28)
                         .fill(tint.primary.opacity(0.85)))
                     .contentShape(Rectangle())
             }
@@ -74,13 +80,14 @@ struct MacBottomBar: View {
             .menuIndicator(.hidden)
             .fixedSize()
             Button { playDetail(shuffle: true) } label: {
-                YoinIcon("shuffle", size: 22).frame(width: 48, height: 48).contentShape(Circle())
+                // An unselected bar button: ink on the glass (onPrimary here was white on white).
+                YoinIcon("shuffle", size: 22).foregroundStyle(Yoin.ink)
+                    .frame(width: 56, height: 56).contentShape(Circle())
             }
             .buttonStyle(.plain)
             .padding(.leading, 10)
             .help("Shuffle")
         }
-        .foregroundStyle(tint.onPrimary)
     }
 
     private func playDetail(shuffle: Bool) {
@@ -109,10 +116,10 @@ struct NowPlayingPill: View {
             HStack(spacing: 14) {
                 // A song's cover is a rounded square: in Yoin a circle means an artist.
                 Group {
-                    if let entry { MacCover(palette: entry.album.palette, corner: 7) }
-                    else { RoundedRectangle(cornerRadius: 7, style: .continuous).fill(tint.primary.opacity(0.25)) }
+                    if let entry { MacCover(palette: entry.album.palette, corner: 8) }
+                    else { RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.primary.opacity(0.25)) }
                 }
-                .frame(width: 40, height: 40)
+                .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(track?.title ?? "Not playing").font(.gsf(16, .semibold)).lineLimit(1)
                     if let track { Text(track.artist).font(.gsf(13.5)).opacity(0.75).lineLimit(1) }
@@ -135,9 +142,10 @@ struct NowPlayingPill: View {
                     .animation(Yoin.standardFastSpatial, value: full)
                 }
             }
-            .padding(.leading, 4).padding(.trailing, 14)
-            .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 48)
-            .background { PillProgress(color: tint.primary.opacity(0.22)) }
+            // The cover sits 6 inside the capsule's curve, not against it.
+            .padding(.leading, 6).padding(.trailing, 14)
+            .frame(maxWidth: .infinity, minHeight: 56, maxHeight: 56)
+            .background { PillProgress(color: tint.primary.opacity(0.25)) }
             .background(Capsule().fill(tint.container.opacity(0.7)))
             .clipShape(Capsule())
             .contentShape(Capsule())
@@ -157,14 +165,34 @@ struct NowPlayingPill: View {
     }
 }
 
-/// Reads the 4 Hz position in its own body, so only the fill redraws.
+/// Reads the 4 Hz position in its own body, so only the wash redraws. iOS PillWash: a soft tint up to the
+/// position, its leading edge a slow 4 pt wave while the song plays.
 private struct PillProgress: View {
     var color: Color
+    var amplitude: Double = 4
     @Environment(MacModel.self) private var model
 
     var body: some View {
-        GeometryReader { g in
-            Rectangle().fill(color).frame(width: g.size.width * model.player.progress.fraction)
+        let progress = model.player.progress.fraction
+        let playing = model.player.isPlaying
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !playing)) { ctx in
+            let phase = ctx.date.timeIntervalSinceReferenceDate * 2 * Double.pi
+            Canvas { gc, size in
+                guard progress > 0 else { return }
+                let x = size.width * progress
+                var path = Path()
+                path.move(to: .zero)
+                path.addLine(to: CGPoint(x: x, y: 0))
+                for i in 0...20 {
+                    let f = Double(i) / 20
+                    let dx = sin(phase + f * 2 * Double.pi) * amplitude * (playing ? 1 : 0)
+                    path.addLine(to: CGPoint(x: x + dx, y: f * size.height))
+                }
+                path.addLine(to: CGPoint(x: 0, y: size.height))
+                path.closeSubpath()
+                gc.fill(path, with: .color(color))
+            }
         }
+        .allowsHitTesting(false)
     }
 }

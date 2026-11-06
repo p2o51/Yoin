@@ -68,7 +68,7 @@ struct MacAlbumDetail: View {
             }
             .padding(.horizontal, 32)
             .padding(.top, 60)
-            .padding(.bottom, 130)
+            .padding(.bottom, 142)
         }
         .task(id: seed.id) { await model.library.loadAlbum(seed.id.rawId) }
     }
@@ -128,7 +128,7 @@ struct MacArtistDetail: View {
             }
             .padding(.horizontal, 32)
             .padding(.top, 60)
-            .padding(.bottom, 130)
+            .padding(.bottom, 142)
         }
         .task(id: id) { await model.library.loadArtist(id) }
     }
@@ -240,7 +240,7 @@ struct MacPlaylistDetail: View {
             }
             .padding(.horizontal, 32)
             .padding(.top, 60)
-            .padding(.bottom, 130)
+            .padding(.bottom, 142)
         }
         .task(id: id) { await model.library.loadPlaylist(id) }
     }
