@@ -42,6 +42,8 @@ struct MacNowPlaying: View {
         }
         .onChange(of: model.focus) { _, on in
             if on { pointerMoved() } else { exitHide?.cancel(); exitShown = false }
+            // Focus always has the lyrics' current line (docs/design.md focus rules): from About it turns to them.
+            if on, tab != .lyrics { withAnimation(Yoin.effects) { tab = .lyrics } }
         }
         .clipShape(UnevenRoundedRectangle(topLeadingRadius: full ? 0 : 22, bottomLeadingRadius: full ? 0 : 22,
                                           bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous))
