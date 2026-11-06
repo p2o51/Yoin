@@ -120,7 +120,8 @@ struct MacAlbumScrapbook: View {
         let badge = Self.badge
         let overhangX = Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_X.cg
         let emblem = ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette, size: badge,
-                                 award: bun.kind == .unrated ? nil : award, onCover: !stampBeside)
+                                 award: bun.kind == .unrated ? nil : award, onCover: !stampBeside,
+                                 usesGlass: true) // 51, 11-06: the scrapbook stamp keeps its glass
         let coverArt = MacCover(palette: album.palette, corner: Tokens.shape.HERO.cg)
             .frame(width: cover, height: cover)
             .rotationEffect(.degrees(tilt("cover", Tilt.cover)))

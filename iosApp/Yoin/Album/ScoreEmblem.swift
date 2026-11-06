@@ -48,6 +48,10 @@ struct ScoreEmblem: View {
     /// Pinned on artwork (Android ScoreEmblemSurface.Artwork): an unrated
     /// emblem gets an opaque ground and a hairline rim to separate from the cover.
     var onCover = false
+    #if os(macOS)
+    /// Content summaries use a solid disc; floating presentations can retain the lens.
+    var usesGlass = false
+    #endif
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -128,7 +132,7 @@ struct ScoreEmblem: View {
         }
         .frame(width: size, height: size)
         .background { glassGround }
-        .overlay { glassLight }
+        .overlay { if hasGlass { glassLight } }
         .onChange(of: reduceMotion, initial: true) { _, reduced in award?.reducedMotion = reduced }
         .onAppear { if tiltOn { GrooveTilt.shared.acquire() } }
         .onDisappear { if tiltOn { GrooveTilt.shared.release() } }
@@ -191,8 +195,17 @@ struct ScoreEmblem: View {
     /// Tinted and Frosted): a clear Liquid Glass lens, the cover's colour seen through it, refracted.
     /// Still a solid object on the content plane: the label and score keep their solid ink.
     /// (51, 11-06: the stamp keeps its glass — an exception to "glass only on floating controls".)
-    private var glassGround: some View {
-        Circle().fill(.clear).glassEffect(.clear, in: .circle)
+    private var hasGlass: Bool {
+        #if os(macOS)
+        usesGlass
+        #else
+        true
+        #endif
+    }
+
+    @ViewBuilder private var glassGround: some View {
+        if hasGlass { Circle().fill(.clear).glassEffect(.clear, in: .circle) }
+        else { Circle().fill(colors.ground) }
     }
 
     /// The light on the lens, from the one source (top-left): a lit rim and an inner highlight.

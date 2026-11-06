@@ -376,6 +376,15 @@ final class SpotifySource {
         try await api.send(on ? "PUT" : "DELETE", "me/library", ["uris": "spotify:artist:\(rawId)"])
     }
 
+    /// Always read Spotify's answer; library lists may have been loaded before a change elsewhere.
+    func isAlbumSaved(_ rawId: String) async throws -> Bool {
+        try await contains(["spotify:album:\(rawId)"])[0]
+    }
+
+    func setAlbumSaved(_ on: Bool, album rawId: String) async throws {
+        try await api.send(on ? "PUT" : "DELETE", "me/library", ["uris": "spotify:album:\(rawId)"])
+    }
+
     /// Whether the track is in Liked Songs (nil: unknown, the read failed).
     func isSaved(_ rawId: String) async -> Bool? {
         if liked.contains(rawId) { return true }

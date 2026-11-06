@@ -68,6 +68,9 @@ final class MacLibrary {
     private(set) var phases: [String: Phase] = [:]
     /// Hearts flipped here before the server's lists catch up (key: "song:id", "album:id", "artist:id").
     private(set) var starredOverride: [String: Bool] = [:]
+    private(set) var savedAlbums: [String: Bool] = [:]
+    private(set) var detailWrites: Set<String> = []
+    private(set) var detailErrors: [String: String] = [:]
     /// Ratings set here (Yoin 0–10), by song id.
     private(set) var ratingOverride: [String: Double?] = [:]
 
@@ -112,6 +115,10 @@ final class MacLibrary {
         artistPages = [:]
         phases = [:]
         starredOverride = [:]
+        savedAlbums = [:]
+        detailWrites = []
+        detailErrors = [:]
+        detailOps = [:]
         ratingOverride = [:]
     }
 
@@ -666,9 +673,15 @@ final class MacLibrary {
     func artistPage(_ id: String) -> ArtistPage? { artistPages[id] }
 
     func loadArtist(_ id: String, force: Bool = false) async {
+        let key = "artist:\(id)"
+        let op = detailOps[key, default: 0]
+        let idle = !detailWrites.contains(key)
         if spotify != nil {
             await runSpotify("artist:\(id)", force: force) { s, live in
                 guard let v = try await s.artist(id), live() else { return }
+                if idle, self.detailOps[key, default: 0] == op, !self.detailWrites.contains(key) {
+                    self.starredOverride[key] = nil
+                }
                 self.artistPages[id] = v
             }
             return
@@ -693,6 +706,9 @@ final class MacLibrary {
             guard live() else { return }
             for info in loaded { self.albumDetails[info.id] = m.album(info) }
             let known = a.albums.compactMap { self.albumDetails[$0.id] }
+            if idle, self.detailOps[key, default: 0] == op, !self.detailWrites.contains(key) {
+                self.starredOverride[key] = nil
+            }
             self.artistPages[id] = m.artistPage(a, loadedAlbums: known)
         }
     }
@@ -751,6 +767,94 @@ final class MacLibrary {
     }
 
     // MARK: Writes
+
+    var canSaveAlbums: Bool { spotify != nil }
+    var canStarArtists: Bool { spotify != nil || client != nil }
+
+    func refreshAlbumSaved(_ id: String) async {
+        guard let spotify else { return }
+        let gen = generation
+        let key = "album:\(id)"
+        // A read overlapping a tap must not replace its optimistic state.
+        let op = detailOps[key, default: 0]
+        guard !detailWrites.contains(key) else { return }
+        do {
+            let saved = try await spotify.isAlbumSaved(id)
+            guard gen == generation, detailOps[key, default: 0] == op, !detailWrites.contains(key) else { return }
+            savedAlbums[id] = saved
+            detailErrors[key] = nil
+        } catch {
+            guard gen == generation, detailOps[key, default: 0] == op, !detailWrites.contains(key) else { return }
+            detailErrors[key] = SpotifySource.message(for: error)
+        }
+    }
+
+    func toggleAlbumSaved(_ album: Album) {
+        let id = album.id.rawId
+        let key = "album:\(id)"
+        guard let spotify, album.id.provider == SpotifyMapping.provider,
+              let before = savedAlbums[id], !detailWrites.contains(key) else { return }
+        let gen = generation
+        detailOps[key, default: 0] += 1
+        detailWrites.insert(key)
+        detailErrors[key] = nil
+        savedAlbums[id] = !before
+        Task {
+            defer { if gen == generation { detailWrites.remove(key) } }
+            do {
+                try await spotify.setAlbumSaved(!before, album: id)
+                guard gen == generation else { return }
+                if before { albums.removeAll { $0.id == album.id } }
+                else if !albums.contains(where: { $0.id == album.id }) { albums.insert(album, at: 0) }
+            } catch {
+                guard gen == generation else { return }
+                savedAlbums[id] = before
+                detailErrors[key] = SpotifySource.message(for: error)
+            }
+        }
+    }
+
+    func isArtistStarred(_ id: String) -> Bool {
+        starredOverride["artist:\(id)"] ?? artistPages[id]?.starred ?? false
+    }
+
+    func toggleArtistStar(_ id: String) {
+        let key = "artist:\(id)"
+        guard canStarArtists, let page = artistPages[id], !detailWrites.contains(key) else { return }
+        let spotify = spotify
+        let client = client
+        let gen = generation
+        let before = isArtistStarred(id)
+        detailOps[key, default: 0] += 1
+        detailWrites.insert(key)
+        detailErrors[key] = nil
+        starredOverride[key] = !before
+        Task {
+            defer { if gen == generation { detailWrites.remove(key) } }
+            do {
+                if let spotify { try await spotify.setFollowed(!before, artist: id) }
+                else if let client {
+                    if before { try await client.unstar(id: nil, albumId: nil, artistId: id) }
+                    else { try await client.star(id: nil, albumId: nil, artistId: id) }
+                }
+                guard gen == generation else { return }
+                let item = LibraryItem(id: page.id, kind: .artist, title: page.name, subtitle: "Artist", palette: page.palette)
+                if spotify != nil {
+                    artists.removeAll { $0.id == page.id }
+                    if !before { artists.append(item) }
+                } else {
+                    favoriteArtists.removeAll { $0.id == page.id }
+                    if !before { favoriteArtists.append(item) }
+                }
+            } catch {
+                guard gen == generation else { return }
+                starredOverride[key] = before
+                detailErrors[key] = spotify != nil ? SpotifySource.message(for: error) : MacSession.message(for: error)
+            }
+        }
+    }
+
+    @ObservationIgnored private var detailOps: [String: Int] = [:]
 
     func isStarred(_ track: Track) -> Bool { isStarred(songId: track.id.rawId, fallback: track.starred) }
     func isStarred(songId: String, fallback: Bool) -> Bool {

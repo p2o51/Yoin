@@ -33,7 +33,8 @@ enum Yoin {
     /// Fast spatial spring for small components.
     static var spatialFast: Animation { .spring(response: 0.3, dampingFraction: 0.72) }
     /// Effects spring (color, alpha). No overshoot.
-    static var effects: Animation { .spring(response: 0.35, dampingFraction: 1) }
+    static let effectsSpring = Spring(response: 0.35, dampingRatio: 1)
+    static var effects: Animation { .spring(effectsSpring) }
     static var slowEffects: Animation { shared(Tokens.motion.expressiveSlowEffects) }
     static var standardFastSpatial: Animation { shared(Tokens.motion.standardFastSpatial) }
 

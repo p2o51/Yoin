@@ -56,6 +56,9 @@ struct MacAlbumDetail: View {
                 }
                 .sheet(isPresented: $rating_) { MacAlbumRateSheet(album: a).environment(\.macTint, tint) }
                 .padding(.bottom, 18)
+                if let error = model.library.detailErrors["album:\(a.id.rawId)"] {
+                    Text(error).font(.gsf(13)).foregroundStyle(Yoin.inkVariant).padding(.bottom, 12)
+                }
                 // The album's two pages (iOS: the pager): its songs, and its scrapbook.
                 Picker("", selection: $page.animation(Yoin.spatial)) {
                     Text("Songs").tag(0)
@@ -69,6 +72,8 @@ struct MacAlbumDetail: View {
                     MacAlbumScrapbook(album: a) { rating_ = true }
                         .transition(.opacity.combined(with: .move(edge: .trailing)))
                 } else {
+                MacAlbumPersonalMetadata(album: a) { rating_ = true }
+                    .padding(.bottom, 22)
                 let entries = a.tracks.map { PlaylistEntry(album: a, track: $0) }
                 let discs = Set(a.tracks.compactMap(\.disc))
                 VStack(spacing: 2) {
@@ -91,11 +96,14 @@ struct MacAlbumDetail: View {
             .padding(.top, 60)
             .padding(.bottom, 142)
         }
-        .task(id: seed.id) {
+        .task(id: [model.session.accountKey, seed.id.provider, seed.id.rawId]) {
             let generation = model.library.accountGeneration
             await model.library.loadAlbum(seed.id.rawId)
             guard generation == model.library.accountGeneration else { return }
             model.recordHomeActivity(.album(album), action: .visited)
+        }
+        .task(id: [model.session.accountKey, seed.id.provider, seed.id.rawId]) {
+            await model.library.refreshAlbumSaved(seed.id.rawId)
         }
         #if DEBUG
         .onReceive(NotificationCenter.default.publisher(for: MacQATour.albumPage)) { n in
@@ -113,6 +121,7 @@ struct MacAlbumDetail: View {
                              prominent: false, iconOnly: true) { model.toggleDownload(album: a) }
             }
             DetailAction(title: "Rate", icon: "star", prominent: false, iconOnly: true) { rating_ = true }
+            albumSaveAction(a, iconOnly: true)
         }
         .fixedSize()
     }
@@ -131,8 +140,25 @@ struct MacAlbumDetail: View {
             let rating = AlbumMemoryStore.shared.album(provider: a.id.provider, albumId: a.id.rawId)?.rating ?? 0
             DetailAction(title: rating > 0 ? String(format: "%.1f", rating) : "Rate", icon: "star",
                          prominent: false, iconOnly: iconOnly && rating == 0) { rating_ = true }
+            albumSaveAction(a, iconOnly: iconOnly)
         }
         .fixedSize()
+    }
+
+    @ViewBuilder private func albumSaveAction(_ a: Album, iconOnly: Bool) -> some View {
+        if model.library.canSaveAlbums {
+            let key = "album:\(a.id.rawId)"
+            let saved = model.library.savedAlbums[a.id.rawId]
+            let retry = saved == nil && model.library.detailErrors[key] != nil
+            DetailAction(title: retry ? "Try again" : (saved == true ? "Remove from library" : "Save to library"),
+                         icon: saved == true ? "favorite_filled" : "favorite", prominent: false, iconOnly: iconOnly) {
+                if saved == nil { Task { await model.library.refreshAlbumSaved(a.id.rawId) } }
+                else { withAnimation(Yoin.effects) { model.library.toggleAlbumSaved(a) } }
+            }
+            .disabled(model.library.detailWrites.contains(key) || (saved == nil && !retry))
+            .contentTransition(.opacity)
+            .animation(Yoin.effects, value: saved)
+        }
     }
 
     private func kindLabel(_ a: Album) -> String {
@@ -161,15 +187,16 @@ struct MacArtistDetail: View {
                              title: page?.name ?? name, subtitle: nil,
                              meta: page.map { "\($0.releases.count) \($0.releases.count == 1 ? "release" : "releases")" } ?? "",
                              circle: true, onSubtitle: {})
-                if let page, !page.releases.isEmpty {
+                if let page {
                     // Every release (Android "Play artist"): in the page's order, or shuffled across them all.
-                    HStack(spacing: 10) {
-                        DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(releases: page.releases) }
-                        DetailAction(title: "Shuffle", icon: "shuffle", prominent: false) {
-                            model.play(releases: page.releases, shuffle: true)
-                        }
+                    ViewThatFits(in: .horizontal) {
+                        artistActions(page, compact: false)
+                        artistActions(page, compact: true)
                     }
                     .padding(.bottom, 8)
+                }
+                if let error = model.library.detailErrors["artist:\(id)"] {
+                    Text(error).font(.gsf(13)).foregroundStyle(Yoin.inkVariant).padding(.bottom, 12)
                 }
                 if let page, !page.mostPlayed.isEmpty {
                     MacSectionTitle(text: "Most Played")
@@ -195,7 +222,7 @@ struct MacArtistDetail: View {
             .padding(.top, 60)
             .padding(.bottom, 142)
         }
-        .task(id: id) {
+        .task(id: [model.session.accountKey, id]) {
             let generation = model.library.accountGeneration
             await model.library.loadArtist(id)
             guard generation == model.library.accountGeneration, let page = model.library.artistPages[id] else { return }
@@ -204,9 +231,85 @@ struct MacArtistDetail: View {
         }
     }
 
+    private func artistActions(_ page: ArtistPage, compact: Bool) -> some View {
+        HStack(spacing: 10) {
+            if !page.releases.isEmpty {
+                DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(releases: page.releases) }
+                DetailAction(title: "Shuffle", icon: "shuffle", prominent: false, iconOnly: compact) {
+                    model.play(releases: page.releases, shuffle: true)
+                }
+            }
+            if model.library.canStarArtists { artistStar }
+        }
+        .fixedSize()
+    }
+
+    private var artistStar: some View {
+        let starred = model.library.isArtistStarred(id)
+        let spotify = model.session.spotify != nil
+        return DetailAction(title: spotify ? (starred ? "Following" : "Follow") : (starred ? "Favorited" : "Favorite"),
+                            icon: starred ? "star_filled" : "star", prominent: false, iconOnly: true) {
+            withAnimation(Yoin.effects) { model.library.toggleArtistStar(id) }
+        }
+        .disabled(model.library.detailWrites.contains("artist:\(id)"))
+        .contentTransition(.opacity)
+        .animation(Yoin.effects, value: starred)
+    }
+
     static func placeholder(_ key: String) -> CoverPalette {
         let (a, b, c) = SubsonicMapping.placeholder(key)
         return CoverPalette(a: a, b: b, c: c)
+    }
+}
+
+/// The Songs page reads the same personal records as the scrapbook, clear of the artwork.
+private struct MacAlbumPersonalMetadata: View {
+    var album: Album
+    var onRate: () -> Void
+    @Environment(MacModel.self) private var model
+
+    var body: some View {
+        let bun = AlbumBun.of(album)
+        let review = AlbumMemoryStore.shared.album(provider: album.id.provider, albumId: album.id.rawId)?.review?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let last = HistoryStore.shared.albumStats(scope: model.session.accountKey, provider: album.id.provider,
+                                                 albumId: album.id.rawId)?.lastPlayedAt
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 24) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Last Play").font(.gsf(13, .medium)).foregroundStyle(Yoin.inkVariant)
+                    if let last {
+                        let labels = HomeHistory.lastPlayLabels(last, now: Int64(Date().timeIntervalSince1970 * 1000))
+                        Text(labels.day).font(.gsf(15, .medium)).foregroundStyle(Yoin.ink)
+                        Text(labels.time).font(.gsf(13)).monospacedDigit().foregroundStyle(Yoin.inkVariant)
+                    } else {
+                        Text("Never").font(.gsf(15)).foregroundStyle(Yoin.ink)
+                    }
+                }
+                Button(action: onRate) {
+                    ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette,
+                                size: 80, usesGlass: false)
+                }
+                .buttonStyle(PressDown())
+                .help("Rate")
+            }
+            Button(action: onRate) {
+                if review.isEmpty {
+                    YoinIcon("edit", size: 20).foregroundStyle(Yoin.inkVariant)
+                        .frame(width: 40, height: 40).contentShape(.circle)
+                } else {
+                    Text(review).font(.gsf(15)).foregroundStyle(Yoin.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading).contentShape(.rect)
+                }
+            }
+            .buttonStyle(.plain)
+            .help(review.isEmpty ? "Write a comment" : "Edit comment")
+            .accessibilityLabel(review.isEmpty ? "Write a comment" : review)
+        }
+        .animation(Yoin.spatial, value: last == nil)
+        .animation(Yoin.effects, value: bun)
+        .animation(Yoin.effects, value: review)
     }
 }
 

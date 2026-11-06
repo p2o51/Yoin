@@ -41,6 +41,11 @@ final class PlayerEngine {
     /// Play order (shuffled when `shuffle` is on).
     private(set) var queue: [QueueItem] = []
     private(set) var currentIndex: Int?
+    #if os(macOS)
+    /// Latched at transport input, including media keys and Spotify's delegated skips.
+    private(set) var focusJourneyForward = true
+    private var externalFocusDirection: Bool?
+    #endif
     /// The user wants sound: true from play until pause, even while buffering.
     private(set) var isPlaying = false
     private(set) var isBuffering = false
@@ -126,6 +131,10 @@ final class PlayerEngine {
 
     /// Replaces the queue with [tracks] and plays [startAt].
     func play(queue tracks: [PlayableTrack], startAt: Int = 0) {
+        #if os(macOS)
+        focusJourneyForward = true
+        externalFocusDirection = nil
+        #endif
         guard !tracks.isEmpty else { stop(); return }
         let start = min(max(startAt, 0), tracks.count - 1)
         let items = tracks.map { QueueItem($0) }
@@ -171,11 +180,18 @@ final class PlayerEngine {
     /// Plays queue entry [index] (a tap in the queue sheet).
     func jump(to index: Int) {
         guard queue.indices.contains(index) else { return }
+        #if os(macOS)
+        focusJourneyForward = index >= (currentIndex ?? 0)
+        #endif
         currentIndex = index
         loadCurrent(play: true)
     }
 
     func stop() {
+        #if os(macOS)
+        focusJourneyForward = true
+        externalFocusDirection = nil
+        #endif
         output.stop()
         externalTrack = nil
         queue = []
@@ -225,6 +241,10 @@ final class PlayerEngine {
     }
 
     func next() {
+        #if os(macOS)
+        focusJourneyForward = true
+        if externalTrack != nil { externalFocusDirection = true }
+        #endif
         if externalTrack != nil { return output.skipExternal(forward: true) }
         guard let i = currentIndex else { return }
         if i + 1 < queue.count {
@@ -238,6 +258,10 @@ final class PlayerEngine {
     }
 
     func previous() {
+        #if os(macOS)
+        focusJourneyForward = false
+        if externalTrack != nil { externalFocusDirection = false }
+        #endif
         if externalTrack != nil { return output.skipExternal(forward: false) }
         guard let i = currentIndex else { return }
         if progress.positionSec > Self.previousRestartThresholdSec {
@@ -570,6 +594,9 @@ final class PlayerEngine {
     }
 
     private func skipAfterFailure(_ message: String) {
+        #if os(macOS)
+        focusJourneyForward = true
+        #endif
         guard let track = currentItem?.track else { return }
         consecutiveFailures += 1
         onEvent?(.skippedAfterError(track: track, message: message))
@@ -637,6 +664,9 @@ extension PlayerEngine: AudioOutputEvents {
     }
 
     func outputDidAdvanceToPreloaded() {
+        #if os(macOS)
+        focusJourneyForward = true
+        #endif
         guard let id = preloadedID, let index = queue.firstIndex(where: { $0.id == id }) else {
             reachEnd()
             return
@@ -670,6 +700,12 @@ extension PlayerEngine: AudioOutputEvents {
     }
 
     func outputExternalTrackDidChange(_ track: PlayableTrack?, positionSec: Double, playing: Bool) {
+        #if os(macOS)
+        if track?.id != externalTrack?.id {
+            focusJourneyForward = externalFocusDirection ?? true
+            externalFocusDirection = nil
+        }
+        #endif
         let wasExternal = externalTrack != nil
         externalTrack = track
         if let track {

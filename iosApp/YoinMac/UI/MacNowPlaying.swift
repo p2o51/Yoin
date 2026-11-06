@@ -10,6 +10,7 @@ struct MacNowPlaying: View {
     @Environment(\.macTint) private var tint
     @State private var tab: NPTab = .lyrics
     @State private var transportHeight: CGFloat = 0
+    @State private var coverBounds: CGRect = .zero
     /// iOS World preset: transportPrimary 0.70, transportSecondary 0.28.
     static let transportPrimaryTint = 0.70
     static let transportSecondaryTint = 0.28
@@ -29,7 +30,7 @@ struct MacNowPlaying: View {
     var body: some View {
         GeometryReader { g in
             ZStack(alignment: .topLeading) {
-                MacRoom()
+                MacRoom(coverBounds: coverBounds)
                 if full { fullLayout(g.size) } else { panelLayout(g.size) }
                 if model.focus {
                     // Right of the traffic lights, in their band: back out of focus (Esc and the cover too).
@@ -41,6 +42,7 @@ struct MacNowPlaying: View {
                         .animation(Yoin.effects, value: exitShown)
                 }
             }
+            .coordinateSpace(name: "macNowPlaying")
         }
         .onContinuousHover { phase in
             guard case .active = phase else { return }
@@ -191,6 +193,7 @@ struct MacNowPlaying: View {
                 }
             }
             .frame(width: side, height: side)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("macNowPlaying")) } action: { coverBounds = $0 }
             .shadow(color: tint.primary.opacity(0.3), radius: 24, y: 18)
             .onTapGesture { model.toggleFocus() }
             .help(model.focus ? "Leave Focus" : "Focus")
@@ -325,6 +328,7 @@ private extension View {
 /// The NP room: the current cover's colour in the middle, the previous and next songs' colours seeping in
 /// from the top and bottom edges.
 struct MacRoom: View {
+    var coverBounds: CGRect
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
     @Environment(\.colorScheme) private var scheme
@@ -335,14 +339,20 @@ struct MacRoom: View {
         GeometryReader { g in
             ZStack {
                 Yoin.surface.mix(with: tint.container, by: 0.34, in: .perceptual)
-                EllipticalGradient(colors: [tint.primary.opacity(0.3), .clear], center: UnitPoint(x: 0.5, y: 0.46),
-                                   endRadiusFraction: 0.6)
-                EllipticalGradient(colors: [prev.container, .clear], center: .top, endRadiusFraction: 0.5)
-                    .frame(height: g.size.height * 0.6).frame(maxHeight: .infinity, alignment: .top)
-                EllipticalGradient(colors: [next.container, .clear], center: .bottom, endRadiusFraction: 0.5)
-                    .frame(height: g.size.height * 0.6).frame(maxHeight: .infinity, alignment: .bottom)
+                if model.focus {
+                    MacFocusField(coverBounds: coverBounds)
+                        .transition(.opacity)
+                } else {
+                    EllipticalGradient(colors: [tint.primary.opacity(0.3), .clear], center: UnitPoint(x: 0.5, y: 0.46),
+                                       endRadiusFraction: 0.6)
+                    EllipticalGradient(colors: [prev.container, .clear], center: .top, endRadiusFraction: 0.5)
+                        .frame(height: g.size.height * 0.6).frame(maxHeight: .infinity, alignment: .top)
+                    EllipticalGradient(colors: [next.container, .clear], center: .bottom, endRadiusFraction: 0.5)
+                        .frame(height: g.size.height * 0.6).frame(maxHeight: .infinity, alignment: .bottom)
+                }
             }
         }
+        .animation(Yoin.effects, value: model.focus)
         .animation(Yoin.slowEffects, value: tint)
         .animation(Yoin.slowEffects, value: prev)
         .animation(Yoin.slowEffects, value: next)
