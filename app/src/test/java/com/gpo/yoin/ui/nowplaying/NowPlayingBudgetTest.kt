@@ -413,11 +413,27 @@ class NowPlayingBudgetTest {
             411.dp,
             layout.restCover + 10.dp + layout.restTransport + 4.dp + 36.dp,
         )
-        assertDp(layout.restCover + 56.dp + 12.dp, layout.leftWidth)
+        assertDp(maxOf(layout.restCover + 56.dp + 12.dp, 300.dp), layout.leftWidth)
         // Expanded: the rating drops under the cover, the column narrows to it.
         assertDp(layout.restCover + 28.dp, layout.expandedColumnX)
         // Focus never outgrows the left column.
         assertTrue(layout.focusCover <= layout.leftWidth)
+    }
+
+    @Test
+    fun should_keepTransportRoom_when_shortWideStackedLandscape() {
+        // 16:9 phone on its side: 732×412 → about 684×300 of content. The
+        // cover alone is ~180 wide; the transport and title still get 300.
+        val layout = resolveLandscapeLayout(width = 684.dp, height = 300.dp, labelLine = 20.dp)
+        assertTrue(layout.stacked)
+        assertDp(300.dp, layout.leftWidth)
+        assertTrue(layout.restCover + 56.dp + 12.dp < layout.leftWidth)
+        assertDp(300.dp + 28.dp, layout.restColumnX)
+        // Expanded still narrows the left column to the cover.
+        assertDp(layout.restCover + 28.dp, layout.expandedColumnX)
+        val stack = layout.restCover + LandscapeCoverToTransport + layout.restTransport +
+            LandscapeTransportToTitle + LandscapeTitleRow
+        assertTrue("stack $stack over 300", stack <= 300.dp + 0.5.dp)
     }
 
     @Test

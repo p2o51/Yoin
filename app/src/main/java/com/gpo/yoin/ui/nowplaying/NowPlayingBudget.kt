@@ -699,11 +699,17 @@ fun resolveLandscapeLayout(
     fun coverFor(transport: Dp): Dp =
         (height - LandscapeCoverToTransport - transport - LandscapeTransportToTitle - LandscapeTitleRow)
             .coerceAtLeast(LandscapeStackedCoverFloor)
+    // The left column never drops under [LandscapeStackedLeftMin] (within
+    // [LandscapeStackedLeftShare] of the width) so the transport and the
+    // title keep room on a short 16:9 window; the cover + rating column
+    // stays at its start.
+    val leftFloor = minOf(LandscapeStackedLeftMin, width * LandscapeStackedLeftShare)
+    fun leftFor(cover: Dp): Dp = maxOf(cover + rating, leftFloor)
     var transport = playbackControlsHeight(controlSize, 0.dp, labelLine)
     var cover = coverFor(transport)
-    transport = playbackControlsHeight(controlSize, cover + rating, labelLine)
+    transport = playbackControlsHeight(controlSize, leftFor(cover), labelLine)
     cover = coverFor(transport)
-    val leftWidth = cover + rating
+    val leftWidth = leftFor(cover)
     val focusCover = minOf(
         height - LandscapeCoverToTransport - shortFocusControlsHeight(controlSize) -
             LandscapeTransportToTitle - LandscapeTitleRow,
@@ -874,6 +880,8 @@ internal val LandscapeCoverToTransport = 10.dp
 internal val LandscapeTransportToTitle = 4.dp
 private val LandscapeCoverFloor = 120.dp
 private val LandscapeStackedCoverFloor = 72.dp
+internal val LandscapeStackedLeftMin = 300.dp
+private const val LandscapeStackedLeftShare = 0.46f
 private val LandscapeRestColumnMin = 300.dp
 private val LandscapeFocusColumnMin = 300.dp
 private const val LandscapeFocusCoverShare = 0.44f

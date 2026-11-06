@@ -20,6 +20,7 @@ import androidx.compose.material3.ButtonGroupScope
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -184,7 +185,7 @@ internal fun BottomPills(
 /** Whether the pills can carry their labels in [maxWidth]; see [rememberBottomPillsLayout]. */
 internal class BottomPillsLayout(
     val labelled: Boolean,
-    val iconOnlyWidth: Dp,
+    private val iconOnlyWidth: Dp,
     private val labelWidths: Map<String, Dp>,
     private val maxWidth: Dp,
 ) {
@@ -194,27 +195,52 @@ internal class BottomPillsLayout(
 }
 
 /**
- * The width the pills take icon-only (plus the press bulge's headroom): the
- * landscape and two-pane players set them as icons at the end of the top bar
- * (owner 2026-11-06 「三个按钮应该在右上角」).
+ * The queue / devices / write actions as plain icons, for the end of a top
+ * bar: the landscape and two-pane players set them there (owner 2026-11-06
+ * 「三个按钮应该在右上角」, prototype v10's three icons) — the pills would
+ * crowd out the "playing from" line.
  */
 @Composable
-internal fun rememberBottomPillsIconWidth(
-    pillHeight: Dp,
-    castState: CastState,
-    supportsYoinCast: Boolean,
-): Dp {
-    val labels = listOf(
-        stringResource(R.string.np_pill_queue),
-        stringResource(R.string.np_pill_devices),
-        stringResource(R.string.np_pill_write),
-    )
-    return rememberBottomPillsLayout(
-        maxWidth = 0.dp,
-        pillHeight = pillHeight,
-        castState = if (supportsYoinCast) castState else CastState.NotAvailable,
-        labels = labels,
-    ).iconOnlyWidth + PillsSafetyMargin
+internal fun TopBarActionIcons(
+    onQueueClick: () -> Unit,
+    onDevicesClick: () -> Unit,
+    onWriteClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    castState: CastState = CastState.NotAvailable,
+    onCastClick: () -> Unit = {},
+    supportsYoinCast: Boolean = true,
+    size: Dp = 40.dp,
+) {
+    val haptics = rememberYoinHaptics()
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CastButton(
+            castState = if (supportsYoinCast) castState else CastState.NotAvailable,
+            onClick = onCastClick,
+        )
+        listOf(
+            Triple(YoinSymbols.Queue, R.string.np_pill_queue, onQueueClick),
+            Triple(YoinSymbols.Devices, R.string.np_pill_devices, onDevicesClick),
+            Triple(YoinSymbols.Note, R.string.np_pill_write, onWriteClick),
+        ).forEach { (icon, label, onClick) ->
+            IconButton(
+                onClick = {
+                    haptics.performContextClick()
+                    onClick()
+                },
+                modifier = Modifier.size(size),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = stringResource(label),
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
 }
 
 @Composable

@@ -2700,7 +2700,7 @@ private fun WidePlayingContent(
                 // panel toggle (owner 2026-11-06: 「左下角的三个按钮移到右上角」).
                 trailingAction = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        BottomPills(
+                        TopBarActionIcons(
                             supportsYoinCast = state.serviceFeatures.supportsYoinCast,
                             onQueueClick = { showQueue = true },
                             onDevicesClick = { showDevicesSheet = true },
@@ -2710,13 +2710,6 @@ private fun WidePlayingContent(
                             },
                             castState = castState,
                             onCastClick = onCastClick,
-                            modifier = Modifier.width(
-                                rememberBottomPillsIconWidth(
-                                    pillHeight = WidePillHeight,
-                                    castState = castState,
-                                    supportsYoinCast = state.serviceFeatures.supportsYoinCast,
-                                ),
-                            ),
                         )
                         if (topBarAction != null) {
                             Spacer(modifier = Modifier.width(8.dp))
@@ -3531,6 +3524,15 @@ private fun LandscapePlayingContent(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        // About / Notes run to the column's foot: let them
+                        // fade there rather than cut (lyrics fade their own).
+                        .then(
+                            if (pageEntry == NowPlayingDetailPage.Lyrics) {
+                                Modifier
+                            } else {
+                                Modifier.edgeFade(bottom = LandscapePageBottomFade)
+                            },
+                        )
                         // At rest a tap on the lyrics (or the page) opens it.
                         .tapWithoutConsumingDrag(enabled = stageMode == NowPlayingStageMode.Compact) {
                             onStageModeChange(NowPlayingStageMode.Expanded)
@@ -3739,7 +3741,7 @@ private fun LandscapePlayingContent(
                 )
                 Box(contentAlignment = Alignment.CenterEnd) {
                     if (!expandedSettled) {
-                        BottomPills(
+                        TopBarActionIcons(
                             supportsYoinCast = state.serviceFeatures.supportsYoinCast,
                             onQueueClick = { showQueue = true },
                             onDevicesClick = { showDevicesSheet = true },
@@ -3750,15 +3752,8 @@ private fun LandscapePlayingContent(
                             },
                             castState = castState,
                             onCastClick = onCastClick,
-                            pillHeight = LandscapeHeaderHeight,
+                            size = LandscapeHeaderHeight,
                             modifier = Modifier
-                                .width(
-                                    rememberBottomPillsIconWidth(
-                                        pillHeight = LandscapeHeaderHeight,
-                                        castState = castState,
-                                        supportsYoinCast = state.serviceFeatures.supportsYoinCast,
-                                    ),
-                                )
                                 .graphicsLayer { alpha = resolvedStageProgress.compact }
                                 .retreatInput { resolvedStageProgress.detail },
                         )
@@ -3923,6 +3918,7 @@ private val LandscapeTransportGap = 6.dp
 private val LandscapeLyricsToTransport = 8.dp
 
 /** Focus: the progress row under the one-row transport (shortFocusControlsHeight). */
+private val LandscapePageBottomFade = 24.dp
 private val LandscapeFocusProgressRow = 36.dp
 private const val LandscapeFocusLinesAbove = 2
 private const val LandscapeFocusLyricScale = 1.35f
@@ -5709,7 +5705,6 @@ private val WideColumnGap = 24.dp
 private val WideFramePadding = 24.dp
 
 /** BottomPills' default pill height, as the two-pane top bar sets them. */
-private val WidePillHeight = 44.dp
 
 /** The standard rating column beside the two-pane cover (the side minus its gap). */
 private val DualPaneRatingColumn = 56.dp
