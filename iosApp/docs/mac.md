@@ -27,7 +27,7 @@ YoinShared has a `macos-arm64` slice; the Darwin Ktor engine and the Foundation 
 
 ## Spotify
 
-`YoinMac/Spotify/` is a Mac copy of the iOS branch's Web API layer (`iosApp/Yoin/Data/Spotify` on `claude/project-thread-2amedi`: auth, DTOs, mapping, source, search, playlists) without the playlist-write metadata and backup; merge the two when the branches meet. Sign-in: PKCE in `ASWebAuthenticationSession`, redirect `yoin://auth/spotify/callback`, the listener's Client ID (Settings › General › Spotify). Tokens: Keychain `com.gpo.yoin.spotify`, one item per account. Playback: no App Remote on macOS, so `MacSpotifyOutput` is a Spotify Connect remote over the Web API: when Spotify is active on a device (phone, computer, speaker) Yoin plays on and controls that device (51, 2026-11-06), Now Playing says "Playing on …"; with nothing active, this Mac's Spotify app, opened in the background if needed. Every command names the device; a move to another device on the same song is followed; another song there means the listener took over and Yoin lets go. Controls › Play on This Mac transfers here (never automatic). One song at a time; the engine starts the next at the end. Progress / end come from polling `GET /me/player` every second. `MacRoutingOutput` routes AV / MusicKit / Spotify. Heart = Liked Songs; no rating. Nothing is drawn over Spotify artwork.
+The Mac compiles the iOS Web API layer in `Yoin/Data/Spotify` as it is (auth, DTOs, mapping, source, search, playlists). Sign-in: PKCE in `ASWebAuthenticationSession`, redirect `yoin://auth/spotify/callback`, the listener's Client ID (Settings › General › Spotify). Tokens: Keychain `com.gpo.yoin.spotify`, one item per account. Playback: no App Remote on macOS, so `MacSpotifyOutput` is a Spotify Connect remote over the Web API: when Spotify is active on a device (phone, computer, speaker) Yoin plays on and controls that device (51, 2026-11-06), Now Playing says "Playing on …"; with nothing active, this Mac's Spotify app, opened in the background if needed. Every command names the device; a move to another device on the same song is followed; another song there means the listener took over and Yoin lets go. Controls › Play on This Mac transfers here (never automatic). One song at a time; the engine starts the next at the end. Progress / end come from polling `GET /me/player` every second. `MacRoutingOutput` routes AV / MusicKit / Spotify. Heart = Liked Songs; no rating. Nothing is drawn over Spotify artwork.
 
 ## Accounts
 
@@ -53,11 +53,19 @@ Cloud sync is iOS `CloudSync` + `SyncDomainBridge` on the shared Kotlin core (sa
 
 ## Settings (⌘,)
 
-Tabs: Accounts (switch / remove / add), Playback (streaming quality Original · 320 · 192 · 128 → `macStreamQuality`, the engine's `streamQuality`; mini player on top), Downloads (quality, metered networks, size, remove all), General (lyrics translations, appearance System / Light / Dark → `macAppearanceSetting`).
+Tabs: Accounts (switch / remove / add), Playback (streaming quality Original · 320 · 192 · 128 → `macStreamQuality`, the engine's `streamQuality`; mini player on top), Storage (playback cache size / Clear, iOS StorageSettingsSection; downloads' quality, metered networks, size, remove all), General (lyrics translations, Gemini key, Spotify Client ID, appearance System / Light / Dark → `macAppearanceSetting`), Sync (cloud sync on / off / now, per-account status, Apple Music start / link), Backups (playlist backups, below), NeoDB (below), About (version, open source licenses from iOS `OpenSourceLicensesView`'s list, less the Spotify iOS SDK).
+
+## Playlist backups
+
+iOS `Data/Backup` (PlaylistBackupStore, PlaylistBackups, PlaylistRestore, SpotifyBackups) compiles into the Mac; `MacBackupAccounts` is the Mac's `BackupAccounts` (Subsonic, Apple Music, Spotify sources and restore destinations from `MacSession`). Settings › Backups: Back Up a Playlist (the account in use), the backups (Restore… / Delete), and the restore sheet (choose an account, match, review, Create Playlist). Followed backups are checked again a few seconds after Yoin comes to the front (`followDue`). Cloud sync carries them like iOS / Android.
+
+## NeoDB
+
+iOS `Data/NeoDB` and `AlbumNeoDBSync` compile into the Mac (the iOS rate-sheet views stay iOS-only). Settings › NeoDB: instance, Sign In (OAuth in `ASWebAuthenticationSession`, `yoin://auth/neodb/callback`), an access token as the fallback, Sign Out (keeps the instance). Token: Keychain `com.gpo.yoin.neodb`. The album page's Rate action opens `MacAlbumRateSheet` (0–10 in tenths plus words; up to 360 characters is a NeoDB short comment, longer a review); a changed score / words is flagged in `NeoDBPendingStore` and pushed when the sheet closes, with Synced / Couldn't sync + Retry on its last line. The Memories diary's words are flagged and pushed the same way.
 
 ## Lyrics tools
 
-Now Playing › Lyrics header: Translate (the source's own translation from the shared `LyricsRegistry`: the current source, else the next automatic source that serves the language, whose lyrics come with it) and Search (all providers; a pick is remembered per account and song, `lyricsChoice.<account>.<song>`). Gemini translation (needs a key) isn't on the Mac.
+Now Playing › Lyrics header: Translate (the source's own translation from the shared `LyricsRegistry`: the current source, else the next automatic source that serves the language, whose lyrics come with it) and Search (all providers; a pick is remembered per account and song, `lyricsChoice.<account>.<song>`). Gemini lyrics translation isn't offered on the Mac yet (the key in Settings drives Song About only).
 
 ## Playlists, history, Home
 
@@ -73,10 +81,18 @@ Space play / pause · ⌘→ / ⌘← next / previous · ⌘D like · ⇧⌘P No
 
 ## Apple Music
 
-The iOS `AppleMusicSource`, `AppleMusicMapping` and `AppleMusicAudioOutput` compile into the Mac as they are, except playlist backup / restore (iOS-only, `#if os(iOS)`) and `MusicLibrary.add`, which macOS lacks: the Mac adds a song with the API's `POST /v1/me/library` (202 = accepted only; the heart waits for `isInLibrary`). Sign-in: "Use Apple Music instead" asks the system for access; `activeSource` in the defaults remembers it. Player output is the iOS `RoutingAudioOutput` (AVQueuePlayer / ApplicationMusicPlayer); MusicKit owns the Now Playing card while it plays. Heart = in the library (add only); no rating.
+The iOS `AppleMusicSource`, `AppleMusicMapping` and `AppleMusicAudioOutput` compile into the Mac as they are (playlist backup / restore included), except `MusicLibrary.add`, which macOS lacks: the Mac adds a song with the API's `POST /v1/me/library` (202 = accepted only; the heart waits for `isInLibrary`). Sign-in: "Use Apple Music instead" asks the system for access; `activeSource` in the defaults remembers it. Player output is the iOS `RoutingAudioOutput` (AVQueuePlayer / ApplicationMusicPlayer); MusicKit owns the Now Playing card while it plays. Heart = in the library (add only); no rating.
 
 Needs, once, in the developer portal: an explicit App ID `com.gpo.yoin.mac` with the MusicKit App Service, and a signing profile for it (the wildcard `M75T74PTC4.*` can't carry MusicKit).
 
-## Not in P0
+## Not on the Mac yet
 
-Spotify, cloud sync, NeoDB, Gemini, Memories, Write / notes, Devices, playlists, stream-quality settings.
+- Gemini lyrics translation (Song About uses the key; translation still comes only from the lyrics source).
+- The album scrapbook (iOS album page: memory stamp, notes on the album, song notes in place); the Mac album page has the Rate sheet only.
+- Library sorting and the fast scroller; the newest-album songs pager.
+- The first-run Landing (mascot intro); the Mac opens on sign-in.
+- Spotify plays one song at a time over Connect (no Spotify-side queue); no App Remote features (cover from Spotify's player, its own up-next).
+- Spotify / Apple Music five-star ratings stay local (the services have none); Apple Music library add is add-only.
+- Offline downloads for Apple Music and Spotify (Subsonic only, as on iOS).
+- Home-screen / desktop widgets, Handoff, Shortcuts / App Intents.
+- Real-device Spotify Connect and NeoDB sign-in have only had compile checks on the Mac.
