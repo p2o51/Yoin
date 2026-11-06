@@ -1324,6 +1324,7 @@ class HomeViewModel(
                         activityHeroYear = latest.activityHeroYear.takeUnless { heroChanged },
                         activityHeroSongCount = latest.activityHeroSongCount.takeUnless { heroChanged },
                         activityHeroMinutes = latest.activityHeroMinutes.takeUnless { heroChanged },
+                        activityHeroVersion = latest.activityHeroVersion.takeUnless { heroChanged },
                         recentlyPlayed = recentlyPlayedRead?.notShownIn(activities) ?: latest.recentlyPlayed
                     )
                 )
@@ -1343,7 +1344,8 @@ class HomeViewModel(
                             activityHeroFootnote = footnote.text,
                             activityHeroYear = footnote.year,
                             activityHeroSongCount = footnote.songCount,
-                            activityHeroMinutes = footnote.minutes
+                            activityHeroMinutes = footnote.minutes,
+                            activityHeroVersion = footnote.version
                         )
                     }
                 }
@@ -1567,6 +1569,7 @@ class HomeViewModel(
                             activityHeroYear = footnote.year,
                             activityHeroSongCount = footnote.songCount,
                             activityHeroMinutes = footnote.minutes,
+                            activityHeroVersion = footnote.version,
                         )
                     }
                     if (!keepEndpointFeed) {
@@ -2282,6 +2285,7 @@ class HomeViewModel(
             coverArtUrl = coverArtUrl,
             target = HomeWidgetTarget.AlbumDetail(id.toString()),
             coverKey = coverKey,
+            version = version,
         )
     }
 
@@ -2360,6 +2364,7 @@ class HomeViewModel(
             year = year,
             songCount = songs,
             minutes = minutes,
+            version = album.version,
         )
     }
 
@@ -2368,6 +2373,7 @@ class HomeViewModel(
         val year: Int? = null,
         val songCount: Int? = null,
         val minutes: Int? = null,
+        val version: String? = null,
     )
 
     private fun albumSubtitle(artist: String?): Pair<String, UiText> {
