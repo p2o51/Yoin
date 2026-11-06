@@ -1,7 +1,11 @@
 package com.gpo.yoin.ui.detail
 
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -11,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -21,6 +26,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -36,6 +42,7 @@ import com.gpo.yoin.ui.component.YoinMarkHub
 import com.gpo.yoin.ui.component.YoinMarkViewBox
 import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.component.drawYoinArm
+import com.gpo.yoin.ui.nowplaying.dotDissolve
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.min
@@ -49,8 +56,9 @@ import kotlin.math.roundToInt
  *
  *   - the spectrum: a copy of the cover cut into strips that sort themselves
  *     into the tone-locked bands of [AlbumSpectrum], filling the header;
- *   - the butterfly: the two Yoin blocks behind the cover fly up with the
- *     finger, take the bands' colours and melt into the bar;
+ *   - the butterfly: the two Yoin blocks behind the cover stay where they
+ *     are and break up into fine dots as the cover leaves (the focus mode's
+ *     dot dissolve; owner 2026-11-06, detail-art prototype v7);
  *   - the cover itself: only moves and shrinks, to a stamp at the bar's end.
  *
  * Who drives the progress depends on how the cover leaves: the pull-up
@@ -101,14 +109,15 @@ internal data class AlbumBarGeometry(
     val cover: Rect,
     val stamp: Rect,
     val butterflyFrom: MarkPose,
-    val butterflyTo: MarkPose,
 )
 
 // The resting Compact backdrop (was AlbumArrowBackground): the two lower arms
 // scaled up about the cover band and squashed wide, so they bleed off the edges.
+// 1.35 wide (was 1.8): on the swipe to the scrapbook the end wing runs on into
+// that page whole, and only a little way (owner 2026-11-06).
 private const val CompactArrowScale = 1.8f
 private const val CompactArrowOffsetYFraction = -0.1f
-private const val CompactArrowSquashX = 1.8f
+private const val CompactArrowSquashX = 1.35f
 
 // Landscape / Medium: the whole mark hugging the cover, 1.3 × its side, hanging below its top edge.
 private const val HuggingMarkScale = 1.3f
@@ -116,11 +125,6 @@ private const val HuggingMarkScale = 1.3f
 // How far the arms reach from the mark's centre, as a fraction of its side (view box x 41…940 of 1024).
 private const val HuggingArmReach = 0.46f
 private val HuggingEdgeClearance = 8.dp
-
-// The butterfly's end pose: scaled and squashed until the arms fill the bar.
-private const val BarArrowScale = 2.9f
-private const val BarArrowSquashX = 2.4f
-private const val LandscapeBarArrowScale = 3.2f
 
 internal val AlbumBarStampSize = 48.dp
 internal val AlbumBarLandscapeStampSize = 44.dp
@@ -201,15 +205,6 @@ internal fun albumBarGeometry(
     val stampSide = (if (layout == AlbumBarLayout.Landscape) AlbumBarLandscapeStampSize else AlbumBarStampSize).toPx()
     val stampStart = width - endInset - AlbumBarStampEndInset.toPx() - stampSide
     val stampTop = titleRowTop + (titleRowHeight - stampSide) / 2f
-    val toPose = MarkPose(
-        left = 0f,
-        top = 0f,
-        width = width,
-        height = headerHeight,
-        scale = if (layout == AlbumBarLayout.Landscape) LandscapeBarArrowScale else BarArrowScale,
-        translationY = if (layout == AlbumBarLayout.Landscape) 2.dp.toPx() else 4.dp.toPx(),
-        squashX = if (layout == AlbumBarLayout.Landscape) LandscapeBarArrowScale else BarArrowSquashX,
-    )
     val coverStart: Float
     val coverTop: Float
     val coverSide: Float
@@ -263,7 +258,6 @@ internal fun albumBarGeometry(
         cover = Rect(Offset(mirror(coverStart, coverSide), coverTop), Size(coverSide, coverSide)),
         stamp = Rect(Offset(mirror(stampStart, stampSide), stampTop), Size(stampSide, stampSide)),
         butterflyFrom = fromPose.copy(left = mirror(fromPose.left, fromPose.width)),
-        butterflyTo = toPose,
     )
 }
 
@@ -331,51 +325,77 @@ internal fun AlbumSpectrumLayer(
     coverNow: () -> Rect,
     pageShift: () -> Float,
     modifier: Modifier = Modifier,
-    // The Playlist page keeps its stacked V instead of the two blocks: it fades
-    // on its own, and only the spectrum and the cover fly.
+    // The Playlist page has its album sleeves instead of the two blocks
+    // (PlaylistSleeves.kt); only the spectrum and the cover fly.
     butterfly: Boolean = true,
 ) {
-    Spacer(
-        modifier = modifier
-            .fillMaxSize()
-            .drawBehind {
-                val g = geometry() ?: return@drawBehind
-                val p = progress().coerceIn(0f, 1f)
-                val shift = pageShift()
-                if (abs(shift) >= size.width) return@drawBehind
-                withTransform({ translate(left = -shift) }) {
-                    val now = coverNow()
-                    if (butterfly) drawButterfly(g, source.spectrum, now, p, blockA, blockB, surface, reduced)
-                    drawSpectrum(g, source, previous, swap(), now, p, reduced, rtl)
-                }
-            },
-    )
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val pageWidth = constraints.maxWidth.toFloat()
+        if (butterfly) {
+            // Two pages wide, reaching past page 0's end edge: the end wing runs
+            // on into the scrapbook page whole as the pager carries it (owner
+            // 2026-11-06: no straight cut at the page edge), and the dissolve's
+            // offscreen layer has room for it.
+            Spacer(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .wrapContentWidth(Alignment.Start, unbounded = true)
+                    .requiredWidth(with(LocalDensity.current) { (pageWidth * 2f).toDp() })
+                    .fillMaxHeight()
+                    .graphicsLayer {
+                        // Start-aligned, the layer already reaches past page 0's
+                        // end edge in either direction (RTL: to the left).
+                        translationX = -pageShift()
+                        // Reduced motion: no dots, the blocks just fade.
+                        if (reduced) alpha = 1f - albumButterflyLeaving(progress(), abs(pageShift()) / pageWidth)
+                    }
+                    .dotDissolve {
+                        if (reduced) 0f else albumButterflyLeaving(progress(), abs(pageShift()) / pageWidth)
+                    }
+                    .drawBehind {
+                        val g = geometry() ?: return@drawBehind
+                        withTransform({ translate(left = if (rtl) pageWidth else 0f) }) {
+                            drawButterfly(g, coverNow(), blockA, blockB, surface)
+                        }
+                    },
+            )
+        }
+        Spacer(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    val g = geometry() ?: return@drawBehind
+                    val p = progress().coerceIn(0f, 1f)
+                    val shift = pageShift()
+                    if (abs(shift) >= size.width) return@drawBehind
+                    withTransform({ translate(left = -shift) }) {
+                        drawSpectrum(g, source, previous, swap(), coverNow(), p, reduced, rtl)
+                    }
+                },
+        )
+    }
 }
 
+/**
+ * How far the butterfly has left (0 = whole, 1 = gone): with the pull-up, and on
+ * the swipe to the scrapbook as that page comes to rest, so the wing that ran on
+ * into it never stays behind there.
+ */
+internal fun albumButterflyLeaving(progress: Float, page: Float): Float =
+    maxOf(smoothStep(0f, 0.7f, progress.coerceIn(0f, 1f)), smoothStep(0.45f, 1f, page.coerceIn(0f, 1f)))
+
+/** The two blocks at rest, whole: below the header (the page's top edge), free to run past the page's sides. */
 private fun DrawScope.drawButterfly(
     geometry: AlbumBarGeometry,
-    spectrum: AlbumSpectrum,
     coverNow: Rect,
-    progress: Float,
     blockA: Color,
     blockB: Color,
     surface: Color,
-    reduced: Boolean,
 ) {
-    val fade = if (reduced) progress else smoothStep(0.62f, 0.98f, progress)
-    if (fade >= 1f) return
-    val travel = if (reduced) 0f else smoothStep(0f, 1f, progress)
     // The resting pose follows the cover (Medium scrolls it).
-    val from = geometry.butterflyFrom.offsetBy(coverNow.left - geometry.cover.left, coverNow.top - geometry.cover.top)
-    val pose = lerp(from, geometry.butterflyTo, travel)
-    val tint = if (reduced) 0f else smoothStep(0.15f, 0.7f, progress)
-    val armA = lerp(blockA, spectrum.colorAt(0.22f), tint)
-    val armB = lerp(blockB, spectrum.colorAt(0.78f), tint)
-    val line = lerp(surface.copy(alpha = 0.65f), Color.White.copy(alpha = 0.25f), travel)
-    // At rest the blocks stay below the header (the page's top edge); flying, they may enter it.
-    val clipTop = geometry.bar.bottom * (1f - smoothStep(0.05f, 0.35f, travel))
-    val clipBottom = lerpF(size.height, geometry.bar.bottom, smoothStep(0.2f, 0.85f, travel))
-    clipRect(top = clipTop, bottom = clipBottom) {
+    val pose = geometry.butterflyFrom.offsetBy(coverNow.left - geometry.cover.left, coverNow.top - geometry.cover.top)
+    val line = surface.copy(alpha = 0.65f)
+    clipRect(left = -size.width, top = geometry.bar.bottom, right = size.width * 2f, bottom = size.height) {
         withTransform({
             translate(pose.left, pose.top)
             val s = min(pose.width, pose.height) / YoinMarkViewBox
@@ -385,8 +405,8 @@ private fun DrawScope.drawButterfly(
             scale(s, s, pivot = Offset.Zero)
             scale(pose.squashX, 1f, pivot = YoinMarkHub)
         }) {
-            drawYoinArm(0, armA, line, alpha = 1f - fade)
-            drawYoinArm(2, armB, line, alpha = 1f - fade)
+            drawYoinArm(0, blockA, line)
+            drawYoinArm(2, blockB, line)
         }
     }
 }
@@ -464,8 +484,9 @@ internal fun AlbumFlyingCover(
     modifier: Modifier = Modifier,
     // Reduced motion: no flight — the cover fades out where it rests and the stamp fades in.
     reduced: Boolean = false,
-    // Phone / short hero: on the swipe to the scrapbook the resting cover flies to
-    // the page's cover instead of sliding away with page 0 (owner 2026-10-29).
+    // Phone / short hero: on the swipe to the scrapbook the cover flies to the
+    // page's cover instead of sliding away with page 0 (owner 2026-10-29) — from
+    // the middle of the hero or, pulled up, from the stamp (owner 2026-11-06).
     pageFlight: AlbumPageFlight? = null,
     content: @Composable () -> Unit,
 ) {
@@ -492,13 +513,13 @@ internal fun AlbumFlyingCover(
                 }
                 if (reduced) alpha = abs(1f - 2f * p)
                 val target = pageFlight?.coverTarget
-                // Toward the scrapbook's cover as much as the hero is at rest (p = 0);
-                // pulled up into the bar, it slides away with page 0 as before.
-                val toPage = if (target == null || reduced) 0f else pageFlight.t() * (1f - p)
+                // From wherever the pull-up holds it (the hero's middle or the
+                // stamp) to the scrapbook's cover, with the pager; back the same way.
+                val toPage = if (target == null || !pageFlight.flies()) 0f else pageFlight.t()
                 val flown = if (target == null || toPage <= 0f) {
-                    r.translate(-pageShift() * (1f - toPage), 0f)
+                    r.translate(-pageShift(), 0f)
                 } else {
-                    lerpRect(r.translate(-pageShift() * p, 0f), target, toPage)
+                    lerpRect(r, target, toPage)
                 }
                 // Landed: the page's own cover (tilted, under its emblem) takes over.
                 if (target != null && toPage >= 0.999f) alpha = 0f

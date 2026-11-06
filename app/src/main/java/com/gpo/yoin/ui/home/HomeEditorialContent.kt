@@ -123,6 +123,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist as LibraryPlaylist
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.AlbumVersionTitle
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.LocalSeamBarField
@@ -200,7 +201,9 @@ import com.gpo.yoin.ui.home.edit.homeEditExclusion
 import com.gpo.yoin.ui.home.edit.homeEditFooterEntry
 import com.gpo.yoin.ui.home.edit.homeEditGestures
 import com.gpo.yoin.ui.home.edit.homeEditHeaderIcon
+import com.gpo.yoin.ui.settings.AccountMark
 import com.gpo.yoin.ui.settings.ProfileCard
+import com.gpo.yoin.ui.settings.serviceIdentity
 import com.gpo.yoin.ui.home.edit.homeEditInteractive
 import com.gpo.yoin.ui.home.edit.homeEditShelfClip
 import com.gpo.yoin.ui.home.edit.homeEditTrayItems
@@ -283,6 +286,7 @@ internal fun HomeEditorialContent(
     activityHeroYear: Int? = null,
     activityHeroSongCount: Int? = null,
     activityHeroMinutes: Int? = null,
+    activityHeroVersion: String? = null,
     recentlyAddedTracks: List<Track> = emptyList(),
     recentlyAddedAlbums: List<Album> = emptyList(),
     rediscover: List<HomeRediscoverItem> = emptyList(),
@@ -307,6 +311,7 @@ internal fun HomeEditorialContent(
     onAccountAnchor: (Rect) -> Unit = {},
     // The account in use needs its owner: its avatar wears a dot.
     accountNeedsReconnect: Boolean = false,
+    accountQuickSwitch: HomeAccountQuickSwitch? = null,
     onNavigateToMemories: () -> Unit,
     editController: HomeEditController? = null,
     footerNewBadge: Boolean = false,
@@ -986,6 +991,7 @@ internal fun HomeEditorialContent(
                         accountButtonHidden = accountButtonHidden,
                         onAccountAnchor = onAccountAnchor,
                         accountNeedsReconnect = accountNeedsReconnect,
+                        accountQuickSwitch = accountQuickSwitch,
                         onNavigateToMemories = onNavigateToMemories,
                         memoriesHintProgress = memoriesHintProgress,
                         memoryPill = memoryPill,
@@ -1108,6 +1114,7 @@ internal fun HomeEditorialContent(
                                             minutes = activityHeroMinutes,
                                             fallback = activityHeroFootnote,
                                         ),
+                                        heroVersion = activityHeroVersion,
                                         extractBackdropColors = shouldExtractBackdropColors,
                                         onEntryClick = onEntryClick,
                                         modifier = bentoModifier,
@@ -1544,6 +1551,7 @@ private fun HomeContentHeader(
     accountButtonHidden: Boolean,
     onAccountAnchor: (Rect) -> Unit,
     accountNeedsReconnect: Boolean,
+    accountQuickSwitch: HomeAccountQuickSwitch?,
     onNavigateToMemories: () -> Unit,
     memoriesHintProgress: () -> Float,
     // Edit mode's P (read in draw and layout only), its hit targets, and the
@@ -1638,6 +1646,7 @@ private fun HomeContentHeader(
                 hidden = accountButtonHidden,
                 onAvatarPositioned = onAccountAnchor,
                 needsReconnect = accountNeedsReconnect,
+                quickSwitch = accountQuickSwitch,
                 modifier = headerControl,
             )
         } else {
@@ -1704,6 +1713,8 @@ private fun ActivityBento(
     spec: ActivityBentoSpec,
     preset: HomeRowPreset,
     heroFootnoteExtra: List<MetaGroup>,
+    // The hero album's version ("全景声"), a tag after its title; null when none.
+    heroVersion: String? = null,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     modifier: Modifier = Modifier,
@@ -1769,6 +1780,7 @@ private fun ActivityBento(
                             hero = hero,
                             supporting = supporting,
                             heroFootnoteExtra = heroFootnoteExtra,
+                            heroVersion = heroVersion,
                             extractBackdropColors = extractBackdropColors,
                             onEntryClick = onEntryClick,
                             fontScale = fontScale,
@@ -1779,6 +1791,7 @@ private fun ActivityBento(
                             hero = hero,
                             supporting = supporting,
                             heroFootnoteExtra = heroFootnoteExtra,
+                            heroVersion = heroVersion,
                             extractBackdropColors = extractBackdropColors,
                             onEntryClick = onEntryClick,
                             fontScale = fontScale,
@@ -1807,6 +1820,8 @@ private fun ActivityBentoRows(
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
     heroFootnoteExtra: List<MetaGroup>,
+    // The hero album's version ("全景声"), a tag after its title; null when none.
+    heroVersion: String? = null,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
@@ -1822,6 +1837,7 @@ private fun ActivityBentoRows(
             SlotKind.Hero -> ActivityHeroCard(
                 entry = entry,
                 footnoteExtra = heroFootnoteExtra,
+                version = heroVersion,
                 extractBackdropColors = extractBackdropColors,
                 onClick = onClick,
                 modifier = cardModifier,
@@ -1899,6 +1915,8 @@ private fun ActivityUnitGrid(
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
     heroFootnoteExtra: List<MetaGroup>,
+    // The hero album's version ("全景声"), a tag after its title; null when none.
+    heroVersion: String? = null,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
@@ -1920,6 +1938,7 @@ private fun ActivityUnitGrid(
                         SlotKind.Hero -> ActivityHeroCard(
                             entry = entry,
                             footnoteExtra = heroFootnoteExtra,
+                            version = heroVersion,
                             extractBackdropColors = extractBackdropColors,
                             onClick = onClick,
                             modifier = editCard,
@@ -2049,6 +2068,7 @@ internal fun rememberActivityCardColors(
 private fun ActivityHeroCard(
     entry: HomeMomentEntry,
     footnoteExtra: List<MetaGroup>,
+    version: String? = null,
     extractBackdropColors: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -2101,12 +2121,21 @@ private fun ActivityHeroCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                MarqueeText(
-                    text = entry.title,
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = colors.content,
+                val heroTitleStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
+                AlbumVersionTitle(
+                    name = entry.title,
+                    version = version,
+                    titleStyle = heroTitleStyle,
                     modifier = Modifier.fillMaxWidth(),
-                )
+                    tagStyle = MaterialTheme.typography.labelMedium,
+                ) { text, titleModifier ->
+                    MarqueeText(
+                        text = text,
+                        style = heroTitleStyle,
+                        color = colors.content,
+                        modifier = titleModifier,
+                    )
+                }
                 Text(
                     text = entry.subtitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -2641,14 +2670,22 @@ private fun RecentlyAddedAlbumCard(
             memoryMark = memoryMark,
         )
         Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = album.name,
-            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        val nameStyle = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+        AlbumVersionTitle(
+            name = album.name,
+            version = album.version,
+            titleStyle = nameStyle,
             modifier = Modifier.seamFade(),
-        )
+        ) { text, titleModifier ->
+            Text(
+                text = text,
+                style = nameStyle,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = titleModifier,
+            )
+        }
         album.artist?.takeIf { it.isNotBlank() }?.let { artist ->
             Text(
                 text = artist,
@@ -2790,14 +2827,26 @@ private fun OtherProfileCard(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.seamFade(),
         )
-        Text(
-            text = item.profileName,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.seamFade(),
-        )
+        // The account's mark (its avatar shape + service) before its name, so
+        // the line reads as "another account", not as an artist.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            AccountMark(
+                shapeIndex = item.profileShape,
+                identity = item.profileProvider.serviceIdentity,
+                size = 14.dp,
+            )
+            Text(
+                text = item.profileName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false).seamFade(),
+            )
+        }
     }
 }
 

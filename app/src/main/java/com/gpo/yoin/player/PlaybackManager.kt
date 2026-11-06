@@ -156,7 +156,27 @@ class PlaybackManager(
             (spotifySource ?: repository.awaitActiveSource(SPOTIFY_SOURCE_WAIT_MS) as? SpotifyMusicSource)
                 ?.playerQueue()
         },
+        connectWeb = object : SpotifyConnectWeb {
+            private suspend fun source(): SpotifyMusicSource? =
+                spotifySource ?: repository.awaitActiveSource(SPOTIFY_SOURCE_WAIT_MS) as? SpotifyMusicSource
+
+            override suspend fun state() = source()?.connectState(localDeviceNames())
+
+            override suspend fun command(
+                command: com.gpo.yoin.data.source.spotify.SpotifyConnectCommand,
+                deviceId: String?,
+            ) {
+                checkNotNull(source()) { "No Spotify account" }.connectCommand(command, deviceId)
+            }
+        },
     )
+
+    /**
+     * The shell's action on the "can't reach Spotify" hint: opens the Spotify app (no song,
+     * so nothing it plays changes); the start the hint held runs when Yoin is back. False
+     * when it can't open.
+     */
+    fun openSpotify(): Boolean = spotifyRemotePlayer.openSpotify()
 
     /**
      * The Spotify heart check, made here — once per track change, however
@@ -1204,6 +1224,7 @@ class PlaybackManager(
             connectionPhase = snapshot.connectionPhase,
             connectionErrorMessage = snapshot.connectionErrorMessage,
             connectionFailure = snapshot.connectionFailure,
+            spotifyDevice = snapshot.playingOn,
         )
         when (snapshot.connectionPhase) {
             ConnectionPhase.Ready -> {
@@ -1478,7 +1499,7 @@ class PlaybackManager(
         tracks: List<Track>,
         startIndex: Int,
         shuffled: Boolean,
-    ): (suspend () -> Unit)? {
+    ): (suspend (deviceId: String?) -> Unit)? {
         val spotifySource = source as? SpotifyMusicSource ?: return null
         val attempts = spotifyStartAttempts(
             activityContext = activityContext,
@@ -1488,7 +1509,7 @@ class PlaybackManager(
             playlistOffset = { id, index -> spotifySource.resolvePlaylistContextOffset(id, index) },
         )
         if (attempts.isEmpty()) return null
-        return {
+        return { target ->
             val lookUp = suspend {
                 runCatching { spotifySource.localDeviceId(localDeviceNames()) }
                     .onFailure { e -> if (e is CancellationException) throw e }
@@ -1497,7 +1518,8 @@ class PlaybackManager(
             // A Spotify app App Remote has only just woken may not be in Spotify Connect
             // yet; one more look before the single-song App Remote fallback, which plays
             // the song without its album or playlist (Gemini review 2026-10-20).
-            val deviceId = lookUp() ?: run {
+            // [target]: the other device Spotify plays on, where the song starts; else this phone.
+            val deviceId = target ?: lookUp() ?: run {
                 delay(SPOTIFY_DEVICE_LOOKUP_RETRY_MS)
                 lookUp()
             }

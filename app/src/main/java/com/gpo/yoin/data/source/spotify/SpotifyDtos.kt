@@ -198,6 +198,19 @@ data class SpotifyQueueResponse(
     val queue: List<SpotifyTrackObject> = emptyList(),
 )
 
+/** `GET /me/player`, the parts Yoin reads: where Spotify plays, whether it plays, and what. */
+@Serializable
+data class SpotifyPlaybackStateResponse(
+    val device: SpotifyDevice? = null,
+    @SerialName("is_playing") val isPlaying: Boolean = false,
+    @SerialName("progress_ms") val progressMs: Long? = null,
+    @SerialName("shuffle_state") val shuffleState: Boolean = false,
+    /** "off", "track" or "context". */
+    @SerialName("repeat_state") val repeatState: String = "off",
+    /** The track (an episode or ad leaves it null or of another type). */
+    val item: SpotifyTrackObject? = null,
+)
+
 @Serializable
 data class SpotifyDevicesResponse(
     val devices: List<SpotifyDevice> = emptyList(),
@@ -243,12 +256,17 @@ data class SpotifyAddTracksRequest(
 @Serializable
 data class SpotifyRemoveTrackItem(
     val uri: String,
+    // Not in the current DELETE /items reference (only `uri` is), but the
+    // old /tracks endpoint honoured it to target one copy of a duplicate.
+    // Sent anyway: if Spotify ignores it, removal falls back to by-uri.
     val positions: List<Int>? = null,
 )
 
 @Serializable
 data class SpotifyRemoveTracksRequest(
-    val tracks: List<SpotifyRemoveTrackItem>,
+    // DELETE /v1/playlists/{id}/items wants `items`; the `tracks` key
+    // belonged to the removed /tracks endpoint (Feb 2026 migration).
+    val items: List<SpotifyRemoveTrackItem>,
     @SerialName("snapshot_id") val snapshotId: String? = null,
 )
 

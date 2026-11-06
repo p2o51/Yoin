@@ -1,9 +1,5 @@
 package com.gpo.yoin.ui.settings
 
-import com.gpo.yoin.player.ReplayGainPreference
-import com.gpo.yoin.player.StreamQualityPreference
-import com.gpo.yoin.data.source.ServiceFeatureCatalog
-import com.gpo.yoin.data.source.Capability
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -441,32 +437,6 @@ fun SettingsContent(
                                             )
                                         }
                                     }
-                                    val activeProvider = state.profileCards.firstOrNull { it.isActive }?.provider
-                                    val activeFeatures = ServiceFeatureCatalog.forProvider(activeProvider?.key)
-                                    val streamQuality = Capability.STREAM_QUALITY in activeFeatures.capabilities
-                                    val volumeLeveling = Capability.REPLAY_GAIN in activeFeatures.capabilities
-                                    if (streamQuality || volumeLeveling) {
-                                        SettingsGroup(title = stringResource(R.string.settings_section_playback)) {
-                                            if (streamQuality) {
-                                                item(key = SettingsFeature.StreamQuality, paintsOwnSegment = listDetail) {
-                                                    StreamQualityItem(
-                                                        listDetail = listDetail,
-                                                        selected = openFeature == SettingsFeature.StreamQuality,
-                                                        onOpenPage = { onOpenFeature(SettingsFeature.StreamQuality) },
-                                                    )
-                                                }
-                                            }
-                                            if (volumeLeveling) {
-                                                item(key = SettingsFeature.VolumeLeveling, paintsOwnSegment = listDetail) {
-                                                    VolumeLevelingItem(
-                                                        listDetail = listDetail,
-                                                        selected = openFeature == SettingsFeature.VolumeLeveling,
-                                                        onOpenPage = { onOpenFeature(SettingsFeature.VolumeLeveling) },
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
                                     SettingsGroup(title = stringResource(R.string.settings_section_motion)) {
                                         item(key = SettingsFeature.ScrollEdge, paintsOwnSegment = listDetail) {
                                             ScrollEdgeItem(
@@ -488,15 +458,6 @@ fun SettingsContent(
                                                 selected = openFeature == SettingsFeature.PlaylistBackups,
                                                 onOpenPage = { onOpenFeature(SettingsFeature.PlaylistBackups) },
                                             )
-                                        }
-                                        if (Capability.OFFLINE_DOWNLOAD in activeFeatures.capabilities) {
-                                            item(key = SettingsFeature.Downloads, paintsOwnSegment = listDetail) {
-                                                DownloadsItem(
-                                                    listDetail = listDetail,
-                                                    selected = openFeature == SettingsFeature.Downloads,
-                                                    onOpenPage = { onOpenFeature(SettingsFeature.Downloads) },
-                                                )
-                                            }
                                         }
                                         item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
@@ -1690,61 +1651,6 @@ private fun ScrollEdgeItem(
         FeaturePageRow(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, onClick = onOpenPage)
-    }
-}
-
-/** Settings › Playback › Streaming quality: what a Subsonic song streams as on Wi‑Fi and on mobile data. */
-@Composable
-private fun StreamQualityItem(
-    listDetail: Boolean,
-    selected: Boolean,
-    onOpenPage: () -> Unit,
-) {
-    val title = stringResource(R.string.settings_stream_quality_title)
-    val settings by StreamQualityPreference.observe(LocalContext.current).collectAsState()
-    val summary = stringResource(
-        R.string.settings_stream_quality_summary,
-        streamQualityLabel(settings.wifi),
-        streamQualityLabel(settings.mobile),
-    )
-    if (listDetail) {
-        FeaturePageRow(icon = YoinSymbols.Equalizer, title = title, summary = summary, selected = selected, onClick = onOpenPage)
-    } else {
-        SettingsItem(icon = YoinSymbols.Equalizer, title = title, summary = summary, onClick = onOpenPage)
-    }
-}
-
-/** Settings › Playback › Volume leveling: which ReplayGain a Subsonic song plays at. */
-@Composable
-private fun VolumeLevelingItem(
-    listDetail: Boolean,
-    selected: Boolean,
-    onOpenPage: () -> Unit,
-) {
-    val title = stringResource(R.string.settings_volume_leveling_title)
-    val settings by ReplayGainPreference.observe(LocalContext.current).collectAsState()
-    val summary = replayGainModeLabel(settings.mode)
-    if (listDetail) {
-        FeaturePageRow(icon = YoinSymbols.VolumeUp, title = title, summary = summary, selected = selected, onClick = onOpenPage)
-    } else {
-        SettingsItem(icon = YoinSymbols.VolumeUp, title = title, summary = summary, onClick = onOpenPage)
-    }
-}
-
-/** Settings › Storage › Downloads: the download quality and what is kept on this device. */
-@Composable
-private fun DownloadsItem(
-    listDetail: Boolean,
-    selected: Boolean,
-    onOpenPage: () -> Unit,
-) {
-    val downloads = (LocalContext.current.applicationContext as com.gpo.yoin.YoinApplication).container.offlineDownloads
-    val title = stringResource(R.string.settings_downloads_title)
-    val summary = downloadsSummary(downloads)
-    if (listDetail) {
-        FeaturePageRow(icon = YoinSymbols.Download, title = title, summary = summary, selected = selected, onClick = onOpenPage)
-    } else {
-        SettingsItem(icon = YoinSymbols.Download, title = title, summary = summary, onClick = onOpenPage)
     }
 }
 

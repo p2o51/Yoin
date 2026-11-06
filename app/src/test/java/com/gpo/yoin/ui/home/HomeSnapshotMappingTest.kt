@@ -100,6 +100,7 @@ class HomeSnapshotMappingTest {
         activityHeroYear = 2019,
         activityHeroSongCount = 10,
         activityHeroMinutes = 40,
+        activityHeroVersion = "全景声",
         widgetGrid = listOf(
             HomeWidgetCard(
                 stableId = "grid-memory:subsonic:al-2",
@@ -116,7 +117,8 @@ class HomeSnapshotMappingTest {
                 commentSerif = false,
                 expanded = true,
                 target = HomeWidgetTarget.MemoryFocus(42L),
-                coverKey = "al-2"
+                coverKey = "al-2",
+                version = "Deluxe"
             ),
             HomeWidgetCard(
                 stableId = "grid-song:${track.id}",

@@ -348,7 +348,9 @@ internal data class HomeAccountChrome(
     /** The window's last close flew an avatar into the header (false: reduced motion, the card faded where it sat). */
     val landed: Boolean,
     /** The account the header shows needs its owner: its avatar wears the dot. */
-    val needsReconnect: Boolean = false
+    val needsReconnect: Boolean = false,
+    /** Press and hold the avatar for the other accounts (null: none to offer now). */
+    val quickSwitch: HomeAccountQuickSwitch? = null
 )
 
 /**
@@ -483,6 +485,28 @@ internal fun HomeAccountSwitcherHost(
     }
     val onAnchor = remember { { rect: Rect -> accountAnchor = rect } }
     val anchor = remember { { accountAnchor } }
+    // The hold on the avatar (HomeAccountQuickSwitch.kt): the switcher's other
+    // accounts, picked as on the card — the target pends from the let-go, and
+    // Home's stand-in holds the avatar's spot (no flight: nothing was open).
+    // Not while the card is up or a switch or a Reconnect runs.
+    val goToSettings by rememberUpdatedState(onNavigateToSettings)
+    val quickPick = remember(accountSwitcher) {
+        { card: ProfileCard ->
+            if (card.unavailableReason != null) {
+                // As on the card: an account that can't be used now is recovered in Settings.
+                goToSettings()
+            } else if (accountSwitcher?.switchTo(card.id) == true) {
+                // Nothing flew: Home's stand-in is up at once, as it is where a flight landed.
+                landed = true
+            }
+        }
+    }
+    val displayId = displayAccount?.id
+    val quickSwitch = remember(accountCards, displayId, quickPick) {
+        accountCards.filter { it.id != displayId }
+            .takeIf { it.isNotEmpty() }
+            ?.let { HomeAccountQuickSwitch(it, quickPick) }
+    }.takeIf { accountSwitcher != null && !switcherShown && pendingTarget == null && !reconnecting }
     content(
         HomeAccountChrome(
             account = displayAccount,
@@ -493,7 +517,8 @@ internal fun HomeAccountSwitcherHost(
             switchPending = pendingTarget != null,
             landed = landed,
             // Through a switch the header shows its target, not the account in use.
-            needsReconnect = needsReconnect && pendingTarget == null
+            needsReconnect = needsReconnect && pendingTarget == null,
+            quickSwitch = quickSwitch
         )
     )
 }
@@ -545,8 +570,14 @@ internal fun HomeAccountButton(
     onAvatarPositioned: (Rect) -> Unit = {},
     // The account needs its owner: a dot on the avatar's corner.
     needsReconnect: Boolean = false,
+    // Press and hold: the other accounts drop out of the avatar to slide onto ([HomeAccountFan]).
+    quickSwitch: HomeAccountQuickSwitch? = null,
+    // The Tips demo's: its own fan state to act the hold out on, and the fan drawn in place.
+    fanState: HomeAccountFanState = remember { HomeAccountFanState() },
+    inlineFan: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
+    val (fan, fanGesture) = rememberHomeAccountFan(quickSwitch, enabled = enabled && !hidden, state = fanState)
     val identity = card.provider.serviceIdentity
     val label = stringResource(R.string.home_account_cd, card.title)
     // No ripple: the avatar itself grows into the switcher, which is the feedback
@@ -554,6 +585,8 @@ internal fun HomeAccountButton(
     Box(
         modifier = modifier
             .size(48.dp)
+            // Ahead of the tap: once a hold is long enough it is the fan's, up and all.
+            .then(fanGesture)
             .clickable(
                 enabled = enabled && !hidden,
                 role = Role.Button,
@@ -590,6 +623,7 @@ internal fun HomeAccountButton(
                 )
             }
         }
+        HomeAccountFan(fan, inline = inlineFan)
     }
 }
 

@@ -28,6 +28,8 @@ sealed interface HomeUiState {
         val activityHeroYear: Int? = null,
         val activityHeroSongCount: Int? = null,
         val activityHeroMinutes: Int? = null,
+        // The hero album's version ("全景声"), a tag after its title; resolved with the footnote.
+        val activityHeroVersion: String? = null,
         // The "Jump Back In" 3×4 widget grid: plain recommendations mixed with
         // memory-flavoured cards. Empty hides the section.
         val widgetGrid: List<HomeWidgetCard> = emptyList(),
@@ -126,6 +128,8 @@ data class HomeWidgetCard(
     // [coverArtUrl]'s CoverRef storage key: what Home's snapshot keeps instead
     // of the URL (a Subsonic one carries credentials), resolved again on restore.
     val coverKey: String? = null,
+    // An album's version ("全景声"), a tag after [title]; null when none.
+    val version: String? = null,
 )
 
 /**
