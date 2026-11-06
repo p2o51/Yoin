@@ -85,6 +85,7 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.landing.CopyRow
 import com.gpo.yoin.ui.landing.guide.ConnectGuide
 import com.gpo.yoin.ui.settings.AccountAvatar
+import com.gpo.yoin.ui.settings.ProfileServiceSettings
 import com.gpo.yoin.ui.settings.SecretTextField
 import com.gpo.yoin.ui.settings.ServiceIdentity
 import com.gpo.yoin.ui.settings.SettingsBackButton
@@ -144,6 +145,7 @@ fun ServiceSetupScreen(
         onConnectSpotify = viewModel::connectSpotify,
         appleMusicContent = { AppleMusicValidationSection(profileId = viewModel.profileId, onSaved = { onDone(it) }) },
         appleMusicAccountContent = { AppleMusicNameRegionGroup(profileId = viewModel.profileId) },
+        accountSettingsContent = { ProfileServiceSettings(providerKey = uiState.service.provider.key) },
         modifier = modifier,
     )
 }
@@ -163,6 +165,8 @@ fun ServiceSetupContent(
     appleMusicContent: @Composable () -> Unit = {},
     // The Apple Music account's own settings, under its connection: only for an account that exists.
     appleMusicAccountContent: @Composable () -> Unit = {},
+    // The service's playback / storage settings, at the bottom of an existing account's page.
+    accountSettingsContent: @Composable () -> Unit = {},
 ) {
     val intro = state.service.intro
     val identity = state.service.provider.serviceIdentity
@@ -294,7 +298,9 @@ fun ServiceSetupContent(
                             verticalArrangement = Arrangement.spacedBy(28.dp),
                         ) {
                             connectGroup()
-                            if (!state.isManaging) {
+                            if (state.isManaging) {
+                                accountSettingsContent()
+                            } else {
                                 HighlightsGroup(intro)
                             }
                         }
@@ -331,6 +337,7 @@ fun ServiceSetupContent(
                         RequirementsGroup(intro.requirements)
                     }
                     connectGroup()
+                    if (state.isManaging) accountSettingsContent()
                 }
             }
         }
