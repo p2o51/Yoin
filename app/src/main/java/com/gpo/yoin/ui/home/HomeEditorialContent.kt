@@ -201,7 +201,9 @@ import com.gpo.yoin.ui.home.edit.homeEditExclusion
 import com.gpo.yoin.ui.home.edit.homeEditFooterEntry
 import com.gpo.yoin.ui.home.edit.homeEditGestures
 import com.gpo.yoin.ui.home.edit.homeEditHeaderIcon
+import com.gpo.yoin.ui.settings.AccountMark
 import com.gpo.yoin.ui.settings.ProfileCard
+import com.gpo.yoin.ui.settings.serviceIdentity
 import com.gpo.yoin.ui.home.edit.homeEditInteractive
 import com.gpo.yoin.ui.home.edit.homeEditShelfClip
 import com.gpo.yoin.ui.home.edit.homeEditTrayItems
@@ -309,6 +311,7 @@ internal fun HomeEditorialContent(
     onAccountAnchor: (Rect) -> Unit = {},
     // The account in use needs its owner: its avatar wears a dot.
     accountNeedsReconnect: Boolean = false,
+    accountQuickSwitch: HomeAccountQuickSwitch? = null,
     onNavigateToMemories: () -> Unit,
     editController: HomeEditController? = null,
     footerNewBadge: Boolean = false,
@@ -988,6 +991,7 @@ internal fun HomeEditorialContent(
                         accountButtonHidden = accountButtonHidden,
                         onAccountAnchor = onAccountAnchor,
                         accountNeedsReconnect = accountNeedsReconnect,
+                        accountQuickSwitch = accountQuickSwitch,
                         onNavigateToMemories = onNavigateToMemories,
                         memoriesHintProgress = memoriesHintProgress,
                         memoryPill = memoryPill,
@@ -1547,6 +1551,7 @@ private fun HomeContentHeader(
     accountButtonHidden: Boolean,
     onAccountAnchor: (Rect) -> Unit,
     accountNeedsReconnect: Boolean,
+    accountQuickSwitch: HomeAccountQuickSwitch?,
     onNavigateToMemories: () -> Unit,
     memoriesHintProgress: () -> Float,
     // Edit mode's P (read in draw and layout only), its hit targets, and the
@@ -1641,6 +1646,7 @@ private fun HomeContentHeader(
                 hidden = accountButtonHidden,
                 onAvatarPositioned = onAccountAnchor,
                 needsReconnect = accountNeedsReconnect,
+                quickSwitch = accountQuickSwitch,
                 modifier = headerControl,
             )
         } else {
@@ -2821,14 +2827,26 @@ private fun OtherProfileCard(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.seamFade(),
         )
-        Text(
-            text = item.profileName,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.seamFade(),
-        )
+        // The account's mark (its avatar shape + service) before its name, so
+        // the line reads as "another account", not as an artist.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            AccountMark(
+                shapeIndex = item.profileShape,
+                identity = item.profileProvider.serviceIdentity,
+                size = 14.dp,
+            )
+            Text(
+                text = item.profileName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false).seamFade(),
+            )
+        }
     }
 }
 

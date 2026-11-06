@@ -6,6 +6,7 @@
     <string name="home_greeting_afternoon">Good afternoon</string>
     <string name="home_greeting_evening">Good evening</string>
     <string name="home_account_cd">Account: %1$s</string>
+    <string name="home_account_quick_switch_action">Switch to %1$s</string>
     <string name="home_account_close">Close</string>
     <string name="home_account_manage">Manage accounts</string>
     <string name="home_account_reconnect">Reconnect</string>
@@ -182,6 +183,8 @@
     <string name="home_cd_bubble_memories">Memories</string>
     <!-- Home bubble tips (owner 2026-10-17): one gesture or detail each, said between Memories. -->
     <!-- Tip page (ui/tips/TipScreen): "3 / 10" -->
+    <string name="home_tip_account_quick_switch_title">Switch accounts</string>
+    <string name="home_tip_account_quick_switch">Long-press the avatar and slide to switch accounts</string>
     <string name="home_tip_mini_player_menu_title">Mini player options</string>
     <string name="home_tip_mini_player_menu">Long-press the mini player in the bar to open Song options</string>
     <string name="home_tip_focus_cover_title">Tap cover to Focus</string>

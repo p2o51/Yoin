@@ -1,6 +1,7 @@
 package com.gpo.yoin.player
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.os.Build
@@ -68,6 +69,13 @@ internal object SpotifyAppRemoteCompat {
             SpotifyAppRemote.connect(context, params, listener)
         }
     }
+
+    /**
+     * Opens the verified Spotify app on its own launcher entry: no song, no URI, so whatever
+     * it plays or has paused stays as it is. Null when no verified Spotify app is installed.
+     */
+    fun launchIntent(context: Context): Intent? =
+        findVerifiedPackageName(context)?.let(context.packageManager::getLaunchIntentForPackage)
 
     private fun findVerifiedPackageName(context: Context): String? {
         val packageManager = context.packageManager

@@ -349,7 +349,10 @@ class AppContainer(private val context: Context) {
                         // usually recover on the next connect, no point
                         // surfacing a persistent badge for them.
                         val failure = event.failure
-                        if (failure !is SpotifyConnectFailure.TransportFailure) {
+                        // The unreachable hints too: the next connect clears them.
+                        if (failure !is SpotifyConnectFailure.TransportFailure &&
+                            failure != SpotifyConnectFailure.SpotifyAsleep
+                        ) {
                             _lastSpotifyStickyFailure.value = failure
                         }
                     }

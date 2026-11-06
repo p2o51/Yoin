@@ -164,6 +164,7 @@ fun HomeScreen(
             accountAnchor = account.anchor,
             accountHandedUp = account.landed,
             accountNeedsReconnect = account.needsReconnect,
+            accountQuickSwitch = account.quickSwitch,
             onNavigateToMemories = onNavigateToMemories,
             onOpenMemoryFocus = onOpenMemoryFocus,
             memoriesRevealState = memoriesRevealState,
@@ -239,6 +240,7 @@ fun HomeContent(
     accountHandedUp: Boolean = true,
     // The account in use needs its owner: the header avatar wears a dot.
     accountNeedsReconnect: Boolean = false,
+    accountQuickSwitch: HomeAccountQuickSwitch? = null,
     loadingReportsPressure: Boolean = true,
     // On Your Other Accounts' items, and a tap on one.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
@@ -428,6 +430,7 @@ fun HomeContent(
                                     (holdingAvatar && !avatarHold.headerAvatarBack),
                                 onAccountAnchor = onAccountAnchor,
                                 accountNeedsReconnect = accountNeedsReconnect,
+                                accountQuickSwitch = accountQuickSwitch,
                                 onNavigateToMemories = onNavigateToMemories,
                                 editController = editController,
                                 footerNewBadge = footerNewBadge,

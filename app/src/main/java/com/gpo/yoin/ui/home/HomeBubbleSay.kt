@@ -40,6 +40,7 @@ internal enum class HomeBubbleTip(
     val updated: LocalDate,
     private val symbol: () -> ImageVector,
 ) {
+    AccountQuickSwitch(R.string.home_tip_account_quick_switch_title, R.string.home_tip_account_quick_switch, day(2026, 11, 6), { YoinSymbols.Person }),
     MiniPlayerMenu(R.string.home_tip_mini_player_menu_title, R.string.home_tip_mini_player_menu, day(2026, 11, 4), { YoinSymbols.PlayCircle }),
     FocusCover(R.string.home_tip_focus_cover_title, R.string.home_tip_focus_cover, day(2026, 11, 3), { YoinSymbols.OpenInFull }),
     Downloads(R.string.home_tip_downloads_title, R.string.home_tip_downloads, day(2026, 11, 4), { YoinSymbols.Download }),

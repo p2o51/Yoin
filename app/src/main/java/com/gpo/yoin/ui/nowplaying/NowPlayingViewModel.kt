@@ -570,6 +570,7 @@ class NowPlayingViewModel(
                 activityContext = activityContext,
                 serviceFeatures = ServiceFeatureCatalog.forProvider(song.id.provider),
                 spineFacts = song.spineSourceFacts(),
+                playingOn = state.spotifyDevice,
             )
 
             // Backend is still handshaking for the track the user tapped —

@@ -6,6 +6,7 @@
     <string name="home_greeting_afternoon">下午好</string>
     <string name="home_greeting_evening">晚上好</string>
     <string name="home_account_cd">账号：%1$s</string>
+    <string name="home_account_quick_switch_action">切换到 %1$s</string>
     <string name="home_account_close">关闭</string>
     <string name="home_account_manage">管理账号</string>
     <string name="home_account_reconnect">重新连接</string>
@@ -162,6 +163,8 @@
     <string name="home_cd_bubble_latest_by">Memories。最新：%1$s，%2$s</string>
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
+    <string name="home_tip_account_quick_switch_title">切换账号</string>
+    <string name="home_tip_account_quick_switch">长按头像并滑动以切换账号</string>
     <string name="home_tip_mini_player_menu_title">迷你播放器菜单</string>
     <string name="home_tip_mini_player_menu">长按底栏的迷你播放器，直接打开当前歌曲菜单</string>
     <string name="home_tip_focus_cover_title">轻点封面聚焦</string>
