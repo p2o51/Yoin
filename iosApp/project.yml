@@ -226,6 +226,8 @@ targets:
       - path: Yoin/Resources/Licenses/license_ofl_1_1.txt
         buildPhase: resources
       - path: Yoin/YoinSymbols.xcassets
+      - path: Yoin/AppIcon.icon
+        buildPhase: resources
       - path: Yoin/Resources/Fonts/google_sans_flex_400.ttf
         buildPhase: resources
       - path: Yoin/Resources/Fonts/google_sans_flex_500.ttf
@@ -302,7 +304,7 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # YoinShared has a macos-arm64 slice only.
         EXCLUDED_ARCHS: x86_64
       configs:
