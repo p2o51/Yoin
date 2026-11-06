@@ -327,22 +327,37 @@ final class MacSession {
     }
 
     /// New details for the Subsonic account [id] (Android's existing-account form), saved once the server
-    /// takes them; an empty [password] keeps the one saved. The account in use reconnects with them.
+    /// takes them; an empty [password] keeps the one saved. Another server or username is another account:
+    /// it gets a new id (backups and everything else that follows the old id stay with what it was).
+    /// The account in use reconnects with them. Returns the account's id after the change.
+    @discardableResult
     func updateSubsonic(_ id: String, url: String, username: String, password: String,
-                        beforeReconnect: @MainActor (_ sameLibrary: Bool) -> Void = { _ in }) async throws {
-        guard let i = profiles.firstIndex(where: { $0.id == id }), let old = profiles[i].account else { return }
+                        beforeReconnect: @MainActor () -> Void = {}) async throws -> String {
+        guard let i = profiles.firstIndex(where: { $0.id == id }), let old = profiles[i].account else { return id }
         let account = Account(baseUrl: Self.normalized(url), username: username.trimmingCharacters(in: .whitespaces),
                               password: password.isEmpty ? old.password : password)
         if profiles.contains(where: { $0.id != id && $0.account?.baseUrl == account.baseUrl
             && $0.account?.username == account.username }) { throw AccountExists() }
+        edits[id, default: 0] += 1
+        let edit = edits[id]
         _ = try await Self.test(url: account.baseUrl, username: account.username, password: account.password)
-        guard let j = profiles.firstIndex(where: { $0.id == id }) else { return }
+        // A later Save of the same account went out meanwhile: only the newest lands.
+        guard edits[id] == edit, let j = profiles.firstIndex(where: { $0.id == id }),
+              let current = profiles[j].account else { throw Superseded() }
+        let sameAccount = current.baseUrl == account.baseUrl && current.username == account.username
+        let newId = sameAccount ? id : UUID().uuidString
         profiles[j].account = account
+        profiles[j].id = newId
+        let wasActive = activeId == id
+        if wasActive { activeId = newId }
         persist()
-        guard activeId == id else { return }
-        beforeReconnect(old.baseUrl == account.baseUrl && old.username == account.username)
-        activate(profiles[j])
+        if wasActive {
+            beforeReconnect()
+            activate(profiles[j])
+        }
+        return newId
     }
+    @ObservationIgnored private var edits: [String: Int] = [:]
 
     /// Signs out of the account in use: it leaves the list (Apple Music: the system keeps its access).
     func signOut() {

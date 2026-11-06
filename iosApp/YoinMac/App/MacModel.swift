@@ -447,6 +447,13 @@ final class MacModel {
 
     /// Plays a download from its saved songs, or retries its failed ones.
     func playDownload(_ collectionKey: String) {
+        // A playlist plays in its own order, repeats and all, when its page is loaded (the downloads keep each
+        // song once); its kept files play either way.
+        if collectionKey.hasPrefix("playlist:"),
+           let p = library.playlist(String(collectionKey.dropFirst("playlist:".count))) {
+            let kept = p.entries.filter { OfflineDownloads.shared.isDownloaded(songId: $0.track.id.rawId) }
+            if !kept.isEmpty { play(kept); return }
+        }
         let entries = downloadedEntries(collectionKey)
         if !entries.isEmpty { play(entries) }
     }
@@ -801,11 +808,12 @@ final class MacModel {
         session.switchTo(id)
     }
 
-    /// Saves an existing Subsonic account's new details; the account in use reconnects on them.
-    func updateSubsonic(_ id: String, url: String, username: String, password: String) async throws {
-        try await session.updateSubsonic(id, url: url, username: username, password: password) { sameLibrary in
-            // Another server or user is another library: what was loaded goes (a new password alone keeps it).
-            if !sameLibrary { self.signedOut() }
+    /// Saves an existing Subsonic account's new details; the account in use starts over on them (what was
+    /// loaded, the queue and its signed addresses all carried the old sign-in). Returns the account's id.
+    @discardableResult
+    func updateSubsonic(_ id: String, url: String, username: String, password: String) async throws -> String {
+        try await session.updateSubsonic(id, url: url, username: username, password: password) {
+            self.signedOut()
         }
     }
 

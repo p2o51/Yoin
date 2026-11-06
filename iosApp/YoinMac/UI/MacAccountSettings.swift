@@ -24,7 +24,7 @@ struct MacAccountsSettings: View {
                     .buttonStyle(.link)
                     .keyboardShortcut("[", modifiers: .command)
                     .padding(.horizontal, 20).padding(.top, 12)
-                    MacAccountPage(profileId: id) { withAnimation(Yoin.spatial) { open = nil } }
+                    MacAccountPage(profileId: id, reopen: { open = $0 }) { withAnimation(Yoin.spatial) { open = nil } }
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
@@ -75,6 +75,8 @@ struct MacAccountsSettings: View {
 /// One account: who it is, Switch / Remove, then the settings that belong to its service.
 struct MacAccountPage: View {
     var profileId: String
+    /// The account took a new id (another server or username).
+    var reopen: (String) -> Void = { _ in }
     /// Back to the list (after Remove).
     var close: () -> Void = {}
     @Environment(MacModel.self) private var model
@@ -96,7 +98,7 @@ struct MacAccountPage: View {
                 Section {
                     LabeledContent("Service", value: Self.serviceName(p.service))
                     if p.account != nil {
-                        MacSubsonicEditor(profile: p).id(p.id)
+                        MacSubsonicEditor(profile: p, reopen: reopen).id(p.id)
                     } else if let name = p.name {
                         LabeledContent("Account", value: name)
                     }
@@ -204,6 +206,7 @@ struct MacAccountPage: View {
 /// new password (left empty, the saved one stays); Test asks the server, Save keeps them once it answers.
 private struct MacSubsonicEditor: View {
     var profile: MacSession.Profile
+    var reopen: (String) -> Void
     @Environment(MacModel.self) private var model
     @State private var url = ""
     @State private var username = ""
@@ -264,9 +267,10 @@ private struct MacSubsonicEditor: View {
         Task {
             defer { busy = false }
             do {
-                try await model.updateSubsonic(profile.id, url: url, username: username, password: password)
+                let id = try await model.updateSubsonic(profile.id, url: url, username: username, password: password)
                 password = ""
                 result = (true, "Saved")
+                if id != profile.id { reopen(id) }
             } catch {
                 result = (false, MacSession.message(for: error))
             }
