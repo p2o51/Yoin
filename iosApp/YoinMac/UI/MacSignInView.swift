@@ -9,6 +9,8 @@ struct MacSignInView: View {
     @State private var password = ""
     @State private var busy = false
     @State private var error: String?
+    @State private var askClientId = false
+    @State private var clientId = ""
 
     var body: some View {
         ZStack {
@@ -63,6 +65,13 @@ struct MacSignInView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(busy)
+                // Spotify's Client ID is the account's own setting (its page in Settings); a first Spotify
+                // account asks for it here.
+                if askClientId {
+                    field("Spotify Client ID", text: $clientId, prompt: "From developer.spotify.com")
+                        .onSubmit(useSpotify)
+                        .transition(.opacity)
+                }
                 if model.addingAccount {
                     Button("Cancel") {
                         model.supersedeSignIn()
@@ -113,6 +122,14 @@ struct MacSignInView: View {
 
     private func useSpotify() {
         guard !busy else { return }
+        if SpotifyConfig.clientId == nil {
+            let id = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty else {
+                withAnimation(Yoin.spatial) { askClientId = true }
+                return
+            }
+            SpotifyConfig.setClientId(id)
+        }
         busy = true
         error = nil
         Task {
@@ -153,79 +170,24 @@ struct MacSignInView: View {
 /// ⌘, : the Mac's settings, one tab each (iOS Settings, the parts the Mac has).
 struct MacSettingsView: View {
     @Environment(MacModel.self) private var model
-    @AppStorage(MacSettings.streamQualityKey) private var quality = StreamQuality.original.key
     @AppStorage(MacMiniPlayer.floatsKey) private var miniFloats = true
     @AppStorage("lyricsShowTranslation") private var showTranslation = true
     @AppStorage(MacSettings.appearanceKey) private var appearance = "system"
 
     var body: some View {
         TabView {
-            Form {
-            Section("Accounts") {
-                ForEach(model.session.profiles) { p in
-                    let active = p.id == model.session.activeId
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(p.title)
-                            if active { Text(status).font(.caption).foregroundStyle(.secondary) }
-                        }
-                        Spacer()
-                        if active {
-                            Text("In Use").foregroundStyle(.secondary)
-                        } else {
-                            Button("Switch") { model.switchAccount(p.id) }
-                        }
-                        Button("Remove", role: .destructive) {
-                            if active { model.signedOut() }
-                            model.session.remove(p.id)
-                        }
-                    }
-                }
-                if model.session.profiles.isEmpty {
-                    Text("Not signed in").foregroundStyle(.secondary)
-                }
-                Button("Add Account…") {
-                    withAnimation(Yoin.spatial) { model.addingAccount = true }
-                    NSApp.mainWindow?.makeKeyAndOrderFront(nil)
-                }
-            }
-            }
-            .formStyle(.grouped)
-            .tabItem { Label("Accounts", image: "yoin.artist") }
+            MacAccountsSettings()
+                .tabItem { Label("Accounts", image: "yoin.artist") }
 
             Form {
-                Section("Streaming") {
-                    Picker("Quality", selection: $quality) {
-                        ForEach(MacSettings.qualities, id: \.key) { Text($0.label).tag($0.key) }
-                    }
-                    .onChange(of: quality) { model.player.streamQualityDidChange() }
-                    Text("Takes effect from the next song. Lower qualities transcode to MP3 on the server.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Section("Mini Player") {
-                    Toggle("Float on top of other windows", isOn: $miniFloats)
-                }
-            }
-            .formStyle(.grouped)
-            .tabItem { Label("Playback", image: "yoin.play_filled") }
-
-            Form {
-            MacPlaybackCacheSection()
-            if model.session.client != nil {
-                @Bindable var offline = OfflineDownloads.shared
+                MacPlaybackCacheSection()
+                // Downloads are a Subsonic account's (its page manages them); here only what they take up.
+                let offline = OfflineDownloads.shared
                 Section("Downloads") {
-                    Picker("Quality", selection: $offline.quality) {
-                        ForEach(OfflineDownloads.Quality.allCases, id: \.self) { Text($0.label).tag($0) }
-                    }
-                    Toggle("Download on metered networks", isOn: $offline.overMobileData)
                     LabeledContent("On this Mac",
                                    value: ByteCountFormatter.string(fromByteCount: offline.bytes, countStyle: .file))
-                    Button("Remove All Downloads", role: .destructive) { offline.removeAll() }
-                        .disabled(offline.entries.isEmpty)
-                }
-            }
-                if model.session.client == nil {
-                    Text("Downloads are for Subsonic and Navidrome accounts.").foregroundStyle(.secondary)
+                    Text("Download quality and removal are on the Subsonic account's page in Accounts.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
@@ -238,12 +200,8 @@ struct MacSettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 MacGeminiSettings()
-                Section("Spotify") {
-                    TextField("Client ID", text: Binding(
-                        get: { SpotifyConfig.clientId ?? "" },
-                        set: { SpotifyConfig.setClientId($0) }))
-                    Text("Your app's Client ID from developer.spotify.com, with the redirect URI yoin://auth/spotify/callback. Spotify plays through the Spotify app on this Mac.")
-                        .font(.caption).foregroundStyle(.secondary)
+                Section("Mini Player") {
+                    Toggle("Float on top of other windows", isOn: $miniFloats)
                 }
                 Section("Appearance") {
                     Picker("Appearance", selection: $appearance) {
@@ -271,15 +229,6 @@ struct MacSettingsView: View {
                 .tabItem { Label("About", image: "yoin.info") }
         }
         .frame(width: 520, height: 440)
-    }
-
-    private var status: String {
-        switch model.session.state {
-        case .signedOut: "Signed out"
-        case .connecting: "Connecting"
-        case .ready(let s): s.isEmpty ? "Connected" : "Connected to \(s)"
-        case .failed(let m): m
-        }
     }
 }
 
