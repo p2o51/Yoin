@@ -271,7 +271,8 @@ final class GlassLab {
         case .balanced:
             // The shipped look: data in the shared YoinTokens.Glass (Kotlin).
             for t in Tokens.glass.balanced { s[t.id] = SurfaceStyle(t) }
-            for x in Tokens.glass.balancedExtras { e[x.id] = x.value }
+            // detailTopBar stays iOS's (pageExtras): the shared 0 is Android's spectrum.
+            for x in Tokens.glass.balancedExtras where x.id != "detailTopBar" { e[x.id] = x.value }
         case .appleHIG:
             // Home cards: blurred cover + a standard material, not glass.
             s["homeCards"] = SurfaceStyle(variant: .material, role: .auto, tintOpacity: 0.45,
@@ -289,7 +290,8 @@ final class GlassLab {
             // Starts from Balanced (51's decisions stay: tinted bar
             // selection, glass rating track and NP pills, plain glass).
             for t in Tokens.glass.balanced { s[t.id] = SurfaceStyle(t) }
-            for x in Tokens.glass.balancedExtras { e[x.id] = x.value }
+            // detailTopBar stays iOS's (pageExtras): the shared 0 is Android's spectrum.
+            for x in Tokens.glass.balancedExtras where x.id != "detailTopBar" { e[x.id] = x.value }
             // One chromatic accent per plane: the selected bar button and
             // PAUSE (and a liked heart, which borrows PAUSE's surface).
             // Every other floating control gets a neutral floor so covers
