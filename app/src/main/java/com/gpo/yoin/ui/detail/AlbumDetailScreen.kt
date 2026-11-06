@@ -99,6 +99,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.model.albumNameWithoutVersion
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.ui.component.AlbumVersionTag
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -1047,6 +1048,7 @@ private fun AlbumTopHeader(
                     if (albumVersion != null) {
                         AlbumVersionTag(
                             version = albumVersion,
+                            style = MaterialTheme.typography.labelMedium,
                             onBar = visualOnly,
                             modifier = Modifier.padding(start = 8.dp),
                         )
@@ -1101,29 +1103,6 @@ private fun AlbumTopHeader(
                     .align(Alignment.CenterHorizontally),
             )
         }
-    }
-}
-
-/**
- * The album's version ("Deluxe", "全景声") as a tag after the title, the same
- * small tonal block as the format tags; the server's value as it comes, never
- * translated. In white on the spectrum bar's twin.
- */
-@Composable
-private fun AlbumVersionTag(version: String, onBar: Boolean, modifier: Modifier = Modifier) {
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = if (onBar) Color.White.copy(alpha = 0.18f) else MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = if (onBar) Color.White else MaterialTheme.colorScheme.onSecondaryContainer,
-        modifier = modifier,
-    ) {
-        Text(
-            text = version,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 1,
-            softWrap = false,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-        )
     }
 }
 

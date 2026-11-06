@@ -97,6 +97,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.ui.component.AlbumVersionTitle
 import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeAccountAvatarHold
 import com.gpo.yoin.ui.home.HomeAccountButton
@@ -1583,6 +1584,7 @@ private fun AlbumGridItem(
         coverArtUrl = coverArtUrl,
         title = album.name,
         subtitle = album.artist,
+        version = album.version,
         onClick = onClick,
         extractBackdropColors = false,
         modifier = modifier.fillMaxWidth(),
@@ -2285,13 +2287,20 @@ private fun AlbumListItem(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f).seamFade()) {
-                Text(
-                    text = album.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                AlbumVersionTitle(
+                    name = album.name,
+                    version = album.version,
+                    titleStyle = MaterialTheme.typography.titleSmall,
+                ) { text, titleModifier ->
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = titleModifier,
+                    )
+                }
                 album.artist?.let { artist ->
                     Text(
                         text = artist,
