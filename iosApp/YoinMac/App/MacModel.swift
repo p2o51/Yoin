@@ -73,6 +73,18 @@ final class MacModel {
         player = PlayerEngine(output: router)
         library = MacLibrary(session: session)
         system = MacPlaybackSystem(player: player)
+        // Control Center's heart: likes (or unlikes) the song playing; Apple Music adds it to the library.
+        system?.like = { [weak self] in
+            guard let self, let t = self.player.currentTrack else { return false }
+            let liked = self.library.isStarred(songId: t.id, fallback: false)
+            if self.session.isAppleMusic, liked { return true }
+            self.library.toggleStar(songId: t.id, current: liked)
+            return !liked
+        }
+        system?.liked = { [weak self] in
+            guard let self, let t = self.player.currentTrack else { return false }
+            return self.library.isStarred(songId: t.id, fallback: false)
+        }
         player.onScrobble = { [weak self] track, submission in
             guard let self else { return }
             self.library.scrobble(track, submission: submission)

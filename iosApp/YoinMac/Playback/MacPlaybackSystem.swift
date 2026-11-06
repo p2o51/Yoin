@@ -9,6 +9,14 @@ final class MacPlaybackSystem {
     private let player: PlayerEngine
     private var artworkKey: String?
     private var artwork: MPMediaItemArtwork?
+    /// The heart (Control Center / Touch Bar like): set by the app; true = liked now.
+    var like: (() -> Bool)?
+    /// Whether the song playing is liked (the heart's state on each refresh).
+    var liked: (() -> Bool)?
+    /// The elapsed time last handed to the system, and when: a jump the system can't know of (a seek made
+    /// in Spotify, a device catching up) is published again.
+    private var published: (sec: Double, at: Date, rate: Double)?
+    private var drift: Timer?
 
     init(player: PlayerEngine) {
         self.player = player
@@ -22,6 +30,20 @@ final class MacPlaybackSystem {
         center.changePlaybackPositionCommand.addTarget(handler: Self.seekHandler { [weak self] sec in
             self?.player.seek(to: sec)
         })
+        center.likeCommand.addTarget(handler: Self.handler { [weak self] in
+            guard let self else { return }
+            center.likeCommand.isActive = self.like?() ?? false
+        })
+        drift = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkDrift() }
+        }
+    }
+
+    /// Every 2 s: the clock the system extrapolates vs. the player's; more than 1.5 s apart, publish again.
+    private func checkDrift() {
+        guard let p = published, player.currentTrack != nil else { return }
+        let expected = p.sec + Date().timeIntervalSince(p.at) * p.rate
+        if abs(expected - player.progress.positionSec) > 1.5 { refresh() }
     }
 
     private nonisolated static func handler(
@@ -50,6 +72,7 @@ final class MacPlaybackSystem {
         if player.currentTrack?.provider == AppleMusicMapping.provider { return }
         let info = MPNowPlayingInfoCenter.default()
         guard let t = player.currentTrack else {
+            published = nil
             info.nowPlayingInfo = nil
             info.playbackState = .stopped
             return
@@ -79,6 +102,8 @@ final class MacPlaybackSystem {
         }
         info.nowPlayingInfo = d
         info.playbackState = player.isPlaying ? .playing : .paused
+        published = (player.progress.positionSec, Date(), player.isPlaying ? 1 : 0)
+        MPRemoteCommandCenter.shared().likeCommand.isActive = liked?() ?? false
     }
 
     /// MediaPlayer asks for the image on its own queue: the handler must not be main-actor isolated.
