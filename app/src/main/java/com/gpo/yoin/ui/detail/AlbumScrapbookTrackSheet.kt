@@ -397,18 +397,21 @@ private fun ScoreHeader(
     }
 }
 
-/** "Clear rating" beside the slider; its width is held when it fades out, so clearing a score doesn't shift the bar. */
+/**
+ * "Clear rating" beside the slider. Unrated, it takes no room and the bar runs the full row (owner
+ * 2026-11-06); a first score makes room for it, a clear folds it away again.
+ */
 @Composable
 private fun ClearScoreButton(visible: Boolean, onClick: () -> Unit) {
-    Box(modifier = Modifier.widthIn(min = 112.dp), contentAlignment = Alignment.CenterEnd) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-            exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
-        ) {
-            TextButton(onClick = onClick) {
-                Text(stringResource(R.string.detail_scrap_clear))
-            }
+    AnimatedVisibility(
+        visible = visible,
+        enter = YoinMotion.expandHorizontally(role = YoinMotionRole.Standard, expandFrom = Alignment.Start) +
+            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard, shrinkTowards = Alignment.Start) +
+            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+    ) {
+        TextButton(onClick = onClick, modifier = Modifier.padding(start = 8.dp)) {
+            Text(stringResource(R.string.detail_scrap_clear))
         }
     }
 }
