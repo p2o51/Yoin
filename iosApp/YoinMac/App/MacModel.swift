@@ -126,6 +126,7 @@ final class MacModel {
         }
         spotifyOutput.startWatching()
         Self.current = self
+        if session.isAppleMusic { MacShare.loadStorefront() }
         // The first-run landing (iOS LandingGate): once per install, before any account; `-macScreen landing`
         // shows it every time and records nothing; other QA screens skip it.
         #if DEBUG
@@ -541,7 +542,10 @@ final class MacModel {
     private static let log = Logger(subsystem: "com.gpo.yoin.mac", category: "model")
 
     /// The account in use changed: its downloads run, another's wait.
-    func accountDidChange() { OfflineDownloads.shared.accountChanged() }
+    func accountDidChange() {
+        OfflineDownloads.shared.accountChanged()
+        if session.isAppleMusic { MacShare.loadStorefront() }
+    }
 
     /// A playlist's songs, shuffled or in order (the play mode stays the listener's).
     func play(playlist id: String, shuffle: Bool = false) {

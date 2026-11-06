@@ -68,6 +68,8 @@ struct AlbumTile: View {
                 Divider()
                 Button("Go to Artist") { model.open(.artist(id: id, name: album.artist)) }
             }
+            Divider()
+            MacShareMenuItem(content: MacShare.album(album))
         }
     }
 }
@@ -231,6 +233,8 @@ struct SongMenu: View {
         if let id = entry.album.artistId {
             Button("Go to Artist") { model.open(.artist(id: id, name: entry.album.artist)) }
         }
+        Divider()
+        MacShareMenuItem(content: MacShare.song(entry.track, album: entry.album))
     }
 
     @ViewBuilder private func rateMenu(id: String, rating: Double) -> some View {

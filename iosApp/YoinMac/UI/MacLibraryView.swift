@@ -391,6 +391,8 @@ struct PlaylistTile: View {
         .contextMenu {
             Button("Play") { model.play(playlist: item.id.rawId) }
             Button("Shuffle") { model.play(playlist: item.id.rawId, shuffle: true) }
+            Divider()
+            MacShareMenuItem(content: MacShare.playlist(item))
         }
     }
 }
