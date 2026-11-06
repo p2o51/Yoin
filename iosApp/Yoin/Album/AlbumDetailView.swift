@@ -1145,7 +1145,9 @@ struct AlbumDetailView: View {
                 let flat = smooth(q, 0, 0.55)
                 let x = lerp(heroX + CGFloat(i) * slice, CGFloat(strips[i].slot) * w / CGFloat(n), q)
                 let y = lerp(heroY, -top, q) + shift
-                let sw = lerp(slice, w / CGFloat(n), q) + 1.5
+                // The Strip overlaps its strips more: its blur would smear any
+                // anti-aliased seam into a light spike.
+                let sw = lerp(slice, w / CGFloat(n), q) + (stripBar ? 6 : 1.5)
                 // The Strip's strips run past the feather's end, so its blur
                 // only ever mixes colors (the mask fades them).
                 let sh = lerp(side, stripBar ? barH + 24 : barH, q)
@@ -1169,6 +1171,8 @@ struct AlbumDetailView: View {
             }
         }
         .frame(width: w, height: stripBar ? top + heroY + side + 8 : nil, alignment: .topLeading)
+        // One opaque layer for the blur to read (no per-strip edges).
+        .compositingGroup()
         // The Strip's progressive blur (51, 2026-11-06): sharp at the top of
         // the screen, softer down to the end of the feather.
         .layerEffect(ShaderLibrary.albumStripBlur(.float(max(1, barH)), .float(blurR), .float(w)),
