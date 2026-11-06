@@ -981,6 +981,19 @@ private struct MacLyricsTools: View {
             }
         }
         .animation(Yoin.effects, value: lyrics.notice)
+        // Another source has a translation: its lyrics and timing replace these only if the listener says so.
+        .confirmationDialog(lyrics.offer.map { "\($0.label) has a translation" } ?? "",
+                            isPresented: Binding(get: { lyrics.offer != nil },
+                                                 set: { if !$0, lyrics.offer != nil { Task { await lyrics.declineOffer() } } })) {
+            Button("Switch to \(lyrics.offer?.label ?? "It")") {
+                withAnimation(Yoin.effects) { lyrics.acceptOffer() }
+                showTranslation = true
+            }
+            // (Keep: the dialog closing declines, once.)
+            Button("Keep These Lyrics", role: .cancel) {}
+        } message: {
+            Text("Its lyrics and timing will replace the ones shown for this song.")
+        }
     }
 }
 

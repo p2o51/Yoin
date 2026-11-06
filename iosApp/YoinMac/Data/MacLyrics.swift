@@ -99,6 +99,7 @@ final class MacLyrics {
         songId = track?.id
         self.track = track
         notice = nil
+        offer = nil
         translating = false
         guard let track else { state = .idle; credits = Credits(); origin = nil; return }
         if let hit = cache[track.id] {
@@ -219,11 +220,52 @@ final class MacLyrics {
             var map: [Int: String] = [:]
             for (k, v) in r.translations { map[k.intValue] = v }
             let (s, credits) = Self.lines(r.lyrics, source: r.providerName, translations: map)
-            apply(s, credits, Origin(provider: r.providerName, songId: r.providerSongId), for: id)
+            let from = Origin(provider: r.providerName, songId: r.providerSongId)
+            if r.providerName == origin?.provider {
+                apply(s, credits, from, for: id)
+            } else {
+                // Another source's lyrics and timing: offered, never swapped in unasked (Android / iOS ask too).
+                offer = Offer(songId: id, state: s, credits: credits, origin: from,
+                              label: LyricsSource.label(r.providerName))
+            }
             return
         }
-        // No source has one: Gemini translates the lines shown (the listener's own key, when there is one) —
-        // only for the song this began for.
+        await translateWithGemini(id: id, track: t, gen: gen, language: language)
+    }
+
+    /// Another source's lyrics with a translation, waiting for the listener's Switch.
+    struct Offer: Identifiable {
+        var id: String { "\(songId)|\(origin.provider)" }
+        var songId: String
+        var state: State
+        var credits: Credits
+        var origin: Origin
+        var label: String
+    }
+    var offer: Offer?
+
+    /// Switch: the offered source's lyrics (with their translation) replace these, and stay chosen for the song.
+    func acceptOffer() {
+        guard let o = offer, o.songId == songId else { offer = nil; return }
+        offer = nil
+        apply(o.state, o.credits, o.origin, for: o.songId)
+        Self.saveChoice(o.origin, scope: choiceScope, songId: o.songId)
+    }
+
+    /// Keep: these lyrics stay; Gemini translates them when there's a key.
+    func declineOffer() async {
+        guard let o = offer, let t = track, o.songId == songId else { offer = nil; return }
+        offer = nil
+        generation += 1
+        let gen = generation
+        translating = true
+        defer { if songId == o.songId { translating = false } }
+        await translateWithGemini(id: o.songId, track: t, gen: gen, language: GeminiSettings.shared.targetLanguage)
+    }
+
+    /// No source of these lyrics has one: Gemini translates the lines shown (the listener's own key, when
+    /// there is one) — only for the song this began for.
+    private func translateWithGemini(id: String, track t: PlayableTrack, gen: Int, language: String) async {
         guard gen == generation, songId == id, !Task.isCancelled else { return }
         let gemini = GeminiSettings.shared
         guard case .loaded(let synced, let lines, let source) = state, !lines.isEmpty else { return }
