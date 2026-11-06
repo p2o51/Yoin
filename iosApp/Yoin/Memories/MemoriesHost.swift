@@ -24,11 +24,17 @@ struct MemoriesHomeBehind: ViewModifier {
 /// The page's own pose (Android rememberMemoriesHostPose): −q·H with its
 /// bottom corners rounding off the same q (memoriesDismissCorners), or a
 /// fade in place under Reduce Motion (no corners).
+///
+/// The page runs over the whole window (HomeView pads it out past its own
+/// frame by [bleed], and H is the window's height): it used to take Home's frame,
+/// which stops at the status bar and above the bottom bar, so while it rode
+/// in its lower edge sat just under Diary / Go to album and Home's feed
+/// showed in full below it (51, build 9).
 struct MemoriesPagePose: ViewModifier {
     var presentation: MemoriesPresentation
+    /// How far the page runs past Home's frame (it lays out over the window).
+    var bleed: EdgeInsets
     @Environment(\.accessibilityReduceMotion) private var reduced
-    /// The page draws into the safe area (its aurora): the clip reaches there too.
-    @State private var bleed = EdgeInsets()
 
     func body(content: Content) -> some View {
         // Hard at the open end (feedback: the spring's overshoot must not
@@ -38,14 +44,13 @@ struct MemoriesPagePose: ViewModifier {
                                                                     height: presentation.containerHeight)
         content
             .clipShape(MemoriesPageShape(bottomRadius: radius, bleed: bleed))
-            .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { bleed = $0 }
             .offset(y: reduced ? 0 : -q * presentation.containerHeight)
             .opacity(reduced ? Double(1 - min(max(q, 0), 1)) : 1)
     }
 }
 
-/// The page's frame grown by the safe area it draws into, its bottom corners
-/// at [bottomRadius] (square when 0).
+/// Home's frame grown by what the page runs past it, its bottom corners at
+/// [bottomRadius] (square when 0).
 private struct MemoriesPageShape: Shape {
     var bottomRadius: CGFloat
     var bleed: EdgeInsets

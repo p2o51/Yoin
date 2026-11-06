@@ -146,7 +146,7 @@ struct MemoriesView: View {
 
     private var currentIndex: Int { min(max(Int(position.rounded()), 0), max(cards.count - 1, 0)) }
 
-    private static var windowHeight: CGFloat {
+    static var windowHeight: CGFloat {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         return scenes.first { $0.activationState == .foregroundActive }?.keyWindow?.bounds.height
             ?? scenes.first?.keyWindow?.bounds.height ?? 844
