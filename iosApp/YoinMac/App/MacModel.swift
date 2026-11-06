@@ -401,13 +401,17 @@ final class MacModel {
             let start = full.tracks.firstIndex { $0.id.rawId == songId } ?? 0
             guard await playAlbum(full, startAt: start), let ms = positionMs, ms > 0 else { return }
             let token = playRequest
-            // The seek waits for the song to be the one playing (a start can take a moment).
-            for _ in 0..<50 {
+            // The seek waits for this song to really play (Spotify: after its start is confirmed, buffering ends).
+            var ready = false
+            for _ in 0..<120 {
                 guard token == playRequest else { return }
-                if player.currentTrack?.id == songId, player.progress.durationSec > 0 { break }
+                if player.currentTrack?.id == songId, player.isPlaying, !player.isBuffering, player.failure == nil {
+                    ready = true
+                    break
+                }
                 try? await Task.sleep(for: .milliseconds(100))
             }
-            guard token == playRequest, player.currentTrack?.id == songId else { return }
+            guard ready, token == playRequest, player.currentTrack?.id == songId else { return }
             player.seek(to: Double(ms) / 1000)
         }
     }

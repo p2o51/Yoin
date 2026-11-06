@@ -82,14 +82,29 @@ struct MacAlbumScrapbook: View {
     }
 
     private func about(_ t: Track) -> About {
-        let key = SongAboutStore.key(title: t.title, artist: t.artist ?? album.artist, album: album.title)
-        let rows = SongAboutStore.shared.entries(key).filter { !$0.isBlank }
+        let rows = Self.aboutRows(t, album: album)
         let asks = rows.filter { $0.kind != SongAboutStore.Kind.canonical }
             .sorted { ($0.createdAt, $0.updatedAt) > ($1.createdAt, $1.updatedAt) }
         let canon = Dictionary(rows.filter { $0.kind == SongAboutStore.Kind.canonical }.map { ($0.entryKey, $0) },
                                uniquingKeysWith: { a, _ in a })
         let facts = SongAboutStore.Canon.order.compactMap { k in canon[k].map { (Self.factLabel(k), $0) } }
         return About(asks: asks, facts: facts)
+    }
+
+    /// The song's About rows. Now Playing may have saved them under the track's own metadata: an Apple Music
+    /// single's album as "Glow - Single" (the album page says "Glow"), a Spotify song's joined artists. The exact
+    /// key first, then the one such row was saved under.
+    static func aboutRows(_ t: Track, album: Album) -> [SongAboutStore.Entry] {
+        let store = SongAboutStore.shared
+        let key = SongAboutStore.key(title: t.title, artist: t.artist ?? album.artist, album: album.title)
+        let exact = store.entries(key).filter { !$0.isBlank }
+        guard exact.isEmpty else { return exact }
+        let other = store.all.first { e in
+            e.titleKey == key.title && e.songKey != key
+                && (e.albumKey == key.album || e.albumKey.hasPrefix(key.album + " - ") || e.albumKey.hasPrefix(key.album + " ("))
+                && (e.artistKey == key.artist || e.artistKey.hasPrefix(key.artist + ",") || e.artistKey.hasPrefix(key.artist + " &"))
+        }
+        return other.map { store.entries($0.songKey).filter { !$0.isBlank } } ?? []
     }
 
     /// Android `factLabel` / strings detail_scrap_fact_*.
@@ -734,12 +749,8 @@ private struct MacScrapAboutSheet: View {
     @State private var draftText = ""
     @State private var message: String?
 
-    private var key: SongAboutStore.Entry.SongKey {
-        SongAboutStore.key(title: track.title, artist: track.artist ?? album.artist, album: album.title)
-    }
-
     var body: some View {
-        let rows = SongAboutStore.shared.entries(key).filter { !$0.isBlank }
+        let rows = MacAlbumScrapbook.aboutRows(track, album: album)
         let asks = rows.filter { $0.kind != SongAboutStore.Kind.canonical }
             .sorted { ($0.createdAt, $0.updatedAt) > ($1.createdAt, $1.updatedAt) }
         let canon = Dictionary(rows.filter { $0.kind == SongAboutStore.Kind.canonical }.map { ($0.entryKey, $0) },
@@ -807,14 +818,17 @@ private struct MacScrapAboutSheet: View {
                         Button("Regenerate with Gemini") { regenerate(e.ref) }
                             .disabled(SongAboutLoader.shared.regenerating.contains(e.ref))
                     }
+                    // Not while Gemini rewrites it (its answer would land over the edit or bring a deletion back).
                     Button("Edit") {
                         draftTitle = e.titleText ?? ""
                         draftText = e.answerText
                         editing = e.ref
                     }
+                    .disabled(SongAboutLoader.shared.regenerating.contains(e.ref))
                     Button("Delete", role: .destructive) {
                         SongAboutStore.shared.edit(e.ref, title: e.titleText, answer: "")
                     }
+                    .disabled(SongAboutLoader.shared.regenerating.contains(e.ref))
                     if SongAboutLoader.shared.regenerating.contains(e.ref) { ProgressView().controlSize(.small) }
                 }
                 .buttonStyle(.link).font(.gsf(12.5))
