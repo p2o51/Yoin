@@ -387,7 +387,6 @@ private fun DemoNowPlaying(
     actedScrub: (() -> Float?)? = null,
     focused: Boolean = false,
     onCoverClick: (() -> Unit)? = null,
-,
     coverRoom: Boolean = false,
 ) {
     // [coverRoom]: the screen in the cover's colours and the real Now Playing
@@ -463,7 +462,6 @@ private fun DemoNowPlayingStage(
     actedScrub: (() -> Float?)? = null,
     focused: Boolean = false,
     onCoverClick: (() -> Unit)? = null,
-,
     room: DemoCoverRoom?,
 ) {
     val colors = MaterialTheme.colorScheme
