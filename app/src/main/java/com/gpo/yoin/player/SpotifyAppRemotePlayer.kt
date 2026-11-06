@@ -1707,7 +1707,8 @@ internal class SpotifyAppRemotePlayer(
         deviceNameJob?.cancel()
         deviceNameJob = scope.launch {
             val state = readConnectState() ?: return@launch
-            val name = state.deviceName.takeIf { !state.isThisDevice }
+            // Only a device that plays: a speaker paused since the start isn't where the song is.
+            val name = state.deviceName.takeIf { state.playsElsewhere }
             if (name != lastSnapshot.playingOn) publish(lastSnapshot.copy(playingOn = name))
         }
     }
