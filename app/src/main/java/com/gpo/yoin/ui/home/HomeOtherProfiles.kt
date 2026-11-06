@@ -30,6 +30,7 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.profile.ProfileManager
+import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.repository.ActivityContext
@@ -67,6 +68,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 data class OtherProfileItem(
     val profileId: String,
     val profileName: String,
+    /** The account's avatar shape and service, for the mark before its name. */
+    val profileShape: Int = 0,
+    val profileProvider: ProviderKind = ProviderKind.SUBSONIC,
     val kind: Kind,
     val provider: String,
     val rawId: String,
@@ -115,6 +119,8 @@ internal fun buildOtherProfileItems(
         val item = OtherProfileItem(
             profileId = row.profileId,
             profileName = card.title,
+            profileShape = card.avatarShape,
+            profileProvider = card.provider,
             kind = kind,
             provider = row.provider,
             rawId = rawId,
