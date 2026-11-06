@@ -138,6 +138,10 @@ struct ServerSettingsView: View {
             .buttonStyle(.plain)),
              // Android Settings › About › Tips.
              AnyView(TipsEntryRow(app: app)),
+             AnyView(aboutLink(String(localized: "Website"), AboutLinks.website(language: AboutLinks.currentLanguage))),
+             AnyView(aboutLink(String(localized: "Docs"), AboutLinks.docs(language: AboutLinks.currentLanguage))),
+             AnyView(aboutLink(String(localized: "Send feedback"), AboutLinks.feedback)),
+             AnyView(aboutLink(String(localized: "Privacy policy"), AboutLinks.privacyPolicy)),
              AnyView(NavigationLink { OpenSourceLicensesView() } label: {
                 HStack {
                     Text("Open source licenses")
@@ -167,7 +171,37 @@ struct ServerSettingsView: View {
                 .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain))]
+            .buttonStyle(.plain)),
+             // Android's last About row: the app's name and version.
+             AnyView(VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: "Yoin")
+                    .yoinRole(Tokens.type.bodyLarge)
+                    .foregroundStyle(app.onSurface)
+                Text(String(localized: "Version \(AboutLinks.versionName())"))
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .accessibilityElement(children: .combine))]
+        }
+    }
+
+    /// A row that opens a public page in the browser.
+    private func aboutLink(_ title: String, _ url: URL) -> some View {
+        Link(destination: url) {
+            HStack {
+                Text(title)
+                    .yoinRole(Tokens.type.bodyLarge)
+                    .foregroundStyle(app.onSurface)
+                Spacer(minLength: 16)
+                Image(systemName: "arrow.up.right").font(.system(size: 16, weight: .medium)).foregroundStyle(app.onSurfaceVariant)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .contentShape(.rect)
         }
     }
 
