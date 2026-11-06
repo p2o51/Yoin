@@ -6,14 +6,32 @@ import YoinShared
 /// and only what the service supports: a Subsonic server's stream quality and downloads, Spotify's Client ID.
 struct MacAccountsSettings: View {
     @Environment(MacModel.self) private var model
-    @State private var path: [String] = []
+    /// The account whose page is open (nil: the list). Not a NavigationStack: in the Settings window its back
+    /// button lands in the tab strip as an extra tab; the page carries its own "< Accounts".
+    @State private var open: String?
 
     var body: some View {
-        NavigationStack(path: $path) {
+        Group {
+            if let id = open {
+                VStack(alignment: .leading, spacing: 0) {
+                    Button { withAnimation(Yoin.spatial) { open = nil } } label: {
+                        HStack(spacing: 4) {
+                            YoinIcon("chevron_left", size: 16)
+                            Text("Accounts")
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.link)
+                    .keyboardShortcut("[", modifiers: .command)
+                    .padding(.horizontal, 20).padding(.top, 12)
+                    MacAccountPage(profileId: id) { withAnimation(Yoin.spatial) { open = nil } }
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
             Form {
                 Section("Accounts") {
                     ForEach(model.session.profiles) { p in
-                        NavigationLink(value: p.id) {
+                        Button { withAnimation(Yoin.spatial) { open = p.id } } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(p.title)
@@ -21,8 +39,11 @@ struct MacAccountsSettings: View {
                                 }
                                 Spacer()
                                 if p.id == model.session.activeId { Text("In Use").foregroundStyle(.secondary) }
+                                YoinIcon("chevron_right", size: 14).foregroundStyle(.secondary)
                             }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
                     if model.session.profiles.isEmpty {
                         Text("Not signed in").foregroundStyle(.secondary)
@@ -34,13 +55,14 @@ struct MacAccountsSettings: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationDestination(for: String.self) { MacAccountPage(profileId: $0) }
+            .transition(.opacity)
+            }
         }
         #if DEBUG
         // `-settingsAccount active` (QA screenshots): the account in use's page.
         .task {
             if UserDefaults.standard.string(forKey: "settingsAccount") == "active", let id = model.session.activeId {
-                path = [id]
+                open = id
             }
         }
         #endif
@@ -50,8 +72,9 @@ struct MacAccountsSettings: View {
 /// One account: who it is, Switch / Remove, then the settings that belong to its service.
 struct MacAccountPage: View {
     var profileId: String
+    /// Back to the list (after Remove).
+    var close: () -> Void = {}
     @Environment(MacModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
     @AppStorage(MacSettings.streamQualityKey) private var quality = StreamQuality.original.key
 
     static func serviceName(_ s: MacSession.Profile.Service) -> String {
@@ -87,14 +110,13 @@ struct MacAccountPage: View {
                         Button("Remove", role: .destructive) {
                             if active { model.signedOut() }
                             model.session.remove(p.id)
-                            dismiss()
+                            close()
                         }
                     }
                 }
                 serviceSettings(p, active: active)
             }
             .formStyle(.grouped)
-            .navigationTitle(p.title)
         } else {
             Text("This account was removed.").foregroundStyle(.secondary)
         }
