@@ -65,7 +65,19 @@ iOS `Data/NeoDB` and `AlbumNeoDBSync` compile into the Mac (the iOS rate-sheet v
 
 ## Lyrics tools
 
-Now Playing › Lyrics header: Translate (the source's own translation from the shared `LyricsRegistry`: the current source, else the next automatic source that serves the language, whose lyrics come with it) and Search (all providers; a pick is remembered per account and song, `lyricsChoice.<account>.<song>`). Gemini lyrics translation isn't offered on the Mac yet (the key in Settings drives Song About only).
+Now Playing › Lyrics header: Translate (the source's own translation from the shared `LyricsRegistry`: the current source, else the next automatic source that serves the language, whose lyrics come with it) and Search (all providers; a pick is remembered per account and song, `lyricsChoice.<account>.<song>`). Lyrics a source can't translate go to Gemini with the listener's key, as on iOS: only the sung lines, cached per song / language / model (LyricsUserStore), one target language from Settings for the sources and Gemini; a note says when the lyrics are already that language, there's no key, or Gemini failed.
+
+## Album scrapbook
+
+The album page switches Songs | Scrapbook. `MacAlbumScrapbook` lays out iOS AlbumScrapbookView's pieces on one centered lane: the cover with the `ScoreEmblem` stamp (its award plays once the page rests; no haptics, no tilt on the Mac), the Memory title (click to rename; the sparkle restores Yoin's), Last Play, the review clipping (click: the Rate sheet) or the blank pen, tickets (clusters for notes / the best score, contact sheets of two), notes clippings, the receipt. A ticket's click opens its score (0–10, Clear) and notes (add, edit, delete) in place. iOS `ScoreEmblem`, `GrooveAward`, `GrooveTilt` (stand-in), `YoinFont` (with the variable font) and `ScrapbookPaper` compile into the Mac.
+
+## Library
+
+Albums / Artists / Playlists sort as on iOS (`LibrarySort.swift` compiled in: Recents, Recently added, Alphabetical, Creator — only the orders the data backs), per view (`librarySort.<view>`), Recents from this Mac's history. A jump bar on the right edge lists the sort's runs (`LibraryScrollIndex`); a click jumps there. Subsonic Songs come from iOS `NewestAlbumSongsPager` (newest albums' songs, more near the end, Retry on a failed page).
+
+## First-run landing
+
+`MacLandingView`: the iOS mascot (`LandingMascot`, `LandingMascotPaths`, `YoinMarkPaths`) flies in, waves and says the hello bubble (`landingBubble`); Get started → the sign-in page. `LandingGate` (iOS `LandingModels`) decides: once per install (`landing_done_v1`), never for an install that already has an account. `-macScreen landing` forces it.
 
 ## Playlists, history, Home
 
@@ -87,10 +99,8 @@ Needs, once, in the developer portal: an explicit App ID `com.gpo.yoin.mac` with
 
 ## Not on the Mac yet
 
-- Gemini lyrics translation (Song About uses the key; translation still comes only from the lyrics source).
-- The album scrapbook (iOS album page: memory stamp, notes on the album, song notes in place); the Mac album page has the Rate sheet only.
-- Library sorting and the fast scroller; the newest-album songs pager.
-- The first-run Landing (mascot intro); the Mac opens on sign-in.
+- The landing's later steps (service picker, About, in-landing sign-in forms, Welcome guide re-run); the Mac's landing is the mascot's hello, then the sign-in page.
+- An album note (the scrapbook's sticky; not synced or written on iOS either).
 - Spotify plays one song at a time over Connect (no Spotify-side queue); no App Remote features (cover from Spotify's player, its own up-next).
 - Spotify / Apple Music five-star ratings stay local (the services have none); Apple Music library add is add-only.
 - Offline downloads for Apple Music and Spotify (Subsonic only).
