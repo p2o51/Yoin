@@ -77,6 +77,8 @@ struct NowPlayingView: View, Equatable {
     /// cleared or re-aligned to now. Save files it there, not on whatever
     /// plays by then.
     @State private var draftTarget: NoteTarget?
+    /// The kept draft is going back in: its song and moment stand (no re-align to now).
+    @State private var restoringDraft = false
     @State private var notesSaved = 0
     @FocusState private var composerFocused: Bool
     /// The Ask Gemini bar's question (Android `AskGeminiBar` draft) and its field.
@@ -139,6 +141,19 @@ struct NowPlayingView: View, Equatable {
                 ratingTargetReplaced()
             }
             .onChange(of: draft) { old, new in draftChanged(from: old, to: new) }
+            // The new note's draft outlives this view (C-F2): kept per account, back on the next open.
+            .onAppear { restoreDraft() }
+            .onChange(of: model.store.homeScope) { old, _ in
+                // Another account: this one's words stay with it.
+                NoteDraftStore.shared.save(keptDraft, scope: old)
+                if editingNoteId == nil {
+                    draft = ""
+                    draftAnchorMs = nil
+                    draftTarget = nil
+                }
+                restoreDraft()
+            }
+            .onChange(of: keptDraft) { _, kept in NoteDraftStore.shared.save(kept, scope: model.store.homeScope) }
             .task(id: lyricToolsIdleEligible) { await trackLyricToolsIdle(lyricToolsIdleEligible) }
             // Any touch on the player re-arms the count (passive: it never
             // takes a touch from anything).
@@ -2050,7 +2065,27 @@ struct NowPlayingView: View, Equatable {
 
     /// Android NoteDraft.edit: an unbound draft, or an emptied one still bound
     /// to a song that has ended, binds to what plays with its first word.
+    /// The new note's unsaved draft as it is kept: the composer's while it holds a new note, the
+    /// parked one while a saved note is being edited.
+    private var keptDraft: NoteDraftStore.Draft? {
+        if editingNoteId != nil {
+            return parkedDraft.map { .init(words: $0.words, anchorMs: $0.anchorMs, target: $0.target.map(NoteDraftStore.Draft.Target.init)) }
+        }
+        return .init(words: draft, anchorMs: draftAnchorMs, target: draftTarget.map(NoteDraftStore.Draft.Target.init))
+    }
+
+    /// The account's kept draft into an idle composer (never over words being written or an edit).
+    private func restoreDraft() {
+        guard editingNoteId == nil, draft.isEmpty, let kept = NoteDraftStore.shared.draft(scope: model.store.homeScope)
+        else { return }
+        restoringDraft = true
+        draftTarget = kept.target?.noteTarget
+        draftAnchorMs = kept.anchorMs
+        draft = kept.words
+    }
+
     private func draftChanged(from old: String, to new: String) {
+        if restoringDraft { restoringDraft = false; return }
         guard editingNoteId == nil, old.isEmpty, !new.isEmpty else { return }
         let current = currentNoteTarget
         if draftTarget == nil || draftTarget?.sameSong(current) == false {
