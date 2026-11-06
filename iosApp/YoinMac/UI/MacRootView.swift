@@ -4,6 +4,8 @@ import SwiftUI
 struct MacGate: View {
     @Environment(MacModel.self) private var model
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
         Group {
@@ -20,11 +22,26 @@ struct MacGate: View {
             }
         }
         .frame(minWidth: 640, minHeight: 600)
+        #if DEBUG
+        // A QA launch (-silentAudio / -macScreen) says so on the window, so it can't pass for the normal app:
+        // a muted run neither plays nor reads Spotify.
+        .overlay(alignment: .top) {
+            if MacLaunch.qaMarker != nil {
+                Text(MacLaunch.qaMarker ?? "")
+                    .font(.gsf(11.5, .semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(Capsule().fill(Color.orange))
+                    .padding(.top, 8)
+                    .allowsHitTesting(false)
+            }
+        }
+        #endif
         .animation(Yoin.spatial, value: model.session.isSignedIn)
         .onChange(of: model.session.accountKey) { model.accountDidChange() }
         .onOpenURL { _ = CloudSync.handle(url: $0) }
         .task { await MacQA.endTourLanding(model) }
         #if DEBUG
+        .task { await MacQATour.run(model, openWindow: openWindow, dismissWindow: dismissWindow, openSettings: openSettings) }
         // `-openSettings YES` (QA screenshots): the Settings window, a moment after launch.
         .task {
             guard UserDefaults.standard.bool(forKey: "openSettings") else { return }

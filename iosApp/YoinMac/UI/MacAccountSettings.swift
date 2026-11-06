@@ -59,6 +59,9 @@ struct MacAccountsSettings: View {
             }
         }
         #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: MacQATour.accountPage)) { n in
+            open = n.object as? String
+        }
         // `-settingsAccount active` (QA screenshots): the account in use's page.
         .task {
             if UserDefaults.standard.string(forKey: "settingsAccount") == "active", let id = model.session.activeId {

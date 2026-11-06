@@ -94,6 +94,16 @@ struct YoinIcon: View {
 enum MacLaunch {
     static var screen: String? { UserDefaults.standard.string(forKey: "macScreen") }
     static var silentAudio: Bool { UserDefaults.standard.bool(forKey: "silentAudio") }
+
+    #if DEBUG
+    /// The window's marker for a QA launch ("QA · muted", "QA · fulltour"); nil for a normal launch.
+    static var qaMarker: String? {
+        var parts: [String] = []
+        if let screen { parts.append(screen) }
+        if silentAudio { parts.append("muted") }
+        return parts.isEmpty ? nil : "QA · " + parts.joined(separator: " · ")
+    }
+    #endif
 }
 
 func formatTime(_ sec: Int) -> String {

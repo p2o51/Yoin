@@ -103,7 +103,10 @@ Space play / pause · ⌘→ / ⌘← next / previous · ⌘D like · ⇧⌘P No
 
 ## QA launch arguments (Debug)
 
-`-silentAudio YES` (muted), `-ApplePersistenceIgnoreState YES`, `-qaServer URL -qaUser U -qaPassword P` (signs in when signed out), `-macScreen library|album|artist|np-panel|np-full|np-focus|search`, `-macAppearance light|dark`, `-macWindowSize 1280x820`. Fake server: `python3 ~/Developer/Yoin-archive/promo-demo-2026-11-02/demo_subsonic.py 4977`.
+Rule (2026-11-06): every QA / tour launch ends by quitting it and opening the normal app with no arguments (`open …/Debug/Yoin.app`), then `ps -o args` to check. A `-silentAudio` run neither plays nor reads Spotify, so left running it looks like a broken Yoin; in Debug the window shows an orange "QA · …" marker while any QA argument is set.
+
+
+`-silentAudio YES` (muted), `-ApplePersistenceIgnoreState YES`, `-qaServer URL -qaUser U -qaPassword P` (signs in when signed out), `-macScreen library|album|artist|scrapbook|np-panel|np-full|np-focus|search|landing|tour|fulltour`, `-macAppearance light|dark`, `-macWindowSize 1280x820`. Fake server: `python3 ~/Developer/Yoin-archive/promo-demo-2026-11-02/demo_subsonic.py 4977`.
 
 ## Apple Music
 

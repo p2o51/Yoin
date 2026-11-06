@@ -91,6 +91,11 @@ struct MacAlbumDetail: View {
             .padding(.bottom, 142)
         }
         .task(id: seed.id) { await model.library.loadAlbum(seed.id.rawId) }
+        #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: MacQATour.albumPage)) { n in
+            if let p = n.object as? Int { withAnimation(Yoin.spatial) { page = p } }
+        }
+        #endif
     }
 
     private func kindLabel(_ a: Album) -> String {

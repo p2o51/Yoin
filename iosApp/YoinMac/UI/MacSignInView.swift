@@ -235,6 +235,9 @@ struct MacSettingsView: View {
         }
         .frame(width: 520, height: 440)
         #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: MacQATour.settingsTab)) { n in
+            if let t = n.object as? String { tab = t }
+        }
         // `-settingsTour YES` (QA screenshots): the account page first, then General.
         .task {
             guard UserDefaults.standard.bool(forKey: "settingsTour") else { return }
