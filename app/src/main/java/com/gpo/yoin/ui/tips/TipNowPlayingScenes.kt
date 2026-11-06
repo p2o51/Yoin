@@ -3,9 +3,22 @@ package com.gpo.yoin.ui.tips
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.withFrameMillis
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import com.gpo.yoin.ui.nowplaying.DotLayers
+import com.gpo.yoin.ui.nowplaying.EdgeBandState
+import com.gpo.yoin.ui.nowplaying.StageColumnPose
+import com.gpo.yoin.ui.nowplaying.drawEdgeBand
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
@@ -170,10 +183,10 @@ internal fun CoverMenuDemo(playing: Boolean, keepScreenOn: Boolean) {
 }
 
 /**
- * Tap the cover → Focus: the top bar, the rating column, the tabs and the
- * pills step aside and the cover grows; tap it again and they come back.
- * (The real Focus is Now Playing's immersive stage; here the same pieces
- * retreat on the same springs.)
+ * Tap the cover → Focus, laid out by the real height budget's focus pose: the
+ * top bar, the rating column, the tabs and the pills step away, the cover
+ * grows and the column narrows to it, centred, while the edge band bursts out
+ * around it; tap it again and the rest pose comes back.
  */
 @Composable
 internal fun FocusCoverDemo(playing: Boolean) {
@@ -278,8 +291,26 @@ internal fun NoteMomentsDemo(playing: Boolean) {
     }
 }
 
-/** How much the demo cover grows in Focus: into the rating column it frees. */
-private const val FocusCoverScale = 1.12f
+/** The edge band's dot layers, as Now Playing's background keeps them. */
+private const val DemoEdgeBandLayers = 12
+
+private fun lerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
+
+/** Every slot of the column between [rest] and [focus]; the lyric frame switches halfway. */
+private fun lerpPose(rest: StageColumnPose, focus: StageColumnPose, f: Float): StageColumnPose = StageColumnPose(
+    topBar = lerpDp(rest.topBar, focus.topBar, f),
+    cover = lerpDp(rest.cover, focus.cover, f),
+    coverGap = lerpDp(rest.coverGap, focus.coverGap, f),
+    tabs = lerpDp(rest.tabs, focus.tabs, f),
+    tabGap = lerpDp(rest.tabGap, focus.tabGap, f),
+    lyricSlot = lerpDp(rest.lyricSlot, focus.lyricSlot, f),
+    lyricFrame = if (f < 0.5f) rest.lyricFrame else focus.lyricFrame,
+    controls = lerpDp(rest.controls, focus.controls, f),
+    hero = lerpDp(rest.hero, focus.hero, f),
+    accessory = lerpDp(rest.accessory, focus.accessory, f),
+    lower = rest.lower + (focus.lower - rest.lower) * f,
+    upper = rest.upper + (focus.upper - rest.upper) * f,
+)
 
 /** The phone's x for [fraction] along the wave progress bar. */
 private fun barX(fraction: Float): Float = BarStartX + (BarEndX - BarStartX) * fraction.coerceIn(0f, 1f)
@@ -335,17 +366,36 @@ private fun DemoNowPlaying(
     onCoverClick: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
-    // Focus: the chrome fades on the effects spring, the cover grows on the spatial one.
+    // Focus as Now Playing does it (PR #120): the column moves from the
+    // budget's rest pose to its focus pose on the spatial spring — the top
+    // bar, the rating column, the tabs and the pills step away, the cover
+    // grows and the column narrows to it, centred — and the retreating
+    // pieces fade on the effects spring. The edge band bursts out around it.
+    val focus by animateFloatAsState(
+        targetValue = if (focused) 1f else 0f,
+        animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Expressive),
+        label = "tipFocus",
+    )
     val chrome by animateFloatAsState(
         targetValue = if (focused) 0f else 1f,
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "tipFocusChrome",
     )
-    val coverScale by animateFloatAsState(
-        targetValue = if (focused) FocusCoverScale else 1f,
-        animationSpec = YoinMotion.defaultSpatialSpec(),
-        label = "tipFocusCover",
-    )
+    val band = remember { EdgeBandState() }
+    val bandDots = remember { DotLayers(DemoEdgeBandLayers) }
+    val clock = remember { mutableFloatStateOf(0f) }
+    // The band's clock (ms) runs only while focused; entering focus bursts it.
+    LaunchedEffect(focused) {
+        if (!focused) return@LaunchedEffect
+        band.enter(clock.floatValue)
+        val base = clock.floatValue
+        val start = withFrameMillis { it }
+        while (true) {
+            withFrameMillis { t -> clock.floatValue = base + (t - start) }
+        }
+    }
+    var coverBounds by remember { mutableStateOf(Rect.Zero) }
+    var stageOrigin by remember { mutableStateOf(Offset.Zero) }
     val album = DemoAlbums[0]
     val cover = demoCoverUrl(album)
     val lyrics = demoLyrics()
@@ -399,8 +449,39 @@ private fun DemoNowPlaying(
         val budget = remember(maxWidth, maxHeight, metrics) {
             resolveStageColumnBudget(maxWidth, maxHeight, metrics)
         }
-        val pose = budget.rest
-        Column(modifier = Modifier.fillMaxSize()) {
+        val pose = lerpPose(budget.rest, budget.focus ?: budget.rest, focus)
+        val liveWidth = lerpDp(maxWidth, budget.focusStageWidth, focus)
+        val palette = remember(colors) {
+            intArrayOf(colors.primary.toArgb(), colors.tertiary.toArgb(), colors.secondary.toArgb(), colors.primaryContainer.toArgb())
+        }
+        val dark = colors.surface.luminance() < 0.5f
+        Canvas(
+            modifier = Modifier
+                .matchParentSize()
+                .onGloballyPositioned { stageOrigin = it.positionInRoot() },
+        ) {
+            val t = clock.floatValue
+            if (focus > 0.01f && band.alive(t)) {
+                drawEdgeBand(
+                    state = band,
+                    dots = bandDots,
+                    nowMs = t,
+                    focus = focus,
+                    playing = if (playing) 1f else 0f,
+                    cover = coverBounds.translate(-stageOrigin),
+                    lyrics = null,
+                    palette = palette,
+                    primary = colors.primary,
+                    dark = dark,
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(liveWidth)
+                .offset(x = (maxWidth - liveWidth) / 2),
+        ) {
             StageTopBar(
                 state = state,
                 stageMode = NowPlayingStageMode.Compact,
@@ -427,12 +508,7 @@ private fun DemoNowPlaying(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .zIndex(1f)
-                        .graphicsLayer {
-                            scaleX = coverScale
-                            scaleY = coverScale
-                            transformOrigin = TransformOrigin(0f, 0f)
-                        },
+                        .onGloballyPositioned { coverBounds = it.boundsInRoot() },
                 ) {
                     AlbumCover(
                         songId = state.songId,
@@ -461,12 +537,15 @@ private fun DemoNowPlaying(
                             ),
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(12.dp * (1f - focus)))
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .width(56.dp)
+                        .width(56.dp * (1f - focus))
                         .fillMaxHeight()
+                        .clipToBounds()
+                        .wrapContentWidth(Alignment.Start, unbounded = true)
+                        .width(56.dp)
                         .graphicsLayer { alpha = chrome },
                 ) {
                     NowPlayingRatingBar(
