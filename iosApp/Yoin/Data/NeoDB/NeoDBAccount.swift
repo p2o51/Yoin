@@ -78,14 +78,17 @@ final class NeoDBAccount {
     @discardableResult
     func save(instance raw: String, token rawToken: String) -> Bool {
         guard let normalized = Self.normalizeInstance(raw) else { return false }
-        setInstance(normalized)
         let t = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty {
+            setInstance(normalized)
             signOut()
             return true
         }
+        // The token first: a refused one leaves the instance and token as they were, never the old
+        // token paired with the new instance (Codex, 2026-11-06).
         let status = tokens.save(t)
         guard status == errSecSuccess || status == errSecMissingEntitlement else { return false }
+        setInstance(normalized)
         token = t
         return true
     }

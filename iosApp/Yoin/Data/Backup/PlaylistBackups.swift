@@ -119,6 +119,10 @@ final class PlaylistBackups {
 
     /// Starts [rawId]'s backup on [source], or — when it already has one — backs it up again now.
     func backUp(rawId: String, from source: Source) async throws -> PlaylistBackupRecord {
+        try await oneAtATime("\(source.profileId)|\(rawId)") { [self] in try await backUpNow(rawId: rawId, from: source) }
+    }
+
+    private func backUpNow(rawId: String, from source: Source) async throws -> PlaylistBackupRecord {
         guard let playlist = try await source.readPlaylist(rawId) else { throw BackupError.notFound }
         let t = now()
         let record = existing(of: playlist.id, on: source)
@@ -144,7 +148,25 @@ final class PlaylistBackups {
             guard let id = r.sourceProfileId else { return true }
             return Self.owner(of: id, provider: r.sourceProvider, in: profiles) == nil
         }
-        return unclaimed.first { $0.sourceProfileLabel == source.label } ?? unclaimed.first { $0.sourceProfileId == nil }
+        let named = unclaimed.first { $0.sourceProfileLabel == source.label }
+        // A Subsonic playlist id means something on one server only: another account's row with the same id
+        // is another playlist (Codex, 2026-11-06). Spotify and Apple Music ids are the same everywhere.
+        if source.provider == AccountScope.subsonicProvider { return named }
+        return named ?? unclaimed.first { $0.sourceProfileId == nil }
+    }
+
+    /// Reads and saves of one account's playlist, one at a time: two in flight (a backup from the menu and a
+    /// follow on return) could save the older read last (Codex, 2026-11-06).
+    @ObservationIgnored private var lanes: [String: Task<Void, Never>] = [:]
+
+    private func oneAtATime<T: Sendable>(_ key: String, _ body: @escaping @MainActor () async throws -> T) async throws -> T {
+        let previous = lanes[key]
+        let task = Task { @MainActor () async throws -> T in
+            await previous?.value
+            return try await body()
+        }
+        lanes[key] = Task { _ = try? await task.value }
+        return try await task.value
     }
 
     enum BackupError: Error { case notFound, notSaved, notHere }
@@ -271,6 +293,13 @@ final class PlaylistBackups {
 
     func follow(_ backup: PlaylistBackupRecord, source: Source, listed: Set<String>) async -> FollowResult {
         guard let rawId = PlaylistSnapshots.shared.rawIdOf(id: backup.sourcePlaylistId) else { return .skipped }
+        return (try? await oneAtATime("\(source.profileId)|\(rawId)") { [self] in
+            await followNow(backup, rawId: rawId, source: source, listed: listed)
+        }) ?? .skipped
+    }
+
+    private func followNow(_ backup: PlaylistBackupRecord, rawId: String, source: Source,
+                           listed: Set<String>) async -> FollowResult {
         if !listed.contains(backup.sourcePlaylistId) {
             // The list was awaited by the caller (and earlier backups in the batch): a deleted row stays deleted.
             guard let current = store.record(backup.id) else { return .skipped }

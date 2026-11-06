@@ -2004,7 +2004,11 @@ struct NowPlayingView: View, Equatable {
         let target = draftTarget ?? currentNoteTarget
         guard NotesStore.shared.add(provider: target.provider, trackId: target.rawId, content: draft,
                                     positionMs: draftAnchorMs, title: target.title, artist: target.artist) != nil
-        else { return }
+        else {
+            // Blank words do nothing; words that couldn't be saved stay in the field.
+            if draft.contains(where: { !$0.isWhitespace }) { PlaylistActions.shared.show("Couldn't save the note") }
+            return
+        }
         notesSaved += 1
         draft = ""
         // The keyboard stays up for the next line, filed at the next moment

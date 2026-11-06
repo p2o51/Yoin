@@ -268,7 +268,32 @@ final class PlaylistBackupTests: XCTestCase {
         let adoptedByB = try await service3.backUp(rawId: "pl-1", from: b)
         let adoptedByA = try await service3.backUp(rawId: "pl-1", from: a)
         XCTAssertEqual(adoptedByB.id, "synced-bob")
-        XCTAssertEqual(adoptedByA.id, "synced-x")
+        // Another account's Subsonic playlist with the same id is another playlist (Codex, 2026-11-06).
+        XCTAssertNotEqual(adoptedByA.id, "synced-x")
+        XCTAssertEqual(s3.record("synced-x")?.name, "Commute", "left as it was")
+    }
+
+    func test_should_saveTheLaterRead_when_twoBackupsOfOnePlaylistOverlap() async throws {
+        let s = store()
+        let service = PlaylistBackups(store: s, accounts: StubAccounts([subsonic("p-demo", user: "demo", url: "http://d")])) {
+            [unowned self] in self.clock
+        }
+        var reads = 0
+        // The first read is slow and older; the second, started while it waits, is newer.
+        let src = PlaylistBackups.Source(provider: "subsonic", profileId: "p-demo", label: "demo",
+                                         listPlaylists: { ["subsonic:pl-1"] },
+                                         readPlaylist: { _ in
+                                             reads += 1
+                                             let n = reads
+                                             if n == 1 { try await Task.sleep(for: .milliseconds(300)) }
+                                             return self.playlist([self.track("s1", "A", "B")], name: n == 1 ? "Old" : "New")
+                                         })
+        async let first = service.backUp(rawId: "pl-1", from: src)
+        try await Task.sleep(for: .milliseconds(50))
+        async let second = service.backUp(rawId: "pl-1", from: src)
+        let (a, b) = try await (first, second)
+        XCTAssertEqual(a.id, b.id)
+        XCTAssertEqual(s.record(a.id)?.name, "New")
     }
 
     func test_should_readSubsonicPlaylistAsAndroidDoes_when_snapshotting() {

@@ -44,3 +44,26 @@ final class NeoDBScopeTests: XCTestCase {
         XCTAssertNil(NeoDBMappingStore(fileURL: file, scopes: scopes).externalId(provider: "subsonic", entityId: "1"))
     }
 }
+
+/// A Keychain that refuses every save.
+private struct RefusingTokens: NeoDBTokenStoring {
+    let saved: String?
+    func load() -> String? { saved }
+    func save(_ token: String) -> OSStatus { errSecInteractionNotAllowed }
+    func delete() {}
+}
+
+@MainActor
+final class NeoDBAccountSaveTests: XCTestCase {
+    func test_should_keepTheOldInstance_when_theKeychainRefusesTheToken() throws {
+        let suite = "neodb-save-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("https://old.test", forKey: "neoDBInstance")
+        let account = NeoDBAccount(tokens: RefusingTokens(saved: "old-token"), defaults: defaults)
+        XCTAssertFalse(account.save(instance: "https://new.test", token: "new-token"))
+        XCTAssertEqual(account.instance, "https://old.test")
+        XCTAssertEqual(defaults.string(forKey: "neoDBInstance"), "https://old.test")
+        XCTAssertEqual(account.token, "old-token")
+    }
+}
