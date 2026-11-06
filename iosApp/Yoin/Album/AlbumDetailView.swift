@@ -408,7 +408,11 @@ struct AlbumDetailView: View {
                     Text(album.title)
                         .lineLimit(1)
                         .yoinRole(Tokens.type.headlineSmall)
-                        .foregroundStyle(white ? .white : s.primary)
+                        // Light Strip: over the feathered spectrum the cover's
+                        // primary is the strip's own hue, so it turns to body ink.
+                        .foregroundStyle(white ? .white : stripBar && !dark
+                                         ? s.primary.mix(with: app.onSurface, by: smooth(p, 0.4, 0.8), in: .perceptual)
+                                         : s.primary)
                     // DetailMetaLine in bodyMedium, groups 12 apart, no separators:
                     // album [artist] [Album] [year]; playlist [owner] [Playlist].
                     // The kind is Medium in primary. The white twin over the bar:
