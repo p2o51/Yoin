@@ -660,6 +660,16 @@ final class MacModel {
         return library.isStarred(songId: t.id, fallback: currentEntry?.track.starred ?? t.starred ?? false)
     }
 
+    /// Removes an account. The one in use hands over to another saved account (the first left); only
+    /// with none left does the app go back to sign-in.
+    func removeAccount(_ id: String) {
+        let wasActive = id == session.activeId
+        if wasActive { signedOut() }
+        session.remove(id)
+        guard wasActive, let next = session.profiles.first else { return }
+        session.switchTo(next.id)
+    }
+
     /// Fast switch: what the previous account showed goes, the other one comes in.
     func switchAccount(_ id: String) {
         guard id != session.activeId || !session.isSignedIn else { return }

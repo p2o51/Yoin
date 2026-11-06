@@ -111,8 +111,7 @@ struct MacAccountPage: View {
                         }
                         Spacer()
                         Button("Remove", role: .destructive) {
-                            if active { model.signedOut() }
-                            model.session.remove(p.id)
+                            model.removeAccount(p.id)
                             close()
                         }
                     }
