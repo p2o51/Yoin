@@ -278,11 +278,30 @@ final class PlayerEngineTests: XCTestCase {
         XCTAssertEqual(ids, ["t1", "t9", "t7", "t8", "t2", "t3"])
     }
 
-    func test_should_load_without_playing_when_queueing_into_empty_player() {
+    func test_should_wait_for_play_when_queueing_into_empty_player() {
         engine.addToQueue(track(5))
         XCTAssertEqual(engine.currentTrack?.id, "t5")
         XCTAssertFalse(engine.isPlaying)
+        // Nothing loaded: Spotify's output would start the song on load.
+        XCTAssertEqual(output.loads, 0)
+        XCTAssertFalse(output.playing)
+        engine.resume()
+        XCTAssertTrue(engine.isPlaying)
         XCTAssertEqual(output.loaded?.absoluteString, "http://x/stream?id=t5")
+        XCTAssertTrue(output.playing)
+    }
+
+    func test_should_keep_order_and_wait_when_cueing_several_into_empty_player() {
+        engine.cue(queue: tracks(3))
+        XCTAssertEqual(ids, ["t1", "t2", "t3"])
+        XCTAssertEqual(engine.currentTrack?.id, "t1")
+        XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(output.loads, 0)
+        engine.addToQueue(track(9))
+        XCTAssertEqual(ids, ["t1", "t2", "t3", "t9"])
+        engine.togglePlayPause()
+        XCTAssertTrue(output.playing)
+        XCTAssertEqual(output.loaded?.absoluteString, "http://x/stream?id=t1")
     }
 
     func test_should_keep_current_and_repreload_when_moving() {
@@ -374,10 +393,12 @@ final class PlayerEngineTests: XCTestCase {
 
     func test_should_announce_then_submit_at_half_when_listening() {
         var calls: [(String, Bool)] = []
-        engine.onScrobble = { calls.append(($0.id, $1)) }
+        engine.onScrobble = { calls.append(($0.id, $1)); _ = $2 }
         engine.play(queue: [track(1, duration: 100)])
+        XCTAssertEqual(calls.count, 0, "announced once the output really plays")
+        output.tick(to: 0.25)
         XCTAssertEqual(calls.map(\.1), [false])
-        var t = 0.0
+        var t = 0.25
         while t < 49 { t += 0.25; output.tick(to: t) }
         XCTAssertEqual(calls.count, 1)
         output.tick(to: 50.25)
@@ -388,7 +409,7 @@ final class PlayerEngineTests: XCTestCase {
 
     func test_should_submit_at_four_minutes_when_song_is_long() {
         var submitted = false
-        engine.onScrobble = { if $1 { submitted = true } }
+        engine.onScrobble = { if $1 { submitted = true }; _ = $2 }
         engine.play(queue: [track(1, duration: 600)])
         var t = 0.0
         while t < 239.5 { t += 0.25; output.tick(to: t) }
@@ -399,7 +420,7 @@ final class PlayerEngineTests: XCTestCase {
 
     func test_should_not_count_seeks_as_listening() {
         var submitted = false
-        engine.onScrobble = { if $1 { submitted = true } }
+        engine.onScrobble = { if $1 { submitted = true }; _ = $2 }
         engine.play(queue: [track(1, duration: 100)])
         engine.seek(to: 90)
         output.tick(to: 90.25)
@@ -409,7 +430,7 @@ final class PlayerEngineTests: XCTestCase {
 
     func test_should_not_submit_short_songs() {
         var calls = 0
-        engine.onScrobble = { _, _ in calls += 1 }
+        engine.onScrobble = { _, _, _ in calls += 1 }
         engine.play(queue: [track(1, duration: 20)])
         var t = 0.0
         while t < 19 { t += 0.25; output.tick(to: t) }
@@ -433,12 +454,36 @@ final class PlayerEngineTests: XCTestCase {
         XCTAssertFalse(engineChanged.set)
     }
 
+    func test_should_notAnnounce_when_theStartNeverPlays() {
+        var calls = 0
+        engine.onScrobble = { _, _, _ in calls += 1 }
+        engine.play(queue: [track(1, duration: 100)])
+        output.events?.outputDidFail("No connection", network: true)
+        engine.retry()
+        XCTAssertEqual(calls, 0)
+        output.tick(to: 0.25)
+        XCTAssertEqual(calls, 1, "one play once it sounds")
+    }
+
+    func test_should_passTheListenedTime_when_aSeekSkippedPartOfTheSong() {
+        var listened: Double?
+        engine.onScrobble = { if $1 { listened = $2 } }
+        engine.play(queue: [track(1, duration: 100)])
+        engine.seek(to: 30)
+        var t = 30.0
+        while listened == nil, t < 100 { t += 0.25; output.tick(to: t) }
+        XCTAssertEqual(listened ?? 0, 50, accuracy: 0.5)
+        XCTAssertGreaterThan(t, 79)
+    }
+
     func test_should_announce_each_repeat_one_play() {
         var announces = 0
-        engine.onScrobble = { if !$1 { announces += 1 } }
+        engine.onScrobble = { if !$1 { announces += 1 }; _ = $2 }
         engine.setRepeat(.one)
         engine.play(queue: tracks(2))
+        output.tick(to: 0.25)
         output.finishItem()
+        output.tick(to: 0.25)
         XCTAssertEqual(announces, 2)
     }
 }

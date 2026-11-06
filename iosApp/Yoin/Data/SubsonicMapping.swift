@@ -126,7 +126,7 @@ struct SubsonicMapping {
         let n = Self.int(p.songCount) ?? 0
         return LibraryItem(id: MediaId(provider: p.ref.provider, rawId: p.id), kind: .playlist, title: p.name,
                            subtitle: "Playlist · \(n) songs", palette: palette(coverId: p.coverArtId), count: n,
-                           owner: p.owner)
+                           owner: p.owner, ownedByMe: p.ownedByMe?.boolValue)
     }
 
     func playlist(_ d: PlaylistDetail) -> PlaylistInfo {
@@ -137,7 +137,8 @@ struct SubsonicMapping {
                             isPublic: p.isPublic?.boolValue,
                             description: comment?.isEmpty == false ? comment : nil,
                             palette: palette(coverId: p.coverArtId),
-                            entries: d.entries.enumerated().map { i, s in entry(s, index: i) })
+                            entries: d.entries.enumerated().map { i, s in entry(s, index: i) },
+                            ownedByMe: p.ownedByMe?.boolValue, canWrite: p.canWrite)
     }
 
     /// Releases newest first; Most Played = the loaded albums' songs by play count (top 5).

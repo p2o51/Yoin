@@ -14,6 +14,8 @@ struct HomeView: View {
     /// The Memories bubble's motion and turns (HomeMemoryBubble.swift).
     @State private var bubble = MemoryBubbleController()
     @State private var scroll = HomeScrollState()
+    /// How far the window runs past Home's frame (status bar above, bottom bar below): Memories covers it.
+    @State private var pageBleed = EdgeInsets()
 
     /// App-wide tokens follow the playing cover (design.md 颜色系统 3).
     private var scheme: CoverScheme { CoverScheme(seed: model.accent, dark: colorScheme == .dark) }
@@ -65,12 +67,25 @@ struct HomeView: View {
                                 covered: covered, edit: edit)
             if memories.mounted {
                 MemoriesView(presentation: memories)
-                    .modifier(MemoriesPagePose(presentation: memories))
+                    // The whole window: under the status bar and the bottom bar too
+                    // (Home's frame stops short of both, and no safe area reaches it).
+                    // The same band comes back as safe area, so the deck lays out where
+                    // it did and only the aurora runs on to the edges.
+                    .safeAreaPadding(.top, pageBleed.top)
+                    .safeAreaPadding(.bottom, pageBleed.bottom)
+                    .padding(.top, -pageBleed.top)
+                    .padding(.bottom, -pageBleed.bottom)
+                    .modifier(MemoriesPagePose(presentation: memories, bleed: pageBleed))
                     .zIndex(2)
                     .transition(.identity)
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { memories.containerHeight = $0 }
+        // Memories' page runs the window's height, and travels it.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            let window = MemoriesView.windowHeight
+            pageBleed = EdgeInsets(top: max(frame.minY, 0), leading: 0, bottom: max(window - frame.maxY, 0), trailing: 0)
+            memories.containerHeight = frame.height + pageBleed.top + pageBleed.bottom
+        }
         .environment(\.homeScheme, scheme)
         .environment(\.homeEdit, edit)
         .task(id: model.store.generation) {

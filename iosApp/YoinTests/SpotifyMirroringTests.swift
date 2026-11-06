@@ -241,6 +241,31 @@ final class SpotifyMirroringTests: XCTestCase {
         XCTAssertEqual(puts.filter { $0 == "/v1/me/player/seek" }.count, 1)
     }
 
+    func test_should_finishTheStart_when_spotifyWokePausedOrWithoutTheSong() {
+        let uri = "spotify:track:4YPQaGKgOWTc16ImN17DA5"
+        typealias O = SpotifyAudioOutput
+        // 51's build 7 log, 16:42: handed back paused at 0 on the song.
+        XCTAssertEqual(O.wakeFinish(playingURI: uri, paused: true, wanted: uri, wantsPlay: true), .resume)
+        XCTAssertEqual(O.wakeFinish(playingURI: "", paused: true, wanted: uri, wantsPlay: true), .play)
+        XCTAssertEqual(O.wakeFinish(playingURI: "spotify:track:other", paused: false, wanted: uri, wantsPlay: true), .play)
+        XCTAssertEqual(O.wakeFinish(playingURI: uri, paused: false, wanted: uri, wantsPlay: true), .none)
+        XCTAssertEqual(O.wakeFinish(playingURI: uri, paused: true, wanted: uri, wantsPlay: false), .none)
+    }
+
+    func test_should_enqueueTheNextOnceTheSongPlays_when_startedOnThisIPhone() {
+        typealias O = SpotifyAudioOutput
+        let song = "spotify:track:6CpYN9MxjHzzvcn71aQdMD"
+        // 51's log, 18:22:38: pos 0 right after the start, then 1, 103, ...
+        XCTAssertFalse(O.readyToEnqueue(waiting: true, stateURI: song, current: song, paused: false, positionMs: 0))
+        XCTAssertTrue(O.readyToEnqueue(waiting: true, stateURI: song, current: song, paused: false, positionMs: 1))
+        XCTAssertFalse(O.readyToEnqueue(waiting: true, stateURI: song, current: song, paused: true, positionMs: 500))
+        XCTAssertFalse(O.readyToEnqueue(waiting: true, stateURI: "spotify:track:x", current: song, paused: false, positionMs: 500))
+        XCTAssertFalse(O.readyToEnqueue(waiting: false, stateURI: song, current: song, paused: false, positionMs: 500))
+        XCTAssertTrue(O.retriesEnqueue(errorCode: -3000, alreadyRetried: false))
+        XCTAssertFalse(O.retriesEnqueue(errorCode: -3000, alreadyRetried: true))
+        XCTAssertFalse(O.retriesEnqueue(errorCode: -1000, alreadyRetried: false))
+    }
+
     func test_should_aimAtTheSong_when_checkingACommand() {
         let aim = SpotifyAudioOutput.Aim(generation: 3, uri: "spotify:track:a")
         XCTAssertTrue(SpotifyAudioOutput.stillAimed(aim, generation: 3, shownURI: "spotify:track:a"))

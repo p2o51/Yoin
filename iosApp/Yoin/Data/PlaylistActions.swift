@@ -148,7 +148,14 @@ final class PlaylistActions {
         if p.id.provider == "mock" { return !store.isReal }
         if p.id.provider == SpotifyMapping.provider { return store.spotify != nil && p.ownedByMe == true }
         guard store.client != nil, p.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return false }
-        return p.owner.isEmpty || p.owner == store.session.account?.username
+        return Self.subsonicCanEdit(p, username: store.session.account?.username)
+    }
+
+    /// The server's readonly flag wins (Android canWrite, read from the playlist); a page not read
+    /// yet falls back to the owner: the user's, or nobody's.
+    nonisolated static func subsonicCanEdit(_ p: PlaylistInfo, username: String?) -> Bool {
+        if let canWrite = p.canWrite { return canWrite }
+        return p.owner.isEmpty || p.owner == username
     }
 
     /// Remove from playlist: as [canEdit], and on Spotify a collaborative playlist too (its songs read).

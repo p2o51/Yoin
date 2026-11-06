@@ -77,6 +77,8 @@ struct NowPlayingView: View, Equatable {
     /// cleared or re-aligned to now. Save files it there, not on whatever
     /// plays by then.
     @State private var draftTarget: NoteTarget?
+    /// The kept draft is going back in: its song and moment stand (no re-align to now).
+    @State private var restoringDraft = false
     @State private var notesSaved = 0
     @FocusState private var composerFocused: Bool
     /// The Ask Gemini bar's question (Android `AskGeminiBar` draft) and its field.
@@ -139,6 +141,19 @@ struct NowPlayingView: View, Equatable {
                 ratingTargetReplaced()
             }
             .onChange(of: draft) { old, new in draftChanged(from: old, to: new) }
+            // The new note's draft outlives this view (C-F2): kept per account, back on the next open.
+            .onAppear { restoreDraft() }
+            .onChange(of: model.store.homeScope) { old, _ in
+                // Another account: this one's words stay with it.
+                NoteDraftStore.shared.save(keptDraft, scope: old)
+                if editingNoteId == nil {
+                    draft = ""
+                    draftAnchorMs = nil
+                    draftTarget = nil
+                }
+                restoreDraft()
+            }
+            .onChange(of: keptDraft) { _, kept in NoteDraftStore.shared.save(kept, scope: model.store.homeScope) }
             .task(id: lyricToolsIdleEligible) { await trackLyricToolsIdle(lyricToolsIdleEligible) }
             // Any touch on the player re-arms the count (passive: it never
             // takes a touch from anything).
@@ -611,13 +626,17 @@ struct NowPlayingView: View, Equatable {
             .accessibilityLabel(stage == .compact ? "Collapse Now Playing" : "Back")
             // DockedCoverSlot: the cover row flies the cover into it.
             Spacer().frame(width: docked ? NowPlayingExpanded.dockedSlot : 0)
-            routeLink(albumRoute(p), label: "Go to album") {
+            let from = playingFrom
+            routeLink(from.route, label: from.hint) {
                 VStack(alignment: .leading, spacing: 0) {
-                    // PlayingFromLabel: labelSmall kind over labelMedium name.
-                    Text("PLAYING FROM ALBUM")
-                        .yoinRole(Tokens.type.labelSmall)
-                        .foregroundStyle(scheme.onSurfaceVariant.opacity(0.55))
-                    Text(p.album.title)
+                    // PlayingFromLabel: labelSmall kind over labelMedium name; started from a list,
+                    // the name alone ("NOW PLAYING", no link).
+                    if let kind = from.kind {
+                        Text(kind)
+                            .yoinRole(Tokens.type.labelSmall)
+                            .foregroundStyle(scheme.onSurfaceVariant.opacity(0.55))
+                    }
+                    Text(from.name)
                         .yoinRole(Tokens.type.labelMedium)
                         .foregroundStyle(scheme.onSurface)
                 }
@@ -1842,6 +1861,26 @@ struct NowPlayingView: View, Equatable {
     }
 
     /// The song's album, when it has a page (not a lone song's stand-in).
+    /// Android PlayingFromLabel: the page the queue was started on (album, playlist, artist), or
+    /// "NOW PLAYING" alone when it came from a list or Spotify plays its own song. The mock: its album.
+    private var playingFrom: (kind: String?, name: String, hint: String, route: (() -> Void)?) {
+        if !model.store.isReal {
+            return ("PLAYING FROM ALBUM", model.playback.album.title, "Go to album", albumRoute(model.playback))
+        }
+        guard model.player.externalTrack == nil, let from = model.playingFrom, !from.title.isEmpty else {
+            return (nil, "NOW PLAYING", "", nil)
+        }
+        let hint = switch from {
+        case .album: "Go to album"
+        case .playlist: "Go to playlist"
+        case .artist: "Go to artist"
+        }
+        return (from.kindLabel, from.title, hint, { [model] in
+            Self.leaveForRoute(model)
+            model.open(from.route)
+        })
+    }
+
     private func albumRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
         let album = p.album
         guard !album.id.rawId.isEmpty, !album.id.rawId.hasPrefix("song:") else { return nil }
@@ -2004,7 +2043,11 @@ struct NowPlayingView: View, Equatable {
         let target = draftTarget ?? currentNoteTarget
         guard NotesStore.shared.add(provider: target.provider, trackId: target.rawId, content: draft,
                                     positionMs: draftAnchorMs, title: target.title, artist: target.artist) != nil
-        else { return }
+        else {
+            // Blank words do nothing; words that couldn't be saved stay in the field.
+            if draft.contains(where: { !$0.isWhitespace }) { PlaylistActions.shared.show("Couldn't save the note") }
+            return
+        }
         notesSaved += 1
         draft = ""
         // The keyboard stays up for the next line, filed at the next moment
@@ -2022,7 +2065,27 @@ struct NowPlayingView: View, Equatable {
 
     /// Android NoteDraft.edit: an unbound draft, or an emptied one still bound
     /// to a song that has ended, binds to what plays with its first word.
+    /// The new note's unsaved draft as it is kept: the composer's while it holds a new note, the
+    /// parked one while a saved note is being edited.
+    private var keptDraft: NoteDraftStore.Draft? {
+        if editingNoteId != nil {
+            return parkedDraft.map { .init(words: $0.words, anchorMs: $0.anchorMs, target: $0.target.map(NoteDraftStore.Draft.Target.init)) }
+        }
+        return .init(words: draft, anchorMs: draftAnchorMs, target: draftTarget.map(NoteDraftStore.Draft.Target.init))
+    }
+
+    /// The account's kept draft into an idle composer (never over words being written or an edit).
+    private func restoreDraft() {
+        guard editingNoteId == nil, draft.isEmpty, let kept = NoteDraftStore.shared.draft(scope: model.store.homeScope)
+        else { return }
+        restoringDraft = true
+        draftTarget = kept.target?.noteTarget
+        draftAnchorMs = kept.anchorMs
+        draft = kept.words
+    }
+
     private func draftChanged(from old: String, to new: String) {
+        if restoringDraft { restoringDraft = false; return }
         guard editingNoteId == nil, old.isEmpty, !new.isEmpty else { return }
         let current = currentNoteTarget
         if draftTarget == nil || draftTarget?.sameSong(current) == false {

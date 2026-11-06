@@ -54,6 +54,10 @@ final class LibraryStore {
     /// Pages and lists on disk (Data/Cache/DetailDiskCache): painted at once, refreshed behind.
     @ObservationIgnored let disk: DetailDiskCache
     @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "library")
+    /// Subsonic plays waiting for the server, and when each song started (its submission's time).
+    @ObservationIgnored let scrobbles: ScrobbleOutbox = .shared
+    @ObservationIgnored private var scrobbleStarts: [String: Int64] = [:]
+    @ObservationIgnored private var flushingScrobbles = false
 
     /// Bumps on every sign-in / sign-out; views key their load tasks on it.
     private(set) var generation = 0
@@ -208,6 +212,8 @@ final class LibraryStore {
     func loadHome(force: Bool = false) async {
         guard force || homePhase == .idle || homePhase == .failed else { return }
         guard isReal else { return }
+        // A launch or an account: plays left over from before go out now.
+        flushScrobbles()
         // The last feed paints at once (Android's Home snapshot); the load below replaces it.
         let gen = generation, epoch = diskEpoch, scope = historyScope
         homePhase = .loading
@@ -514,15 +520,78 @@ final class LibraryStore {
     nonisolated static let homePlaylistLimit = 20
 
     /// An ISO-8601 date (the server's `created`) in epoch ms.
+    ///
+    /// Read by hand: Library sorts by it, and a fresh ISO8601DateFormatter
+    /// per album (two on a miss) cost most of a sort's time on the main
+    /// thread. Anything that isn't `yyyy-MM-ddTHH:mm:ss[.fff](Z|±HH:mm)`
+    /// goes to a shared formatter.
     nonisolated static func epochMs(_ iso: String?) -> Int64? {
         guard let iso else { return nil }
+        if let ms = fastEpochMs(iso) { return ms }
+        let date = isoFractional.date(from: iso) ?? isoPlain.date(from: iso)
+        return date.map { Int64($0.timeIntervalSince1970 * 1000) }
+    }
+
+    // ISO8601DateFormatter is safe to share across threads once configured.
+    nonisolated(unsafe) private static let isoFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = f.date(from: iso) ?? {
-            f.formatOptions = [.withInternetDateTime]
-            return f.date(from: iso)
-        }()
-        return date.map { Int64($0.timeIntervalSince1970 * 1000) }
+        return f
+    }()
+    nonisolated(unsafe) private static let isoPlain = ISO8601DateFormatter()
+
+    nonisolated static func fastEpochMs(_ iso: String) -> Int64? {
+        let b = Array(iso.utf8)
+        func num(_ from: Int, _ count: Int) -> Int? {
+            guard from + count <= b.count else { return nil }
+            var n = 0
+            for c in b[from..<from + count] {
+                guard c >= 48, c <= 57 else { return nil }
+                n = n * 10 + Int(c - 48)
+            }
+            return n
+        }
+        func at(_ i: Int, _ c: Character) -> Bool { i < b.count && b[i] == c.asciiValue }
+        guard let y = num(0, 4), at(4, "-"), let mo = num(5, 2), at(7, "-"), let d = num(8, 2),
+              at(10, "T") || at(10, "t") || at(10, " "),
+              let h = num(11, 2), at(13, ":"), let mi = num(14, 2), at(16, ":"), let sec = num(17, 2),
+              (1...12).contains(mo), (1...31).contains(d), h < 24, mi < 60, sec < 61 else { return nil }
+        var i = 19
+        var ms = 0
+        if at(i, ".") {
+            i += 1
+            var digits = 0
+            while i < b.count, b[i] >= 48, b[i] <= 57 {
+                if digits < 3 { ms = ms * 10 + Int(b[i] - 48) }
+                digits += 1; i += 1
+            }
+            guard digits > 0 else { return nil }
+            if digits < 3 { for _ in digits..<3 { ms *= 10 } }
+        }
+        var offset = 0
+        if at(i, "Z") || at(i, "z") {
+            i += 1
+        } else if at(i, "+") || at(i, "-") {
+            let sign = at(i, "-") ? -1 : 1
+            guard let oh = num(i + 1, 2) else { return nil }
+            var j = i + 3
+            if at(j, ":") { j += 1 }
+            guard let om = num(j, 2) else { return nil }
+            offset = sign * (oh * 3600 + om * 60)
+            i = j + 2
+        } else {
+            return nil
+        }
+        guard i == b.count else { return nil }
+        // Days from the civil date (Howard Hinnant's days_from_civil).
+        let yy = mo <= 2 ? y - 1 : y
+        let era = (yy >= 0 ? yy : yy - 399) / 400
+        let yoe = yy - era * 400
+        let doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        let days = era * 146_097 + doe - 719_468
+        let seconds = Int64(days) * 86400 + Int64(h * 3600 + mi * 60 + sec) - Int64(offset)
+        return seconds * 1000 + Int64(ms)
     }
 
     /// "2024-03-17T…" → "2024.03" (Android's Rediscover footnote).
@@ -1281,12 +1350,54 @@ final class LibraryStore {
     func scrobble(_ track: PlayableTrack, submission: Bool) {
         // Apple Music counts its own plays (ApplicationMusicPlayer reports them).
         guard let client, track.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
-        let ms = submission ? KotlinLong(value: Int64(Date().timeIntervalSince1970 * 1000)) : nil
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        guard submission else {
+            scrobbleStarts[track.id] = nowMs
+            // Now playing is live or nothing: a failure (offline) is dropped, never queued (Android).
+            Task {
+                do { try await client.scrobble(id: track.id, submission: false, timeMs: nil) } catch {
+                    log.info("now playing not sent: \(ServerSession.message(for: error), privacy: .public)")
+                }
+            }
+            return
+        }
+        guard let scope = session.scope else { return }
+        // A play is kept until the server has it (Android PendingScrobbles), timed when it started.
+        scrobbles.add(PendingScrobble(scope: scope, songId: track.id,
+                                      timeMs: scrobbleStarts.removeValue(forKey: track.id) ?? nowMs))
+        flushScrobbles()
+    }
+
+    /// Sends the account's waiting plays, oldest first, one at a time: each leaves the outbox once the
+    /// server took it, or refused it for good (a missing song); the network or the server being away
+    /// stops the run, and the next play, the next launch or the network coming back tries again.
+    func flushScrobbles() {
+        guard !flushingScrobbles, let client, let scope = session.scope, scrobbles.next(for: scope) != nil else { return }
+        flushingScrobbles = true
         Task {
-            do { try await client.scrobble(id: track.id, submission: submission, timeMs: ms) } catch {
-                log.info("scrobble failed: \(ServerSession.message(for: error), privacy: .public)")
+            defer { flushingScrobbles = false }
+            while let play = scrobbles.next(for: scope) {
+                do {
+                    try await client.scrobble(id: play.songId, submission: true, timeMs: KotlinLong(value: play.timeMs))
+                    scrobbles.remove(play)
+                } catch {
+                    let message = ServerSession.message(for: error)
+                    guard Self.scrobbleRefused(error) else {
+                        log.info("plays kept for later: \(message, privacy: .public)")
+                        return
+                    }
+                    log.info("play dropped: \(message, privacy: .public)")
+                    scrobbles.remove(play)
+                }
             }
         }
+    }
+
+    /// The server answered and said no to this play (an API error that isn't about the sign-in):
+    /// sending it again won't change that. Unreachable, HTTP or a bad sign-in keep it.
+    nonisolated static func scrobbleRefused(_ error: Error) -> Bool {
+        guard let k = (error as NSError).kotlinException as? SubsonicException else { return false }
+        return k.code >= 0 && !k.isAuthFailure
     }
 
     // MARK: Local history

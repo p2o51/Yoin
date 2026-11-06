@@ -276,10 +276,18 @@ final class AppModel {
                                                 format: kbps == nil ? nil : SubsonicStreamURLs.transcodeFormat))
         }
         OfflineDownloads.shared.pump()
-        player.onScrobble = { [weak engine] track, submission in
+        // Waiting plays go out when the network comes back or the app comes to the front.
+        store.scrobbles.onReachable = { [weak store] in store?.flushScrobbles() }
+        store.scrobbles.watchNetwork()
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+                                               queue: .main) { [weak store] _ in
+            MainActor.assumeIsolated { store?.flushScrobbles() }
+        }
+        player.onScrobble = { track, submission, listenedSec in
             store.scrobble(track, submission: submission)
-            // Local play history (Data/History): a row when the song starts, marked once it counts.
-            store.recordHistory(track, submission: submission, positionSec: engine?.progress.positionSec ?? 0)
+            // Local play history (Data/History): a row when the song starts, marked once it counts with
+            // the time really listened (a seek skips, it isn't listening).
+            store.recordHistory(track, submission: submission, positionSec: listenedSec)
         }
         #if DEBUG
         signInFromLaunchArguments()
@@ -438,6 +446,14 @@ final class AppModel {
         path.append(.artist(ArtistRef(name, id: id)))
     }
 
+    /// Opens [route] (Now Playing's Playing-from line).
+    func open(_ route: Route) {
+        switch route {
+        case .album(let album): open(album)
+        default: path.append(route)
+        }
+    }
+
     func openSettings() {
         path.append(.settings)
     }
@@ -475,11 +491,31 @@ final class AppModel {
     /// Where the queue plays from (Android ActivityContext): the detail page
     /// it was started on; nil from Home / Library / Search lists.
     enum PlayingFrom: Equatable {
-        case album(String), playlist(String), artist(String)
+        case album(Album), playlist(id: String, title: String), artist(ArtistRef)
 
         var title: String {
             switch self {
-            case .album(let t), .playlist(let t), .artist(let t): t
+            case .album(let a): a.title
+            case .playlist(_, let t): t
+            case .artist(let ref): ref.name
+            }
+        }
+
+        /// Android PlayingFromLabel's kind line.
+        var kindLabel: String {
+            switch self {
+            case .album: "PLAYING FROM ALBUM"
+            case .playlist: "PLAYING FROM PLAYLIST"
+            case .artist: "PLAYING FROM ARTIST"
+            }
+        }
+
+        /// The page it opens (the one the queue was started on).
+        var route: Route {
+            switch self {
+            case .album(let a): .album(a)
+            case .playlist(let id, _): .playlist(id)
+            case .artist(let ref): .artist(ref)
             }
         }
     }
@@ -494,9 +530,9 @@ final class AppModel {
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
         playingFrom = switch path.last ?? padSelection.map({ .album($0) }) {
-        case .album(let a): .album(a.title)
-        case .playlist(let id): .playlist(playlistInfo(id).title)
-        case .artist(let ref): .artist(ref.name)
+        case .album(let a): .album(a)
+        case .playlist(let id): .playlist(id: id, title: playlistInfo(id).title)
+        case .artist(let ref): .artist(ref)
         default: nil
         }
         if shuffle { player.setShuffle(true) }
@@ -519,8 +555,13 @@ final class AppModel {
     func enqueue(_ entries: [PlaylistEntry], next: Bool) {
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
-        // Spotify's own song (no queue under it) isn't something to queue after.
-        guard player.currentItem != nil else { return play(entries) }
+        guard player.currentItem != nil else {
+            // Spotify's own song (no queue under it) isn't something to queue after.
+            if player.externalTrack != nil { return play(entries) }
+            // An empty player takes them in order and waits for Play (Android addMediaItems).
+            playingFrom = nil
+            return player.cue(queue: tracks)
+        }
         if next { tracks.reversed().forEach(player.playNext) } else { tracks.forEach(player.addToQueue) }
     }
 

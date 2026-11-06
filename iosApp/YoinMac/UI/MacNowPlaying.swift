@@ -1089,7 +1089,8 @@ private struct NotesPopover: View {
     @State private var draft = ""
     /// The song and moment the note is for: taken when writing began (a song change meanwhile doesn't move it).
     @State private var at: Double?
-    @State private var forTrack: PlayableTrack?
+    @State private var forTrack: NoteDraftStore.Draft.Target?
+    @State private var loaded = false
 
     var body: some View {
         let t = model.player.currentTrack
@@ -1127,10 +1128,11 @@ private struct NotesPopover: View {
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Yoin.surfaceContainerHigh))
                     .onChange(of: draft) { _, d in
-                        if at == nil, !d.isEmpty {
+                        if at == nil, !d.isEmpty, let c = model.player.currentTrack {
                             at = model.player.progress.positionSec
-                            forTrack = model.player.currentTrack
+                            forTrack = .init(provider: c.provider, rawId: c.id, title: c.title, artist: c.artist)
                         }
+                        keepDraft()
                     }
                     .onSubmit(save)
                 Button("Save", action: save).buttonStyle(.plain).font(.gsf(13.5, .semibold))
@@ -1138,25 +1140,44 @@ private struct NotesPopover: View {
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             if let at {
-                let other = forTrack.map { $0.id != t?.id } ?? false
+                let other = forTrack.map { $0.rawId != t?.id } ?? false
                 Text(other ? "For \(forTrack?.title ?? "") at \(formatTime(Int(at)))" : "At \(formatTime(Int(at)))")
                     .font(.gsf(12)).foregroundStyle(Yoin.ink3)
             }
         }
         .padding(14)
         .frame(width: 340)
+        .onAppear {
+            // The unsaved note comes back (iOS NoteDraftStore: per account, kept across closing and relaunch).
+            guard !loaded else { return }
+            loaded = true
+            if let d = NoteDraftStore.shared.draft(scope: model.session.accountKey) {
+                draft = d.words
+                at = d.anchorMs.map { Double($0) / 1000 }
+                forTrack = d.target
+            }
+        }
+    }
+
+    private func keepDraft() {
+        guard loaded else { return }
+        NoteDraftStore.shared.save(.init(words: draft, anchorMs: at.map { Int64($0 * 1000) }, target: forTrack),
+                                   scope: model.session.accountKey)
     }
 
     private func save() {
-        guard let t = forTrack ?? model.player.currentTrack else { return }
+        let c = model.player.currentTrack
+        guard let t = forTrack ?? c.map({ .init(provider: $0.provider, rawId: $0.id, title: $0.title, artist: $0.artist) })
+        else { return }
         let ms = Int64((at ?? model.player.progress.positionSec) * 1000)
-        if NotesStore.shared.add(provider: t.provider, trackId: t.id, content: draft, positionMs: ms,
-                                 title: t.title, artist: t.artist) != nil {
-            CloudSync.shared.localChanged()
-        }
+        // A note that couldn't be written keeps its words in the editor.
+        guard NotesStore.shared.add(provider: t.provider, trackId: t.rawId, content: draft, positionMs: ms,
+                                    title: t.title, artist: t.artist) != nil else { return }
+        CloudSync.shared.localChanged()
         draft = ""
         at = nil
         forTrack = nil
+        NoteDraftStore.shared.save(nil, scope: model.session.accountKey)
     }
 }
 

@@ -84,10 +84,19 @@ final class MacModel {
         system?.liked = { [weak self] in
             self?.isLikedCurrent() ?? false
         }
-        player.onScrobble = { [weak self] track, submission in
+        player.onScrobble = { [weak self] track, submission, listenedSec in
             guard let self else { return }
             self.library.scrobble(track, submission: submission)
-            self.recordHistory(track, submission: submission)
+            // History keeps the time really listened (a seek isn't listening).
+            self.recordHistory(track, submission: submission, listenedSec: listenedSec)
+        }
+        // Waiting plays go out when the network comes back and when Yoin comes to the front.
+        library.migrateOldScrobbleQueue()
+        ScrobbleOutbox.shared.onReachable = { [weak self] in self?.library.flushScrobbles() }
+        ScrobbleOutbox.shared.watchNetwork()
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.library.flushScrobbles() }
         }
         player.onStateChange = { [weak self] in
             guard let self else { return }
@@ -400,13 +409,13 @@ final class MacModel {
     @ObservationIgnored private var openPlay: (song: String, id: String)?
 
     /// A song that starts is a play row; heard long enough, it counts.
-    private func recordHistory(_ t: PlayableTrack, submission: Bool) {
+    private func recordHistory(_ t: PlayableTrack, submission: Bool, listenedSec: Double) {
         let history = HistoryStore.shared
         let scope = session.accountKey
         guard !scope.isEmpty else { return }
         if submission {
             guard let open = openPlay, open.song == t.id else { return }
-            history.markListened(playId: open.id, listenedSec: player.progress.positionSec, completed: true)
+            history.markListened(playId: open.id, listenedSec: listenedSec, completed: true)
             return
         }
         let e = entry(for: t)

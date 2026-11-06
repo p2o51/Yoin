@@ -718,55 +718,66 @@ final class MacLibrary {
     }
 
     /// PlayerEngine decides when (started; then half the song or 4 minutes heard). "Now playing" is
-    /// fire-and-forget; a play that couldn't be sent waits in `pendingScrobbles` (with the time it
-    /// happened) and goes with the next one that can.
+    /// fire-and-forget; a counted play goes into the shared outbox (iOS ScrobbleOutbox: on disk, per account)
+    /// before it's sent, and leaves only once the server has it (or refused it for good). Waiting plays go
+    /// out with the next one, when the network comes back, and when Yoin comes to the front.
     func scrobble(_ track: PlayableTrack, submission: Bool) {
-        guard let client, track.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
+        guard client != nil, track.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
         guard submission else {
-            Task { try? await client.scrobble(id: track.id, submission: false, timeMs: nil) }
+            if let client { Task { try? await client.scrobble(id: track.id, submission: false, timeMs: nil) } }
             return
         }
-        let key = pendingKeyForAccount
-        var queue = pending(key)
-        queue.append(PendingScrobble(id: track.id, timeMs: Int64(Date().timeIntervalSince1970 * 1000)))
-        setPending(Array(queue.suffix(500)), key)
-        flushScrobbles(client, key: key)
+        let scope = session.accountKey
+        guard !scope.isEmpty else { return }
+        ScrobbleOutbox.shared.add(PendingScrobble(scope: scope, songId: track.id,
+                                                  timeMs: Int64(Date().timeIntervalSince1970 * 1000)))
+        flushScrobbles()
     }
 
-    private struct PendingScrobble: Codable, Equatable {
-        var id: String
-        var timeMs: Int64
-    }
+    @ObservationIgnored private var flushingScrobbles = false
 
-    private static let pendingKey = "pendingScrobbles"
-
-    /// Kept per account in the defaults (scope: the server and user).
-    private func pending(_ key: String) -> [PendingScrobble] {
-        guard let d = UserDefaults.standard.data(forKey: key) else { return [] }
-        return (try? JSONDecoder().decode([PendingScrobble].self, from: d)) ?? []
-    }
-
-    private func setPending(_ list: [PendingScrobble], _ key: String) {
-        UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: key)
-    }
-
-    private var pendingKeyForAccount: String { "\(Self.pendingKey).\(session.accountKey)" }
-    @ObservationIgnored private var flushing: Set<String> = []
-
-    /// Sends the account's waiting plays in order; the account's key is fixed for the whole flush.
-    private func flushScrobbles(_ client: SubsonicClient, key: String) {
-        guard !flushing.contains(key) else { return }
-        flushing.insert(key)
+    /// Sends the account in use's waiting plays, oldest first; the account is fixed for the whole flush.
+    func flushScrobbles() {
+        let outbox = ScrobbleOutbox.shared
+        let scope = session.accountKey
+        guard !flushingScrobbles, let client, !scope.isEmpty, outbox.next(for: scope) != nil else { return }
+        flushingScrobbles = true
         Task {
-            defer { flushing.remove(key) }
-            while let next = pending(key).first {
+            defer { flushingScrobbles = false }
+            while let play = outbox.next(for: scope) {
                 do {
-                    try await client.scrobble(id: next.id, submission: true, timeMs: KotlinLong(value: next.timeMs))
-                    setPending(pending(key).filter { $0 != next }, key)
+                    try await client.scrobble(id: play.songId, submission: true, timeMs: KotlinLong(value: play.timeMs))
+                    outbox.remove(play)
                 } catch {
-                    return
+                    let message = MacSession.message(for: error)
+                    guard Self.scrobbleRefused(error) else {
+                        Self.log.info("plays kept for later: \(message, privacy: .public)")
+                        return
+                    }
+                    Self.log.info("play dropped: \(message, privacy: .public)")
+                    outbox.remove(play)
                 }
             }
+        }
+    }
+
+    /// The server answered and refused this play (an API error that isn't about the sign-in): sending it
+    /// again won't change that (iOS LibraryStore.scrobbleRefused).
+    nonisolated static func scrobbleRefused(_ error: Error) -> Bool {
+        guard let k = (error as NSError).kotlinException as? SubsonicException else { return false }
+        return k.code >= 0 && !k.isAuthFailure
+    }
+
+    /// Plays waiting in the Mac's old per-account defaults queue move to the shared outbox, once.
+    func migrateOldScrobbleQueue() {
+        struct Old: Codable { var id: String; var timeMs: Int64 }
+        let d = UserDefaults.standard
+        for key in d.dictionaryRepresentation().keys where key.hasPrefix("pendingScrobbles.") {
+            let scope = String(key.dropFirst("pendingScrobbles.".count))
+            if let data = d.data(forKey: key), let old = try? JSONDecoder().decode([Old].self, from: data), !scope.isEmpty {
+                for o in old { ScrobbleOutbox.shared.add(PendingScrobble(scope: scope, songId: o.id, timeMs: o.timeMs)) }
+            }
+            d.removeObject(forKey: key)
         }
     }
 

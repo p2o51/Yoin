@@ -74,7 +74,11 @@ final class AlbumNeoDBSync {
         #endif
     }
 
-    private static func key(_ album: Album) -> String { "\(album.id.provider)\u{1F}\(album.id.rawId)" }
+    /// Per account too (Codex, 2026-11-06): two Subsonic servers can both have an album "1".
+    private static func key(_ album: Album) -> String {
+        let scope = AccountScope.shared.scope(for: album.id.provider) ?? ""
+        return "\(scope)\u{1F}\(album.id.provider)\u{1F}\(album.id.rawId)"
+    }
 
     func state(_ album: Album) -> AlbumNeoDBState { states[Self.key(album)] ?? .unknown }
 
@@ -124,12 +128,19 @@ final class AlbumNeoDBSync {
                 set(album, now)
                 continue
             }
-            set(album, .syncing)
+            // The album's own account's line, even if the account in use changes during the push.
+            let key = Self.key(album)
+            states[key] = .syncing
             do {
                 try await service().push(album)
-                set(album, .synced)
+                states[key] = .synced
+            } catch NeoDBSyncService.Failure.accountChanged {
+                // The mark went to NeoDB; its flag clears on that account's next push. No error to show.
+                states[key] = .pending
+                again.remove(k)
+                return
             } catch {
-                set(album, .failed)
+                states[key] = .failed
                 onFailure("Couldn't sync to NeoDB")
                 again.remove(k)
                 return

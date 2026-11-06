@@ -29,11 +29,17 @@ struct LibraryView: View {
     @State private var hideTask: Task<Void, Never>?
     @State private var naming = false
     @State private var newName = ""
+    @State private var order = LibraryOrderMemo()
 
     /// Filter, sorts and positions outlive the page (Android keeps them in
     /// its ViewModel): Home → Library comes back to the same view.
     private var memory: LibraryMemory { .shared }
-    private var filter: LibraryKind? { memory.filter }
+    private var filter: LibraryKind? { LibraryFilterRow.offered(memory.filter, kinds: filterKinds) }
+    /// Android LibraryViewModel: Favorites only where the source has favorites of its own (Subsonic's
+    /// starred). Apple Music has none, and Spotify's are its Liked Songs, already the Songs view.
+    private var filterKinds: [LibraryKind] {
+        LibraryFilterRow.kinds(favorites: !model.store.isReal || model.store.client != nil)
+    }
     private var tab: LibraryMemory.Tab { LibraryMemory.Tab(filter) }
     private var sort: LibrarySortOrder { memory.sort(for: tab, offered: sortOptions) }
 
@@ -100,22 +106,28 @@ struct LibraryView: View {
         LibrarySorter(recents: model.store.libraryRecents(), ignoresArticles: model.store.client != nil)
     }
 
-    /// Sorted items for the current view and sort.
-    private var items: [LibraryItem] {
-        var base = filtered
-        if filter == .playlists, memory.byYou, byYouAvailable {
-            base = base.filter { $0.owner == model.store.username }
+    /// Sorted items for the current view and sort, with the fast scroller's
+    /// sections. Built once per view, sort and data change: body runs every
+    /// scroll frame, and sorting a few thousand albums each time pinned the
+    /// main thread (build 8: 89% CPU, then a watchdog kill).
+    private var ordered: LibraryOrderMemo.Value {
+        let sort = sort
+        return order.value(for: .init(filter: filter, sort: sort, byYou: memory.byYou, real: model.store.isReal)) {
+            var base = filtered
+            if filter == .playlists, memory.byYou, byYouAvailable {
+                base = base.filter { $0.ownedByMe == true }
+            }
+            let sorter = sorter
+            let items = sorter.sorted(base, by: sort)
+            return .init(items: items, sections: LibraryScrollIndex.sections(items, sort: sort, sorter: sorter))
         }
-        return sorter.sorted(base, by: sort)
     }
+
+    private var items: [LibraryItem] { ordered.items }
 
     /// Android PlaylistsByYou: offered only when the playlists are mixed
     /// (some the user's, some someone else's), so it never empties the list.
-    private var byYouAvailable: Bool {
-        guard let me = model.store.username else { return false }
-        let owners = model.store.playlists.compactMap(\.owner)
-        return owners.contains(me) && owners.contains { $0 != me }
-    }
+    private var byYouAvailable: Bool { LibraryFilterRow.byYouAvailable(model.store.playlists) }
 
     private var filtered: [LibraryItem] {
         if model.store.isReal {
@@ -139,7 +151,8 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        let shown = items
+        let ordered = ordered
+        let shown = ordered.items
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if filter == .songs {
@@ -198,7 +211,7 @@ struct LibraryView: View {
                     fraction: held && LaunchConfig.screen == "library-scroller" && metrics.offset == 0
                         ? 0.45 : metrics.fraction(shown.count, columns: columns),
                     worthShowing: metrics.worthShowing(shown.count, columns: columns),
-                    awake: awake, sections: sections(shown), itemCount: shown.count, columns: columns, scheme: scheme,
+                    awake: awake, sections: ordered.sections, itemCount: shown.count, columns: columns, scheme: scheme,
                     onDrag: { f in
                         position.scrollTo(y: metrics.offset(for: f, shown.count, columns: columns))
                         wake()
@@ -253,11 +266,6 @@ struct LibraryView: View {
         }
     }
 
-    /// Fast-scroller sections per sort (Android LibraryIndex / LibraryScrollIndex).
-    private func sections(_ items: [LibraryItem]) -> [LibraryFastScroller.Section] {
-        LibraryScrollIndex.sections(items, sort: sort, sorter: sorter)
-    }
-
     // MARK: Header: search pill + avatar
 
     private var header: some View {
@@ -301,7 +309,7 @@ struct LibraryView: View {
     /// Android LibraryFilterRow, in the style Glass Lab picks (see
     /// LibraryFilterRow below; Android-faithful tonal chips by default).
     private var chips: some View {
-        LibraryFilterRow(filter: Binding(get: { memory.filter }, set: { select($0) }),
+        LibraryFilterRow(filter: Binding(get: { filter }, set: { select($0) }), kinds: filterKinds,
                          byYou: filter == .playlists && byYouAvailable
                              ? Binding(get: { memory.byYou }, set: { memory.byYou = $0 }) : nil,
                          scheme: scheme, style: LibraryFilterRow.Style.current, overContent: metrics.offset > 1)
@@ -852,6 +860,39 @@ enum LibraryGrid {
     }
 }
 
+/// Library's sorted lists, kept until something the build read changes
+/// (LibraryStore.home's pattern): the build runs under observation tracking
+/// and the first change it saw bumps [revision], which the view reads.
+@MainActor
+@Observable
+final class LibraryOrderMemo {
+    struct Key: Equatable {
+        var filter: LibraryKind?
+        var sort: LibrarySortOrder
+        var byYou: Bool
+        var real: Bool
+    }
+
+    struct Value {
+        var items: [LibraryItem]
+        var sections: [LibraryFastScroller.Section]
+    }
+
+    private var revision = 0
+    @ObservationIgnored private var cached: (key: Key, revision: Int, value: Value)?
+
+    func value(for key: Key, build: () -> Value) -> Value {
+        let revision = revision
+        if let cached, cached.key == key, cached.revision == revision { return cached.value }
+        let value = withObservationTracking(build) { [weak self] in
+            // Called before the change lands: rebuild on the next turn.
+            DispatchQueue.main.async { self?.revision &+= 1 }
+        }
+        cached = (key, revision, value)
+        return value
+    }
+}
+
 /// Library's retained view state (Android LibraryViewModel holds it): the
 /// view picked, each view's sort, each view's scroll offset, By You.
 @MainActor
@@ -903,6 +944,8 @@ struct LibraryFilterRow: View {
     typealias Style = SegmentChipStyle
 
     @Binding var filter: LibraryKind?
+    /// The views offered ([kinds(favorites:)]).
+    var kinds: [LibraryKind] = LibraryFilterRow.kinds(favorites: true)
     /// Playlists' By You sub-chip (Android LibraryByYouChip), where the
     /// playlists are mixed; nil hides it.
     var byYou: Binding<Bool>? = nil
@@ -910,7 +953,20 @@ struct LibraryFilterRow: View {
     var style: Style
     var overContent = true
 
-    private static let kinds: [LibraryKind] = [.playlists, .artists, .albums, .songs, .favorites]
+    static func kinds(favorites: Bool) -> [LibraryKind] {
+        [.playlists, .artists, .albums, .songs] + (favorites ? [.favorites] : [])
+    }
+
+    /// A view kept from another account that this one doesn't offer reads as All.
+    static func offered(_ kind: LibraryKind?, kinds: [LibraryKind]) -> LibraryKind? {
+        kind.flatMap { kinds.contains($0) ? $0 : nil }
+    }
+
+    /// Android PlaylistsByYou: offered only when the playlists are mixed (some the user's, some
+    /// someone else's, by the source's ownedByMe), so it never empties the list.
+    static func byYouAvailable(_ playlists: [LibraryItem]) -> Bool {
+        playlists.contains { $0.ownedByMe == true } && playlists.contains { $0.ownedByMe == false }
+    }
 
     enum Chip: Hashable {
         case kind(LibraryKind), byYou
@@ -925,7 +981,7 @@ struct LibraryFilterRow: View {
 
     var body: some View {
         SegmentChipRow(
-            groups: [Self.kinds.map(Chip.kind)] + (byYou == nil ? [] : [[Chip.byYou]]),
+            groups: [kinds.map(Chip.kind)] + (byYou == nil ? [] : [[Chip.byYou]]),
             selected: (filter.map { [Chip.kind($0)] } ?? []) + (byYou?.wrappedValue == true ? [.byYou] : []),
             label: \.label,
             onTap: { chip in
