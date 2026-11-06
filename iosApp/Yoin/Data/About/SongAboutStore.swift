@@ -118,7 +118,7 @@ final class SongAboutStore {
 
     /// DEBUG `-aboutDemo`: a scratch file, so demo rows never reach the real cache.
     private static var launchURL: URL {
-        #if DEBUG
+        #if DEBUG && os(iOS)
         if SongAboutDemo.mode != nil {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("song_about_demo.json")
             try? FileManager.default.removeItem(at: url)

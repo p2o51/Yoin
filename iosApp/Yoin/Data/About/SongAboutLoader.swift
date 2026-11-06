@@ -223,6 +223,7 @@ final class SongAboutLoader {
         store.edit(ref, title: title, answer: answer)
     }
 
+    #if os(iOS)
     /// Regenerate from Now Playing or the scrapbook, told in the shell's toast:
     /// "Regenerated" with Undo, or why nothing changed (Android
     /// `np_about_regenerate_*` / `detail_scrap_gemini_*`; one wording for both).
@@ -240,6 +241,7 @@ final class SongAboutLoader {
             }
         }
     }
+    #endif
 
     // MARK: Ask from the scrapbook
 
@@ -251,6 +253,7 @@ final class SongAboutLoader {
 
     private(set) var asking: [Asking] = []
 
+    #if os(iOS)
     /// Android `askFromScrapbook`: the answer joins the song's About like one
     /// asked in Now Playing; Now Playing's Ask bar isn't involved. A failure is
     /// told in the toast.
@@ -280,6 +283,7 @@ final class SongAboutLoader {
             if let i = asking.firstIndex(of: pending) { asking.remove(at: i) }
         }
     }
+    #endif
 
     /// A key was just saved: songs that said "no key" may ask now.
     func keyChanged() {

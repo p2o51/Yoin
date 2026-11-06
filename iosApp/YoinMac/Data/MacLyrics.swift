@@ -216,6 +216,21 @@ final class MacLyrics {
             apply(s, credits, Origin(provider: r.providerName, songId: r.providerSongId), for: id)
             return
         }
+        // No source has one: Gemini translates the lines shown (the listener's own key, when there is one).
+        let gemini = GeminiSettings.shared
+        guard gemini.hasKey, case .loaded(let synced, let lines, let source) = state, !lines.isEmpty else { return }
+        let texts = lines.map(\.text)
+        guard let map = try? await GeminiClient().translateLyricLines(
+            apiKey: gemini.requestKey, title: t.title, artist: t.artist, lines: texts,
+            targetLanguage: gemini.targetLanguage),
+            gen == generation, songId == id else { return }
+        let translated = lines.enumerated().map { i, l in
+            var l = l
+            l.translation = map[i]
+            return l
+        }
+        let s = State.loaded(synced: synced, lines: translated, source: source)
+        apply(s, credits, origin, for: id)
     }
 
     private static func choiceKey(_ scope: String, _ songId: String) -> String { "lyricsChoice.\(scope).\(songId)" }

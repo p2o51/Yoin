@@ -667,7 +667,11 @@ struct MacAboutView: View {
     var body: some View {
         let t = model.player.currentTrack
         let credits = model.lyrics.credits
-        let rows = MacReceipt.rows(song: loadedFor == t?.id ? song : nil, track: t, credits: credits) + lyricsRow
+        let songKey = t.map { SongAboutStore.key(title: $0.title, artist: $0.artist, album: $0.album) }
+        let gemini = songKey.map { SongAboutStore.shared.entries($0) } ?? []
+        let rows = MacReceipt.rows(song: loadedFor == t?.id ? song : nil, track: t, credits: credits, gemini: gemini)
+            + lyricsRow
+        let paragraphs = MacReceipt.paragraphs(gemini)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
@@ -701,6 +705,10 @@ struct MacAboutView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                if let k = songKey, SongAboutLoader.shared.phase(k) == .loading {
+                    DashedRule()
+                    Text("Asking Gemini…").font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).padding(.vertical, 10)
+                }
                 if !credits.notices.isEmpty {
                     DashedRule()
                     VStack(spacing: 2) {
@@ -716,13 +724,26 @@ struct MacAboutView: View {
             .padding(.horizontal, 16).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tint.container.opacity(0.35)))
             .padding(.top, 8)
-            .padding(.bottom, 48)
+            // Gemini's review and answers as paragraphs under the receipt (Android AboutParagraphSection).
+            ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, para in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(para.label).font(.gsf(13.5, .semibold)).foregroundStyle(tint.primary)
+                    Text(.init(para.text)).font(.gsf(14)).foregroundStyle(Yoin.ink)
+                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 12)
+            }
+            Color.clear.frame(height: 48)
         }
         .scrollIndicators(.never)
         .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.85),
                                      .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
         .task(id: t?.id) {
             showOthers = false
+            if let t, GeminiSettings.shared.hasKey {
+                Task { await SongAboutLoader.shared.ensure(title: t.title, artist: t.artist, album: t.album) }
+            }
             let result = await load(t)
             guard !Task.isCancelled, t?.id == model.player.currentTrack?.id else { return }
             song = result
@@ -750,15 +771,28 @@ enum MacReceipt {
         var value: String
     }
 
-    static func rows(song s: SongInfo?, track t: PlayableTrack?, credits: MacLyrics.Credits = .init()) -> [Row] {
+    struct Paragraph: Equatable {
+        var label: String
+        var text: String
+    }
+
+    static func rows(song s: SongInfo?, track t: PlayableTrack?, credits: MacLyrics.Credits = .init(),
+                     gemini: [SongAboutStore.Entry] = []) -> [Row] {
         var rows: [Row] = []
         func add(_ label: String, _ value: String?) {
             guard let v = value?.split(whereSeparator: \.isWhitespace).joined(separator: " "), !v.isEmpty else { return }
             rows.append(Row(label: label, value: v))
         }
-        // Who wrote it: the lyrics' credits first, the server's composer when the lyrics name none.
+        let canon = Dictionary(gemini.filter { $0.kind == SongAboutStore.Kind.canonical }.map { ($0.entryKey, $0.answerText) },
+                               uniquingKeysWith: { a, _ in a })
+        func named(_ role: String) -> Bool { credits.headline.contains { $0.role == role } }
+        // Who wrote it (Android's receipt): the lyrics' credits, then the server's composer, then Gemini.
         for c in credits.headline { add(c.role, c.names) }
-        if !credits.headline.contains(where: { $0.role == "Composer" }) { add("Composer", s?.composer) }
+        if !named("Lyricist") { add("Lyricist", canon[SongAboutStore.Canon.lyricist]) }
+        if !named("Composer") { add("Composer", s?.composer ?? canon[SongAboutStore.Canon.composer]) }
+        if !named("Producer") { add("Producer", canon[SongAboutStore.Canon.producer]) }
+        add("Written", canon[SongAboutStore.Canon.creationTime])
+        add("Made in", canon[SongAboutStore.Canon.creationLocation])
         guard let s else {
             if let t, t.durationSec > 0 { add("Duration", SongFacts.duration(Int(t.durationSec.rounded()))) }
             if let k = t?.sourceKbps { add("Quality", "\(k) kbps") }
@@ -813,6 +847,22 @@ private struct ReceiptLine: View {
                 .textSelection(.enabled)
         }
         .padding(.vertical, 8)
+    }
+}
+
+extension MacReceipt {
+    /// Gemini's review first, then its answers and the listener's own entries.
+    static func paragraphs(_ entries: [SongAboutStore.Entry]) -> [Paragraph] {
+        var out: [Paragraph] = []
+        if let r = entries.first(where: { $0.kind == SongAboutStore.Kind.canonical
+            && $0.entryKey == SongAboutStore.Canon.review && !$0.answerText.isEmpty }) {
+            out.append(Paragraph(label: "Review", text: r.answerText))
+        }
+        for e in entries where (e.kind == SongAboutStore.Kind.ask || e.kind == SongAboutStore.Kind.own)
+            && !e.answerText.isEmpty {
+            out.append(Paragraph(label: e.titleText ?? e.promptText ?? "", text: e.answerText))
+        }
+        return out
     }
 }
 

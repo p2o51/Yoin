@@ -159,6 +159,11 @@ targets:
       - path: Yoin/Data/Cache/OfflineDownloads.swift
       - path: Yoin/Data/Cache/DetailDiskCache.swift
       - path: Yoin/Data/History/HistoryStore.swift
+      - path: Yoin/Data/About/GeminiClient.swift
+      - path: Yoin/Data/About/GeminiSettings.swift
+      - path: Yoin/Data/About/SongAboutLoader.swift
+      - path: Yoin/Data/About/SongAboutStore.swift
+      - path: Yoin/Data/About/GeminiLyricsTranslation.swift
       - path: Yoin/YoinSymbols.xcassets
       - path: Yoin/Resources/Fonts/google_sans_flex_400.ttf
         buildPhase: resources

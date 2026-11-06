@@ -236,6 +236,7 @@ struct MacSettingsView: View {
                     Text("The server's lyrics come first, then QQ Music, NetEase and LRCLIB. Search in Now Playing picks another source for a song.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                MacGeminiSettings()
                 Section("Spotify") {
                     TextField("Client ID", text: Binding(
                         get: { SpotifyConfig.clientId ?? "" },
@@ -265,6 +266,34 @@ struct MacSettingsView: View {
         case .connecting: "Connecting"
         case .ready(let s): s.isEmpty ? "Connected" : "Connected to \(s)"
         case .failed(let m): m
+        }
+    }
+}
+
+/// Settings › General › Gemini: the listener's own API key (Keychain, this Mac), which turns on the song's
+/// About from Gemini and Gemini lyric translations.
+private struct MacGeminiSettings: View {
+    @State private var draft = ""
+    @State private var failed = false
+
+    var body: some View {
+        let settings = GeminiSettings.shared
+        Section("Gemini") {
+            if settings.hasKey {
+                LabeledContent("API key", value: "Saved on this Mac")
+            }
+            SecureField(settings.hasKey ? "Replace the key" : "API key", text: $draft)
+            Button("Save Key") {
+                failed = !settings.saveKey(draft)
+                if !failed {
+                    draft = ""
+                    SongAboutLoader.shared.keyChanged()
+                }
+            }
+            .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            if failed { Text("The key couldn't be saved").foregroundStyle(.red) }
+            Text("From aistudio.google.com. Gemini writes the About for a song (when and where it was made, who wrote it, a review) and translates lyrics a source doesn't.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 }
