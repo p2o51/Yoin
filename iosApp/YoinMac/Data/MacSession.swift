@@ -102,6 +102,17 @@ final class MacSession {
 
     var activeProfile: Profile? { profiles.first { $0.id == activeId } }
 
+    /// The accounts cloud sync reads and writes rows for (iOS ProfileManager.syncAccounts): every Subsonic
+    /// server, and Apple Music when the system allows it.
+    var syncAccounts: SyncDomainBridge.Accounts {
+        let subsonic = profiles.compactMap { p -> SyncDomainBridge.Accounts.Subsonic? in
+            guard p.service == .subsonic, let a = p.account else { return nil }
+            return .init(profileId: p.id, url: a.baseUrl, username: a.username, scope: "\(a.baseUrl)|\(a.username)")
+        }
+        let apple = profiles.contains { $0.service == .appleMusic } && MusicAuthorizationStatus.isAuthorized
+        return SyncDomainBridge.Accounts(subsonic: subsonic, appleMusic: apple, storefront: nil)
+    }
+
     /// Makes [p] the account in use (the caller resets what was shown for the previous one).
     func switchTo(_ id: String) {
         guard let p = profiles.first(where: { $0.id == id }), id != activeId || !isSignedIn else { return }
@@ -337,4 +348,11 @@ final class MacSession {
             }
         }
     }
+}
+
+import MusicKit
+
+/// Whether the system allows Apple Music for Yoin (no prompt).
+enum MusicAuthorizationStatus {
+    static var isAuthorized: Bool { MusicAuthorization.currentStatus == .authorized }
 }

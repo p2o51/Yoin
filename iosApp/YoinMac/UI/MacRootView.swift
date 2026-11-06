@@ -15,6 +15,12 @@ struct MacGate: View {
         .frame(minWidth: 640, minHeight: 600)
         .animation(Yoin.spatial, value: model.session.isSignedIn)
         .onChange(of: model.session.accountKey) { model.accountDidChange() }
+        .onOpenURL { _ = CloudSync.handle(url: $0) }
+        .task {
+            // Cloud sync (Drive appDataFolder, the shared Kotlin core): idle unless turned on in Settings.
+            let session = model.session
+            CloudSync.shared.start { session.syncAccounts }
+        }
     }
 }
 

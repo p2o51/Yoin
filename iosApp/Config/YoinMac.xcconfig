@@ -1,3 +1,9 @@
 // YoinMac build settings. The dev build's Spotify Client ID comes from Spotify.local.xcconfig (not in git);
 // Settings › General › Spotify overrides it at runtime.
 #include? "Spotify.local.xcconfig"
+
+// Google Sign-In for Cloud sync: the Mac's own OAuth client (type iOS, bundle com.gpo.yoin.mac, team
+// M75T74PTC4) in Cloud project yoin-510700, the same project as Android's and iOS's, so all see one
+// appDataFolder. A client ID is public, not a secret.
+YOIN_GOOGLE_MAC_CLIENT_ID = 747031130557-jc008vcot35888b7aj057fptkhd8lnkt.apps.googleusercontent.com
+YOIN_GOOGLE_MAC_REVERSED_CLIENT_ID = com.googleusercontent.apps.747031130557-jc008vcot35888b7aj057fptkhd8lnkt

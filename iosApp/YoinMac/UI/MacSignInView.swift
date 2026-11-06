@@ -256,6 +256,9 @@ struct MacSettingsView: View {
             }
             .formStyle(.grouped)
             .tabItem { Label("General", image: "yoin.settings") }
+
+            MacSyncSettings()
+                .tabItem { Label("Sync", image: "yoin.cloud") }
         }
         .frame(width: 520, height: 440)
     }
@@ -295,5 +298,49 @@ private struct MacGeminiSettings: View {
             Text("From aistudio.google.com. Gemini writes the About for a song (when and where it was made, who wrote it, a review) and translates lyrics a source doesn't.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Settings › Sync: Cloud sync on the Mac (the shared Kotlin core, Drive appDataFolder, the same files as
+/// Android and iOS). Turning on signs in with Google (drive.appdata only); the first cycle only pulls.
+private struct MacSyncSettings: View {
+    var body: some View {
+        let sync = CloudSync.shared
+        let state = sync.state
+        Form {
+            Section("Cloud sync") {
+                LabeledContent("Status", value: state.phase.enabled ? "On" : "Off")
+                if let ms = state.lastSyncAt?.int64Value {
+                    LabeledContent("Last synced",
+                                   value: Date(timeIntervalSince1970: Double(ms) / 1000).formatted(date: .abbreviated, time: .shortened))
+                }
+                if !sync.isConfigured {
+                    Text("Google sign-in isn't set up in this build.").foregroundStyle(.secondary)
+                } else if state.phase.enabled {
+                    HStack {
+                        Button("Sync Now") { Task { await sync.syncNow() } }
+                        Button("Turn Off") { Task { await sync.turnOff() } }
+                    }
+                    .disabled(sync.working)
+                } else {
+                    Button("Turn On") { Task { await sync.turnOn() } }
+                        .disabled(sync.working)
+                }
+                if let review = state.phase as? CloudSyncPhaseNeedsReview {
+                    // iOS CloudSyncView: rows missing here that the cloud still has — bring back, or delete everywhere.
+                    Text("\(review.count) notes disappeared from \(review.accountName)")
+                    HStack {
+                        Button("Restore here") { Task { await sync.resolveReview(restore: true) } }
+                        Button("Delete on all devices", role: .destructive) { Task { await sync.resolveReview(restore: false) } }
+                    }
+                    .disabled(sync.working)
+                }
+                if sync.working { ProgressView().controlSize(.small) }
+                if let m = sync.message { Text(m).foregroundStyle(.red) }
+                Text("Ratings, notes, album memories, lyric choices and playlist backups follow you between this Mac, your phone and your other devices. The first sync only reads; nothing is changed in the cloud until the next one.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }

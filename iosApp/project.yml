@@ -161,6 +161,9 @@ targets:
       - path: Yoin/Data/History/HistoryStore.swift
       - path: Yoin/Data/History/HomeHistory.swift
       - path: Yoin/Memories/MemoryDeck.swift
+      - path: Yoin/Data/Sync/SyncDomainBridge.swift
+      - path: Yoin/Data/Sync/SyncDomainBridge+PlaylistBackups.swift
+      - path: Yoin/Data/Sync/CloudSync.swift
       - path: Yoin/Data/About/GeminiClient.swift
       - path: Yoin/Data/About/GeminiSettings.swift
       - path: Yoin/Data/About/SongAboutLoader.swift
@@ -184,6 +187,8 @@ targets:
     dependencies:
       - framework: ../shared/build/XCFrameworks/current/YoinShared.xcframework
         embed: false
+      - package: GoogleSignIn
+        product: GoogleSignIn
     preBuildScripts:
       - name: Check YoinShared (Kotlin) is current
         basedOnDependencyAnalysis: false
@@ -204,10 +209,19 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
+        # Cloud sync's Google Sign-In also needs, once a Mac development profile for com.gpo.yoin.mac exists
+        # (Xcode › Settings › Accounts signed in, or a profile from the portal):
+        #   keychain-access-groups: [$(AppIdentifierPrefix)com.gpo.yoin.mac]
     info:
       path: YoinMac/Info.plist
       properties:
         NSAppleMusicUsageDescription: Yoin plays and shows your Apple Music library.
+        GIDClientID: $(YOIN_GOOGLE_MAC_CLIENT_ID)
+        # Google's sign-in comes back here (Cloud sync).
+        CFBundleURLTypes:
+          - CFBundleURLName: com.gpo.yoin.mac.google
+            CFBundleURLSchemes:
+              - $(YOIN_GOOGLE_MAC_REVERSED_CLIENT_ID)
         YoinSpotifyClientID: $(YOIN_SPOTIFY_CLIENT_ID)
         CFBundleDisplayName: Yoin
         CFBundleShortVersionString: "0.1.0"

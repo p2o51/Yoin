@@ -37,6 +37,12 @@ YoinShared has a `macos-arm64` slice; the Darwin Ktor engine and the Foundation 
 
 The iOS `OfflineDownloads` (and `DetailDiskCache` for its pins) compile into the Mac; its AppModel rows stay iOS-only. `MacModel` sets `scope` (the signed-in Subsonic account), `sign` (stream url at the chosen quality, 320 by default) and the player's `downloadedFile`. Album right-click / detail action and song right-click: Download / Downloading n/m (cancel) / Remove download; a downloaded song shows `download_done` on its row. Library › Downloads lists them; Settings › Downloads: quality, metered networks (URLSession expensive / constrained), size, Remove All. Files: Application Support/YoinOffline (sandbox container).
 
+## Local stores and cloud sync
+
+The iOS stores compile into the Mac (LocalRatings, NotesStore, AlbumMemoryStore, LyricsUserStore, HomeLayoutStore, PlaylistBackupStore, HistoryStore, SongAboutStore, GeminiSettings) with Mac copies of `AccountScope` and `KeychainItem`; ratings are local for every provider, Subsonic written through. Notes: Now Playing › Write. Memories: Library › Memories (iOS MemoryDeck), the diary edits title and review.
+
+Cloud sync is iOS `CloudSync` + `SyncDomainBridge` on the shared Kotlin core (same Drive appDataFolder files as Android / iOS). Settings › Sync. Google client: the Mac's own OAuth client (type iOS, bundle `com.gpo.yoin.mac`) in project yoin-510700, in `Config/YoinMac.xcconfig`. Still needed before sign-in works: the `keychain-access-groups` entitlement (commented in project.yml), which needs a Mac development profile for `com.gpo.yoin.mac` — Xcode › Settings › Accounts signed in on this Mac (automatic signing then makes it), or a profile from the portal.
+
 ## Mini player
 
 `MacMiniPlayer` (window id `mini`, ⌥⌘M): cover, the spine beside it (title → artist → album → year, one at a time, every 5 s or on scroll; an item longer than the spine marquees instead of being cut), title / artist, prev · play · next, progress. Floats over other apps by default; Controls ▸ Float Mini Player on Top turns it off (`miniPlayerFloats`).

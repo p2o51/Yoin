@@ -1,7 +1,11 @@
 import Foundation
 import GoogleSignIn
 import Observation
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 import YoinShared
 
 extension CloudSyncKit: @retroactive @unchecked Sendable {}
@@ -71,11 +75,16 @@ final class CloudSync {
         guard kit == nil else { return }
         self.accounts = accounts
         let domain = SyncDomainBridge(accounts: accounts)
+        #if canImport(UIKit)
+        let deviceName = UIDevice.current.model
+        #else
+        let deviceName = Host.current().localizedName ?? "Mac"
+        #endif
         let kit = CloudSyncKit(
             domain: domain,
             tokenSource: TokenSource(debugToken: debug?.token),
             persistence: StoreFile(),
-            deviceName: UIDevice.current.model,
+            deviceName: deviceName,
             versionCode: Int32(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1") ?? 1,
             apiBase: debug.map { $0.base + "drive/v3/" },
             uploadBase: debug.map { $0.base + "upload/drive/v3/" },
@@ -97,11 +106,19 @@ final class CloudSync {
         // Playlist cloud backups (Android playlist_backup): a backup, a follow-up, a restore, a delete.
         PlaylistBackupStore.onLocalChange = { CloudSync.shared.localChanged() }
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+        #if canImport(UIKit)
+        let didBecomeActive = UIApplication.didBecomeActiveNotification
+        let didEnterBackground = UIApplication.didEnterBackgroundNotification
+        #else
+        // The Mac: the app coming to the front, and going behind another.
+        let didBecomeActive = NSApplication.didBecomeActiveNotification
+        let didEnterBackground = NSApplication.didResignActiveNotification
+        #endif
+        observers.append(center.addObserver(forName: didBecomeActive, object: nil,
                                             queue: .main) { _ in
             MainActor.assumeIsolated { CloudSync.shared.foreground() }
         })
-        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil,
+        observers.append(center.addObserver(forName: didEnterBackground, object: nil,
                                             queue: .main) { _ in
             MainActor.assumeIsolated { CloudSync.shared.background() }
         })
@@ -246,6 +263,7 @@ final class CloudSync {
         }
     }
 
+    #if canImport(UIKit)
     private static func presenter() -> UIViewController? {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
@@ -254,6 +272,10 @@ final class CloudSync {
         while let presented = top?.presentedViewController { top = presented }
         return top
     }
+    #else
+    /// The Mac: Google's sign-in sheet hangs off the main window.
+    private static func presenter() -> NSWindow? { NSApp.keyWindow ?? NSApp.mainWindow }
+    #endif
 }
 
 // MARK: - Kotlin-facing pieces
