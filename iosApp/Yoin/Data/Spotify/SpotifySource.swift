@@ -402,6 +402,21 @@ final class SpotifySource {
         return out
     }
 
+    // MARK: Albums in the library (Android setAlbumSaved / the ▾ menu's Save to library)
+
+    /// Whether the album is in the account's library (nil: unknown, the read failed).
+    func isAlbumSaved(_ rawId: String) async -> Bool? {
+        do { return try await contains(["spotify:album:\(rawId)"]).first } catch {
+            log.info("album library check failed: \(Self.message(for: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// PUT / DELETE me/library with the album's URI, like a track's like.
+    func setAlbumSaved(_ on: Bool, album rawId: String) async throws {
+        try await api.send(on ? "PUT" : "DELETE", "me/library", ["uris": "spotify:album:\(rawId)"])
+    }
+
     func save(_ rawId: String) async throws {
         try await api.send("PUT", "me/library", ["uris": "spotify:track:\(rawId)"])
         liked.insert(rawId)

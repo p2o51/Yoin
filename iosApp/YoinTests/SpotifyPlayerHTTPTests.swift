@@ -27,6 +27,26 @@ final class SpotifyPlayerHTTPTests: XCTestCase {
         XCTAssertEqual(body["position_ms"] as? Int, 5000)
     }
 
+    func test_should_saveAndRemoveTheAlbumThroughTheLibrary_when_toggled() async throws {
+        PlayerStub.route = { _ in .init(status: 200, body: "") }
+        try await source().setAlbumSaved(true, album: "al1")
+        try await source().setAlbumSaved(false, album: "al1")
+        let r = PlayerStub.requests
+        XCTAssertEqual(r.map(\.method), ["PUT", "DELETE"])
+        XCTAssertEqual(r.map(\.url.path), ["/v1/me/library", "/v1/me/library"])
+        XCTAssertEqual(r.first?.url.query, "uris=spotify:album:al1")
+    }
+
+    func test_should_readTheAlbumsLibraryState_when_asked() async throws {
+        PlayerStub.route = { _ in .init(status: 200, body: "[true]") }
+        let saved = await source().isAlbumSaved("al1")
+        XCTAssertEqual(saved, true)
+        XCTAssertEqual(PlayerStub.requests.first?.url.path, "/v1/me/library/contains")
+        PlayerStub.route = { _ in .init(status: 500, body: "") }
+        let failed = await source().isAlbumSaved("al1")
+        XCTAssertNil(failed)
+    }
+
     func test_should_readTheDeviceTrackAndProgress_when_spotifyPlays() async throws {
         PlayerStub.route = { _ in .init(status: 200, body: #"{"device":{"id":"ecfc","name":"iPhone","type":"Smartphone","is_active":true},"is_playing":true,"progress_ms":14657,"shuffle_state":false,"repeat_state":"off","item":{"uri":"spotify:track:1IEKU3WzzShCxANW5Jfv6g","duration_ms":171172}}"#) }
         let now = try await source().playerNow()

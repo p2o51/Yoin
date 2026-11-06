@@ -283,6 +283,8 @@ struct ShellBar: View {
                 if PlaylistActions.shared.canAddToPlaylist(model.store) {
                     Button("Add to playlist") { addDetailToPlaylist() }
                 }
+                // Android DetailMenu: Save to / Remove from library (Spotify albums).
+                if case .album = model.path.last { AlbumLibraryMenuButton(album: album) }
                 // Android OfflineToggle: Download, Downloading n/m, Remove download.
                 if let c = model.detailOfflineCollection, case .album = model.path.last {
                     OfflineMenuButton(collection: c)
@@ -311,6 +313,7 @@ struct ShellBar: View {
         } }
         .frame(width: Tokens.bar.SPLIT_WIDTH.cg, height: height)
         .fixedSize(horizontal: false, vertical: true)
+        .task(id: album.id) { await AlbumLibraryState.shared.load(album, store: model.store) }
     }
 
     /// The page's songs (album tracks, playlist entries, the artist's Most

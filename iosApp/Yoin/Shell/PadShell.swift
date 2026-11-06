@@ -285,6 +285,9 @@ private struct PadDetailPlay: View {
                         if PlaylistActions.shared.canAddToPlaylist(model.store) {
                             Button("Add to playlist") { Task { PlaylistActions.shared.requestAdd(await entries()) } }
                         }
+                        if model.path.isEmpty || model.path.last == .album(album) {
+                            AlbumLibraryMenuButton(album: album)
+                        }
                         // Android OfflineToggle, as the phone's ▾ has it: the column's root album included.
                         if let c = model.detailOfflineCollection, c.kind == .album {
                             OfflineMenuButton(collection: c, entries: { await entries() })
@@ -310,6 +313,7 @@ private struct PadDetailPlay: View {
             .frame(width: Tokens.bar.SPLIT_WIDTH.cg, height: 56)
             .padding(16)
             .transition(.opacity.animation(Yoin.effects))
+            .task(id: album.id) { await AlbumLibraryState.shared.load(album, store: model.store) }
         }
     }
 }
