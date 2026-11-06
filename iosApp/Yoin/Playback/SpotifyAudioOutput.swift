@@ -310,6 +310,7 @@ final class SpotifyAudioOutput: AudioOutput {
         adopted = false
         quietPause = false
         resetStart()
+        enqueueWhenPlaying = false
         sawCurrent = false
         playing = false
         lastTime = startSec
@@ -390,15 +391,46 @@ final class SpotifyAudioOutput: AudioOutput {
         if pendingStart > 1 { remote.player?.seek(toPosition: Int(pendingStart * 1000), callback: nil) }
         lastTime = pendingStart > 1 ? pendingStart : 0
         if !wantsPlay { remote.player?.pause(nil) }
-        enqueueNext()
+        // The next goes into Spotify's queue once the song is seen playing: right after the start App Remote
+        // refused it (-3000, 51's build 7 log, 18:22:38).
+        enqueueWhenPlaying = true
+    }
+
+    private var enqueueWhenPlaying = false
+
+    nonisolated static func readyToEnqueue(waiting: Bool, stateURI: String, current: String?, paused: Bool,
+                                           positionMs: Int) -> Bool {
+        waiting && stateURI == current && !paused && positionMs > 0
+    }
+
+    /// App Remote's "try again later" (-3000): worth one more go a second later.
+    nonisolated static func retriesEnqueue(errorCode: Int, alreadyRetried: Bool) -> Bool {
+        errorCode == -3000 && !alreadyRetried
     }
 
     /// The engine's next, queued in Spotify once per song.
-    private func enqueueNext() {
-        guard isHere, !onSpotifysOwnSong, handedNext == nil, let next, let player = remote.player else { return }
+    private func enqueueNext(retried: Bool = false) {
+        guard isHere, !onSpotifysOwnSong, handedNext == nil || retried, let next, let player = remote.player else { return }
+        enqueueWhenPlaying = false
         handedNext = next
-        player.enqueueTrackUri(next.trackURI) { _, error in
-            if let error { PlayTrace.log("SP enqueue failed \(error.localizedDescription)") }
+        let gen = generation, song = current
+        player.enqueueTrackUri(next.trackURI) { [weak self] _, error in
+            guard let error else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                PlayTrace.log("SP enqueue failed \(error.localizedDescription)")
+                guard gen == self.generation, self.current == song, self.next == next else { return }
+                guard Self.retriesEnqueue(errorCode: (error as NSError).code, alreadyRetried: retried) else {
+                    // Spotify is left alone: at the song's end the engine starts its next itself.
+                    self.handedNext = nil
+                    return
+                }
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(1))
+                    guard let self, gen == self.generation, self.current == song, self.next == next else { return }
+                    self.enqueueNext(retried: true)
+                }
+            }
         }
     }
 
@@ -434,7 +466,42 @@ final class SpotifyAudioOutput: AudioOutput {
     private func connected() {
         guard awaitingWake, starting, let current, !silent else { return }
         awaitingWake = false
-        startedHere(current)
+        // The woken app doesn't always play the song it was woken on (51's build 7 log, 16:42: handed back
+        // paused with no song): then it's started over the connection.
+        let gen = generation
+        guard let player = remote.player else { return startedHere(current) }
+        player.getPlayerState { [weak self] state, _ in
+            MainActor.assumeIsolated {
+                guard let self, gen == self.generation else { return }
+                let s = state as? SPTAppRemotePlayerState
+                let finish = Self.wakeFinish(playingURI: s?.track.uri, paused: s?.isPaused ?? true,
+                                             wanted: current.trackURI, wantsPlay: self.wantsPlay)
+                guard finish != .none else { return self.startedHere(current) }
+                PlayTrace.log("SP woken \(finish == .resume ? "paused on the song: resume" : "without the song: play it")")
+                let done: SPTAppRemoteCallback = { [weak self] _, error in
+                    MainActor.assumeIsolated {
+                        guard let self, gen == self.generation else { return }
+                        if let error {
+                            PlayTrace.log("SP AR play failed \(error.localizedDescription)")
+                            self.starting = false
+                            self.events?.outputDidFail("Open Spotify on this iPhone, then tap Play", network: true)
+                        } else {
+                            self.startedHere(current)
+                        }
+                    }
+                }
+                if finish == .resume { player.resume(done) } else { player.play(current.trackURI, callback: done) }
+            }
+        }
+    }
+
+    enum WakeFinish: Equatable { case none, resume, play }
+
+    /// After a wake, the rest of the start (once): the song paused there resumes, another song (or none) is
+    /// replaced by it; already playing it, nothing.
+    nonisolated static func wakeFinish(playingURI: String?, paused: Bool, wanted: String, wantsPlay: Bool) -> WakeFinish {
+        if playingURI != wanted { return .play }
+        return wantsPlay && paused ? .resume : .none
     }
 
     /// Playback moved in Devices: commands and reads follow it there (this iPhone: App Remote).
@@ -1006,6 +1073,10 @@ final class SpotifyAudioOutput: AudioOutput {
         lastTick = Date()
         playing = !s.isPaused
         guard !starting else { return }
+        if Self.readyToEnqueue(waiting: enqueueWhenPlaying, stateURI: uri, current: current?.trackURI,
+                               paused: s.isPaused, positionMs: s.positionMs) {
+            enqueueNext()
+        }
         if let current, uri == current.trackURI {
             // Spotify's own song keeps Spotify's modes; only the queue's are the engine's.
             takeOverModes(shuffling: s.shuffling, repeatRaw: s.repeatRaw)
