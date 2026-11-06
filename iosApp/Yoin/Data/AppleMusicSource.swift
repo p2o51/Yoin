@@ -110,7 +110,14 @@ final class AppleMusicSource {
         }
         guard let url = c.url else { throw RequestError(message: "Bad request") }
         let response = try await MusicDataRequest(urlRequest: URLRequest(url: url)).response()
-        guard let root = AppleMusicJSON.object(response.data) else { throw RequestError(message: "Unreadable answer") }
+        guard let root = AppleMusicJSON.object(response.data) else {
+            // Say what came back: the status, its type and the start of the body.
+            let status = response.urlResponse.statusCode
+            let type = response.urlResponse.value(forHTTPHeaderField: "Content-Type") ?? "?"
+            let head = String(decoding: response.data.prefix(300), as: UTF8.self)
+            log.error("unreadable \(path, privacy: .public): HTTP \(status) \(type, privacy: .public) \(response.data.count) bytes: \(head, privacy: .public)")
+            throw RequestError(message: "Unreadable answer (HTTP \(status), \(response.data.count) bytes)")
+        }
         return root
     }
 
@@ -119,8 +126,11 @@ final class AppleMusicSource {
         var out: [AppleMusicJSON.Object] = []
         var root = try await get(path, query)
         out += AppleMusicJSON.resources(root)
-        while out.count < cap, let next = AppleMusicJSON.next(root) {
-            root = try await get(next)
+        var visited = Set<String>()
+        while out.count < cap, let next = AppleMusicJSON.next(root), visited.insert(next).inserted {
+            // Apple's `next` carries only the offset: the first page's limit / include go again (without them
+            // page two answers 401 with an empty body, which failed the whole list as "Unreadable answer").
+            root = try await get(next, Self.missing(query, in: next))
             out += AppleMusicJSON.resources(root)
         }
         return Array(out.prefix(cap))
