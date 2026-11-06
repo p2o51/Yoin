@@ -187,6 +187,10 @@ struct MacNowPlaying: View {
     private func meta(large: Bool) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(model.player.currentTrack?.artist ?? "").font(.gsf(15)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
+            // Spotify playing on another device: where, quietly (never on the cover).
+            if model.player.currentTrack?.provider == SpotifyMapping.provider, let device = model.spotifyDevice {
+                Text("Playing on \(device)").font(.gsf(12.5)).foregroundStyle(Yoin.ink3).lineLimit(1)
+            }
             Text(model.player.currentTrack?.title ?? "Not playing")
                 .font(.gsf(large ? 40 : 34, .semibold)).foregroundStyle(Yoin.ink)
                 .lineLimit(2).minimumScaleFactor(0.7)

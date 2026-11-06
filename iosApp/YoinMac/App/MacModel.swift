@@ -101,6 +101,7 @@ final class MacModel {
         player.streamQuality = { MacSettings.streamQuality }
         offline.pump()
         spotifyOutput.source = { [weak self] in self?.session.spotify }
+        spotifyOutput.onDevice = { [weak self] name in self?.spotifyDevice = name }
         // Apple Music songs resolve through whichever Apple Music source is in use now.
         appleOutput.resolve = { [weak self] id in await self?.session.apple?.song(id) }
     }
@@ -362,13 +363,15 @@ final class MacModel {
         }
     }
 
-    /// Spotify plays on another device: move it to this Mac (the listener's choice), then start the song again.
+    /// The Spotify device Yoin plays on when it isn't this Mac (Now Playing names it).
+    var spotifyDevice: String?
+
+    /// "Play on This Mac": Spotify moves here (only ever the listener's choice).
     func spotifyPlayHere() {
         spotifyNotice = nil
         Task {
             do {
                 try await spotifyOutput.playHere()
-                player.retry()
             } catch {
                 spotifyNotice = SpotifySource.message(for: error)
                 Self.log.error("play here failed: \(SpotifySource.message(for: error), privacy: .public)")

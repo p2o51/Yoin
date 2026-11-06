@@ -93,6 +93,9 @@ struct MacCommands: Commands {
             .keyboardShortcut("m", modifiers: [.command, .option])
             .disabled(!model.session.isSignedIn)
             Toggle("Float Mini Player on Top", isOn: $miniFloats)
+            if model.session.isSpotify, model.spotifyDevice != nil {
+                Button("Play on This Mac") { model.spotifyPlayHere() }
+            }
             if model.session.profiles.count > 1 {
                 Menu("Switch Account") {
                     ForEach(model.session.profiles) { p in
