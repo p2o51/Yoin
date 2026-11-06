@@ -110,12 +110,15 @@ struct TrackMenuSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @AppStorage("keepScreenOn") private var keepScreenOn = false
     /// The content's measured height; until the first layout, `estimatedHeight`.
     /// (A fixed 420 guess presented the sheet at one height and then re-sized
     /// it mid-rise: the opening looked like two moves.)
     @State private var height: CGFloat?
     @State private var tapped = 0
+    /// The song's public link (Spotify, Apple Music), read as the sheet opens.
+    @State private var link: URL?
     /// The top-row button under the finger (it widens, its corners squeeze).
     @State private var pressedQuick: String?
     /// Queue buttons just tapped: their icon turns into a check for a moment.
@@ -152,8 +155,10 @@ struct TrackMenuSheet: View {
         var action: () -> Void = {}
     }
 
+    /// The song's title and artist, then its public link on the next line where it has one (Android
+    /// detailShareText).
     private var shareText: String {
-        [track.track.title, artist].filter { !$0.isEmpty }.joined(separator: " — ")
+        WebLinks.shareText(title: [track.track.title, artist].filter { !$0.isEmpty }.joined(separator: " — "), url: link)
     }
 
     /// The song as the engine's queue entry, for the heart Now Playing uses
@@ -206,6 +211,14 @@ struct TrackMenuSheet: View {
             return row + [share]
         }
         return [queueQuick(next: true), queueQuick(next: false)] + [favoriteQuick].compactMap { $0 } + [share]
+    }
+
+    /// The song's public link: Spotify's is its id, Apple Music's needs the storefront.
+    private func loadLink() async {
+        var shop: String?
+        if track.track.id.provider == AppleMusicMapping.provider { shop = await store.apple?.webStorefront() }
+        guard !Task.isCancelled else { return }
+        link = WebLinks.url(kind: .track, id: track.track.id, appleStorefront: shop)
     }
 
     private func flash(_ id: String) {
@@ -269,6 +282,9 @@ struct TrackMenuSheet: View {
                 model.openArtist(artist)
             })
         }
+        if let link, let label = WebLinks.openInLabel(link) {
+            go.append(Row(label: label, icon: "music_note") { [openURL, link] in openURL(link) })
+        }
         var edit: [Row] = []
         if context.kind == .playlist, let id = context.playlistId, let index = context.index,
            actions.canEditSongs(model.playlistInfo(id), store: store) {
@@ -302,6 +318,7 @@ struct TrackMenuSheet: View {
             .padding(.horizontal, 16)
             .padding(.top, 24)
             .padding(.bottom, 16)
+            .task(id: track.track.id) { await loadLink() }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { new in
                 // Sub-point differences from the estimate don't re-size the sheet.
                 if abs(new - (height ?? estimatedHeight)) > 0.5 { height = new }

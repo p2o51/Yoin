@@ -241,6 +241,10 @@ private struct PadDetailPlay: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     var root: Album?
+    /// The page's public link, for the ▾ menu's Share and Open in.
+    @State private var webLink = DetailWebLinkState()
+
+    private var detailTarget: DetailLinkTarget? { model.detailLinkTarget(root: root) }
 
     private var album: Album? {
         switch model.path.last {
@@ -294,6 +298,7 @@ private struct PadDetailPlay: View {
                         if let c = model.detailOfflineCollection, c.kind == .album {
                             OfflineMenuButton(collection: c, entries: { await entries() })
                         }
+                        DetailLinkMenuItems(target: detailTarget, link: webLink)
                         if model.path.isEmpty || model.path.last == .album(album) {
                             Divider()
                             Button("Go to artist") { model.openArtist(album.artist, id: album.artistId) }
@@ -316,6 +321,7 @@ private struct PadDetailPlay: View {
             .padding(16)
             .transition(.opacity.animation(Yoin.effects))
             .task(id: album.id) { await AlbumLibraryState.shared.load(album, store: model.store) }
+            .task(id: detailTarget) { await webLink.load(detailTarget, apple: model.store.apple) }
         }
     }
 }

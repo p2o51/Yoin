@@ -31,6 +31,8 @@ struct ShellBar: View {
     /// song sheet closed was swallowed).
     @State private var longPressed: ShellLongPress?
     @State private var longPresses = 0
+    /// The detail page's public link, for the ▾ menu's Share and Open in.
+    @State private var webLink = DetailWebLinkState()
 
     private enum ShellLongPress { case pill, library }
 
@@ -289,8 +291,10 @@ struct ShellBar: View {
                 if let c = model.detailOfflineCollection, case .album = model.path.last {
                     OfflineMenuButton(collection: c)
                 }
-                // Not on a Subsonic server yet (no catalog link, no share links).
+                // The mock's stand-ins; a real account's links come from its service (none on a Subsonic
+                // server: no public page).
                 if !model.store.isReal { Button("Open in Apple Music") {} }
+                DetailLinkMenuItems(target: detailTarget, link: webLink)
                 Divider()
                 if case .album = model.path.last {
                     Button("Go to artist") { model.openArtist(album.artist, id: album.artistId) }
@@ -314,7 +318,11 @@ struct ShellBar: View {
         .frame(width: Tokens.bar.SPLIT_WIDTH.cg, height: height)
         .fixedSize(horizontal: false, vertical: true)
         .task(id: album.id) { await AlbumLibraryState.shared.load(album, store: model.store) }
+        .task(id: detailTarget) { await webLink.load(detailTarget, apple: model.store.apple) }
     }
+
+    /// The page the ▾ menu's Share and Open in are about.
+    private var detailTarget: DetailLinkTarget? { model.detailLinkTarget() }
 
     /// The page's songs (album tracks, playlist entries, the artist's Most
     /// Played) into the engine.

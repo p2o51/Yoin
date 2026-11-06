@@ -94,6 +94,9 @@ final class AppleMusicSource {
         return error.localizedDescription
     }
 
+    /// The storefront the public web links name (`us`); nil when it can't be read.
+    func webStorefront() async -> String? { try? await countryCode() }
+
     private func countryCode() async throws -> String {
         if let storefront { return storefront }
         let code = try await MusicDataRequest.currentCountryCode
