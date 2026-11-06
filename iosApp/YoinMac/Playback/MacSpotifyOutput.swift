@@ -75,6 +75,7 @@ final class MacSpotifyOutput: AudioOutput {
         generation += 1
         showingExternal = false
         externalId = nil
+        handed = []
         poll?.cancel()
         self.current = Item(current)
         playing = false
@@ -92,8 +93,20 @@ final class MacSpotifyOutput: AudioOutput {
         }
     }
 
-    /// Spotify is handed one song at a time (see the type's note): nothing to preload.
-    func preload(_ next: URL?) {}
+    /// The engine's next song (it moves there when Spotify does, see `watch`).
+    func preload(_ next: URL?) { engineNext = Item(next) }
+
+    /// The engine's songs after the current one, in play order (set by the app): handed to Spotify with the
+    /// start so its own queue carries on, and other Spotify apps on the account see the album go on.
+    var upcoming: () -> [URL] = { [] }
+    /// Moves the engine on to its next song (set by the app): Spotify went somewhere the queue no longer
+    /// agrees with (an edit after the start), or ran out of handed songs while the queue has more.
+    var advance: () -> Void = {}
+    private var engineNext: Item?
+    /// What the current start handed Spotify, in order (the current song first).
+    private var handed: [Item] = []
+    /// Spotify's Web API takes at most this many URIs in one start.
+    static let maxHanded = 100
 
     func play() {
         wantsPlay = true
@@ -167,7 +180,15 @@ final class MacSpotifyOutput: AudioOutput {
                     try? await s.api.send("PUT", "me/player/repeat", ["state": "off", "device_id": id])
                     guard gen == generation else { return }
                 }
-                try await s.startPlayback(uris: [item.uri], positionMs: sec > 1 ? Int(sec * 1000) : 0, deviceId: id)
+                // The current song and what follows it (Spotify songs, up to the first one from elsewhere), so
+                // Spotify plays the queue on by itself (iOS: a start here takes over Connect; the list goes too).
+                var list = [item]
+                for url in upcoming() {
+                    guard let next = Item(url), list.count < Self.maxHanded else { break }
+                    list.append(next)
+                }
+                handed = list
+                try await s.startPlayback(uris: list.map(\.uri), positionMs: sec > 1 ? Int(sec * 1000) : 0, deviceId: id)
                 guard gen == generation else {
                     // Stopped while the start was on its way: it mustn't keep playing.
                     if current == nil { try? await s.api.send("PUT", "me/player/pause", ["device_id": id]) }
@@ -280,9 +301,11 @@ final class MacSpotifyOutput: AudioOutput {
 
     /// Reads where Spotify is every second, for the device Yoin owns: the clock, a pause or play made in
     /// Spotify, the song's end, and Spotify moving away (then Yoin lets go).
-    private func watch(_ item: Item?, owner start: (source: SpotifySource, device: String), gen: Int) {
+    private func watch(_ first: Item?, owner start: (source: SpotifySource, device: String), gen: Int) {
         poll?.cancel()
         poll = Task { [weak self] in
+            /// The queue song Spotify plays now (it moves on through the handed list).
+            var item = first
             /// The furthest the song was seen playing: an end is a stop (or another song) after its last seconds.
             var furthest: Double = 0
             var wait: Duration = .seconds(1)
@@ -344,6 +367,25 @@ final class MacSpotifyOutput: AudioOutput {
                     self.onDevice(Self.isThisMac(name) ? nil : name)
                 }
                 let progress = now.progressMs.map { Double($0) / 1000 }
+                // Spotify went on to the next handed song: the engine's next one is the same → the engine moves
+                // there too; a different one (the queue was edited after the start) → the engine starts its own.
+                if let current = item, let playingId = now.item?.id, playingId != current.trackId, !quiet,
+                   let at = self.handed.firstIndex(where: { $0.trackId == current.trackId }),
+                   self.handed.dropFirst(at + 1).contains(where: { $0.trackId == playingId }) {
+                    if let n = self.engineNext, n.trackId == playingId {
+                        item = n
+                        self.current = n
+                        furthest = 0
+                        self.duration = 0
+                        self.lastTime = progress ?? 0
+                        self.lastTick = Date()
+                        self.startedAt = Date()
+                        self.events?.outputDidAdvanceToPreloaded()
+                    } else {
+                        self.advance()
+                        return
+                    }
+                }
                 let isQueueSong = item != nil && now.item?.id == item?.trackId
                 if isQueueSong, self.showingExternal {
                     // The queue's own song is back.
@@ -502,10 +544,12 @@ final class MacSpotifyOutput: AudioOutput {
                              coverURL: i.album?.images?.first?.url.flatMap(URL.init(string:)))
     }
 
+    /// The song ended and Spotify stopped: the queue goes on when it has more (past the handed list, or a
+    /// song from another source), else it ends.
     private func ended(gen: Int) {
         guard gen == generation else { return }
         playing = false
-        events?.outputDidReachEnd()
+        if engineNext != nil { advance() } else { events?.outputDidReachEnd() }
     }
 
     /// Spotify isn't Yoin's any more: no command goes there; the engine shows paused (or the message).

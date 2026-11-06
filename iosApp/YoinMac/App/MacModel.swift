@@ -137,6 +137,16 @@ final class MacModel {
             }
         }
         spotifyOutput.onDevice = { [weak self] name in self?.spotifyDevice = name }
+        // Spotify gets the queue's next songs with a start, and asks the engine on when they part ways.
+        // (Repeat one: Spotify gets the song alone, and its end plays it again.)
+        spotifyOutput.upcoming = { [weak self] in
+            guard let p = self?.player, p.repeatMode != .one else { return [] }
+            return p.upcoming.map(\.track.streamURL)
+        }
+        spotifyOutput.advance = { [weak self] in
+            guard let p = self?.player else { return }
+            if p.repeatMode == .one, let i = p.currentIndex { p.jump(to: i) } else { p.next() }
+        }
         // Spotify playing somewhere is what Yoin shows (iOS 7702336e), unless Yoin itself plays another source.
         spotifyOutput.adopt = { [weak router, weak self] in
             guard let router, let self else { return false }
