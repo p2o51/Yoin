@@ -124,7 +124,8 @@ internal fun MiniPlayerMenuDemo(playing: Boolean) {
         delay(300)
         moveTo("bar", fx = MiniPlayerFx)
         hold { open = true }
-        lift()
+        // Gone the frame the sheet starts up, so it never sits on a row.
+        hide()
         delay(1_800)
         moveTo(0.5f, 0.12f)
         tap { open = false }
@@ -192,9 +193,10 @@ internal fun DownloadsDemo(playing: Boolean) {
         delay(300)
         lift()
         delay(1_800)
-        moveTo("row0", fx = 0.5f)
+        // Close on the scrim above the sheet, not on the sheet's header.
+        moveTo(0.5f, 0.12f)
         tap { open = false }
-        lift()
+        hide()
         delay(500)
     }) {
         DemoAlbumPage(album = album, cover = cover, onLongPressRow = { open = true })
