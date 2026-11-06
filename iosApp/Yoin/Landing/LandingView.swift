@@ -40,6 +40,11 @@ struct LandingView: View {
     @State private var bubbleTask: Task<Void, Never>?
     @State private var started = false
     @State private var subsonicForm = LandingSubsonicForm()
+    /// The Home step's choice (a re-run starts from the account's own).
+    @State private var homeLayout = HomeLayout.default
+    /// Accounts there before this landing opened: any other one was added here.
+    @State private var profilesAtStart: Set<String>?
+    @State private var createdProfileIds: [String] = []
     @State private var connectRequests = 0
     // Haptic triggers.
     @State private var refusals = 0
@@ -103,6 +108,7 @@ struct LandingView: View {
             if keyboard != 0 { withAnimation(Yoin.spatial) { keyboard = 0 } }
         }
         .task { await start() }
+        .onChange(of: model.profiles.profiles.map(\.id)) { _, ids in profilesChanged(ids) }
         #if DEBUG
         .task { await runScript() }
         #endif
@@ -197,6 +203,10 @@ struct LandingView: View {
         case .hello: EmptyView()
         case .pick: LandingPickScene(picked: flow.picked, scheme: scheme, onToggle: toggle)
         case .about: LandingAboutScene(picked: flow.picked, scheme: scheme)
+        case .home:
+            LandingHomeScene(layout: homeLayout, scheme: scheme,
+                             onEnabled: { section, on in homeLayout = homeLayout.withEnabled(section, on) },
+                             onMove: { from, to in homeLayout = LandingHomeLayout.move(homeLayout, from: from, to: to) })
         case .subsonic:
             LandingSubsonicScene(form: $subsonicForm, connected: flow.connected.contains(.subsonic),
                                  scheme: scheme, reactions: reactions, connectRequests: connectRequests)
@@ -356,6 +366,14 @@ struct LandingView: View {
         mascot.cheer()
     }
 
+    /// The accounts changed: Home joins the steps with the first one, and the ones added here are remembered.
+    private func profilesChanged(_ ids: [String]) {
+        let start = profilesAtStart ?? Set(ids)
+        profilesAtStart = start
+        for id in ids where !start.contains(id) && !createdProfileIds.contains(id) { createdProfileIds.append(id) }
+        withAnimation(Yoin.spatial) { flow.setHasAccount(!ids.isEmpty) }
+    }
+
     private func start() async {
         guard !started else { return }
         mascot.onTick = { ticks += 1 }
@@ -363,6 +381,12 @@ struct LandingView: View {
         if session.mode == .rerun, subsonicForm.address.isEmpty, let a = model.session.account {
             subsonicForm.address = a.baseUrl
             subsonicForm.username = a.username
+        }
+        let ids = model.profiles.profiles.map(\.id)
+        profilesAtStart = Set(ids)
+        flow.setHasAccount(!ids.isEmpty)
+        if session.mode == .rerun, model.store.isReal {
+            homeLayout = HomeLayout.reconcile(HomeLayoutStore.shared.prefs(model.store.homeScope))
         }
         defer { started = true }
         guard !reduced else { return }
@@ -421,6 +445,7 @@ struct LandingView: View {
         guard !finishing else { return }
         finishing = true
         confirms += 1
+        writeHomeLayouts()
         if session.persists { DefaultsLandingStore().markDone() }
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         // Into Home: a re-run from Settings lands on Home, as a first run does (no animation beneath the landing).
@@ -437,6 +462,15 @@ struct LandingView: View {
             withAnimation(Yoin.slowSpatial) { fly = true }
             try? await Task.sleep(for: .milliseconds(Int(170 / LaunchConfig.animationSpeed)))
             withAnimation(Yoin.slowEffects) { reveal = 0 } completion: { model.landing = nil }
+        }
+    }
+
+    /// "Open Yoin": the Home choice goes to every account added here (and, on a re-run, the one in use),
+    /// so Home's first frame is already the chosen layout.
+    private func writeHomeLayouts() {
+        let created = model.profiles.profiles.filter { createdProfileIds.contains($0.id) }
+        for profile in LandingHomeLayout.targets(created: created, active: model.profiles.active, mode: session.mode) {
+            if let scope = LandingHomeLayout.homeScope(of: profile) { LandingHomeLayout.write(homeLayout, scope: scope) }
         }
     }
 

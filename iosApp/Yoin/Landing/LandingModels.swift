@@ -21,10 +21,10 @@ enum LandingService: String, CaseIterable, Sendable {
 }
 
 /// Android LandingStep, minus the steps iOS has nothing behind yet: Spotoolfy
-/// (no Spotoolfy import on iOS), Home (iOS Home has no section layout to
-/// write) and Edge (no scroll-edge styles on iOS).
+/// (no Spotoolfy import on iOS) and Edge (no scroll-edge styles on iOS). Home
+/// (the section toggles and order, saved per account) comes once an account exists.
 enum LandingStep: String, CaseIterable, Sendable, Hashable {
-    case hello, pick, about, subsonic, spotify, appleMusic, ready
+    case hello, pick, about, subsonic, spotify, appleMusic, home, ready
 
     var service: LandingService? {
         switch self {
@@ -52,11 +52,12 @@ enum LandingMode: Sendable, Equatable {
     case firstRun, rerun
 }
 
-/// The step list for a selection: one connect step per picked service, in the
-/// catalog's order.
-func landingSteps(picked: Set<LandingService>) -> [LandingStep] {
+/// The step list for a selection (Android `landingSteps`): one connect step per picked service, in the
+/// catalog's order; Home only once an account exists to own the layout.
+func landingSteps(picked: Set<LandingService>, hasAccount: Bool = false) -> [LandingStep] {
     var steps: [LandingStep] = [.hello, .pick, .about]
     steps += LandingService.allCases.filter { picked.contains($0) }.compactMap(LandingStep.connect)
+    if hasAccount { steps.append(.home) }
     steps.append(.ready)
     return steps
 }
@@ -77,6 +78,8 @@ struct LandingFlow: Equatable, Sendable {
     private(set) var picked: Set<LandingService> = []
     /// Services an account was added for during this landing.
     private(set) var connected: Set<LandingService> = []
+    /// An account exists (one was added here, or a re-run): the Home step has a layout to write.
+    private(set) var hasAccount = false
 
     init(mode: LandingMode) { self.mode = mode }
 
@@ -101,10 +104,17 @@ struct LandingFlow: Equatable, Sendable {
 
     mutating func markConnected(_ service: LandingService) { connected.insert(service) }
 
+    /// The account list changed: Home joins or leaves the steps.
+    mutating func setHasAccount(_ value: Bool) {
+        guard value != hasAccount else { return }
+        hasAccount = value
+        rebuild()
+    }
+
     /// The step on screen stays where it is when the list changes around it.
     private mutating func rebuild() {
         let current = step
-        steps = landingSteps(picked: picked)
+        steps = landingSteps(picked: picked, hasAccount: hasAccount)
         index = steps.firstIndex(of: current) ?? min(index, steps.count - 1)
     }
 
@@ -121,7 +131,7 @@ struct LandingFlow: Equatable, Sendable {
             let done = step.service.map(connected.contains) ?? false
             return done ? LandingPrimary(label: String(localized: "Next"), style: .filled) : LandingPrimary(label: String(localized: "Skip"), style: .tonal)
         case .ready: return LandingPrimary(label: String(localized: "Open Yoin"), style: .filled, arrow: true)
-        case .about: return LandingPrimary(label: String(localized: "Next"), style: .filled)
+        case .about, .home: return LandingPrimary(label: String(localized: "Next"), style: .filled)
         }
     }
 
@@ -140,6 +150,7 @@ func landingBubble(_ step: LandingStep, noAccounts: Bool) -> (title: String, bod
     case .subsonic: ("Where's your server?", nil)
     case .spotify: ("Spotify wants an app ID from you.", "I'll walk you through it.")
     case .appleMusic: ("Apple Music needs your OK.", nil)
+    case .home: (String(localized: "What goes on Home?"), nil)
     case .ready: noAccounts ? ("No account yet.", "You can add one anytime in Settings.") : ("All set.", nil)
     }
 }
