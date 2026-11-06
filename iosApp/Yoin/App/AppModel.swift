@@ -520,8 +520,13 @@ final class AppModel {
     func enqueue(_ entries: [PlaylistEntry], next: Bool) {
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
-        // Spotify's own song (no queue under it) isn't something to queue after.
-        guard player.currentItem != nil else { return play(entries) }
+        guard player.currentItem != nil else {
+            // Spotify's own song (no queue under it) isn't something to queue after.
+            if player.externalTrack != nil { return play(entries) }
+            // An empty player takes them in order and waits for Play (Android addMediaItems).
+            playingFrom = nil
+            return player.cue(queue: tracks)
+        }
         if next { tracks.reversed().forEach(player.playNext) } else { tracks.forEach(player.addToQueue) }
     }
 

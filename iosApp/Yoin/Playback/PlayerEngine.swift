@@ -142,6 +142,32 @@ final class PlayerEngine {
         loadCurrent(play: true)
     }
 
+    /// Takes [tracks] as the queue without starting anything (Add to queue on an empty player:
+    /// Media3 addMediaItems). Nothing is loaded either: Spotify's output starts the song on load, so
+    /// the first Play loads it (the `ended` path).
+    func cue(queue tracks: [PlayableTrack]) {
+        guard currentIndex == nil, !tracks.isEmpty else { return }
+        cue(tracks.map { QueueItem($0, userQueued: true) })
+    }
+
+    private func cue(_ items: [QueueItem]) {
+        if shuffle {
+            originalOrder = items
+            queue = [items[0]] + shuffler(Array(items.dropFirst()))
+        } else {
+            originalOrder = nil
+            queue = items
+        }
+        currentIndex = 0
+        ended = true
+        failure = nil
+        isPlaying = false
+        isBuffering = false
+        progress.positionSec = 0
+        progress.durationSec = items[0].track.durationSec
+        onStateChange?()
+    }
+
     /// Plays queue entry [index] (a tap in the queue sheet).
     func jump(to index: Int) {
         guard queue.indices.contains(index) else { return }
@@ -347,14 +373,7 @@ final class PlayerEngine {
 
     private func insertUserQueued(_ track: PlayableTrack, afterQueued: Bool) {
         let item = QueueItem(track, userQueued: true)
-        guard let i = currentIndex else {
-            // An empty player takes the song without starting it (Media3 addMediaItems).
-            queue = [item]
-            originalOrder = shuffle ? [item] : nil
-            currentIndex = 0
-            loadCurrent(play: false)
-            return
-        }
+        guard let i = currentIndex else { return cue([item]) }
         var at = i + 1
         if afterQueued {
             while at < queue.count, queue[at].userQueued { at += 1 }
