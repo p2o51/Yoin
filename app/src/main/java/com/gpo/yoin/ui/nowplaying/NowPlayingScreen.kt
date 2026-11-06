@@ -3372,7 +3372,7 @@ private fun LandscapePlayingContent(
                     focusProgressTop - LandscapeLyricsToTransport / 2,
                     atEase,
                 ),
-                titleTop - LandscapeLyricsToTransport,
+                titleTop - LandscapeExpandedLyricsToTitle,
             )
         }
 
@@ -3581,6 +3581,8 @@ private fun LandscapePlayingContent(
                             onDeleteNote = onDeleteNote,
                             noteDraft = noteDraft,
                             noteWriting = noteBar.open,
+                            // The title stays on screen beside / under the cover.
+                            lyricsTitleCard = false,
                             modifier = pageModifier.graphicsLayer {
                                 val detail = resolvedStageProgress.detail
                                 alpha = ((detail - 0.1f) / 0.6f).coerceIn(0f, 1f)
@@ -3649,19 +3651,26 @@ private fun LandscapePlayingContent(
         // the title in the room the transport left.
         val stackedTitleBlock = if (stacked) detailProgress else 0f
         if (stackedTitleBlock > HiddenLayerVisibilityThreshold) {
+            // Up to two title lines, from under the horizontal rating to the
+            // column's foot.
+            val blockTop = maxOf(
+                frameHeight - LandscapeStackedTitleBlock,
+                geometry.restCover + LandscapeRatingGap + LandscapeRatingRow + LandscapeRatingGap,
+            )
             Column(
                 modifier = Modifier
-                    .offset(x = 0.dp, y = frameHeight - LandscapeStackedTitleBlock)
+                    .offset(x = 0.dp, y = blockTop)
                     .width(geometry.restCover)
-                    .height(LandscapeStackedTitleBlock)
+                    .height((frameHeight - blockTop).coerceAtLeast(0.dp))
                     .graphicsLayer { alpha = stackedTitleBlock },
                 verticalArrangement = Arrangement.Bottom,
             ) {
-                NowPlayingMarqueeTitle(
+                Text(
                     text = state.songTitle,
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface,
-                    stretchScale = 1f,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = state.artist,
@@ -3948,7 +3957,8 @@ private val LandscapeLyricsToTransport = 8.dp
 
 /** Focus: the progress row under the one-row transport (shortFocusControlsHeight). */
 private val LandscapePageBottomFade = 24.dp
-private val LandscapeStackedTitleBlock = 60.dp
+private val LandscapeStackedTitleBlock = 96.dp
+private val LandscapeExpandedLyricsToTitle = 16.dp
 private val LandscapeFocusProgressRow = 36.dp
 private const val LandscapeFocusLinesAbove = 2
 private const val LandscapeFocusLyricScale = 1.35f
@@ -5096,6 +5106,8 @@ private fun ExpandedDetailPage(
     lyricsEndOverflow: Dp = 0.dp,
     // Two-column focus (0..1, draw phase): the lyrics print as halftone.
     lyricsFocus: () -> Float = { 0f },
+    // The title card over the lyrics; off where the layout keeps the title in view.
+    lyricsTitleCard: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
     when (page) {
@@ -5109,8 +5121,8 @@ private fun ExpandedDetailPage(
             viewportGrowthPx = lyricsViewportGrowthPx,
             trackKey = state.songId,
             queueIndex = state.currentQueueIndex,
-            songTitle = state.songTitle,
-            artist = state.artist,
+            songTitle = state.songTitle.takeIf { lyricsTitleCard },
+            artist = state.artist.takeIf { lyricsTitleCard },
             upNext = state.upNextLyrics,
             durationMs = state.durationMs,
             lyrics = state.lyrics,
