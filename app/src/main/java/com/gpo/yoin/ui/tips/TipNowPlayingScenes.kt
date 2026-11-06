@@ -2,6 +2,10 @@ package com.gpo.yoin.ui.tips
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
@@ -165,6 +169,39 @@ internal fun CoverMenuDemo(playing: Boolean, keepScreenOn: Boolean) {
     }
 }
 
+/**
+ * Tap the cover → Focus: the top bar, the rating column, the tabs and the
+ * pills step aside and the cover grows; tap it again and they come back.
+ * (The real Focus is Now Playing's immersive stage; here the same pieces
+ * retreat on the same springs.)
+ */
+@Composable
+internal fun FocusCoverDemo(playing: Boolean) {
+    var focused by remember { mutableStateOf(false) }
+    val coverSource = remember { MutableInteractionSource() }
+    val position by rememberDemoPlayhead(playing)
+    DemoPhone(playing = playing, script = {
+        focused = false
+        delay(600)
+        moveTo("cover", fy = 0.45f)
+        tap { focused = true }
+        lift()
+        delay(2_400)
+        moveTo("cover", fy = 0.45f)
+        tap { focused = false }
+        lift()
+        delay(1_400)
+    }) {
+        DemoNowPlaying(
+            playing = playing,
+            positionMs = { position },
+            coverSource = coverSource,
+            focused = focused,
+            onCoverClick = { focused = !focused },
+        )
+    }
+}
+
 /** The real play-mode button in its place in the transport: tap through the modes, hold to split. */
 @Composable
 internal fun PlayModesDemo(playing: Boolean) {
@@ -241,6 +278,9 @@ internal fun NoteMomentsDemo(playing: Boolean) {
     }
 }
 
+/** How much the demo cover grows in Focus: into the rating column it frees. */
+private const val FocusCoverScale = 1.12f
+
 /** The phone's x for [fraction] along the wave progress bar. */
 private fun barX(fraction: Float): Float = BarStartX + (BarEndX - BarStartX) * fraction.coerceIn(0f, 1f)
 
@@ -291,8 +331,21 @@ private fun DemoNowPlaying(
     onCoverLongPress: (() -> Unit)? = null,
     onWrite: () -> Unit = {},
     actedScrub: (() -> Float?)? = null,
+    focused: Boolean = false,
+    onCoverClick: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
+    // Focus: the chrome fades on the effects spring, the cover grows on the spatial one.
+    val chrome by animateFloatAsState(
+        targetValue = if (focused) 0f else 1f,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "tipFocusChrome",
+    )
+    val coverScale by animateFloatAsState(
+        targetValue = if (focused) FocusCoverScale else 1f,
+        animationSpec = YoinMotion.defaultSpatialSpec(),
+        label = "tipFocusCover",
+    )
     val album = DemoAlbums[0]
     val cover = demoCoverUrl(album)
     val lyrics = demoLyrics()
@@ -359,7 +412,9 @@ private fun DemoNowPlaying(
                 onArtistClick = {},
                 onPlaylistClick = {},
                 height = pose.topBar,
-                modifier = Modifier.padding(horizontal = horizontalPadding),
+                modifier = Modifier
+                    .padding(horizontal = horizontalPadding)
+                    .graphicsLayer { alpha = chrome },
             )
             Row(
                 modifier = Modifier
@@ -368,7 +423,17 @@ private fun DemoNowPlaying(
                     .padding(horizontal = horizontalPadding),
                 verticalAlignment = Alignment.Top,
             ) {
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .zIndex(1f)
+                        .graphicsLayer {
+                            scaleX = coverScale
+                            scaleY = coverScale
+                            transformOrigin = TransformOrigin(0f, 0f)
+                        },
+                ) {
                     AlbumCover(
                         songId = state.songId,
                         coverArtUrl = state.coverArtUrl,
@@ -382,13 +447,27 @@ private fun DemoNowPlaying(
                                 } else {
                                     Modifier
                                 },
+                            )
+                            .then(
+                                if (onCoverClick != null) {
+                                    Modifier.clickable(
+                                        interactionSource = coverSource,
+                                        indication = null,
+                                        onClick = onCoverClick,
+                                    )
+                                } else {
+                                    Modifier
+                                },
                             ),
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(56.dp).fillMaxHeight(),
+                    modifier = Modifier
+                        .width(56.dp)
+                        .fillMaxHeight()
+                        .graphicsLayer { alpha = chrome },
                 ) {
                     NowPlayingRatingBar(
                         songId = state.songId,
@@ -407,7 +486,9 @@ private fun DemoNowPlaying(
                 detailProgress = 0f,
                 height = pose.tabs,
                 onSelect = {},
-                modifier = Modifier.padding(horizontal = horizontalPadding),
+                modifier = Modifier
+                    .padding(horizontal = horizontalPadding)
+                    .graphicsLayer { alpha = chrome },
             )
             Spacer(modifier = Modifier.height(pose.tabGap))
             Box(
@@ -487,6 +568,7 @@ private fun DemoNowPlaying(
                     onWriteClick = onWrite,
                     modifier = Modifier
                         .padding(horizontal = horizontalPadding)
+                        .graphicsLayer { alpha = chrome }
                         .demoTarget("pills"),
                 )
             }
@@ -506,6 +588,8 @@ internal fun BoxScope.DemoSongSheet(
     quickActions: List<TrackMenuQuickAction> = emptyList(),
     playerSection: (@Composable () -> Unit)? = null,
     scrollState: ScrollState = rememberScrollState(),
+    rowModifier: (TrackMenuRow) -> Modifier = { Modifier },
+    onRowClick: (TrackMenuRow) -> Unit = {},
 ) {
     AnimatedVisibility(
         visible = open,
@@ -541,10 +625,14 @@ internal fun BoxScope.DemoSongSheet(
                     groups = groups,
                     quickActions = quickActions,
                     onQuickActionClick = { if (!it.keepsOpen) onDismiss() },
-                    onRowClick = { onDismiss() },
+                    onRowClick = { row ->
+                        onRowClick(row)
+                        onDismiss()
+                    },
                     bottomPadding = 16.dp + navBottom,
                     playerSection = playerSection,
                     scrollState = scrollState,
+                    rowModifier = rowModifier,
                 )
             }
         }

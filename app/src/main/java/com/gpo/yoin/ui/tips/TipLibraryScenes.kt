@@ -40,6 +40,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -49,6 +51,7 @@ import com.gpo.yoin.ui.detail.AlbumSong
 import com.gpo.yoin.ui.detail.AlbumBarHeaderTwin
 import com.gpo.yoin.ui.detail.AlbumTrackCountLabel
 import com.gpo.yoin.ui.detail.AlbumTrackRow
+import com.gpo.yoin.ui.detail.TrackMenuRow
 import com.gpo.yoin.ui.library.LibraryContent
 import com.gpo.yoin.ui.library.LibraryItem
 import com.gpo.yoin.ui.library.LibrarySearchFilter
@@ -106,6 +109,104 @@ internal fun SongMenuDemo(playing: Boolean) {
     }
 }
 
+/**
+ * Long-press the mini player in the bar → the playing song's sheet, as Now
+ * Playing's cover gives it but without the player group (owner 2026-11-03).
+ */
+@Composable
+internal fun MiniPlayerMenuDemo(playing: Boolean) {
+    var open by remember { mutableStateOf(false) }
+    val album = DemoAlbums[0]
+    val cover = demoCoverUrl(album)
+    val track = remember(cover) { demoTrack(0, album, cover) }
+    DemoPhone(playing = playing, script = {
+        open = false
+        delay(300)
+        moveTo("bar", fx = MiniPlayerFx)
+        hold { open = true }
+        lift()
+        delay(1_800)
+        moveTo(0.5f, 0.12f)
+        tap { open = false }
+        delay(500)
+    }) {
+        DemoLibraryPage(
+            gridState = rememberLazyGridState(),
+            onSearch = {},
+            nowPlaying = track,
+            playing = playing,
+            onMiniPlayerLongPress = { open = true },
+        )
+        DemoSongSheet(
+            open = open,
+            onDismiss = { open = false },
+            track = track,
+            coverUrl = cover,
+            groups = demoSongSheetRows(withGoToAlbum = true, nowPlaying = true),
+            quickActions = demoSongSheetQuickActions(nowPlaying = true),
+        )
+    }
+}
+
+/**
+ * Subsonic downloads from a song's sheet: long-press a song, tap Download,
+ * and the next time the sheet says Remove download (OfflineToggle's labels).
+ */
+@Composable
+internal fun DownloadsDemo(playing: Boolean) {
+    var open by remember { mutableStateOf(false) }
+    var downloaded by remember { mutableStateOf(false) }
+    val album = DemoAlbums[1]
+    val cover = demoCoverUrl(album)
+    val addToPlaylist = stringResource(R.string.detail_menu_add_to_playlist)
+    val download = stringResource(R.string.offline_download)
+    val remove = stringResource(R.string.offline_remove_download)
+    val baseRows = demoSongSheetRows(withGoToAlbum = false)
+    val groups = remember(baseRows, downloaded, download, remove, addToPlaylist) {
+        val offline = if (downloaded) {
+            TrackMenuRow(remove, YoinSymbols.DownloadDone) { downloaded = false }
+        } else {
+            TrackMenuRow(download, YoinSymbols.Download) { downloaded = true }
+        }
+        listOf(listOf(TrackMenuRow(addToPlaylist, YoinSymbols.Playlist) {}, offline)) + baseRows.drop(1)
+    }
+    DemoPhone(playing = playing, script = {
+        open = false
+        downloaded = false
+        delay(300)
+        moveTo("row2", fx = 0.45f)
+        hold { open = true }
+        delay(500)
+        moveTo("offline", fx = 0.4f)
+        tap {
+            downloaded = true
+            open = false
+        }
+        delay(900)
+        moveTo("row2", fx = 0.45f)
+        hold { open = true }
+        delay(400)
+        moveTo("offline", fx = 0.4f)
+        lift()
+        delay(1_800)
+        moveTo("row0", fx = 0.5f)
+        tap { open = false }
+        delay(500)
+    }) {
+        DemoAlbumPage(album = album, cover = cover, onLongPressRow = { open = true })
+        DemoSongSheet(
+            open = open,
+            onDismiss = { open = false },
+            track = demoTrack(2, album, cover),
+            coverUrl = cover,
+            groups = groups,
+            quickActions = demoSongSheetQuickActions(nowPlaying = false),
+            rowModifier = { row -> if (row.label == download || row.label == remove) Modifier.demoTarget("offline") else Modifier },
+            onRowClick = { row -> row.onClick() },
+        )
+    }
+}
+
 /** Long-press Library in the bar → search. */
 @Composable
 internal fun LibrarySearchDemo(playing: Boolean) {
@@ -152,7 +253,13 @@ internal fun ScrollEdgeDemo(playing: Boolean) {
 }
 
 @Composable
-private fun BoxScope.DemoLibraryPage(gridState: LazyGridState, onSearch: () -> Unit) {
+private fun BoxScope.DemoLibraryPage(
+    gridState: LazyGridState,
+    onSearch: () -> Unit,
+    nowPlaying: Track? = null,
+    playing: Boolean = false,
+    onMiniPlayerLongPress: (() -> Unit)? = null,
+) {
     val albums = demoLibraryAlbums()
     var tab by remember { mutableStateOf(LibraryTab.All) }
     val state = remember(albums, tab) {
@@ -208,16 +315,19 @@ private fun BoxScope.DemoLibraryPage(gridState: LazyGridState, onSearch: () -> U
     )
     YoinButtonGroup(
         selectedSection = YoinSection.LIBRARY,
-        currentTrackId = null,
-        currentTrackTitle = null,
-        currentTrackArtist = null,
-        currentTrackCoverArtUrl = null,
-        isPlaybackReady = false,
+        currentTrackId = nowPlaying?.id?.toString(),
+        currentTrackTitle = nowPlaying?.title,
+        currentTrackArtist = nowPlaying?.artist,
+        currentTrackCoverArtUrl = (nowPlaying?.coverArt as? CoverRef.Url)?.url,
+        isPlaybackReady = nowPlaying != null,
         connectionErrorMessage = null,
+        playbackProgress = if (nowPlaying != null) MiniPlayerProgress else 0f,
+        isPlaying = playing && nowPlaying != null,
         onHomeClick = {},
         onNowPlayingClick = {},
         onLibraryClick = {},
         onLibraryLongClick = onSearch,
+        onNowPlayingLongClick = onMiniPlayerLongPress,
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .demoTarget("bar"),
@@ -367,6 +477,12 @@ private fun BoxScope.DemoAlbumPage(album: DemoAlbum, cover: String, onLongPressR
 
 /** The album page's band and accent, as the cover of [DemoAlbums]`[1]` gives it. */
 private val DemoAlbumAccent = Color(0xFF9C3826)
+
+/** Where the mini player sits across the bar (Home | mini player | Library). */
+private const val MiniPlayerFx = 0.5f
+
+/** How far into its song the mini player's ring stands. */
+private const val MiniPlayerProgress = 0.35f
 
 /** The collapsed search pill's band under the status bar. */
 private val SearchPillBand = 64.dp
