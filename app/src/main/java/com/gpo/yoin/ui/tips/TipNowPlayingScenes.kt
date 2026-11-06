@@ -193,7 +193,8 @@ internal fun FocusCoverDemo(playing: Boolean) {
     var focused by remember { mutableStateOf(false) }
     val coverSource = remember { MutableInteractionSource() }
     val position by rememberDemoPlayhead(playing)
-    DemoPhone(playing = playing, script = {
+    // 20:9: on a 16:9 screen focus keeps the cover's size (short-window focus).
+    DemoPhone(playing = playing, tall = true, script = {
         focused = false
         delay(600)
         moveTo("cover", fy = 0.45f)
@@ -432,10 +433,45 @@ private fun DemoNowPlaying(
     )
     val playSource = remember { MutableInteractionSource() }
     val nextSource = remember { MutableInteractionSource() }
+    val palette = remember(colors) {
+        intArrayOf(colors.primary.toArgb(), colors.tertiary.toArgb(), colors.secondary.toArgb(), colors.primaryContainer.toArgb())
+    }
+    val dark = colors.surface.luminance() < 0.5f
+    // The whole screen, status bar and all, as the real background draws:
+    // focus washes it in the cover's colours and the band runs round its edge.
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { stageOrigin = it.positionInRoot() },
+    ) {
+        drawRect(Brush.verticalGradient(listOf(colors.surfaceContainer, colors.surface)))
+        if (focus > 0.01f) {
+            drawRect(
+                Brush.verticalGradient(
+                    listOf(colors.primaryContainer, colors.tertiaryContainer, colors.secondaryContainer),
+                ),
+                alpha = 0.75f * focus.coerceIn(0f, 1f),
+            )
+        }
+        val t = clock.floatValue
+        if (focus > 0.01f && band.alive(t)) {
+            drawEdgeBand(
+                state = band,
+                dots = bandDots,
+                nowMs = t,
+                focus = focus,
+                playing = if (playing) 1f else 0f,
+                cover = coverBounds.translate(-stageOrigin),
+                lyrics = null,
+                palette = palette,
+                primary = colors.primary,
+                dark = dark,
+            )
+        }
+    }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(colors.surfaceContainer, colors.surface)))
             .padding(
                 PaddingValues(
                     start = bars.calculateStartPadding(direction),
@@ -451,31 +487,6 @@ private fun DemoNowPlaying(
         }
         val pose = lerpPose(budget.rest, budget.focus ?: budget.rest, focus)
         val liveWidth = lerpDp(maxWidth, budget.focusStageWidth, focus)
-        val palette = remember(colors) {
-            intArrayOf(colors.primary.toArgb(), colors.tertiary.toArgb(), colors.secondary.toArgb(), colors.primaryContainer.toArgb())
-        }
-        val dark = colors.surface.luminance() < 0.5f
-        Canvas(
-            modifier = Modifier
-                .matchParentSize()
-                .onGloballyPositioned { stageOrigin = it.positionInRoot() },
-        ) {
-            val t = clock.floatValue
-            if (focus > 0.01f && band.alive(t)) {
-                drawEdgeBand(
-                    state = band,
-                    dots = bandDots,
-                    nowMs = t,
-                    focus = focus,
-                    playing = if (playing) 1f else 0f,
-                    cover = coverBounds.translate(-stageOrigin),
-                    lyrics = null,
-                    palette = palette,
-                    primary = colors.primary,
-                    dark = dark,
-                )
-            }
-        }
         Column(
             modifier = Modifier
                 .fillMaxHeight()
