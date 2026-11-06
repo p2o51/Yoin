@@ -21,6 +21,8 @@ struct MacAlbumScrapbook: View {
     @State private var titleOpened = ""
     @FocusState private var titleFocused: Bool
     @State private var openTrack: String?
+    /// The track whose Ask / About material is open for reading and managing (Android AlbumScrapbookTrackSheet).
+    @State private var aboutTrack: Track?
     /// The lane's inner width: tickets and clippings never get wider than it.
     @State private var laneWidth: CGFloat = 528
 
@@ -71,6 +73,38 @@ struct MacAlbumScrapbook: View {
         return (st?.playCount ?? 0, st?.firstPlayedAt, st?.lastPlayedAt,
                 h.songPlayCounts(scope: scope, provider: provider, albumId: album.id.rawId))
     }
+    /// A track's Ask / About material (Android AlbumScrapbookSource.toAbout): questions newest first, then the
+    /// canonical facts in their order (the review paragraph among them).
+    private struct About {
+        var asks: [SongAboutStore.Entry]
+        var facts: [(label: String, entry: SongAboutStore.Entry)]
+        var isEmpty: Bool { asks.isEmpty && facts.isEmpty }
+    }
+
+    private func about(_ t: Track) -> About {
+        let key = SongAboutStore.key(title: t.title, artist: t.artist ?? album.artist, album: album.title)
+        let rows = SongAboutStore.shared.entries(key).filter { !$0.isBlank }
+        let asks = rows.filter { $0.kind != SongAboutStore.Kind.canonical }
+            .sorted { ($0.createdAt, $0.updatedAt) > ($1.createdAt, $1.updatedAt) }
+        let canon = Dictionary(rows.filter { $0.kind == SongAboutStore.Kind.canonical }.map { ($0.entryKey, $0) },
+                               uniquingKeysWith: { a, _ in a })
+        let facts = SongAboutStore.Canon.order.compactMap { k in canon[k].map { (Self.factLabel(k), $0) } }
+        return About(asks: asks, facts: facts)
+    }
+
+    /// Android `factLabel` / strings detail_scrap_fact_*.
+    static func factLabel(_ key: String) -> String {
+        switch key {
+        case SongAboutStore.Canon.creationTime: "Created"
+        case SongAboutStore.Canon.creationLocation: "Recorded in"
+        case SongAboutStore.Canon.lyricist: "Lyricist"
+        case SongAboutStore.Canon.composer: "Composer"
+        case SongAboutStore.Canon.producer: "Producer"
+        case SongAboutStore.Canon.review: "About"
+        default: key
+        }
+    }
+
     private func playCount(_ t: Track) -> Int { stats.songs[t.id.rawId] ?? (t.playCount ?? 0) }
     private static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
@@ -89,6 +123,9 @@ struct MacAlbumScrapbook: View {
         // One lane up to 560, narrower in a narrow column (never wider than the page); its pieces size to it.
         .frame(maxWidth: Self.lane)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { laneWidth = max(160, $0 - 32) }
+        .sheet(item: $aboutTrack) { t in
+            MacScrapAboutSheet(track: t, album: album, scheme: s)
+        }
         .background { DotPaper(color: s.outlineVariant.opacity(colorScheme == .dark ? 0.35 : 0.45)) }
         .frame(maxWidth: .infinity)
         .onChange(of: awardKey, initial: true) { _, _ in
@@ -262,7 +299,7 @@ struct MacAlbumScrapbook: View {
             run.removeAll()
         }
         for t in album.tracks {
-            if notes(t) != nil || t.id == bestTrack?.id {
+            if notes(t) != nil || t.id == bestTrack?.id || !about(t).isEmpty {
                 flush(); out.append(.cluster(t))
             } else if score(t) != nil {
                 run.append(t)
@@ -289,6 +326,7 @@ struct MacAlbumScrapbook: View {
                         .frame(maxWidth: .infinity, alignment: mirrored ? .leading : .trailing)
                         .zIndex(1)
                 }
+                aboutPieces(t, mirrored: mirrored).zIndex(2)
             }
             .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
             .padding(.top, 6)
@@ -368,6 +406,107 @@ struct MacAlbumScrapbook: View {
         .rotationEffect(.degrees(tilt("\(t.number)/tk", Tilt.ticket)))
     }
 
+    // MARK: Ask / About (Android AlbumScrapbookPage AskCard, AboutCard, FactTag)
+
+    @ViewBuilder
+    private func aboutPieces(_ t: Track, mirrored: Bool) -> some View {
+        let a = about(t)
+        let tags = a.facts.filter { $0.entry.entryKey != SongAboutStore.Canon.review }
+        let review = a.facts.first { $0.entry.entryKey == SongAboutStore.Canon.review }?.entry.answerText
+        let cardTilt = -sign(tilt("\(t.number)/tk", Tilt.ticket)) * abs(tilt("\(t.number)/qa", Tilt.card))
+        VStack(alignment: mirrored ? .trailing : .leading, spacing: -6) {
+            if let ask = a.asks.first {
+                askCard(ask, more: a.asks.count - 1, track: t)
+                    .rotationEffect(.degrees(cardTilt))
+                    .padding(.bottom, tags.isEmpty ? 0 : 14)
+            } else if let review {
+                aboutCard(MacScrapText.excerpt(review, budget: MacScrapText.budget, sentences: 1).text, track: t)
+                    .rotationEffect(.degrees(cardTilt))
+                    .padding(.bottom, tags.isEmpty ? 0 : 14)
+            }
+            ForEach(Array(tags.prefix(3).enumerated()), id: \.offset) { i, tag in
+                factTag(tag.label, tag.entry.answerText,
+                        extra: i == min(2, tags.count - 1) ? max(0, tags.count - 3) : 0, track: t)
+                    .rotationEffect(.degrees(tilt("\(t.number)/fact\(i)", Tilt.tag)))
+                    .padding(.horizontal, 12)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
+        .padding(.top, a.isEmpty ? 0 : 10)
+    }
+
+    /// A question asked in Now Playing: the listener's words, Gemini's title, whole sentences of its answer.
+    private func askCard(_ ask: SongAboutStore.Entry, more: Int, track t: Track) -> some View {
+        let own = ask.kind == SongAboutStore.Kind.own
+        let question = own ? (ask.titleText ?? ask.entryKey) : (ask.promptText?.isEmpty == false ? ask.promptText! : ask.entryKey)
+        let title = own ? nil : ask.titleText.flatMap { $0.isEmpty ? nil : $0 }
+        let excerpt = MacScrapText.excerpt(ask.answerText, budget: laneWidth > 420 ? MacScrapText.budgetWide : MacScrapText.budget,
+                                           sentences: 2)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(question).font(.gsf(14)).foregroundStyle(s.onSecondaryContainer.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+            if let title {
+                Text(title).font(.gsf(16, .semibold)).foregroundStyle(s.onSecondaryContainer).padding(.top, 4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(MacScrapText.bold(excerpt.text)).font(.gsf(14.5)).foregroundStyle(s.onSecondaryContainer)
+                .lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+            if excerpt.truncated || more > 0 {
+                HStack(spacing: 8) {
+                    Text("Read all").font(.gsf(13, .semibold)).foregroundStyle(s.tertiary)
+                    if more > 0 {
+                        Text("+\(more)").font(.gsf(11, .medium)).monospacedDigit().foregroundStyle(s.onTertiary)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(s.tertiary))
+                    }
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+        .frame(width: min(380, laneWidth * 0.92), alignment: .leading)
+        .background(s.secondaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+        .overlay(alignment: .topLeading) {
+            Text("Q").font(.gsf(13, .semibold)).foregroundStyle(s.onTertiary)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(s.tertiary))
+                .rotationEffect(.degrees(tilt("\(t.number)/qa", Tilt.card) * 6))
+                .offset(x: -11, y: -12)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { aboutTrack = t }
+        .help("Read all")
+    }
+
+    /// The About paragraph's first sentence, for a track with About but no question.
+    private func aboutCard(_ line: String, track t: Track) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("About").font(.gsf(13, .semibold)).foregroundStyle(s.primary)
+            Text(MacScrapText.bold(line)).font(.gsf(14.5)).foregroundStyle(s.onSecondaryContainer)
+                .lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .frame(width: min(380, laneWidth * 0.92), alignment: .leading)
+        .background(s.secondaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture { aboutTrack = t }
+        .help("Read all")
+    }
+
+    private func factTag(_ label: String, _ value: String, extra: Int, track t: Track) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label).font(.gsf(11.5, .medium)).foregroundStyle(s.onSurface.opacity(0.75))
+            Text(extra > 0 ? "\(value)  +\(extra)" : value).font(.gsf(13.5, .medium)).foregroundStyle(s.onSurface)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 7)
+        // A capped radius, not a capsule: a long value wraps (Android FactTagShape).
+        .background(s.surfaceContainerHighest, in: .rect(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture { aboutTrack = t }
+        .frame(maxWidth: min(340, laneWidth), alignment: .leading)
+    }
+
     private func notesClipping(_ t: Track, _ ns: [Note]) -> some View {
         ZStack(alignment: .leading) {
             Capsule().fill(s.primary).frame(width: 3).padding(.vertical, 14).padding(.leading, 11)
@@ -435,6 +574,8 @@ struct MacAlbumScrapbook: View {
         static var paper: KotlinFloatArray { ScrapbookTilt.shared.PAPER }
         static var ticket: KotlinFloatArray { ScrapbookTilt.shared.TICKET }
         static var sticker: KotlinFloatArray { ScrapbookTilt.shared.STICKER }
+        static var card: KotlinFloatArray { ScrapbookTilt.shared.CARD }
+        static var tag: KotlinFloatArray { ScrapbookTilt.shared.TAG }
         static var cover: KotlinFloatArray { ScrapbookTilt.shared.COVER }
     }
 
@@ -537,5 +678,162 @@ private struct MacScrapTrack: View {
             CloudSync.shared.localChanged()
         }
         draft = ""
+    }
+}
+
+/// Android ScrapbookRules' answer budgets and `answerExcerpt`: whole sentences only, CJK counting double.
+enum MacScrapText {
+    static let budget = 130
+    static let budgetWide = 160
+
+    static func excerpt(_ answer: String, budget: Int, sentences maxSentences: Int) -> (text: String, truncated: Bool) {
+        let sentences = split(answer.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !sentences.isEmpty else { return ("", false) }
+        var shown = "", weight = 0, count = 0
+        for sentence in sentences {
+            let w = weighted(sentence)
+            guard count < maxSentences, count == 0 || weight + w <= budget else { break }
+            shown += sentence
+            weight += w
+            count += 1
+        }
+        return (shown.trimmingCharacters(in: .whitespacesAndNewlines), count < sentences.count)
+    }
+
+    static func split(_ text: String) -> [String] {
+        guard let re = try? NSRegularExpression(pattern: "[^。！？.!?]+[。！？.!?]+[\"”’）)]*|[^。！？.!?]+$") else { return [text] }
+        let ns = text as NSString
+        return re.matches(in: text, range: NSRange(location: 0, length: ns.length))
+            .map { ns.substring(with: $0.range) }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    static func weighted(_ text: String) -> Int {
+        text.replacingOccurrences(of: "**", with: "").utf16.reduce(0) { n, c in
+            n + ((0x3000...0x9FFF).contains(c) || (0xFF00...0xFFEF).contains(c) ? 2 : 1)
+        }
+    }
+
+    /// Gemini's **bold** as bold.
+    static func bold(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+    }
+}
+
+/// A track's Ask / About material in full, to read and manage (Android AlbumScrapbookTrackSheet): each question
+/// and fact with Edit (empty removes it), Delete and, for Gemini's, Regenerate with Gemini.
+private struct MacScrapAboutSheet: View {
+    var track: Track
+    var album: Album
+    var scheme: CoverScheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var editing: SongAboutStore.Entry.Ref?
+    @State private var draftTitle = ""
+    @State private var draftText = ""
+    @State private var message: String?
+
+    private var key: SongAboutStore.Entry.SongKey {
+        SongAboutStore.key(title: track.title, artist: track.artist ?? album.artist, album: album.title)
+    }
+
+    var body: some View {
+        let rows = SongAboutStore.shared.entries(key).filter { !$0.isBlank }
+        let asks = rows.filter { $0.kind != SongAboutStore.Kind.canonical }
+            .sorted { ($0.createdAt, $0.updatedAt) > ($1.createdAt, $1.updatedAt) }
+        let canon = Dictionary(rows.filter { $0.kind == SongAboutStore.Kind.canonical }.map { ($0.entryKey, $0) },
+                               uniquingKeysWith: { a, _ in a })
+        let facts = SongAboutStore.Canon.order.compactMap { canon[$0] }
+        VStack(alignment: .leading, spacing: 14) {
+            Text(String(format: "%02d  %@", track.number, track.title)).font(.gsf(17, .semibold))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(asks, id: \.id) { entry($0, heading: $0.kind == SongAboutStore.Kind.own ? $0.titleText : $0.promptText) }
+                    if !asks.isEmpty, !facts.isEmpty { Divider() }
+                    ForEach(facts, id: \.id) { entry($0, heading: MacAlbumScrapbook.factLabel($0.entryKey)) }
+                    if asks.isEmpty, facts.isEmpty {
+                        Text("Nothing yet").font(.gsf(14)).foregroundStyle(Yoin.inkVariant)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 460)
+            if let message { Text(message).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant) }
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 480)
+    }
+
+    @ViewBuilder
+    private func entry(_ e: SongAboutStore.Entry, heading: String?) -> some View {
+        let own = e.kind == SongAboutStore.Kind.own
+        VStack(alignment: .leading, spacing: 6) {
+            if editing == e.ref {
+                if e.kind != SongAboutStore.Kind.canonical {
+                    TextField("Title", text: $draftTitle).textFieldStyle(.roundedBorder)
+                }
+                TextEditor(text: $draftText).font(.gsf(14)).frame(minHeight: 90)
+                    .overlay(alignment: .topLeading) {
+                        if draftText.isEmpty {
+                            Text("Empty removes it").font(.gsf(14)).foregroundStyle(Yoin.ink3).padding(6).allowsHitTesting(false)
+                        }
+                    }
+                HStack {
+                    Spacer()
+                    Button("Cancel") { editing = nil }
+                    Button("Save") {
+                        let title = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                        SongAboutStore.shared.edit(e.ref, title: e.kind == SongAboutStore.Kind.canonical ? nil : title,
+                                                   answer: draftText.trimmingCharacters(in: .whitespacesAndNewlines))
+                        editing = nil
+                    }
+                }
+            } else {
+                if let heading, !heading.isEmpty {
+                    Text(heading).font(.gsf(13, .medium)).foregroundStyle(scheme.primary)
+                }
+                if !own, e.kind != SongAboutStore.Kind.canonical, let title = e.titleText, !title.isEmpty {
+                    Text(title).font(.gsf(15, .semibold))
+                }
+                Text(MacScrapText.bold(e.answerText)).font(.gsf(14.5)).fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                HStack(spacing: 14) {
+                    if !own {
+                        Button("Regenerate with Gemini") { regenerate(e.ref) }
+                            .disabled(SongAboutLoader.shared.regenerating.contains(e.ref))
+                    }
+                    Button("Edit") {
+                        draftTitle = e.titleText ?? ""
+                        draftText = e.answerText
+                        editing = e.ref
+                    }
+                    Button("Delete", role: .destructive) {
+                        SongAboutStore.shared.edit(e.ref, title: e.titleText, answer: "")
+                    }
+                    if SongAboutLoader.shared.regenerating.contains(e.ref) { ProgressView().controlSize(.small) }
+                }
+                .buttonStyle(.link).font(.gsf(12.5))
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(scheme.surfaceContainerHigh, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+    }
+
+    private func regenerate(_ ref: SongAboutStore.Entry.Ref) {
+        message = nil
+        Task {
+            guard let result = await SongAboutLoader.shared.regenerate(ref) else { return }
+            switch result {
+            case .success: message = nil
+            case .nothingNew: message = "Gemini had nothing new"
+            case .apiKeyMissing: message = "No Gemini API key"
+            case .error(let m): message = m
+            }
+        }
     }
 }
