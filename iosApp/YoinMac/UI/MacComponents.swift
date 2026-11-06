@@ -1,6 +1,8 @@
 import SwiftUI
 
 extension EnvironmentValues {
+    /// Inside a detail page: what it opens goes on top of it (a back stack), not in its place.
+    @Entry var inDetailPage = false
     /// The playing cover's colour roles (Yoin violet before anything plays).
     @Entry var macTint = MacTint(primary: Yoin.violet, onPrimary: .white, container: Yoin.surfaceContainerHigh,
                                  onContainer: Yoin.ink)
@@ -30,10 +32,11 @@ struct AlbumTile: View {
     var album: Album
     var subtitle: String?
     @Environment(MacModel.self) private var model
+    @Environment(\.inDetailPage) private var inDetail
     @State private var hover = false
 
     var body: some View {
-        Button { model.open(.album(album)) } label: {
+        Button { model.open(.album(album), push: inDetail) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 MacCover(palette: album.palette)
                     .scaleEffect(hover ? 1.03 : 1)
@@ -66,7 +69,7 @@ struct AlbumTile: View {
             }
             if let id = album.artistId {
                 Divider()
-                Button("Go to Artist") { model.open(.artist(id: id, name: album.artist)) }
+                Button("Go to Artist") { model.open(.artist(id: id, name: album.artist), push: inDetail) }
             }
             Divider()
             MacShareMenuItem(content: MacShare.album(album))
@@ -78,10 +81,11 @@ struct AlbumTile: View {
 struct ArtistTile: View {
     var item: LibraryItem
     @Environment(MacModel.self) private var model
+    @Environment(\.inDetailPage) private var inDetail
     @State private var hover = false
 
     var body: some View {
-        Button { model.open(.artist(id: item.id.rawId, name: item.title)) } label: {
+        Button { model.open(.artist(id: item.id.rawId, name: item.title), push: inDetail) } label: {
             VStack(spacing: 8) {
                 MacCover(palette: item.palette, circle: true)
                     .scaleEffect(hover ? 1.03 : 1)
@@ -193,6 +197,7 @@ struct SongMenu: View {
     var entry: PlaylistEntry
     var play: () -> Void
     @Environment(MacModel.self) private var model
+    @Environment(\.inDetailPage) private var inDetail
 
     var body: some View {
         let starred = model.library.isStarred(entry.track)
@@ -228,10 +233,10 @@ struct SongMenu: View {
         }
         Divider()
         if !entry.album.id.rawId.hasPrefix("song:") {
-            Button("Go to Album") { model.open(.album(entry.album)) }
+            Button("Go to Album") { model.open(.album(entry.album), push: inDetail) }
         }
         if let id = entry.album.artistId {
-            Button("Go to Artist") { model.open(.artist(id: id, name: entry.album.artist)) }
+            Button("Go to Artist") { model.open(.artist(id: id, name: entry.album.artist), push: inDetail) }
         }
         Divider()
         MacShareMenuItem(content: MacShare.song(entry.track, album: entry.album))

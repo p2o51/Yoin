@@ -9,16 +9,19 @@ struct MacDetailPage: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            switch detail {
-            case .album(let a): MacAlbumDetail(seed: a, leadingInset: asColumn ? 0 : 0)
-            case .artist(let id, let name): MacArtistDetail(id: id, name: name)
-            case .playlist(let id, let title): MacPlaylistDetail(id: id, title: title)
+            Group {
+                switch detail {
+                case .album(let a): MacAlbumDetail(seed: a, leadingInset: asColumn ? 0 : 0)
+                case .artist(let id, let name): MacArtistDetail(id: id, name: name)
+                case .playlist(let id, let title): MacPlaylistDetail(id: id, title: title)
+                }
             }
+            .environment(\.inDetailPage, true)
             GlassCircleButton(icon: asColumn && model.details.count <= 1 ? "close" : "back") { model.closeDetail() }
+                .help(model.details.count > 1 ? "Back" : (asColumn ? "Close" : "Back"))
                 .padding(.top, 12)
                 // Pushed full width, the button sits after the traffic lights (header breathing).
                 .padding(.leading, asColumn ? 8 : 86)
-                .help(asColumn ? "Close" : "Back")
         }
     }
 }
@@ -39,7 +42,7 @@ struct MacAlbumDetail: View {
             VStack(alignment: .leading, spacing: 0) {
                 DetailHeader(palette: a.palette, eyebrow: kindLabel(a), title: a.title, subtitle: a.artist,
                              meta: meta(a)) {
-                    if let id = a.artistId { model.open(.artist(id: id, name: a.artist)) }
+                    if let id = a.artistId { model.open(.artist(id: id, name: a.artist), push: true) }
                 }
                 // Labels never wrap: a narrow column keeps Play labeled and the rest as round icons (with tips).
                 ViewThatFits(in: .horizontal) {

@@ -178,11 +178,20 @@ final class MacModel {
         detail != nil && contentWidth >= (npMode == .panel ? Self.minColumnsBesidePanel : Self.columnsMinWidth)
     }
 
-    func open(_ d: Detail) {
+    /// Opens a detail page. From a detail page (`push`) it goes on top of it, and Back returns there
+    /// (album → artist → album); from the root content it starts the column (or pushed page) afresh.
+    func open(_ d: Detail, push: Bool = false) {
         panelSqueezedToFull = false
         withAnimation(Yoin.spatial) {
             if npMode == .full { npMode = .closed; focus = false }
-            if detailAsColumn || details.isEmpty { details = [d] } else { details.append(d) }
+            if details.last == d {
+                // Already showing.
+            } else if push || (!detailAsColumn && !details.isEmpty) {
+                details.append(d)
+                if details.count > 30 { details.removeFirst(details.count - 30) }
+            } else {
+                details = [d]
+            }
             // The panel can't keep two columns beside it: it closes rather than squeezing them.
             if npMode == .panel, windowWidth - Self.panelWidth < Self.minColumnsBesidePanel { npMode = .closed }
         }
