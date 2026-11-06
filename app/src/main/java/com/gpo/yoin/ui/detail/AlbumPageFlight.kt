@@ -45,9 +45,10 @@ internal class AlbumPageFlight(
     val pageFraction: () -> Float,
     private val pageWidthPx: Float,
     private val rtl: Boolean,
-    // Compact/short hero showing (not pulled up into the bar): only then does
-    // anything fly; otherwise page 0 slides away as before.
-    val heroResting: () -> Boolean,
+    // Whether the cover flies at all (not under reduced motion, where page 0
+    // slides away and the scrapbook keeps its own cover showing). It flies from
+    // the hero at rest and from the stamp alike (owner 2026-11-06).
+    val flies: () -> Boolean,
     // Tapping the hero's Last Play: to the scrapbook page, where it reads in full.
     val openScrapbook: () -> Unit,
 ) {
@@ -58,7 +59,7 @@ internal class AlbumPageFlight(
     /** Eased 0..1 page progress (0 = page 0 at rest). */
     fun t(): Float = pageFraction().coerceIn(0f, 1f)
 
-    fun coverFlying(): Boolean = heroResting() && coverTarget != null
+    fun coverFlying(): Boolean = flies() && coverTarget != null
 
     /** [coordinates] of a page-[page] node, as its rect at rest in content-box coordinates. */
     fun restRect(coordinates: LayoutCoordinates, page: Int): Rect {

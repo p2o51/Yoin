@@ -1,117 +1,99 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.Dp
-import com.gpo.yoin.ui.component.YoinMarkHub
-import com.gpo.yoin.ui.component.YoinMarkViewBox
-import com.gpo.yoin.ui.component.drawYoinArm
+import com.gpo.yoin.ui.nowplaying.dotDissolve
+import kotlin.math.cos
+import kotlin.math.sin
 
 /*
- * Detail-page backdrops. Each page type reads a different part of the Yoin
- * mark, so the family is recognisable without repeating itself:
+ * Detail-page backdrops. Each page type has its own shape behind its art, so
+ * the family is recognisable without repeating itself:
  *
- *   Album    — the two lower arms, enlarged into edge-bleeding colour blocks
- *              (AlbumArrowBackground).
- *   Artist   — the WHOLE mark as a pinwheel, the portrait sitting on its hub.
- *   Playlist — the upper arm's V repeated as a layered stack (a stack of
- *              records / a run of tracks) behind the cover.
+ *   Album    — the mark's two lower arms, enlarged into edge-bleeding colour
+ *              blocks (the butterfly, AlbumSpectrumBar.kt).
+ *   Artist   — an open ring round the portrait (owner 2026-11-06, picked from
+ *              the shape candidates; replaces the three-arm pinwheel).
  *
- * Colours are the page's cover-seeded roles; the white centre lines stay as a
- * translucent surface-coloured line, as on the album blocks.
+ * The Playlist page draws no mark: its own album covers fan out behind its
+ * cover as sleeves (PlaylistSleeves.kt).
+ *
+ * Every one of them leaves the same way: it breaks up into fine dots (the focus
+ * mode's dot dissolve, owner 2026-11-06).
  */
 
 // ---------------------------------------------------------------------------
-// Artist — pinwheel.
+// Artist — open ring.
 // ---------------------------------------------------------------------------
 
-/** Mark size as a multiple of the portrait: the arms reach well past the circle. */
-internal const val ArtistPinwheelScale = 2.1f
+/** How far the ring reaches from the portrait's centre, as a multiple of the portrait (phone hero). */
+internal const val ArtistRingReach = 0.84f
 
-/** Resting turn of the pinwheel. At 0° the lower arms would sit where the album's blocks do. */
-internal const val ArtistPinwheelRestDegrees = 30f
+// Of the ring's room past the portrait's edge: the gap of page colour, then the stroke.
+private const val ArtistRingGapShare = 0.41f
+private const val ArtistRingStrokeShare = 0.59f
+
+// The opening, centred at the upper right (−45°), and how wide it is.
+private const val ArtistRingOpeningCentreDegrees = -45f
+private const val ArtistRingOpeningRadians = 0.9f
+
+// The dot sitting in the opening, against the stroke.
+private const val ArtistRingDotShare = 0.45f
 
 /**
- * The whole three-arm mark, centred on the band so its hub sits under the
- * portrait. [rotationDegrees] is read at draw time (scroll-linked turn), so
- * a scrolling page never recomposes this. The Canvas does not clip, so the
- * arms may reach past this element's bounds (the page edges clip them).
- *
- * @param colors arm colours in mark order: lower-left, upper, lower-right.
+ * A thick, round-ended ring round the portrait, open at the upper right, with a
+ * dot sitting in the opening (the mark's dot). [reach] is the ring's outer
+ * radius as a multiple of [portraitSize]; it is drawn centred on this element
+ * and may run past its bounds (sized for itself, so the dissolve's layer holds
+ * it whole). [rotationDegrees] (scroll-linked turn) and [leaving] (0 = whole,
+ * 1 = dissolved into dots) are read at draw time only.
  */
 @Composable
-internal fun ArtistPinwheelBackground(
-    colors: List<Color>,
-    lineColor: Color,
+internal fun ArtistOpenRing(
+    ringColor: Color,
+    dotColor: Color,
     portraitSize: Dp,
     rotationDegrees: () -> Float,
+    leaving: () -> Float,
     modifier: Modifier = Modifier,
-    markScale: Float = ArtistPinwheelScale,
+    reach: Float = ArtistRingReach,
 ) {
-    Canvas(modifier) {
-        val scale = portraitSize.toPx() * markScale / YoinMarkViewBox
-        val hub = YoinMarkHub
-        withTransform({
-            translate(size.width / 2f, size.height / 2f)
-            rotate(rotationDegrees(), pivot = Offset.Zero)
-            scale(scale, scale, pivot = Offset.Zero)
-            translate(-hub.x, -hub.y)
-        }) {
-            for (arm in 0..2) drawYoinArm(arm, colors[arm], lineColor)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Playlist — stacked V.
-// ---------------------------------------------------------------------------
-
-// The upper arm's own box in view space: x 169–842 (centre ≈505), and the
-// visual middle of the V's wings sits around y≈350.
-private val UpperArmCentre = Offset(505f, 350f)
-private const val UpperArmWidth = 674f
-
-/** Each layer spans this multiple of the band width, so both wings bleed off the edges. */
-private const val PlaylistStackWidthFactor = 1.3f
-
-/**
- * First layer's offset from the band centre, and the step between layers — ×
- * cover side. Sized so the back layer's wing tips stay inside the hero band
- * (they never reach up into the header).
- */
-private const val PlaylistStackFirstOffset = -0.06f
-private const val PlaylistStackStep = 0.14f
-
-/**
- * The mark's upper arm, repeated as a layered stack behind the cover. The
- * layers step down the band; the last one drawn (front) is the lowest, so its
- * V dips below the cover like the lip of a stack.
- *
- * @param colors layer colours, back to front.
- */
-@Composable
-internal fun PlaylistStackBackground(
-    colors: List<Color>,
-    lineColor: Color,
-    coverSide: Dp,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier) {
-        val scale = size.width * PlaylistStackWidthFactor / UpperArmWidth
-        val side = coverSide.toPx()
-        colors.forEachIndexed { index, color ->
-            val dy = side * (PlaylistStackFirstOffset + index * PlaylistStackStep)
-            withTransform({
-                translate(size.width / 2f, size.height / 2f + dy)
-                scale(scale, scale, pivot = Offset.Zero)
-                translate(-UpperArmCentre.x, -UpperArmCentre.y)
-            }) {
-                drawYoinArm(arm = 1, color = color, lineColor = lineColor)
-            }
+    Canvas(
+        modifier
+            .requiredSize(portraitSize * (2f * reach) + portraitSize * 0.1f)
+            .dotDissolve(leaving),
+    ) {
+        val portrait = portraitSize.toPx()
+        val room = portrait * (reach - 0.5f)
+        val stroke = room * ArtistRingStrokeShare
+        val radius = portrait * 0.5f + room * ArtistRingGapShare + stroke / 2f
+        val centre = Offset(size.width / 2f, size.height / 2f)
+        val openingDegrees = Math.toDegrees(ArtistRingOpeningRadians.toDouble()).toFloat()
+        rotate(rotationDegrees(), pivot = centre) {
+            drawArc(
+                color = ringColor,
+                startAngle = ArtistRingOpeningCentreDegrees + openingDegrees / 2f,
+                sweepAngle = 360f - openingDegrees,
+                useCenter = false,
+                topLeft = Offset(centre.x - radius, centre.y - radius),
+                size = Size(radius * 2f, radius * 2f),
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+            val a = Math.toRadians(ArtistRingOpeningCentreDegrees.toDouble())
+            drawCircle(
+                color = dotColor,
+                radius = stroke * ArtistRingDotShare,
+                center = Offset(centre.x + radius * cos(a).toFloat(), centre.y + radius * sin(a).toFloat()),
+            )
         }
     }
 }

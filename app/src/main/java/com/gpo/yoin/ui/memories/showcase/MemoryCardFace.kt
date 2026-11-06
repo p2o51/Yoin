@@ -40,12 +40,9 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineBreak
@@ -81,6 +78,7 @@ import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import com.gpo.yoin.ui.theme.YoinSerifTitle
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import com.gpo.yoin.ui.theme.yoinFont
 import kotlin.math.roundToInt
 
 /*
@@ -771,17 +769,13 @@ internal object ShowcaseType {
     private val cache = HashMap<Pair<Int, Float>, FontFamily>()
 
     /** GSF at [weight] with ROND [rond] (60: the motif title and Yoin's prose; 40: the diary's numerals). */
-    @OptIn(ExperimentalTextApi::class)
     fun rounded(weight: Int, rond: Float = 60f): FontFamily = synchronized(cache) {
         cache.getOrPut(weight to rond) {
             FontFamily(
-                Font(
+                yoinFont(
                     R.font.google_sans_flex_variable,
-                    weight = FontWeight(weight),
-                    variationSettings = FontVariation.Settings(
-                        FontVariation.weight(weight),
-                        FontVariation.Setting("ROND", rond),
-                    ),
+                    FontWeight(weight),
+                    mapOf("wght" to weight.toFloat(), "ROND" to rond),
                 ),
             )
         }

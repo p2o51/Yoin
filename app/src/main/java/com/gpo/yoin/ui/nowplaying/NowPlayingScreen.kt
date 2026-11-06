@@ -1504,7 +1504,13 @@ private fun CompactPlayingContent(
             animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
             label = "npFocusIdle",
         )
-        val focusIdleShown = (focusIdleProgress * (1f - detailProgress)).coerceIn(0f, 1f)
+        // Capped by the focus itself: leaving focus at ease, the stacked hero,
+        // the lift and the run-on unwind on the focus's own clock, as one move
+        // with the cover and the transport, instead of trailing it on their
+        // slower idle clock (the Fold outer screen's two-row title read as a
+        // jump on the way out, owner 2026-11-05).
+        val focusIdleShown =
+            (minOf(focusIdleProgress, immersiveProgress) * (1f - detailProgress)).coerceIn(0f, 1f)
         val focusLyricInset = budget.focusLyricInset * compactFocusProgress
         // At ease a one-row hero stacks: the artist lifts over the title into
         // the transport's room, the progress bar moving up with it (owner
@@ -2029,7 +2035,11 @@ private fun CompactPlayingContent(
                                 CompactDetailPage(
                                     page = NowPlayingDetailPage.entries[page],
                                     // Short-window focus: the lyrics line up with the cover.
-                                    pageInset = focusLyricInset,
+                                    // A list shown only in focus keeps the focus's width
+                                    // all the way (it fades with the focus instead): a
+                                    // width that eases re-wraps the lines mid-exit, which
+                                    // read as a one-frame jump (QA 2026-11-05).
+                                    pageInset = if (focusOpensList) budget.focusLyricInset else focusLyricInset,
                                     // The run-on under the transport: looser dots
                                     // while it shows (owner 2026-11-05).
                                     listCoveredPx = { focusLyricOverflowPx },
@@ -2057,7 +2067,12 @@ private fun CompactPlayingContent(
                                     },
                                     // Focus prints the lines a size up, in proportion
                                     // with the title and transport (owner 2026-11-04).
-                                    lyricScale = if (focusKeepsList) {
+                                    // The focus-only list holds the focus size, as it
+                                    // holds the width: a shrinking font re-wraps the
+                                    // lines mid-exit (QA 2026-11-05).
+                                    lyricScale = if (focusOpensList) {
+                                        FocusLyricScale
+                                    } else if (focusKeepsList) {
                                         1f + (FocusLyricScale - 1f) * immersiveProgress
                                     } else {
                                         1f

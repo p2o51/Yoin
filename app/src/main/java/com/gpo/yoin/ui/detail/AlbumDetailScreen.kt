@@ -647,7 +647,7 @@ private fun AlbumDetailContent(
                     rtl = rtl,
                     // Reduced motion: the cover slides off with page 0 (AlbumFlyingCover), so
                     // nothing flies and the scrapbook keeps its own cover showing.
-                    heroResting = { !reduced && progress() < 0.01f },
+                    flies = { !reduced },
                     openScrapbook = {
                         pagerScope.launch { pagerState.animateScrollToPage(1, animationSpec = pageSpec) }
                     },

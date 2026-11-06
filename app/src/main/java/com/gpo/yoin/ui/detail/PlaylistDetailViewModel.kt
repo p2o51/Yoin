@@ -210,6 +210,29 @@ class PlaylistDetailViewModel(
                 playlistCoverArt = playlist.coverArt
                 val heroSong = playlist.tracks.firstOrNull()
                 val heroCoverRef = heroSong?.coverArt ?: heroSong?.albumId?.let { CoverRef.SourceRelative(it.rawId) }
+                val songs = playlist.tracks.mapIndexed { index, song ->
+                    PlaylistSong(
+                        id = song.id.toString(),
+                        title = song.title.orEmpty(),
+                        artist = song.artist.orEmpty(),
+                        album = song.album.orEmpty(),
+                        duration = song.durationSec,
+                        coverArtUrl = (song.coverArt
+                            ?: song.albumId?.let { albumId -> CoverRef.SourceRelative(albumId.rawId) })?.let {
+                            repository.resolveCoverUrl(it, size = ROW_COVER_SIZE)
+                        },
+                        position = index,
+                    )
+                }
+                // The hero's sleeves: the rows' own album covers (same urls, so
+                // no new request). The hero is resolved at the rows' size here
+                // only to compare like for like.
+                val heroCover = playlist.coverArt ?: heroCoverRef
+                val sleeveCoverUrls = playlistSleeveCovers(
+                    songCovers = songs.map(PlaylistSong::coverArtUrl),
+                    heroCover = heroCover?.let { repository.resolveCoverUrl(it, size = ROW_COVER_SIZE) },
+                    heroIsFirstTrackCover = playlist.coverArt == null && heroCoverRef != null,
+                )
                 _uiState.value = PlaylistDetailUiState.Content(
                     playlistId = playlist.id.toString(),
                     playlistName = playlist.name,
@@ -221,23 +244,11 @@ class PlaylistDetailViewModel(
                     // Hero shows the playlist's OWN cover (mosaic/custom art);
                     // a first-track ref is only the no-art fallback. The page
                     // palette follows whichever cover wins.
-                    coverArtUrl = (playlist.coverArt ?: heroCoverRef)?.let { repository.resolveCoverUrl(it) },
+                    coverArtUrl = heroCover?.let { repository.resolveCoverUrl(it) },
                     canWrite = playlist.canWrite,
                     tracksUnavailable = playlist.tracksUnavailable,
-                    songs = playlist.tracks.mapIndexed { index, song ->
-                        PlaylistSong(
-                            id = song.id.toString(),
-                            title = song.title.orEmpty(),
-                            artist = song.artist.orEmpty(),
-                            album = song.album.orEmpty(),
-                            duration = song.durationSec,
-                            coverArtUrl = (song.coverArt
-                                ?: song.albumId?.let { albumId -> CoverRef.SourceRelative(albumId.rawId) })?.let {
-                                repository.resolveCoverUrl(it, size = 320)
-                            },
-                            position = index,
-                        )
-                    },
+                    songs = songs,
+                    sleeveCoverUrls = sleeveCoverUrls,
                 )
                 markPerfContent(playlist.id.toString())
             } catch (e: Exception) {
@@ -273,3 +284,6 @@ internal fun backupMessage(backup: PlaylistBackupRecord): UiText {
         UiText.Plural(R.plurals.detail_playlist_backup_partial, total, listOf(backup.trackCount, total))
     }
 }
+
+/** Every row's cover url is resolved at this size (the hero's sleeves reuse them). */
+private const val ROW_COVER_SIZE = 320
