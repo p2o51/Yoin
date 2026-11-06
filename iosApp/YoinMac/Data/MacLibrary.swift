@@ -23,8 +23,33 @@ final class MacLibrary {
         var albums: [Album] = []
         var artists: [LibraryItem] = []
         var songs: [PlaylistEntry] = []
-        var isEmpty: Bool { albums.isEmpty && artists.isEmpty && songs.isEmpty }
+        var playlists: [LibraryItem] = []
+        /// The kinds with another page, and where each kind's next page starts.
+        var more: Set<SearchKind> = []
+        var next: [SearchKind: Int] = [:]
+        var isEmpty: Bool { albums.isEmpty && artists.isEmpty && songs.isEmpty && playlists.isEmpty }
+
+        /// [page] (the next page of its kinds) added on, each item once.
+        mutating func append(_ page: SearchHits) {
+            func merge<T>(_ a: inout [T], _ b: [T], _ id: (T) -> MediaId) {
+                var seen = Set(a.map(id))
+                a += b.filter { seen.insert(id($0)).inserted }
+            }
+            merge(&albums, page.albums, \.id)
+            merge(&artists, page.artists, \.id)
+            merge(&songs, page.songs, \.track.id)
+            merge(&playlists, page.playlists, \.id)
+            more = page.more
+            for (k, v) in page.next { next[k] = v }
+        }
     }
+
+    /// Where search looks (Android LibrarySearchScope): the account's own library, or the service's whole
+    /// catalog (Spotify / Apple Music; a Subsonic server's library is all there is).
+    enum SearchScope: String, Hashable { case library, catalog }
+
+    /// Whether the account in use has a catalog beyond its library.
+    var hasCatalog: Bool { spotify != nil || apple != nil }
 
     private(set) var home = Home()
     private(set) var albums: [Album] = []
@@ -549,20 +574,48 @@ final class MacLibrary {
         return albumDetails[album.id.rawId] ?? album
     }
 
-    func search(_ query: String) async throws -> SearchHits {
+    /// Search (Android LibraryViewModel search): [kinds] from [offset] in [scope]. Spotify's catalog pages ten
+    /// a type; a Subsonic server pages its songs; library searches answer whole.
+    func search(_ query: String, scope: SearchScope = .library, kinds: [SearchKind] = SearchKind.allCases,
+                offset: Int = 0) async throws -> SearchHits {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let spotify, !q.isEmpty {
-            let r = try await spotify.search(q)
-            return SearchHits(albums: r.albums, artists: r.artists, songs: r.songs)
+        guard !q.isEmpty else { return SearchHits() }
+        if let spotify {
+            if scope == .catalog || offset > 0 {
+                let r = try await spotify.search(q, kinds: kinds, offset: offset)
+                var next: [SearchKind: Int] = [:]
+                for (k, n) in r.counts { next[k] = offset + n }
+                return SearchHits(albums: r.albums, artists: r.artists, songs: r.songs, playlists: r.playlists,
+                                  more: r.more, next: next)
+            }
+            // The saved library: what's loaded here, filtered (Android searchSpotifySavedLibrary).
+            if albums.isEmpty { await loadAlbums() }
+            if artists.isEmpty { await loadArtists() }
+            if songs.isEmpty { await loadSongs() }
+            if playlists.isEmpty { await loadPlaylists() }
+            let r = SpotifySource.filterLibrary(q, artists: artists, albums: albums, songs: songs, playlists: playlists)
+            return SearchHits(albums: r.albums, artists: r.artists, songs: r.songs, playlists: r.playlists)
         }
-        if let apple, !q.isEmpty {
-            let r = try await apple.search(q)
-            return SearchHits(albums: r.albums, artists: r.artists, songs: r.songs)
+        if let apple {
+            let r = scope == .catalog ? try await apple.search(q) : try await apple.searchLibrary(q)
+            return SearchHits(albums: r.albums, artists: r.artists, songs: r.songs, playlists: r.playlists)
         }
-        guard let client, let m = mapping, !q.isEmpty else { return SearchHits() }
-        let r = try await client.search3(query: q, artistCount: 6, albumCount: 12, songCount: 20)
-        return SearchHits(albums: r.albums.map(m.album), artists: r.artists.map(m.artistItem),
-                          songs: r.songs.enumerated().map { m.entry($1, index: $0) })
+        guard let client, let m = mapping else { return SearchHits() }
+        // One kind asked for: a full page of it (songs page on); all kinds: a few of each.
+        let only = kinds.count == 1 ? kinds.first : nil
+        let page = 50
+        let r = try await client.search3(query: q,
+                                         artistCount: Int32(only == nil ? 6 : (only == .artists ? 100 : 0)),
+                                         albumCount: Int32(only == nil ? 12 : (only == .albums ? 100 : 0)),
+                                         songCount: Int32(only == nil ? 20 : (only == .songs ? page : 0)),
+                                         songOffset: Int32(only == .songs ? offset : 0))
+        let songs = r.songs.enumerated().map { m.entry($1, index: offset + $0) }
+        var hits = SearchHits(albums: r.albums.map(m.album), artists: r.artists.map(m.artistItem), songs: songs)
+        if only == nil, r.songs.count >= 20 { hits.more.insert(.songs); hits.next[.songs] = 0 }
+        if only == nil, r.albums.count >= 12 { hits.more.insert(.albums) }
+        if only == nil, r.artists.count >= 6 { hits.more.insert(.artists) }
+        if only == .songs, r.songs.count >= page { hits.more.insert(.songs); hits.next[.songs] = offset + r.songs.count }
+        return hits
     }
 
     // MARK: Writes

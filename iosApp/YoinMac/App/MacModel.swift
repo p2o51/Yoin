@@ -49,6 +49,10 @@ final class MacModel {
     var npMode: NowPlayingMode = .closed
     var focus = false
     var searchOpen = false
+    /// The ⌘K search's words, type and scope: kept between openings (and reset with the account).
+    var searchQuery = ""
+    var searchKind: SearchKind?
+    var searchScope: MacLibrary.SearchScope = .library
     /// The sign-in page is up to add another account (the current one stays until that works).
     var addingAccount = false
     /// The mini player window is showing.
@@ -683,6 +687,8 @@ final class MacModel {
 
     func signedOut() {
         searchOpen = false
+        searchQuery = ""
+        searchKind = nil
         authToken += 1
         playRequest += 1
         player.stop()
