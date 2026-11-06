@@ -19,16 +19,19 @@ import com.gpo.yoin.symbols.YoinSymbols
  * The service's own playback and storage settings — streaming quality, volume
  * leveling, downloads — at the bottom of an account's page (owner: they belong
  * to the profile, not to global Settings). Only what the service supports; the
- * rows open the same pages Settings used to.
+ * rows open the same pages Settings used to. Downloads lists and removes the
+ * account in use's songs, so its row shows only on that account's page.
  */
 @Composable
-internal fun ProfileServiceSettings(providerKey: String) {
+internal fun ProfileServiceSettings(providerKey: String, profileId: String?) {
+    val context = LocalContext.current
+    val container = (context.applicationContext as YoinApplication).container
+    val activeProfileId by container.profileManager.activeProfileId.collectAsState()
     val capabilities = ServiceFeatureCatalog.forProvider(providerKey).capabilities
     val streamQuality = Capability.STREAM_QUALITY in capabilities
     val volumeLeveling = Capability.REPLAY_GAIN in capabilities
-    val downloads = Capability.OFFLINE_DOWNLOAD in capabilities
+    val downloads = Capability.OFFLINE_DOWNLOAD in capabilities && profileId != null && profileId == activeProfileId
     if (!streamQuality && !volumeLeveling && !downloads) return
-    val context = LocalContext.current
     val open: (SettingsFeature) -> Unit = { feature ->
         context.startActivity(SettingsFeatureActivity.intent(context, feature))
     }
@@ -65,7 +68,7 @@ internal fun ProfileServiceSettings(providerKey: String) {
     if (downloads) {
         SettingsGroup(title = stringResource(R.string.settings_section_storage)) {
             item(key = SettingsFeature.Downloads) {
-                val offline = (context.applicationContext as YoinApplication).container.offlineDownloads
+                val offline = container.offlineDownloads
                 SettingsItem(
                     icon = YoinSymbols.Download,
                     title = stringResource(R.string.settings_downloads_title),

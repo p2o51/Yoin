@@ -145,7 +145,9 @@ fun ServiceSetupScreen(
         onConnectSpotify = viewModel::connectSpotify,
         appleMusicContent = { AppleMusicValidationSection(profileId = viewModel.profileId, onSaved = { onDone(it) }) },
         appleMusicAccountContent = { AppleMusicNameRegionGroup(profileId = viewModel.profileId) },
-        accountSettingsContent = { ProfileServiceSettings(providerKey = uiState.service.provider.key) },
+        accountSettingsContent = {
+            ProfileServiceSettings(providerKey = uiState.service.provider.key, profileId = viewModel.profileId)
+        },
         modifier = modifier,
     )
 }
