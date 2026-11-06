@@ -10,7 +10,7 @@ struct MacGate: View {
     var body: some View {
         Group {
             if let landing = model.landing {
-                MacLandingView {
+                MacLandingView(mode: landing.mode) {
                     if landing.persists { DefaultsLandingStore().markDone() }
                     withAnimation(Yoin.spatial) { model.landing = nil }
                 }

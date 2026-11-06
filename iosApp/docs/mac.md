@@ -77,7 +77,7 @@ Albums / Artists / Playlists sort as on iOS (`LibrarySort.swift` compiled in: Re
 
 ## First-run landing
 
-`MacLandingView`: the iOS mascot (`LandingMascot`, `LandingMascotPaths`, `YoinMarkPaths`) flies in, waves and says the hello bubble (`landingBubble`); Get started → the sign-in page. `LandingGate` (iOS `LandingModels`) decides: once per install (`landing_done_v1`), never for an install that already has an account. `-macScreen landing` forces it.
+`MacLandingView`: the iOS mascot (`LandingMascot`, `LandingMascotPaths`, `YoinMarkPaths`) flies in, waves and says the hello bubble (`landingBubble`); then iOS's own Pick and About scenes (`LandingScenes.swift`, its connect steps fenced to iOS); Sign in → the sign-in page. Settings › About › Welcome Guide re-runs it over the app (Back on the first step or Done closes it). `LandingGate` (iOS `LandingModels`) decides: once per install (`landing_done_v1`), never for an install that already has an account. `-macScreen landing` forces it.
 
 ## Playlists, history, Home
 
@@ -116,7 +116,7 @@ Needs, once, in the developer portal: an explicit App ID `com.gpo.yoin.mac` with
 
 ## Not on the Mac yet
 
-- The landing's later steps (service picker, About, in-landing sign-in forms, Welcome guide re-run); the Mac's landing is the mascot's hello, then the sign-in page.
+- The landing's in-landing sign-in forms (iOS's connect steps); the Mac's landing ends on its sign-in page.
 - An album note (the scrapbook's sticky; not synced or written on iOS either).
 - Spotify plays one song at a time over Connect (no Spotify-side queue); no App Remote features (cover from Spotify's player, its own up-next).
 - Spotify / Apple Music five-star ratings stay local (the services have none); Apple Music library add is add-only.

@@ -1,5 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#endif
 
 // The steps' contents inside the landing's floating window (Android
 // LandingScenes.kt, LandingConnect.kt). Connecting goes through the same
@@ -266,6 +268,9 @@ struct LandingAboutScene: View {
     }
 }
 
+// The connect steps and Ready drive iOS's own sign-ins (AppModel); the Mac's landing hands off to its
+// sign-in page after About.
+#if os(iOS)
 // MARK: Connect pieces
 
 /// The service's face at the top of its step: avatar, name, tagline.
@@ -841,3 +846,4 @@ struct LandingReadyScene: View {
     LandingPickScene(picked: [.subsonic], scheme: .brand(dark: false)) { _ in }
         .background(CoverScheme.brand(dark: false).surfaceContainer)
 }
+#endif

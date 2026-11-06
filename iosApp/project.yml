@@ -208,6 +208,7 @@ targets:
       - path: Yoin/Landing/LandingMascotPaths.swift
       - path: Yoin/Theme/YoinMarkPaths.swift
       - path: Yoin/Landing/LandingModels.swift
+      - path: Yoin/Landing/LandingScenes.swift
       - path: Yoin/Theme/YoinFont.swift
       - path: Yoin/Resources/Fonts/google_sans_flex_variable.ttf
         buildPhase: resources

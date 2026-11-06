@@ -31,6 +31,7 @@ struct MacPlaybackCacheSection: View {
 /// Settings › About: the version and the open source the Mac app ships (iOS OpenSourceLicensesView's list,
 /// less the Spotify iOS SDK, which the Mac doesn't link). Clicking one shows its license in full.
 struct MacAboutSettings: View {
+    @Environment(MacModel.self) private var model
     @State private var open: OssComponent?
 
     private var components: [OssComponent] { openSourceComponents.filter { $0.license != .mitMPMessagePack } }
@@ -46,6 +47,11 @@ struct MacAboutSettings: View {
         Form {
             Section {
                 LabeledContent("Yoin for Mac", value: version)
+                // iOS / Android Settings › About › Welcome guide: the landing again, over the app.
+                Button("Welcome Guide") {
+                    withAnimation(Yoin.spatial) { model.landing = LandingGate.rerun() }
+                    NSApp.windows.first { $0.identifier?.rawValue == "main" || $0.title == "Yoin" }?.makeKeyAndOrderFront(nil)
+                }
             }
             Section("Open Source Licenses") {
                 ForEach(components) { c in
