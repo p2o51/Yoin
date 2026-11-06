@@ -120,6 +120,19 @@ enum MacQA {
                     try? await Task.sleep(for: .seconds(1.2))
                     NotificationCenter.default.post(name: Notification.Name("YoinQAAlbumPage"), object: 1)
                 }
+            case "artist-played":
+                // A few seconds of two songs (muted), so the artist's Most Played has this account's own plays.
+                guard let a = albums.first else { return }
+                let full = await model.library.fullAlbum(a)
+                for i in 0..<min(2, full.tracks.count) {
+                    model.play(album: full, startAt: i)
+                    try? await Task.sleep(for: .seconds(4))
+                }
+                model.player.pause()
+                if let id = full.artistId { model.open(.artist(id: id, name: full.artist)) }
+            case "memories":
+                model.libraryKind = .memories
+                model.select(.library)
             case "library-all", "library-favorites":
                 model.libraryKind = screen == "library-all" ? .all : .favorites
                 model.select(.library)

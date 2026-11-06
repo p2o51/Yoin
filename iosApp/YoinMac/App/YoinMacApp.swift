@@ -22,6 +22,9 @@ struct YoinMacApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowBackgroundDragBehavior(.enabled)
         .defaultSize(width: 1280, height: 820)
+        // The content's minimum only: a page whose content reported a maximum made SwiftUI clamp the window while
+        // it was being resized, an endless constraints pass AppKit aborts on (QA 2026-11-07, artist page at 1290).
+        .windowResizability(.contentMinSize)
         .commands { MacCommands(model: model) }
 
         Window("Mini Player", id: MacMiniPlayer.windowID) {
