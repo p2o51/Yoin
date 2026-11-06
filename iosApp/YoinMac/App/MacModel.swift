@@ -65,6 +65,9 @@ final class MacModel {
     /// Songs the queue was built from, so Now Playing can show their album and cover.
     @ObservationIgnored private var known: [String: PlaylistEntry] = [:]
 
+    /// The app's one model, for App Intents (Shortcuts run in the app's process).
+    static weak var current: MacModel?
+
     init() {
         let router = RoutingAudioOutput(av: AVAudioOutput(), apple: appleOutput, spotify: spotifyOutput)
         player = PlayerEngine(output: router)
@@ -122,6 +125,7 @@ final class MacModel {
             return true
         }
         spotifyOutput.startWatching()
+        Self.current = self
         // The first-run landing (iOS LandingGate): once per install, before any account; `-macScreen landing`
         // shows it every time and records nothing; other QA screens skip it.
         #if DEBUG
