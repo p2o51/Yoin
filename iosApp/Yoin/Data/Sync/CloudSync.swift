@@ -126,7 +126,8 @@ final class CloudSync {
             MainActor.assumeIsolated { CloudSync.shared.background() }
         })
         Task {
-            if debug == nil, clientID != nil {
+            // (Not in the Mac's QA copy: the saved Google user is the real app's, in its keychain.)
+            if debug == nil, clientID != nil, KeychainNamespace.service("") == "" {
                 // Restores the saved Google user (no UI); tokens refresh before each request.
                 _ = try? await GIDSignIn.sharedInstance.restorePreviousSignIn()
             }

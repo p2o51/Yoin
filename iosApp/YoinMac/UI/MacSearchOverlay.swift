@@ -12,6 +12,7 @@ struct MacSearchOverlay: View {
     @State private var failed: String?
     @State private var loading = false
     @State private var loadingMore = false
+    @State private var moreFailed: String?
     @State private var retry = 0
     @FocusState private var focused: Bool
 
@@ -63,6 +64,7 @@ struct MacSearchOverlay: View {
                 guard !Task.isCancelled else { return }
                 hits = r
                 hitsKey = key
+                moreFailed = nil
                 failed = nil
             } catch is CancellationError {
             } catch {
@@ -179,7 +181,10 @@ struct MacSearchOverlay: View {
                 HStack {
                     Spacer()
                     if loadingMore { ProgressView().controlSize(.small) }
-                    else { Button("Load More") { Task { await loadMore(only) } }.buttonStyle(.link) }
+                    else {
+                        if let moreFailed { Text(moreFailed).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant) }
+                        Button(moreFailed == nil ? "Load More" : "Retry") { Task { await loadMore(only) } }.buttonStyle(.link)
+                    }
                     Spacer()
                 }
                 .padding(.vertical, 8)
@@ -208,6 +213,7 @@ struct MacSearchOverlay: View {
         let key = searchKey
         guard !loadingMore, !loading, hitsKey == key else { return }
         loadingMore = true
+        moreFailed = nil
         defer { loadingMore = false }
         do {
             let page = try await model.library.search(model.searchQuery, scope: model.searchScope, kinds: [kind],
@@ -216,7 +222,8 @@ struct MacSearchOverlay: View {
             hits.append(page)
         } catch {
             guard key == searchKey else { return }
-            failed = MacSession.message(for: error)
+            // Only this page failed: the results so far stay, and Load More tries it again.
+            moreFailed = MacSession.message(for: error)
         }
     }
 

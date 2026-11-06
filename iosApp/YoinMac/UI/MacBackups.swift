@@ -8,6 +8,7 @@ struct MacBackupsSettings: View {
     @Environment(MacModel.self) private var model
     @State private var restoring: RestoreItem?
     @State private var deleting: PlaylistBackupRecord?
+    @State private var expanded: Set<String> = []
     @State private var message: String?
     @State private var busy = false
 
@@ -43,7 +44,9 @@ struct MacBackupsSettings: View {
                         Button("Restore…") { restoring = RestoreItem(record: b, since: nil) }
                         Button("Delete", role: .destructive) { deleting = b }
                     }
-                    DisclosureGroup("Versions and restores") { details(b) }
+                    DisclosureGroup("Versions and restores", isExpanded: Binding(
+                        get: { expanded.contains(b.id) || MacLaunch.screen == "backups" },
+                        set: { if $0 { expanded.insert(b.id) } else { expanded.remove(b.id) } })) { details(b) }
                         .font(.gsf(12.5))
                 }
             }

@@ -94,7 +94,10 @@ struct MacBottomBar: View {
         switch model.detail {
         case .album(let a): model.play(album: model.library.album(a.id.rawId) ?? a, shuffle: shuffle)
         case .artist(let id, _):
-            if let first = model.library.artistPage(id)?.releases.first { model.play(album: first, shuffle: shuffle) }
+            // Every release, as the page's own Play / Shuffle.
+            if let page = model.library.artistPage(id), !page.releases.isEmpty {
+                model.play(releases: page.releases, shuffle: shuffle)
+            }
         case .playlist(let id, _): model.play(playlist: id, shuffle: shuffle)
         case nil: break
         }

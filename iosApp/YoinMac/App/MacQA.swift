@@ -64,6 +64,57 @@ enum MacQA {
             switch screen {
             case "library":
                 model.select(.library)
+            case "home-activity":
+                // A few visits first (album, artist, playlist), so Activities has something; then Home.
+                await model.library.loadPlaylists()
+                for a in albums.prefix(2) {
+                    let full = await model.library.fullAlbum(a)
+                    model.open(.album(full))
+                    try? await Task.sleep(for: .seconds(1.2))
+                    if let id = full.artistId {
+                        model.open(.artist(id: id, name: full.artist))
+                        try? await Task.sleep(for: .seconds(1.2))
+                    }
+                }
+                if let p = model.library.playlists.first {
+                    model.open(.playlist(id: p.id.rawId, title: p.title))
+                    try? await Task.sleep(for: .seconds(1.2))
+                }
+                model.closeDetail()
+                model.closeDetail()
+                model.closeDetail()
+                model.select(.home)
+            case "library-all", "library-favorites":
+                model.libraryKind = screen == "library-all" ? .all : .favorites
+                model.select(.library)
+            case "search-songs":
+                // ⌘K with a filter: a type's full page and its Load More.
+                model.searchQuery = "a"
+                model.searchKind = .songs
+                withAnimation { model.searchOpen = true }
+            case "queue":
+                // Now Playing with songs the listener queued, the queue open (Next in queue over Next up).
+                guard albums.count > 1 else { return }
+                let full = await model.library.fullAlbum(albums[0])
+                model.play(album: full, startAt: 0)
+                try? await Task.sleep(for: .milliseconds(800))
+                model.player.pause()
+                let other = await model.library.fullAlbum(albums[1])
+                for t in other.tracks.prefix(2) { model.addToQueue(PlaylistEntry(album: other, track: t)) }
+                model.toggleNowPlaying()
+                try? await Task.sleep(for: .seconds(1))
+                NotificationCenter.default.post(name: Notification.Name("YoinQAQueue"), object: nil)
+            case "connect-step":
+                // The welcome guide's picks after it closes: Step 1 of 2 (nothing is asked of a service until clicked).
+                model.startConnecting([.spotify, .appleMusic])
+            case "backups":
+                // A backup of the first playlist on this QA copy's own store, its versions open in Settings › Backups.
+                await model.library.loadPlaylists()
+                if let p = model.library.playlists.first, let id = model.session.activeId,
+                   let source = MacBackupAccounts.shared.source(id) {
+                    _ = try? await PlaylistBackups.shared.backUp(rawId: p.id.rawId, from: source)
+                    source.close()
+                }
             case "album", "artist", "scrapbook":
                 if let a = albums.first {
                     let full = await model.library.fullAlbum(a)

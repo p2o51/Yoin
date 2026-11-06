@@ -14,14 +14,17 @@ struct MacActivityBento: View {
             if let hero {
                 HStack(alignment: .top, spacing: 20) {
                     MacActivityTile(entry: hero).frame(width: 220)
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 16) {
-                        ForEach(entries.filter { $0.id != hero.id }.prefix(6)) { MacActivityTile(entry: $0) }
+                    // The rest at ordinary tile size beside the hero (never stretched to the column).
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 132, maximum: 168), spacing: 16, alignment: .top)],
+                              alignment: .leading, spacing: 16) {
+                        ForEach(entries.filter { $0.id != hero.id }.prefix(8)) { MacActivityTile(entry: $0) }
                     }
-                    .frame(minWidth: 280)
+                    .frame(minWidth: 280, alignment: .topLeading)
                 }
                 .frame(minWidth: 520)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), alignment: .top)], alignment: .leading, spacing: 20) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 132, maximum: 168), alignment: .top)], alignment: .leading,
+                      spacing: 20) {
                 ForEach(entries) { MacActivityTile(entry: $0) }
             }
         }
@@ -69,7 +72,9 @@ private struct MacHomeEntryCard: View {
         switch content {
         case .album(let a): (a.title, a.artist, "Album", "album", a.palette)
         case .artist(let a): (a.title, a.subtitle, "Artist", "artist", a.palette)
-        case .playlist(let p): (p.title, p.subtitle, "Playlist", "playlist", p.palette)
+        // The kind line already says Playlist: the count alone (no "Playlist · n songs").
+        case .playlist(let p): (p.title, p.count.map { "\($0) \($0 == 1 ? "song" : "songs")" } ?? "", "Playlist", "playlist",
+                                p.palette)
         case .song(let s): (s.track.title, s.track.artist ?? s.album.artist, "Song", "music_note", s.album.palette)
         case .signal(let s): (s.title, s.subtitle, s.kind == .ratedAlbum ? "Memory" : "Note", "album", s.album.palette)
         }

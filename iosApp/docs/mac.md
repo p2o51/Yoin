@@ -111,6 +111,8 @@ Space play / pause · ⌘→ / ⌘← next / previous · ⌘D like · ⇧⌘P No
 
 ## QA launch arguments (Debug)
 
+Keychain (2026-11-07): the QA copy (bundle id `com.gpo.yoin.mac.qa`) never touches the real app's Keychain items. Its account list lives in its own defaults (`qaProfiles`), every other service name gets a `.qa` suffix (`KeychainNamespace`), and it skips the Google sign-in restore. Before this, an ad-hoc-signed QA build reading `com.gpo.yoin.mac.subsonic` made macOS ask for the login keychain password; never answer that dialog for a QA build. Pass `-landing_done_v1 YES` to skip the welcome guide on its clean state.
+
 Rule (2026-11-06): every QA / tour launch ends by quitting it and opening the normal app with no arguments (`open …/Debug/Yoin.app`), then `ps -o args` to check. A `-silentAudio` run neither plays nor reads Spotify, so left running it looks like a broken Yoin; in Debug the window shows an orange "QA · …" marker while any QA argument is set.
 
 

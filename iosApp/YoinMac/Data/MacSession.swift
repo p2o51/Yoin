@@ -406,10 +406,11 @@ final class MacSession {
     /// One generic-password item for the account (this Mac only).
     private enum Keychain {
         nonisolated(unsafe) static let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                           kSecAttrService as String: "com.gpo.yoin.mac.subsonic",
+                                           kSecAttrService as String: KeychainNamespace.service("com.gpo.yoin.mac.subsonic"),
                                            kSecAttrAccount as String: "default"]
 
         static func load() -> Account? {
+            if KeychainNamespace.isQACopy { return nil }
             var q = query
             q[kSecReturnData as String] = true
             q[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -419,7 +420,7 @@ final class MacSession {
         }
 
         static func save(_ account: Account) {
-            guard let data = try? JSONEncoder().encode(account) else { return }
+            guard !KeychainNamespace.isQACopy, let data = try? JSONEncoder().encode(account) else { return }
             let update: [String: Any] = [kSecValueData as String: data,
                                          kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
             if SecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
@@ -427,14 +428,17 @@ final class MacSession {
             }
         }
 
-        static func delete() { SecItemDelete(query as CFDictionary) }
+        static func delete() { if !KeychainNamespace.isQACopy { SecItemDelete(query as CFDictionary) } }
 
         /// The account list: its own item, so the single-account one above stays readable.
         nonisolated(unsafe) static let profilesQuery: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                                   kSecAttrService as String: "com.gpo.yoin.mac.subsonic",
+                                                   kSecAttrService as String: KeychainNamespace.service("com.gpo.yoin.mac.subsonic"),
                                                    kSecAttrAccount as String: "profiles"]
 
         static func loadProfiles() -> Stored? {
+            if KeychainNamespace.isQACopy {
+                return UserDefaults.standard.data(forKey: "qaProfiles").flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
+            }
             var q = profilesQuery
             q[kSecReturnData as String] = true
             q[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -445,6 +449,7 @@ final class MacSession {
 
         static func saveProfiles(_ stored: Stored) {
             guard let data = try? JSONEncoder().encode(stored) else { return }
+            if KeychainNamespace.isQACopy { UserDefaults.standard.set(data, forKey: "qaProfiles"); return }
             let update: [String: Any] = [kSecValueData as String: data,
                                          kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
             if SecItemUpdate(profilesQuery as CFDictionary, update as CFDictionary) == errSecItemNotFound {

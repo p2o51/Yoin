@@ -80,7 +80,7 @@ final class GeminiSettings {
 
 /// One Keychain item for the key.
 struct GeminiKeychain: Sendable {
-    var service = "com.gpo.yoin.gemini"
+    var service = KeychainNamespace.service("com.gpo.yoin.gemini")
     var account = "apiKey"
 
     private var query: [String: Any] {

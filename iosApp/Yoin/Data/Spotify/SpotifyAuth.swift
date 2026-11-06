@@ -89,7 +89,7 @@ enum SpotifyAuthError: LocalizedError, Equatable {
 
 /// Each Spotify account's tokens, one Keychain item apiece (this device only).
 enum SpotifyTokenStore {
-    static let service = "com.gpo.yoin.spotify"
+    static let service = KeychainNamespace.service("com.gpo.yoin.spotify")
 
     private static func query(_ profileId: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

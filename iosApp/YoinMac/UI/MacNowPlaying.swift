@@ -196,6 +196,12 @@ struct MacNowPlaying: View {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("macNowPlaying")) } action: { coverBounds = $0 }
             .shadow(color: tint.primary.opacity(0.3), radius: 24, y: 18)
             .onTapGesture { model.toggleFocus() }
+            // The song's own menu (Android's cover long-press): queue, like, rate, playlist, album / artist, share.
+            .contextMenu {
+                if let e = model.currentEntry {
+                    SongMenu(entry: e) { model.player.seek(to: 0); if !model.player.isPlaying { model.player.resume() } }
+                }
+            }
             .help(model.focus ? "Leave Focus" : "Focus")
             VStack(spacing: 12) {
                 RatingBar(height: barHeight)
@@ -536,6 +542,9 @@ struct QueuePill: View {
     var body: some View {
         NPPill(icon: "queue", title: "Queue", enabled: true) { open.toggle() }
             .popover(isPresented: $open, arrowEdge: .top) { QueuePopover() }
+            #if DEBUG
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("YoinQAQueue"))) { _ in open = true }
+            #endif
             // Songs, albums or playlists dropped on the pill go to the end of what's queued.
             .dropDestination(for: YoinDragItem.self) { items, _ in
                 MacDrag.queue(items, before: nil, model: model)

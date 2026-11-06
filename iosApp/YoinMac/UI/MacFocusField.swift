@@ -31,13 +31,13 @@ struct MacFocusField: View {
     }
 
     var body: some View {
-        Group {
+        GeometryReader { g in
             if appeared && windowVisible && !reduceMotion && model.focus && model.npMode != .closed {
                 TimelineView(.animation(minimumInterval: 1.0 / 30)) { tick in
-                    field(at: tick.date, moving: true)
+                    field(at: tick.date, moving: true, size: g.size)
                 }
             } else {
-                field(at: epoch, moving: false)
+                field(at: epoch, moving: false, size: g.size)
             }
         }
         .background { FocusWindowVisibility(visible: $windowVisible) }
@@ -48,33 +48,37 @@ struct MacFocusField: View {
         .task(id: key) { await load(key) }
     }
 
-    private func field(at date: Date, moving: Bool) -> some View {
+    /// The small bitmap as the layer's contents, scaled up by the GPU (a Canvas would redraw the whole window on
+    /// the CPU each frame: QA 2026-11-07, about 19 points of CPU in focus).
+    @ViewBuilder private func field(at date: Date, moving: Bool, size: CGSize) -> some View {
         // Keep progress reads inside the field so the rest of Now Playing doesn't redraw at 4 Hz.
         let progress = moving ? model.player.progress.fraction : 0
         let time = moving ? date.timeIntervalSince(epoch) : 0
         // The effects spring slowed to cross the whole room, evaluated only on the 30 Hz timeline.
         let elapsed = max(0, date.timeIntervalSince(changedAt))
         let fade = moving ? min(1, max(0, Yoin.effectsSpring.value(target: 1.0, time: elapsed / 3))) : 1
-        return Canvas(opaque: true) { context, size in
-            guard let palette else {
-                context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Yoin.surface))
-                return
-            }
-            let points = palette.points(size: size, cover: coverBounds, time: time,
-                                        progress: progress, fromRight: fromRight)
-            let old = fade < 1 ? outgoing?.points(size: size, cover: coverBounds, time: time,
-                                                progress: progress, fromRight: fromRight) : nil
-            let mixed = points.enumerated().map { i, p in
-                guard let old else { return p }
-                var p = p
-                p.color = FocusPalette.mix(old[i].color, p.color,
-                                           FocusPalette.sweep(x: p.x, progress: fade, fromRight: fromRight))
-                return p
-            }
-            if let image = FocusPalette.render(mixed, size: size) {
-                context.draw(Image(decorative: image, scale: 1, orientation: .up).interpolation(.medium),
-                             in: CGRect(origin: .zero, size: size))
-            }
+        if let palette, size.width > 0, size.height > 0,
+           let image = FocusPalette.render(Self.mixed(palette, outgoing: fade < 1 ? outgoing : nil, size: size,
+                                                      cover: coverBounds, time: time, progress: progress,
+                                                      fade: fade, fromRight: fromRight), size: size) {
+            Image(decorative: image, scale: 1, orientation: .up)
+                .resizable()
+                .interpolation(.medium)
+                .frame(width: size.width, height: size.height)
+        } else {
+            Yoin.surface
+        }
+    }
+
+    private static func mixed(_ palette: FocusPalette, outgoing: FocusPalette?, size: CGSize, cover: CGRect,
+                              time: Double, progress: Double, fade: Double, fromRight: Bool) -> [FocusPalette.Point] {
+        let points = palette.points(size: size, cover: cover, time: time, progress: progress, fromRight: fromRight)
+        guard let old = outgoing?.points(size: size, cover: cover, time: time, progress: progress, fromRight: fromRight)
+        else { return points }
+        return points.enumerated().map { i, p in
+            var p = p
+            p.color = FocusPalette.mix(old[i].color, p.color, FocusPalette.sweep(x: p.x, progress: fade, fromRight: fromRight))
+            return p
         }
     }
 
@@ -175,6 +179,7 @@ private struct FocusPalette: Sendable {
         grid[min(23, max(0, Int(v * 24))) * 24 + min(23, max(0, Int(u * 24)))]
     }
 
+    @_optimize(speed)
     func points(size: CGSize, cover: CGRect, time: Double, progress: Double, fromRight: Bool) -> [Point] {
         let w = max(1, size.width), h = size.height / w
         let cx = cover.isEmpty ? 0.33 : cover.midX / w
@@ -208,28 +213,38 @@ private struct FocusPalette: Sendable {
         return out
     }
 
+    /// Optimised even in Debug (the app 51 runs day to day is a Debug build; -Onone made this loop the field's
+    /// whole cost). Plain doubles in the inner loop, no SIMD or enumerated sequences.
+    @_optimize(speed)
     static func render(_ points: [Point], size: CGSize) -> CGImage? {
-        guard size.width > 0, size.height > 0 else { return nil }
-        let columns = 48
-        let rows = max(2, min(96, Int(Double(columns) * size.height / size.width)))
+        guard size.width > 0, size.height > 0, !points.isEmpty else { return nil }
+        let columns = 40
+        let rows = max(2, min(80, Int(Double(columns) * size.height / size.width)))
         let aspect = size.height / size.width
+        let n = points.count
+        var px0 = [Double](repeating: 0, count: n), py0 = px0, inv = px0, wt = px0
+        var cr = px0, cg = px0, cb = px0
+        for k in 0..<n {
+            let p = points[k]
+            px0[k] = p.x; py0[k] = p.y; inv[k] = 1 / (2 * p.reach * p.reach); wt[k] = p.weight
+            cr[k] = p.color.x; cg[k] = p.color.y; cb[k] = p.color.z
+        }
         var bytes = [UInt8](repeating: 255, count: columns * rows * 4)
-        let inverses = points.map { 1 / (2 * $0.reach * $0.reach) }
         for y in 0..<rows {
             let py = (Double(y) + 0.5) / Double(rows) * aspect
             for x in 0..<columns {
                 let px = (Double(x) + 0.5) / Double(columns)
-                var rgb = points[0].color * 0.01
-                var total = 0.01
-                for (i, point) in points.enumerated() {
-                    let dx = px - point.x, dy = py - point.y
-                    let weight = exp(-(dx * dx + dy * dy) * inverses[i]) * point.weight
-                    rgb += point.color * weight
-                    total += weight
+                var r = cr[0] * 0.01, g = cg[0] * 0.01, b = cb[0] * 0.01, total = 0.01
+                for k in 0..<n {
+                    let dx = px - px0[k], dy = py - py0[k]
+                    let w = exp(-(dx * dx + dy * dy) * inv[k]) * wt[k]
+                    r += cr[k] * w; g += cg[k] * w; b += cb[k] * w
+                    total += w
                 }
-                rgb /= total
-                let offset = (y * columns + x) * 4
-                for c in 0..<3 { bytes[offset + c] = UInt8(min(255, max(0, rgb[c] * 255))) }
+                let o = (y * columns + x) * 4
+                bytes[o] = UInt8(min(255, max(0, r / total * 255)))
+                bytes[o + 1] = UInt8(min(255, max(0, g / total * 255)))
+                bytes[o + 2] = UInt8(min(255, max(0, b / total * 255)))
             }
         }
         guard let provider = CGDataProvider(data: Data(bytes) as CFData),

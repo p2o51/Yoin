@@ -13,7 +13,7 @@ protocol NeoDBTokenStoring: Sendable {
 /// The NeoDB access token as one Keychain item, this device only (Android keeps it encrypted in
 /// `noBackupFilesDir`, outside backups, for the same reason: a restored phone signs in again).
 struct NeoDBKeychain: NeoDBTokenStoring {
-    var service = "com.gpo.yoin.neodb"
+    var service = KeychainNamespace.service("com.gpo.yoin.neodb")
     var account = "accessToken"
 
     private var query: [String: Any] {

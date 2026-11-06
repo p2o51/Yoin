@@ -192,6 +192,7 @@ targets:
       - path: Yoin/Data/Spotify/SpotifyFake.swift
       - path: Yoin/Data/About/GeminiClient.swift
       - path: Yoin/Data/About/GeminiSettings.swift
+      - path: Yoin/Data/KeychainNamespace.swift
       - path: Yoin/Data/About/SongAboutLoader.swift
       - path: Yoin/Data/About/SongAboutStore.swift
       - path: Yoin/Data/About/GeminiLyricsTranslation.swift
