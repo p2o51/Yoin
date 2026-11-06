@@ -480,7 +480,8 @@ private struct QueuePopover: View {
     var body: some View {
         let p = model.player
         let start = (p.currentIndex ?? 0) + 1
-        let upcoming = Array(p.upcoming.prefix(80))
+        // Every song after the current one (the List draws only the rows on screen).
+        let upcoming = Array(p.upcoming)
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Up Next").font(.gsf(15, .semibold))
