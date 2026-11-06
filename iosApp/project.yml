@@ -202,6 +202,8 @@ targets:
       - path: Yoin/Album/AlbumNeoDBLine.swift
       - path: Yoin/Album/ScoreEmblem.swift
       - path: Yoin/Album/ScrapbookPaper.swift
+      - path: Yoin/Library/LibrarySort.swift
+      - path: Yoin/Library/NewestAlbumSongsPager.swift
       - path: Yoin/Theme/YoinFont.swift
       - path: Yoin/Resources/Fonts/google_sans_flex_variable.ttf
         buildPhase: resources

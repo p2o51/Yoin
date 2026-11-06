@@ -342,6 +342,31 @@ final class MacModel {
 
     // MARK: History (iOS HistoryStore: this Mac's plays, per account)
 
+    /// When each album, artist and playlist was last opened or played here (iOS LibraryStore.libraryRecents),
+    /// keyed "album:<id>" / "artist:<id>" / "playlist:<id>": Library's Recents order.
+    func libraryRecents() -> [String: Int64] {
+        let history = HistoryStore.shared
+        let scope = session.accountKey, provider = currentProvider
+        guard !scope.isEmpty else { return [:] }
+        var out: [String: Int64] = [:]
+        func note(_ key: String, _ at: Int64) { if at > out[key] ?? .min { out[key] = at } }
+        for a in history.activities where a.scope == scope && a.provider == provider {
+            switch a.entity {
+            case .album: note("album:\(a.entityId)", a.timestamp)
+            case .artist: note("artist:\(a.entityId)", a.timestamp)
+            case .playlist: note("playlist:\(a.entityId)", a.timestamp)
+            case .song:
+                if let album = a.albumId { note("album:\(album)", a.timestamp) }
+                if let artist = a.artistId { note("artist:\(artist)", a.timestamp) }
+            }
+        }
+        for play in history.plays(scope: scope, provider: provider) {
+            if let album = play.albumId { note("album:\(album)", play.startedAt) }
+            if let artist = play.artistId { note("artist:\(artist)", play.startedAt) }
+        }
+        return out
+    }
+
     @ObservationIgnored private var openPlay: (song: String, id: String)?
 
     /// A song that starts is a play row; heard long enough, it counts.

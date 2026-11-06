@@ -30,6 +30,10 @@ final class MacLibrary {
     private(set) var albums: [Album] = []
     private(set) var artists: [LibraryItem] = []
     private(set) var songs: [PlaylistEntry] = []
+    /// Whether Songs has more to read (Subsonic's pager; the other sources list theirs whole).
+    enum More: Equatable { case none, available, loading, failed }
+    private(set) var songsMore: More = .none
+    @ObservationIgnored private var songsPager: NewestAlbumSongsPager?
     private(set) var albumDetails: [String: Album] = [:]
     private(set) var playlists: [LibraryItem] = []
     private(set) var playlistDetails: [String: PlaylistInfo] = [:]
@@ -72,6 +76,8 @@ final class MacLibrary {
         albums = []
         artists = []
         songs = []
+        songsPager = nil
+        songsMore = .none
         albumDetails = [:]
         artistPages = [:]
         phases = [:]
@@ -241,19 +247,43 @@ final class MacLibrary {
             return
         }
         await run("songs", force: force) { client, m, live in
-            // Navidrome / OpenSubsonic answer an empty search3 with the whole library, a page at a time.
-            var found: [SongInfo] = []
-            var offset: Int32 = 0
-            while offset < 20_000 {
-                let page = try await client.search3(query: "", artistCount: 0, albumCount: 0, songCount: 500,
-                                                    songOffset: offset).songs
-                found += page
-                if page.count < 500 { break }
-                offset += 500
-            }
-            if found.isEmpty { found = try await client.getRandomSongs(size: 200) }
-            guard live() else { return }
-            self.songs = found.enumerated().map { m.entry($1, index: $0) }
+            // iOS / Android NewestAlbumSongsPager: the newest albums' songs, album by album, a page at a time
+            // (more as the list nears its end). A refresh starts again from the newest album.
+            let gen = self.generation
+            let pager = NewestAlbumSongsPager(
+                loadAlbums: { offset, size in
+                    try await client.getAlbumList2(type: .newest, size: Int32(size), offset: Int32(offset)).map(m.album)
+                },
+                loadAlbum: { [weak self] album in
+                    if let have = self?.albumDetails[album.id.rawId], !have.tracks.isEmpty { return have }
+                    let read = try await client.getAlbum(id: album.id.rawId).map(m.album)
+                    guard let self, gen == self.generation else { throw CancellationError() }
+                    guard let full = read else { return nil }
+                    self.albumDetails[full.id.rawId] = full
+                    return full
+                })
+            self.songsPager = pager
+            let first = try await pager.next()
+            guard live(), self.songsPager === pager else { return }
+            self.songs = first
+            self.songsMore = pager.reachedEnd ? .none : .available
+        }
+    }
+
+    /// Songs' next page (iOS loadMoreSongs): as the list nears its end, or Retry after a failed read.
+    func loadMoreSongs() async {
+        guard let pager = songsPager, songsMore == .available || songsMore == .failed else { return }
+        let gen = generation
+        songsMore = .loading
+        do {
+            let more = try await pager.next()
+            guard gen == generation, songsPager === pager else { return }
+            songs += more
+            songsMore = pager.reachedEnd ? .none : .available
+        } catch {
+            guard gen == generation, songsPager === pager else { return }
+            Self.log.error("songs page failed: \(MacSession.message(for: error), privacy: .public)")
+            songsMore = .failed
         }
     }
 

@@ -1,62 +1,175 @@
 import SwiftUI
 
-/// Library: a glass filter rail (Albums / Artists / Songs) over the grids.
+/// Library: a glass filter rail (Albums / Artists / Playlists / Songs …) over the grids. Albums, Artists and
+/// Playlists sort as on iOS (LibrarySort: Recents, Recently added, Alphabetical, Creator — only the orders the
+/// data backs), with a jump bar down the right edge for the sort's runs (letters, years, Today / This week).
 struct MacLibraryView: View {
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
+    @AppStorage("librarySort.Albums") private var albumSort = LibrarySortOrder.recents.rawValue
+    @AppStorage("librarySort.Artists") private var artistSort = LibrarySortOrder.recents.rawValue
+    @AppStorage("librarySort.Playlists") private var playlistSort = LibrarySortOrder.recents.rawValue
+
+    /// Android librarySortOptions: only orders the data can back.
+    static func sortOptions(_ kind: MacModel.LibraryKind) -> [LibrarySortOrder] {
+        switch kind {
+        case .albums: [.recents, .recentlyAdded, .alphabetical, .creator]
+        case .artists: [.recents, .alphabetical]
+        case .playlists: [.recents, .alphabetical, .creator]
+        default: []
+        }
+    }
+
+    private func sort(_ kind: MacModel.LibraryKind) -> LibrarySortOrder {
+        let raw = kind == .albums ? albumSort : kind == .artists ? artistSort : playlistSort
+        let chosen = LibrarySortOrder(rawValue: raw) ?? .recents
+        return Self.sortOptions(kind).contains(chosen) ? chosen : .recents
+    }
+
+    private func setSort(_ kind: MacModel.LibraryKind, _ order: LibrarySortOrder) {
+        withAnimation(Yoin.spatial) {
+            switch kind {
+            case .albums: albumSort = order.rawValue
+            case .artists: artistSort = order.rawValue
+            default: playlistSort = order.rawValue
+            }
+        }
+    }
+
+    private var sorter: LibrarySorter {
+        LibrarySorter(recents: model.libraryRecents(), ignoresArticles: model.session.client != nil)
+    }
+
+    /// The kind's items in its order, and the jump bar's runs.
+    private func sorted(_ kind: MacModel.LibraryKind) -> (items: [LibraryItem], sections: [LibraryFastScroller.Section]) {
+        let lib = model.library
+        let raw: [LibraryItem] = switch kind {
+        case .albums: lib.albums.map {
+            LibraryItem(id: $0.id, kind: .album, title: $0.title, subtitle: $0.artist, palette: $0.palette, album: $0)
+        }
+        case .artists: lib.artists
+        case .playlists: lib.playlists
+        default: []
+        }
+        let sorter = sorter
+        let order = sort(kind)
+        let items = sorter.sorted(raw, by: order)
+        return (items, LibraryScrollIndex.sections(items, sort: order, sorter: sorter))
+    }
 
     var body: some View {
         @Bindable var model = model
         let lib = model.library
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                PageHeader(eyebrow: nil, title: "Library")
-                Color.clear.frame(height: 64)
-                switch model.libraryKind {
-                case .albums:
-                    AlbumGrid(albums: lib.albums, minimum: 124)
-                    PhaseNote(phase: lib.phase("albums"), empty: lib.albums.isEmpty, emptyText: "No albums") {
-                        Task { await lib.loadAlbums(force: true) }
-                    }
-                case .artists:
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 16, alignment: .top)], spacing: 20) {
-                        ForEach(lib.artists, id: \.id) { ArtistTile(item: $0) }
-                    }
-                    PhaseNote(phase: lib.phase("artists"), empty: lib.artists.isEmpty, emptyText: "No artists") {
-                        Task { await lib.loadArtists(force: true) }
-                    }
-                case .playlists:
-                    if model.session.client != nil || model.session.isSpotify {
-                        NewPlaylistButton().padding(.bottom, 16)
-                    }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 16, alignment: .top)], spacing: 20) {
-                        ForEach(lib.playlists, id: \.id) { PlaylistTile(item: $0) }
-                    }
-                    PhaseNote(phase: lib.phase("playlists"), empty: lib.playlists.isEmpty, emptyText: "No playlists") {
-                        Task { await lib.loadPlaylists(force: true) }
-                    }
-                case .memories:
-                    MacMemoriesGrid()
-                case .downloads:
-                    MacDownloadsList()
-                case .songs:
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(lib.songs.enumerated()), id: \.offset) { i, e in
-                            TrackRow(entry: e, showCover: true) { model.play(lib.songs, startAt: i) }
+        let kind = model.libraryKind
+        let list = sorted(kind)
+        ScrollViewReader { reader in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    PageHeader(eyebrow: nil, title: "Library")
+                    Color.clear.frame(height: 64)
+                    switch kind {
+                    case .albums:
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 16, alignment: .top)], spacing: 20) {
+                            ForEach(Array(list.items.enumerated()), id: \.element.id) { i, item in
+                                if let a = item.album { AlbumTile(album: a).id(Self.anchor(i)) }
+                            }
+                        }
+                        PhaseNote(phase: lib.phase("albums"), empty: lib.albums.isEmpty, emptyText: "No albums") {
+                            Task { await lib.loadAlbums(force: true) }
+                        }
+                    case .artists:
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 16, alignment: .top)], spacing: 20) {
+                            ForEach(Array(list.items.enumerated()), id: \.element.id) { i, item in
+                                ArtistTile(item: item).id(Self.anchor(i))
+                            }
+                        }
+                        PhaseNote(phase: lib.phase("artists"), empty: lib.artists.isEmpty, emptyText: "No artists") {
+                            Task { await lib.loadArtists(force: true) }
+                        }
+                    case .playlists:
+                        if model.session.client != nil || model.session.isSpotify {
+                            NewPlaylistButton().padding(.bottom, 16)
+                        }
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 16, alignment: .top)], spacing: 20) {
+                            ForEach(Array(list.items.enumerated()), id: \.element.id) { i, item in
+                                PlaylistTile(item: item).id(Self.anchor(i))
+                            }
+                        }
+                        PhaseNote(phase: lib.phase("playlists"), empty: lib.playlists.isEmpty, emptyText: "No playlists") {
+                            Task { await lib.loadPlaylists(force: true) }
+                        }
+                    case .memories:
+                        MacMemoriesGrid()
+                    case .downloads:
+                        MacDownloadsList()
+                    case .songs:
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(lib.songs.enumerated()), id: \.offset) { i, e in
+                                TrackRow(entry: e, showCover: true) { model.play(lib.songs, startAt: i) }
+                                    .onAppear {
+                                        // Near the end: the next albums' songs (Subsonic's pager).
+                                        if i >= lib.songs.count - 12, lib.songsMore == .available {
+                                            Task { await lib.loadMoreSongs() }
+                                        }
+                                    }
+                            }
+                        }
+                        switch lib.songsMore {
+                        case .loading:
+                            ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, 16)
+                        case .failed:
+                            Button("Couldn't load more songs. Retry") { Task { await lib.loadMoreSongs() } }
+                                .buttonStyle(.link).frame(maxWidth: .infinity).padding(.vertical, 16)
+                        default:
+                            EmptyView()
+                        }
+                        PhaseNote(phase: lib.phase("songs"), empty: lib.songs.isEmpty, emptyText: "No songs") {
+                            Task { await lib.loadSongs(force: true) }
                         }
                     }
-                    PhaseNote(phase: lib.phase("songs"), empty: lib.songs.isEmpty, emptyText: "No songs") {
-                        Task { await lib.loadSongs(force: true) }
+                }
+                .padding(.horizontal, 32)
+                .padding(.trailing, list.sections.count > 1 ? 24 : 0)
+                .padding(.bottom, 142)
+            }
+            .overlay(alignment: .trailing) {
+                if list.sections.count > 1, list.items.count > 24 {
+                    JumpBar(sections: list.sections) { start in
+                        withAnimation(Yoin.spatial) { reader.scrollTo(Self.anchor(start), anchor: .top) }
                     }
+                    .padding(.trailing, 6)
+                    .padding(.top, 168)
+                    .padding(.bottom, 142)
+                    .transition(.opacity)
                 }
             }
-            .padding(.horizontal, 32)
-            .padding(.bottom, 142)
         }
         .overlay(alignment: .topLeading) {
-            FilterRail(selection: $model.libraryKind)
-                .padding(.leading, 32)
-                .padding(.top, 108)
+            HStack(spacing: 10) {
+                FilterRail(selection: $model.libraryKind)
+                let options = Self.sortOptions(kind)
+                if !options.isEmpty {
+                    Menu {
+                        Picker("Sort", selection: Binding(get: { sort(kind) }, set: { setSort(kind, $0) })) {
+                            ForEach(options, id: \.self) { Text($0.label).tag($0) }
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        HStack(spacing: 6) {
+                            YoinIcon("sort", size: 16)
+                            Text(sort(kind).label).font(.gsf(13.5))
+                        }
+                        .foregroundStyle(Yoin.ink)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .transition(.opacity)
+                }
+            }
+            .padding(.leading, 32)
+            .padding(.top, 108)
+            .animation(Yoin.effects, value: kind)
         }
         .task(id: "\(model.libraryKind.rawValue)|\(model.session.accountKey)") {
             switch model.libraryKind {
@@ -67,6 +180,41 @@ struct MacLibraryView: View {
             case .downloads, .memories: break
             }
         }
+    }
+
+    static func anchor(_ i: Int) -> String { "library-item-\(i)" }
+}
+
+/// The Mac's fast scroller (iOS LibraryFastScroller): the sort's runs down the right edge, a click jumps
+/// there. Too many to fit, it keeps every n-th and the last.
+private struct JumpBar: View {
+    var sections: [LibraryFastScroller.Section]
+    var jump: (Int) -> Void
+    @Environment(\.macTint) private var tint
+    @State private var hovered: Int?
+
+    var body: some View {
+        GeometryReader { g in
+            let room = max(1, Int(g.size.height / 16))
+            let step = max(1, Int(ceil(Double(sections.count) / Double(room))))
+            let shown = sections.enumerated().filter { $0.offset % step == 0 || $0.offset == sections.count - 1 }
+            VStack(spacing: 0) {
+                ForEach(shown, id: \.offset) { i, section in
+                    Button { jump(section.start) } label: {
+                        Text(section.label)
+                            .font(.gsf(10.5, hovered == i ? .semibold : .medium))
+                            .foregroundStyle(hovered == i ? tint.primary : Yoin.inkVariant)
+                            .lineLimit(1)
+                            .frame(minWidth: 18, minHeight: 16)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 44)
     }
 }
 
