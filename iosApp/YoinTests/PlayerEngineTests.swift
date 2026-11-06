@@ -28,6 +28,8 @@ final class FakeAudioOutput: AudioOutput {
     func pause() { playing = false }
     func seek(to sec: Double) { seeks.append(sec); currentTimeSec = sec }
     func stop() { loaded = nil; preloaded = nil; playing = false }
+    var skips: [Bool] = []
+    func skipExternal(forward: Bool) { skips.append(forward) }
 
     /// The current item ended: hand over to the preloaded one, or run out.
     func finishItem() {
@@ -67,6 +69,44 @@ final class PlayerEngineTests: XCTestCase {
 
     private func tracks(_ n: Int) -> [PlayableTrack] { (1...n).map { track($0) } }
     private var ids: [String] { engine.queue.map(\.track.id) }
+
+    // MARK: Spotify's own song (51, 2026-11-06)
+
+    func test_should_showSpotifysOwnSong_and_parkTheQueue_when_spotifyPlaysSomethingElse() {
+        engine.play(queue: tracks(3), startAt: 0)
+        let theirs = PlayableTrack(id: "1IEKU3", provider: "spotify", title: "Their Song", artist: "Them", album: "Theirs",
+                                   albumId: nil, durationSec: 171, streamURL: URL(string: "spotify-yoin://track/1IEKU3")!,
+                                   coverURL: URL(string: "https://i.scdn.co/image/abc"))
+        engine.outputExternalTrackDidChange(theirs, positionSec: 14.6, playing: true)
+        XCTAssertEqual(engine.currentTrack?.id, "1IEKU3")
+        XCTAssertEqual(engine.currentItem?.track.id, "t1", "the queue stays parked")
+        XCTAssertEqual(engine.progress.durationSec, 171)
+        XCTAssertEqual(engine.progress.positionSec, 14.6, accuracy: 0.01)
+        XCTAssertTrue(engine.isPlaying)
+        // Next and previous skip in Spotify; the queue doesn't move.
+        engine.next()
+        engine.previous()
+        XCTAssertEqual(output.skips, [true, false])
+        XCTAssertEqual(engine.currentIndex, 0)
+        XCTAssertEqual(output.loads, 1)
+        // Its clock is Spotify's, untouched by the queue's song.
+        output.tick(to: 20)
+        XCTAssertEqual(engine.progress.positionSec, 20, accuracy: 0.01)
+        // Back on the queue's song.
+        engine.outputExternalTrackDidChange(nil, positionSec: 0, playing: false)
+        XCTAssertEqual(engine.currentTrack?.id, "t1")
+        XCTAssertEqual(engine.progress.durationSec, 200)
+    }
+
+    func test_should_dropSpotifysOwnSong_when_theQueuePlaysAgain() {
+        engine.play(queue: tracks(3), startAt: 0)
+        let theirs = PlayableTrack(id: "x", provider: "spotify", title: "X", artist: "", album: "", albumId: nil,
+                                   durationSec: 100, streamURL: URL(string: "spotify-yoin://track/x")!, coverURL: nil)
+        engine.outputExternalTrackDidChange(theirs, positionSec: 0, playing: true)
+        engine.jump(to: 2)
+        XCTAssertEqual(engine.currentTrack?.id, "t3")
+        XCTAssertNil(engine.externalTrack)
+    }
 
     // MARK: Start & transport
 

@@ -20,6 +20,13 @@ protocol AudioOutput: AnyObject {
     /// Drops every item.
     func stop()
     var currentTimeSec: Double { get }
+    /// Next / previous on a song the output plays that isn't the engine's (see
+    /// `outputExternalTrackDidChange`): the player that owns it skips.
+    func skipExternal(forward: Bool)
+}
+
+extension AudioOutput {
+    func skipExternal(forward: Bool) {}
 }
 
 /// Callbacks from an [AudioOutput], all on the main actor.
@@ -41,10 +48,15 @@ protocol AudioOutputEvents: AnyObject {
     func outputPlayingDidChangeExternally(_ playing: Bool)
     /// Shuffle or repeat changed in the player that owns the sound (the Spotify app); nil: unchanged.
     func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?)
+    /// The player that owns the sound plays a song that isn't the engine's (picked in Spotify, here or
+    /// on the device Yoin drives): shown as now playing while the engine's queue stays parked; nil when
+    /// the engine's own song is back. [positionSec] and [playing] are that song's.
+    func outputExternalTrackDidChange(_ track: PlayableTrack?, positionSec: Double, playing: Bool)
 }
 
 extension AudioOutputEvents {
     func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?) {}
+    func outputExternalTrackDidChange(_ track: PlayableTrack?, positionSec: Double, playing: Bool) {}
 
     /// A failure of the song itself.
     func outputDidFail(_ message: String) { outputDidFail(message, network: false) }

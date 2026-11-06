@@ -297,6 +297,7 @@ final class RoutingAudioOutput: AudioOutput {
     func pause() { active.pause() }
     func seek(to sec: Double) { active.seek(to: sec) }
     func stop() { active.stop() }
+    func skipExternal(forward: Bool) { active.skipExternal(forward: forward) }
 
     fileprivate func isActive(_ o: AudioOutput) -> Bool { o === active }
 
@@ -325,6 +326,9 @@ final class RoutingAudioOutput: AudioOutput {
         func outputPlayingDidChangeExternally(_ playing: Bool) { target?.outputPlayingDidChangeExternally(playing) }
         func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?) {
             target?.outputPlayModesDidChangeExternally(shuffle: shuffle, repeatMode: repeatMode)
+        }
+        func outputExternalTrackDidChange(_ track: PlayableTrack?, positionSec: Double, playing: Bool) {
+            target?.outputExternalTrackDidChange(track, positionSec: positionSec, playing: playing)
         }
     }
 }
