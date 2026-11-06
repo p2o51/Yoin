@@ -54,7 +54,41 @@ struct MacLibraryView: View {
         let sorter = sorter
         let order = sort(kind)
         let items = sorter.sorted(raw, by: order)
-        return (items, LibraryScrollIndex.sections(items, sort: order, sorter: sorter))
+        let sections = LibraryScrollIndex.sections(items, sort: order, sorter: sorter)
+        return (items, order == .alphabetical || order == .creator ? Self.grouped(sections) : sections)
+    }
+
+    /// The jump bar's groups for a by-name order: # and A–Z, then one each for kana (あ), Hangul (가) and
+    /// CJK (汉) — one entry per character there was noise (40 single ideographs). Each group jumps to its
+    /// first item in the list.
+    static func grouped(_ sections: [LibraryFastScroller.Section]) -> [LibraryFastScroller.Section] {
+        func group(_ label: String) -> String {
+            guard let u = label.unicodeScalars.first else { return "#" }
+            switch u.value {
+            case 0x3040...0x30FF, 0x31F0...0x31FF, 0xFF66...0xFF9D: return "あ"
+            case 0x1100...0x11FF, 0x3130...0x318F, 0xAC00...0xD7AF: return "가"
+            case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0x20000...0x2FFFF: return "汉"
+            default:
+                let folded = label.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).uppercased()
+                if let c = folded.first, c.isASCII, c.isLetter { return String(c) }
+                return "#"
+            }
+        }
+        var first: [String: Int] = [:]
+        for s in sections {
+            let g = group(s.label)
+            first[g] = min(first[g] ?? .max, s.start)
+        }
+        func rank(_ g: String) -> Int {
+            switch g {
+            case "#": 0
+            case "あ": 100
+            case "가": 101
+            case "汉": 102
+            default: Int(g.unicodeScalars.first!.value)
+            }
+        }
+        return first.keys.sorted { rank($0) < rank($1) }.map { .init(label: $0, start: first[$0]!) }
     }
 
     var body: some View {

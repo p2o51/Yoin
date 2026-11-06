@@ -106,22 +106,37 @@ struct MacAlbumScrapbook: View {
 
     // MARK: Opening cluster
 
+    /// The stamp's size on the Mac: the phone's 64 reads too small at 1x (its "Unrated" was 9.5 pt).
+    static let badge: CGFloat = 96
+    /// Nothing is drawn over a Spotify cover (51's rule): its stamp sits beside it, never on it.
+    private var stampBeside: Bool { album.id.provider == SpotifyMapping.provider }
+
     private var opening: some View {
         let cover = Tokens.detail.SCRAPBOOK_COVER.cg
-        let badge = Tokens.detail.SCRAPBOOK_BADGE.cg
+        let badge = Self.badge
         let overhangX = Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_X.cg
+        let emblem = ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette, size: badge,
+                                 award: bun.kind == .unrated ? nil : award, onCover: !stampBeside)
+        let coverArt = MacCover(palette: album.palette, corner: Tokens.shape.HERO.cg)
+            .frame(width: cover, height: cover)
+            .rotationEffect(.degrees(tilt("cover", Tilt.cover)))
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 0) {
-                ZStack(alignment: .bottomTrailing) {
-                    MacCover(palette: album.palette, corner: Tokens.shape.HERO.cg)
-                        .frame(width: cover, height: cover)
-                        .rotationEffect(.degrees(tilt("cover", Tilt.cover)))
-                        .frame(width: cover, height: cover + Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_Y.cg * badge, alignment: .top)
-                    ScoreEmblem(score: bun.score, kind: bun.kind, rated: bun.rated, palette: album.palette, size: badge,
-                                award: bun.kind == .unrated ? nil : award, onCover: true)
-                        .offset(x: overhangX * badge)
+                if stampBeside {
+                    // A clear gap past the cover's tilted corners, the stamp level with its foot.
+                    HStack(alignment: .bottom, spacing: 18) {
+                        coverArt.padding(6)
+                        emblem.rotationEffect(.degrees(tilt("stamp", Tilt.sticker)))
+                    }
+                    Spacer().frame(width: 16)
+                } else {
+                    ZStack(alignment: .bottomTrailing) {
+                        coverArt
+                            .frame(width: cover, height: cover + Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_Y.cg * badge, alignment: .top)
+                        emblem.offset(x: overhangX * badge)
+                    }
+                    Spacer().frame(width: overhangX * badge + 12)
                 }
-                Spacer().frame(width: overhangX * badge + 12)
                 VStack(alignment: .leading, spacing: 0) {
                     if let memoryTitle { openingTitle(memoryTitle) }
                     if let last = stats.last {
