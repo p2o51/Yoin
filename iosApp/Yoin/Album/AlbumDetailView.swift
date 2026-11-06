@@ -1146,7 +1146,9 @@ struct AlbumDetailView: View {
                 let x = lerp(heroX + CGFloat(i) * slice, CGFloat(strips[i].slot) * w / CGFloat(n), q)
                 let y = lerp(heroY, -top, q) + shift
                 let sw = lerp(slice, w / CGFloat(n), q) + 1.5
-                let sh = lerp(side, barH, q)
+                // The Strip's strips run past the feather's end, so its blur
+                // only ever mixes colors (the mask fades them).
+                let sh = lerp(side, stripBar ? barH + 24 : barH, q)
                 ZStack(alignment: .topLeading) {
                     CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                         .frame(width: side, height: side)
@@ -1169,8 +1171,8 @@ struct AlbumDetailView: View {
         .frame(width: w, height: stripBar ? top + heroY + side + 8 : nil, alignment: .topLeading)
         // The Strip's progressive blur (51, 2026-11-06): sharp at the top of
         // the screen, softer down to the end of the feather.
-        .layerEffect(ShaderLibrary.albumStripBlur(.float(max(1, barH)), .float(blurR)),
-                     maxSampleOffset: CGSize(width: blurR, height: blurR), isEnabled: blurR > 0.3)
+        .layerEffect(ShaderLibrary.albumStripBlur(.float(max(1, barH)), .float(blurR), .float(w)),
+                     maxSampleOffset: CGSize(width: blurR * 1.5, height: 0), isEnabled: blurR > 0.3)
         .mask(alignment: .topLeading) { bandMask(w: w, top: top, shift: shift) }
         .offset(y: -shift)
         .opacity(p > 0.001 ? 1 : 0)
