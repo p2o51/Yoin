@@ -41,7 +41,7 @@ The iOS `OfflineDownloads` (and `DetailDiskCache` for its pins) compile into the
 
 The iOS stores compile into the Mac (LocalRatings, NotesStore, AlbumMemoryStore, LyricsUserStore, HomeLayoutStore, PlaylistBackupStore, HistoryStore, SongAboutStore, GeminiSettings) with Mac copies of `AccountScope` and `KeychainItem`; ratings are local for every provider, Subsonic written through. Notes: Now Playing › Write. Memories: Library › Memories (iOS MemoryDeck), the diary edits title and review.
 
-Cloud sync is iOS `CloudSync` + `SyncDomainBridge` on the shared Kotlin core (same Drive appDataFolder files as Android / iOS). Settings › Sync. Google client: the Mac's own OAuth client (type iOS, bundle `com.gpo.yoin.mac`) in project yoin-510700, in `Config/YoinMac.xcconfig`. Still needed before sign-in works: the `keychain-access-groups` entitlement (commented in project.yml), which needs a Mac development profile for `com.gpo.yoin.mac` — Xcode › Settings › Accounts signed in on this Mac (automatic signing then makes it), or a profile from the portal.
+Cloud sync is iOS `CloudSync` + `SyncDomainBridge` on the shared Kotlin core (same Drive appDataFolder files as Android / iOS). Settings › Sync. Google client: the Mac's own OAuth client (type iOS, bundle `com.gpo.yoin.mac`) in project yoin-510700, in `Config/YoinMac.xcconfig`. Debug signs manually with the Mac development profile "Yoin Mac Development" (com.gpo.yoin.mac, this MacBook Pro, all Apple Development certs, expires 2027-11-06; installed under ~/Library/Developer/Xcode/UserData/Provisioning Profiles), which carries the `keychain-access-groups` entitlement Google Sign-In needs. Another Mac needs its own device added to that profile.
 
 ## Mini player
 
