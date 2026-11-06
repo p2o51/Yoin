@@ -179,6 +179,8 @@ struct PlaylistInfo: Hashable, Sendable {
     /// Spotify: each entry's position among all the playlist's items (local files and episodes count), so a
     /// removal names the one occurrence.
     var positions: [Int]? = nil
+    /// Subsonic (Android canWrite): not readonly, and the user's or nobody's. nil where not read.
+    var canWrite: Bool? = nil
 
     /// The playlist as an Album, so it can reuse the album page's hero,
     /// spectrum and pull-up (Android shares them the same way).

@@ -137,7 +137,8 @@ struct SubsonicMapping {
                             isPublic: p.isPublic?.boolValue,
                             description: comment?.isEmpty == false ? comment : nil,
                             palette: palette(coverId: p.coverArtId),
-                            entries: d.entries.enumerated().map { i, s in entry(s, index: i) })
+                            entries: d.entries.enumerated().map { i, s in entry(s, index: i) },
+                            ownedByMe: p.ownedByMe?.boolValue, canWrite: p.canWrite)
     }
 
     /// Releases newest first; Most Played = the loaded albums' songs by play count (top 5).
