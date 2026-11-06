@@ -514,15 +514,78 @@ final class LibraryStore {
     nonisolated static let homePlaylistLimit = 20
 
     /// An ISO-8601 date (the server's `created`) in epoch ms.
+    ///
+    /// Read by hand: Library sorts by it, and a fresh ISO8601DateFormatter
+    /// per album (two on a miss) cost most of a sort's time on the main
+    /// thread. Anything that isn't `yyyy-MM-ddTHH:mm:ss[.fff](Z|±HH:mm)`
+    /// goes to a shared formatter.
     nonisolated static func epochMs(_ iso: String?) -> Int64? {
         guard let iso else { return nil }
+        if let ms = fastEpochMs(iso) { return ms }
+        let date = isoFractional.date(from: iso) ?? isoPlain.date(from: iso)
+        return date.map { Int64($0.timeIntervalSince1970 * 1000) }
+    }
+
+    // ISO8601DateFormatter is safe to share across threads once configured.
+    nonisolated(unsafe) private static let isoFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = f.date(from: iso) ?? {
-            f.formatOptions = [.withInternetDateTime]
-            return f.date(from: iso)
-        }()
-        return date.map { Int64($0.timeIntervalSince1970 * 1000) }
+        return f
+    }()
+    nonisolated(unsafe) private static let isoPlain = ISO8601DateFormatter()
+
+    nonisolated static func fastEpochMs(_ iso: String) -> Int64? {
+        let b = Array(iso.utf8)
+        func num(_ from: Int, _ count: Int) -> Int? {
+            guard from + count <= b.count else { return nil }
+            var n = 0
+            for c in b[from..<from + count] {
+                guard c >= 48, c <= 57 else { return nil }
+                n = n * 10 + Int(c - 48)
+            }
+            return n
+        }
+        func at(_ i: Int, _ c: Character) -> Bool { i < b.count && b[i] == c.asciiValue }
+        guard let y = num(0, 4), at(4, "-"), let mo = num(5, 2), at(7, "-"), let d = num(8, 2),
+              at(10, "T") || at(10, "t") || at(10, " "),
+              let h = num(11, 2), at(13, ":"), let mi = num(14, 2), at(16, ":"), let sec = num(17, 2),
+              (1...12).contains(mo), (1...31).contains(d), h < 24, mi < 60, sec < 61 else { return nil }
+        var i = 19
+        var ms = 0
+        if at(i, ".") {
+            i += 1
+            var digits = 0
+            while i < b.count, b[i] >= 48, b[i] <= 57 {
+                if digits < 3 { ms = ms * 10 + Int(b[i] - 48) }
+                digits += 1; i += 1
+            }
+            guard digits > 0 else { return nil }
+            if digits < 3 { for _ in digits..<3 { ms *= 10 } }
+        }
+        var offset = 0
+        if at(i, "Z") || at(i, "z") {
+            i += 1
+        } else if at(i, "+") || at(i, "-") {
+            let sign = at(i, "-") ? -1 : 1
+            guard let oh = num(i + 1, 2) else { return nil }
+            var j = i + 3
+            if at(j, ":") { j += 1 }
+            guard let om = num(j, 2) else { return nil }
+            offset = sign * (oh * 3600 + om * 60)
+            i = j + 2
+        } else {
+            return nil
+        }
+        guard i == b.count else { return nil }
+        // Days from the civil date (Howard Hinnant's days_from_civil).
+        let yy = mo <= 2 ? y - 1 : y
+        let era = (yy >= 0 ? yy : yy - 399) / 400
+        let yoe = yy - era * 400
+        let doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        let days = era * 146_097 + doe - 719_468
+        let seconds = Int64(days) * 86400 + Int64(h * 3600 + mi * 60 + sec) - Int64(offset)
+        return seconds * 1000 + Int64(ms)
     }
 
     /// "2024-03-17T…" → "2024.03" (Android's Rediscover footnote).

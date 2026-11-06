@@ -29,6 +29,7 @@ struct LibraryView: View {
     @State private var hideTask: Task<Void, Never>?
     @State private var naming = false
     @State private var newName = ""
+    @State private var order = LibraryOrderMemo()
 
     /// Filter, sorts and positions outlive the page (Android keeps them in
     /// its ViewModel): Home → Library comes back to the same view.
@@ -100,14 +101,24 @@ struct LibraryView: View {
         LibrarySorter(recents: model.store.libraryRecents(), ignoresArticles: model.store.client != nil)
     }
 
-    /// Sorted items for the current view and sort.
-    private var items: [LibraryItem] {
-        var base = filtered
-        if filter == .playlists, memory.byYou, byYouAvailable {
-            base = base.filter { $0.owner == model.store.username }
+    /// Sorted items for the current view and sort, with the fast scroller's
+    /// sections. Built once per view, sort and data change: body runs every
+    /// scroll frame, and sorting a few thousand albums each time pinned the
+    /// main thread (build 8: 89% CPU, then a watchdog kill).
+    private var ordered: LibraryOrderMemo.Value {
+        let sort = sort
+        return order.value(for: .init(filter: filter, sort: sort, byYou: memory.byYou, real: model.store.isReal)) {
+            var base = filtered
+            if filter == .playlists, memory.byYou, byYouAvailable {
+                base = base.filter { $0.owner == model.store.username }
+            }
+            let sorter = sorter
+            let items = sorter.sorted(base, by: sort)
+            return .init(items: items, sections: LibraryScrollIndex.sections(items, sort: sort, sorter: sorter))
         }
-        return sorter.sorted(base, by: sort)
     }
+
+    private var items: [LibraryItem] { ordered.items }
 
     /// Android PlaylistsByYou: offered only when the playlists are mixed
     /// (some the user's, some someone else's), so it never empties the list.
@@ -139,7 +150,8 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        let shown = items
+        let ordered = ordered
+        let shown = ordered.items
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if filter == .songs {
@@ -198,7 +210,7 @@ struct LibraryView: View {
                     fraction: held && LaunchConfig.screen == "library-scroller" && metrics.offset == 0
                         ? 0.45 : metrics.fraction(shown.count, columns: columns),
                     worthShowing: metrics.worthShowing(shown.count, columns: columns),
-                    awake: awake, sections: sections(shown), itemCount: shown.count, columns: columns, scheme: scheme,
+                    awake: awake, sections: ordered.sections, itemCount: shown.count, columns: columns, scheme: scheme,
                     onDrag: { f in
                         position.scrollTo(y: metrics.offset(for: f, shown.count, columns: columns))
                         wake()
@@ -251,11 +263,6 @@ struct LibraryView: View {
             try? await Task.sleep(for: .milliseconds(1600))
             if !Task.isCancelled && !held && LaunchConfig.screen != "library-scroller" { awake = false }
         }
-    }
-
-    /// Fast-scroller sections per sort (Android LibraryIndex / LibraryScrollIndex).
-    private func sections(_ items: [LibraryItem]) -> [LibraryFastScroller.Section] {
-        LibraryScrollIndex.sections(items, sort: sort, sorter: sorter)
     }
 
     // MARK: Header: search pill + avatar
@@ -849,6 +856,39 @@ enum LibraryGrid {
             seen[id] = n
             return n == 1 ? id : "\(id)#\(n)"
         }
+    }
+}
+
+/// Library's sorted lists, kept until something the build read changes
+/// (LibraryStore.home's pattern): the build runs under observation tracking
+/// and the first change it saw bumps [revision], which the view reads.
+@MainActor
+@Observable
+final class LibraryOrderMemo {
+    struct Key: Equatable {
+        var filter: LibraryKind?
+        var sort: LibrarySortOrder
+        var byYou: Bool
+        var real: Bool
+    }
+
+    struct Value {
+        var items: [LibraryItem]
+        var sections: [LibraryFastScroller.Section]
+    }
+
+    private var revision = 0
+    @ObservationIgnored private var cached: (key: Key, revision: Int, value: Value)?
+
+    func value(for key: Key, build: () -> Value) -> Value {
+        let revision = revision
+        if let cached, cached.key == key, cached.revision == revision { return cached.value }
+        let value = withObservationTracking(build) { [weak self] in
+            // Called before the change lands: rebuild on the next turn.
+            DispatchQueue.main.async { self?.revision &+= 1 }
+        }
+        cached = (key, revision, value)
+        return value
     }
 }
 
