@@ -344,10 +344,10 @@ struct NowPlayingAboutView: View {
         switch key {
         case SongAboutStore.Canon.creationTime: expanded ? "Creation Time" : "Created"
         case SongAboutStore.Canon.creationLocation: expanded ? "Creation Location" : "Location"
-        case SongAboutStore.Canon.lyricist: "Lyricist"
-        case SongAboutStore.Canon.composer: "Composer"
-        case SongAboutStore.Canon.producer: "Producer"
-        case SongAboutStore.Canon.review: "About"
+        case SongAboutStore.Canon.lyricist: String(localized: "Lyricist")
+        case SongAboutStore.Canon.composer: String(localized: "Composer")
+        case SongAboutStore.Canon.producer: String(localized: "Producer")
+        case SongAboutStore.Canon.review: String(localized: "About")
         default: key
         }
     }

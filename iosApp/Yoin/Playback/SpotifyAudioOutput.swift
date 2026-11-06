@@ -362,7 +362,7 @@ final class SpotifyAudioOutput: AudioOutput {
         pendingStart = startSec
         duration = 0
         startTicking()
-        guard let item else { return events?.outputDidFail("Not a Spotify song") ?? () }
+        guard let item else { return events?.outputDidFail(String(localized: "Not a Spotify song")) ?? () }
         guard !silent else { return }
         starting = true
         let gen = generation
@@ -527,7 +527,7 @@ final class SpotifyAudioOutput: AudioOutput {
         failedHere = true
         // The engine answers a failure with a pause: a command is never error handling (51's log, 23:02:06.989).
         quietPause = true
-        events?.outputDidFail("Open Spotify on this iPhone, then tap Play", network: true)
+        events?.outputDidFail(String(localized: "Open Spotify on this iPhone, then tap Play"), network: true)
     }
 
     /// A failure was reported for the queue's song; Spotify playing it clears it (see apply).
@@ -772,7 +772,7 @@ final class SpotifyAudioOutput: AudioOutput {
             let at = pendingStart > 1 ? Int(pendingStart * 1000) : 0
             let uris = [item.trackURI] + after.map(\.trackURI)
             PlayTrace.log("SP send PUT play \(uris) at=\(at) wantsPlay=\(wantsPlay) target=\(target ?? "-")")
-            guard let control else { throw SpotifyPlaybackError("Sign in to Spotify again in Settings.") }
+            guard let control else { throw SpotifyPlaybackError(String(localized: "Sign in to Spotify again in Settings.")) }
             if let modes, modes.shuffle || modes.repeatState != "off" {
                 PlayTrace.log("SP modes off before start shuffle=\(modes.shuffle) repeat=\(modes.repeatState)")
                 await control.playModesOff(deviceId: target)
@@ -855,7 +855,7 @@ final class SpotifyAudioOutput: AudioOutput {
     }
 
     nonisolated static func droppedMessage(device: String?) -> String {
-        "Spotify on \(device ?? "that device") stopped the song. Retry plays it on this iPhone."
+        String(localized: "Spotify on \(device ?? String(localized: "that device")) stopped the song. Retry plays it on this iPhone.")
     }
 
     /// What a read within [dropWindowSec] of a start says of it: dropped (no song there, or the queue's
@@ -1097,7 +1097,7 @@ final class SpotifyAudioOutput: AudioOutput {
                     wantsPlay = false
                     events?.outputPlayingDidChangeExternally(false)
                 }
-                return reportOnce("Open Spotify on this iPhone, then tap Play")
+                return reportOnce(String(localized: "Open Spotify on this iPhone, then tap Play"))
             }
             guard isStill(aim) else { return PlayTrace.log("SP command dropped (the song changed)") }
             act(p)
@@ -1128,7 +1128,7 @@ final class SpotifyAudioOutput: AudioOutput {
         }
         Task {
             do {
-                guard let control else { throw SpotifyPlaybackError("Sign in to Spotify again in Settings.") }
+                guard let control else { throw SpotifyPlaybackError(String(localized: "Sign in to Spotify again in Settings.")) }
                 try await act(control, target, still)
             } catch is SpotifyCommandDropped {
                 PlayTrace.log("SP command dropped (the song changed)")
@@ -1142,7 +1142,7 @@ final class SpotifyAudioOutput: AudioOutput {
                 if report {
                     let name = SpotifyPlayingDevice.shared.name ?? "that device"
                     let gone = (error as? SpotifyAPIError)?.isNotFound == true
-                    reportOnce(gone ? "Spotify on \(name) isn't responding — open Spotify there"
+                    reportOnce(gone ? String(localized: "Spotify on \(name) isn't responding — open Spotify there")
                                     : SpotifySource.message(for: error))
                 }
             }

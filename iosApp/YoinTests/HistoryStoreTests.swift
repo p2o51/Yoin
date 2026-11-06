@@ -141,7 +141,7 @@ final class HistoryStoreTests: XCTestCase {
         let s = HomeHistory.ratedAlbumSignal(m)
         XCTAssertEqual(s?.album.id.rawId, "full")
         XCTAssertEqual(s?.score, "8.0")
-        XCTAssertEqual(s?.basis, "Based on 4/5 tracks")
+        XCTAssertEqual(s?.basis, loc("Based on \(4)/\(5) tracks"))
     }
 
     func test_should_pickNewestNote_when_buildingNotedTrack() {
@@ -171,10 +171,10 @@ final class HistoryStoreTests: XCTestCase {
         let shelf = HomeHistory.rediscover(m, now: now, exclude: [])
         XCTAssertEqual(shelf.map(\.album.id.rawId), ["scored", "noted"])
         XCTAssertEqual(shelf[0].reason, "")
-        XCTAssertEqual(shelf[0].away, "6 months away")
+        XCTAssertEqual(shelf[0].away, loc("\(6) months away"))
         XCTAssertEqual(shelf[0].score.map { String(format: "%.2f", $0) }, "8.67")
         XCTAssertEqual(shelf[1].reason, "1 note")
-        XCTAssertEqual(shelf[1].away, "1 year away")
+        XCTAssertEqual(shelf[1].away, loc("1 year away"))
         XCTAssertEqual(shelf[1].footnotePlays, "1")
         XCTAssertEqual(shelf[1].footnoteDate, HomeHistory.yearMonth(now - 400 * day))
         XCTAssertTrue(HomeHistory.rediscover(m, now: now, exclude: ["scored", "noted"]).isEmpty)
@@ -196,19 +196,19 @@ final class HistoryStoreTests: XCTestCase {
     }
 
     func test_should_formatTimesLikeAndroid() {
-        XCTAssertEqual(HomeHistory.timeAgo(now - 20_000, now: now), "just now")
-        XCTAssertEqual(HomeHistory.timeAgo(now - 12 * 60_000, now: now), "12m ago")
-        XCTAssertEqual(HomeHistory.timeAgo(now - 2 * 3_600_000, now: now), "2h ago")
-        XCTAssertEqual(HomeHistory.timeAgo(now - 3 * day, now: now), "3d ago")
-        XCTAssertEqual(HomeHistory.timeAgo(now - 15 * day, now: now), "2w ago")
-        XCTAssertEqual(HomeHistory.awayEyebrow(lastPlayedAt: now - 95 * day, now: now), "3 months away")
-        XCTAssertEqual(HomeHistory.awayEyebrow(lastPlayedAt: now - 800 * day, now: now), "2 years away")
+        XCTAssertEqual(HomeHistory.timeAgo(now - 20_000, now: now), loc("just now"))
+        XCTAssertEqual(HomeHistory.timeAgo(now - 12 * 60_000, now: now), loc("\(12)m ago"))
+        XCTAssertEqual(HomeHistory.timeAgo(now - 2 * 3_600_000, now: now), loc("\(2)h ago"))
+        XCTAssertEqual(HomeHistory.timeAgo(now - 3 * day, now: now), loc("\(3)d ago"))
+        XCTAssertEqual(HomeHistory.timeAgo(now - 15 * day, now: now), loc("\(2)w ago"))
+        XCTAssertEqual(HomeHistory.awayEyebrow(lastPlayedAt: now - 95 * day, now: now), loc("\(3) months away"))
+        XCTAssertEqual(HomeHistory.awayEyebrow(lastPlayedAt: now - 800 * day, now: now), loc("\(2) years away"))
         XCTAssertEqual(HomeHistory.scoreText(nil), "N/A")
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "UTC")!
-        XCTAssertEqual(HomeHistory.relativeDay(now - 3_600_000, now: now, calendar: cal), "Today")
-        XCTAssertEqual(HomeHistory.relativeDay(now - day, now: now, calendar: cal), "Yesterday")
-        XCTAssertEqual(HomeHistory.relativeDay(now - 3 * day, now: now, calendar: cal), "3 days ago")
+        XCTAssertEqual(HomeHistory.relativeDay(now - 3_600_000, now: now, calendar: cal), loc("Today"))
+        XCTAssertEqual(HomeHistory.relativeDay(now - day, now: now, calendar: cal), loc("Yesterday"))
+        XCTAssertEqual(HomeHistory.relativeDay(now - 3 * day, now: now, calendar: cal), loc("\(3) days ago"))
     }
 
     func test_should_leadActivitiesWithHistory_when_buildingHome() {
@@ -220,7 +220,7 @@ final class HistoryStoreTests: XCTestCase {
         let feed = LibraryStore.buildHome(recent: recent, frequent: [], newest: [], highest: [album("hi", rating: 8)],
                                           random: [], recentTracks: [], history: overlay)
         XCTAssertEqual(feed.activities.map(\.album.id.rawId), ["mine", "srv1", "srv2", "srv3"])
-        XCTAssertEqual(feed.activities[0].eyebrow, "2h ago")
+        XCTAssertEqual(feed.activities[0].eyebrow, loc("\(2)h ago"))
         XCTAssertEqual(feed.activities[1].eyebrow, "")
         XCTAssertTrue(feed.rediscover.isEmpty, "history's rule: nothing kept and away = no shelf")
 

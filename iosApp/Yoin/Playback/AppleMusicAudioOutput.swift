@@ -64,10 +64,10 @@ final class AppleMusicAudioOutput: AudioOutput {
         pendingSeek = nil
         duration = 0
         startTicking()
-        guard let id = currentId else { return fail("Not an Apple Music song") }
+        guard let id = currentId else { return fail(String(localized: "Not an Apple Music song")) }
         Task {
             guard let song = await resolve?(id) else {
-                if gen == generation { fail("Song unavailable") }
+                if gen == generation { fail(String(localized: "Song unavailable")) }
                 return
             }
             guard gen == generation else { return }
@@ -229,7 +229,7 @@ final class AppleMusicAudioOutput: AudioOutput {
         events?.outputDidAdvanceToPreloaded()
         Task {
             guard let song = await resolve?(next) else {
-                if gen == generation { fail("Song unavailable") }
+                if gen == generation { fail(String(localized: "Song unavailable")) }
                 return
             }
             guard gen == generation else { return }

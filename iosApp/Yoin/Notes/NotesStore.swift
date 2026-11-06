@@ -224,10 +224,10 @@ final class NotesStore {
         let delta = max(0, nowMs - epochMs) / 1000
         let minutes = delta / 60, hours = minutes / 60, days = hours / 24
         switch true {
-        case minutes < 1: return "Just now"
-        case minutes < 60: return minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
-        case hours < 24: return hours == 1 ? "1 hour ago" : "\(hours) hours ago"
-        case days < 7: return days == 1 ? "1 day ago" : "\(days) days ago"
+        case minutes < 1: return String(localized: "Just now")
+        case minutes < 60: return minutes == 1 ? String(localized: "1 minute ago") : String(localized: "\(minutes) minutes ago")
+        case hours < 24: return hours == 1 ? String(localized: "1 hour ago") : String(localized: "\(hours) hours ago")
+        case days < 7: return days == 1 ? String(localized: "1 day ago") : String(localized: "\(days) days ago")
         default:
             let f = DateFormatter()
             f.dateStyle = .medium

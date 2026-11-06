@@ -24,8 +24,8 @@ struct SubsonicAccountSettings: View {
         case wifi, mobile
         var title: String {
             switch self {
-            case .wifi: "Wi\u{2011}Fi"
-            case .mobile: "Mobile data"
+            case .wifi: String(localized: "Wi\u{2011}Fi")
+            case .mobile: String(localized: "Mobile data")
             }
         }
     }

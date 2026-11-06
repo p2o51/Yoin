@@ -814,7 +814,7 @@ struct NowPlayingView: View, Equatable {
     // 4. Text tabs.
     private var tabs: some View {
         HStack(spacing: Tokens.np.TAB_GAP.cg) {
-            ForEach(Array(["Lyrics", "About", "Note"].enumerated()), id: \.offset) { i, title in
+            ForEach(Array([String(localized: "Lyrics"), String(localized: "About"), String(localized: "Note")].enumerated()), id: \.offset) { i, title in
                 let on = shownTab == i
                 Button { settlePager(on: i) } label: {
                     // CompactTextTabs: labelLarge (Bold when selected).
@@ -1924,7 +1924,7 @@ struct NowPlayingView: View, Equatable {
     private var pills: some View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 2) {
-                pill("queue", "Queue", shape: AnyShape(Capsule())) { model.queueSheetOpen = true }
+                pill("queue", String(localized: "Queue"), shape: AnyShape(Capsule())) { model.queueSheetOpen = true }
                 // Yoin as the remote of another Spotify device: the pill names it.
                 pill("devices", spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices") : String(localized: "Devices"),
                      shape: AnyShape(RoundedRectangle(cornerRadius: 20))) {
@@ -1935,7 +1935,7 @@ struct NowPlayingView: View, Equatable {
                     // `present()` is the fallback). A Spotify song plays in the
                     // Spotify app: its Connect devices instead (Codex N17).
                     .overlay { if !spotifySong { AirPlayRoutePicker(trigger: airPlay) } }
-                pill("note", "Write", shape: AnyShape(Capsule())) { startWriting() }
+                pill("note", String(localized: "Write"), shape: AnyShape(Capsule())) { startWriting() }
             }
         }
     }

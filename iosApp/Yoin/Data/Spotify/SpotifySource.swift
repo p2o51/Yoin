@@ -30,9 +30,9 @@ final class SpotifySource {
         if let e = error as? SpotifyAPIError {
             switch e {
             case .unauthorized:
-                return "Reconnect Spotify in Settings"
+                return String(localized: "Reconnect Spotify in Settings")
             case .http(403, let m) where (m ?? "").localizedCaseInsensitiveContains("scope"):
-                return "Reconnect Spotify in Settings to let Yoin control playback"
+                return String(localized: "Reconnect Spotify in Settings to let Yoin control playback")
             default:
                 return e.errorDescription ?? error.localizedDescription
             }

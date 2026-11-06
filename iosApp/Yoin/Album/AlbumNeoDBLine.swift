@@ -29,10 +29,10 @@ enum AlbumNeoDBState: Equatable, Sendable {
     var label: String {
         switch self {
         case .unknown, .idle, .pending: ""
-        case .signedOut: "Sign in to sync"
-        case .syncing: "Syncing…"
-        case .synced: "Synced"
-        case .failed: "Couldn't sync"
+        case .signedOut: String(localized: "Sign in to sync")
+        case .syncing: String(localized: "Syncing…")
+        case .synced: String(localized: "Synced")
+        case .failed: String(localized: "Couldn't sync")
         }
     }
 

@@ -13,9 +13,9 @@ enum LandingService: String, CaseIterable, Sendable {
 
     var name: String {
         switch self {
-        case .subsonic: "Subsonic"
-        case .spotify: "Spotify"
-        case .appleMusic: "Apple Music"
+        case .subsonic: String(localized: "Subsonic")
+        case .spotify: String(localized: "Spotify")
+        case .appleMusic: String(localized: "Apple Music")
         }
     }
 }

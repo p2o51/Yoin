@@ -208,7 +208,7 @@ struct NowPlayingNotePage: View {
                 Label { Text("Delete") } icon: { Image("yoin.close") }
             }
         }
-        .accessibilityHint(note.positionMs.map { "Plays from \(NotesStore.formatPosition($0))" } ?? "")
+        .accessibilityHint(note.positionMs.map { String(localized: "Plays from \(NotesStore.formatPosition($0))") } ?? "")
     }
 
     private static var nowMs: Int64 { Int64((Date().timeIntervalSince1970 * 1000).rounded()) }

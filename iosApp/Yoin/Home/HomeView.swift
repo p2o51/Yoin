@@ -259,9 +259,9 @@ struct HomeView: View {
 
     private var greeting: String {
         switch Calendar.current.component(.hour, from: .now) {
-        case 5..<11: "Good morning"
-        case 11..<18: "Good afternoon"
-        default: "Good evening"
+        case 5..<11: String(localized: "Good morning")
+        case 11..<18: String(localized: "Good afternoon")
+        default: String(localized: "Good evening")
         }
     }
 
@@ -315,7 +315,7 @@ struct HomeView: View {
             HeroCard(album: a[0].album, timeAgo: a[0].eyebrow)
             if a.count > 1 {
                 HStack(spacing: gap) {
-                    SmallCard(album: a[1].album, entity: .artist, typeLabel: "Artist", timeAgo: a[1].eyebrow,
+                    SmallCard(album: a[1].album, entity: .artist, typeLabel: String(localized: "Artist"), timeAgo: a[1].eyebrow,
                               title: a[1].album.artist)
                         .frame(width: small)
                     if a.count > 2 { WideCard(album: a[2].album, timeAgo: a[2].eyebrow) }
@@ -634,9 +634,9 @@ private struct HeroCard: View {
     private var heroMeta: [(String, String?)] {
         var g: [(String, String?)] = []
         if album.year > 0 { g.append(("\(album.year)", nil)) }
-        g.append(("\(album.trackCount)", "songs"))
+        g.append(("\(album.trackCount)", String(localized: "songs")))
         let mins = album.id.provider == "mock" ? 48 : album.totalSec / 60
-        if mins > 0 { g.append(("\(mins)", "min")) }
+        if mins > 0 { g.append(("\(mins)", String(localized: "min"))) }
         return g
     }
 
@@ -1085,7 +1085,7 @@ private struct RediscoverCard: View {
                     Text(album.artist).homeType(Tokens.type.bodyMedium).foregroundStyle(s.onSurfaceVariant)
                     // First-play month and plays in Yoin; either half drops when unknown.
                     let groups: [(String, String?)] = (footnote.0.isEmpty ? [] : [(footnote.0, nil)])
-                        + (footnote.1.isEmpty ? [] : [(footnote.1, footnote.1 == "1" ? "play" : "plays")])
+                        + (footnote.1.isEmpty ? [] : [(footnote.1, footnote.1 == "1" ? String(localized: "play") : String(localized: "plays"))])
                     if !groups.isEmpty {
                         MetaLine(groups: groups, color: s.onSurfaceVariant)
                             .padding(.top, 4)

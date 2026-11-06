@@ -139,9 +139,9 @@ struct ServiceSetupView: View {
 
     private func summary(_ s: Profile.Service) -> String {
         switch s {
-        case .subsonic: "Navidrome, Airsonic and other servers"
+        case .subsonic: String(localized: "Navidrome, Airsonic and other servers")
         case .appleMusic: appleAdded ? "Added" : "Your Apple Music library and catalog"
-        case .spotify: "Your Spotify library, played in the Spotify app"
+        case .spotify: String(localized: "Your Spotify library, played in the Spotify app")
         }
     }
 
@@ -267,9 +267,9 @@ struct ServiceSetupView: View {
 
     private var statusText: String {
         switch model.session.state {
-        case .signedOut: "Signed out"
-        case .connecting: "Connecting"
-        case .ready: "Connected"
+        case .signedOut: String(localized: "Signed out")
+        case .connecting: String(localized: "Connecting")
+        case .ready: String(localized: "Connected")
         case .failed(let m): m
         }
     }

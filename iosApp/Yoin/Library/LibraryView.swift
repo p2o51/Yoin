@@ -428,7 +428,7 @@ struct LibraryView: View {
                 ? model.library.albums().filter { $0.artist == item.title }.count : nil) else { return "Artist" }
             return n == 1 ? String(localized: "1 album") : String(localized: "\(n) albums")
         case .album: return item.album?.artist ?? ""
-        case .playlist: return "Playlist"
+        case .playlist: return String(localized: "Playlist")
         }
     }
 
@@ -974,7 +974,7 @@ struct LibraryFilterRow: View {
         var label: String {
             switch self {
             case .kind(let k): k.title
-            case .byYou: "By You"
+            case .byYou: String(localized: "By You")
             }
         }
     }

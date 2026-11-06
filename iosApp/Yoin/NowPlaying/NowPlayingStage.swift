@@ -19,9 +19,9 @@ enum NowPlayingDetailPage: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .lyrics: "Lyrics"
-        case .about: "About"
-        case .note: "Note"
+        case .lyrics: String(localized: "Lyrics")
+        case .about: String(localized: "About")
+        case .note: String(localized: "Note")
         }
     }
 }

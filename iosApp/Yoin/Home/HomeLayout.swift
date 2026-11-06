@@ -20,13 +20,13 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
 
     var title: String {
         switch self {
-        case .activities: "Activities"
-        case .jumpBackIn: "Jump Back In"
-        case .recentlyAdded: "Recently Added"
-        case .rediscover: "Rediscover"
-        case .recentlyPlayed: "Recently Played"
-        case .yourPlaylists: "Your Playlists"
-        case .otherProfiles: "On Your Other Accounts"
+        case .activities: String(localized: "Activities")
+        case .jumpBackIn: String(localized: "Jump Back In")
+        case .recentlyAdded: String(localized: "Recently Added")
+        case .rediscover: String(localized: "Rediscover")
+        case .recentlyPlayed: String(localized: "Recently Played")
+        case .yourPlaylists: String(localized: "Your Playlists")
+        case .otherProfiles: String(localized: "On Your Other Accounts")
         }
     }
 

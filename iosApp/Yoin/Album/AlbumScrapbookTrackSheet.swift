@@ -193,7 +193,7 @@ struct ScrapTrackSheet: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .accessibilityHint(note.positionMs.map { "Play from \(NotesStore.formatPosition($0))" } ?? String(localized: "Play"))
+            .accessibilityHint(note.positionMs.map { String(localized: "Play from \(NotesStore.formatPosition($0))") } ?? String(localized: "Play"))
             .contextMenu {
                 Button("Delete", role: .destructive) {
                     guard let gone = NotesStore.shared.delete(id: note.id) else { return }

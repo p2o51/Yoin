@@ -124,10 +124,10 @@ final class NotesStoreTests: XCTestCase {
 
     func test_should_readRelativeDates_when_formatted() {
         let now: Int64 = 10_000_000_000
-        XCTAssertEqual(NotesStore.formatDate(now - 20_000, nowMs: now), "Just now")
-        XCTAssertEqual(NotesStore.formatDate(now - 60_000, nowMs: now), "1 minute ago")
-        XCTAssertEqual(NotesStore.formatDate(now - 5 * 3_600_000, nowMs: now), "5 hours ago")
-        XCTAssertEqual(NotesStore.formatDate(now - 2 * 86_400_000, nowMs: now), "2 days ago")
+        XCTAssertEqual(NotesStore.formatDate(now - 20_000, nowMs: now), loc("Just now"))
+        XCTAssertEqual(NotesStore.formatDate(now - 60_000, nowMs: now), loc("1 minute ago"))
+        XCTAssertEqual(NotesStore.formatDate(now - 5 * 3_600_000, nowMs: now), loc("\(5) hours ago"))
+        XCTAssertEqual(NotesStore.formatDate(now - 2 * 86_400_000, nowMs: now), loc("\(2) days ago"))
     }
 }
 

@@ -10,9 +10,9 @@ enum OssLicense: String, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .apache2: "Apache License 2.0"
-        case .ofl11: "SIL Open Font License 1.1"
-        case .mitMPMessagePack: "MIT License"
+        case .apache2: String(localized: "Apache License 2.0")
+        case .ofl11: String(localized: "SIL Open Font License 1.1")
+        case .mitMPMessagePack: String(localized: "MIT License")
         }
     }
 

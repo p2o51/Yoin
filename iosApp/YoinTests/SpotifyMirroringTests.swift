@@ -134,7 +134,7 @@ final class SpotifyMirroringTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertFalse(engine.isPlaying)
         XCTAssertEqual(puts, ["/v1/me/player/play"])
-        XCTAssertEqual(engine.failure?.message, "Spotify on Pixel 11 Pro stopped the song. Retry plays it on this iPhone.")
+        XCTAssertEqual(engine.failure?.message, loc("Spotify on \("Pixel 11 Pro") stopped the song. Retry plays it on this iPhone."))
     }
 
     func test_should_showTheOtherSong_when_theDeviceStillPlaysItAtTheCheck() async throws {

@@ -219,13 +219,13 @@ struct DownloadsView: View {
     /// [kind] [subtitle] [status / size]: labels only.
     private func detail(_ e: OfflineDownloads.Entry) -> String {
         let kind = switch e.collection.kind {
-        case .album: "Album"
-        case .playlist: "Playlist"
-        case .song: "Song"
+        case .album: String(localized: "Album")
+        case .playlist: String(localized: "Playlist")
+        case .song: String(localized: "Song")
         }
         let status = switch e.status {
-        case .downloading(let done, let total): "Downloading \(done)/\(total)"
-        case .failed: "Couldn't download"
+        case .downloading(let done, let total): String(localized: "Downloading \(done)/\(total)")
+        case .failed: String(localized: "Couldn't download")
         default: StorageSettingsSection.format(e.bytes)
         }
         return [kind, e.collection.subtitle, status].compactMap { $0 }.joined(separator: "   ")

@@ -220,7 +220,7 @@ enum HomeHistory {
         let trackBasis = m.ratedTrackCount > 0 && m.totalTracks > 0
         return JBISignal(kind: .ratedAlbum, album: m.album, title: m.album.title, subtitle: m.album.artist,
                          score: scoreText(m.albumRating ?? m.averageSongRating),
-                         basis: trackBasis ? "Based on \(m.ratedTrackCount)/\(m.totalTracks) tracks" : nil,
+                         basis: trackBasis ? String(localized: "Based on \(m.ratedTrackCount)/\(m.totalTracks) tracks") : nil,
                          comment: nil, song: nil)
     }
 
@@ -332,7 +332,9 @@ enum HomeHistory {
         if p.score != nil && !p.fromNotes { return nil }
         let m = p.memory
         if m.noteCount > 0 { return m.noteCount == 1 ? "1 note" : "\(m.noteCount) notes" }
-        if m.ratedTrackCount > 0 { return m.ratedTrackCount == 1 ? "1 track rated" : "\(m.ratedTrackCount) tracks rated" }
+        if m.ratedTrackCount > 0 {
+            return m.ratedTrackCount == 1 ? String(localized: "1 track rated") : String(localized: "\(m.ratedTrackCount) tracks rated")
+        }
         return nil
     }
 
@@ -342,11 +344,12 @@ enum HomeHistory {
     static func timeAgo(_ ms: Int64, now: Int64) -> String {
         let minutes = max(0, now - ms) / 60_000
         let hours = minutes / 60, days = hours / 24
-        if minutes < 1 { return "just now" }
-        if minutes < 60 { return "\(minutes)m ago" }
-        if hours < 24 { return "\(hours)h ago" }
-        if days < 7 { return "\(days)d ago" }
-        return "\(days / 7)w ago"
+        // Display copy only (built for the screen, never stored): in the reader's language.
+        if minutes < 1 { return String(localized: "just now") }
+        if minutes < 60 { return String(localized: "\(minutes)m ago") }
+        if hours < 24 { return String(localized: "\(hours)h ago") }
+        if days < 7 { return String(localized: "\(days)d ago") }
+        return String(localized: "\(days / 7)w ago")
     }
 
     /// "7 months away" / "1 year away" (months = days / 30, years from 365 days).
@@ -354,10 +357,10 @@ enum HomeHistory {
         let days = max(0, now - lastPlayedAt) / dayMs
         if days >= 365 {
             let y = days / 365
-            return y == 1 ? "1 year away" : "\(y) years away"
+            return y == 1 ? String(localized: "1 year away") : String(localized: "\(y) years away")
         }
         let m = max(1, days / 30)
-        return m == 1 ? "1 month away" : "\(m) months away"
+        return m == 1 ? String(localized: "1 month away") : String(localized: "\(m) months away")
     }
 
     /// The seal's "%.1f", "N/A" without a score (0 is a score: "0.0").
@@ -376,7 +379,9 @@ enum HomeHistory {
     static func date(_ ms: Int64) -> Date { Date(timeIntervalSince1970: Double(ms) / 1000) }
 
     /// "Nov 1" (MemoryDateFormatter).
-    static func memoryDate(_ ms: Int64) -> String { formatter("MMM d").string(from: date(ms)) }
+    static func memoryDate(_ ms: Int64, locale: Locale = .current) -> String {
+        date(ms).formatted(Date.FormatStyle(locale: locale).month(.abbreviated).day())
+    }
 
     /// "2024.03".
     static func yearMonth(_ ms: Int64) -> String { formatter("yyyy.MM").string(from: date(ms)) }
@@ -397,14 +402,15 @@ enum HomeHistory {
     }
 
     /// "Today" / "Yesterday" / "3 days ago" / "Mar 14" / "Mar 14, 2024".
-    static func relativeDay(_ ms: Int64, now: Int64, calendar: Calendar = .current) -> String {
+    static func relativeDay(_ ms: Int64, now: Int64, calendar: Calendar = .current, locale: Locale = .current) -> String {
         let days = calendarDays(from: ms, to: now, calendar: calendar)
-        if days == 0 { return "Today" }
-        if days == 1 { return "Yesterday" }
-        if days < 7 { return "\(days) days ago" }
+        if days == 0 { return String(localized: "Today") }
+        if days == 1 { return String(localized: "Yesterday") }
+        if days < 7 { return String(localized: "\(days) days ago") }
         let sameYear = calendar.component(.year, from: date(ms)) == calendar.component(.year, from: date(now))
-        let f = formatter(sameYear ? "MMM d" : "MMM d, yyyy")
-        f.timeZone = calendar.timeZone
-        return f.string(from: date(ms))
+        // The reader's own month names and order ("Mar 14", "3月14日").
+        var style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).month(.abbreviated).day()
+        if !sameYear { style = style.year() }
+        return date(ms).formatted(style)
     }
 }

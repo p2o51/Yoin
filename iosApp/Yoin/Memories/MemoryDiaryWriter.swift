@@ -255,21 +255,17 @@ struct MemoryDiaryEntry: View {
 /// The diary's dates.
 enum MemoryDiaryFormat {
     /// "Jul 26, 2026" (a review's day, else today).
-    static func entryDate(_ ms: Int64?, now: Date = Date()) -> String {
+    static func entryDate(_ ms: Int64?, now: Date = Date(), locale: Locale = .current) -> String {
         let d = ms.flatMap { $0 > 0 ? Date(timeIntervalSince1970: Double($0) / 1000) : nil } ?? now
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "MMM d, yyyy"
-        return f.string(from: d)
+        return d.formatted(Date.FormatStyle(locale: locale).year().month(.abbreviated).day())
     }
 
     /// "Jul 26" this year, "Nov 8, 2025" in another (Android MemoryDates.day).
-    static func day(_ ms: Int64, now: Date = Date(), calendar: Calendar = .current) -> String {
+    static func day(_ ms: Int64, now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) -> String {
         let d = Date(timeIntervalSince1970: Double(ms) / 1000)
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = calendar.component(.year, from: d) == calendar.component(.year, from: now) ? "MMM d" : "MMM d, yyyy"
-        return f.string(from: d)
+        var style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).month(.abbreviated).day()
+        if calendar.component(.year, from: d) != calendar.component(.year, from: now) { style = style.year() }
+        return d.formatted(style)
     }
 
     /// A note's moment, "2:05".

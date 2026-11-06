@@ -74,12 +74,13 @@ final class TipsTests: XCTestCase {
     }
 
     func test_should_summariseReadCount() {
-        XCTAssertEqual(Tips.readSummary(read: 3, total: 11), "3 of 11 read")
-        XCTAssertEqual(Tips.readSummary(read: 11, total: 11), "All read")
+        XCTAssertEqual(Tips.readSummary(read: 3, total: 11), String(localized: "\(3) of \(11) read"))
+        XCTAssertEqual(Tips.readSummary(read: 11, total: 11), String(localized: "All read"))
     }
 
     func test_should_formatTheUpdatedDay() {
-        XCTAssertEqual(Tips.dayText("2026-11-04"), "Nov 4, 2026")
+        XCTAssertEqual(Tips.dayText("2026-11-04", locale: Locale(identifier: "en_US")), "Nov 4, 2026")
+        XCTAssertEqual(Tips.dayText("2026-11-04", locale: Locale(identifier: "zh_Hans_CN")), "2026年11月4日")
     }
 
     // MARK: The bubble's turns

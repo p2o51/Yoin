@@ -20,6 +20,10 @@ struct Tip: Identifiable, Hashable, Sendable {
     let text: String
     let titleZhHans: String
     let textZhHans: String
+
+    /// What shows: the Chinese when the app runs in Chinese (its UI language, not just the region).
+    var shownTitle: String { Tips.showsChinese ? titleZhHans : title }
+    var shownText: String { Tips.showsChinese ? textZhHans : text }
 }
 
 enum Tips {
@@ -93,21 +97,28 @@ enum Tips {
 
     /// Android `tip_updated`: "Updated Nov 4, 2026" (zh-Hans "更新于 %1$s").
     static func updatedLine(_ tip: Tip) -> String {
-        "Updated \(dayText(tip.updated))"
+        String(localized: "Updated \(dayText(tip.updated))")
     }
 
+    /// The app shows its Chinese strings (the localization iOS picked for it).
+    static var showsChinese: Bool { Bundle.main.preferredLocalizations.first?.hasPrefix("zh") == true }
+
     /// "yyyy-MM-dd" as "Nov 4, 2026" (the day, not an instant: no time zone moves it).
-    static func dayText(_ day: String) -> String {
+    static func dayText(_ day: String, locale: Locale = .current) -> String {
         let parts = day.split(separator: "-").compactMap { Int($0) }
-        guard parts.count == 3 else { return day }
-        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        guard (1...12).contains(parts[1]) else { return day }
-        return "\(months[parts[1] - 1]) \(parts[2]), \(parts[0])"
+        guard parts.count == 3, (1...12).contains(parts[1]) else { return day }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        guard let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) else { return day }
+        // The reader's own date order and month names ("Nov 4, 2026", "2026年11月4日").
+        var style = Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale, calendar: calendar)
+        style.timeZone = calendar.timeZone
+        return date.formatted(style)
     }
 
     /// Settings' Tips row: Android `settings_tips_read_count` / `settings_tips_all_read`.
     static func readSummary(read: Int, total: Int) -> String {
-        read >= total ? "All read" : "\(read) of \(total) read"
+        read >= total ? String(localized: "All read") : String(localized: "\(read) of \(total) read")
     }
 
     /// The tips still unread, in the bubble's order.

@@ -50,20 +50,20 @@ enum CloudSyncTexts {
         guard sync.isConfigured else { return "Not configured" }
         let s = sync.state
         switch s.phase {
-        case is CloudSyncPhaseSyncing: return "Syncing…"
+        case is CloudSyncPhaseSyncing: return String(localized: "Syncing…")
         case is CloudSyncPhaseOffline: return s.pendingChanges ? "Changes waiting to upload" : "Offline"
-        case is CloudSyncPhaseNeedsReauth: return "Reconnect Google"
-        case is CloudSyncPhaseStorageFull: return "Google storage full"
-        case is CloudSyncPhaseCloudCopyRemoved: return "Drive copy removed"
-        case is CloudSyncPhaseUpdateRequired: return "Update Yoin"
-        case is CloudSyncPhaseNeedsReview: return "Needs review"
-        case is CloudSyncPhaseError: return "Couldn't sync"
+        case is CloudSyncPhaseNeedsReauth: return String(localized: "Reconnect Google")
+        case is CloudSyncPhaseStorageFull: return String(localized: "Google storage full")
+        case is CloudSyncPhaseCloudCopyRemoved: return String(localized: "Drive copy removed")
+        case is CloudSyncPhaseUpdateRequired: return String(localized: "Update Yoin")
+        case is CloudSyncPhaseNeedsReview: return String(localized: "Needs review")
+        case is CloudSyncPhaseError: return String(localized: "Couldn't sync")
         case let r as CloudSyncPhaseResetElsewhere:
             return r.deviceName.map { "Turned off on \($0)" } ?? String(localized: "Turned off on another device")
         case is CloudSyncPhaseUpToDate:
             if s.pendingChanges { return "Changes waiting to upload" }
             return s.lastSyncAt.map { "Synced \(relative($0.int64Value))" } ?? String(localized: "On")
-        default: return "Off"
+        default: return String(localized: "Off")
         }
     }
 

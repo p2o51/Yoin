@@ -297,7 +297,7 @@ struct MemoryBubbleOverlay: View {
                     .onTapGesture { tapBubble() }
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.bubbleFrame = $0 }
                     .onDisappear { bubble.bubbleFrame = .zero }
-                    .accessibilityLabel(bubble.sayTip.map { "Tip: \($0.title)" } ?? bubble.say.map { "Latest memory: \($0.albumName)" } ?? String(localized: "Memories"))
+                    .accessibilityLabel(bubble.sayTip.map { String(localized: "Tip: \($0.shownTitle)") } ?? bubble.say.map { String(localized: "Latest memory: \($0.albumName)") } ?? String(localized: "Memories"))
                     .accessibilityAddTraits(.isButton)
             }
         }
@@ -458,7 +458,7 @@ struct MemoryBubbleOverlay: View {
                     .onTapGesture { tapBubble() }
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.bubbleFrame = $0 }
                     .onDisappear { bubble.bubbleFrame = .zero }
-                    .accessibilityLabel(bubble.sayTip.map { "Tip: \($0.title)" } ?? bubble.say.map { "Latest memory: \($0.albumName)" } ?? String(localized: "Memories"))
+                    .accessibilityLabel(bubble.sayTip.map { String(localized: "Tip: \($0.shownTitle)") } ?? bubble.say.map { String(localized: "Latest memory: \($0.albumName)") } ?? String(localized: "Memories"))
                     .accessibilityAddTraits(.isButton)
             }
         }
@@ -496,7 +496,7 @@ private struct BubbleLine: View {
                     .foregroundStyle(scheme.onSecondaryContainer)
                     .frame(width: BubbleMetrics.coverSize, height: BubbleMetrics.coverSize)
                     .background(scheme.secondaryContainer, in: .circle)
-                Text(tip.title).homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(scheme.onSurface)
+                Text(tip.shownTitle).homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(scheme.onSurface)
                     .lineLimit(1)
             } else if let latest {
                 CoverArt(palette: latest.album.palette, cornerRadius: Tokens.shape.THUMB.cg, seed: latest.album.seed)

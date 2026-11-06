@@ -85,10 +85,10 @@ struct TipsView: View {
                     .frame(width: 40, height: 40)
                     .background(app.secondaryContainer, in: .circle)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(tip.title)
+                    Text(tip.shownTitle)
                         .yoinRole(Tokens.type.bodyLarge)
                         .foregroundStyle(app.onSurface)
-                    Text(tip.text)
+                    Text(tip.shownText)
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurfaceVariant)
                         .fixedSize(horizontal: false, vertical: true)
