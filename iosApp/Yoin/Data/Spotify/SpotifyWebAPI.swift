@@ -91,13 +91,18 @@ final class SpotifyWebAPI: Sendable {
         return url
     }
 
-    /// One request; the response body (empty for most writes).
+    /// Asked before a command goes out and before each retry: false drops it (`SpotifyCommandDropped`).
+    typealias StillWanted = @Sendable () async -> Bool
+
+    /// One request; the response body (empty for most writes). [still] is asked before each try.
     @discardableResult
-    func send(_ method: String, _ path: String, _ query: [String: String] = [:], json: Data? = nil) async throws -> Data {
+    func send(_ method: String, _ path: String, _ query: [String: String] = [:], json: Data? = nil,
+              while still: StillWanted? = nil) async throws -> Data {
         let url = try url(path, query)
         var attempt = 0
         var refreshed = false
         while true {
+            if let still, await !still() { throw SpotifyCommandDropped() }
             var req = URLRequest(url: url)
             req.httpMethod = method
             req.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
@@ -167,3 +172,6 @@ final class SpotifyWebAPI: Sendable {
         return root["error"] as? String
     }
 }
+
+/// A command for a song that is no longer the one playing, not sent.
+struct SpotifyCommandDropped: Error {}

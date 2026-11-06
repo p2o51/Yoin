@@ -294,23 +294,24 @@ final class SpotifySource {
 
     // Transport on a Connect device (Android SpotifyApiClient pause / resume / seek).
 
-    func pausePlayback(deviceId: String?) async throws {
-        try await api.send("PUT", "me/player/pause", deviceId.map { ["device_id": $0] } ?? [:])
+    func pausePlayback(deviceId: String?, while still: SpotifyWebAPI.StillWanted? = nil) async throws {
+        try await api.send("PUT", "me/player/pause", deviceId.map { ["device_id": $0] } ?? [:], while: still)
     }
 
-    func resumePlayback(deviceId: String?) async throws {
-        try await api.send("PUT", "me/player/play", deviceId.map { ["device_id": $0] } ?? [:])
+    func resumePlayback(deviceId: String?, while still: SpotifyWebAPI.StillWanted? = nil) async throws {
+        try await api.send("PUT", "me/player/play", deviceId.map { ["device_id": $0] } ?? [:], while: still)
     }
 
-    func seekPlayback(toMs ms: Int, deviceId: String?) async throws {
+    func seekPlayback(toMs ms: Int, deviceId: String?, while still: SpotifyWebAPI.StillWanted? = nil) async throws {
         var q = ["position_ms": String(max(0, ms))]
         if let deviceId { q["device_id"] = deviceId }
-        try await api.send("PUT", "me/player/seek", q)
+        try await api.send("PUT", "me/player/seek", q, while: still)
     }
 
     /// Next or previous on the device (POST me/player/next | previous).
-    func skipPlayback(forward: Bool, deviceId: String?) async throws {
-        try await api.send("POST", forward ? "me/player/next" : "me/player/previous", deviceId.map { ["device_id": $0] } ?? [:])
+    func skipPlayback(forward: Bool, deviceId: String?, while still: SpotifyWebAPI.StillWanted? = nil) async throws {
+        try await api.send("POST", forward ? "me/player/next" : "me/player/previous", deviceId.map { ["device_id": $0] } ?? [:],
+                           while: still)
     }
 
     /// Spotify's own shuffle and repeat off (Yoin's engine owns the play modes).

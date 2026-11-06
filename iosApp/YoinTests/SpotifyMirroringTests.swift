@@ -121,6 +121,57 @@ final class SpotifyMirroringTests: XCTestCase {
         XCTAssertEqual(engine.currentTrack?.title, "Song On Pixel")
         XCTAssertTrue(engine.isPlaying)
     }
+
+    // MARK: Late commands and Spotify's own song (Codex review, 2026-11-06)
+
+    func test_should_dropARetriedSeek_when_theSongChangedMeanwhile() async throws {
+        MirrorStub.route = { s in
+            if s.method == "GET" { return .init(status: 200, body: Self.pixel(shuffle: false)) }
+            let seeks = MirrorStub.requests.filter { $0.url.path == "/v1/me/player/seek" }.count
+            if s.url.path == "/v1/me/player/seek", seeks == 0 { return .init(status: 429, body: "") }
+            return .init(status: 204, body: "")
+        }
+        let engine = self.engine!
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [MirrorStub.self]
+        // The rate limit's wait: the listener moves to the next song before the retry.
+        source = SpotifySource(api: SpotifyWebAPI(token: { "tok" }, session: URLSession(configuration: cfg), sleep: { _ in
+            await MainActor.run { engine.jump(to: 1) }
+        }))
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1"), song("07AxzhPisOpLqA7vnHXLZ4")])
+        try await waitUntil { self.puts.contains("/v1/me/player/play") }
+        try await Task.sleep(for: .milliseconds(100))
+        engine.seek(to: 30)
+        try await waitUntil { self.puts.filter { $0 == "/v1/me/player/play" }.count == 2 }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(puts.filter { $0 == "/v1/me/player/seek" }.count, 1)
+    }
+
+    func test_should_aimAtTheSong_when_checkingACommand() {
+        let aim = SpotifyAudioOutput.Aim(generation: 3, uri: "spotify:track:a")
+        XCTAssertTrue(SpotifyAudioOutput.stillAimed(aim, generation: 3, shownURI: "spotify:track:a"))
+        XCTAssertFalse(SpotifyAudioOutput.stillAimed(aim, generation: 3, shownURI: "spotify:track:b"))
+        XCTAssertFalse(SpotifyAudioOutput.stillAimed(aim, generation: 4, shownURI: "spotify:track:a"))
+        let any = SpotifyAudioOutput.Aim(generation: 3, uri: nil)
+        XCTAssertTrue(SpotifyAudioOutput.stillAimed(any, generation: 3, shownURI: "spotify:track:b"))
+    }
+
+    func test_should_leaveSpotifysOwnSong_when_queueingNextOrShuffling() async throws {
+        // The Pixel plays on with its own song; Play next and shuffle change Yoin's queue only.
+        MirrorStub.route = { s in s.method == "GET" ? .init(status: 200, body: Self.pixel(shuffle: false)) : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1"), song("07AxzhPisOpLqA7vnHXLZ4"), song("3a"), song("4b")])
+        try await waitUntil(5) { self.engine.externalTrack != nil }
+        engine.playNext(song("5c"))
+        engine.setShuffle(true)
+        try await Task.sleep(for: .seconds(1))
+        XCTAssertEqual(puts, ["/v1/me/player/play"])
+        XCTAssertEqual(engine.currentTrack?.title, "Song On Pixel")
+        XCTAssertTrue(engine.isPlaying)
+    }
 }
 
 /// Answers each request from [route] and records it.
