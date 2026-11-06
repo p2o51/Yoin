@@ -1,2 +1,3 @@
 build/
 Yoin.xcodeproj/
+Config/*.local.xcconfig

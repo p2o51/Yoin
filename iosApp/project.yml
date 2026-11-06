@@ -195,6 +195,7 @@ targets:
       path: YoinMac/Info.plist
       properties:
         NSAppleMusicUsageDescription: Yoin plays and shows your Apple Music library.
+        YoinSpotifyClientID: $(YOIN_SPOTIFY_CLIENT_ID)
         CFBundleDisplayName: Yoin
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
@@ -204,6 +205,9 @@ targets:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Yoin streams music from servers on your local network.
+    configFiles:
+      Debug: Config/YoinMac.xcconfig
+      Release: Config/YoinMac.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin.mac

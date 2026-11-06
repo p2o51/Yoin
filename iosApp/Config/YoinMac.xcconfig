@@ -1,0 +1,3 @@
+// YoinMac build settings. The dev build's Spotify Client ID comes from Spotify.local.xcconfig (not in git);
+// Settings › General › Spotify overrides it at runtime.
+#include? "Spotify.local.xcconfig"
