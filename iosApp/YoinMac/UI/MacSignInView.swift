@@ -279,12 +279,14 @@ private struct MacGeminiSettings: View {
 /// Settings › Sync: Cloud sync on the Mac (the shared Kotlin core, Drive appDataFolder, the same files as
 /// Android and iOS). Turning on signs in with Google (drive.appdata only); the first cycle only pulls.
 private struct MacSyncSettings: View {
+    @Environment(MacModel.self) private var model
+
     var body: some View {
         let sync = CloudSync.shared
         let state = sync.state
         Form {
             Section("Cloud sync") {
-                LabeledContent("Status", value: state.phase.enabled ? "On" : "Off")
+                LabeledContent("Status", value: Self.status(state))
                 if let ms = state.lastSyncAt?.int64Value {
                     LabeledContent("Last synced",
                                    value: Date(timeIntervalSince1970: Double(ms) / 1000).formatted(date: .abbreviated, time: .shortened))
@@ -310,6 +312,14 @@ private struct MacSyncSettings: View {
                     }
                     .disabled(sync.working)
                 }
+                // Google's sign-in expired or was revoked (Android / iOS: Reconnect Google).
+                if state.phase is CloudSyncPhaseNeedsReauth {
+                    Button("Reconnect Google") { Task { await sync.turnOn() } }.disabled(sync.working)
+                }
+                if state.phase is CloudSyncPhaseCloudCopyRemoved {
+                    Text("Yoin's copy in your Drive was removed.").foregroundStyle(.secondary)
+                    Button("Upload Again") { Task { await sync.uploadAgain() } }.disabled(sync.working)
+                }
                 if sync.working { ProgressView().controlSize(.small) }
                 if let m = sync.message { Text(m).foregroundStyle(.red) }
                 Text("Ratings, notes, album memories, lyric choices and playlist backups follow you between this Mac, your phone and your other devices. The first sync only reads; nothing is changed in the cloud until the next one.")
@@ -321,8 +331,45 @@ private struct MacSyncSettings: View {
                     ForEach(state.accounts, id: \.localProfileId) { a in SyncAccountLine(account: a) }
                 }
             }
+            if state.phase.enabled, !state.cloudOnlyAccounts.isEmpty {
+                // Android CloudSyncScreen: accounts your Drive has from another device; adding the same account
+                // here links it (its ratings and notes come down).
+                Section("In your Drive, not on this Mac") {
+                    ForEach(state.cloudOnlyAccounts, id: \.syncProfileId) { a in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(a.displayName.isEmpty ? a.provider : a.displayName)
+                                let detail = [a.hint, a.fromDeviceName.map { "from \($0)" }].compactMap { $0 }.joined(separator: "  ")
+                                if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                            }
+                            Spacer()
+                            Button("Add on This Mac…") {
+                                withAnimation(Yoin.spatial) { model.addingAccount = true }
+                                NSApp.windows.first { $0.title == "Yoin" }?.makeKeyAndOrderFront(nil)
+                            }
+                        }
+                    }
+                }
+            }
         }
         .formStyle(.grouped)
+    }
+}
+
+extension MacSyncSettings {
+    /// iOS CloudSyncView's status line.
+    static func status(_ state: CloudSyncState) -> String {
+        if state.readOnly { return "Reading your Drive" }
+        switch state.phase {
+        case is CloudSyncPhaseOff: return "Off"
+        case is CloudSyncPhaseSyncing: return "Syncing…"
+        case is CloudSyncPhaseOffline: return "Can't reach Google"
+        case is CloudSyncPhaseNeedsReauth: return "Google needs you to sign in again"
+        case is CloudSyncPhaseStorageFull: return "Your Drive is full"
+        case is CloudSyncPhaseCloudCopyRemoved: return "Drive copy removed"
+        case let e as CloudSyncPhaseError: return e.message
+        default: return state.pendingChanges ? "Changes waiting to upload" : (state.phase.enabled ? "Up to date" : "Off")
+        }
     }
 }
 

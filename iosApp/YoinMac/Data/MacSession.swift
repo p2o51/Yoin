@@ -57,6 +57,8 @@ final class MacSession {
         case connecting
         case ready(server: String)
         case failed(String)
+
+        var isFailed: Bool { if case .failed = self { return true } else { return false } }
     }
 
     private(set) var profiles: [Profile] = []

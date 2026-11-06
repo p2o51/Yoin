@@ -79,6 +79,7 @@ struct MacAccountPage: View {
     var close: () -> Void = {}
     @Environment(MacModel.self) private var model
     @AppStorage(MacSettings.streamQualityKey) private var quality = StreamQuality.original.key
+    @State private var reconnectError: String?
 
     static func serviceName(_ s: MacSession.Profile.Service) -> String {
         switch s {
@@ -153,6 +154,24 @@ struct MacAccountPage: View {
                 }
             }
         case .spotify:
+            // The sign-in expired or was revoked: Reconnect signs in again and keeps this account (same
+            // Spotify user), its settings and its local data.
+            if SpotifyTokenStore.load(p.id) == nil || (active && model.session.state.isFailed) {
+                Section {
+                    Text("Spotify needs you to sign in again.").foregroundStyle(.secondary)
+                    HStack {
+                        Button("Reconnect Spotify") {
+                            reconnectError = nil
+                            Task {
+                                do { try await model.session.useSpotify() } catch {
+                                    reconnectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                                }
+                            }
+                        }
+                        if let reconnectError { Text(reconnectError).font(.caption).foregroundStyle(.red) }
+                    }
+                }
+            }
             Section("Spotify") {
                 TextField("Client ID", text: Binding(
                     get: { SpotifyConfig.clientId ?? "" },
