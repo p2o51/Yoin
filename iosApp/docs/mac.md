@@ -53,7 +53,7 @@ Cloud sync is iOS `CloudSync` + `SyncDomainBridge` on the shared Kotlin core (sa
 
 ## Settings (⌘,)
 
-Tabs: Accounts (switch / remove / add), Playback (streaming quality Original · 320 · 192 · 128 → `macStreamQuality`, the engine's `streamQuality`; mini player on top), Storage (playback cache size / Clear, iOS StorageSettingsSection; downloads' quality, metered networks, size, remove all), General (lyrics translations, Gemini key, Spotify Client ID, appearance System / Light / Dark → `macAppearanceSetting`), Sync (cloud sync on / off / now, per-account status, Apple Music start / link), Backups (playlist backups, below), NeoDB (below), About (version, open source licenses from iOS `OpenSourceLicensesView`'s list, less the Spotify iOS SDK).
+Tabs: Accounts (each account opens its page, `MacAccountPage`: who it is, Switch / Remove, then only that service's settings at the bottom — 51's rule, 2026-11-04 / 11-06: a Subsonic server's streaming quality Original · 320 · 192 · 128 → `macStreamQuality` and its downloads (quality, metered networks; size and Remove All for the account in use); Spotify's Client ID; Apple Music has none), Storage (playback cache size / Clear, iOS StorageSettingsSection; the space downloads take), General (lyrics translations, Gemini key, mini player on top, appearance System / Light / Dark → `macAppearanceSetting`), Sync (cloud sync on / off / now, per-account status, Apple Music start / link), Backups (playlist backups, below), NeoDB (below), About (version, open source licenses from iOS `OpenSourceLicensesView`'s list, less the Spotify iOS SDK).
 
 ## Playlist backups
 
@@ -82,6 +82,20 @@ Albums / Artists / Playlists sort as on iOS (`LibrarySort.swift` compiled in: Re
 ## Playlists, history, Home
 
 Library › Playlists and the playlist page (Subsonic and Apple Music library playlists); the song menu's Add to Playlist (Subsonic). `HistoryStore` (iOS) records this Mac's plays per account; Home's Memories shelf reads it. Home › Edit orders and hides sections (`homeLayout`).
+
+## Shortcuts and Handoff
+
+App Intents in the app itself (`MacIntents.swift`; no extension, no entitlement): Play or Pause, Next Song, Previous Song, Like the Current Song, Play Album, Play Playlist (`AlbumEntity` / `PlaylistEntity`, string queries over the account in use's library). App Shortcuts phrases in English and Chinese; the tiles' icons are SF Symbol names (the system draws them). The intents reach the app through `MacModel.current`.
+
+Handoff: while a song plays the Mac advertises `com.gpo.yoin.playing` (declared in `NSUserActivityTypes`): `provider`, `songId`, `albumId`, `title`, `artist`, `album`, `positionSec`, `playing`. No server address or token. The iOS app doesn't take it yet; it would declare the same type and handle it with `onContinueUserActivity`, finding the song in its own account for that service.
+
+## Widgets (not built)
+
+A macOS widget is an extension with its own bundle id, so it needs, once, in the developer portal:
+1. An App ID `com.gpo.yoin.mac.widgets` (explicit), with App Groups.
+2. An App Group (e.g. `group.com.gpo.yoin`) added to both `com.gpo.yoin.mac` and the widget's App ID, so the app can hand the widget what's playing and the Memory cards.
+3. A Mac development profile for the widget App ID on this Mac ("Yoin Mac Widgets Development"), and the app's profile regenerated with the App Group.
+4. Then: a `YoinMacWidgets` target (widget extension, macOS 26) in project.yml embedded in YoinMac, both entitlements files with `com.apple.security.application-groups`, and the shared Glance-like Play / Memory families (Android / iOS designs).
 
 ## Keys (Controls menu)
 
