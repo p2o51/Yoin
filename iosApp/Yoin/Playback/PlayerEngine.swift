@@ -54,7 +54,12 @@ final class PlayerEngine {
     private(set) var failure: PlaybackFailure?
 
     var currentItem: QueueItem? { currentIndex.map { queue[$0] } }
-    var currentTrack: PlayableTrack? { currentItem?.track }
+    /// What is playing: Spotify's own song while it plays one that isn't the queue's
+    /// ([externalTrack]), else the queue's current song.
+    var currentTrack: PlayableTrack? { externalTrack ?? currentItem?.track }
+    /// A song the output plays that isn't in the queue (51, 2026-11-06: Yoin shows what Spotify really
+    /// plays, here or on the device it drives). The queue stays parked under it.
+    private(set) var externalTrack: PlayableTrack?
     /// Songs after the current one, in play order.
     var upcoming: ArraySlice<QueueItem> {
         guard let i = currentIndex, i + 1 < queue.count else { return [] }
@@ -194,6 +199,7 @@ final class PlayerEngine {
     }
 
     func next() {
+        if externalTrack != nil { return output.skipExternal(forward: true) }
         guard let i = currentIndex else { return }
         if i + 1 < queue.count {
             currentIndex = i + 1
@@ -206,6 +212,7 @@ final class PlayerEngine {
     }
 
     func previous() {
+        if externalTrack != nil { return output.skipExternal(forward: false) }
         guard let i = currentIndex else { return }
         if progress.positionSec > Self.previousRestartThresholdSec {
             seek(to: 0)
@@ -389,6 +396,7 @@ final class PlayerEngine {
     }
 
     private func loadCurrent(play: Bool, startSec: Double = 0) {
+        externalTrack = nil
         guard let item = currentItem else { return }
         ended = false
         failure = nil
@@ -488,14 +496,14 @@ final class PlayerEngine {
     }
 
     private func announceIfNeeded() {
-        guard let track = currentTrack, !scrobble.announced else { return }
+        guard externalTrack == nil, let track = currentItem?.track, !scrobble.announced else { return }
         scrobble.announced = true
         onScrobble?(track, false)
     }
 
     private func countListening(to sec: Double) {
         defer { scrobble.lastTickSec = sec }
-        guard isPlaying, let last = scrobble.lastTickSec, let track = currentTrack else { return }
+        guard isPlaying, externalTrack == nil, let last = scrobble.lastTickSec, let track = currentItem?.track else { return }
         let delta = sec - last
         // Ticks come every 0.25 s; anything wider is a seek or a stall, not listening.
         guard delta > 0, delta < 2 else { return }
@@ -513,7 +521,7 @@ final class PlayerEngine {
     /// The network / server failed under the current song: hold on it (paused, the error kept, Retry
     /// starts it again where it was) instead of failing the whole queue one song at a time.
     private func holdAfterFailure(_ message: String) {
-        guard let track = currentTrack else { return }
+        guard let track = currentItem?.track else { return }
         progress.positionSec = max(progress.positionSec, output.currentTimeSec + timeBaseSec)
         output.pause()
         isPlaying = false
@@ -524,7 +532,7 @@ final class PlayerEngine {
     }
 
     private func skipAfterFailure(_ message: String) {
-        guard let track = currentTrack else { return }
+        guard let track = currentItem?.track else { return }
         consecutiveFailures += 1
         onEvent?(.skippedAfterError(track: track, message: message))
         if consecutiveFailures >= queue.count {
@@ -565,6 +573,11 @@ final class PlayerEngine {
 
 extension PlayerEngine: AudioOutputEvents {
     func outputTimeDidChange(_ outputSec: Double) {
+        if externalTrack != nil {
+            // Spotify's own song: its clock, nothing counted for the queue's song.
+            if abs(progress.positionSec - outputSec) >= 0.01 { progress.positionSec = outputSec }
+            return
+        }
         guard currentIndex != nil, !ended else { return }
         let sec = outputSec + timeBaseSec
         if sec > 0.5 { consecutiveFailures = 0 }
@@ -616,6 +629,21 @@ extension PlayerEngine: AudioOutputEvents {
     func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?) {
         if let shuffle { setShuffle(shuffle) }
         if let repeatMode { setRepeat(repeatMode) }
+        onStateChange?()
+    }
+
+    func outputExternalTrackDidChange(_ track: PlayableTrack?, positionSec: Double, playing: Bool) {
+        let wasExternal = externalTrack != nil
+        externalTrack = track
+        if let track {
+            isPlaying = playing
+            progress.durationSec = track.durationSec
+            progress.positionSec = positionSec
+        } else if wasExternal {
+            // The queue's song is back: its own clock and length.
+            progress.durationSec = currentItem?.track.durationSec ?? 0
+            isPlaying = playing
+        }
         onStateChange?()
     }
 

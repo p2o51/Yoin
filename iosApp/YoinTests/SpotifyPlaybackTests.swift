@@ -88,4 +88,19 @@ final class SpotifyPlaybackTests: XCTestCase {
         XCTAssertFalse(SpotifyAudioOutput.isThisPhone(pixel))
         XCTAssertTrue(SpotifyAudioOutput.isThisPhone(phone))
     }
+
+    func test_should_readSpotifysOwnSong_when_mirroringIt() {
+        let s = SpotifyAudioOutput.State(uri: "spotify:track:1IEKU3WzzShCxANW5Jfv6g", isPaused: false, positionMs: 14657,
+                                         durationMs: 171172, shuffling: false, repeatRaw: 0, title: "Song",
+                                         artist: "Artist", album: "Album", coverURL: URL(string: "https://i.scdn.co/image/ab"))
+        let t = SpotifyAudioOutput.externalTrack(s)
+        XCTAssertEqual(t?.id, "1IEKU3WzzShCxANW5Jfv6g")
+        XCTAssertEqual(t?.title, "Song")
+        XCTAssertEqual(t?.durationSec ?? 0, 171.172, accuracy: 0.001)
+        XCTAssertEqual(t?.coverURL?.absoluteString, "https://i.scdn.co/image/ab")
+        XCTAssertNil(SpotifyAudioOutput.externalTrack(.init(uri: "", isPaused: true, positionMs: 0, durationMs: 0,
+                                                            shuffling: false, repeatRaw: 0)))
+        XCTAssertEqual(SpotifyAudioOutput.coverURL(imageIdentifier: "spotify:image:ab67616d0000b273")?.absoluteString,
+                       "https://i.scdn.co/image/ab67616d0000b273")
+    }
 }

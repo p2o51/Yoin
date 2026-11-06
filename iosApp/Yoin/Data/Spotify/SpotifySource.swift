@@ -250,11 +250,24 @@ final class SpotifySource {
         var shuffle: Bool = false
         /// "off", "track" or "context".
         var repeatState: String = "off"
+        var trackName: String? = nil
+        var artistName: String? = nil
+        var albumName: String? = nil
+        var coverURL: URL? = nil
     }
 
     private struct PlayerDTO: Decodable {
         struct D: Decodable { let id: String?; let name: String?; let type: String? }
-        struct I: Decodable { let uri: String?; let durationMs: Int? }
+        struct Named: Decodable { let name: String? }
+        struct Image: Decodable { let url: String?; let width: Int? }
+        struct Album: Decodable { let name: String?; let images: [Image]? }
+        struct I: Decodable {
+            let uri: String?
+            let durationMs: Int?
+            let name: String?
+            let artists: [Named]?
+            let album: Album?
+        }
         let device: D?
         let isPlaying: Bool?
         let item: I?
@@ -271,7 +284,11 @@ final class SpotifySource {
         return PlayerNow(deviceId: d.id, deviceName: d.name ?? "another device", deviceType: d.type ?? "",
                          isPlaying: r.isPlaying ?? false, trackURI: r.item?.uri, progressMs: r.progressMs ?? 0,
                          durationMs: r.item?.durationMs ?? 0, shuffle: r.shuffleState ?? false,
-                         repeatState: r.repeatState ?? "off")
+                         repeatState: r.repeatState ?? "off", trackName: r.item?.name,
+                         artistName: r.item?.artists?.compactMap(\.name).joined(separator: ", "),
+                         albumName: r.item?.album?.name,
+                         // The largest picture first (Spotify lists them biggest first; not relied on).
+                         coverURL: r.item?.album?.images?.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url.flatMap(URL.init(string:)))
     }
 
     // Transport on a Connect device (Android SpotifyApiClient pause / resume / seek).
@@ -288,6 +305,11 @@ final class SpotifySource {
         var q = ["position_ms": String(max(0, ms))]
         if let deviceId { q["device_id"] = deviceId }
         try await api.send("PUT", "me/player/seek", q)
+    }
+
+    /// Next or previous on the device (POST me/player/next | previous).
+    func skipPlayback(forward: Bool, deviceId: String?) async throws {
+        try await api.send("POST", forward ? "me/player/next" : "me/player/previous", deviceId.map { ["device_id": $0] } ?? [:])
     }
 
     /// Spotify's own shuffle and repeat off (Yoin's engine owns the play modes).

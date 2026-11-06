@@ -206,6 +206,8 @@ final class SpotifyAudioOutput: AudioOutput {
     private var target: String?
     /// A start waits on the Spotify app waking (it hands back and connects).
     private var awaitingWake = false
+    /// Spotify plays this song, not the queue's (shown through `outputExternalTrackDidChange`).
+    private var externalURI: String?
     /// Reads where Spotify is while Yoin is in the foreground (App Remote's state stops when iOS
     /// suspends Yoin, and says nothing about another device).
     private var pollTimer: Timer?
@@ -253,6 +255,12 @@ final class SpotifyAudioOutput: AudioOutput {
                                        queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.foreground() }
         })
+        observers.append(c.addObserver(forName: SpotifyPlayingDevice.transferred, object: nil,
+                                       queue: .main) { [weak self] n in
+            let id = n.userInfo?["id"] as? String
+            let name = n.userInfo?["name"] as? String
+            MainActor.assumeIsolated { self?.followTransfer(id: id, name: name) }
+        })
         observers.append(c.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil,
                                        queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.background() }
@@ -272,6 +280,7 @@ final class SpotifyAudioOutput: AudioOutput {
         self.next = Item(next)
         handedNext = nil
         awaitingWake = false
+        externalURI = nil
         sawCurrent = false
         playing = false
         lastTime = startSec
@@ -372,6 +381,21 @@ final class SpotifyAudioOutput: AudioOutput {
         guard awaitingWake, starting, let current, !silent else { return }
         awaitingWake = false
         startedHere(current)
+    }
+
+    /// Playback moved in Devices: commands and reads follow it there (this iPhone: App Remote).
+    private func followTransfer(id: String?, name: String?) {
+        guard let id, current != nil else { return }
+        let here = name.map { Self.isThisPhone(.init(deviceId: id, deviceName: $0, deviceType: "Smartphone", isPlaying: true)) } ?? false
+        target = here ? nil : id
+        SpotifyPlayingDevice.shared.name = here ? nil : name
+        if here {
+            stopPolling()
+            Task { _ = await remote.connect(timeout: Self.localConnectSec) }
+        } else {
+            startPolling()
+            refresh(after: 1)
+        }
     }
 
     private func background() {
@@ -505,7 +529,7 @@ final class SpotifyAudioOutput: AudioOutput {
         // A start on its way plays when it lands; resuming now would sound the previous song.
         guard !silent, !starting else { return }
         // Paused with a stale next: start the new pair here instead of resuming the old one.
-        if let current, Self.needsRehand(handed: handedNext, next: next, remainingSec: duration > 0 ? duration - lastTime : nil) {
+        if externalURI == nil, let current, Self.needsRehand(handed: handedNext, next: next, remainingSec: duration > 0 ? duration - lastTime : nil) {
             pendingStart = lastTime
             starting = true
             let gen = generation
@@ -631,8 +655,10 @@ final class SpotifyAudioOutput: AudioOutput {
         refreshTask = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard !Task.isCancelled, let self, let control = self.control else { return }
-            guard let now = try? await control.playerNow() else {
-                if !Task.isCancelled { self.apply(nil) }
+            let now: SpotifySource.PlayerNow?
+            do { now = try await control.playerNow() } catch {
+                // A failed read keeps what was last seen (only 204 means nothing plays).
+                PlayTrace.log("SP read failed \(SpotifySource.message(for: error))")
                 return
             }
             guard !Task.isCancelled else { return }
@@ -675,6 +701,10 @@ final class SpotifyAudioOutput: AudioOutput {
         var durationMs: Int
         var shuffling: Bool
         var repeatRaw: UInt
+        var title: String? = nil
+        var artist: String? = nil
+        var album: String? = nil
+        var coverURL: URL? = nil
     }
 
     private func playerState(_ s: SPTAppRemotePlayerState) {
@@ -682,7 +712,9 @@ final class SpotifyAudioOutput: AudioOutput {
         guard SpotifyPlayingDevice.shared.name == nil else { return }
         apply(State(uri: s.track.uri, isPaused: s.isPaused, positionMs: s.playbackPosition,
                     durationMs: Int(s.track.duration), shuffling: s.playbackOptions.isShuffling,
-                    repeatRaw: s.playbackOptions.repeatMode.rawValue))
+                    repeatRaw: s.playbackOptions.repeatMode.rawValue, title: s.track.name,
+                    artist: s.track.artist.name, album: s.track.album.name,
+                    coverURL: Self.coverURL(imageIdentifier: s.track.imageIdentifier)))
     }
 
     /// A Web API read: nothing active is Spotify stopped where it was.
@@ -710,7 +742,25 @@ final class SpotifyAudioOutput: AudioOutput {
         default: SPTAppRemotePlaybackOptionsRepeatMode.off.rawValue
         }
         apply(State(uri: uri, isPaused: !now.isPlaying, positionMs: now.progressMs, durationMs: now.durationMs,
-                    shuffling: now.shuffle, repeatRaw: repeatRaw))
+                    shuffling: now.shuffle, repeatRaw: repeatRaw, title: now.trackName, artist: now.artistName,
+                    album: now.albumName, coverURL: now.coverURL))
+    }
+
+    /// App Remote names a cover `spotify:image:<id>`; Spotify serves it at i.scdn.co/image/<id>.
+    nonisolated static func coverURL(imageIdentifier: String) -> URL? {
+        let prefix = "spotify:image:"
+        guard imageIdentifier.hasPrefix(prefix) else { return nil }
+        return URL(string: "https://i.scdn.co/image/" + imageIdentifier.dropFirst(prefix.count))
+    }
+
+    /// A song Spotify plays that isn't the queue's, as the engine shows it.
+    nonisolated static func externalTrack(_ s: State) -> PlayableTrack? {
+        guard let id = s.uri.split(separator: ":").last.map(String.init), !id.isEmpty,
+              s.uri.hasPrefix("spotify:track:") || s.uri.hasPrefix("spotify:episode:") else { return nil }
+        return PlayableTrack(id: id, provider: SpotifyMapping.provider, title: s.title ?? "Spotify",
+                             artist: s.artist ?? "", album: s.album ?? "", albumId: nil,
+                             durationSec: Double(s.durationMs) / 1000, streamURL: streamURL(trackId: id),
+                             coverURL: s.coverURL)
     }
 
     private func apply(_ s: State) {
@@ -724,6 +774,12 @@ final class SpotifyAudioOutput: AudioOutput {
         guard !starting else { return }
         takeOverModes(shuffling: s.shuffling, repeatRaw: s.repeatRaw)
         if let current, uri == current.trackURI {
+            if externalURI != nil {
+                // Back on the queue's song.
+                externalURI = nil
+                wantsPlay = playing
+                events?.outputExternalTrackDidChange(nil, positionSec: lastTime, playing: playing)
+            }
             sawCurrent = true
             let d = Double(s.durationMs) / 1000
             if d > 0, d != duration {
@@ -752,29 +808,36 @@ final class SpotifyAudioOutput: AudioOutput {
             }
             return
         }
-        guard sawCurrent, current != nil else { return }
-        if let handed = handedNext, uri == handed.trackURI, handed == next {
-            // Spotify carried on to the song the engine has next.
-            current = handed
-            self.next = nil
-            handedNext = nil
-            events?.outputDidAdvanceToPreloaded()
-        } else if duration > 0, before >= duration - Self.carriedOnWindowSec {
-            // The song ran out and Spotify carried on by itself to something else (the list was
-            // stale, or its autoplay): the engine starts its next, back in Yoin's queue.
-            sawCurrent = false
-            events?.outputDidReachEnd()
-        } else {
-            // Picked in Spotify mid-song, here or on the device Yoin drives: the listener's choice.
-            // Yoin lets go (shown paused) rather than taking Spotify back to its queue — Yoin never
-            // cuts into playback.
-            sawCurrent = false
-            playing = false
-            if wantsPlay {
-                wantsPlay = false
-                events?.outputPlayingDidChangeExternally(false)
+        if externalURI == nil, sawCurrent, current != nil {
+            if let handed = handedNext, uri == handed.trackURI, handed == next {
+                // Spotify carried on to the song the engine has next.
+                current = handed
+                self.next = nil
+                handedNext = nil
+                return events?.outputDidAdvanceToPreloaded() ?? ()
+            }
+            if duration > 0, before >= duration - Self.carriedOnWindowSec {
+                // The song ran out and Spotify carried on by itself to something else (the list was
+                // stale, or its autoplay): the engine starts its next, back in Yoin's queue.
+                sawCurrent = false
+                return events?.outputDidReachEnd() ?? ()
             }
         }
+        // Picked in Spotify, here or on the device Yoin drives (or a start that never took): the
+        // listener's choice. Yoin shows that song and controls it there; the queue stays parked and
+        // Spotify is never taken back to it — Yoin never cuts into playback.
+        guard let track = Self.externalTrack(s) else { return }
+        sawCurrent = false
+        externalURI = uri
+        wantsPlay = playing
+        events?.outputExternalTrackDidChange(track, positionSec: lastTime, playing: playing)
+    }
+
+    /// Next / previous on Spotify's own song: Spotify skips, here or on the device Yoin drives.
+    func skipExternal(forward: Bool) {
+        guard !silent else { return }
+        if isHere { return command { forward ? $0.skip(toNext: nil) : $0.skip(toPrevious: nil) } }
+        transport(report: true) { try await $0.skipPlayback(forward: forward, deviceId: $1) }
     }
 
     /// How close to its end the song was last seen for a switch to read as Spotify carrying on
@@ -832,4 +895,6 @@ struct SpotifyPlaybackError: Error, LocalizedError {
 final class SpotifyPlayingDevice {
     static let shared = SpotifyPlayingDevice()
     var name: String?
+    /// Posted by Devices after a transfer (userInfo: id, name).
+    nonisolated static let transferred = Notification.Name("SpotifyPlayingDevice.transferred")
 }
