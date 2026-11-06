@@ -74,7 +74,7 @@ struct PlaylistRestoreSheet: View {
     private var targetList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                title("Restore to")
+                title(String(localized: "Restore to"))
                 if let since = model.versionSince {
                     Text("Version of \(BackupTexts.time(since))")
                         .yoinRole(Tokens.type.bodyMedium)
@@ -191,7 +191,7 @@ struct PlaylistRestoreSheet: View {
         let count = RestoreReview.shared.trackIdsToWrite(rows: rows).count
         return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
-                title("Restore to \(t.label)")
+                title(String(localized: "Restore to \(t.label)"))
                 SummaryBar(summary: summary, scheme: s)
                 HStack(spacing: 8) {
                     filterChip(.all, "All", rows.count)
@@ -228,7 +228,7 @@ struct PlaylistRestoreSheet: View {
                 } label: {
                     HStack(spacing: 8) {
                         if writing { ProgressView().tint(s.onPrimary) }
-                        Text(writing ? "Creating" : "Create playlist").yoinRole(Tokens.type.titleMedium)
+                        Text(writing ? String(localized: "Creating") : String(localized: "Create playlist")).yoinRole(Tokens.type.titleMedium)
                         if !writing {
                             Text("\(count)")
                                 .yoinRole(Tokens.type.labelLarge)
@@ -302,7 +302,7 @@ struct PlaylistRestoreSheet: View {
                 .disabled(!enabled || !row.checkable)
                 .opacity(row.checkable ? 1 : 0.3)
                 .accessibilityLabel("Add to playlist")
-                .accessibilityValue(row.checked ? "On" : "Off")
+                .accessibilityValue(row.checked ? String(localized: "On") : String(localized: "Off"))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(track.title).yoinRole(Tokens.type.bodyLarge).foregroundStyle(s.onSurface).lineLimit(1)
                     if !artists.isEmpty {
@@ -437,7 +437,7 @@ struct PlaylistRestoreSheet: View {
     private func outcome(_ t: RestoreTarget, _ record: PlaylistRestoreRecord) -> some View {
         VStack(spacing: 20) {
             OutcomeBadge(failed: record.failed, scheme: s)
-            Text(record.failed ? "Not created on \(t.label)" : "Created on \(t.label)")
+            Text(record.failed ? String(localized: "Not created on \(t.label)") : String(localized: "Created on \(t.label)"))
                 .yoinRole(Tokens.type.headlineSmall)
                 .foregroundStyle(s.onSurface)
                 .multilineTextAlignment(.center)
@@ -478,7 +478,7 @@ struct PlaylistRestoreSheet: View {
 
     private func failure(_ t: RestoreTarget) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            title("Couldn't reach \(t.label)")
+            title(String(localized: "Couldn't reach \(t.label)"))
             HStack {
                 Spacer()
                 Button("Done") { model.sheetClosed() }
@@ -628,7 +628,7 @@ private struct RestoreSearchSheet: View {
                 LazyVStack(spacing: 2) {
                     let results = search?.results ?? []
                     if results.isEmpty, search?.loading == false, !query.trimmingCharacters(in: .whitespaces).isEmpty {
-                        Text(search?.failed == true ? "Couldn't reach \(target.label)" : "No results")
+                        Text(search?.failed == true ? String(localized: "Couldn't reach \(target.label)") : String(localized: "No results"))
                             .yoinRole(Tokens.type.bodyLarge)
                             .foregroundStyle(s.onSurfaceVariant)
                             .padding(.vertical, 24)

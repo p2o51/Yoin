@@ -79,7 +79,7 @@ extension SpotifySource {
         for album in albums + songs.map(\.album) {
             guard let id = album.artistId, !id.isEmpty else { continue }
             add(LibraryItem(id: MediaId(provider: SpotifyMapping.provider, rawId: id), kind: .artist,
-                            title: album.artist, subtitle: "Artist", palette: album.palette))
+                            title: album.artist, subtitle: String(localized: "Artist"), palette: album.palette))
         }
         var seenAlbums = Set<MediaId>()
         let matchedAlbums = albums.filter { seenAlbums.insert($0.id).inserted && hit($0.title, $0.artist) }

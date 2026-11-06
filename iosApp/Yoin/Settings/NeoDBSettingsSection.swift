@@ -68,21 +68,21 @@ struct NeoDBSettingsSection: View {
         }
         out.append(Row(id: "instance", view: AnyView(field(.instance))))
         out.append(Row(id: "signin", view: AnyView(
-            action(account.isSignedIn ? "Sign in again" : "Sign in", ink: app.primary, disabled: working, signIn))))
+            action(account.isSignedIn ? String(localized: "Sign in again") : String(localized: "Sign in"), ink: app.primary, disabled: working, signIn))))
         if manualToken {
             out.append(Row(id: "token", view: AnyView(field(.token))))
             out.append(Row(id: "savetoken", view: AnyView(
-                action("Save token", ink: app.primary, disabled: !canSaveToken, saveToken))))
+                action(String(localized: "Save token"), ink: app.primary, disabled: !canSaveToken, saveToken))))
         } else {
             out.append(Row(id: "usetoken", view: AnyView(
-                action("Use an access token instead", ink: app.onSurfaceVariant) {
+                action(String(localized: "Use an access token instead"), ink: app.onSurfaceVariant) {
                     manualToken = true
                     token = account.token
                     focus = .token
                 })))
         }
         if account.isSignedIn {
-            out.append(Row(id: "signout", view: AnyView(action("Sign out", ink: app.error) {
+            out.append(Row(id: "signout", view: AnyView(action(String(localized: "Sign out"), ink: app.error) {
                 account.signOut()
                 token = ""
                 message = nil
@@ -102,8 +102,8 @@ struct NeoDBSettingsSection: View {
 
     /// Android SettingsTextField: label above, placeholder while empty.
     private func field(_ which: Field) -> some View {
-        let label = which == .instance ? "Instance" : "Access token"
-        let placeholder = which == .instance ? NeoDBAccount.defaultInstance : "Paste token"
+        let label = which == .instance ? String(localized: "Instance") : String(localized: "Access token")
+        let placeholder = which == .instance ? NeoDBAccount.defaultInstance : String(localized: "Paste token")
         let prompt = Text(placeholder).foregroundStyle(app.onSurfaceVariant.opacity(0.6))
         return VStack(alignment: .leading, spacing: 2) {
             Text(label)

@@ -139,7 +139,7 @@ struct ShellBar: View {
             HStack(spacing: 8) {
                 YoinIcon(icon, size: 24)
                 if model.isIdle {
-                    Text(s == .home ? "Home" : "Library").font(.gsf(14, .semibold))
+                    Text(s == .home ? String(localized: "Home") : String(localized: "Library")).font(.gsf(14, .semibold))
                 }
             }
             .foregroundStyle(ink)
@@ -169,13 +169,13 @@ struct ShellBar: View {
                 .glassEffect(.regular.tint(accent(s).opacity(lab.style("barSelected").tintOpacity)).interactive(),
                              in: .capsule)
                 .glassEffectID(s == .home ? "home" : "library", in: glassNS)
-                .accessibilityLabel(s == .home ? "Home" : "Library")
+                .accessibilityLabel(s == .home ? String(localized: "Home") : String(localized: "Library"))
         } else {
             button
                 .labGlass(selected ? "barSelected" : "barUnselected", scheme: scheme, brand: brand,
                           auto: accent(s), in: Capsule())
                 .glassEffectID(s == .home ? "home" : "library", in: glassNS)
-                .accessibilityLabel(s == .home ? "Home" : "Library")
+                .accessibilityLabel(s == .home ? String(localized: "Home") : String(localized: "Library"))
         }
     }
 
@@ -242,7 +242,7 @@ struct ShellBar: View {
         .opacity(model.np.mounted ? 0 : 1)
         .accessibilityLabel("Now playing, \(p.track.title) by \(p.album.artist)")
         .accessibilityValue(model.player.currentTrack != nil
-                            ? (p.isPlaying ? "Playing" : "Paused")
+                            ? (p.isPlaying ? String(localized: "Playing") : String(localized: "Paused"))
                             : "\(Int(progress * 100)) percent played")
     }
 

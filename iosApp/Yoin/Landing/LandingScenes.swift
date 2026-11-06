@@ -228,23 +228,23 @@ struct LandingAboutScene: View {
 
     var body: some View {
         LandingSceneColumn {
-            LandingLabel(text: "Yoin does", scheme: scheme)
+            LandingLabel(text: String(localized: "Yoin does"), scheme: scheme)
             LandingGroup(scheme: scheme) {
-                MarkRow(text: "Play your library, with synced lyrics", yes: true, scheme: scheme)
-                MarkRow(text: "Ratings, notes and Memories", yes: true, scheme: scheme)
-                MarkRow(text: "Switch between your server and Apple Music", yes: true, scheme: scheme)
-                MarkRow(text: "Keep passwords on this device", yes: true, scheme: scheme)
+                MarkRow(text: String(localized: "Play your library, with synced lyrics"), yes: true, scheme: scheme)
+                MarkRow(text: String(localized: "Ratings, notes and Memories"), yes: true, scheme: scheme)
+                MarkRow(text: String(localized: "Switch between your server and Apple Music"), yes: true, scheme: scheme)
+                MarkRow(text: String(localized: "Keep passwords on this device"), yes: true, scheme: scheme)
             }
-            LandingLabel(text: "Yoin doesn't", scheme: scheme)
+            LandingLabel(text: String(localized: "Yoin doesn't"), scheme: scheme)
             LandingGroup(scheme: scheme) {
-                MarkRow(text: "Sell music or subscriptions", yes: false, scheme: scheme)
-                MarkRow(text: "Host or upload your files", yes: false, scheme: scheme)
+                MarkRow(text: String(localized: "Sell music or subscriptions"), yes: false, scheme: scheme)
+                MarkRow(text: String(localized: "Host or upload your files"), yes: false, scheme: scheme)
             }
-            LandingLabel(text: "You'll need", scheme: scheme)
+            LandingLabel(text: String(localized: "You'll need"), scheme: scheme)
             LandingGroup(scheme: scheme) {
                 let services = LandingService.allCases.filter { picked.contains($0) }
                 if services.isEmpty {
-                    MarkRow(text: "One of the services above", yes: false, scheme: scheme)
+                    MarkRow(text: String(localized: "One of the services above"), yes: false, scheme: scheme)
                 } else {
                     ForEach(services, id: \.self) { service in
                         let tone = LandingTone(service, dark: colorScheme == .dark)
@@ -333,7 +333,7 @@ private struct ServiceCta: View {
         .padding(.top, 12)
         .animation(Yoin.effects, value: done)
         .animation(Yoin.effects, value: busyLabel)
-        .accessibilityLabel(done ? "Connected" : busyLabel ?? label)
+        .accessibilityLabel(done ? String(localized: "Connected") : busyLabel ?? label)
     }
 }
 
@@ -432,17 +432,17 @@ struct LandingSubsonicScene: View {
         LandingSceneColumn {
             ServiceHeader(service: .subsonic, scheme: scheme)
             VStack(spacing: 8) {
-                LandingField(label: "Server address", placeholder: "https://music.example.com", text: $form.address,
+                LandingField(label: String(localized: "Server address"), placeholder: "https://music.example.com", text: $form.address,
                              keyboard: .URL, focused: focus == .address, scheme: scheme)
                     .focused($focus, equals: .address)
                     .submitLabel(.next)
                     .onSubmit { focus = .username }
-                LandingField(label: "Username", placeholder: "Your username", text: $form.username,
+                LandingField(label: String(localized: "Username"), placeholder: String(localized: "Your username"), text: $form.username,
                              focused: focus == .username, scheme: scheme)
                     .focused($focus, equals: .username)
                     .submitLabel(.next)
                     .onSubmit { focus = .password }
-                LandingField(label: "Password", placeholder: "Password", text: $form.password, secure: true,
+                LandingField(label: String(localized: "Password"), placeholder: String(localized: "Password"), text: $form.password, secure: true,
                              focused: focus == .password, scheme: scheme)
                     .focused($focus, equals: .password)
                     .submitLabel(.go)
@@ -450,7 +450,7 @@ struct LandingSubsonicScene: View {
             }
             .modifier(ShakeOnRefuse(trigger: shakes))
             ErrorLine(text: error, scheme: scheme)
-            ServiceCta(service: .subsonic, label: "Connect", busyLabel: working ? "Reaching your server…" : nil,
+            ServiceCta(service: .subsonic, label: String(localized: "Connect"), busyLabel: working ? String(localized: "Reaching your server…") : nil,
                        done: connected, action: connect)
         }
         .animation(Yoin.spatial, value: error)
@@ -461,9 +461,9 @@ struct LandingSubsonicScene: View {
     private func connect() {
         guard !working, !connected else { return }
         focus = nil
-        let missing = form.address.trimmingCharacters(in: .whitespaces).isEmpty ? "Server address is required"
-            : form.username.isEmpty ? "Username is required"
-            : form.password.isEmpty ? "Password is required" : nil
+        let missing = form.address.trimmingCharacters(in: .whitespaces).isEmpty ? String(localized: "Server address is required")
+            : form.username.isEmpty ? String(localized: "Username is required")
+            : form.password.isEmpty ? String(localized: "Password is required") : nil
         if let missing {
             refuse(missing)
             return
@@ -529,7 +529,7 @@ struct LandingSpotifyScene: View {
                 }
                 .padding(.leading, 6)
             } else {
-                GuideStep(number: 1, title: "Create an app", scheme: scheme) {
+                GuideStep(number: 1, title: String(localized: "Create an app"), scheme: scheme) {
                     Text("Free with a Premium account.")
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(scheme.onSurfaceVariant)
@@ -548,8 +548,8 @@ struct LandingSpotifyScene: View {
                     .buttonStyle(PressScale())
                     .padding(.top, 8)
                 }
-                GuideStep(number: 2, title: "Paste the Client ID", scheme: scheme) {
-                    LandingField(label: "Client ID", placeholder: "From your app on developer.spotify.com",
+                GuideStep(number: 2, title: String(localized: "Paste the Client ID"), scheme: scheme) {
+                    LandingField(label: String(localized: "Client ID"), placeholder: String(localized: "From your app on developer.spotify.com"),
                                  text: $clientId, focused: focused, scheme: scheme)
                         .focused($focused)
                         .submitLabel(.go)
@@ -560,7 +560,7 @@ struct LandingSpotifyScene: View {
                 redirectUris
             }
             ErrorLine(text: error, scheme: scheme)
-            ServiceCta(service: .spotify, label: "Continue", busyLabel: working ? "Waiting for Spotify…" : nil,
+            ServiceCta(service: .spotify, label: String(localized: "Continue"), busyLabel: working ? String(localized: "Waiting for Spotify…") : nil,
                        done: connected, action: connect)
         }
         .animation(Yoin.spatial, value: error)
@@ -739,9 +739,9 @@ struct LandingAppleScene: View {
             }
             .padding(.leading, 6)
             .modifier(ShakeOnRefuse(trigger: shakes))
-            ErrorLine(text: blocked && !connected ? "Apple Music access is off for Yoin" : nil, scheme: scheme)
-            ServiceCta(service: .appleMusic, label: blocked ? "Open Settings" : "Connect Apple Music",
-                       busyLabel: working ? "Working…" : nil, done: connected, action: connect)
+            ErrorLine(text: blocked && !connected ? String(localized: "Apple Music access is off for Yoin") : nil, scheme: scheme)
+            ServiceCta(service: .appleMusic, label: blocked ? String(localized: "Open Settings") : String(localized: "Connect Apple Music"),
+                       busyLabel: working ? String(localized: "Working…") : nil, done: connected, action: connect)
         }
         .animation(Yoin.spatial, value: blocked)
         .onAppear { apple.refreshAuthorization() }
@@ -784,7 +784,7 @@ struct LandingReadyScene: View {
 
     var body: some View {
         LandingSceneColumn {
-            LandingLabel(text: "Accounts", scheme: scheme)
+            LandingLabel(text: String(localized: "Accounts"), scheme: scheme)
             if accounts.isEmpty {
                 Text("No accounts connected")
                     .yoinRole(Tokens.type.bodyLarge)

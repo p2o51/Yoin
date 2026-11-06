@@ -452,7 +452,7 @@ struct LandingView: View {
     private var accounts: [LandingAccount] {
         // The account list (Data/Profiles.swift), the one in use first.
         let list = model.profiles.profiles.map { p in
-            LandingAccount(id: p.id, name: p.title, detail: p.host ?? "Authorized",
+            LandingAccount(id: p.id, name: p.title, detail: p.host ?? String(localized: "Authorized"),
                            service: p.service.landing,
                            inUse: p.id == model.profiles.activeId)
         }
@@ -640,7 +640,7 @@ private struct LandingPill: View {
                         .contentShape(.circle)
                 }
                 .buttonStyle(PressScale())
-                .accessibilityLabel(backIsClose ? "Close" : "Back")
+                .accessibilityLabel(backIsClose ? String(localized: "Close") : String(localized: "Back"))
                 .transition(.scale(scale: 0.01).combined(with: .opacity))
             }
             ZStack {

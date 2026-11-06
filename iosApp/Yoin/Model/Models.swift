@@ -104,6 +104,17 @@ enum LibraryKind: String, CaseIterable, Sendable {
     case albums = "Albums"
     case songs = "Songs"
     case favorites = "Favorites"
+
+    /// The chip's text in the reader's language (the raw value stays the stored key).
+    var title: String {
+        switch self {
+        case .playlists: String(localized: "Playlists")
+        case .artists: String(localized: "Artists")
+        case .albums: String(localized: "Albums")
+        case .songs: String(localized: "Songs")
+        case .favorites: String(localized: "Favorites")
+        }
+    }
 }
 
 struct LibraryItem: Identifiable, Hashable, Sendable {

@@ -358,9 +358,9 @@ struct LyricsSearchSheet: View {
                     }
                     // Android LyricsSearchSheet: a section per provider, in the registry's order.
                     if s.loading && s.sections.isEmpty {
-                        status("Searching...", loading: true)
+                        status(String(localized: "Searching..."), loading: true)
                     } else if s.sections.isEmpty {
-                        status(s.query.isEmpty ? "" : "No results")
+                        status(s.query.isEmpty ? "" : String(localized: "No results"))
                     }
                     ForEach(s.sections) { section in
                         Text(section.label)
@@ -371,7 +371,7 @@ struct LyricsSearchSheet: View {
                         if let e = section.error {
                             status(e, error: true)
                         } else if section.candidates.isEmpty {
-                            status("No results")
+                            status(String(localized: "No results"))
                         } else {
                             ForEach(section.candidates) { r in
                                 resultRow(r, applying: s.applyingId == r.id, enabled: s.applyingId == nil)

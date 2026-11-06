@@ -147,12 +147,12 @@ enum SpotifyAuth {
         }
         guard items.first(where: { $0.name == "state" })?.value == state,
               let code = items.first(where: { $0.name == "code" })?.value
-        else { throw SpotifyAuthError.failed("Spotify didn't return a sign-in code") }
+        else { throw SpotifyAuthError.failed(String(localized: "Spotify didn't return a sign-in code")) }
         let token = try await postToken([
             "grant_type": "authorization_code", "code": code, "redirect_uri": SpotifyConfig.redirectURI,
             "client_id": clientId, "code_verifier": verifier,
         ])
-        guard let refresh = token.refresh_token else { throw SpotifyAuthError.failed("Spotify didn't return a refresh token") }
+        guard let refresh = token.refresh_token else { throw SpotifyAuthError.failed(String(localized: "Spotify didn't return a refresh token")) }
         let me = try await fetchMe(token.access_token)
         return SpotifyTokens(accessToken: token.access_token, refreshToken: refresh,
                              expiresAt: Date().timeIntervalSince1970 + Double(token.expires_in),
@@ -179,7 +179,7 @@ enum SpotifyAuth {
         r.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await URLSession.shared.data(for: r)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw SpotifyAuthError.failed("Spotify couldn't read your account (\((response as? HTTPURLResponse)?.statusCode ?? 0))")
+            throw SpotifyAuthError.failed(String(localized: "Spotify couldn't read your account (\((response as? HTTPURLResponse)?.statusCode ?? 0))"))
         }
         return try JSONDecoder().decode(Me.self, from: data)
     }
@@ -229,7 +229,7 @@ enum SpotifyAuth {
             current = session
             if !session.start() {
                 current = nil
-                cont.resume(throwing: SpotifyAuthError.failed("Couldn't open Spotify's sign-in"))
+                cont.resume(throwing: SpotifyAuthError.failed(String(localized: "Couldn't open Spotify's sign-in")))
             }
         }
     }

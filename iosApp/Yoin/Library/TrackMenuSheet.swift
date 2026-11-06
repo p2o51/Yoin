@@ -177,7 +177,7 @@ struct TrackMenuSheet: View {
         let on = data.isFavorite(t)
         let library = t.provider == AppleMusicMapping.provider
         return Quick(id: "favorite",
-                     label: library ? (on ? "Added" : "Add") : (on ? "Favorited" : "Favorite"),
+                     label: library ? (on ? String(localized: "Added") : String(localized: "Add")) : (on ? String(localized: "Favorited") : String(localized: "Favorite")),
                      icon: library ? (on ? "check" : "add") : (on ? "favorite_filled" : "favorite"),
                      checked: on) { [model] in
             data.toggleFavorite(t, client: model.session.client, apple: model.store.apple)
@@ -186,20 +186,20 @@ struct TrackMenuSheet: View {
 
     private func queueQuick(next: Bool) -> Quick {
         let id = next ? "next" : "queue"
-        return Quick(id: id, label: next ? "Play next" : "Add to queue",
+        return Quick(id: id, label: next ? String(localized: "Play next") : String(localized: "Add to queue"),
                      icon: doneQuick.contains(id) ? "check" : (next ? "skip_next" : "queue")) { [model, track] in
             model.enqueue([track], next: next)
-            PlaylistActions.shared.show(next ? "1 song will play next" : "Added 1 song to the queue")
+            PlaylistActions.shared.show(next ? String(localized: "1 song will play next") : String(localized: "Added 1 song to the queue"))
             flash(id)
         }
     }
 
     private var quick: [Quick] {
-        let share = Quick(id: "share", label: "Share", icon: "share", share: shareText)
+        let share = Quick(id: "share", label: String(localized: "Share"), icon: "share", share: shareText)
         if context.kind == .nowPlaying {
             var row = [favoriteQuick].compactMap { $0 }
             if actions.canAddToPlaylist(store) {
-                row.append(Quick(id: "playlist", label: "Add to playlist", icon: "playlist", closes: true) { [track] in
+                row.append(Quick(id: "playlist", label: String(localized: "Add to playlist"), icon: "playlist", closes: true) { [track] in
                     PlaylistActions.shared.addAfterDismiss([track])
                 })
             }
@@ -219,7 +219,7 @@ struct TrackMenuSheet: View {
     private var groups: [[Row]] {
         var queue: [Row] = []
         if context.kind != .nowPlaying && actions.canAddToPlaylist(store) {
-            queue.append(Row(label: "Add to playlist", icon: "playlist") { [track] in
+            queue.append(Row(label: String(localized: "Add to playlist"), icon: "playlist") { [track] in
                 PlaylistActions.shared.addAfterDismiss([track])
             })
         }
@@ -239,28 +239,28 @@ struct TrackMenuSheet: View {
         }
         var go: [Row] = []
         if context.kind != .album && hasAlbum {
-            go.append(Row(label: "Go to album", icon: "album") { [model, track] in
+            go.append(Row(label: String(localized: "Go to album"), icon: "album") { [model, track] in
                 Self.leaveOverlays(model)
                 model.open(track.album)
             })
         }
         if let view = context.viewInScrapbook {
-            go.append(Row(label: "View in Scrapbook", icon: "note", action: view))
+            go.append(Row(label: String(localized: "View in Scrapbook"), icon: "note", action: view))
         } else if hasAlbum, track.album.id.provider != "mock" {
             // Anywhere else: the album opens at page 2 on the song's piece (Android TrackMenu).
-            go.append(Row(label: "View in Scrapbook", icon: "note") { [model, track] in
+            go.append(Row(label: String(localized: "View in Scrapbook"), icon: "note") { [model, track] in
                 ScrapbookFocusRequest.shared.request(songId: track.track.id, openSheet: false)
                 Self.leaveOverlays(model)
                 model.open(track.album)
             })
         }
         if let artistId = track.album.artistId, !artist.isEmpty {
-            go.append(Row(label: "Go to artist", icon: "artist") { [model, artist] in
+            go.append(Row(label: String(localized: "Go to artist"), icon: "artist") { [model, artist] in
                 Self.leaveOverlays(model)
                 model.openArtist(artist, id: artistId)
             })
         } else if track.album.id.provider == "mock" {
-            go.append(Row(label: "Go to artist", icon: "artist") { [model, artist] in
+            go.append(Row(label: String(localized: "Go to artist"), icon: "artist") { [model, artist] in
                 Self.leaveOverlays(model)
                 model.openArtist(artist)
             })
@@ -268,7 +268,7 @@ struct TrackMenuSheet: View {
         var edit: [Row] = []
         if context.kind == .playlist, let id = context.playlistId, let index = context.index,
            actions.canEditSongs(model.playlistInfo(id), store: store) {
-            edit.append(Row(label: "Remove from playlist", icon: "delete") { [store] in
+            edit.append(Row(label: String(localized: "Remove from playlist"), icon: "delete") { [store] in
                 PlaylistActions.shared.remove(at: index, from: id, store: store)
             })
         }

@@ -96,7 +96,7 @@ struct AddToPlaylistSheet: View {
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurface)
                     if let n = pick.songCount {
-                        Text(n == 1 ? "1 song" : "\(n) songs").monospacedDigit()
+                        Text(n == 1 ? String(localized: "1 song") : String(localized: "\(n) songs")).monospacedDigit()
                             .yoinRole(Tokens.type.bodySmall)
                             .foregroundStyle(app.onSurfaceVariant)
                     }

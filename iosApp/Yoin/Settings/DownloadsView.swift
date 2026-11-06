@@ -54,7 +54,7 @@ struct DownloadsView: View {
     // MARK: Groups
 
     private var settings: some View {
-        group("Settings") {
+        group(String(localized: "Settings")) {
             VStack(spacing: 0) {
                 qualityRow
                 if qualityOpen {
@@ -66,7 +66,7 @@ struct DownloadsView: View {
     }
 
     private var storage: some View {
-        group("Storage") {
+        group(String(localized: "Storage")) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Storage used")
@@ -99,7 +99,7 @@ struct DownloadsView: View {
     private var list: some View {
         let entries = offline.entries
         return VStack(alignment: .leading, spacing: 8) {
-            label("Downloaded")
+            label(String(localized: "Downloaded"))
             VStack(spacing: 2) {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { i, e in
                     entryRow(e)
@@ -172,7 +172,7 @@ struct DownloadsView: View {
                 Text("Download using mobile data")
                     .yoinRole(Tokens.type.bodyLarge)
                     .foregroundStyle(app.onSurface)
-                Text(offline.overMobileData ? "On" : "Waits for Wi\u{2011}Fi")
+                Text(offline.overMobileData ? String(localized: "On") : String(localized: "Waits for Wi\u{2011}Fi"))
                     .yoinRole(Tokens.type.bodyMedium)
                     .foregroundStyle(app.onSurfaceVariant)
                     .contentTransition(.opacity)

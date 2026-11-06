@@ -111,8 +111,8 @@ struct TipsView: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityValue(read ? "Read" : "Unread")
-        .accessibilityHint(read ? "Mark as unread" : "Mark as read")
+        .accessibilityValue(read ? String(localized: "Read") : String(localized: "Unread"))
+        .accessibilityHint(read ? String(localized: "Mark as unread") : String(localized: "Mark as read"))
     }
 
     private var topBar: some View {

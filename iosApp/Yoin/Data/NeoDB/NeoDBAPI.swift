@@ -124,7 +124,7 @@ struct NeoDBAPI: Sendable {
         var base = instance
         while base.hasSuffix("/") { base.removeLast() }
         let p = path.hasPrefix("/") ? path : "/" + path
-        guard let url = URL(string: base + p) else { throw NeoDBError(code: 0, message: "Invalid NeoDB URL") }
+        guard let url = URL(string: base + p) else { throw NeoDBError(code: 0, message: String(localized: "Invalid NeoDB URL")) }
         return url
     }
 

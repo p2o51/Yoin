@@ -59,10 +59,10 @@ enum CloudSyncTexts {
         case is CloudSyncPhaseNeedsReview: return "Needs review"
         case is CloudSyncPhaseError: return "Couldn't sync"
         case let r as CloudSyncPhaseResetElsewhere:
-            return r.deviceName.map { "Turned off on \($0)" } ?? "Turned off on another device"
+            return r.deviceName.map { "Turned off on \($0)" } ?? String(localized: "Turned off on another device")
         case is CloudSyncPhaseUpToDate:
             if s.pendingChanges { return "Changes waiting to upload" }
-            return s.lastSyncAt.map { "Synced \(relative($0.int64Value))" } ?? "On"
+            return s.lastSyncAt.map { "Synced \(relative($0.int64Value))" } ?? String(localized: "On")
         default: return "Off"
         }
     }
@@ -107,7 +107,7 @@ struct CloudSyncView: View {
                     .padding(.horizontal, 8)
                     .padding(.top, 8)
                 if !sync.isConfigured {
-                    group("Google account") { [AnyView(info("Not configured", nil))] }
+                    group(String(localized: "Google account")) { [AnyView(info("Not configured", nil))] }
                 } else if enabled {
                     onGroups
                 } else {
@@ -121,7 +121,7 @@ struct CloudSyncView: View {
                         .transition(.opacity)
                 }
                 // Android keeps this in Settings › Storage after Cloud sync; here until the Settings rework lands.
-                group("Playlist cloud backup") {
+                group(String(localized: "Playlist cloud backup")) {
                     [AnyView(PlaylistBackupsEntryRow(app: app, row: row, shape: Self.segment(0, 1)))]
                 }
                 whatSyncs
@@ -165,13 +165,13 @@ struct CloudSyncView: View {
     @ViewBuilder private var offGroups: some View {
         if let reset = state.phase as? CloudSyncPhaseResetElsewhere {
             Text(reset.deviceName.map { "Cloud sync was turned off and its Drive data deleted on \($0). Turn it on again to start fresh from this device." }
-                 ?? "Cloud sync was turned off and its Drive data deleted on another device. Turn it on again to start fresh from this device.")
+                 ?? String(localized: "Cloud sync was turned off and its Drive data deleted on another device. Turn it on again to start fresh from this device."))
                 .yoinRole(Tokens.type.bodyMedium)
                 .foregroundStyle(app.onSurfaceVariant)
                 .padding(.horizontal, 8)
         }
-        group("Google account") {
-            [AnyView(action(sync.working ? "Waiting for Google…" : "Turn on with Google", ink: app.primary,
+        group(String(localized: "Google account")) {
+            [AnyView(action(sync.working ? String(localized: "Waiting for Google…") : String(localized: "Turn on with Google"), ink: app.primary,
                             disabled: sync.working) { Task { await sync.turnOn() } })]
         }
     }
@@ -179,51 +179,51 @@ struct CloudSyncView: View {
     // MARK: On
 
     @ViewBuilder private var onGroups: some View {
-        group("Google account") {
-            var rows: [AnyView] = [AnyView(info(state.account?.email ?? state.account?.displayName ?? "Google account",
+        group(String(localized: "Google account")) {
+            var rows: [AnyView] = [AnyView(info(state.account?.email ?? state.account?.displayName ?? String(localized: "Google account"),
                                                 status))]
             if let review = state.phase as? CloudSyncPhaseNeedsReview {
                 rows.append(AnyView(info("\(review.count) notes disappeared from \(review.accountName)", nil)))
-                rows.append(AnyView(action("Restore here", ink: app.primary) { Task { await sync.resolveReview(restore: true) } }))
-                rows.append(AnyView(action("Delete on all devices", ink: app.error) { Task { await sync.resolveReview(restore: false) } }))
+                rows.append(AnyView(action(String(localized: "Restore here"), ink: app.primary) { Task { await sync.resolveReview(restore: true) } }))
+                rows.append(AnyView(action(String(localized: "Delete on all devices"), ink: app.error) { Task { await sync.resolveReview(restore: false) } }))
             }
             if state.phase is CloudSyncPhaseNeedsReauth {
-                rows.append(AnyView(action("Sign in", ink: app.primary) { Task { await sync.turnOn() } }))
+                rows.append(AnyView(action(String(localized: "Sign in"), ink: app.primary) { Task { await sync.turnOn() } }))
             }
             if state.phase is CloudSyncPhaseCloudCopyRemoved {
-                rows.append(AnyView(action("Upload again", ink: app.primary) { Task { await sync.uploadAgain() } }))
+                rows.append(AnyView(action(String(localized: "Upload again"), ink: app.primary) { Task { await sync.uploadAgain() } }))
             }
-            rows.append(AnyView(action(state.phase is CloudSyncPhaseSyncing ? "Syncing…" : "Sync now", ink: app.primary,
+            rows.append(AnyView(action(state.phase is CloudSyncPhaseSyncing ? String(localized: "Syncing…") : String(localized: "Sync now"), ink: app.primary,
                                        disabled: state.phase is CloudSyncPhaseSyncing) { Task { await sync.syncNow() } }))
             return rows
         }
         if !state.accounts.isEmpty {
-            group("Accounts") { state.accounts.map { AnyView(accountRow($0)) } }
+            group(String(localized: "Accounts")) { state.accounts.map { AnyView(accountRow($0)) } }
         }
         if !state.cloudOnlyAccounts.isEmpty {
-            group("In your Drive, not on this device") {
+            group(String(localized: "In your Drive, not on this device")) {
                 state.cloudOnlyAccounts.map { a in AnyView(cloudOnlyRow(a)) }
             }
         }
         if !state.devices.isEmpty {
-            group("Devices") {
+            group(String(localized: "Devices")) {
                 state.devices.map { d in
-                    AnyView(info(d.isThisDevice ? "This device" : d.name,
-                                 d.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? "Hasn't synced yet"))
+                    AnyView(info(d.isThisDevice ? String(localized: "This device") : d.name,
+                                 d.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? String(localized: "Hasn't synced yet")))
                 }
             }
         }
-        group("Backups") {
-            [AnyView(info("Drive backup", state.lastBackup ?? "None yet")),
-             AnyView(action("Back up and export", ink: app.primary, disabled: sync.working) {
+        group(String(localized: "Backups")) {
+            [AnyView(info("Drive backup", state.lastBackup ?? String(localized: "None yet"))),
+             AnyView(action(String(localized: "Back up and export"), ink: app.primary, disabled: sync.working) {
                  Task {
                      if await sync.backupNow() != nil { export = sync.exportLatestBackup() }
                  }
              })]
         }
-        group("This device") {
-            [AnyView(action("Turn off on this device", ink: app.primary) { Task { await sync.turnOff() } }),
-             AnyView(action(sync.working ? "Deleting…" : "Delete cloud data…", ink: app.error, disabled: sync.working) {
+        group(String(localized: "This device")) {
+            [AnyView(action(String(localized: "Turn off on this device"), ink: app.primary) { Task { await sync.turnOff() } }),
+             AnyView(action(sync.working ? String(localized: "Deleting…") : String(localized: "Delete cloud data…"), ink: app.error, disabled: sync.working) {
                  confirmDelete = true
              })]
         }
@@ -237,7 +237,7 @@ struct CloudSyncView: View {
         case let e as CloudSyncPhaseError: return e.message
         default:
             if state.pendingChanges { return "Changes waiting to upload" }
-            return state.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? "Not synced yet"
+            return state.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? String(localized: "Not synced yet")
         }
     }
 
@@ -295,7 +295,7 @@ struct CloudSyncView: View {
     }
 
     private var whatSyncs: some View {
-        group("What syncs") {
+        group(String(localized: "What syncs")) {
             [AnyView(info("Syncs", "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups")),
              AnyView(info("Stays on this device", "Listening history\nPasswords, sign-ins and API keys\nCaches and downloads"))]
         }

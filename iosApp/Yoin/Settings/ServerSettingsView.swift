@@ -120,7 +120,7 @@ struct ServerSettingsView: View {
 
     /// Android Settings › About › Welcome guide: the landing again, over everything.
     private var aboutGroup: some View {
-        group("About") {
+        group(String(localized: "About")) {
             [AnyView(Button { model.openWelcomeGuide() } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Welcome guide")
@@ -175,6 +175,6 @@ struct ServerSettingsView: View {
 
     static func subscriptionText(_ s: AppleMusicSource.Subscription) -> String {
         if s.canPlayCatalogContent { return "Active" }
-        return s.canBecomeSubscriber ? "Not subscribed" : "Unavailable"
+        return s.canBecomeSubscriber ? String(localized: "Not subscribed") : String(localized: "Unavailable")
     }
 }

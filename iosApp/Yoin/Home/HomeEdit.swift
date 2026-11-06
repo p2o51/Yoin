@@ -412,7 +412,7 @@ struct HomeEditTray: View {
         let s = scheme!
         let hidden = edit.layout.trayed
         VStack(alignment: .leading, spacing: 8) {
-            HomeSectionTitle("Hidden").padding(.bottom, 4)
+            HomeSectionTitle(String(localized: "Hidden")).padding(.bottom, 4)
             if hidden.isEmpty {
                 Text("No hidden sections").homeType(Tokens.type.bodyMedium).foregroundStyle(s.onSurfaceVariant)
             }

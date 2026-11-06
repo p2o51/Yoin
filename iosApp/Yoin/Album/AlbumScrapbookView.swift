@@ -83,7 +83,7 @@ struct AlbumScrapbookView: View {
 
     /// Android scrapTitle: the listener's title, else the AI's; nil = none yet.
     private var memoryTitle: String? {
-        isMock ? "Paper moons and late buses" : memories.memoryTitle(provider: provider, albumId: album.id.rawId)
+        isMock ? String(localized: "Paper moons and late buses") : memories.memoryTitle(provider: provider, albumId: album.id.rawId)
     }
     private var review: String? {
         if isMock {
@@ -100,14 +100,14 @@ struct AlbumScrapbookView: View {
         return HomeHistory.relativeDay(at, now: Int64(Date().timeIntervalSince1970 * 1000))
     }
     /// The album note (Android album_notes): not synced and not written on iOS yet.
-    private var albumNote: String? { isMock ? "Bought on a rainy Tuesday in Shimokitazawa." : nil }
+    private var albumNote: String? { isMock ? String(localized: "Bought on a rainy Tuesday in Shimokitazawa.") : nil }
 
     private func notes(_ t: Track) -> [Note]? {
         if isMock {
             switch t.number {
-            case 3: return [Note(time: "1:14", text: "The echo stays after the song is gone"),
-                            Note(time: "2:40", text: "That piano drop, every single time")]
-            case 9: return [Note(time: "0:52", text: "Sounds like a harbor at 6 a.m.")]
+            case 3: return [Note(time: "1:14", text: String(localized: "The echo stays after the song is gone")),
+                            Note(time: "2:40", text: String(localized: "That piano drop, every single time"))]
+            case 9: return [Note(time: "0:52", text: String(localized: "Sounds like a harbor at 6 a.m."))]
             default: return nil
             }
         }
@@ -433,7 +433,7 @@ struct AlbumScrapbookView: View {
                     renaming = true
                 }
                 .accessibilityAddTraits(isMock ? [] : .isButton)
-                .accessibilityHint(isMock ? "" : "Rename")
+                .accessibilityHint(isMock ? "" : String(localized: "Rename"))
         }
     }
 
@@ -646,7 +646,7 @@ struct AlbumScrapbookView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isMock)
-                    .accessibilityLabel(n.time.isEmpty ? "Note: \(n.text)" : "Note at \(n.time): \(n.text)")
+                    .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(n.text)") : String(localized: "Note at \(n.time): \(n.text)"))
                 }
                 if ns.count > ScrapbookRules.notesShown {
                     // Android "+N notes": the rest in the sheet's Notes tab.
@@ -751,7 +751,7 @@ struct AlbumScrapbookView: View {
         Button { trackSheet = ScrapSheetOpen(track: t) } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(tag.label).font(.gsf(11.5, .medium)).foregroundStyle(s.onSecondaryContainer.opacity(0.75))
-                Text(extra > 0 ? "\(tag.value)  +\(extra)" : tag.value)
+                Text(extra > 0 ? String(localized: "\(tag.value)  +\(extra)") : tag.value)
                     .yoinRole(Tokens.type.labelLarge)
                     .foregroundStyle(s.onSecondaryContainer)
                     .lineLimit(2)
@@ -1031,7 +1031,7 @@ struct ScrapScoreSheet: View {
                     .frame(minWidth: 60, minHeight: 40)
                     .background(scheme.primaryContainer, in: .capsule)
                     .contentTransition(.numericText())
-                    .accessibilityLabel(live == nil ? "Not rated" : "Score \(RatingBar.label(live) ?? "")")
+                    .accessibilityLabel(live == nil ? String(localized: "Not rated") : "Score \(RatingBar.label(live) ?? "")")
             }
             HStack(spacing: 8) {
                 ScrapScoreBar(value: live, scheme: scheme, onChange: { draft = $0 }, onCommit: commit)
@@ -1082,7 +1082,7 @@ struct ScrapScoreSheet: View {
         // Subsonic: 0 stars removes the server's rating.
         Task { _ = await store.setRating(track, rating: nil) }
         if embedded {
-            PlaylistActions.shared.show("Rating cleared", action: .init(label: "Undo") { restore(was) })
+            PlaylistActions.shared.show(String(localized: "Rating cleared"), action: .init(label: String(localized: "Undo")) { restore(was) })
             return
         }
         let id = UUID()
@@ -1134,7 +1134,7 @@ private struct ScrapScoreBar: View {
         .frame(height: 48)
         .accessibilityElement()
         .accessibilityLabel("Score")
-        .accessibilityValue(RatingBar.label(value) ?? "Not rated")
+        .accessibilityValue(RatingBar.label(value) ?? String(localized: "Not rated"))
     }
 }
 

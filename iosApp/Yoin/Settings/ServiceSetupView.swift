@@ -63,7 +63,7 @@ struct ServiceSetupView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                Text(editing?.title ?? "Add account")
+                Text(editing?.title ?? String(localized: "Add account"))
                     .yoinRole(Tokens.type.displaySmall)
                     .foregroundStyle(app.onSurface)
                     .padding(.horizontal, 8)
@@ -132,7 +132,7 @@ struct ServiceSetupView: View {
     // MARK: Adding: the service and what it does
 
     private var servicePicker: some View {
-        group("Service") {
+        group(String(localized: "Service")) {
             Profile.Service.allCases.map { AnyView(choiceRow($0)) }
         }
     }
@@ -192,19 +192,19 @@ struct ServiceSetupView: View {
     private func highlights(_ s: Profile.Service) -> [Highlight] {
         switch s {
         case .subsonic:
-            [Highlight(icon: "equalizer", title: "Playback", body: "Stream directly from your server"),
-             Highlight(icon: "favorite", title: "Favorites and ratings", body: "Synced with your server"),
-             Highlight(icon: "playlist", title: "Playlists", body: "Browse and edit your playlists"),
-             Highlight(icon: "download", title: "Downloads", body: "Keep albums and playlists on this device")]
+            [Highlight(icon: "equalizer", title: String(localized: "Playback"), body: "Stream directly from your server"),
+             Highlight(icon: "favorite", title: String(localized: "Favorites and ratings"), body: "Synced with your server"),
+             Highlight(icon: "playlist", title: String(localized: "Playlists"), body: "Browse and edit your playlists"),
+             Highlight(icon: "download", title: String(localized: "Downloads"), body: "Keep albums and playlists on this device")]
         case .appleMusic:
-            [Highlight(icon: "search", title: "Library and catalog",
+            [Highlight(icon: "search", title: String(localized: "Library and catalog"),
                        body: "Browse your library and search the Apple Music catalog"),
-             Highlight(icon: "play_filled", title: "Playback", body: "Play catalog songs directly in Yoin")]
+             Highlight(icon: "play_filled", title: String(localized: "Playback"), body: "Play catalog songs directly in Yoin")]
         case .spotify:
-            [Highlight(icon: "search", title: "Library and search",
+            [Highlight(icon: "search", title: String(localized: "Library and search"),
                        body: "Your saved albums, playlists, Liked Songs and Spotify's catalog"),
-             Highlight(icon: "play_filled", title: "Playback", body: "Plays through the Spotify app, controlled from Yoin"),
-             Highlight(icon: "favorite", title: "Liked Songs", body: "The heart saves to your Spotify library")]
+             Highlight(icon: "play_filled", title: String(localized: "Playback"), body: "Plays through the Spotify app, controlled from Yoin"),
+             Highlight(icon: "favorite", title: String(localized: "Liked Songs"), body: "The heart saves to your Spotify library")]
         }
     }
 
@@ -218,7 +218,7 @@ struct ServiceSetupView: View {
 
     private var intro: some View {
         VStack(alignment: .leading, spacing: 28) {
-            group("What you get") {
+            group(String(localized: "What you get")) {
                 highlights(service).map { h in
                     AnyView(HStack(spacing: 16) {
                         YoinIcon(h.icon, size: 20)
@@ -238,7 +238,7 @@ struct ServiceSetupView: View {
                     .padding(.vertical, 12))
                 }
             }
-            group("You need") { [AnyView(infoRow(needs(service), nil))] }
+            group(String(localized: "You need")) { [AnyView(infoRow(needs(service), nil))] }
         }
         .id(service)
         .transition(.opacity)
@@ -248,20 +248,20 @@ struct ServiceSetupView: View {
 
     @ViewBuilder private var subsonicGroups: some View {
         if isActive {
-            group("Connection") {
-                var rows: [AnyView] = [AnyView(infoRow("Status", statusText, ink: statusInk))]
+            group(String(localized: "Connection")) {
+                var rows: [AnyView] = [AnyView(infoRow(String(localized: "Status"), statusText, ink: statusInk))]
                 if case .ready(let server) = model.session.state {
                     let name = [server.type?.capitalized, server.version].compactMap { $0 }.joined(separator: " ")
-                    if !name.isEmpty { rows.append(AnyView(infoRow("Server", name))) }
+                    if !name.isEmpty { rows.append(AnyView(infoRow(String(localized: "Server"), name))) }
                 }
                 return rows
             }
         }
-        group(adding ? "Sign in" : "Account") {
-            [AnyView(field("Server address", placeholder: "https://music.example.com", text: $address,
+        group(adding ? String(localized: "Sign in") : String(localized: "Account")) {
+            [AnyView(field(String(localized: "Server address"), placeholder: "https://music.example.com", text: $address,
                            field: .address, keyboard: .URL)),
-             AnyView(field("Username", placeholder: "Your username", text: $username, field: .username)),
-             AnyView(field("Password", placeholder: "Password", text: $password, field: .password, secure: true))]
+             AnyView(field(String(localized: "Username"), placeholder: String(localized: "Your username"), text: $username, field: .username)),
+             AnyView(field(String(localized: "Password"), placeholder: String(localized: "Password"), text: $password, field: .password, secure: true))]
         }
     }
 
@@ -282,7 +282,7 @@ struct ServiceSetupView: View {
 
     private var submitButton: some View {
         Button(action: submit) {
-            Text(working ? "Reaching your server…" : adding ? "Connect" : "Save")
+            Text(working ? String(localized: "Reaching your server…") : adding ? String(localized: "Connect") : String(localized: "Save"))
                 .yoinRole(Tokens.type.titleMedium)
                 // MD3 disabled filled button: onSurface 38% on onSurface 12%, legible in dark too.
                 .foregroundStyle(canSubmit ? app.onPrimary : app.onSurface.opacity(0.38))
@@ -320,13 +320,13 @@ struct ServiceSetupView: View {
 
     private var appleGroups: some View {
         group("Apple Music") {
-            var rows: [AnyView] = [AnyView(infoRow("Status", appleStatusText, ink: appleStatusInk))]
+            var rows: [AnyView] = [AnyView(infoRow(String(localized: "Status"), appleStatusText, ink: appleStatusInk))]
             if apple.isAuthorized, let sub = apple.subscription {
-                rows.append(AnyView(infoRow("Subscription", ServerSettingsView.subscriptionText(sub),
+                rows.append(AnyView(infoRow(String(localized: "Subscription"), ServerSettingsView.subscriptionText(sub),
                                             ink: sub.canPlayCatalogContent ? app.primary : app.onSurfaceVariant)))
             }
             if !adding, apple.authorization == .denied || apple.authorization == .restricted {
-                rows.append(AnyView(actionRow("Open Settings", ink: app.primary, action: openSystemSettings)))
+                rows.append(AnyView(actionRow(String(localized: "Open Settings"), ink: app.primary, action: openSystemSettings)))
             }
             return rows
         }
@@ -334,8 +334,8 @@ struct ServiceSetupView: View {
 
     private var appleButton: some View {
         let blocked = apple.authorization == .denied || apple.authorization == .restricted
-        let label = appleAdded ? "Added" : blocked ? "Open Settings"
-            : apple.isAuthorized ? "Add Apple Music" : working ? "Working…" : "Connect Apple Music"
+        let label = appleAdded ? String(localized: "Added") : blocked ? String(localized: "Open Settings")
+            : apple.isAuthorized ? String(localized: "Add Apple Music") : working ? String(localized: "Working…") : String(localized: "Connect Apple Music")
         let enabled = !appleAdded && !working
         return Button(action: connectApple) {
             Text(label)
@@ -398,17 +398,17 @@ struct ServiceSetupView: View {
     private var spotifyGroups: some View {
         VStack(alignment: .leading, spacing: 28) {
             if let p = editing {
-                group("Spotify") {
+                group(String(localized: "Spotify")) {
                     let tokens = profiles.store.spotify(p.id)
-                    return [AnyView(infoRow("Account", tokens?.displayName ?? tokens?.userId ?? "Not signed in")),
-                            AnyView(infoRow("Status", needsSpotifySignIn ? "Sign in again" : "Connected",
+                    return [AnyView(infoRow(String(localized: "Account"), tokens?.displayName ?? tokens?.userId ?? String(localized: "Not signed in"))),
+                            AnyView(infoRow(String(localized: "Status"), needsSpotifySignIn ? String(localized: "Sign in again") : String(localized: "Connected"),
                                             ink: needsSpotifySignIn ? app.error : app.primary))]
                 }
             }
-            group("Client ID") {
-                [AnyView(field("Client ID", placeholder: "From your app on developer.spotify.com", text: $clientId,
+            group(String(localized: "Client ID")) {
+                [AnyView(field(String(localized: "Client ID"), placeholder: String(localized: "From your app on developer.spotify.com"), text: $clientId,
                                field: .clientId)),
-                 AnyView(infoRow("Redirect URIs to add to that app",
+                 AnyView(infoRow(String(localized: "Redirect URIs to add to that app"),
                                  "\(SpotifyConfig.redirectURI)\n\(SpotifyConfig.appRemoteRedirectURI)"))]
             }
         }
@@ -421,7 +421,7 @@ struct ServiceSetupView: View {
     private var spotifyButton: some View {
         let ready = !clientId.trimmingCharacters(in: .whitespaces).isEmpty && !working
         return Button(action: connectSpotify) {
-            Text(working ? "Waiting for Spotify…" : adding ? "Connect Spotify" : "Sign in again")
+            Text(working ? String(localized: "Waiting for Spotify…") : adding ? String(localized: "Connect Spotify") : String(localized: "Sign in again"))
                 .yoinRole(Tokens.type.titleMedium)
                 .foregroundStyle(ready ? app.onPrimary : app.onSurface.opacity(0.38))
                 .contentTransition(.opacity)
@@ -448,8 +448,8 @@ struct ServiceSetupView: View {
     // MARK: Remove
 
     private var removeGroup: some View {
-        group("This device") {
-            [AnyView(actionRow("Remove account", ink: app.error) { confirmRemove = true })]
+        group(String(localized: "This device")) {
+            [AnyView(actionRow(String(localized: "Remove account"), ink: app.error) { confirmRemove = true })]
         }
     }
 

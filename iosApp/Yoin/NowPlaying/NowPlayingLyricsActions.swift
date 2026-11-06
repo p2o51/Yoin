@@ -100,9 +100,9 @@ final class LyricsActions {
         // Gemini sees the sung lines only; answers map back to their rows.
         let rows = lines.indices.filter { !lines[$0].trimmingCharacters(in: .whitespaces).isEmpty }
         let source = rows.map { lines[$0].trimmingCharacters(in: .whitespaces) }
-        guard !source.isEmpty else { return toast("No lyrics to translate") }
+        guard !source.isEmpty else { return toast(String(localized: "No lyrics to translate")) }
         if LyricsRules.alreadyTargetLanguage(source, target: language) {
-            return toast("Lyrics already appear to be \(language)")
+            return toast(String(localized: "Lyrics already appear to be \(language)"))
         }
         // Android translateLyricsWithProvider: lyrics from a provider that
         // carries its own translation (QQ, NetEase) take it from there, the
@@ -138,7 +138,7 @@ final class LyricsActions {
             NowPlayingData.shared.refreshProviderLyrics(r.lrc, source: LyricsSource(provider: r.providerName,
                                                                                     songId: r.providerSongId), for: t)
             show(r, key: k, language: language)
-            toast("Lyrics translated")
+            toast(String(localized: "Lyrics translated"))
             return true
         }
         for candidate in registry.translationSwitchCandidates(currentProviderName: from.provider, targetLanguage: language) {
@@ -147,12 +147,12 @@ final class LyricsActions {
                   !r.translations.isEmpty else { continue }
             let label = LyricsSource.label(r.providerName)
             // Android: a snackbar with Switch; the switched set is the user's choice.
-            PlaylistActions.shared.show("\(label) translation is available",
-                                        action: .init(label: "Switch") { [weak self] in
+            PlaylistActions.shared.show(String(localized: "\(label) translation is available"),
+                                        action: .init(label: String(localized: "Switch")) { [weak self] in
                 let source = LyricsSource(provider: r.providerName, songId: r.providerSongId)
                 guard NowPlayingData.shared.applyUserLyrics(r.lrc, for: t, source: source) else { return }
                 self?.show(r, key: k, language: language)
-                self?.toast("Lyrics translated from \(label)")
+                self?.toast(String(localized: "Lyrics translated from \(label)"))
             })
             return true
         }
@@ -179,15 +179,15 @@ final class LyricsActions {
             return
         }
         let apiKey = settings.requestKey
-        guard !apiKey.isEmpty else { return toast("Gemini API key missing") }
+        guard !apiKey.isEmpty else { return toast(String(localized: "Gemini API key missing")) }
         inFlight = .translate
         let client = gemini()
         Task {
             defer { inFlight = nil }
             do {
                 let result = try await client.translateLyricLines(
-                    apiKey: apiKey, title: t.title.isEmpty ? "Unknown song" : t.title,
-                    artist: t.artist.isEmpty ? "Unknown artist" : t.artist, lines: source, targetLanguage: language)
+                    apiKey: apiKey, title: t.title.isEmpty ? String(localized: "Unknown song") : t.title,
+                    artist: t.artist.isEmpty ? String(localized: "Unknown artist") : t.artist, lines: source, targetLanguage: language)
                 LyricsUserStore.shared.saveGeminiTranslations(source.indices.map { result[$0] ?? "" },
                                                               provider: t.provider, rawId: t.id, title: t.title,
                                                               artist: t.artist, language: language,
@@ -195,10 +195,10 @@ final class LyricsActions {
                 // Saved under its own language above; shown only if that is still the target.
                 guard settings.targetLanguage == language else { return }
                 apply(result, rows: rows, key: k, language: language)
-                toast("Lyrics translated")
+                toast(String(localized: "Lyrics translated"))
             } catch is CancellationError {
             } catch {
-                toast((error as? GeminiClient.Failure)?.message ?? "Failed to translate lyrics")
+                toast((error as? GeminiClient.Failure)?.message ?? String(localized: "Failed to translate lyrics"))
             }
         }
     }
@@ -217,7 +217,7 @@ final class LyricsActions {
     func openSearch(_ t: PlayableTrack) {
         let query = [t.title, t.artist].map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }.joined(separator: " ")
-        guard !query.isEmpty else { return toast("Need title or artist to search lyrics") }
+        guard !query.isEmpty else { return toast(String(localized: "Need title or artist to search lyrics")) }
         search = Search(isOpen: true, query: query, target: t)
         runSearch(query)
     }
@@ -245,7 +245,7 @@ final class LyricsActions {
                             candidates: s.candidates.map {
                                 Candidate(provider: $0.providerName, songId: $0.songId, title: $0.title, artist: $0.artist)
                             },
-                            error: s.errorMessage == nil ? nil : "Couldn't search \(LyricsSource.label(s.providerName))")
+                            error: s.errorMessage == nil ? nil : String(localized: "Couldn't search \(LyricsSource.label(s.providerName))"))
                 }
             } catch is CancellationError {
                 return
@@ -280,11 +280,11 @@ final class LyricsActions {
             if let hit, NowPlayingData.shared.applyUserLyrics(hit.lrc, for: t, source: source) {
                 reset(NowPlayingData.key(t))
                 search = Search()
-                toast("Lyrics applied from \(LyricsSource.label(source.provider))")
+                toast(String(localized: "Lyrics applied from \(LyricsSource.label(source.provider))"))
             } else {
                 search.applyingId = nil
                 search.errorMessage = "Couldn't apply lyrics"
-                toast("Couldn't apply lyrics")
+                toast(String(localized: "Couldn't apply lyrics"))
             }
         }
     }
@@ -295,9 +295,9 @@ final class LyricsActions {
         guard !trimmed.isEmpty, inFlight == nil else { return }
         if NowPlayingData.shared.applyUserLyrics(trimmed, for: t) {
             reset(NowPlayingData.key(t))
-            toast("Lyrics applied")
+            toast(String(localized: "Lyrics applied"))
         } else {
-            toast("Couldn't apply lyrics")
+            toast(String(localized: "Couldn't apply lyrics"))
         }
     }
 }

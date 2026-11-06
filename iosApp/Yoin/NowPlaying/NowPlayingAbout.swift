@@ -48,7 +48,7 @@ struct SongFacts: Equatable {
         Self.add(&f, "Genre", s.genre)
         if let n = s.track?.intValue, n > 0 {
             let disc = s.disc?.intValue ?? 1
-            Self.add(&f, "Track", disc > 1 ? "\(n), disc \(disc)" : String(n))
+            Self.add(&f, "Track", disc > 1 ? String(localized: "\(n), disc \(disc)") : String(n))
         }
         let sec = s.durationSec?.intValue ?? Int(t.durationSec.rounded())
         if sec > 0 { Self.add(&f, "Duration", Self.duration(sec)) }
@@ -72,7 +72,7 @@ struct SongFacts: Equatable {
     static func format(suffix: String?, contentType: String?, bitRate: Int?) -> String? {
         let kind = suffix.flatMap { $0.isEmpty ? nil : $0.uppercased() }
             ?? contentType.flatMap { $0.split(separator: "/").last.map { $0.uppercased() } }
-        let rate = bitRate.flatMap { $0 > 0 ? "\($0.formatted()) kbps" : nil }
+        let rate = bitRate.flatMap { $0 > 0 ? String(localized: "\($0.formatted()) kbps") : nil }
         let parts = [kind, rate].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
@@ -265,7 +265,7 @@ struct NowPlayingAboutView: View {
             Text("No Gemini API key")
                 .yoinRole(Tokens.type.bodyMedium)
                 .foregroundStyle(scheme.onSurfaceVariant)
-            textButton("Settings") {
+            textButton(String(localized: "Settings")) {
                 let model = AppModel.shared
                 if model.npExpanded { model.setNowPlaying(expanded: false) }
                 if !model.path.contains(.settings) { model.openSettings() }
@@ -282,7 +282,7 @@ struct NowPlayingAboutView: View {
                 .yoinRole(Tokens.type.bodyMedium)
                 .foregroundStyle(scheme.error)
                 .fixedSize(horizontal: false, vertical: true)
-            textButton("Retry") {
+            textButton(String(localized: "Retry")) {
                 Task { await SongAboutLoader.shared.ensure(title: song.title, artist: song.artist, album: song.album, retry: true) }
             }
         }
@@ -438,13 +438,13 @@ struct AskGeminiBar: View {
                     .controlSize(.regular)
                     .tint(scheme.primary)
                     .frame(width: 28, height: 28)
-                label(title.isEmpty ? "Ask Gemini" : title, color: onGlass)
+                label(title.isEmpty ? String(localized: "Ask Gemini") : title, color: onGlass)
             case .error(let message):
                 AskGeminiBar.dot(scheme)
                 label(message, color: scheme.error)
             case .idle, .focused:
                 AskGeminiBar.dot(scheme)
-                label("Ask Gemini", color: onGlass)
+                label(String(localized: "Ask Gemini"), color: onGlass)
             }
             Spacer(minLength: 0)
         }

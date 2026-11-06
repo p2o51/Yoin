@@ -458,7 +458,7 @@ struct AlbumDetailView: View {
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(i == 0 ? "Overview" : "Scrapbook")
+                    .accessibilityLabel(i == 0 ? String(localized: "Overview") : String(localized: "Scrapbook"))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -917,7 +917,7 @@ struct AlbumDetailView: View {
         }
         .buttonStyle(PressScale())
         .disabled(added)
-        .accessibilityLabel(added ? "In library" : "Add to library")
+        .accessibilityLabel(added ? String(localized: "In library") : String(localized: "Add to library"))
     }
 
     /// The heart ring (Android AlbumCircleToggle).
@@ -935,7 +935,7 @@ struct AlbumDetailView: View {
                 .contentShape(.circle)
         }
         .buttonStyle(PressScale())
-        .accessibilityLabel(liked ? "Remove from favorites" : "Add to favorites")
+        .accessibilityLabel(liked ? String(localized: "Remove from favorites") : String(localized: "Add to favorites"))
     }
 
     // MARK: Playlist pieces
@@ -981,28 +981,28 @@ struct AlbumDetailView: View {
             }
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Length")
+                    sectionLabel(String(localized: "Length"))
                     // The service's count when the songs weren't handed over (Android songCount), and
                     // "—" for a length nobody knows rather than "0 min".
                     Text("\(pl.tracksUnavailable ? pl.songCount ?? 0 : pl.entries.count) tracks").monospacedDigit()
                         .yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
-                    Text(pl.entries.isEmpty ? "—" : mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min").monospacedDigit()
+                    Text(pl.entries.isEmpty ? "—" : mins >= 60 ? String(localized: "\(mins / 60) h \(mins % 60) min") : String(localized: "\(mins) min")).monospacedDigit()
                         .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Owner")
+                    sectionLabel(String(localized: "Owner"))
                     Text(pl.owner).lineLimit(1)
                         .yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
                     if let isPublic = pl.isPublic {
-                        Text(isPublic ? "Public" : "Private")
+                        Text(isPublic ? String(localized: "Public") : String(localized: "Private"))
                             .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
                     }
                 }
             }
             if let d = pl.description {
                 VStack(alignment: .leading, spacing: 6) {
-                    sectionLabel("Description")
+                    sectionLabel(String(localized: "Description"))
                     Text(d).lineLimit(3)
                         .lineSpacing(YoinType.lineSpacing(Tokens.type.bodyMedium))
                         .font(.gsf(Tokens.type.bodyMedium.size.cg))
@@ -1052,8 +1052,8 @@ struct AlbumDetailView: View {
             HStack(alignment: .center) {
                 if isMock || plays != nil {
                     VStack(alignment: .leading, spacing: 0) {
-                        sectionLabel("Last Play").padding(.bottom, 4)
-                        Text(lastPlay?.day ?? "Never").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                        sectionLabel(String(localized: "Last Play")).padding(.bottom, 4)
+                        Text(lastPlay?.day ?? String(localized: "Never")).yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
                         if let time = lastPlay?.time {
                             Text(time).monospacedDigit()
                                 .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)

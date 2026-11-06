@@ -154,7 +154,7 @@ struct MemoryTitleSlot<Display: View>: View {
                         editor.begin(surface, card)
                     }
                     .accessibilityAddTraits(enabled ? .isButton : [])
-                    .accessibilityHint(enabled ? "Edit title" : "")
+                    .accessibilityHint(enabled ? String(localized: "Edit title") : "")
                     .transition(.opacity)
             }
         }
@@ -194,7 +194,7 @@ struct MemoryTitleEditRow: View {
                             editor.end()
                         }
                     }
-                    quiet("Cancel") { editor.end() }
+                    quiet(String(localized: "Cancel")) { editor.end() }
                         .accessibilityHint("Discards the title")
                     Button {
                         let outcome = MemoryTitles.outcome(draft: editor.draft, seed: editor.seed,

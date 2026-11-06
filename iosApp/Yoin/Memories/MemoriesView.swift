@@ -237,7 +237,7 @@ struct MemoriesView: View {
 
     private func review(_ card: MemoryCard, _ text: String) -> Bool {
         guard MemoryWrites.saveReview(card, text: text) else {
-            PlaylistActions.shared.show("Couldn't save the review. Your draft is kept.")
+            PlaylistActions.shared.show(String(localized: "Couldn't save the review. Your draft is kept."))
             return false
         }
         withAnimation(Yoin.spatial) { refresh(card) }

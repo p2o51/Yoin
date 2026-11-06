@@ -334,7 +334,7 @@ struct MemoryCardFace: View {
                     .contentShape(.capsule)
                 }
                 .buttonStyle(PressScale())
-                .accessibilityLabel(card.noteCount > 0 ? "Diary, \(card.noteCount) notes" : "Diary")
+                .accessibilityLabel(card.noteCount > 0 ? String(localized: "Diary, \(card.noteCount) notes") : String(localized: "Diary"))
                 Button(action: onOpenAlbum) {
                     Text("Go to album")
                         .font(.gsf(15, .semibold))
@@ -358,7 +358,7 @@ struct MemoryCardFace: View {
                 .lineLimit(4)
                 .frame(maxWidth: 324)
             HStack(spacing: 8) {
-                Text(e.kind == .review ? "Your review" : "Your note")
+                Text(e.kind == .review ? String(localized: "Your review") : String(localized: "Your note"))
                     .homeType(Tokens.type.labelSmall)
                     .foregroundStyle(tones.ink)
                 if let d = e.detail {

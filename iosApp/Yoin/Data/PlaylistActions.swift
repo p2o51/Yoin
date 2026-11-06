@@ -228,7 +228,7 @@ final class PlaylistActions {
 
     /// Adds [entries] to playlist [pick]; "Added to …" or "Couldn't add to …".
     func add(_ entries: [PlaylistEntry], to pick: Pick, store: LibraryStore) {
-        guard let writer = writer(store) else { return show("Added to \(pick.name)") }
+        guard let writer = writer(store) else { return show(String(localized: "Added to \(pick.name)")) }
         let mine = entries.filter { $0.track.id.provider == writer.provider }
         let songIds = ids(mine, for: writer)
         guard !songIds.isEmpty else { return }
@@ -254,17 +254,17 @@ final class PlaylistActions {
                         await store.loadPlaylist(id, force: true)
                     }
                 }
-                show("Added to \(pick.name)")
+                show(String(localized: "Added to \(pick.name)"))
             } catch {
                 log.error("add failed: \(self.message(error, writer), privacy: .public)")
-                guard gen == store.generation else { return show("Couldn't add to \(pick.name)") }
+                guard gen == store.generation else { return show(String(localized: "Couldn't add to \(pick.name)")) }
                 if case .spotify = writer {
                     // Spotify adds 100 a request: earlier batches may have landed. Read what it holds.
                     if store.playlist(id) != nil, (queuedRemovals[id] ?? 0) == 0 {
                         await store.loadPlaylist(id, force: true)
                     }
                     await store.loadPlaylists(force: true)
-                    return show("Couldn't add to \(pick.name)")
+                    return show(String(localized: "Couldn't add to \(pick.name)"))
                 }
                 // Only this write's part comes back out (others may have landed since).
                 withAnimation(Yoin.spatial) {
@@ -278,7 +278,7 @@ final class PlaylistActions {
                         Self.bump(&rows, id, by: -songIds.count)
                     }
                 }
-                show("Couldn't add to \(pick.name)")
+                show(String(localized: "Couldn't add to \(pick.name)"))
             }
         }
     }
@@ -287,13 +287,13 @@ final class PlaylistActions {
     func create(_ name: String, with entries: [PlaylistEntry], store: LibraryStore) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        guard let writer = writer(store) else { return show("Added to \(name)") }
+        guard let writer = writer(store) else { return show(String(localized: "Added to \(name)")) }
         let songIds = ids(entries, for: writer)
         // A row at once, its real id when the server answers.
         let temp = "pending:\(UUID().uuidString)"
         let palette = entries.first?.album.palette ?? store.placeholderPalette(coverId: nil)
         let row = LibraryItem(id: MediaId(provider: writer.provider, rawId: temp), kind: .playlist,
-                              title: name, subtitle: "Playlist · \(songIds.count) songs", palette: palette,
+                              title: name, subtitle: String(localized: "Playlist · \(songIds.count) songs"), palette: palette,
                               count: songIds.count)
         withAnimation(Yoin.spatial) { store.patchPlaylists { rows, _ in rows.insert(row, at: 0) } }
         let gen = store.generation
@@ -302,7 +302,7 @@ final class PlaylistActions {
                 switch writer {
                 case .subsonic(let client):
                     let made = try await client.createPlaylist(name: name, comment: nil, songIds: songIds)
-                    guard gen == store.generation else { return show("Added to \(name)") }
+                    guard gen == store.generation else { return show(String(localized: "Added to \(name)")) }
                     let mapping = SubsonicMapping(client: client)
                     store.patchPlaylists { rows, details in
                         rows.removeAll { $0.id.rawId == temp }
@@ -321,25 +321,25 @@ final class PlaylistActions {
                         // The playlist stands; only the songs didn't land.
                         log.error("create add failed: \(SpotifySource.message(for: error), privacy: .public)")
                         if gen == store.generation { await store.loadPlaylists(force: true) }
-                        show("Couldn't add to \(name)")
+                        show(String(localized: "Couldn't add to \(name)"))
                         return
                     }
                     var item = SpotifyMapping.playlistItem(made)
                     item.count = songIds.count
                     item.subtitle = "Playlist · \(songIds.count) songs"
                     if item.palette.cover == nil { item.palette = palette }
-                    guard gen == store.generation else { return show("Added to \(name)") }
+                    guard gen == store.generation else { return show(String(localized: "Added to \(name)")) }
                     store.patchPlaylists { rows, _ in
                         rows.removeAll { $0.id.rawId == temp }
                         rows.insert(item, at: 0)
                     }
                 }
-                show("Added to \(name)")
+                show(String(localized: "Added to \(name)"))
             } catch {
                 log.error("create failed: \(self.message(error, writer), privacy: .public)")
-                guard gen == store.generation else { return show("Couldn't create \"\(name)\"") }
+                guard gen == store.generation else { return show(String(localized: "Couldn't create \"\(name)\"")) }
                 withAnimation(Yoin.spatial) { store.patchPlaylists { rows, _ in rows.removeAll { $0.id.rawId == temp } } }
-                show("Couldn't create \"\(name)\"")
+                show(String(localized: "Couldn't create \"\(name)\""))
             }
         }
     }
@@ -347,7 +347,7 @@ final class PlaylistActions {
     func rename(_ p: PlaylistInfo, to name: String, store: LibraryStore) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name != p.title else { return }
-        guard let writer = writer(store) else { return show("Renamed") }
+        guard let writer = writer(store) else { return show(String(localized: "Renamed")) }
         let id = p.id.rawId
         let old = p.title
         let gen = store.generation
@@ -366,17 +366,17 @@ final class PlaylistActions {
                 case .spotify(let spotify):
                     try await spotify.renamePlaylist(id, name: name)
                 }
-                show("Renamed")
+                show(String(localized: "Renamed"))
             } catch {
                 log.error("rename failed: \(self.message(error, writer), privacy: .public)")
-                guard gen == store.generation else { return show("Couldn't rename playlist") }
+                guard gen == store.generation else { return show(String(localized: "Couldn't rename playlist")) }
                 withAnimation(Yoin.spatial) {
                     store.patchPlaylists { rows, details in
                         if details[id]?.title == name { details[id]?.title = old }
                         if let i = rows.firstIndex(where: { $0.id.rawId == id }), rows[i].title == name { rows[i].title = old }
                     }
                 }
-                show("Couldn't rename playlist")
+                show(String(localized: "Couldn't rename playlist"))
             }
         }
     }
@@ -386,7 +386,7 @@ final class PlaylistActions {
         let store = model.store
         let id = p.id.rawId
         if case .playlist(id)? = model.path.last { model.back() }
-        guard let writer = writer(store) else { return show("Playlist deleted") }
+        guard let writer = writer(store) else { return show(String(localized: "Playlist deleted")) }
         let undo = store.snapshotPlaylist(id)
         let gen = store.generation
         withAnimation(Yoin.spatial) {
@@ -402,11 +402,11 @@ final class PlaylistActions {
                 // Spotify has no delete: unfollowing takes it out of the user's playlists.
                 case .spotify(let spotify): try await spotify.unfollowPlaylist(id)
                 }
-                show("Playlist deleted")
+                show(String(localized: "Playlist deleted"))
             } catch {
                 log.error("delete failed: \(self.message(error, writer), privacy: .public)")
                 if gen == store.generation { withAnimation(Yoin.spatial) { store.restorePlaylist(id, undo) } }
-                show("Couldn't delete playlist")
+                show(String(localized: "Couldn't delete playlist"))
             }
         }
     }
@@ -457,7 +457,7 @@ final class PlaylistActions {
                         Self.bump(&rows, playlistId, by: 1)
                     }
                 }
-                show("Couldn't remove track")
+                show(String(localized: "Couldn't remove track"))
             }
         }
     }
@@ -522,7 +522,7 @@ final class PlaylistActions {
             guard var server = spotifyServer[playlistId],
                   let at = Self.serverIndex(of: removed, in: server.entries, near: index) else {
                 if optimistic, gen == store.generation { restoreRow(removed, at: index, position: nil, in: playlistId, store: store) }
-                return show("Couldn't remove track")
+                return show(String(localized: "Couldn't remove track"))
             }
             let position = server.positions[at]
             do {
@@ -557,7 +557,7 @@ final class PlaylistActions {
             } catch {
                 log.error("remove failed: \(SpotifySource.message(for: error), privacy: .public)")
                 if optimistic, gen == store.generation { restoreRow(removed, at: index, position: position, in: playlistId, store: store) }
-                show("Couldn't remove track")
+                show(String(localized: "Couldn't remove track"))
             }
         }
     }

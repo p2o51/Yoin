@@ -46,7 +46,7 @@ final class NeoDBOAuth {
 
     func signIn(instance raw: String) async -> Result {
         guard let instance = NeoDBAccount.normalizeInstance(raw, blankIsDefault: false) else {
-            return .failure("Invalid NeoDB URL. Include a valid host.")
+            return .failure(String(localized: "Invalid NeoDB URL. Include a valid host."))
         }
         let registration: NeoDBClientRegistration
         do {
@@ -57,7 +57,7 @@ final class NeoDBOAuth {
         }
         let state = makeState()
         guard let authURL = Self.authorizationURL(instance: instance, clientId: registration.clientId, state: state) else {
-            return .failure("Invalid NeoDB URL. Include a valid host.")
+            return .failure(String(localized: "Invalid NeoDB URL. Include a valid host."))
         }
         let callback: URL
         do {
@@ -76,7 +76,7 @@ final class NeoDBOAuth {
             let token = try await api.exchangeOAuthCode(instance: instance, clientId: registration.clientId,
                                                         clientSecret: registration.clientSecret, code: code,
                                                         redirectURI: Self.callbackURI)
-            guard !token.accessToken.isEmpty else { return .failure("NeoDB returned incomplete credentials") }
+            guard !token.accessToken.isEmpty else { return .failure(String(localized: "NeoDB returned incomplete credentials")) }
             return .success(instance: instance, accessToken: token.accessToken)
         } catch {
             return .failure(Self.message(error, fallback: "NeoDB token exchange failed"))
@@ -106,14 +106,14 @@ final class NeoDBOAuth {
     static func parseCallback(_ url: URL, expectedState: String) -> Callback {
         guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false), c.scheme == callbackScheme,
               c.host == "auth", c.path.hasPrefix("/neodb/callback") else {
-            return .failure("NeoDB redirect missing required parameters")
+            return .failure(String(localized: "NeoDB redirect missing required parameters"))
         }
         func value(_ name: String) -> String? { c.queryItems?.first { $0.name == name }?.value }
-        if let error = value("error") { return .failure("NeoDB auth error: \(error)") }
+        if let error = value("error") { return .failure(String(localized: "NeoDB auth error: \(error)")) }
         guard let code = value("code"), !code.isEmpty, let state = value("state"), !state.isEmpty else {
-            return .failure("NeoDB redirect missing required parameters")
+            return .failure(String(localized: "NeoDB redirect missing required parameters"))
         }
-        guard state == expectedState else { return .failure("NeoDB state nonce mismatch") }
+        guard state == expectedState else { return .failure(String(localized: "NeoDB state nonce mismatch")) }
         return .success(code)
     }
 
@@ -145,7 +145,7 @@ final class SystemWebAuthenticator: NSObject, NeoDBWebAuthenticating {
             s.presentationContextProvider = self
             session = s
             if !s.start() {
-                continuation.resume(throwing: NeoDBError(code: 0, message: "NeoDB sign-in failed"))
+                continuation.resume(throwing: NeoDBError(code: 0, message: String(localized: "NeoDB sign-in failed")))
             }
         }
     }

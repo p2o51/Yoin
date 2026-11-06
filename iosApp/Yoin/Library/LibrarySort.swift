@@ -14,10 +14,10 @@ enum LibrarySortOrder: String, Hashable, Sendable {
 
     var label: String {
         switch self {
-        case .recents: "Recents"
-        case .recentlyAdded: "Recently added"
-        case .alphabetical: "Alphabetical"
-        case .creator: "Creator"
+        case .recents: String(localized: "Recents")
+        case .recentlyAdded: String(localized: "Recently added")
+        case .alphabetical: String(localized: "Alphabetical")
+        case .creator: String(localized: "Creator")
         }
     }
 }
@@ -145,11 +145,11 @@ enum LibraryScrollIndex {
             guard entries.contains(where: { $0.lastSeen != nil }) else { return [] }
             let year = calendar.component(.year, from: now)
             for (i, e) in entries.enumerated() {
-                guard let ms = e.lastSeen else { add("Not opened", i); continue }
+                guard let ms = e.lastSeen else { add(String(localized: "Not opened"), i); continue }
                 let date = Date(timeIntervalSince1970: Double(ms) / 1000)
-                if calendar.isDate(date, inSameDayAs: now) { add("Today", i) }
-                else if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) { add("This week", i) }
-                else if calendar.isDate(date, equalTo: now, toGranularity: .month) { add("This month", i) }
+                if calendar.isDate(date, inSameDayAs: now) { add(String(localized: "Today"), i) }
+                else if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) { add(String(localized: "This week"), i) }
+                else if calendar.isDate(date, equalTo: now, toGranularity: .month) { add(String(localized: "This month"), i) }
                 else {
                     let y = calendar.component(.year, from: date)
                     add(y == year ? date.formatted(.dateTime.month(.abbreviated)) : String(y), i)

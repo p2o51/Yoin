@@ -113,19 +113,19 @@ struct SubsonicMapping {
     }
 
     func albumItem(_ a: Album) -> LibraryItem {
-        LibraryItem(id: a.id, kind: .album, title: a.title, subtitle: "Album · \(a.artist)",
+        LibraryItem(id: a.id, kind: .album, title: a.title, subtitle: String(localized: "Album · \(a.artist)"),
                     palette: a.palette, album: a)
     }
 
     func artistItem(_ a: ArtistInfo) -> LibraryItem {
         LibraryItem(id: MediaId(provider: a.ref.provider, rawId: a.id), kind: .artist, title: a.name,
-                    subtitle: "Artist", palette: palette(coverId: a.coverArtId), count: Self.int(a.albumCount))
+                    subtitle: String(localized: "Artist"), palette: palette(coverId: a.coverArtId), count: Self.int(a.albumCount))
     }
 
     func playlistItem(_ p: PlaylistSummary) -> LibraryItem {
         let n = Self.int(p.songCount) ?? 0
         return LibraryItem(id: MediaId(provider: p.ref.provider, rawId: p.id), kind: .playlist, title: p.name,
-                           subtitle: "Playlist · \(n) songs", palette: palette(coverId: p.coverArtId), count: n,
+                           subtitle: String(localized: "Playlist · \(n) songs"), palette: palette(coverId: p.coverArtId), count: n,
                            owner: p.owner, ownedByMe: p.ownedByMe?.boolValue)
     }
 

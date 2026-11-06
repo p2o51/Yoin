@@ -107,12 +107,12 @@ final class PlaylistBackups {
                 let text = record.unexportedCount == 0
                     ? "Backed up \(songs) \(songs == 1 ? "song" : "songs")"
                     : "Backed up \(songs) of \(total) \(total == 1 ? "song" : "songs")"
-                PlaylistActions.shared.show(text, action: .init(label: "View") { [weak self] in
+                PlaylistActions.shared.show(text, action: .init(label: String(localized: "View")) { [weak self] in
                     self?.viewRequest = ViewRequest(backupId: record.id, playlistId: key)
                 })
             } catch {
                 log.error("backup failed: \(error.localizedDescription, privacy: .public)")
-                PlaylistActions.shared.show("Couldn't back up the playlist")
+                PlaylistActions.shared.show(String(localized: "Couldn't back up the playlist"))
             }
         }
     }
@@ -521,6 +521,6 @@ extension AppleMusicMapping {
         let raw = id.hasPrefix(provider + ":") ? String(id.dropFirst(provider.count + 1)) : nil
         if let raw, isCatalogSongId(raw) { return ["id": raw, "type": "songs"] }
         if let raw, isLibraryId(raw), !resourceId(raw).isEmpty { return ["id": resourceId(raw), "type": "library-songs"] }
-        throw AppleMusicSource.RequestError(message: "An Apple Music song is required")
+        throw AppleMusicSource.RequestError(message: String(localized: "An Apple Music song is required"))
     }
 }

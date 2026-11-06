@@ -88,14 +88,14 @@ struct AccountsSection: View {
 
     /// The one thing a card needs to say, if any (Android AccountStatusPill): a problem beats a switch.
     private func status(_ p: Profile) -> AccountCard.Status? {
-        if profiles.switchingTo == p.id { return .busy("Connecting") }
-        if profiles.needsSignIn(p) { return .problem("Sign in again") }
-        if profiles.failure?.profileId == p.id { return .problem("Couldn't switch") }
+        if profiles.switchingTo == p.id { return .busy(String(localized: "Connecting")) }
+        if profiles.needsSignIn(p) { return .problem(String(localized: "Sign in again")) }
+        if profiles.failure?.profileId == p.id { return .problem(String(localized: "Couldn't switch")) }
         if p.service == .appleMusic, !model.appleMusic.isAuthorized, model.appleMusic.authorization != .notDetermined {
-            return .problem("Access off")
+            return .problem(String(localized: "Access off"))
         }
         if p.id == profiles.activeId, p.service == .subsonic, case .failed = model.session.state {
-            return .problem("Can't connect")
+            return .problem(String(localized: "Can't connect"))
         }
         return nil
     }
@@ -229,7 +229,7 @@ struct AccountCard: View {
         .animation(Yoin.spatial, value: status)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
-        .accessibilityHint(isActive ? "Manage account" : "Switch to this account")
+        .accessibilityHint(isActive ? String(localized: "Manage account") : String(localized: "Switch to this account"))
     }
 
     /// Service, then host (the service drops out when the title already says it).

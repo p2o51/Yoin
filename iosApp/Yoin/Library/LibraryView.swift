@@ -426,7 +426,7 @@ struct LibraryView: View {
             // A service that doesn't count an artist's albums (Spotify) says "Artist", not the mock's count.
             guard let n = item.count ?? (item.id.provider == "mock"
                 ? model.library.albums().filter { $0.artist == item.title }.count : nil) else { return "Artist" }
-            return n == 1 ? "1 album" : "\(n) albums"
+            return n == 1 ? String(localized: "1 album") : String(localized: "\(n) albums")
         case .album: return item.album?.artist ?? ""
         case .playlist: return "Playlist"
         }
@@ -576,11 +576,11 @@ struct LibraryView: View {
         let loaded = !model.store.isReal || model.store.phase("favorites") == .loaded
         let artists = favoriteArtists, albums = favoriteAlbums, songs = favoriteEntries
         if artists.isEmpty && albums.isEmpty && songs.isEmpty && loaded {
-            EmptyPanel(text: "No favorites yet", scheme: scheme)
+            EmptyPanel(text: String(localized: "No favorites yet"), scheme: scheme)
         } else {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if !artists.isEmpty {
-                    sectionHeader("Artists")
+                    sectionHeader(String(localized: "Artists"))
                     ForEach(artists) { a in
                         LibraryListRow(title: a.title, subtitle: subtitle(a), scheme: scheme) {
                             EntityBackdrop(entity: .artist, palette: a.palette, seed: a.id.rawId.count,
@@ -590,7 +590,7 @@ struct LibraryView: View {
                     }
                 }
                 if !albums.isEmpty {
-                    sectionHeader("Albums")
+                    sectionHeader(String(localized: "Albums"))
                     ForEach(albums) { a in
                         LibraryListRow(title: a.title, subtitle: a.artist, scheme: scheme) {
                             CoverArt(palette: a.palette, cornerRadius: 0, seed: a.seed)
@@ -600,7 +600,7 @@ struct LibraryView: View {
                         .transition(.opacity.animation(Yoin.effects))
                     }
                 }
-                if !songs.isEmpty { sectionHeader("Songs") }
+                if !songs.isEmpty { sectionHeader(String(localized: "Songs")) }
             }
             .animation(Yoin.spatial, value: artists.map(\.id))
             .animation(Yoin.spatial, value: albums.map(\.id))
@@ -628,7 +628,7 @@ struct LibraryView: View {
             } else if model.store.phase(key) != .loaded {
                 RowSkeleton(scheme: scheme)
             } else if filter == .songs {
-                EmptyPanel(text: "No songs found", scheme: scheme)
+                EmptyPanel(text: String(localized: "No songs found"), scheme: scheme)
             }
         }
         // Keyed by song and occurrence (a song listed twice is two rows), so
@@ -973,7 +973,7 @@ struct LibraryFilterRow: View {
 
         var label: String {
             switch self {
-            case .kind(let k): k.rawValue
+            case .kind(let k): k.title
             case .byYou: "By You"
             }
         }

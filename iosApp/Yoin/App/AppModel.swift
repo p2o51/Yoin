@@ -255,9 +255,9 @@ final class AppModel {
         // on `player.failure` until Retry / play.
         player.onEvent = { event in
             switch event {
-            case .skippedAfterError(let track, _): PlaylistActions.shared.show("Couldn't play \(track.title)")
-            case .failed(let track, _): PlaylistActions.shared.show("Couldn't reach the server for \(track.title)")
-            case .queueFailed: PlaylistActions.shared.show("Couldn't play this queue")
+            case .skippedAfterError(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't play \(track.title)"))
+            case .failed(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't reach the server for \(track.title)"))
+            case .queueFailed: PlaylistActions.shared.show(String(localized: "Couldn't play this queue"))
             case .queueEnded: break
             }
         }

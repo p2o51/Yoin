@@ -118,7 +118,7 @@ final class AlbumNeoDBSync {
             states[key] = .pending
         } catch {
             states[key] = .failed
-            onFailure("Couldn't sync to NeoDB")
+            onFailure(String(localized: "Couldn't sync to NeoDB"))
         }
     }
 }
@@ -173,9 +173,9 @@ struct AlbumReviewRoute: View {
         let count = text.unicodeScalars.count
         let short = isNeoDBShortComment(text)
         HStack {
-            Text(short ? "Short comment" : "Review")
+            Text(short ? String(localized: "Short comment") : String(localized: "Review"))
             Spacer()
-            Text(short ? "\(count) / \(neoDBShortCommentMax)" : "\(count)")
+            Text(short ? String(localized: "\(count) / \(neoDBShortCommentMax)") : "\(count)")
                 .monospacedDigit()
         }
         .yoinRole(Tokens.type.labelMedium)

@@ -393,7 +393,7 @@ struct DiaryBlocks: View {
             .disabled(!interactive)
             .animation(Yoin.effects, value: isPlaying)
             .accessibilityLabel(g.rating.map { "Track \(g.track.number), \(g.track.title), rated \(String(format: "%.1f", $0))" }
-                ?? "Track \(g.track.number), \(g.track.title)")
+                ?? String(localized: "Track \(g.track.number), \(g.track.title)"))
             ForEach(g.notes) { n in
                 Button {
                     MemoriesHaptics.soft(0.4)
@@ -419,7 +419,7 @@ struct DiaryBlocks: View {
                 .buttonStyle(DiaryRowStyle(scheme: scheme))
                 .padding(.horizontal, -MemoryDiaryTokens.rowBleed)
                 .disabled(!interactive)
-                .accessibilityLabel(n.positionMs.map { "Note at \(MemoryDiaryFormat.stamp($0)): \(n.content)" } ?? "Note: \(n.content)")
+                .accessibilityLabel(n.positionMs.map { "Note at \(MemoryDiaryFormat.stamp($0)): \(n.content)" } ?? String(localized: "Note: \(n.content)"))
             }
         }
     }

@@ -311,7 +311,7 @@ struct HomeView: View {
         let gap = Tokens.home.ACTIVITY_ROW_GAP.cg
         let small = contentWidth > 0 ? (contentWidth - gap) / 3 : 120
         return VStack(alignment: .leading, spacing: gap) {
-            HomeSectionTitle("Activities").padding(.bottom, 6)
+            HomeSectionTitle(String(localized: "Activities")).padding(.bottom, 6)
             HeroCard(album: a[0].album, timeAgo: a[0].eyebrow)
             if a.count > 1 {
                 HStack(spacing: gap) {
@@ -364,7 +364,7 @@ struct HomeView: View {
         let pairUnit = (contentWidth - colGap) / 3
         let rows = serverRows(feed)
         return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
-            HomeSectionTitle("Jump Back In")
+            HomeSectionTitle(String(localized: "Jump Back In"))
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .top, spacing: colGap) {
                     switch row {
@@ -397,7 +397,7 @@ struct HomeView: View {
         let col = (contentWidth - 2 * colGap) / 3
         let pairUnit = (contentWidth - colGap) / 3
         return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
-            HomeSectionTitle("Jump Back In")
+            HomeSectionTitle(String(localized: "Jump Back In"))
             VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
                 HStack(alignment: .top, spacing: colGap) {
                     SignalCard(signal: Self.mockSignal(a[0], .ratedAlbum)).frame(width: pairUnit * 2, alignment: .leading)
@@ -437,7 +437,7 @@ struct HomeView: View {
         let gridWidth = min(340, max(226.8, (contentWidth - 14) * 2.6 / 3.6))
         let tileGap = Tokens.home.RECENTLY_ADDED_TILE_GAP.cg
         return VStack(alignment: .leading, spacing: 12) {
-            HomeSectionTitle("Recently Added")
+            HomeSectionTitle(String(localized: "Recently Added"))
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 14) {
                     if !tiles.isEmpty {
@@ -499,7 +499,7 @@ struct HomeView: View {
 
     private func rediscover(_ cards: [RediscoverEntry]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HomeSectionTitle("Rediscover")
+            HomeSectionTitle(String(localized: "Rediscover"))
             ScrollView(.horizontal) {
                 HStack(spacing: Tokens.home.REDISCOVER_GAP.cg) {
                     ForEach(Array(cards.enumerated()), id: \.offset) { _, c in
@@ -527,11 +527,11 @@ private struct HomeConnectPrompt: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text(hasAccount ? "Sign in again" : "No account connected")
+            Text(hasAccount ? String(localized: "Sign in again") : String(localized: "No account connected"))
                 .homeType(Tokens.type.titleMedium, .semibold)
                 .foregroundStyle(scheme.onSurfaceVariant)
             Button(action: action) {
-                Text(hasAccount ? "Open Settings" : "Connect an account")
+                Text(hasAccount ? String(localized: "Open Settings") : String(localized: "Connect an account"))
                     .yoinRole(Tokens.type.labelLarge)
                     .foregroundStyle(scheme.onSecondaryContainer)
                     .padding(.horizontal, 20)
@@ -1017,7 +1017,7 @@ private struct PlaylistMini: View {
                         .homeLine(12, 16)
                         .foregroundStyle(s.onSurface)
                     if let n = item.count {
-                        Text(n == 1 ? "1 song" : "\(n) songs")
+                        Text(n == 1 ? String(localized: "1 song") : String(localized: "\(n) songs"))
                             .homeType(Tokens.type.labelSmall)
                             .foregroundStyle(s.onSurfaceVariant)
                     }

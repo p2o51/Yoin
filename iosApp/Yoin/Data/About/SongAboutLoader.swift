@@ -231,12 +231,12 @@ final class SongAboutLoader {
             guard let result = await regenerate(ref) else { return }
             switch result {
             case .success(let title, let answer):
-                toast.show("Regenerated", action: .init(label: "Undo") { [weak self] in
+                toast.show(String(localized: "Regenerated"), action: .init(label: String(localized: "Undo")) { [weak self] in
                     self?.undoRegenerate(ref, title: title, answer: answer)
                 })
-            case .nothingNew: toast.show("Gemini had nothing new")
-            case .apiKeyMissing: toast.show("Gemini API key missing")
-            case .error: toast.show("Gemini couldn't answer. Try again.")
+            case .nothingNew: toast.show(String(localized: "Gemini had nothing new"))
+            case .apiKeyMissing: toast.show(String(localized: "Gemini API key missing"))
+            case .error: toast.show(String(localized: "Gemini couldn't answer. Try again."))
             }
         }
     }
@@ -260,7 +260,7 @@ final class SongAboutLoader {
         guard !asked.isEmpty else { return }
         let apiKey = settings.requestKey
         guard !apiKey.isEmpty else {
-            toast.show("Gemini API key missing")
+            toast.show(String(localized: "Gemini API key missing"))
             return
         }
         let language = settings.targetLanguage
@@ -275,7 +275,7 @@ final class SongAboutLoader {
                               language: language)
             } catch is CancellationError {
             } catch {
-                toast.show("Gemini couldn't answer. Try again.")
+                toast.show(String(localized: "Gemini couldn't answer. Try again."))
             }
             if let i = asking.firstIndex(of: pending) { asking.remove(at: i) }
         }

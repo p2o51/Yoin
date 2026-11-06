@@ -166,7 +166,7 @@ struct MemoryDiaryEntry: View {
             Text(MemoryDiaryFormat.entryDate(card.review?.at))
                 .font(.gsf(13, .semibold))
                 .foregroundStyle(tones.ink)
-            Text(blank ? "Today" : "Your review")
+            Text(blank ? String(localized: "Today") : String(localized: "Your review"))
                 .font(.gsf(13, .medium))
                 .foregroundStyle(scheme.onSurfaceVariant)
                 .contentTransition(.opacity)

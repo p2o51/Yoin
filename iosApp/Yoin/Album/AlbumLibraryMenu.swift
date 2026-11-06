@@ -34,14 +34,14 @@ final class AlbumLibraryState {
                 await store.loadAlbums(force: true)
             } catch {
                 saved[id] = was
-                PlaylistActions.shared.show(target ? "Couldn't save the album" : "Couldn't remove the album")
+                PlaylistActions.shared.show(target ? String(localized: "Couldn't save the album") : String(localized: "Couldn't remove the album"))
             }
         }
     }
 
     nonisolated static func applies(_ album: Album) -> Bool { album.id.provider == SpotifyMapping.provider }
 
-    nonisolated static func label(saved: Bool) -> String { saved ? "Remove from library" : "Save to library" }
+    nonisolated static func label(saved: Bool) -> String { saved ? String(localized: "Remove from library") : String(localized: "Save to library") }
 
     /// For tests: a known state.
     func set(_ state: Bool?, for rawId: String) { saved[rawId] = state }

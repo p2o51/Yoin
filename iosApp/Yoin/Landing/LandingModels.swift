@@ -111,17 +111,17 @@ struct LandingFlow: Equatable, Sendable {
     /// Android primaryFor: what the pill's button says and how strongly.
     func primary(hasAccount: Bool) -> LandingPrimary {
         switch step {
-        case .hello: return LandingPrimary(label: "Get started", style: .filled, arrow: true)
+        case .hello: return LandingPrimary(label: String(localized: "Get started"), style: .filled, arrow: true)
         case .pick:
-            if !picked.isEmpty { return LandingPrimary(label: "Next", style: .filled) }
+            if !picked.isEmpty { return LandingPrimary(label: String(localized: "Next"), style: .filled) }
             // An account already exists (a re-run): nothing new to add is fine.
-            if hasAccount { return LandingPrimary(label: "Skip", style: .tonal) }
-            return LandingPrimary(label: "Next", style: .unavailable)
+            if hasAccount { return LandingPrimary(label: String(localized: "Skip"), style: .tonal) }
+            return LandingPrimary(label: String(localized: "Next"), style: .unavailable)
         case .subsonic, .spotify, .appleMusic:
             let done = step.service.map(connected.contains) ?? false
-            return done ? LandingPrimary(label: "Next", style: .filled) : LandingPrimary(label: "Skip", style: .tonal)
-        case .ready: return LandingPrimary(label: "Open Yoin", style: .filled, arrow: true)
-        case .about: return LandingPrimary(label: "Next", style: .filled)
+            return done ? LandingPrimary(label: String(localized: "Next"), style: .filled) : LandingPrimary(label: String(localized: "Skip"), style: .tonal)
+        case .ready: return LandingPrimary(label: String(localized: "Open Yoin"), style: .filled, arrow: true)
+        case .about: return LandingPrimary(label: String(localized: "Next"), style: .filled)
         }
     }
 

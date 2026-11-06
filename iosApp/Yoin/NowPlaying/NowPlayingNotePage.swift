@@ -109,7 +109,7 @@ struct NowPlayingNotePage: View {
     /// "3 notes" … [Timeline | Created].
     private var header: some View {
         HStack {
-            Text(notes.count == 1 ? "1 note" : "\(notes.count) notes")
+            Text(notes.count == 1 ? String(localized: "1 note") : String(localized: "\(notes.count) notes"))
                 .yoinRole(Tokens.type.labelMedium)
                 .foregroundStyle(scheme.onSurfaceVariant)
                 .contentTransition(.numericText())
@@ -250,7 +250,7 @@ struct NowPlayingNotePage: View {
                 .monospacedDigit()
                 .foregroundStyle(scheme.primary.opacity(0.8))
                 .frame(width: NoteLinesView.stampColumn, alignment: .leading)
-            Text(editingId != nil ? "Editing…" : "Writing…")
+            Text(editingId != nil ? String(localized: "Editing…") : String(localized: "Writing…"))
                 .yoinRole(Tokens.type.bodyMedium)
                 .foregroundStyle(scheme.onSurfaceVariant)
                 .padding(.bottom, 3)
@@ -346,8 +346,8 @@ struct NoteSortToggle: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            option("Timeline", .timeline)
-            option("Created", .created)
+            option(String(localized: "Timeline"), .timeline)
+            option(String(localized: "Created"), .created)
         }
         .padding(3)
         .background(scheme.surfaceContainerHigh, in: Capsule())

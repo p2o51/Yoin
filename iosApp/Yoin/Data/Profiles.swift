@@ -389,7 +389,7 @@ final class ProfileManager {
         switch target.service {
         case .subsonic:
             guard let account = store.signIn(id) else {
-                failure = Failure(profileId: id, message: "Sign in again")
+                failure = Failure(profileId: id, message: String(localized: "Sign in again"))
                 return
             }
             withAnimation(Yoin.effects) { switchingTo = id }
@@ -418,13 +418,13 @@ final class ProfileManager {
             }
         case .appleMusic:
             guard appleAuthorized() else {
-                failure = Failure(profileId: id, message: "Apple Music access is off for Yoin")
+                failure = Failure(profileId: id, message: String(localized: "Apple Music access is off for Yoin"))
                 return
             }
             commit(target, probe: nil, account: nil)
         case .spotify:
             guard !needsSignIn(target) else {
-                failure = Failure(profileId: id, message: "Sign in again")
+                failure = Failure(profileId: id, message: String(localized: "Sign in again"))
                 return
             }
             commit(target, probe: nil, account: nil)

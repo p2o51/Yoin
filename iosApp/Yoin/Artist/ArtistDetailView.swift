@@ -138,7 +138,7 @@ struct ArtistDetailView: View {
     private var yearSpan: String? {
         let years = releases.map(\.year).filter { $0 > 0 }
         guard let lo = years.min(), let hi = years.max() else { return nil }
-        return lo == hi ? "\(lo)" : "\(lo) – \(hi)"
+        return lo == hi ? "\(lo)" : String(localized: "\(lo) – \(hi)")
     }
 
     private var header: some View {
@@ -186,7 +186,7 @@ struct ArtistDetailView: View {
             // Pinned header button over scrolling content: a glass circle.
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
-            .accessibilityLabel(following ? "Favorited" : "Favorite")
+            .accessibilityLabel(following ? String(localized: "Favorited") : String(localized: "Favorite"))
             .transition(.opacity)
             }
         }
@@ -317,7 +317,7 @@ struct ArtistDetailView: View {
         let picks: [(Album, Track, Int)] = listening.top.map { ($0.entry.album, $0.entry.track, $0.plays) }
         return VStack(alignment: .leading, spacing: 0) {
             if !picks.isEmpty {
-            sectionHeader("Most Played", listening.total == 1 ? "1 play" : "\(listening.total) plays")
+            sectionHeader(String(localized: "Most Played"), listening.total == 1 ? String(localized: "1 play") : String(localized: "\(listening.total) plays"))
             Spacer().frame(height: 6)
             }
             ForEach(Array(picks.enumerated()), id: \.offset) { i, item in
@@ -349,7 +349,7 @@ struct ArtistDetailView: View {
                                 .monospacedDigit()
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(plays == 1 ? "1 play" : "\(plays) plays").monospacedDigit()
+                        Text(plays == 1 ? String(localized: "1 play") : String(localized: "\(plays) plays")).monospacedDigit()
                             .yoinRole(Tokens.type.labelLarge)
                             .foregroundStyle(app.onSurfaceVariant)
                     }
@@ -377,7 +377,7 @@ struct ArtistDetailView: View {
         let collapsed = Int(Tokens.detail.ARTIST_COLLAPSED_COUNT)
         let visible = showAll ? shown : Array(shown.prefix(collapsed))
         return VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Discography", releases.count == 1 ? "1 release" : "\(releases.count) releases")
+            sectionHeader(String(localized: "Discography"), releases.count == 1 ? String(localized: "1 release") : String(localized: "\(releases.count) releases"))
             if kinds.count >= 2 {
                 // Full-bleed with the 16 page margin inside the scroll, so the
                 // chips run off the screen edge instead of stopping mid-page
@@ -386,7 +386,7 @@ struct ArtistDetailView: View {
                     HStack(spacing: 8) {
                         chip("All", on: kindFilter == nil) { kindFilter = nil }
                         ForEach(kinds, id: \.self) { k in
-                            chip(k == .album ? "Albums" : k == .ep ? "Singles & EPs" : "Compilations",
+                            chip(k == .album ? "Albums" : k == .ep ? String(localized: "Singles & EPs") : String(localized: "Compilations"),
                                  on: kindFilter == k) { kindFilter = k }
                         }
                     }
@@ -405,7 +405,7 @@ struct ArtistDetailView: View {
                 Button {
                     withAnimation(Yoin.spatial) { showAll.toggle() }
                 } label: {
-                    Text(showAll ? "Show fewer" : "Show all \(shown.count)")
+                    Text(showAll ? String(localized: "Show fewer") : String(localized: "Show all \(shown.count)"))
                         .yoinRole(Tokens.type.labelLarge)
                         .foregroundStyle(s.primary)
                         .padding(.horizontal, 12).padding(.vertical, 8)

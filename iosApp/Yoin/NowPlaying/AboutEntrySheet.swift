@@ -47,12 +47,12 @@ struct AboutEntrySheet: View {
     private var rows: [Row] {
         var out: [Row] = []
         if playing != nil {
-            out.append(Row(label: "Manage in Scrapbook", icon: "note") { [model, target] in
+            out.append(Row(label: String(localized: "Manage in Scrapbook"), icon: "note") { [model, target] in
                 Self.manage(target.entry, model: model)
             })
         }
         if target.entry.kind != SongAboutStore.Kind.own {
-            out.append(Row(label: "Regenerate with Gemini", icon: "sparkle") { [target] in
+            out.append(Row(label: String(localized: "Regenerate with Gemini"), icon: "sparkle") { [target] in
                 SongAboutLoader.shared.regenerateAndReport(target.entry.ref)
             })
         }

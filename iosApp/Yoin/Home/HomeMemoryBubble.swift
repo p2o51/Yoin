@@ -297,7 +297,7 @@ struct MemoryBubbleOverlay: View {
                     .onTapGesture { tapBubble() }
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.bubbleFrame = $0 }
                     .onDisappear { bubble.bubbleFrame = .zero }
-                    .accessibilityLabel(bubble.sayTip.map { "Tip: \($0.title)" } ?? bubble.say.map { "Latest memory: \($0.albumName)" } ?? "Memories")
+                    .accessibilityLabel(bubble.sayTip.map { "Tip: \($0.title)" } ?? bubble.say.map { "Latest memory: \($0.albumName)" } ?? String(localized: "Memories"))
                     .accessibilityAddTraits(.isButton)
             }
         }
@@ -458,7 +458,7 @@ struct MemoryBubbleOverlay: View {
                     .onTapGesture { tapBubble() }
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.bubbleFrame = $0 }
                     .onDisappear { bubble.bubbleFrame = .zero }
-                    .accessibilityLabel(bubble.sayTip.map { "Tip: \($0.title)" } ?? bubble.say.map { "Latest memory: \($0.albumName)" } ?? "Memories")
+                    .accessibilityLabel(bubble.sayTip.map { "Tip: \($0.title)" } ?? bubble.say.map { "Latest memory: \($0.albumName)" } ?? String(localized: "Memories"))
                     .accessibilityAddTraits(.isButton)
             }
         }

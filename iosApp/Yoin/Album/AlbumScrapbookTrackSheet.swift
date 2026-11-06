@@ -193,11 +193,11 @@ struct ScrapTrackSheet: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .accessibilityHint(note.positionMs.map { "Play from \(NotesStore.formatPosition($0))" } ?? "Play")
+            .accessibilityHint(note.positionMs.map { "Play from \(NotesStore.formatPosition($0))" } ?? String(localized: "Play"))
             .contextMenu {
                 Button("Delete", role: .destructive) {
                     guard let gone = NotesStore.shared.delete(id: note.id) else { return }
-                    toast.show("Deleted", action: .init(label: "Undo") { NotesStore.shared.restore(gone) })
+                    toast.show(String(localized: "Deleted"), action: .init(label: String(localized: "Undo")) { NotesStore.shared.restore(gone) })
                 }
             }
         }
@@ -227,7 +227,7 @@ struct ScrapTrackSheet: View {
     private func remove(_ ref: SongAboutStore.Entry.Ref, wasTitle: String?, wasAnswer: String, name: String?) {
         editing = nil
         about.edit(ref, title: nil, answer: "")
-        toast.show(name.map { "Deleted “\($0)”" } ?? "Deleted", action: .init(label: "Undo") {
+        toast.show(name.map { "Deleted “\($0)”" } ?? String(localized: "Deleted"), action: .init(label: String(localized: "Undo")) {
             SongAboutStore.shared.edit(ref, title: wasTitle, answer: wasAnswer)
         })
     }
@@ -399,7 +399,7 @@ struct ScrapTrackSheet: View {
     private func byline(own: Bool, color: Color) -> some View {
         HStack(spacing: 4) {
             if !own { YoinIcon("sparkle", size: 14) }
-            Text(own ? "Written by you" : "Gemini")
+            Text(own ? String(localized: "Written by you") : String(localized: "Gemini"))
                 .yoinRole(Tokens.type.labelMedium, weight: .semibold)
         }
         .foregroundStyle(color)
@@ -453,14 +453,14 @@ private struct ScrapAboutEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if title != nil {
-                ScrapField(text: $titleDraft, hint: "Title", scheme: scheme, heading: true, singleLine: true)
+                ScrapField(text: $titleDraft, hint: String(localized: "Title"), scheme: scheme, heading: true, singleLine: true)
             }
-            ScrapField(text: $textDraft, hint: "Empty removes it", scheme: scheme)
+            ScrapField(text: $textDraft, hint: String(localized: "Empty removes it"), scheme: scheme)
                 .focused($textFocused)
             HStack(spacing: 8) {
-                editorButton("Delete", icon: "delete", content: scheme.error, action: onDelete)
+                editorButton(String(localized: "Delete"), icon: "delete", content: scheme.error, action: onDelete)
                 if canRegenerate {
-                    editorButton("Regenerate", icon: "sparkle", content: scheme.tertiary, action: onRegenerate)
+                    editorButton(String(localized: "Regenerate"), icon: "sparkle", content: scheme.tertiary, action: onRegenerate)
                 }
                 Spacer(minLength: 0)
                 Button { onDone(title == nil ? nil : titleDraft, textDraft) } label: {
@@ -517,11 +517,11 @@ private struct ScrapNewEntry: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ScrapField(text: $title, hint: "A title, like: what is this song about", scheme: scheme,
+            ScrapField(text: $title, hint: String(localized: "A title, like: what is this song about"), scheme: scheme,
                        heading: true, singleLine: true)
                 .focused($focus, equals: .title)
             if typing {
-                ScrapField(text: $body_, hint: "Write what you know…", scheme: scheme, minHeight: 84)
+                ScrapField(text: $body_, hint: String(localized: "Write what you know…"), scheme: scheme, minHeight: 84)
                     .focused($focus, equals: .body)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -530,7 +530,7 @@ private struct ScrapNewEntry: View {
                     onAsk(title.trimmingCharacters(in: .whitespacesAndNewlines))
                     reset()
                 } label: {
-                    label("Ask Gemini", icon: "sparkle", fill: scheme.tertiaryContainer,
+                    label(String(localized: "Ask Gemini"), icon: "sparkle", fill: scheme.tertiaryContainer,
                           content: scheme.onTertiaryContainer)
                 }
                 .buttonStyle(PressScale())
@@ -546,7 +546,7 @@ private struct ScrapNewEntry: View {
                         reset()
                     }
                 } label: {
-                    label(typing ? "Save" : "Write", icon: typing ? nil : "edit", fill: scheme.primary,
+                    label(typing ? String(localized: "Save") : String(localized: "Write"), icon: typing ? nil : "edit", fill: scheme.primary,
                           content: scheme.onPrimary)
                 }
                 .buttonStyle(PressScale())

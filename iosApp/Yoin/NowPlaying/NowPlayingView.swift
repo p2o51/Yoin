@@ -556,7 +556,7 @@ struct NowPlayingView: View, Equatable {
                         .contentShape(.rect)
                         .onTapGesture { openPage(stage == .focus ? .lyrics : page) }
                         .accessibilityAddTraits(.isButton)
-                        .accessibilityLabel(stage == .focus ? "Lyrics" : page.title)
+                        .accessibilityLabel(stage == .focus ? String(localized: "Lyrics") : page.title)
                 }
                 transport(p, short: short != nil)
                     .padding(.top, clear)
@@ -623,7 +623,7 @@ struct NowPlayingView: View, Equatable {
             .labGlass("transportSecondary", scheme: scheme, brand: brand,
                       auto: scheme.surfaceContainerHighest, in: Circle())
             .frame(width: 48, height: 48)
-            .accessibilityLabel(stage == .compact ? "Collapse Now Playing" : "Back")
+            .accessibilityLabel(stage == .compact ? String(localized: "Collapse Now Playing") : String(localized: "Back"))
             // DockedCoverSlot: the cover row flies the cover into it.
             Spacer().frame(width: docked ? NowPlayingExpanded.dockedSlot : 0)
             let from = playingFrom
@@ -670,7 +670,7 @@ struct NowPlayingView: View, Equatable {
                 .npFade(open, presenceFade)
                 .npMorphAnchor(.cover)
                 .modifier(CoverStageEffect(dock: dock, tappable: tappable,
-                                           label: stage == .focus ? "Show lyrics and rating" : "Focus artwork",
+                                           label: stage == .focus ? String(localized: "Show lyrics and rating") : String(localized: "Focus artwork"),
                                            onTap: onTap))
                 // Android NowPlayingCoverMenu: long-press = the song's sheet (+ Keep screen on).
                 .trackMenu(for: PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
@@ -804,7 +804,7 @@ struct NowPlayingView: View, Equatable {
     }
 
     private func heartLabel(_ on: Bool) -> String {
-        heartIsLibrary ? (on ? "In library" : "Add to library") : (on ? "Remove from favorites" : "Add to favorites")
+        heartIsLibrary ? (on ? String(localized: "In library") : String(localized: "Add to library")) : (on ? String(localized: "Remove from favorites") : String(localized: "Add to favorites"))
     }
 
     /// The lab's heart style is tinted (Current preset): unliked takes
@@ -936,15 +936,15 @@ struct NowPlayingView: View, Equatable {
         ZStack(alignment: .bottomLeading) {
             if lyricsSelecting {
                 LyricKeyRow(keys: [
-                    LyricKey(icon: "close", label: "Done selecting lyrics", emphasized: true) {
+                    LyricKey(icon: "close", label: String(localized: "Done selecting lyrics"), emphasized: true) {
                         withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
                     },
-                    LyricKey(icon: "copy", label: "Copy selected lyrics", enabled: !lyricsSelected.isEmpty) {
+                    LyricKey(icon: "copy", label: String(localized: "Copy selected lyrics"), enabled: !lyricsSelected.isEmpty) {
                         copySelectedLyrics(t)
                     },
-                    LyricKey(icon: "share", label: "Share selected lyrics as an image",
+                    LyricKey(icon: "share", label: String(localized: "Share selected lyrics as an image"),
                              enabled: !lyricsSelected.isEmpty) { shareSelectedLyrics(t) },
-                    LyricKey(icon: "edit", label: "Edit lyrics") {
+                    LyricKey(icon: "edit", label: String(localized: "Edit lyrics")) {
                         withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
                         openLyricsEditor(t)
                     },
@@ -952,15 +952,15 @@ struct NowPlayingView: View, Equatable {
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
             } else {
                 LyricKeyRow(keys: [
-                    LyricKey(icon: "search", label: "Search lyrics", enabled: idle) {
+                    LyricKey(icon: "search", label: String(localized: "Search lyrics"), enabled: idle) {
                         actions.openSearch(t)
                     },
-                    LyricKey(icon: "translate", label: "Translate lyrics", enabled: idle && hasLines,
+                    LyricKey(icon: "translate", label: String(localized: "Translate lyrics"), enabled: idle && hasLines,
                              busy: actions.inFlight == .translate) {
                         withAnimation(Yoin.spatial) { actions.translate(t, lines: loaded?.lines ?? []) }
                     },
                     // ✓ = select lines; with no lines it opens the editor (paste lyrics).
-                    LyricKey(icon: "check", label: hasLines ? "Select lyrics" : "Add lyrics", enabled: idle) {
+                    LyricKey(icon: "check", label: hasLines ? String(localized: "Select lyrics") : String(localized: "Add lyrics"), enabled: idle) {
                         if hasLines {
                             withAnimation(Yoin.effects) {
                                 lyricsSelected = []
@@ -970,7 +970,7 @@ struct NowPlayingView: View, Equatable {
                             openLyricsEditor(t)
                         }
                     },
-                    LyricKey(icon: "recenter", label: "Return to current line",
+                    LyricKey(icon: "recenter", label: String(localized: "Return to current line"),
                              enabled: idle && !lyricsFollow && (loaded?.synced ?? false)) {
                         lyricsFollow = true
                         lyricsRecenterTick += 1
@@ -1051,7 +1051,7 @@ struct NowPlayingView: View, Equatable {
         UIPasteboard.general.string = LyricsRules.clipboardText(lines: p.lines, translations: p.translations,
                                                                 passageStarts: p.starts, title: t.title, artist: t.artist)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        PlaylistActions.shared.show(p.lines.count == 1 ? "Copied 1 line" : "Copied \(p.lines.count) lines")
+        PlaylistActions.shared.show(p.lines.count == 1 ? String(localized: "Copied 1 line") : String(localized: "Copied \(p.lines.count) lines"))
         withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
     }
 
@@ -1394,7 +1394,7 @@ struct NowPlayingView: View, Equatable {
                     .accessibilityLabel("Loading lyrics")
             case .none:
                 // Android LyricsDisplay: the empty label at the window's start.
-                windowLabel("No lyrics available", clear: clear)
+                windowLabel(String(localized: "No lyrics available"), clear: clear)
             case .lines(let loaded) where loaded.synced:
                 // Only this subtree reads the position; the line index is
                 // derived per tick and the lines re-render when it moves.
@@ -1495,7 +1495,7 @@ struct NowPlayingView: View, Equatable {
         let key = currentNoteKey
         let notes = NotesStore.shared.notes(provider: key.provider, trackId: key.rawId)
         if notes.isEmpty {
-            windowLabel("Write", clear: clear)
+            windowLabel(String(localized: "Write"), clear: clear)
         } else {
             PlaybackPosition { position, _ in
                 NoteLinesView(notes: notes,
@@ -1586,13 +1586,13 @@ struct NowPlayingView: View, Equatable {
                 }
                 .buttonStyle(PressReport { touch("pause", $0) })
                 .labGlass("transportPrimary", scheme: scheme, brand: brand, auto: scheme.primary, in: Capsule())
-                .accessibilityLabel(playing ? "Pause" : "Play")
+                .accessibilityLabel(playing ? String(localized: "Pause") : String(localized: "Play"))
                 .animation(Yoin.standardFastSpatial, value: playing)
                 .animation(Yoin.standardDefaultSpatial, value: pausePressed)
                 .animation(Yoin.standardDefaultSpatial, value: nextPressed)
                 // PREVIOUS's place in this row, opening as it arrives.
                 .padding(.leading, short ? control + gap : 0)
-                roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: "Next",
+                roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: String(localized: "Next"),
                             width: max(0, nextWidth)) {
                     model.player.next()
                 }
@@ -1607,7 +1607,7 @@ struct NowPlayingView: View, Equatable {
                                onCycle: { model.player.cyclePlayMode() },
                                onShuffle: { model.player.setShuffle($0) },
                                onRepeat: { model.player.setRepeat($0) },
-                               onPress: { touch("Play mode", $0) })
+                               onPress: { touch(String(localized: "Play mode"), $0) })
             }
             .frame(height: 56)
             // The progress row's place: the row itself is drawn over the
@@ -1617,7 +1617,7 @@ struct NowPlayingView: View, Equatable {
         .overlay(alignment: .topLeading) {
             // PREVIOUS: at the start of the progress row at rest, at the
             // start of the top row in short focus.
-            roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: "Previous") {
+            roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: String(localized: "Previous")) {
                 model.player.previous()
             }
             .offset(y: short ? 0 : control + rowGap + (secondRow - control) / 2)
@@ -1696,7 +1696,7 @@ struct NowPlayingView: View, Equatable {
                 // titleLarge × 0.9; PAUSE Bold with 0.5 tracking, PLAY Medium
                 // with none. Laid out at its own width (it never sizes the
                 // pill); the stretch grows from its leading edge.
-                Text(playing ? "PAUSE" : "PLAY")
+                Text(playing ? String(localized: "PAUSE") : String(localized: "PLAY"))
                     .font(.gsf(19.8, playing ? .bold : .medium))
                     .tracking(playing ? 0.5 : 0)
                     // The word swaps outright (Android Text): no cross-fade
@@ -1734,7 +1734,7 @@ struct NowPlayingView: View, Equatable {
     static func playWordWidth(playing: Bool) -> CGFloat {
         let name = playing ? "GoogleSansFlex-Bold" : "GoogleSansFlex-Medium"
         let font = UIFont(name: name, size: 19.8) ?? .systemFont(ofSize: 19.8, weight: playing ? .bold : .medium)
-        let text = NSAttributedString(string: playing ? "PAUSE" : "PLAY",
+        let text = NSAttributedString(string: playing ? String(localized: "PAUSE") : String(localized: "PLAY"),
                                       attributes: [.font: font, .kern: playing ? 0.5 : 0])
         return ceil(text.size().width)
     }
@@ -1779,9 +1779,9 @@ struct NowPlayingView: View, Equatable {
             // the artist capped at 40 % of the row (HeroOneLineArtistShare).
             GeometryReader { g in
                 HStack(alignment: .firstTextBaseline, spacing: Tokens.np.HERO_ONE_LINE_GAP.cg) {
-                    routeLink(albumRoute(p), label: "Go to album") { heroTitle(p) }
+                    routeLink(albumRoute(p), label: String(localized: "Go to album")) { heroTitle(p) }
                         .layoutPriority(1)
-                    routeLink(artistRoute(p), label: "Go to artist") {
+                    routeLink(artistRoute(p), label: String(localized: "Go to artist")) {
                         Text(p.album.artist)
                             .font(.gsf(14.4, .medium))
                             .foregroundStyle(scheme.onSurfaceVariant)
@@ -1800,7 +1800,7 @@ struct NowPlayingView: View, Equatable {
             .frame(height: Tokens.type.displaySmall.lineHeight.cg)
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                routeLink(artistRoute(p), label: "Go to artist") {
+                routeLink(artistRoute(p), label: String(localized: "Go to artist")) {
                     Text(p.album.artist)
                         .font(.gsf(14.4, .medium))
                         .foregroundStyle(scheme.onSurfaceVariant)
@@ -1810,7 +1810,7 @@ struct NowPlayingView: View, Equatable {
                         }
                 }
                 .npFade(open, contentFade)
-                routeLink(albumRoute(p), label: "Go to album") { heroTitle(p) }
+                routeLink(albumRoute(p), label: String(localized: "Go to album")) { heroTitle(p) }
                     .frame(height: 44, alignment: .leading)
             }
             .lineLimit(1)
@@ -1926,7 +1926,7 @@ struct NowPlayingView: View, Equatable {
             HStack(spacing: 2) {
                 pill("queue", "Queue", shape: AnyShape(Capsule())) { model.queueSheetOpen = true }
                 // Yoin as the remote of another Spotify device: the pill names it.
-                pill("devices", spotifySong ? SpotifyPlayingDevice.shared.name ?? "Devices" : "Devices",
+                pill("devices", spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices") : String(localized: "Devices"),
                      shape: AnyShape(RoundedRectangle(cornerRadius: 20))) {
                     if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
                 }
@@ -2045,7 +2045,7 @@ struct NowPlayingView: View, Equatable {
                                     positionMs: draftAnchorMs, title: target.title, artist: target.artist) != nil
         else {
             // Blank words do nothing; words that couldn't be saved stay in the field.
-            if draft.contains(where: { !$0.isWhitespace }) { PlaylistActions.shared.show("Couldn't save the note") }
+            if draft.contains(where: { !$0.isWhitespace }) { PlaylistActions.shared.show(String(localized: "Couldn't save the note")) }
             return
         }
         notesSaved += 1
@@ -2266,7 +2266,7 @@ struct RatingBar: View {
         .scaleEffect(held ? RatingLift.scale : 1)
         .accessibilityElement()
         .accessibilityLabel("Rating")
-        .accessibilityValue(Self.label(value) ?? "Not rated")
+        .accessibilityValue(Self.label(value) ?? String(localized: "Not rated"))
     }
 }
 
@@ -2534,7 +2534,7 @@ struct PlayModeButton: View {
                     .onTapGesture { tick(); onShuffle(!shuffle) }
                     .accessibilityElement()
                     .accessibilityLabel("Shuffle")
-                    .accessibilityValue(shuffle ? "On" : "Off")
+                    .accessibilityValue(shuffle ? String(localized: "On") : String(localized: "Off"))
                     .accessibilityAddTraits(.isButton)
                     half(lit: repeatMode != .all, leading: false, width: segment) {
                         glyph("repeat", one: repeatMode == .one, off: repeatMode == .off)
@@ -2542,7 +2542,7 @@ struct PlayModeButton: View {
                     .onTapGesture { tick(); onRepeat(repeatMode.next) }
                     .accessibilityElement()
                     .accessibilityLabel("Repeat")
-                    .accessibilityValue(repeatMode == .one ? "One" : repeatMode == .off ? "Off" : "All")
+                    .accessibilityValue(repeatMode == .one ? "One" : repeatMode == .off ? String(localized: "Off") : "All")
                     .accessibilityAddTraits(.isButton)
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
@@ -2577,8 +2577,8 @@ struct PlayModeButton: View {
     }
 
     private var modeDescription: String {
-        let r = repeatMode == .one ? "repeat one" : repeatMode == .off ? "repeat off" : "repeat all"
-        return shuffle ? "Shuffle, " + r : r.prefix(1).uppercased() + r.dropFirst()
+        let r = repeatMode == .one ? String(localized: "repeat one") : repeatMode == .off ? String(localized: "repeat off") : String(localized: "repeat all")
+        return shuffle ? String(localized: "Shuffle, ") + r : r.prefix(1).uppercased() + r.dropFirst()
     }
 
     private func setSplit(_ on: Bool) {

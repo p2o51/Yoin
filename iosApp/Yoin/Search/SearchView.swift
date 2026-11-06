@@ -25,6 +25,17 @@ struct SearchView: View {
     enum Filter: String, CaseIterable {
         case all = "All", artists = "Artists", albums = "Albums", songs = "Songs", playlists = "Playlists"
 
+        /// The chip's text in the reader's language (the raw value stays the key).
+        var title: String {
+            switch self {
+            case .all: String(localized: "All")
+            case .artists: String(localized: "Artists")
+            case .albums: String(localized: "Albums")
+            case .songs: String(localized: "Songs")
+            case .playlists: String(localized: "Playlists")
+            }
+        }
+
         /// The one result type a filter lists (nil: All, which never reads more).
         var kind: SearchKind? {
             switch self {
@@ -221,7 +232,7 @@ struct SearchView: View {
                 // 16 type, 56 tall, 16 in), so from there nothing moves.
                 HStack(spacing: 12) {
                     YoinIcon("search", size: 24).foregroundStyle(Yoin.inkVariant)
-                    TextField(scope == .library ? "Search library" : "Search \(catalogName)", text: $query)
+                    TextField(scope == .library ? String(localized: "Search library") : String(localized: "Search \(catalogName)"), text: $query)
                         .font(.gsf(16))
                         .focused($focused)
                         .submitLabel(.search)
@@ -328,7 +339,7 @@ struct SearchView: View {
     }
 
     /// The provider whose whole catalog the catalog scope searches.
-    private var catalogName: String { model.store.spotify != nil ? "Spotify" : "Apple Music" }
+    private var catalogName: String { model.store.spotify != nil ? String(localized: "Spotify") : "Apple Music" }
 
     private var positionKey: String { "\(scope)|\(filter)" }
 
@@ -337,8 +348,8 @@ struct SearchView: View {
 
         func label(catalog: String) -> String {
             switch self {
-            case .scope(let s): s == .catalog ? catalog : s.rawValue
-            case .filter(let f): f.rawValue
+            case .scope(let s): s == .catalog ? catalog : String(localized: "Library")
+            case .filter(let f): f.title
             }
         }
     }
@@ -462,21 +473,21 @@ struct SearchView: View {
     private func allResults(_ r: Results) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             if !r.artists.isEmpty {
-                sectionHeader("Artists")
+                sectionHeader(String(localized: "Artists"))
                 ForEach(r.artists) { a in artistRow(a) }
             }
             if !r.albums.isEmpty {
-                sectionHeader("Albums")
+                sectionHeader(String(localized: "Albums"))
                 // Library's columns (3 on Compact), chunked into rows with no
                 // vertical gap (a LazyColumn of Rows, spacedBy 12 across).
                 albumRows(r.albums)
             }
             if !r.playlists.isEmpty {
-                sectionHeader("Playlists")
+                sectionHeader(String(localized: "Playlists"))
                 playlistList(r.playlists)
             }
             if !r.tracks.isEmpty {
-                sectionHeader("Songs")
+                sectionHeader(String(localized: "Songs"))
                 songList(r.tracks)
             }
         }
@@ -521,7 +532,7 @@ struct SearchView: View {
 
     private func albumCount(_ n: Int?) -> String {
         guard let n else { return "Artist" }
-        return n == 1 ? "1 album" : "\(n) albums"
+        return n == 1 ? String(localized: "1 album") : String(localized: "\(n) albums")
     }
 
     private func openArtist(_ a: ArtistHit) {

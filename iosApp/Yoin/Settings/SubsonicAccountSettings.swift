@@ -35,7 +35,7 @@ struct SubsonicAccountSettings: View {
             qualityGroup
             if showsDownloads {
                 VStack(alignment: .leading, spacing: 8) {
-                    label("Downloads")
+                    label(String(localized: "Downloads"))
                     DownloadsEntryRow(app: app, row: row, shape: CloudSyncView.segment(0, 1))
                 }
             }
@@ -45,7 +45,7 @@ struct SubsonicAccountSettings: View {
     }
 
     private var qualityGroup: some View {
-        group("Stream quality") {
+        group(String(localized: "Stream quality")) {
             var rows: [AnyView] = []
             for network in [QualityNetwork.wifi, .mobile] {
                 rows.append(AnyView(qualityRow(network)))

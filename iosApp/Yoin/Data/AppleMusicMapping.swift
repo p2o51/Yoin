@@ -356,12 +356,12 @@ enum AppleMusicMapping {
     }
 
     static func albumItem(_ a: Album) -> LibraryItem {
-        LibraryItem(id: a.id, kind: .album, title: a.title, subtitle: "Album · \(a.artist)", palette: a.palette, album: a)
+        LibraryItem(id: a.id, kind: .album, title: a.title, subtitle: String(localized: "Album · \(a.artist)"), palette: a.palette, album: a)
     }
 
     static func artistItem(_ a: AMArtist) -> LibraryItem {
         LibraryItem(id: MediaId(provider: provider, rawId: a.rawId), kind: .artist, title: a.name,
-                    subtitle: "Artist", palette: palette(a.artwork, key: a.rawId))
+                    subtitle: String(localized: "Artist"), palette: palette(a.artwork, key: a.rawId))
     }
 
     static func playlistItem(_ p: AMPlaylist) -> LibraryItem {

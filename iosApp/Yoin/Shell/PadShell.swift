@@ -371,7 +371,7 @@ private struct PadMiniPlayer: View {
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(p.isPlaying ? "Pause" : "Play")
+                .accessibilityLabel(p.isPlaying ? String(localized: "Pause") : String(localized: "Play"))
             }
         }
         .foregroundStyle(Yoin.ink)

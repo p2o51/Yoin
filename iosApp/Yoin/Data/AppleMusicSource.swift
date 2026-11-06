@@ -103,19 +103,19 @@ final class AppleMusicSource {
 
     private func get(_ path: String, _ query: [String: String] = [:]) async throws -> AppleMusicJSON.Object {
         guard var c = URLComponents(string: "https://api.music.apple.com" + path) else {
-            throw RequestError(message: "Bad request")
+            throw RequestError(message: String(localized: "Bad request"))
         }
         if !query.isEmpty {
             c.queryItems = (c.queryItems ?? []) + query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
-        guard let url = c.url else { throw RequestError(message: "Bad request") }
+        guard let url = c.url else { throw RequestError(message: String(localized: "Bad request")) }
         let response = try await MusicDataRequest(urlRequest: URLRequest(url: url)).response()
         guard let root = AppleMusicJSON.object(response.data) else {
             if QAProbe.diag {
                 print("[diag] unreadable \(url.absoluteString) status=\(response.urlResponse.statusCode) bytes=\(response.data.count) "
                       + "body=\(String(decoding: response.data.prefix(400), as: UTF8.self))")
             }
-            throw RequestError(message: "Unreadable answer")
+            throw RequestError(message: String(localized: "Unreadable answer"))
         }
         return root
     }
@@ -146,7 +146,7 @@ final class AppleMusicSource {
         var root = try await get(path, query)
         out += AppleMusicJSON.resources(root)
         while let next = AppleMusicJSON.next(root) {
-            guard visited.insert(next).inserted else { throw RequestError(message: "Apple Music repeated a page") }
+            guard visited.insert(next).inserted else { throw RequestError(message: String(localized: "Apple Music repeated a page")) }
             root = try await get(next, Self.missing(query, in: next))
             out += AppleMusicJSON.resources(root)
         }
@@ -420,7 +420,7 @@ final class AppleMusicSource {
         if !refs.isEmpty { body["relationships"] = ["tracks": ["data": refs]] }
         let root = try await send("/v1/me/library/playlists", body: body)
         guard let created = AppleMusicJSON.resources(root).first, let id = created["id"] as? String else {
-            throw RequestError(message: "Apple Music returned no created playlist")
+            throw RequestError(message: String(localized: "Apple Music returned no created playlist"))
         }
         return AppleMusicMapping.libraryPrefix + id
     }
@@ -429,7 +429,7 @@ final class AppleMusicSource {
     func addToLibraryPlaylist(_ trackIds: [String], playlistRawId: String) async throws {
         let id = AppleMusicMapping.resourceId(playlistRawId)
         guard AppleMusicMapping.isLibraryId(playlistRawId), id.hasPrefix("p.") else {
-            throw RequestError(message: "A library playlist is required")
+            throw RequestError(message: String(localized: "A library playlist is required"))
         }
         let refs = try trackIds.map(AppleMusicMapping.trackRef)
         guard !refs.isEmpty else { return }
@@ -438,14 +438,14 @@ final class AppleMusicSource {
 
     /// A POST to the Apple Music API with a JSON body; the answer's JSON (empty for a 204).
     private func send(_ path: String, body: [String: Any]) async throws -> AppleMusicJSON.Object {
-        guard let url = URL(string: "https://api.music.apple.com" + path) else { throw RequestError(message: "Bad request") }
+        guard let url = URL(string: "https://api.music.apple.com" + path) else { throw RequestError(message: String(localized: "Bad request")) }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let response = try await MusicDataRequest(urlRequest: request).response()
         guard (200..<300).contains(response.urlResponse.statusCode) else {
-            throw RequestError(message: "Apple Music answered \(response.urlResponse.statusCode)")
+            throw RequestError(message: String(localized: "Apple Music answered \(response.urlResponse.statusCode)"))
         }
         return response.data.isEmpty ? [:] : AppleMusicJSON.object(response.data) ?? [:]
     }
@@ -491,7 +491,7 @@ final class AppleMusicSource {
     /// Adds the song to the library (`MusicLibrary.add`). There is no remove.
     func addToLibrary(_ rawId: String) async throws {
         guard !AppleMusicMapping.isLibraryId(rawId) else { return }
-        guard let song = await song(rawId) else { throw RequestError(message: "Song unavailable") }
+        guard let song = await song(rawId) else { throw RequestError(message: String(localized: "Song unavailable")) }
         try await MusicKit.MusicLibrary.shared.add(song)
         inLibrary.insert(rawId)
     }

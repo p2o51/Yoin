@@ -255,7 +255,7 @@ enum MemoriesScript {
         await pause(1.5)
         deck.editor.draft = "Night buses"
         await pause(1.5)
-        title?(card, .save("Night buses"))
+        title?(card, .save(String(localized: "Night buses")))
         deck.editor.end()
         await pause(3)
         if let renamed = current?() { title?(renamed, .restore) }

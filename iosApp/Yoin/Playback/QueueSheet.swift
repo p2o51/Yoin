@@ -30,22 +30,22 @@ struct QueueSheet: View {
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
             if let current = engine.currentItem {
-                sectionLabel("Now playing")
+                sectionLabel(String(localized: "Now playing"))
                 row(current, index: engine.currentIndex ?? 0, current: true)
             }
             if !queued.isEmpty {
-                sectionLabel("Next in queue") {
+                sectionLabel(String(localized: "Next in queue")) {
                     withAnimation(Yoin.spatial) { for q in queued { engine.remove(id: q.item.id) } }
                 }
                 part(queued)
             }
             if !next.isEmpty {
-                sectionLabel(sourceTitle.map { "Next from: \($0)" } ?? "Next up")
+                sectionLabel(sourceTitle.map { "Next from: \($0)" } ?? String(localized: "Next up"))
                 part(next)
             }
             if upcoming.isEmpty {
                 // Empty: a label, not a blank sheet under the header.
-                Text(engine.currentItem == nil ? "Queue is empty" : "Nothing up next")
+                Text(engine.currentItem == nil ? String(localized: "Queue is empty") : String(localized: "Nothing up next"))
                     .yoinRole(Tokens.type.bodyMedium)
                     .foregroundStyle(scheme.onSurfaceVariant)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -189,6 +189,6 @@ struct QueueSheet: View {
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets())
         .moveDisabled(current)
-        .accessibilityHint(current ? (engine.isPlaying ? "Playing" : "Paused") : "Plays this song")
+        .accessibilityHint(current ? (engine.isPlaying ? String(localized: "Playing") : String(localized: "Paused")) : String(localized: "Plays this song"))
     }
 }

@@ -368,7 +368,7 @@ public struct WavyProgressBar: View {
         let onNote = isOnNote(s)
         // Android PreviewTimeBubble: labelLarge, tabular figures, in Google
         // Sans Flex (the system font read as a different app).
-        return Text(onNote ? "Note" : timeText(s))
+        return Text(onNote ? String(localized: "Note") : timeText(s))
             .font(.gsf(Tokens.type.labelLarge.size.cg, Font.Weight(gsf: Tokens.type.labelLarge.weight)))
             .tracking(Tokens.type.labelLarge.letterSpacing.cg)
             .monospacedDigit()
@@ -493,7 +493,7 @@ public struct WavyProgressBar: View {
                 tint: .white, trackTint: .white, metrics: .material, flattensWhileScrubbing: false
             ) { position = $0 }
 
-            Button(playing ? "Pause" : "Play") { playing.toggle() }
+            Button(playing ? String(localized: "Pause") : String(localized: "Play")) { playing.toggle() }
                 .buttonStyle(.glassProminent)
                 .tint(cover)
         }

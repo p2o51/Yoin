@@ -46,7 +46,7 @@ struct PlaylistBackupsEntryRow: View {
 
     private var summary: String {
         let n = backups.all.count
-        return n == 0 ? "No backups" : "\(n) \(n == 1 ? "playlist" : "playlists")"
+        return n == 0 ? String(localized: "No backups") : "\(n) \(n == 1 ? "playlist" : "playlists")"
     }
 }
 
@@ -121,7 +121,7 @@ struct PlaylistBackupsView: View {
                         .lineLimit(1)
                     HStack(spacing: 6) {
                         Circle().fill(b.following ? tone.accent : app.outline).frame(width: 8, height: 8)
-                        Text(b.following ? BackupTexts.time(b.lastBackedUpAt) : "Original playlist gone")
+                        Text(b.following ? BackupTexts.time(b.lastBackedUpAt) : String(localized: "Original playlist gone"))
                             .yoinRole(Tokens.type.bodyMedium)
                             .foregroundStyle(app.onSurfaceVariant)
                             .lineLimit(1)
@@ -250,8 +250,8 @@ struct PlaylistBackupView: View {
     private func status(_ b: PlaylistBackupRecord) -> some View {
         let tone = BackupTexts.tone(b.sourceProvider, dark: colorScheme == .dark)
         let service = BackupTexts.service(b.sourceProvider)
-        let state = !b.following ? "Original playlist gone"
-            : b.sourceProfileId == nil ? "Followed on another device" : "Following changes"
+        let state = !b.following ? String(localized: "Original playlist gone")
+            : b.sourceProfileId == nil ? String(localized: "Followed on another device") : String(localized: "Following changes")
         var tiles: [(String, Int64)] = []
         if let created = BackupTexts.serviceDate(b.playlistCreatedAt) { tiles.append(("Playlist created", created)) }
         tiles += [("Backed up since", b.firstBackedUpAt), ("Last backup", b.lastBackedUpAt), ("Last change", b.lastChangedAt)]
@@ -364,7 +364,7 @@ struct PlaylistBackupView: View {
     private func versions(_ b: PlaylistBackupRecord) -> some View {
         let older = b.versions
         return VStack(alignment: .leading, spacing: 8) {
-            BackupChrome.label("Versions", trailing: "\(older.count + 1)", app)
+            BackupChrome.label(String(localized: "Versions"), trailing: "\(older.count + 1)", app)
             VStack(spacing: 2) {
                 let count = older.count + 1
                 versionRow(since: b.lastChangedAt, songs: b.content.tracks, older: older.first?.content.tracks,
@@ -430,7 +430,7 @@ struct PlaylistBackupView: View {
         // Newest first, like the backups themselves.
         let list = Array(b.restores.reversed())
         return VStack(alignment: .leading, spacing: 8) {
-            BackupChrome.label("Restores", app)
+            BackupChrome.label(String(localized: "Restores"), app)
             VStack(spacing: 2) {
                 ForEach(Array(list.enumerated()), id: \.offset) { i, r in
                     restoreRow(r)
@@ -463,12 +463,12 @@ struct PlaylistBackupView: View {
 
     private func unexported(_ b: PlaylistBackupRecord) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            BackupChrome.label("Couldn't be backed up", trailing: "\(b.unexportedCount)", app)
+            BackupChrome.label(String(localized: "Couldn't be backed up"), trailing: "\(b.unexportedCount)", app)
             ForEach(Array(b.content.unexported.enumerated()), id: \.offset) { _, u in
                 HStack(spacing: 16) {
                     YoinIcon("visibility_off", size: 20).foregroundStyle(app.onSurfaceVariant).frame(minWidth: 24)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(u.title ?? "Untitled").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface).lineLimit(1)
+                        Text(u.title ?? String(localized: "Untitled")).yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface).lineLimit(1)
                         Text([u.artist, BackupTexts.reason(u.reasonKind)].compactMap { $0 }.joined(separator: "   "))
                             .yoinRole(Tokens.type.bodyMedium)
                             .foregroundStyle(app.onSurfaceVariant)
@@ -672,14 +672,14 @@ enum BackupTexts {
             switch p.service {
             case .subsonic:
                 return RestoreTarget(id: p.id, label: p.title, provider: AccountScope.subsonicProvider,
-                                     available: usable, note: usable ? p.host : "Sign in again")
+                                     available: usable, note: usable ? p.host : String(localized: "Sign in again"))
             case .appleMusic:
                 return RestoreTarget(id: p.id, label: "Apple Music", provider: AppleMusicMapping.provider,
-                                     available: usable, note: usable ? nil : "Apple Music access is off for Yoin")
+                                     available: usable, note: usable ? nil : String(localized: "Apple Music access is off for Yoin"))
             case .spotify:
                 // A new private playlist through the Web API (Android SpotifyMusicSource.createPlaylist).
                 return RestoreTarget(id: p.id, label: p.title, provider: SpotifyMapping.provider,
-                                     available: usable, note: usable ? nil : "Sign in again")
+                                     available: usable, note: usable ? nil : String(localized: "Sign in again"))
             }
         }
     }

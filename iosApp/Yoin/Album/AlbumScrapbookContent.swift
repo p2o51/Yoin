@@ -127,5 +127,5 @@ enum ScrapbookText {
     }
 
     /// "+1 note" / "+3 notes" (Android detail_scrap_hidden_notes).
-    static func hiddenNotes(_ n: Int) -> String { n == 1 ? "+1 note" : "+\(n) notes" }
+    static func hiddenNotes(_ n: Int) -> String { n == 1 ? String(localized: "+1 note") : String(localized: "+\(n) notes") }
 }

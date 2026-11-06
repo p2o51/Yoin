@@ -132,7 +132,7 @@ enum SpotifyMapping {
     }
 
     static func albumItem(_ a: Album) -> LibraryItem {
-        LibraryItem(id: a.id, kind: .album, title: a.title, subtitle: "Album · \(a.artist)", palette: a.palette, album: a)
+        LibraryItem(id: a.id, kind: .album, title: a.title, subtitle: String(localized: "Album · \(a.artist)"), palette: a.palette, album: a)
     }
 
     /// Unique albums, first seen first.
@@ -146,7 +146,7 @@ enum SpotifyMapping {
     static func artistItem(_ a: SpotifyDTO.Artist) -> LibraryItem? {
         guard let id = a.id, !id.isEmpty else { return nil }
         return LibraryItem(id: MediaId(provider: provider, rawId: id), kind: .artist, title: a.name ?? "",
-                           subtitle: "Artist", palette: palette(a.images, key: id))
+                           subtitle: String(localized: "Artist"), palette: palette(a.images, key: id))
     }
 
     /// Releases newest first. Most Played is empty: `top-tracks` is gone for

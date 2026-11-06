@@ -24,7 +24,7 @@ struct SpotifyDevicesSheet: View {
                         }
                     }
                 } else {
-                    Text(failure ?? (devices == nil ? "Looking for devices…" : "No Spotify devices found. Open Spotify on the device you want to play on."))
+                    Text(failure ?? (devices == nil ? String(localized: "Looking for devices…") : String(localized: "No Spotify devices found. Open Spotify on the device you want to play on.")))
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(scheme.onSurfaceVariant)
                 }
@@ -49,7 +49,7 @@ struct SpotifyDevicesSheet: View {
                     Text(d.name)
                         .yoinRole(Tokens.type.bodyLarge)
                         .foregroundStyle(d.isActive ? scheme.primary : scheme.onSurface)
-                    Text(moving == d.id ? "Moving…" : d.isActive ? "Playing here" : d.type)
+                    Text(moving == d.id ? String(localized: "Moving…") : d.isActive ? String(localized: "Playing here") : d.type)
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(scheme.onSurfaceVariant)
                 }
