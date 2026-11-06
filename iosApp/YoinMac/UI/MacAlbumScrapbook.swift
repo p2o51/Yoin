@@ -84,7 +84,8 @@ struct MacAlbumScrapbook: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 20)
-        .frame(width: Self.lane)
+        // One lane up to 560, narrower in a narrow column (never wider than the page).
+        .frame(maxWidth: Self.lane)
         .background { DotPaper(color: s.outlineVariant.opacity(colorScheme == .dark ? 0.35 : 0.45)) }
         .frame(maxWidth: .infinity)
         .onChange(of: awardKey, initial: true) { _, _ in

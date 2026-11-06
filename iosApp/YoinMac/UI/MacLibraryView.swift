@@ -100,7 +100,8 @@ struct MacLibraryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     PageHeader(eyebrow: nil, title: "Library")
-                    Color.clear.frame(height: 64)
+                    // Room for the floating rail (one or two rows).
+                    Color.clear.frame(height: max(64, railHeight + 16))
                     switch kind {
                     case .albums:
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 16, alignment: .top)], spacing: 20) {
@@ -166,8 +167,10 @@ struct MacLibraryView: View {
                 .padding(.trailing, list.sections.count > 1 ? 24 : 0)
                 .padding(.bottom, 142)
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }
             .overlay(alignment: .trailing) {
-                if list.sections.count > 1, list.items.count > 24 {
+                // Only where a jump means something (letters, years) and the column has room for the bar.
+                if list.sections.count > 1, list.items.count > 24, sort(kind) != .recents, pageWidth >= 560 {
                     JumpBar(sections: list.sections) { start in
                         withAnimation(Yoin.spatial) { reader.scrollTo(Self.anchor(start), anchor: .top) }
                     }
@@ -179,29 +182,28 @@ struct MacLibraryView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            HStack(spacing: 10) {
-                FilterRail(selection: $model.libraryKind)
-                let options = Self.sortOptions(kind)
-                if !options.isEmpty {
-                    Menu {
-                        Picker("Sort", selection: Binding(get: { sort(kind) }, set: { setSort(kind, $0) })) {
-                            ForEach(options, id: \.self) { Text($0.label).tag($0) }
-                        }
-                        .pickerStyle(.inline)
-                    } label: {
-                        HStack(spacing: 6) {
-                            YoinIcon("sort", size: 16)
-                            Text(sort(kind).label).font(.gsf(13.5))
-                        }
-                        .foregroundStyle(Yoin.ink)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                    }
-                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .transition(.opacity)
+            // The rail and the sort keep their size: side by side when they fit, the sort under the rail in a
+            // narrow column, and the rail a menu of the current tab when even it doesn't fit. Never squeezed.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    FilterRail(selection: $model.libraryKind).fixedSize()
+                    sortMenu(kind)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    FilterRail(selection: $model.libraryKind).fixedSize()
+                    sortMenu(kind)
+                }
+                HStack(spacing: 8) {
+                    kindMenu
+                    sortMenu(kind)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    kindMenu
+                    sortMenu(kind)
                 }
             }
-            .padding(.leading, 32)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { railHeight = $0 }
+            .padding(.horizontal, 32)
             .padding(.top, 108)
             .animation(Yoin.effects, value: kind)
         }
@@ -217,6 +219,50 @@ struct MacLibraryView: View {
     }
 
     static func anchor(_ i: Int) -> String { "library-item-\(i)" }
+
+    @State private var railHeight: CGFloat = 48
+    @State private var pageWidth: CGFloat = 800
+
+    /// The rail as one menu button naming the tab (a column too narrow for the rail).
+    private var kindMenu: some View {
+        Menu {
+            ForEach(MacModel.LibraryKind.allCases.filter { $0 != .downloads || model.session.client != nil }, id: \.self) { k in
+                Button(k.rawValue) { withAnimation(Yoin.spatialFast) { model.libraryKind = k } }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(model.libraryKind.rawValue).font(.gsf(13.5, .semibold)).lineLimit(1)
+                YoinIcon("chevron_down", size: 14)
+            }
+            .foregroundStyle(Yoin.ink)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .glassEffect(.regular.interactive(), in: .capsule)
+    }
+
+    @ViewBuilder
+    private func sortMenu(_ kind: MacModel.LibraryKind) -> some View {
+        let options = Self.sortOptions(kind)
+        if !options.isEmpty {
+            Menu {
+                Picker("Sort", selection: Binding(get: { sort(kind) }, set: { setSort(kind, $0) })) {
+                    ForEach(options, id: \.self) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                HStack(spacing: 6) {
+                    YoinIcon("sort", size: 16)
+                    Text(sort(kind).label).font(.gsf(13.5)).lineLimit(1)
+                }
+                .foregroundStyle(Yoin.ink)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .glassEffect(.regular.interactive(), in: .capsule)
+            .transition(.opacity)
+        }
+    }
 }
 
 /// The Mac's fast scroller (iOS LibraryFastScroller): the sort's runs down the right edge, a click jumps
@@ -266,6 +312,7 @@ struct FilterRail: View {
                     id: \.self) { k in
                 Button { withAnimation(Yoin.spatialFast) { selection = k } } label: {
                     Text(k.rawValue)
+                        .lineLimit(1).fixedSize()
                         .font(.gsf(13.5, selection == k ? .semibold : .regular))
                         .foregroundStyle(selection == k ? tint.onPrimary : Yoin.ink)
                         .padding(.horizontal, 16).padding(.vertical, 8)

@@ -82,6 +82,31 @@ enum MacQA {
                 if screen == "np-focus" { model.toggleFocus() }
             case "search":
                 withAnimation { model.searchOpen = true }
+            case "columns", "columns-artist", "columns-playlist", "columns-scrapbook", "columns-search":
+                // 51's three-column window (1106d): Library, a detail page and the Now Playing panel at once.
+                model.libraryKind = .albums
+                model.select(.library)
+                await model.library.loadAlbums()
+                if let a = albums.first ?? model.library.albums.first {
+                    let full = await model.library.fullAlbum(a)
+                    model.play(album: full, startAt: min(1, max(0, full.tracks.count - 1)))
+                    try? await Task.sleep(for: .milliseconds(800))
+                    model.player.pause()
+                    model.player.seek(to: 108)
+                    switch screen {
+                    case "columns-artist":
+                        if let id = full.artistId { model.open(.artist(id: id, name: full.artist)) }
+                    case "columns-playlist":
+                        await model.library.loadPlaylists()
+                        if let p = model.library.playlists.first { model.open(.playlist(id: p.id.rawId, title: p.title)) }
+                    default:
+                        model.open(.album(full))
+                    }
+                    model.toggleNowPlaying()
+                    try? await Task.sleep(for: .seconds(1.5))
+                    if screen == "columns-scrapbook" { NotificationCenter.default.post(name: Notification.Name("YoinQAAlbumPage"), object: 1) }
+                    if screen == "columns-search" { withAnimation { model.searchOpen = true } }
+                }
             case "tour":
                 // Screenshots of one launch: the landing, then an album's scrapbook, then Library (its sort from
                 // `-librarySort.Albums …`).

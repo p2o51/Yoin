@@ -64,12 +64,21 @@ struct MacNowPlaying: View {
 
     private func panelLayout(_ size: CGFloat2) -> some View {
         let inner = size.width - 48
-        // The cover gives way first when the window is short.
-        let fixed: CGFloat = model.focus ? 400 : 520
-        let side = min(inner - (model.focus ? 0 : 68), max(120, size.height - fixed))
+        // Heights, top to bottom: header, cover, tabs, lyrics (at least two lines, in the clear above the
+        // controls), controls, title, pills. The cover gives way first when the window is short; the controls
+        // never sit on the lyrics' current line.
+        let controlsH = transportHeight > 0 ? transportHeight : 150
+        // (Focus only fades the header, tabs and pills: they keep their room.)
+        let fixed: CGFloat = 70 + 58 + 64 + Self.lyricsMinHeight + controlsH + 112 + 42
+        let room = size.height - fixed
+        // Shorter still, the cover steps out altogether rather than push the pills out of the window.
+        let side = room < 80 ? 0 : min(inner - (model.focus ? 0 : 68), room)
         return VStack(alignment: .leading, spacing: 0) {
             header.padding(.top, 6).padding(.bottom, 14).chrome(model.focus)
-            art(side: side, barHeight: min(220, side * 0.72))
+            if side > 0 {
+                art(side: side, barHeight: min(220, side * 0.72))
+                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .top)))
+            }
             tabs.padding(.top, 18).padding(.bottom, 8).chrome(model.focus)
             // The lyrics run on under the glass transport; the current line stays in the clear band
             // above it (iOS lyricWindow).
@@ -163,17 +172,18 @@ struct MacNowPlaying: View {
         }
     }
 
+    /// Two lyric lines and their band: the least the lyrics get above the controls.
+    static let lyricsMinHeight: CGFloat = 84
+
+    /// The panel's lyrics (or About) above the controls: they take what the cover leaves, at least two lines,
+    /// and never run under the transport (51, 2026-11-06: the controls sat on the lines at a short window).
     private var lyricsOverControls: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(maxHeight: .infinity)
+            tabContent(large: false)
+                .frame(minHeight: Self.lyricsMinHeight, maxHeight: .infinity)
+                .clipped()
             controls.padding(.top, 12)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { transportHeight = $0 }
-        }
-        .background(alignment: .top) {
-            switch tab {
-            case .lyrics: MacLyricsView(large: false, under: transportHeight)
-            case .about: MacAboutView().chrome(model.focus).padding(.bottom, transportHeight)
-            }
         }
     }
 
@@ -227,11 +237,20 @@ struct MacNowPlaying: View {
         }
     }
 
+    /// Labeled when they fit; icons only (never a wrapped label) when the column is narrow.
     private var pills: some View {
-        HStack(spacing: 8) {
-            QueuePill()
-            DevicesPill()
-            WritePill()
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                QueuePill()
+                DevicesPill()
+                WritePill()
+            }
+            HStack(spacing: 8) {
+                QueuePill()
+                DevicesPill()
+                WritePill()
+            }
+            .environment(\.npPillsCompact, true)
         }
     }
 }
@@ -354,11 +373,18 @@ struct RatingBar: View {
             Capsule().fill(dragValue != nil ? Color.clear : tint.primary.opacity(0.12))
             Capsule().fill(tint.primary.mix(with: .black, by: 0.06))
                 .frame(height: max(0, height * value / 10))
-            Text(value > 0 ? String(format: "%.1f", value) : "")
-                .font(.gsf(22, .medium).monospacedDigit())
-                .lineLimit(1).minimumScaleFactor(0.7)
-                .foregroundStyle(value >= 9.2 ? tint.onPrimary : Yoin.ink)
-                .frame(maxHeight: .infinity, alignment: .top).padding(.top, 10)
+            Group {
+                if value > 0 {
+                    Text(String(format: "%.1f", value))
+                        .font(.gsf(22, .medium).monospacedDigit())
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .foregroundStyle(value >= 9.2 ? tint.onPrimary : Yoin.ink)
+                } else {
+                    // Unrated: the bar says what it's for instead of standing empty.
+                    YoinIcon("star", size: 18).foregroundStyle(Yoin.ink3)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top).padding(.top, 12)
         }
         .frame(width: 56, height: height)
         .glassEffect(dragValue != nil ? .regular : .identity, in: .capsule)
@@ -404,12 +430,17 @@ struct NPPill: View {
     var enabled: Bool
     var action: () -> Void
     @Environment(\.macTint) private var tint
+    /// Icons only (their titles as tips): a column too narrow for the labels.
+    @Environment(\.npPillsCompact) private var compact
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) { YoinIcon(icon, size: 17); Text(title).font(.gsf(14)) }
+            HStack(spacing: 7) {
+                YoinIcon(icon, size: 17)
+                if !compact { Text(title).font(.gsf(14)).lineLimit(1).fixedSize() }
+            }
                 .foregroundStyle(tint.onPrimary)
-                .padding(.horizontal, 16).frame(height: 44)
+                .padding(.horizontal, compact ? 0 : 16).frame(width: compact ? 44 : nil, height: 44)
                 .background(Capsule().fill(tint.primary.opacity(0.78)))
                 .contentShape(Capsule())
         }
@@ -417,7 +448,12 @@ struct NPPill: View {
         .glassEffect(.regular.tint(tint.primary.opacity(0.5)).interactive(), in: .capsule)
         .opacity(enabled ? 1 : 0.5)
         .disabled(!enabled)
+        .help(title)
     }
+}
+
+extension EnvironmentValues {
+    @Entry var npPillsCompact = false
 }
 
 /// Queue: the songs after the current one. Click one to play it, drag to reorder, ✕ or right-click to

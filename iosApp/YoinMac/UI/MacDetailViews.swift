@@ -41,17 +41,10 @@ struct MacAlbumDetail: View {
                              meta: meta(a)) {
                     if let id = a.artistId { model.open(.artist(id: id, name: a.artist)) }
                 }
-                HStack(spacing: 10) {
-                    DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(album: a) }
-                    DetailAction(title: "Shuffle", icon: "shuffle", prominent: false) { model.play(album: a, shuffle: true) }
-                    if model.session.client != nil {
-                        let status = OfflineDownloads.shared.status(OfflineDownloads.albumKey(a.id.rawId))
-                        DetailAction(title: OfflineDownloads.rowLabel(status), icon: OfflineDownloads.rowIcon(status),
-                                     prominent: false) { model.toggleDownload(album: a) }
-                    }
-                    let rating = AlbumMemoryStore.shared.album(provider: a.id.provider, albumId: a.id.rawId)?.rating ?? 0
-                    DetailAction(title: rating > 0 ? String(format: "%.1f", rating) : "Rate", icon: "star",
-                                 prominent: false) { rating_ = true }
+                // Labels never wrap: a narrow column keeps Play labeled and the rest as round icons (with tips).
+                ViewThatFits(in: .horizontal) {
+                    actions(a, iconOnly: false)
+                    actions(a, iconOnly: true)
                 }
                 .sheet(isPresented: $rating_) { MacAlbumRateSheet(album: a).environment(\.macTint, tint) }
                 .padding(.bottom, 18)
@@ -96,6 +89,24 @@ struct MacAlbumDetail: View {
             if let p = n.object as? Int { withAnimation(Yoin.spatial) { page = p } }
         }
         #endif
+    }
+
+    private func actions(_ a: Album, iconOnly: Bool) -> some View {
+        HStack(spacing: 10) {
+            DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(album: a) }
+            DetailAction(title: "Shuffle", icon: "shuffle", prominent: false, iconOnly: iconOnly) {
+                model.play(album: a, shuffle: true)
+            }
+            if model.session.client != nil {
+                let status = OfflineDownloads.shared.status(OfflineDownloads.albumKey(a.id.rawId))
+                DetailAction(title: OfflineDownloads.rowLabel(status), icon: OfflineDownloads.rowIcon(status),
+                             prominent: false, iconOnly: iconOnly) { model.toggleDownload(album: a) }
+            }
+            let rating = AlbumMemoryStore.shared.album(provider: a.id.provider, albumId: a.id.rawId)?.rating ?? 0
+            DetailAction(title: rating > 0 ? String(format: "%.1f", rating) : "Rate", icon: "star",
+                         prominent: false, iconOnly: iconOnly && rating == 0) { rating_ = true }
+        }
+        .fixedSize()
     }
 
     private func kindLabel(_ a: Album) -> String {
@@ -212,6 +223,8 @@ struct DetailAction: View {
     var title: String
     var icon: String
     var prominent: Bool
+    /// A round icon button (its title as the tip): a column too narrow for the labels.
+    var iconOnly = false
     var action: () -> Void
     @Environment(\.macTint) private var tint
 
@@ -219,14 +232,18 @@ struct DetailAction: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 YoinIcon(icon, size: 18)
-                Text(title).font(.gsf(14, .semibold))
+                if !iconOnly {
+                    Text(title).font(.gsf(14, .semibold)).lineLimit(1).fixedSize()
+                }
             }
             .foregroundStyle(prominent ? tint.onPrimary : Yoin.ink)
-            .padding(.horizontal, 18).frame(height: 40)
+            .padding(.horizontal, iconOnly ? 0 : 18)
+            .frame(width: iconOnly ? 40 : nil, height: 40)
             .background(Capsule().fill(prominent ? tint.primary : tint.container.opacity(0.7)))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .help(title)
     }
 }
 
