@@ -230,7 +230,7 @@ struct MacNowPlaying: View {
         HStack(spacing: 8) {
             QueuePill()
             NPPill(icon: "devices", title: "Devices", enabled: false) {}
-            NPPill(icon: "edit_note", title: "Write", enabled: false) {}
+            WritePill()
         }
     }
 }
@@ -1006,5 +1006,81 @@ private struct MacLyricsSearch: View {
             applying = nil
             if ok { open = false }
         }
+    }
+}
+
+/// Write: this song's notes (iOS NotesStore, synced), each at the moment it was written; a click on the time
+/// jumps there. A new note keeps the playhead it was written at.
+struct WritePill: View {
+    @Environment(MacModel.self) private var model
+    @State private var open = false
+
+    var body: some View {
+        NPPill(icon: "edit_note", title: "Write", enabled: model.player.currentTrack != nil) { open.toggle() }
+            .popover(isPresented: $open, arrowEdge: .top) { NotesPopover() }
+    }
+}
+
+private struct NotesPopover: View {
+    @Environment(MacModel.self) private var model
+    @Environment(\.macTint) private var tint
+    @State private var draft = ""
+    /// The moment the note is for: the playhead when writing began.
+    @State private var at: Double?
+
+    var body: some View {
+        let t = model.player.currentTrack
+        let notes = t.map { NotesStore.shared.notes(provider: $0.provider, trackId: $0.id) } ?? []
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Notes").font(.gsf(15, .semibold))
+            if notes.isEmpty {
+                Text("Nothing written for this song yet.").font(.gsf(13)).foregroundStyle(Yoin.inkVariant)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(notes) { n in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            if let ms = n.positionMs {
+                                Button(formatTime(Int(ms / 1000))) { model.player.seek(to: Double(ms) / 1000) }
+                                    .buttonStyle(.plain).font(.gsf(12.5, .medium).monospacedDigit())
+                                    .foregroundStyle(tint.primary)
+                            }
+                            Text(n.content).font(.gsf(14)).foregroundStyle(Yoin.ink)
+                                .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                            Spacer(minLength: 0)
+                        }
+                        .contextMenu {
+                            Button("Delete Note", role: .destructive) { _ = NotesStore.shared.delete(id: n.id) }
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 280)
+            HStack(spacing: 8) {
+                TextField("Write a note", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain).font(.gsf(14)).lineLimit(1...4)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Yoin.surfaceContainerHigh))
+                    .onChange(of: draft) { _, d in if at == nil, !d.isEmpty { at = model.player.progress.positionSec } }
+                    .onSubmit(save)
+                Button("Save", action: save).buttonStyle(.plain).font(.gsf(13.5, .semibold))
+                    .foregroundStyle(tint.primary)
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            if let at {
+                Text("At \(formatTime(Int(at)))").font(.gsf(12)).foregroundStyle(Yoin.ink3)
+            }
+        }
+        .padding(14)
+        .frame(width: 340)
+    }
+
+    private func save() {
+        guard let t = model.player.currentTrack else { return }
+        let ms = Int64((at ?? model.player.progress.positionSec) * 1000)
+        NotesStore.shared.add(provider: t.provider, trackId: t.id, content: draft, positionMs: ms,
+                              title: t.title, artist: t.artist)
+        draft = ""
+        at = nil
     }
 }
