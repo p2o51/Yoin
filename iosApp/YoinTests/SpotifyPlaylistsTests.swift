@@ -242,7 +242,7 @@ final class SpotifyPlaylistsTests: XCTestCase {
         let targets = BackupTexts.targets(accounts)
         XCTAssertEqual(targets.map(\.provider), ["spotify", "spotify"])
         XCTAssertEqual(targets.map(\.available), [true, false])
-        XCTAssertEqual(targets[1].note, "Sign in again")
+        XCTAssertEqual(targets[1].note, String(localized: "Sign in again"))
     }
 }
 

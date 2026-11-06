@@ -214,8 +214,8 @@ final class SongAboutRecordsTests: XCTestCase {
         let toast = PlaylistActions()
         l.regenerateAndReport(ref, toast: toast)
         for _ in 0..<200 where toast.toast == nil { try? await Task.sleep(for: .milliseconds(10)) }
-        XCTAssertEqual(toast.toast?.text, "Regenerated")
-        XCTAssertEqual(toast.toast?.action?.label, "Undo")
+        XCTAssertEqual(toast.toast?.text, String(localized: "Regenerated"))
+        XCTAssertEqual(toast.toast?.action?.label, String(localized: "Undo"))
         XCTAssertEqual(s.entry(ref)?.answerText, "Fresh.")
         toast.runToastAction()
         XCTAssertNil(toast.toast)

@@ -58,8 +58,8 @@ final class ScrapbookContentTests: XCTestCase {
     }
 
     func test_should_say_how_many_notes_wait_in_the_sheet() {
-        XCTAssertEqual(ScrapbookText.hiddenNotes(1), "+1 note")
-        XCTAssertEqual(ScrapbookText.hiddenNotes(4), "+4 notes")
+        XCTAssertEqual(ScrapbookText.hiddenNotes(1), String(localized: "+1 note"))
+        XCTAssertEqual(ScrapbookText.hiddenNotes(4), String(localized: "+\(4) notes"))
     }
 
     func test_should_scroll_without_a_sheet_when_viewing_in_scrapbook() {

@@ -77,9 +77,9 @@ final class LandingGateTests: XCTestCase {
         flow.toggle(.spotify)
         XCTAssertEqual(flow.picked, [.spotify])
         flow.goTo(.spotify)
-        XCTAssertEqual(flow.primary(hasAccount: false).label, "Skip")
+        XCTAssertEqual(flow.primary(hasAccount: false).label, String(localized: "Skip"))
         flow.markConnected(.spotify)
-        XCTAssertEqual(flow.primary(hasAccount: true), LandingPrimary(label: "Next", style: .filled))
+        XCTAssertEqual(flow.primary(hasAccount: true), LandingPrimary(label: String(localized: "Next"), style: .filled))
     }
 
     func test_should_keepCurrentStep_when_selectionChanges() {
@@ -114,13 +114,13 @@ final class LandingGateTests: XCTestCase {
     func test_should_refuseNext_when_nothingPickedAndNoAccount() {
         var flow = LandingFlow(mode: .firstRun)
         flow.next()
-        XCTAssertEqual(flow.primary(hasAccount: false), LandingPrimary(label: "Next", style: .unavailable))
+        XCTAssertEqual(flow.primary(hasAccount: false), LandingPrimary(label: String(localized: "Next"), style: .unavailable))
         XCTAssertTrue(flow.refusesPrimary(hasAccount: false))
         // A re-run with an account may skip adding one.
-        XCTAssertEqual(flow.primary(hasAccount: true), LandingPrimary(label: "Skip", style: .tonal))
+        XCTAssertEqual(flow.primary(hasAccount: true), LandingPrimary(label: String(localized: "Skip"), style: .tonal))
         XCTAssertFalse(flow.refusesPrimary(hasAccount: true))
         flow.toggle(.subsonic)
-        XCTAssertEqual(flow.primary(hasAccount: false), LandingPrimary(label: "Next", style: .filled))
+        XCTAssertEqual(flow.primary(hasAccount: false), LandingPrimary(label: String(localized: "Next"), style: .filled))
         XCTAssertFalse(flow.refusesPrimary(hasAccount: false))
     }
 
@@ -128,11 +128,11 @@ final class LandingGateTests: XCTestCase {
         var flow = LandingFlow(mode: .firstRun)
         flow.toggle(.subsonic)
         flow.goTo(.subsonic)
-        XCTAssertEqual(flow.primary(hasAccount: false).label, "Skip")
+        XCTAssertEqual(flow.primary(hasAccount: false).label, String(localized: "Skip"))
         flow.markConnected(.subsonic)
-        XCTAssertEqual(flow.primary(hasAccount: true), LandingPrimary(label: "Next", style: .filled))
+        XCTAssertEqual(flow.primary(hasAccount: true), LandingPrimary(label: String(localized: "Next"), style: .filled))
         flow.goTo(.ready)
-        XCTAssertEqual(flow.primary(hasAccount: true), LandingPrimary(label: "Open Yoin", style: .filled, arrow: true))
+        XCTAssertEqual(flow.primary(hasAccount: true), LandingPrimary(label: String(localized: "Open Yoin"), style: .filled, arrow: true))
     }
 
     func test_should_sayNoAccountYet_when_readyWithoutAccounts() {

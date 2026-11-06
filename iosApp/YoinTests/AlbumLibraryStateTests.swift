@@ -16,8 +16,8 @@ final class AlbumLibraryStateTests: XCTestCase {
     }
 
     func test_should_name_the_action_by_the_albums_state() {
-        XCTAssertEqual(AlbumLibraryState.label(saved: false), "Save to library")
-        XCTAssertEqual(AlbumLibraryState.label(saved: true), "Remove from library")
+        XCTAssertEqual(AlbumLibraryState.label(saved: false), String(localized: "Save to library"))
+        XCTAssertEqual(AlbumLibraryState.label(saved: true), String(localized: "Remove from library"))
     }
 
     func test_should_wait_for_the_state_before_showing_the_row() {

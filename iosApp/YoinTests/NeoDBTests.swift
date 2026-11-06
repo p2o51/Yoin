@@ -425,7 +425,7 @@ final class NeoDBTests: XCTestCase {
         await sync.sheetClosed(album)
 
         XCTAssertEqual(sync.state(album), .failed)
-        XCTAssertEqual(toasts, ["Couldn't sync to NeoDB"])
+        XCTAssertEqual(toasts, [String(localized: "Couldn't sync to NeoDB")])
         // A failure keeps its own line while the sheet is edited.
         sync.edited(album, unsavedWords: true)
         XCTAssertEqual(sync.state(album), .failed)
@@ -493,10 +493,10 @@ final class NeoDBTests: XCTestCase {
             NeoDBOAuth.parseCallback(try XCTUnwrap(URL(string: s)), expectedState: "s-1")
         }
         XCTAssertEqual(try parse("yoin://auth/neodb/callback?code=abc&state=s-1"), .success("abc"))
-        XCTAssertEqual(try parse("yoin://auth/neodb/callback?code=abc&state=other"), .failure("NeoDB state nonce mismatch"))
-        XCTAssertEqual(try parse("yoin://auth/neodb/callback?error=access_denied"), .failure("NeoDB auth error: access_denied"))
-        XCTAssertEqual(try parse("yoin://auth/neodb/callback?state=s-1"), .failure("NeoDB redirect missing required parameters"))
-        XCTAssertEqual(try parse("yoin://auth/spotify/callback?code=abc&state=s-1"), .failure("NeoDB redirect missing required parameters"))
+        XCTAssertEqual(try parse("yoin://auth/neodb/callback?code=abc&state=other"), .failure(String(localized: "NeoDB state nonce mismatch")))
+        XCTAssertEqual(try parse("yoin://auth/neodb/callback?error=access_denied"), .failure(String(localized: "NeoDB auth error: \("access_denied")")))
+        XCTAssertEqual(try parse("yoin://auth/neodb/callback?state=s-1"), .failure(String(localized: "NeoDB redirect missing required parameters")))
+        XCTAssertEqual(try parse("yoin://auth/spotify/callback?code=abc&state=s-1"), .failure(String(localized: "NeoDB redirect missing required parameters")))
     }
 
     func test_should_registerAuthorizeAndExchange_when_signingIn() async throws {
@@ -532,13 +532,13 @@ final class NeoDBTests: XCTestCase {
         XCTAssertEqual(registration, .failure("Validation failed: Redirect URI must be an absolute URI."))
 
         let invalid = await failing.signIn(instance: "  ")
-        XCTAssertEqual(invalid, .failure("Invalid NeoDB URL. Include a valid host."))
+        XCTAssertEqual(invalid, .failure(String(localized: "Invalid NeoDB URL. Include a valid host.")))
 
         Stub.route("POST /api/v1/apps", status: 200, body: #"{"client_id":"cid","client_secret":"sec"}"#)
         let forged = NeoDBOAuth(api: api, authenticator: FakeWeb(answer: .success(URL(string: "yoin://auth/neodb/callback?code=c&state=forged")!)),
                                 makeState: { "s" })
         let mismatch = await forged.signIn(instance: "neodb.test")
-        XCTAssertEqual(mismatch, .failure("NeoDB state nonce mismatch"))
+        XCTAssertEqual(mismatch, .failure(String(localized: "NeoDB state nonce mismatch")))
         XCTAssertFalse(Stub.requests.contains { $0.path == "/oauth/token" })
     }
 }

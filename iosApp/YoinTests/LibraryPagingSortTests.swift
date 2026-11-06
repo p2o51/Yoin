@@ -95,7 +95,7 @@ final class LibraryPagingSortTests: XCTestCase {
         let sorter = LibrarySorter(recents: ["album:al1": nowMs - 60_000], ignoresArticles: false)
         let sorted = sorter.sorted(items, by: .recents)
         let sections = LibraryScrollIndex.sections(sorted, sort: .recents, sorter: sorter, now: now)
-        XCTAssertEqual(sections.map(\.label), ["Today", "Not opened"])
+        XCTAssertEqual(sections.map(\.label), [String(localized: "Today"), String(localized: "Not opened")])
         XCTAssertEqual(sections.map(\.start), [0, 1])
         // Nothing recorded: no ticks, never invented buckets.
         let none = LibrarySorter(recents: [:], ignoresArticles: false)
