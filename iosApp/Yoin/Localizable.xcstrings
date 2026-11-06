@@ -8,7 +8,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%1$s」"
+            "value": "「%@」"
           }
         }
       }
@@ -18,7 +18,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$s”现在登录了另一个账号。此前同步的笔记与评分将从此设备移除，后续将作为新账号同步。你的 Drive 与其他设备仍保留旧数据。"
+            "value": "“%@”现在登录了另一个账号。此前同步的笔记与评分将从此设备移除，后续将作为新账号同步。你的 Drive 与其他设备仍保留旧数据。"
           }
         }
       }
@@ -28,7 +28,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$s”将从 Yoin 中移除。你的评分、笔记与播放记录会保留。"
+            "value": "“%@”将从 Yoin 中移除。你的评分、笔记与播放记录会保留。"
           }
         }
       }
@@ -38,7 +38,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$s”将从你的资料库中移除。"
+            "value": "“%@”将从你的资料库中移除。"
           }
         }
       }
@@ -48,7 +48,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$s  +%2$d"
+            "value": "%1$@  +%2$lld"
           }
         }
       }
@@ -58,7 +58,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$s %2$s"
+            "value": "%1$@ %2$@"
           }
         }
       }
@@ -68,7 +68,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d kbps"
+            "value": "%@ kbps"
           }
         }
       }
@@ -78,7 +78,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d / %2$d"
+            "value": "%1$@ / %2$@"
           }
         }
       }
@@ -88,7 +88,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "有可用的 %1$s 翻译"
+            "value": "有可用的 %@ 翻译"
           }
         }
       }
@@ -99,7 +99,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已添加 %1$d 首"
+            "value": "已添加 %d 首"
           }
         }
       }
@@ -109,7 +109,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d 首未能备份"
+            "value": "%d 首未能备份"
           }
         }
       }
@@ -119,7 +119,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未找到 %1$d 首"
+            "value": "未找到 %d 首"
           }
         }
       }
@@ -129,7 +129,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "跳过 %1$d 首"
+            "value": "跳过 %d 首"
           }
         }
       }
@@ -139,7 +139,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$s"
+            "value": "%lld"
           }
         }
       }
@@ -155,7 +155,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$s – %2$s"
+            "value": "%1$lld – %2$lld"
           }
         }
       }
@@ -165,7 +165,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d / %2$d"
+            "value": "%1$lld / %2$lld"
           }
         }
       }
@@ -175,7 +175,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$s %2$s"
+            "value": "%1$lld %2$@"
           }
         }
       }
@@ -190,12 +190,32 @@
         }
       }
     },
+    "%lld days ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 天前"
+          }
+        }
+      }
+    },
     "%lld h %lld min": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$lld 小时 %2$lld 分钟"
+          }
+        }
+      }
+    },
+    "%lld hours ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 小时前"
           }
         }
       }
@@ -210,12 +230,32 @@
         }
       }
     },
+    "%lld minutes ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分钟前"
+          }
+        }
+      }
+    },
+    "%lld months away": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个月未听"
+          }
+        }
+      }
+    },
     "%lld notes": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d 条笔记"
+            "value": "%lld 条笔记"
           }
         }
       }
@@ -225,7 +265,23 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d / %2$d"
+            "value": "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "%lld of %lld read": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld of %2$lld read"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已读 %1$lld / %2$lld"
           }
         }
       }
@@ -236,7 +292,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已播放 %lld%"
+            "value": "已播放 %lld%%"
           }
         }
       }
@@ -246,7 +302,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d 次播放"
+            "value": "%lld 次播放"
           }
         }
       }
@@ -266,7 +322,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d 首歌"
+            "value": "%lld 首歌"
           }
         }
       }
@@ -276,7 +332,27 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d 首曲目"
+            "value": "%lld 首曲目"
+          }
+        }
+      }
+    },
+    "%lld tracks rated": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已评 %lld 首"
+          }
+        }
+      }
+    },
+    "%lld years away": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 年未听"
           }
         }
       }
@@ -292,7 +368,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "第 %lld 首，第 %lld 碟"
+            "value": "第 %1$lld 首，第 %2$lld 碟"
           }
         }
       }
@@ -302,7 +378,47 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已评 %1$d/%2$d"
+            "value": "已评 %1$lld/%2$lld"
+          }
+        }
+      }
+    },
+    "%lldd ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 天前"
+          }
+        }
+      }
+    },
+    "%lldh ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 小时前"
+          }
+        }
+      }
+    },
+    "%lldm ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分钟前"
+          }
+        }
+      }
+    },
+    "%lldw ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 周前"
           }
         }
       }
@@ -358,6 +474,46 @@
         }
       }
     },
+    "1 day ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 天前"
+          }
+        }
+      }
+    },
+    "1 hour ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 小时前"
+          }
+        }
+      }
+    },
+    "1 minute ago": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 分钟前"
+          }
+        }
+      }
+    },
+    "1 month away": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个月未听"
+          }
+        }
+      }
+    },
     "1 note": {
       "localizations": {
         "zh-Hans": {
@@ -408,6 +564,26 @@
         }
       }
     },
+    "1 track rated": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已评 1 首"
+          }
+        }
+      }
+    },
+    "1 year away": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 年未听"
+          }
+        }
+      }
+    },
     "7.4": {},
     "8.6": {},
     "10.0": {},
@@ -446,7 +622,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关于 %1$s：%2$s"
+            "value": "关于 %1$@：%2$@"
           }
         }
       }
@@ -606,7 +782,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已添加到 %1$s"
+            "value": "已添加到 %@"
           }
         }
       }
@@ -648,7 +824,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "专辑笔记：%1$s"
+            "value": "专辑笔记：%@"
           }
         }
       }
@@ -659,7 +835,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "专辑评分 %1$s"
+            "value": "专辑评分 %@"
           }
         }
       }
@@ -685,12 +861,31 @@
       }
     },
     "All": {
-      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "全部"
+          }
+        }
+      }
+    },
+    "All read": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部已读"
+          }
+        }
+      }
+    },
+    "Alphabetical": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字母顺序"
           }
         }
       }
@@ -711,11 +906,12 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "回答语言：%1$s"
+            "value": "回答语言：%@"
           }
         }
       }
     },
+    "Apache License 2.0": {},
     "Appearance": {
       "localizations": {
         "zh-Hans": {
@@ -823,7 +1019,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关于 %1$s 的提问：%2$s"
+            "value": "关于 %1$@ 的提问：%2$@"
           }
         }
       }
@@ -833,7 +1029,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "问：%1$s"
+            "value": "问：%@"
           }
         }
       }
@@ -898,8 +1094,34 @@
         }
       }
     },
+    "Based on %lld/%lld tracks": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Based on %1$lld/%2$lld tracks"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "基于 %1$lld/%2$lld 首评分"
+          }
+        }
+      }
+    },
     "Blur": {},
     "Bought on a rainy Tuesday in Shimokitazawa.": {},
+    "By You": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你创建的"
+          }
+        }
+      }
+    },
     "Can't connect": {
       "localizations": {
         "zh-Hans": {
@@ -1046,7 +1268,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已在 %1$s 上关闭云同步并删除 Drive 数据。再次开启将从此设备重新开始。"
+            "value": "已在 %@ 上关闭云同步并删除 Drive 数据。再次开启将从此设备重新开始。"
           }
         }
       }
@@ -1077,6 +1299,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "合辑"
+          }
+        }
+      }
+    },
+    "Composer": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作曲"
           }
         }
       }
@@ -1176,7 +1408,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已复制 %1$d 行"
+            "value": "已复制 %lld 行"
           }
         }
       }
@@ -1216,7 +1448,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法添加到 %1$s"
+            "value": "无法添加到 %@"
           }
         }
       }
@@ -1256,7 +1488,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法创建“%1$s”"
+            "value": "无法创建“%@”"
           }
         }
       }
@@ -1267,6 +1499,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法删除播放列表"
+          }
+        }
+      }
+    },
+    "Couldn't download": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法下载"
           }
         }
       }
@@ -1306,7 +1548,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法连接 %1$s"
+            "value": "无法连接 %@"
           }
         }
       }
@@ -1401,6 +1643,16 @@
         }
       }
     },
+    "Couldn't sync": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法同步"
+          }
+        }
+      }
+    },
     "Couldn't sync to NeoDB": {
       "localizations": {
         "zh-Hans": {
@@ -1466,7 +1718,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已在 %1$s 上创建"
+            "value": "已在 %@ 上创建"
           }
         }
       }
@@ -1477,6 +1729,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在创建"
+          }
+        }
+      }
+    },
+    "Creator": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建者"
           }
         }
       }
@@ -1629,7 +1891,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "第 %1$d 碟"
+            "value": "第 %lld 碟"
           }
         }
       }
@@ -1716,12 +1978,38 @@
         }
       }
     },
+    "Downloading %lld/%lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Downloading %1$lld/%2$lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下载 %1$lld/%2$lld"
+          }
+        }
+      }
+    },
     "Downloads": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "下载"
+          }
+        }
+      }
+    },
+    "Drive copy removed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drive 副本已移除"
           }
         }
       }
@@ -1843,6 +2131,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "已收藏"
+          }
+        }
+      }
+    },
+    "Favorites": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收藏"
           }
         }
       }
@@ -2022,6 +2320,36 @@
         }
       }
     },
+    "Good afternoon": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下午好"
+          }
+        }
+      }
+    },
+    "Good evening": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "晚上好"
+          }
+        }
+      }
+    },
+    "Good morning": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "早上好"
+          }
+        }
+      }
+    },
     "Google account": {
       "localizations": {
         "zh-Hans": {
@@ -2033,6 +2361,16 @@
       }
     },
     "Google Sans Flex · variable axes": {},
+    "Google storage full": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google 存储空间已满"
+          }
+        }
+      }
+    },
     "GrooveType score: 8.6 (wdth 92) · 10.0 (wdth 76), ROND 50, wght 690": {},
     "Hard edge": {},
     "Has note": {
@@ -2070,7 +2408,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "隐藏 %1$s"
+            "value": "隐藏 %@"
           }
         }
       }
@@ -2177,6 +2515,26 @@
         }
       }
     },
+    "just now": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刚刚"
+          }
+        }
+      }
+    },
+    "Just now": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刚刚"
+          }
+        }
+      }
+    },
     "Keep passwords on this device": {
       "localizations": {
         "zh-Hans": {
@@ -2213,6 +2571,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "最新"
+          }
+        }
+      }
+    },
+    "Latest memory: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新的 Memory：%@"
           }
         }
       }
@@ -2300,6 +2668,16 @@
         }
       }
     },
+    "Lyricist": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作词"
+          }
+        }
+      }
+    },
     "Lyrics": {
       "localizations": {
         "zh-Hans": {
@@ -2315,7 +2693,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "歌词似乎已经是 %1$s"
+            "value": "歌词似乎已经是 %@"
           }
         }
       }
@@ -2335,7 +2713,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已应用来自 %1$s 的歌词"
+            "value": "已应用来自 %@ 的歌词"
           }
         }
       }
@@ -2355,7 +2733,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已使用 %1$s 翻译"
+            "value": "已使用 %@ 翻译"
           }
         }
       }
@@ -2425,7 +2803,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在 %1$s 上匹配"
+            "value": "正在 %@ 上匹配"
           }
         }
       }
@@ -2446,6 +2824,27 @@
           "stringUnit": {
             "state": "translated",
             "value": "Memory %lld"
+          }
+        }
+      }
+    },
+    "min": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分钟"
+          }
+        }
+      }
+    },
+    "MIT License": {},
+    "Mobile data": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动数据"
           }
         }
       }
@@ -2560,6 +2959,16 @@
         }
       }
     },
+    "Navidrome, Airsonic and other servers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navidrome、Airsonic 等其他服务器"
+          }
+        }
+      }
+    },
     "Need title or artist to search lyrics": {
       "localizations": {
         "zh-Hans": {
@@ -2576,6 +2985,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "需要 Apple Music 订阅"
+          }
+        }
+      }
+    },
+    "Needs review": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待确认"
           }
         }
       }
@@ -2871,6 +3290,26 @@
         }
       }
     },
+    "Not a Spotify song": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是 Spotify 歌曲"
+          }
+        }
+      }
+    },
+    "Not an Apple Music song": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是 Apple Music 歌曲"
+          }
+        }
+      }
+    },
     "Not created": {
       "localizations": {
         "zh-Hans": {
@@ -2886,7 +3325,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未能在 %1$s 上创建"
+            "value": "未能在 %@ 上创建"
           }
         }
       }
@@ -2956,7 +3395,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$s 的笔记：%2$s"
+            "value": "%1$@ 的笔记：%2$@"
           }
         }
       }
@@ -2966,7 +3405,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "笔记：%1$s"
+            "value": "笔记：%@"
           }
         }
       }
@@ -3061,6 +3500,16 @@
         }
       }
     },
+    "On Your Other Accounts": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在你的其他资料里"
+          }
+        }
+      }
+    },
     "One": {
       "extractionState": "stale",
       "localizations": {
@@ -3132,6 +3581,16 @@
         }
       }
     },
+    "Open Spotify on this iPhone, then tap Play": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此 iPhone 上打开 Spotify，然后点按播放"
+          }
+        }
+      }
+    },
     "Open Yoin": {
       "localizations": {
         "zh-Hans": {
@@ -3147,7 +3606,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$s 的选项"
+            "value": "%@ 的选项"
           }
         }
       }
@@ -3265,6 +3724,16 @@
       }
     },
     "Pills": {},
+    "play": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次播放"
+          }
+        }
+      }
+    },
     "Play": {
       "localizations": {
         "zh-Hans": {
@@ -3290,7 +3759,17 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "播放 %1$s"
+            "value": "播放 %@"
+          }
+        }
+      }
+    },
+    "Play from %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 %@ 播放"
           }
         }
       }
@@ -3497,6 +3976,16 @@
         }
       }
     },
+    "Producer": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制作人"
+          }
+        }
+      }
+    },
     "Progress": {},
     "Public": {
       "localizations": {
@@ -3611,12 +4100,72 @@
         }
       }
     },
+    "Recently added": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近添加"
+          }
+        }
+      }
+    },
     "Recently Added": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "最近添加"
+          }
+        }
+      }
+    },
+    "Recently Played": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近播放"
+          }
+        }
+      }
+    },
+    "Recents": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近"
+          }
+        }
+      }
+    },
+    "Reconnect Google": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新连接 Google"
+          }
+        }
+      }
+    },
+    "Reconnect Spotify in Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在设置中重新连接 Spotify"
+          }
+        }
+      }
+    },
+    "Reconnect Spotify in Settings to let Yoin control playback": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在设置中重新连接 Spotify，让 Yoin 控制播放"
           }
         }
       }
@@ -3816,7 +4365,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "调整“%1$s”的顺序"
+            "value": "调整“%@”的顺序"
           }
         }
       }
@@ -4096,7 +4645,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 %1$s 搜索"
+            "value": "在 %@ 搜索"
           }
         }
       }
@@ -4258,7 +4807,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示 %1$s"
+            "value": "显示 %@"
           }
         }
       }
@@ -4268,7 +4817,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示全部 %1$d"
+            "value": "显示全部 %lld"
           }
         }
       }
@@ -4363,6 +4912,26 @@
         }
       }
     },
+    "Sign in to Spotify again in Settings.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在设置中重新登录 Spotify。"
+          }
+        }
+      }
+    },
+    "Sign in to sync": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录以同步"
+          }
+        }
+      }
+    },
     "Sign out": {
       "localizations": {
         "zh-Hans": {
@@ -4373,6 +4942,17 @@
         }
       }
     },
+    "Signed out": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已退出登录"
+          }
+        }
+      }
+    },
+    "SIL Open Font License 1.1": {},
     "Singles & EPs": {
       "localizations": {
         "zh-Hans": {
@@ -4400,6 +4980,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "首"
+          }
+        }
+      }
+    },
+    "Song": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲"
           }
         }
       }
@@ -4507,6 +5097,26 @@
         }
       }
     },
+    "Spotify on %@ isn't responding — open Spotify there": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 Spotify 无响应 — 请在那边打开 Spotify"
+          }
+        }
+      }
+    },
+    "Spotify on %@ stopped the song. Retry plays it on this iPhone.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 Spotify 已停止播放。重试将在此 iPhone 上播放。"
+          }
+        }
+      }
+    },
     "Spotify only shows this app the songs of playlists you made or collaborate on. To play this one, open it in Spotify.": {
       "localizations": {
         "zh-Hans": {
@@ -4588,6 +5198,7 @@
         }
       }
     },
+    "Subsonic": {},
     "SwiftUI .custom fixedSize": {},
     "SwiftUI .gsf (custom relativeTo)": {},
     "SwiftUI Font(UIFont) variable": {},
@@ -4641,6 +5252,16 @@
         }
       }
     },
+    "Synced": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已同步"
+          }
+        }
+      }
+    },
     "Synced to NeoDB": {
       "localizations": {
         "zh-Hans": {
@@ -4672,6 +5293,16 @@
       }
     },
     "System": {},
+    "that device": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "那台设备"
+          }
+        }
+      }
+    },
     "That piano drop, every single time": {},
     "The echo stays after the song is gone": {},
     "They will stream again when you play them.": {
@@ -4727,6 +5358,16 @@
     },
     "Tint": {},
     "Tint role": {},
+    "Tip: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示：%@"
+          }
+        }
+      }
+    },
     "Tips": {
       "localizations": {
         "zh-Hans": {
@@ -4782,7 +5423,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "第 %1$d 首，%2$s"
+            "value": "第 %1$lld 首，%2$@"
           }
         }
       }
@@ -4793,7 +5434,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "第 %1$d 首，%2$s，评分 %3$s"
+            "value": "第 %1$lld 首，%2$@，评分 %3$@"
           }
         }
       }
@@ -4803,7 +5444,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "曲目均分 %1$s"
+            "value": "曲目均分 %@"
           }
         }
       }
@@ -4943,7 +5584,27 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "下一首 · %1$s"
+            "value": "下一首 · %@"
+          }
+        }
+      }
+    },
+    "Update Yoin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新 Yoin"
+          }
+        }
+      }
+    },
+    "Updated %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新于 %@"
           }
         }
       }
@@ -5088,6 +5749,16 @@
         }
       }
     },
+    "Wi‑Fi": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi‑Fi"
+          }
+        }
+      }
+    },
     "Working…": {
       "localizations": {
         "zh-Hans": {
@@ -5159,6 +5830,16 @@
         }
       }
     },
+    "Yesterday": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昨天"
+          }
+        }
+      }
+    },
     "Yoin does": {
       "localizations": {
         "zh-Hans": {
@@ -5220,6 +5901,16 @@
         }
       }
     },
+    "Your Playlists": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的播放列表"
+          }
+        }
+      }
+    },
     "Your review": {
       "localizations": {
         "zh-Hans": {
@@ -5230,62 +5921,22 @@
         }
       }
     },
+    "Your Spotify library, played in the Spotify app": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Spotify 资料库，在 Spotify 应用中播放"
+          }
+        }
+      }
+    },
     "Your username": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "你的用户名"
-          }
-        }
-      }
-    },
-    "Favorites": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "收藏"
-          }
-        }
-      }
-    },
-    "Recents": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最近"
-          }
-        }
-      }
-    },
-    "Recently added": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最近添加"
-          }
-        }
-      }
-    },
-    "Alphabetical": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "字母顺序"
-          }
-        }
-      }
-    },
-    "Creator": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "创建者"
           }
         }
       }
