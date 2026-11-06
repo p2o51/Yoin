@@ -285,6 +285,12 @@ targets:
         # Handoff: what's playing, for the iOS app to pick up later (same team; no entitlement or domain).
         NSUserActivityTypes:
           - com.gpo.yoin.playing
+        # Songs, albums and playlists dragged inside Yoin (their plain text goes to other apps).
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.gpo.yoin.item
+            UTTypeDescription: Yoin item
+            UTTypeConformsTo:
+              - public.data
     configFiles:
       Debug: Config/YoinMac.xcconfig
       Release: Config/YoinMac.xcconfig

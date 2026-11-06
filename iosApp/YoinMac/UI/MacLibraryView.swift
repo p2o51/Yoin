@@ -355,6 +355,9 @@ struct PlaylistTile: View {
     var item: LibraryItem
     @Environment(MacModel.self) private var model
     @State private var hover = false
+    @State private var targeted = false
+
+    private var writable: Bool { model.library.writablePlaylists.contains { $0.id == item.id } }
 
     var body: some View {
         Button { model.open(.playlist(id: item.id.rawId, title: item.title)) } label: {
@@ -369,6 +372,22 @@ struct PlaylistTile: View {
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(Yoin.spatialFast) { hover = h } }
+        .draggable(MacDrag.playlist(item, scope: model.session.accountKey))
+        // Songs, albums or playlists dropped here go into it (a writable playlist of the same account).
+        .dropDestination(for: YoinDragItem.self) { items, _ in
+            guard writable else { return false }
+            MacDrag.add(items, toPlaylist: item.id.rawId, model: model)
+            return true
+        } isTargeted: { t in withAnimation(Yoin.effects) { targeted = t && writable } }
+        // The drop target lights up behind the tile, never on its cover (Spotify art carries nothing).
+        .background {
+            if targeted {
+                RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous)
+                    .fill(Yoin.violet.opacity(0.18))
+                    .padding(-8)
+                    .allowsHitTesting(false)
+            }
+        }
         .contextMenu {
             Button("Play") { model.play(playlist: item.id.rawId) }
             Button("Shuffle") { model.play(playlist: item.id.rawId, shuffle: true) }

@@ -52,6 +52,7 @@ struct AlbumTile: View {
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(Yoin.spatialFast) { hover = h } }
+        .draggable(MacDrag.album(album, scope: model.session.accountKey))
         .contextMenu {
             Button("Play") { model.play(album: album) }
             Button("Shuffle") { model.play(album: album, shuffle: true) }
@@ -170,6 +171,7 @@ struct TrackRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hover = $0 }
+        .draggable(MacDrag.song(entry, scope: model.session.accountKey))
         .onTapGesture(count: 2) { play() }
         .onTapGesture { model.selectedTrack = id }
         .contextMenu {

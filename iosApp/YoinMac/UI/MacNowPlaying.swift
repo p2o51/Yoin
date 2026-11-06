@@ -429,6 +429,11 @@ struct QueuePill: View {
     var body: some View {
         NPPill(icon: "queue", title: "Queue", enabled: true) { open.toggle() }
             .popover(isPresented: $open, arrowEdge: .top) { QueuePopover() }
+            // Songs, albums or playlists dropped on the pill go to the end of what's queued.
+            .dropDestination(for: YoinDragItem.self) { items, _ in
+                MacDrag.queue(items, before: nil, model: model)
+                return true
+            }
     }
 }
 
@@ -456,6 +461,11 @@ private struct QueuePopover: View {
                 List {
                     ForEach(Array(upcoming.enumerated()), id: \.element.id) { i, item in
                         QueueRow(item: item) { p.jump(to: start + i) } remove: { p.remove(id: item.id) }
+                            // Dropped on a row: in before it.
+                            .dropDestination(for: YoinDragItem.self) { items, _ in
+                                MacDrag.queue(items, before: start + i, model: model)
+                                return true
+                            }
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -471,6 +481,10 @@ private struct QueuePopover: View {
         }
         .padding(12)
         .frame(width: 340)
+        .dropDestination(for: YoinDragItem.self) { items, _ in
+            MacDrag.queue(items, before: nil, model: model)
+            return true
+        }
     }
 }
 

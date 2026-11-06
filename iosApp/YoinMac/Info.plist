@@ -50,6 +50,19 @@
 	<array>
 		<string>com.gpo.yoin.playing</string>
 	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Yoin item</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.gpo.yoin.item</string>
+		</dict>
+	</array>
 	<key>YoinSpotifyClientID</key>
 	<string>$(YOIN_SPOTIFY_CLIENT_ID)</string>
 </dict>
