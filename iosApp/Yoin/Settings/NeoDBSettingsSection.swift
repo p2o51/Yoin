@@ -64,7 +64,7 @@ struct NeoDBSettingsSection: View {
     private var rows: [Row] {
         var out: [Row] = []
         if account.isSignedIn {
-            out.append(Row(id: "status", view: AnyView(info("Status", "Signed in", ink: app.primary))))
+            out.append(Row(id: "status", view: AnyView(info(String(localized: "Status"), String(localized: "Signed in"), ink: app.primary))))
         }
         out.append(Row(id: "instance", view: AnyView(field(.instance))))
         out.append(Row(id: "signin", view: AnyView(
@@ -156,7 +156,7 @@ struct NeoDBSettingsSection: View {
         focus = nil
         message = nil
         guard let normalized = NeoDBAccount.normalizeInstance(instance) else {
-            message = "Invalid NeoDB URL. Include a valid host."
+            message = String(localized: "Invalid NeoDB URL. Include a valid host.")
             return
         }
         account.setInstance(normalized)
@@ -167,7 +167,7 @@ struct NeoDBSettingsSection: View {
             working = false
             switch result {
             case .success(let i, let t):
-                if !account.save(instance: i, token: t) { message = "Couldn't save the token" }
+                if !account.save(instance: i, token: t) { message = String(localized: "Couldn't save the token") }
                 manualToken = false
                 token = ""
             case .failure(let m):
@@ -183,14 +183,14 @@ struct NeoDBSettingsSection: View {
         focus = nil
         message = nil
         guard NeoDBAccount.normalizeInstance(instance) != nil else {
-            message = "Invalid NeoDB URL. Include a valid host."
+            message = String(localized: "Invalid NeoDB URL. Include a valid host.")
             return
         }
         if account.save(instance: instance, token: token) {
             manualToken = false
             token = ""
         } else {
-            message = "Couldn't save the token"
+            message = String(localized: "Couldn't save the token")
         }
     }
 }

@@ -52,7 +52,7 @@ struct GeminiSettingsSection: View {
     // MARK: Rows
 
     private var summary: String {
-        settings.apiKey.isEmpty ? "Song info, Ask Gemini, translation and Memory titles" : settings.targetLanguage
+        settings.apiKey.isEmpty ? String(localized: "Song info, Ask Gemini, translation and Memory titles") : settings.targetLanguage
     }
 
     private var headerRow: some View {

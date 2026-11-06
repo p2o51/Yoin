@@ -528,10 +528,10 @@ extension OfflineDownloads {
     /// (a tap cancels), Remove download; a failed one offers to try again.
     static func rowLabel(_ status: Status) -> String {
         switch status {
-        case .none: "Download"
-        case .downloading(let done, let total): "Downloading \(done)/\(total)"
-        case .downloaded: "Remove download"
-        case .failed: "Download again"
+        case .none: String(localized: "Download")
+        case .downloading(let done, let total): String(localized: "Downloading \(done)/\(total)")
+        case .downloaded: String(localized: "Remove download")
+        case .failed: String(localized: "Download again")
         }
     }
 

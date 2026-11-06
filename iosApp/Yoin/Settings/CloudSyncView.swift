@@ -47,11 +47,11 @@ struct CloudSyncEntryRow: View {
 enum CloudSyncTexts {
     @MainActor
     static func summary(_ sync: CloudSync) -> String {
-        guard sync.isConfigured else { return "Not configured" }
+        guard sync.isConfigured else { return String(localized: "Not configured") }
         let s = sync.state
         switch s.phase {
         case is CloudSyncPhaseSyncing: return String(localized: "Syncing…")
-        case is CloudSyncPhaseOffline: return s.pendingChanges ? "Changes waiting to upload" : "Offline"
+        case is CloudSyncPhaseOffline: return s.pendingChanges ? String(localized: "Changes waiting to upload") : String(localized: "Offline")
         case is CloudSyncPhaseNeedsReauth: return String(localized: "Reconnect Google")
         case is CloudSyncPhaseStorageFull: return String(localized: "Google storage full")
         case is CloudSyncPhaseCloudCopyRemoved: return String(localized: "Drive copy removed")
@@ -61,7 +61,7 @@ enum CloudSyncTexts {
         case let r as CloudSyncPhaseResetElsewhere:
             return r.deviceName.map { "Turned off on \($0)" } ?? String(localized: "Turned off on another device")
         case is CloudSyncPhaseUpToDate:
-            if s.pendingChanges { return "Changes waiting to upload" }
+            if s.pendingChanges { return String(localized: "Changes waiting to upload") }
             return s.lastSyncAt.map { "Synced \(relative($0.int64Value))" } ?? String(localized: "On")
         default: return String(localized: "Off")
         }
@@ -164,7 +164,7 @@ struct CloudSyncView: View {
 
     @ViewBuilder private var offGroups: some View {
         if let reset = state.phase as? CloudSyncPhaseResetElsewhere {
-            Text(reset.deviceName.map { "Cloud sync was turned off and its Drive data deleted on \($0). Turn it on again to start fresh from this device." }
+            Text(reset.deviceName.map { String(localized: "Cloud sync was turned off and its Drive data deleted on \($0). Turn it on again to start fresh from this device.") }
                  ?? String(localized: "Cloud sync was turned off and its Drive data deleted on another device. Turn it on again to start fresh from this device."))
                 .yoinRole(Tokens.type.bodyMedium)
                 .foregroundStyle(app.onSurfaceVariant)
@@ -230,13 +230,13 @@ struct CloudSyncView: View {
     }
 
     private var status: String {
-        if state.readOnly { return "Reading your Drive" }
+        if state.readOnly { return String(localized: "Reading your Drive") }
         switch state.phase {
-        case is CloudSyncPhaseSyncing: return "Syncing…"
-        case is CloudSyncPhaseOffline: return "Can't reach Google"
+        case is CloudSyncPhaseSyncing: return String(localized: "Syncing…")
+        case is CloudSyncPhaseOffline: return String(localized: "Can't reach Google")
         case let e as CloudSyncPhaseError: return e.message
         default:
-            if state.pendingChanges { return "Changes waiting to upload" }
+            if state.pendingChanges { return String(localized: "Changes waiting to upload") }
             return state.lastSyncAt.map { "Last synced \(CloudSyncTexts.relative($0.int64Value))" } ?? String(localized: "Not synced yet")
         }
     }
@@ -261,20 +261,20 @@ struct CloudSyncView: View {
         let label: String
         var buttons: [(String, () -> Void)] = []
         switch a.status {
-        case is SyncAccountStatusSyncing: label = "Syncing"
-        case is SyncAccountStatusNeedsIdentity: label = "Not synced"
-        case is SyncAccountStatusNeedsReconnect: label = "Reconnect to sync"
-        case let d as SyncAccountStatusDuplicateOf: label = "Same as \(d.otherDisplayName)"
+        case is SyncAccountStatusSyncing: label = String(localized: "Syncing")
+        case is SyncAccountStatusNeedsIdentity: label = String(localized: "Not synced")
+        case is SyncAccountStatusNeedsReconnect: label = String(localized: "Reconnect to sync")
+        case let d as SyncAccountStatusDuplicateOf: label = String(localized: "Same as \(d.otherDisplayName)")
         case let n as SyncAccountStatusNotSynced:
-            label = "Not synced"
-            buttons.append(("Start syncing", { Task { await sync.startSyncing(a.localProfileId) } }))
+            label = String(localized: "Not synced")
+            buttons.append((String(localized: "Start syncing"), { Task { await sync.startSyncing(a.localProfileId) } }))
             for c in n.linkCandidates {
-                buttons.append(("Link to \(c.displayName)", { Task { await sync.link(a.localProfileId, to: c.syncProfileId) } }))
+                buttons.append((String(localized: "Link to \(c.displayName)"), { Task { await sync.link(a.localProfileId, to: c.syncProfileId) } }))
             }
         case is SyncAccountStatusAccountChanged:
-            label = "Paused"
-            buttons.append(("Keep syncing as before", { Task { await sync.keepAsBefore(a.localProfileId) } }))
-            buttons.append(("Start fresh", { confirmFresh = a }))
+            label = String(localized: "Paused")
+            buttons.append((String(localized: "Keep syncing as before"), { Task { await sync.keepAsBefore(a.localProfileId) } }))
+            buttons.append((String(localized: "Start fresh"), { confirmFresh = a }))
         default: label = ""
         }
         return VStack(alignment: .leading, spacing: 8) {
@@ -296,8 +296,8 @@ struct CloudSyncView: View {
 
     private var whatSyncs: some View {
         group(String(localized: "What syncs")) {
-            [AnyView(info("Syncs", "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups")),
-             AnyView(info("Stays on this device", "Listening history\nPasswords, sign-ins and API keys\nCaches and downloads"))]
+            [AnyView(info(String(localized: "Syncs"), String(localized: "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups"))),
+             AnyView(info(String(localized: "Stays on this device"), String(localized: "Listening history\nPasswords, sign-ins and API keys\nCaches and downloads")))]
         }
     }
 
