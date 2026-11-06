@@ -295,6 +295,13 @@ final class RoutingAudioOutput: AudioOutput {
     func stop() { active.stop() }
     func skipExternal(forward: Bool) { active.skipExternal(forward: forward) }
 
+    /// [o] drives the player without a load (Spotify found playing something Yoin didn't start).
+    func adopt(_ o: AudioOutput) {
+        guard o !== active else { return }
+        active.stop()
+        active = o
+    }
+
     fileprivate func isActive(_ o: AudioOutput) -> Bool { o === active }
 
     /// Forwards one child's events while that child is the active output.

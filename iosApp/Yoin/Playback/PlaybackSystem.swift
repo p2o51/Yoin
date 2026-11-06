@@ -34,8 +34,15 @@ final class PlaybackSystem {
     static func live() -> PlaybackSystem {
         let apple = AppleMusicAudioOutput()
         let spotify = SpotifyAudioOutput()
-        let system = PlaybackSystem(engine: PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: apple,
-                                                                                    spotify: spotify)))
+        let router = RoutingAudioOutput(av: AVAudioOutput(), apple: apple, spotify: spotify)
+        let system = PlaybackSystem(engine: PlayerEngine(output: router))
+        // Spotify playing somewhere is what Yoin shows, unless Yoin itself plays another source.
+        spotify.adopt = { [weak router, weak spotify, weak engine = system.engine] in
+            guard let router, let spotify, let engine else { return false }
+            if engine.isPlaying, engine.currentTrack?.provider != SpotifyMapping.provider { return false }
+            router.adopt(spotify)
+            return true
+        }
         let conditions = StreamQualityConditions()
         system.streamConditions = conditions
         system.engine.streamQuality = { conditions.resolvedNow() }

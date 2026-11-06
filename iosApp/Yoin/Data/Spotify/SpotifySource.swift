@@ -235,6 +235,7 @@ final class SpotifySource {
         var body: [String: Any] = ["uris": uris]
         if positionMs > 0 { body["position_ms"] = positionMs }
         let json = try JSONSerialization.data(withJSONObject: body)
+        PlayTrace.log("API PUT play body \(String(data: json, encoding: .utf8) ?? "-")")
         try await api.send("PUT", "me/player/play", deviceId.map { ["device_id": $0] } ?? [:], json: json)
     }
 

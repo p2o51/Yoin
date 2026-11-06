@@ -174,9 +174,9 @@ final class PlayerEngine {
     }
 
     func resume() {
-        guard currentIndex != nil, !isPlaying else { return }
-        if failure != nil { return retry() }
-        if ended {
+        guard currentIndex != nil || externalTrack != nil, !isPlaying else { return }
+        if externalTrack == nil, failure != nil { return retry() }
+        if externalTrack == nil, ended {
             ended = false
             loadCurrent(play: true)
             return
@@ -193,7 +193,7 @@ final class PlayerEngine {
         isPlaying = false
         output.pause()
         // The output's own clock is the truth at the moment of the pause.
-        progress.positionSec = output.currentTimeSec + timeBaseSec
+        progress.positionSec = output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0)
         scrobble.lastTickSec = progress.positionSec
         onStateChange?()
     }
@@ -230,9 +230,15 @@ final class PlayerEngine {
     }
 
     func seek(to sec: Double) {
-        guard currentIndex != nil else { return }
+        guard currentIndex != nil || externalTrack != nil else { return }
         let duration = progress.durationSec
         let target = duration > 0 ? min(max(sec, 0), duration) : max(sec, 0)
+        if externalTrack != nil {
+            // Spotify's own song: it seeks there; nothing of the queue's song moves.
+            output.seek(to: target)
+            progress.positionSec = target
+            return onStateChange?() ?? ()
+        }
         if ended {
             ended = false
             loadCurrent(play: false, startSec: target)
@@ -636,6 +642,8 @@ extension PlayerEngine: AudioOutputEvents {
         let wasExternal = externalTrack != nil
         externalTrack = track
         if let track {
+            // Spotify plays: a start that didn't take is no longer what the listener sees.
+            failure = nil
             isPlaying = playing
             progress.durationSec = track.durationSec
             progress.positionSec = positionSec
@@ -648,10 +656,10 @@ extension PlayerEngine: AudioOutputEvents {
     }
 
     func outputPlayingDidChangeExternally(_ playing: Bool) {
-        guard currentIndex != nil, !ended, playing != isPlaying else { return }
+        guard (currentIndex != nil && !ended) || externalTrack != nil, playing != isPlaying else { return }
         isPlaying = playing
         if !playing {
-            progress.positionSec = output.currentTimeSec + timeBaseSec
+            progress.positionSec = output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0)
             scrobble.lastTickSec = progress.positionSec
         } else {
             announceIfNeeded()
