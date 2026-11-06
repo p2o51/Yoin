@@ -17,6 +17,8 @@ struct MacAlbumScrapbook: View {
     @State private var award: ScoreEmblemAward?
     @State private var renaming = false
     @State private var titleDraft = ""
+    /// What the field opened with: only a change from it is written (a title synced in meanwhile stays).
+    @State private var titleOpened = ""
     @FocusState private var titleFocused: Bool
     @State private var openTrack: String?
 
@@ -196,6 +198,7 @@ struct MacAlbumScrapbook: View {
                 .contentShape(.rect)
                 .onTapGesture {
                     titleDraft = userTitle ?? title
+                    titleOpened = titleDraft
                     renaming = true
                 }
                 .help("Rename")
@@ -205,6 +208,7 @@ struct MacAlbumScrapbook: View {
     private func commitTitle(was title: String) {
         guard renaming else { return }
         renaming = false
+        guard titleDraft != titleOpened else { return }
         let text = titleDraft.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard text != title else { return }
         setTitle(text.isEmpty ? nil : String(text.prefix(80)))
@@ -428,6 +432,7 @@ private struct MacScrapTrack: View {
     @State private var rated = false
     @State private var editing: String?
     @State private var editDraft = ""
+    @State private var editOpened = ""
     @State private var draft = ""
 
     private var notes: [SongNote] { NotesStore.shared.notes(provider: track.id.provider, trackId: track.id.rawId) }
@@ -463,7 +468,7 @@ private struct MacScrapTrack: View {
                         Text(n.content).font(.gsf(14)).fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
-                            .onTapGesture { editing = n.id; editDraft = n.content }
+                            .onTapGesture { editing = n.id; editDraft = n.content; editOpened = n.content }
                         Button {
                             if NotesStore.shared.delete(id: n.id) != nil { CloudSync.shared.localChanged() }
                         } label: { YoinIcon("delete", size: 16).foregroundStyle(Yoin.inkVariant) }
@@ -494,7 +499,8 @@ private struct MacScrapTrack: View {
     }
 
     private func commitEdit(_ n: SongNote) {
-        if editDraft != n.content, NotesStore.shared.update(id: n.id, content: editDraft) != nil {
+        // Only an edit made here is written (a note synced in meanwhile isn't overwritten by the untouched draft).
+        if editDraft != editOpened, NotesStore.shared.update(id: n.id, content: editDraft) != nil {
             CloudSync.shared.localChanged()
         }
         editing = nil

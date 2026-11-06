@@ -124,7 +124,11 @@ final class MacModel {
         spotifyOutput.startWatching()
         // The first-run landing (iOS LandingGate): once per install, before any account; `-macScreen landing`
         // shows it every time and records nothing; other QA screens skip it.
+        #if DEBUG
         let launch: LandingLaunch = MacLaunch.screen == "landing" ? .forced : MacLaunch.screen != nil ? .demo : .normal
+        #else
+        let launch = LandingLaunch.normal
+        #endif
         landing = LandingGate.atLaunch(store: DefaultsLandingStore(), hasAccount: !session.profiles.isEmpty, launch: launch)
         // Apple Music songs resolve through whichever Apple Music source is in use now.
         appleOutput.resolve = { [weak self] id in await self?.session.apple?.song(id) }

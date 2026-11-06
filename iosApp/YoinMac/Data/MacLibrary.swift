@@ -247,6 +247,15 @@ final class MacLibrary {
             return
         }
         await run("songs", force: force) { client, m, live in
+            // The first page failed: Retry reads it again with the same pager (it skips an album that fails
+            // twice); only a refresh of a loaded list, or another account, starts a new one.
+            if let pager = self.songsPager, self.songs.isEmpty {
+                let first = try await pager.next()
+                guard live(), self.songsPager === pager else { return }
+                self.songs = first
+                self.songsMore = pager.reachedEnd ? .none : .available
+                return
+            }
             // iOS / Android NewestAlbumSongsPager: the newest albums' songs, album by album, a page at a time
             // (more as the list nears its end). A refresh starts again from the newest album.
             let gen = self.generation

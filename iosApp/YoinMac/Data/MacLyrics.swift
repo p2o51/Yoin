@@ -214,7 +214,8 @@ final class MacLyrics {
             let same = origin?.provider == name ? origin?.songId : nil
             guard let r = try? await registry.fetchTranslation(providerName: name, providerSongId: same,
                                                                title: t.title, artist: t.artist) else { continue }
-            guard gen == generation, songId == id else { return }
+            // The target changed meanwhile (Settings, or synced): this text is for a language nobody asked for now.
+            guard gen == generation, songId == id, GeminiSettings.shared.targetLanguage == language else { return }
             var map: [Int: String] = [:]
             for (k, v) in r.translations { map[k.intValue] = v }
             let (s, credits) = Self.lines(r.lyrics, source: r.providerName, translations: map)
