@@ -647,7 +647,6 @@ internal fun LyricsShareCard(
                     .graphicsLayer {
                         scaleX = MonochromeGlyphScale
                         scaleY = MonochromeGlyphScale
-                        translationY = -MonochromeGlyphLift.toPx()
                     },
             )
             Spacer(modifier = Modifier.width(6.dp))
@@ -1142,6 +1141,3 @@ private fun LyricsShareStoryPreview() {
 
 /** The themed icon's glyph spans ~58% of its 108dp canvas: this scale fills the mark's slot with it. */
 private const val MonochromeGlyphScale = 1.7f
-
-/** Its glyph sits a little below the canvas centre: lift it back level with the "Yoin" label. */
-private val MonochromeGlyphLift = 1.5.dp

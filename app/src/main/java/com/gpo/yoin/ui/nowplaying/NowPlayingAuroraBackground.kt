@@ -624,7 +624,7 @@ fun Modifier.nowPlayingAuroraBackground(
         launch {
             snapshotFlow { signal.glowFires }.collect {
                 if (signal.pendingGlows.isEmpty()) return@collect
-                glows += signal.pendingGlows
+                for (g in signal.pendingGlows) glows.addHandingOver(g)
                 signal.pendingGlows.clear()
                 while (glows.size > MaxRunningGlows) glows.removeAt(0)
                 glowNow.longValue = SystemClock.uptimeMillis()
@@ -646,7 +646,7 @@ fun Modifier.nowPlayingAuroraBackground(
             withFrameMillis {
                 val now = SystemClock.uptimeMillis()
                 glowNow.longValue = now
-                if (glows.removeAll { now - it.bornUptimeMs > it.durationMs }) glowCount.intValue = glows.size
+                if (glows.removeAll { it.isDone(now) }) glowCount.intValue = glows.size
             }
         }
     }

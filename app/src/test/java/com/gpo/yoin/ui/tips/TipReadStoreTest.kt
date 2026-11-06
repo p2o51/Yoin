@@ -36,4 +36,23 @@ class TipReadStoreTest {
         store.setAllUnread()
         assertEquals(emptySet<HomeBubbleTip>(), store.read.value)
     }
+
+    @Test
+    fun should_keepReadTips_when_savedAndLoaded() {
+        val read = setOf(HomeBubbleTip.Downloads, HomeBubbleTip.Name)
+        assertEquals(read, decodeReadTips(encodeReadTips(read)))
+    }
+
+    @Test
+    fun should_bringATipBack_when_itWasUpdatedAfterItWasRead() {
+        val saved = setOf("${HomeBubbleTip.SongMenu.name}@2026-10-17", "${HomeBubbleTip.Name.name}@${HomeBubbleTip.Name.updated}")
+        assertEquals(setOf(HomeBubbleTip.Name), decodeReadTips(saved))
+    }
+
+    @Test
+    fun should_readBareNamesAsTheOldTips_when_savedBeforeTipsHadADay() {
+        val saved = setOf(HomeBubbleTip.EditHome.name, HomeBubbleTip.PlayModes.name, HomeBubbleTip.SongMenu.name, "Gone")
+        // SongMenu was updated after bare names were last written: unread again.
+        assertEquals(setOf(HomeBubbleTip.EditHome, HomeBubbleTip.PlayModes), decodeReadTips(saved))
+    }
 }

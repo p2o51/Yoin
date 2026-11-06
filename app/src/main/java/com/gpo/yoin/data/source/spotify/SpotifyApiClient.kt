@@ -458,7 +458,7 @@ class SpotifyApiClient(
     ): String = withContext(Dispatchers.IO) {
         val body = JSON.encodeToString(
             SpotifyRemoveTracksRequest.serializer(),
-            SpotifyRemoveTracksRequest(tracks = items, snapshotId = snapshotId),
+            SpotifyRemoveTracksRequest(items = items, snapshotId = snapshotId),
         )
         // DELETE /v1/playlists/{id}/items (2026+) — same deprecation path
         // as the add endpoint.

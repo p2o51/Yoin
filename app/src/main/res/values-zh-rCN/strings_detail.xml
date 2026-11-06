@@ -192,6 +192,8 @@
     <string name="detail_scrap_cd_score_closed">点按修改评分</string>
     <string name="detail_scrap_not_rated">未评分</string>
     <string name="detail_scrap_clear">清除评分</string>
+    <string name="detail_scrap_rate">打分</string>
+    <string name="detail_scrap_rate_hint">点按或拖动来打分</string>
     <string name="detail_scrap_score_cleared">已清除评分</string>
     <string name="detail_scrap_asked">问：%1$s</string>
     <string name="detail_scrap_by_you">我写的</string>

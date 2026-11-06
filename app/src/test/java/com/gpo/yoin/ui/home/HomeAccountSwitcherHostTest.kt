@@ -25,6 +25,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.ProfileManager
@@ -34,6 +36,7 @@ import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.settings.ProfileCard
 import com.gpo.yoin.ui.theme.YoinTheme
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
@@ -135,7 +138,8 @@ class HomeAccountSwitcherHostTest {
                             onAccountAnchor = account.onAnchor,
                             accountSwitchPending = account.switchPending,
                             accountAnchor = account.anchor,
-                            accountHandedUp = account.landed
+                            accountHandedUp = account.landed,
+                            accountQuickSwitch = account.quickSwitch
                         )
                     }
                 }
@@ -252,6 +256,45 @@ class HomeAccountSwitcherHostTest {
     }
 
     @Test
+    fun should_switchWithoutTheCard_when_theAvatarIsHeldAndLetGoOnAnAccount() {
+        setHome()
+
+        // Hold the header avatar past the long-press time: B drops out under it.
+        headerAvatar("qa").performTouchInput { down(center) }
+        rule.mainClock.advanceTimeBy(HOLD_MS)
+        rule.waitForIdle()
+        // Slide down onto the column's first item (B: the 48dp box, a 12dp gap, half a 48dp item) and let go.
+        headerAvatar("qa").performTouchInput {
+            moveBy(Offset(0f, (24 + 12 + 24).dp.toPx()))
+            up()
+        }
+        rule.waitForIdle()
+
+        // B pends, as from the card, but no card opened.
+        assertEquals(true, chrome?.switchPending)
+        assertEquals("b", chrome?.account?.id)
+        rule.onNodeWithTag(homeAccountRowTag("b"), useUnmergedTree = true).assertDoesNotExist()
+        coVerify(exactly = 1) { profiles.switchTo("b") }
+        outcome.complete { active.value = "b" }
+    }
+
+    @Test
+    fun should_doNothing_when_theAvatarIsHeldAndLetGoOffTheColumn() {
+        setHome()
+
+        headerAvatar("qa").performTouchInput { down(center) }
+        rule.mainClock.advanceTimeBy(HOLD_MS)
+        rule.waitForIdle()
+        headerAvatar("qa").performTouchInput { up() }
+        rule.waitForIdle()
+
+        // Let go on the avatar itself: no switch, and no card either (the hold took the tap).
+        assertEquals(false, chrome?.switchPending)
+        rule.onNodeWithTag(homeAccountRowTag("b"), useUnmergedTree = true).assertDoesNotExist()
+        coVerify(exactly = 0) { profiles.switchTo(any()) }
+    }
+
+    @Test
     fun should_notRecomposeHome_when_theHeaderAvatarMovesUnderAScroll() {
         setHome()
         val settled = homeCompositions
@@ -349,5 +392,8 @@ class HomeAccountSwitcherHostTest {
         const val MAX_FRAMES = 30
         const val SCROLL_FRAMES = 8
         const val NEAR_PX = 2f
+
+        // Past the long-press time (500ms on Robolectric).
+        const val HOLD_MS = 1_000L
     }
 }

@@ -226,15 +226,22 @@ internal class DemoFinger(
 internal fun DemoPhone(
     playing: Boolean,
     script: suspend DemoFinger.() -> Unit,
+    tall: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    // [tall]: a 20:9 phone as tall as the others (narrower), for a scene whose
+    // layout differs on a 16:9 screen (Now Playing's focus).
+    // It lays out as wide as a 20:9 phone is (412dp) so Now Playing's widths
+    // (the cover, the inline time labels) come out as they do there.
+    val phoneWidth = if (tall) PhoneHeight * TallAspect else PhoneWidth
+    val screenWidth = if (tall) TallScreenWidth else ScreenWidth
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val density = LocalDensity.current
     // A tall window (a tablet held upright) gets a bigger phone: the demo is the page's subject, and at
     // 168×300 it sat small in a sea of empty page. Width keeps it to half the window.
     val window = currentWindowDpSize()
-    val grow = minOf(window.height.value * PhoneHeightShare / PhoneHeight.value, window.width.value * 0.5f / PhoneWidth.value)
+    val grow = minOf(window.height.value * PhoneHeightShare / PhoneHeight.value, window.width.value * 0.5f / phoneWidth.value)
         .coerceIn(1f, PhoneMaxGrow)
     val fingerSpring = YoinMotion.spatialSpring<Float>()
     val targets = remember { DemoTargets() }
@@ -260,7 +267,7 @@ internal fun DemoPhone(
     }
     Box(
         modifier = Modifier
-            .size(PhoneWidth * grow, PhoneHeight * grow)
+            .size(phoneWidth * grow, PhoneHeight * grow)
             .clip(PhoneShape)
             .background(colors.surface)
             // Watch (never consume) the user's touches: the phone becomes theirs.
@@ -272,7 +279,7 @@ internal fun DemoPhone(
                 }
             },
     ) {
-        DemoScreen(targets = targets, content = content)
+        DemoScreen(targets = targets, phoneWidth = phoneWidth, screenWidth = screenWidth, content = content)
         Box(modifier = Modifier.fillMaxSize().border(1.5.dp, colors.outlineVariant, PhoneShape))
         Canvas(modifier = Modifier.fillMaxSize()) {
             val a = finger.alpha.value
@@ -314,11 +321,11 @@ internal fun DemoPhone(
  * scaled down to the frame.
  */
 @Composable
-private fun DemoScreen(targets: DemoTargets, content: @Composable BoxScope.() -> Unit) {
-    val heightDp = (ScreenWidth.value * PhoneHeight.value / PhoneWidth.value).roundToInt()
+private fun DemoScreen(targets: DemoTargets, phoneWidth: Dp, screenWidth: Dp, content: @Composable BoxScope.() -> Unit) {
+    val heightDp = (screenWidth.value * PhoneHeight.value / phoneWidth.value).roundToInt()
     Layout(
         content = {
-            ProvidePreviewWindow(widthDp = ScreenWidth.value.roundToInt(), heightDp = heightDp) {
+            ProvidePreviewWindow(widthDp = screenWidth.value.roundToInt(), heightDp = heightDp) {
                 androidx.compose.runtime.CompositionLocalProvider(LocalDemoTargets provides targets) {
                     Box(
                         modifier = Modifier
@@ -332,7 +339,7 @@ private fun DemoScreen(targets: DemoTargets, content: @Composable BoxScope.() ->
         },
         modifier = Modifier.fillMaxSize().clipToBounds(),
     ) { measurables, constraints ->
-        val w = ScreenWidth.roundToPx()
+        val w = screenWidth.roundToPx()
         val h = (w.toFloat() * constraints.maxHeight / constraints.maxWidth).roundToInt()
         val scale = constraints.maxWidth / w.toFloat()
         val placeable = measurables.first().measure(Constraints.fixed(w, h))
@@ -348,6 +355,12 @@ private fun DemoScreen(targets: DemoTargets, content: @Composable BoxScope.() ->
 
 private val PhoneWidth = 168.dp
 private val PhoneHeight = 300.dp
+
+/** Width over height of a [DemoPhone] `tall` frame (20:9). */
+private const val TallAspect = 9f / 20f
+
+/** The layout width of a `tall` [DemoPhone]'s screen: a 20:9 phone's. */
+private val TallScreenWidth: Dp = 412.dp
 private val PhoneShape = RoundedCornerShape(24.dp)
 
 /** How much of the window's height the phone may take before it stops growing, and its largest size. */

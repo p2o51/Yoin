@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.tips
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -38,6 +40,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.symbols.YoinSymbols
@@ -48,6 +51,9 @@ import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.home.HomeAccountButton
+import com.gpo.yoin.ui.home.HomeAccountFanState
+import com.gpo.yoin.ui.home.HomeAccountQuickSwitch
 import com.gpo.yoin.ui.home.HomeGreetingTitle
 import com.gpo.yoin.ui.home.HomeHeaderTitleBreathing
 import com.gpo.yoin.ui.home.HomeSection
@@ -210,6 +216,74 @@ internal fun PullDemo(playing: Boolean) {
     }
 }
 
+/**
+ * Hold the header's avatar: the other accounts drop out of it in a column;
+ * slide down onto one and let go, and it is the account in use (Home's
+ * HomeAccountButton and its fan, the real ones, drawn in place).
+ */
+@Composable
+internal fun AccountQuickSwitchDemo(playing: Boolean) {
+    val accounts = DemoAccounts
+    var activeId by remember { mutableStateOf(accounts[0].id) }
+    val fan = remember { HomeAccountFanState() }
+    val avatarPx = with(LocalDensity.current) { DemoAccountBox.roundToPx() }
+    val others = remember(activeId) { accounts.filter { it.id != activeId } }
+    val quickSwitch = remember(others) { HomeAccountQuickSwitch(others) { activeId = it.id } }
+    DemoPhone(playing = playing, script = {
+        activeId = accounts[0].id
+        fan.holding = false
+        fan.hover = -1
+        delay(400)
+        moveTo("account")
+        // Held for the long-press time (the ring fills), then the column drops out.
+        press.animateTo(1f, tween(90))
+        ring.snapTo(0f)
+        ring.animateTo(1f, tween(HoldMs, easing = LinearEasing))
+        ring.snapTo(0f)
+        fan.anchorWidth = avatarPx
+        fan.anchorHeight = avatarPx
+        fan.accounts = accounts.drop(1)
+        fan.holding = true
+        delay(450)
+        // Down the column, onto the first account, then the second.
+        repeat(2) { i ->
+            moveTo("account", fy = DemoFanItemFy[i])
+            fan.hover = i
+            delay(380)
+        }
+        // Let go: the second one is the account in use.
+        activeId = accounts[2].id
+        fan.holding = false
+        fan.hover = -1
+        press.animateTo(0f, tween(120))
+        lift()
+        delay(1_800)
+    }) {
+        DemoHomePage(
+            editProgress = { 0f },
+            editing = false,
+            onEnterEdit = {},
+            onDone = {},
+            cardScope = null,
+            headerAction = {
+                HomeAccountButton(
+                    card = accounts.first { it.id == activeId },
+                    onClick = {},
+                    quickSwitch = quickSwitch,
+                    fanState = fan,
+                    inlineFan = true,
+                    modifier = Modifier.demoTarget("account"),
+                )
+            },
+        )
+    }
+}
+
+// The header avatar's box (HomeAccountButton), and where the fan's items sit
+// under it, as fractions of that box (HomeAccountQuickSwitch's 12dp gap, 48dp items, 60dp steps).
+private val DemoAccountBox = 48.dp
+private val DemoFanItemFy = listOf(1f + 36f / 48f, 1f + 96f / 48f)
+
 @Composable
 private fun BoxScope.DemoHomePage(
     editProgress: () -> Float,
@@ -218,6 +292,8 @@ private fun BoxScope.DemoHomePage(
     onDone: () -> Unit,
     cardScope: HomeEditCardScope?,
     hint: () -> Float = { 0f },
+    // In place of the Settings gear (the account in use, on Home).
+    headerAction: (@Composable () -> Unit)? = null,
 ) {
     val cards = demoWidgetCards()
     val bubble = remember { MemoryBubbleController() }
@@ -236,6 +312,8 @@ private fun BoxScope.DemoHomePage(
                     .statusBarsPadding()
                     .padding(top = 12.dp)
                     .heightIn(min = 48.dp)
+                    // Over the page under it: the account fan drops out of its corner.
+                    .zIndex(1f)
                     .demoTarget("header"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -248,12 +326,16 @@ private fun BoxScope.DemoHomePage(
                 )
                 Box(modifier = Modifier.weight(1f).memoryBubbleFreeSpan(bubble))
                 Spacer(modifier = Modifier.width(2.dp))
-                IconButton(onClick = {}, modifier = Modifier.homeEditHeaderIcon(editProgress)) {
-                    Icon(
-                        imageVector = YoinSymbols.Settings,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                if (headerAction != null) {
+                    headerAction()
+                } else {
+                    IconButton(onClick = {}, modifier = Modifier.homeEditHeaderIcon(editProgress)) {
+                        Icon(
+                            imageVector = YoinSymbols.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             CompositionLocalProvider(LocalHomeEditCardScope provides cardScope) {
