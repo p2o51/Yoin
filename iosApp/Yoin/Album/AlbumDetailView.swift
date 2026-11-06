@@ -1071,6 +1071,9 @@ struct AlbumDetailView: View {
                 }
             }
             .frame(width: w, height: height, alignment: .topLeading)
+            // Flattened to the stage first: the dots' layer otherwise spans only
+            // the sleeves' unturned squares and cuts their turned corners.
+            .drawingGroup()
             .dotDissolve(reduceMotion ? 0 : leaving)
             .opacity(reduceMotion ? 1 - smooth(p, 0, 0.6) : 1)
             .allowsHitTesting(false)
