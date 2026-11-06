@@ -1,3 +1,4 @@
+// Mac copy of iosApp/Yoin/Data/Spotify (branch claude/project-thread-2amedi); merge once the branches meet.
 import Foundation
 import SwiftUI
 
@@ -176,11 +177,11 @@ enum SpotifyMapping {
     /// playlist the app may not read the items of (someone else's, 2026-02) opens without any.
     static func playlist(_ p: SpotifyDTO.Playlist, tracks: [SpotifyDTO.Track], saved: Set<String> = []) -> PlaylistInfo {
         // Every occurrence (Codex N12): a playlist may hold a song twice; its rows key by position.
-        var info = PlaylistInfo(id: MediaId(provider: provider, rawId: p.id), title: p.name ?? "", owner: owner(p),
+        let info = PlaylistInfo(id: MediaId(provider: provider, rawId: p.id), title: p.name ?? "", owner: owner(p),
                                 isPublic: p.public, description: plainText(p.description),
                                 palette: palette(p.images, key: p.id),
                                 entries: tracks.enumerated().compactMap { i, t in entry(t, index: i, saved: saved) })
-        info.songCount = p.entries?.total
+        _ = p.entries?.total  // the iOS model keeps the count; the Mac lists the entries it read
         return info
     }
 

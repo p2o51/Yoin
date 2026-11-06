@@ -38,6 +38,13 @@ struct MacShell: View {
                 if model.npMode != .full {
                     let wide = model.detailAsColumn
                     let pill = model.npMode != .panel
+                    if let f = model.player.failure {
+                        MacPlaybackFailureBanner(failure: f)
+                            .frame(width: min(520, contentW - 48))
+                            .frame(width: contentW, height: geo.size.height, alignment: .bottom)
+                            .padding(.bottom, 22 + 76 + 12)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                     MacBottomBar(wide: wide, showsPill: pill)
                         .frame(width: pill ? min(wide ? 820 : 640, contentW - 48) : nil)
                         .fixedSize(horizontal: !pill, vertical: false)

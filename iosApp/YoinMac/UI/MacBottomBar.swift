@@ -196,3 +196,34 @@ private struct PillProgress: View {
         .allowsHitTesting(false)
     }
 }
+
+/// A playback failure the engine is holding on (iOS PlaybackFailureBanner): the message and Retry; when
+/// Spotify plays on another device, Play Here moves it to this Mac.
+struct MacPlaybackFailureBanner: View {
+    var failure: PlaybackFailure
+    @Environment(MacModel.self) private var model
+    @Environment(\.macTint) private var tint
+
+    var body: some View {
+        let elsewhere = failure.track.provider == SpotifyMapping.provider && failure.message.hasPrefix("Spotify is playing on")
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Playback unavailable").font(.gsf(13.5, .semibold)).foregroundStyle(Yoin.ink)
+                Text(failure.message).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            if elsewhere {
+                Button("Play Here") { model.spotifyPlayHere() }
+                    .buttonStyle(.plain).font(.gsf(13.5, .semibold)).foregroundStyle(tint.onPrimary)
+                    .padding(.horizontal, 14).frame(height: 32)
+                    .background(Capsule().fill(tint.primary))
+            }
+            Button("Retry") { model.player.retry() }
+                .buttonStyle(.plain).font(.gsf(13.5, .semibold)).foregroundStyle(tint.primary)
+                .padding(.horizontal, 12).frame(height: 32)
+        }
+        .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 8)
+        .frame(maxWidth: 520)
+        .glassEffect(.regular, in: .capsule)
+    }
+}

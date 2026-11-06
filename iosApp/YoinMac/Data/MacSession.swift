@@ -28,15 +28,18 @@ final class MacSession {
 
     /// One account in the list.
     struct Profile: Codable, Equatable, Identifiable, Sendable {
-        enum Service: String, Codable, Sendable { case subsonic, appleMusic }
+        enum Service: String, Codable, Sendable { case subsonic, appleMusic, spotify }
         var id: String
         var service: Service
-        /// The Subsonic sign-in (nil for Apple Music).
+        /// The Subsonic sign-in (nil for Apple Music and Spotify).
         var account: Account?
+        /// Spotify: the account's name as Spotify shows it (its tokens are their own Keychain item).
+        var name: String? = nil
 
         var title: String {
             switch service {
             case .appleMusic: "Apple Music"
+            case .spotify: "Spotify" + (name.map { " · \($0)" } ?? "")
             case .subsonic: account.map { "\($0.username) · \(MacSession.host($0.baseUrl))" } ?? "Server"
             }
         }
@@ -61,12 +64,16 @@ final class MacSession {
     private(set) var state: State = .signedOut
     /// Apple Music in use instead of the Subsonic account (MusicKit; the system holds its sign-in).
     private(set) var apple: AppleMusicSource?
+    /// Spotify in use (Web API; the tokens are in the Keychain per account).
+    private(set) var spotify: SpotifySource?
 
-    var isSignedIn: Bool { client != nil || apple?.isAuthorized == true }
+    var isSignedIn: Bool { client != nil || apple?.isAuthorized == true || spotify != nil }
     var isAppleMusic: Bool { apple != nil }
+    var isSpotify: Bool { spotify != nil }
     /// The account's key for per-account local state (server and user, never the password).
     var accountKey: String {
         if apple != nil { return AppleMusicMapping.provider }
+        if let s = spotify, let id = activeId { return "\(SpotifyMapping.provider)|\(s.userId ?? id)" }
         return account.map { "\($0.baseUrl)|\($0.username)" } ?? ""
     }
 
@@ -104,7 +111,33 @@ final class MacSession {
     }
 
     /// Takes [id] out of the list; the one in use leaves the app signed out.
+    /// Signs in to Spotify in the browser sheet (PKCE, the listener's own Client ID) and switches to it.
+    func useSpotify(commitIf: @MainActor () -> Bool = { true }) async throws {
+        let tokens = try await SpotifyAuth.signIn()
+        guard commitIf() else { throw Superseded() }
+        let existing = profiles.first { p in
+            p.service == .spotify && SpotifyTokenStore.load(p.id)?.userId == tokens.userId
+        }
+        let p = existing ?? Profile(id: UUID().uuidString, service: .spotify, account: nil, name: tokens.displayName)
+        _ = SpotifyTokenStore.save(tokens, for: p.id)
+        if !profiles.contains(where: { $0.id == p.id }) { profiles.append(p) }
+        activeId = p.id
+        persist()
+        activate(p)
+    }
+
+    static func spotifySource(profileId: String, tokens: SpotifyTokens,
+                              onRevoked: @escaping @Sendable () -> Void) -> SpotifySource {
+        let provider = SpotifyTokenProvider(profileId: profileId, tokens: tokens, onRevoked: onRevoked)
+        let api = SpotifyWebAPI(token: { try await provider.accessToken() },
+                                refresh: { _ = try await provider.accessToken(force: true) })
+        let source = SpotifySource(api: api)
+        source.userId = tokens.userId
+        return source
+    }
+
     func remove(_ id: String) {
+        if profiles.first(where: { $0.id == id })?.service == .spotify { SpotifyTokenStore.delete(id) }
         // The pre-list single sign-in goes too when it is this account.
         if let a = profiles.first(where: { $0.id == id })?.account, Keychain.load() == a { Keychain.delete() }
         let wasActive = id == activeId
@@ -121,6 +154,12 @@ final class MacSession {
         switch p.service {
         case .subsonic:
             if let a = p.account { restore(a) }
+        case .spotify:
+            guard let tokens = SpotifyTokenStore.load(p.id) else { state = .failed("Sign in to Spotify again"); return }
+            spotify = Self.spotifySource(profileId: p.id, tokens: tokens) { [weak self] in
+                Task { @MainActor in self?.state = .failed("Spotify signed you out. Sign in again") }
+            }
+            state = .ready(server: "Spotify")
         case .appleMusic:
             let a = AppleMusicSource()
             // Access is the system's: without it the account waits for "Use Apple Music" again.
@@ -135,6 +174,7 @@ final class MacSession {
         client = nil
         account = nil
         apple = nil
+        spotify = nil
         state = .signedOut
         // Its downloads stop with it (whatever window is open).
         OfflineDownloads.shared.accountChanged()

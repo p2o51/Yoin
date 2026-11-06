@@ -25,6 +25,10 @@ YoinShared has a `macos-arm64` slice; the Darwin Ktor engine and the Foundation 
 - Media keys / Control Center: `MacPlaybackSystem` (MPRemoteCommandCenter + MPNowPlayingInfoCenter).
 - Lyrics: server (`lyricsFor`) first, then YoinShared `LyricsRegistry.autoFetch` (QQ → NetEase → LRCLIB).
 
+## Spotify
+
+`YoinMac/Spotify/` is a Mac copy of the iOS branch's Web API layer (`iosApp/Yoin/Data/Spotify` on `claude/project-thread-2amedi`: auth, DTOs, mapping, source, search, playlists) without the playlist-write metadata and backup; merge the two when the branches meet. Sign-in: PKCE in `ASWebAuthenticationSession`, redirect `yoin://auth/spotify/callback`, the listener's Client ID (Settings › General › Spotify). Tokens: Keychain `com.gpo.yoin.spotify`, one item per account. Playback: no App Remote on macOS, so `MacSpotifyOutput` drives Spotify Connect over the Web API: the active device if it is this Mac; never another device that is playing (the banner says where, Play Here transfers to this Mac); else this Mac's Spotify app, opened in the background if needed. Progress / end / carry-on to the handed next song come from polling `GET /me/player` every second. `MacRoutingOutput` routes AV / MusicKit / Spotify. Heart = Liked Songs; no rating. Nothing is drawn over Spotify artwork.
+
 ## Accounts
 
 `MacSession.profiles`: any number of Subsonic servers plus Apple Music, one in use (`activeId`), stored as one Keychain item (`com.gpo.yoin.mac.subsonic` / `profiles`). First launch with the list migrates the single-account item (`default`, left in place for older builds; deleted when that account is removed) and the old `activeSource` choice. Settings › Accounts: Switch, Remove, Add Account… (the sign-in page over the shell, Cancel goes back); Controls › Switch Account. A switch resets the player, library, lyrics and downloads' scope (`MacModel.switchAccount`).

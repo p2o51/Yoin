@@ -1,8 +1,9 @@
+// Mac copy of iosApp/Yoin/Data/Spotify (branch claude/project-thread-2amedi); merge once the branches meet.
 import AuthenticationServices
 import CryptoKit
 import Foundation
 import Security
-import UIKit
+import AppKit
 
 /// Spotify's constants (Android SpotifyAuthConfig). The Client ID is not one of them: a user sets it
 /// in Settings › Spotify (synced as `spotify_client_id`); a dev build may be seeded with one from
@@ -238,8 +239,7 @@ enum SpotifyAuth {
         static let shared = AuthAnchor()
         func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
             MainActor.assumeIsolated {
-                let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-                return scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+                NSApp.keyWindow ?? NSApp.mainWindow ?? ASPresentationAnchor()
             }
         }
     }

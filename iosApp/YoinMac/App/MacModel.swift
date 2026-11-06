@@ -1,4 +1,5 @@
 import AppKit
+import os
 import Observation
 import SwiftUI
 import YoinShared
@@ -35,6 +36,7 @@ final class MacModel {
     /// Streams through AVQueuePlayer, Apple Music through MusicKit's ApplicationMusicPlayer (as on iOS).
     let player: PlayerEngine
     @ObservationIgnored private let appleOutput = AppleMusicAudioOutput()
+    @ObservationIgnored let spotifyOutput = MacSpotifyOutput()
     @ObservationIgnored private var membershipCheckedFor: String?
     let lyrics = MacLyrics()
     @ObservationIgnored private var system: MacPlaybackSystem?
@@ -63,7 +65,7 @@ final class MacModel {
     @ObservationIgnored private var known: [String: PlaylistEntry] = [:]
 
     init() {
-        player = PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: appleOutput))
+        player = PlayerEngine(output: MacRoutingOutput(av: AVAudioOutput(), apple: appleOutput, spotify: spotifyOutput))
         library = MacLibrary(session: session)
         system = MacPlaybackSystem(player: player)
         player.onScrobble = { [weak self] track, submission in
@@ -77,7 +79,7 @@ final class MacModel {
             self.lyrics.choiceScope = self.session.accountKey
             self.lyrics.load(self.player.currentTrack, client: self.session.client)
             if let t = self.player.currentTrack, t.id != self.membershipCheckedFor,
-               t.provider == AppleMusicMapping.provider {
+               t.provider == AppleMusicMapping.provider || t.provider == SpotifyMapping.provider {
                 self.membershipCheckedFor = t.id
                 self.library.refreshLibraryMembership(t.id)
             }
@@ -98,6 +100,7 @@ final class MacModel {
         player.downloadedFile = { OfflineDownloads.shared.localFile(for: $0) }
         player.streamQuality = { MacSettings.streamQuality }
         offline.pump()
+        spotifyOutput.source = { [weak self] in self?.session.spotify }
         // Apple Music songs resolve through whichever Apple Music source is in use now.
         appleOutput.resolve = { [weak self] id in await self?.session.apple?.song(id) }
     }
@@ -358,6 +361,20 @@ final class MacModel {
             return (album, s)
         }
     }
+
+    /// Spotify plays on another device: move it to this Mac (the listener's choice), then start the song again.
+    func spotifyPlayHere() {
+        Task {
+            do {
+                try await spotifyOutput.playHere()
+                player.retry()
+            } catch {
+                Self.log.error("play here failed: \(SpotifySource.message(for: error), privacy: .public)")
+            }
+        }
+    }
+
+    private static let log = Logger(subsystem: "com.gpo.yoin.mac", category: "model")
 
     /// The account in use changed: its downloads run, another's wait.
     func accountDidChange() { OfflineDownloads.shared.accountChanged() }

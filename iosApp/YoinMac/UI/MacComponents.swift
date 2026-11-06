@@ -115,7 +115,8 @@ struct TrackRow: View {
                 MacCover(palette: entry.album.palette, corner: Tokens.shape.THUMB.cg)
                     .frame(width: 40, height: 40)
                     .overlay {
-                        if isCurrent || hover {
+                        // Spotify's artwork may carry nothing drawn on it (its guidelines).
+                        if (isCurrent || hover) && entry.track.id.provider != SpotifyMapping.provider {
                             ZStack {
                                 RoundedRectangle(cornerRadius: Tokens.shape.THUMB.cg).fill(.black.opacity(0.35))
                                 if isCurrent { EqualizerBars(playing: model.player.isPlaying, color: .white) }

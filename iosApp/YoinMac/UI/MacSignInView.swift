@@ -56,6 +56,13 @@ struct MacSignInView: View {
                 .buttonStyle(.plain)
                 .disabled(busy)
                 .padding(.top, 10)
+                Button(action: useSpotify) {
+                    Text("Use Spotify instead").font(.gsf(14, .medium)).foregroundStyle(Yoin.violet)
+                        .frame(maxWidth: .infinity).frame(height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
                 if model.addingAccount {
                     Button("Cancel") {
                         model.supersedeSignIn()
@@ -100,6 +107,24 @@ struct MacSignInView: View {
             } catch is MacSession.Superseded {
             } catch {
                 self.error = AppleMusicSource.message(for: error)
+            }
+        }
+    }
+
+    private func useSpotify() {
+        guard !busy else { return }
+        busy = true
+        error = nil
+        Task {
+            defer { busy = false }
+            do {
+                let adding = model.addingAccount
+                let token = model.authToken
+                try await model.session.useSpotify { token == model.authToken }
+                if adding { model.signedOut(); model.addingAccount = false }
+            } catch is MacSession.Superseded {
+            } catch {
+                self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
     }
@@ -209,6 +234,13 @@ struct MacSettingsView: View {
                 Section("Lyrics") {
                     Toggle("Show translations under the lyrics", isOn: $showTranslation)
                     Text("The server's lyrics come first, then QQ Music, NetEase and LRCLIB. Search in Now Playing picks another source for a song.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Spotify") {
+                    TextField("Client ID", text: Binding(
+                        get: { SpotifyConfig.clientId ?? "" },
+                        set: { SpotifyConfig.setClientId($0) }))
+                    Text("Your app's Client ID from developer.spotify.com, with the redirect URI yoin://auth/spotify/callback. Spotify plays through the Spotify app on this Mac.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Appearance") {

@@ -1,3 +1,4 @@
+// Mac copy of iosApp/Yoin/Data/Spotify (branch claude/project-thread-2amedi); merge once the branches meet.
 import Foundation
 import os
 
@@ -187,8 +188,8 @@ final class SpotifySource {
             }
         } catch let e as SpotifyAPIError where e.isForbidden {
             playlistOffsets[rawId] = []
-            var info = SpotifyMapping.playlist(p, tracks: [], saved: liked)
-            info.tracksUnavailable = true
+            let info = SpotifyMapping.playlist(p, tracks: [], saved: liked)
+            // 403: someone else's playlist (2026 Development Mode) opens without its songs.
             return await withWriteMetadata(info, p, positions: nil)
         }
         let (tracks, offsets) = SpotifyMapping.playableTracks(Array(items.prefix(cap)))

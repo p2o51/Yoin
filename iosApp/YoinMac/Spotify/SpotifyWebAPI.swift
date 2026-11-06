@@ -1,3 +1,4 @@
+// Mac copy of iosApp/Yoin/Data/Spotify (branch claude/project-thread-2amedi); merge once the branches meet.
 import Foundation
 
 /// What a Spotify Web API call can fail with, beyond URLSession's own errors.
@@ -40,8 +41,8 @@ enum SpotifyAPIError: Error, LocalizedError, Equatable {
 /// coming, throws `.rateLimited` so the screen can say so instead of hanging.
 final class SpotifyWebAPI: Sendable {
     static let liveBase = URL(string: "https://api.spotify.com/v1")!
-    /// The live API, or the QA fake (`-spotifyFake`, DEBUG builds only).
-    static var defaultBase: URL { SpotifyFake.base ?? liveBase }
+    /// The live API (the iOS QA fake isn't on the Mac).
+    static var defaultBase: URL { liveBase }
     static let defaultRetryAfter = 5
 
     private let token: @Sendable () async throws -> String
