@@ -116,8 +116,9 @@ struct NowPlayingPill: View {
             HStack(spacing: 14) {
                 // A song's cover is a rounded square: in Yoin a circle means an artist.
                 Group {
-                    if let entry { MacCover(palette: entry.album.palette, corner: 8) }
-                    else { RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.primary.opacity(0.25)) }
+                    // The thumbnail token (Android YoinArtworkShapes.ThumbAnimated, the bar's mini art: 4).
+                    if let entry { MacCover(palette: entry.album.palette, corner: Tokens.shape.THUMB.cg) }
+                    else { RoundedRectangle(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous).fill(tint.primary.opacity(0.25)) }
                 }
                 .frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 2) {
