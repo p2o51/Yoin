@@ -51,8 +51,6 @@ struct MemoryCard: Identifiable, Hashable {
     var yoinTitle: String?
     /// Yoin's paragraph (the Gemini memory copy), shown above a blank page.
     var paragraph: String?
-    /// The album's own note, leading the liner (Android `diaryAlbumNotes`: one).
-    var albumNote: String?
     var diaryTracks: [DiaryTrack]
     var playCount: Int
     var firstPlayedAt: Int64?
@@ -78,8 +76,6 @@ enum MemoryDeck {
         var yoinTitle: (String) -> String? = { _ in nil }
         /// Raw album id → Yoin's paragraph (the memory copy).
         var copy: (String) -> String? = { _ in nil }
-        /// Raw album id → the album's one note (the latest album_notes row), trimmed.
-        var albumNote: (String) -> String? = { _ in nil }
     }
 
     /// The deck: the Memory pool (eligible memories; every memory with
@@ -126,7 +122,6 @@ enum MemoryDeck {
                           lastHeardAt: m.lastPlayedAt, memory: m, review: review,
                           yoinTitle: x.yoinTitle(id).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
                           paragraph: x.copy(id).flatMap(MemoryNarrationCopy.paragraph),
-                          albumNote: x.albumNote(id).flatMap { $0.isEmpty ? nil : $0 },
                           diaryTracks: diaryTracks(m.album, notes: notes, rating: x.rating),
                           playCount: m.playCount, firstPlayedAt: m.firstPlayedAt)
     }
