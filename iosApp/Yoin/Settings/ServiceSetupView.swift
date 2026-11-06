@@ -89,7 +89,7 @@ struct ServiceSetupView: View {
                     submitButton.transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
                 if shown == .appleMusic, adding { appleButton }
-                if shown == .spotify, adding || needsSpotifySignIn { spotifyButton }
+                if shown == .spotify, ServiceSetupRouting.showsSpotifySignIn(adding: adding, hasAccount: editing != nil) { spotifyButton }
                 if editing != nil { removeGroup }
                 // What belongs to this service only, at the bottom of its page (51's rule).
                 if shown == .subsonic, editing != nil {
