@@ -188,8 +188,8 @@ final class SpotifySource {
             }
         } catch let e as SpotifyAPIError where e.isForbidden {
             playlistOffsets[rawId] = []
-            let info = SpotifyMapping.playlist(p, tracks: [], saved: liked)
-            // 403: someone else's playlist (2026 Development Mode) opens without its songs.
+            var info = SpotifyMapping.playlist(p, tracks: [], saved: liked)
+            info.tracksUnavailable = true
             return await withWriteMetadata(info, p, positions: nil)
         }
         let (tracks, offsets) = SpotifyMapping.playableTracks(Array(items.prefix(cap)))

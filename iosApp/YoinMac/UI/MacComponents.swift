@@ -99,6 +99,8 @@ struct ArtistTile: View {
 struct TrackRow: View {
     var entry: PlaylistEntry
     var showCover: Bool
+    /// On an editable playlist's page: the song menu's Remove from Playlist.
+    var removeFromPlaylist: (() -> Void)? = nil
     var play: () -> Void
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
@@ -169,7 +171,13 @@ struct TrackRow: View {
         .onHover { hover = $0 }
         .onTapGesture(count: 2) { play() }
         .onTapGesture { model.selectedTrack = id }
-        .contextMenu { SongMenu(entry: entry, play: play) }
+        .contextMenu {
+            SongMenu(entry: entry, play: play)
+            if let removeFromPlaylist {
+                Divider()
+                Button("Remove from Playlist", role: .destructive, action: removeFromPlaylist)
+            }
+        }
         .animation(Yoin.effects, value: hover)
         .animation(Yoin.effects, value: selected)
     }
@@ -198,16 +206,17 @@ struct SongMenu: View {
             Button(starred ? "Unlike" : "Like") { model.library.toggleStar(songId: id, current: starred) }
         }
         if !model.session.isAppleMusic { rateMenu(id: id, rating: rating) }
-        if model.session.client != nil {
+        if model.session.client != nil || model.session.isSpotify {
             Menu("Add to Playlist") {
-                ForEach(model.library.playlists, id: \.id) { p in
+                ForEach(model.library.writablePlaylists, id: \.id) { p in
                     Button(p.title) {
                         Task { try? await model.library.add(songIds: [id], toPlaylist: p.id.rawId) }
                     }
                 }
-                if model.library.playlists.isEmpty { Text("No playlists") }
+                if model.library.writablePlaylists.isEmpty { Text("No playlists you can add to") }
             }
-            .task { await model.library.loadPlaylists() }
+        }
+        if model.session.client != nil {
             Button(OfflineDownloads.rowLabel(OfflineDownloads.shared.status(OfflineDownloads.songKey(id)))) {
                 model.toggleDownload(song: entry)
             }

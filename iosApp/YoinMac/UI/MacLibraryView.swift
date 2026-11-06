@@ -26,6 +26,9 @@ struct MacLibraryView: View {
                         Task { await lib.loadArtists(force: true) }
                     }
                 case .playlists:
+                    if model.session.client != nil || model.session.isSpotify {
+                        NewPlaylistButton().padding(.bottom, 16)
+                    }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 16, alignment: .top)], spacing: 20) {
                         ForEach(lib.playlists, id: \.id) { PlaylistTile(item: $0) }
                     }
@@ -185,6 +188,39 @@ struct PlaylistTile: View {
         .contextMenu {
             Button("Play") { model.play(playlist: item.id.rawId) }
             Button("Shuffle") { model.play(playlist: item.id.rawId, shuffle: true) }
+        }
+    }
+}
+
+/// Library › Playlists: a new, empty playlist on the account in use.
+private struct NewPlaylistButton: View {
+    @Environment(MacModel.self) private var model
+    @State private var naming = false
+    @State private var name = ""
+    @State private var error: String?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            DetailAction(title: "New Playlist", icon: "add", prominent: false) { name = ""; naming = true }
+            if let error { Text(error).font(.gsf(13)).foregroundStyle(.red) }
+        }
+        .alert("New Playlist", isPresented: $naming) {
+            TextField("Name", text: $name)
+            Button("Create") {
+                let n = name.trimmingCharacters(in: .whitespaces)
+                guard !n.isEmpty else { return }
+                Task {
+                    error = nil
+                    do {
+                        if let id = try await model.library.createPlaylist(name: n) {
+                            model.open(.playlist(id: id, title: n))
+                        }
+                    } catch {
+                        self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 }

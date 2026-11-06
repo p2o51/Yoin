@@ -177,11 +177,11 @@ enum SpotifyMapping {
     /// playlist the app may not read the items of (someone else's, 2026-02) opens without any.
     static func playlist(_ p: SpotifyDTO.Playlist, tracks: [SpotifyDTO.Track], saved: Set<String> = []) -> PlaylistInfo {
         // Every occurrence (Codex N12): a playlist may hold a song twice; its rows key by position.
-        let info = PlaylistInfo(id: MediaId(provider: provider, rawId: p.id), title: p.name ?? "", owner: owner(p),
+        var info = PlaylistInfo(id: MediaId(provider: provider, rawId: p.id), title: p.name ?? "", owner: owner(p),
                                 isPublic: p.public, description: plainText(p.description),
                                 palette: palette(p.images, key: p.id),
                                 entries: tracks.enumerated().compactMap { i, t in entry(t, index: i, saved: saved) })
-        _ = p.entries?.total  // the iOS model keeps the count; the Mac lists the entries it read
+        info.songCount = p.entries?.total
         return info
     }
 

@@ -304,15 +304,120 @@ final class MacLibrary {
         }
     }
 
-    /// Appends songs to a Subsonic playlist (Apple Music playlists stay read-only on the Mac).
-    func add(songIds: [String], toPlaylist id: String) async throws {
-        guard let client else { throw AppleMusicSource.RequestError(message: "Not available for this account") }
+    // MARK: Playlist writes (Subsonic and Spotify; Apple Music's stay read-only on the Mac)
+
+    struct WriteError: LocalizedError {
+        var message: String
+        var errorDescription: String? { message }
+    }
+
+    /// Who may change [p]: on Subsonic its owner (the signed-in user); on Spotify its owner or, when it is
+    /// collaborative, anyone it is shared with.
+    func canEdit(_ p: PlaylistInfo) -> Bool {
+        if spotify != nil { return p.ownedByMe == true || p.collaborative }
+        if let user = session.account?.username { return client != nil && (p.owner.isEmpty || p.owner == user) }
+        return false
+    }
+
+    /// The playlists songs can go into (the song menu's Add to Playlist).
+    var writablePlaylists: [LibraryItem] {
+        if spotify != nil { return spotifyWritable }
+        // Subsonic: the server refuses another user's playlist (and says so).
+        if client != nil { return playlists }
+        return []
+    }
+    private(set) var spotifyWritable: [LibraryItem] = []
+
+    func loadWritablePlaylists() async {
+        guard let spotify else { return }
         let gen = generation
-        try await client.updatePlaylist(id: id, name: nil, comment: nil, isPublic: nil, songIdsToAdd: songIds,
-                                        songIndexesToRemove: [])
+        guard let r = try? await spotify.writablePlaylists(), gen == generation else { return }
+        spotifyWritable = r.writable
+    }
+
+    /// Appends songs to a playlist.
+    func add(songIds: [String], toPlaylist id: String) async throws {
+        let gen = generation
+        if let spotify {
+            try await spotify.addTracks(songIds, to: id)
+        } else if let client {
+            try await client.updatePlaylist(id: id, name: nil, comment: nil, isPublic: nil, songIdsToAdd: songIds,
+                                            songIndexesToRemove: [])
+        } else {
+            throw WriteError(message: "Not available for this account")
+        }
         guard gen == generation else { return }
         await loadPlaylist(id, force: true)
         await loadPlaylists(force: true)
+    }
+
+    /// Takes the entry at [index] (its place in the page) out of the playlist.
+    func remove(entryAt index: Int, fromPlaylist id: String) async throws {
+        guard let p = playlistDetails[id], p.entries.indices.contains(index) else { return }
+        let gen = generation
+        if let spotify {
+            guard let position = p.positions?[index] else {
+                throw WriteError(message: "Reload the playlist, then try again")
+            }
+            _ = try await spotify.removeTracks([.init(trackRawId: p.entries[index].track.id.rawId, position: position)],
+                                               from: id, snapshotId: p.snapshotId)
+        } else if let client {
+            try await client.updatePlaylist(id: id, name: nil, comment: nil, isPublic: nil, songIdsToAdd: [],
+                                            songIndexesToRemove: [KotlinInt(int: Int32(index))])
+        } else {
+            throw WriteError(message: "Not available for this account")
+        }
+        guard gen == generation else { return }
+        await loadPlaylist(id, force: true)
+        await loadPlaylists(force: true)
+    }
+
+    /// A new, empty playlist; its raw id.
+    func createPlaylist(name: String) async throws -> String? {
+        let gen = generation
+        var id: String?
+        if let spotify {
+            id = try await spotify.createPlaylist(name: name).id
+        } else if let client {
+            id = try await client.createPlaylist(name: name, comment: nil, songIds: [])?.summary.id
+        } else {
+            throw WriteError(message: "Not available for this account")
+        }
+        guard gen == generation else { return nil }
+        await loadPlaylists(force: true)
+        await loadWritablePlaylists()
+        return id
+    }
+
+    func renamePlaylist(_ id: String, to name: String) async throws {
+        let gen = generation
+        if let spotify {
+            try await spotify.renamePlaylist(id, name: name)
+        } else if let client {
+            try await client.updatePlaylist(id: id, name: name, comment: nil, isPublic: nil, songIdsToAdd: [],
+                                            songIndexesToRemove: [])
+        } else {
+            throw WriteError(message: "Not available for this account")
+        }
+        guard gen == generation else { return }
+        await loadPlaylist(id, force: true)
+        await loadPlaylists(force: true)
+    }
+
+    /// Subsonic: deleted on the server; Spotify: it leaves the user's library.
+    func deletePlaylist(_ id: String) async throws {
+        let gen = generation
+        if let spotify {
+            try await spotify.unfollowPlaylist(id)
+        } else if let client {
+            try await client.deletePlaylist(id: id)
+        } else {
+            throw WriteError(message: "Not available for this account")
+        }
+        guard gen == generation else { return }
+        playlistDetails[id] = nil
+        await loadPlaylists(force: true)
+        await loadWritablePlaylists()
     }
 
     func loadAlbum(_ id: String, force: Bool = false) async {

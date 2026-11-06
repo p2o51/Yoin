@@ -86,6 +86,7 @@ struct MacHomeView: View {
             await model.library.loadHome()
             // The song menu's Add to Playlist lists them.
             await model.library.loadPlaylists()
+            await model.library.loadWritablePlaylists()
         }
     }
 }

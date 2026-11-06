@@ -228,11 +228,20 @@ struct MacPlaylistDetail: View {
                     .padding(.bottom, 18)
                     VStack(spacing: 2) {
                         ForEach(Array(p.entries.enumerated()), id: \.offset) { i, e in
-                            TrackRow(entry: e, showCover: true) { model.play(p.entries, startAt: i) }
+                            TrackRow(entry: e, showCover: true,
+                                     removeFromPlaylist: model.library.canEdit(p) ? {
+                                         Task { await write { try await model.library.remove(entryAt: i, fromPlaylist: id) } }
+                                     } : nil) { model.play(p.entries, startAt: i) }
                         }
                     }
                 }
-                if p == nil || p?.entries.isEmpty == true {
+                if let error {
+                    Text(error).font(.gsf(13)).foregroundStyle(.red).padding(.top, 10)
+                }
+                if p?.tracksUnavailable == true {
+                    Text("Spotify doesn't hand over the songs of someone else's playlist.")
+                        .font(.gsf(14)).foregroundStyle(Yoin.inkVariant).padding(.top, 8)
+                } else if p == nil || p?.entries.isEmpty == true {
                     PhaseNote(phase: model.library.phase("playlist:\(id)"), empty: true, emptyText: "No songs") {
                         Task { await model.library.loadPlaylist(id, force: true) }
                     }
@@ -243,6 +252,39 @@ struct MacPlaylistDetail: View {
             .padding(.bottom, 142)
         }
         .task(id: id) { await model.library.loadPlaylist(id) }
+        .overlay(alignment: .topTrailing) {
+            if let p, model.library.canEdit(p) {
+                Menu {
+                    Button("Rename…") { newName = p.title; renaming = true }
+                    Button(model.session.isSpotify ? "Remove from Library" : "Delete Playlist", role: .destructive) {
+                        Task { await write { try await model.library.deletePlaylist(id); model.closeDetail() } }
+                    }
+                } label: {
+                    YoinIcon("more_horizontal", size: 18).foregroundStyle(Yoin.ink).frame(width: 34, height: 34)
+                }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                .glassEffect(.regular.interactive(), in: .circle)
+                .padding(.top, 12).padding(.trailing, 16)
+            }
+        }
+        .alert("Rename Playlist", isPresented: $renaming) {
+            TextField("Name", text: $newName)
+            Button("Rename") {
+                let name = newName.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                Task { await write { try await model.library.renamePlaylist(id, to: name) } }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    @State private var renaming = false
+    @State private var newName = ""
+    @State private var error: String?
+
+    private func write(_ body: () async throws -> Void) async {
+        error = nil
+        do { try await body() } catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
     }
 
     private func meta(_ p: PlaylistInfo) -> String {

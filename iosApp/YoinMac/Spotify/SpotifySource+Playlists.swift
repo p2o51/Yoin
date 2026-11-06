@@ -57,8 +57,12 @@ extension SpotifySource {
 
     /// [info] with what a write needs: who owns it, its snapshot, and each entry's raw position.
     func withWriteMetadata(_ info: PlaylistInfo, _ p: SpotifyDTO.Playlist, positions: [Int]?) async -> PlaylistInfo {
-        // The Mac's PlaylistInfo has no write fields yet (no Spotify playlist editing on the Mac).
-        info
+        var info = info
+        info.ownedByMe = Self.owned(p, by: await meId())
+        info.collaborative = p.collaborative == true
+        info.snapshotId = p.snapshotId
+        info.positions = positions?.count == info.entries.count ? positions : nil
+        return info
     }
 
     /// Every playlist of the account (the Library rows), and the ones it can add songs to (the picker).
@@ -140,5 +144,5 @@ extension SpotifySource {
 
     // MARK: Backup
 
-    // Backup / restore and track matching are iOS-only for now (their snapshot types aren't on the Mac).
+    // Backup / restore and track matching come with cloud sync on the Mac.
 }
