@@ -19,6 +19,12 @@ struct MacNowPlaying: View {
     /// Focus hides the chrome; moving the pointer brings back a way out for a moment.
     @State private var exitShown = false
     @State private var exitHide: Task<Void, Never>?
+    /// docs/design.md 自动沉浸: playing, on Lyrics, synced lyrics, 3 s without the pointer, a scroll or a key →
+    /// the lyric tools fade out in place; any of those, or a pause, brings them back.
+    @State private var toolsIdle = false
+    @State private var toolsHide: Task<Void, Never>?
+    @State private var activityMonitor: Any?
+    @State private var lastWake = Date.distantPast
 
     var body: some View {
         GeometryReader { g in
@@ -37,9 +43,24 @@ struct MacNowPlaying: View {
             }
         }
         .onContinuousHover { phase in
-            guard model.focus, case .active = phase else { return }
-            pointerMoved()
+            guard case .active = phase else { return }
+            wakeTools()
+            if model.focus { pointerMoved() }
         }
+        .onAppear {
+            wakeTools(force: true)
+            activityMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .keyDown, .leftMouseDown]) { e in
+                wakeTools()
+                return e
+            }
+        }
+        .onDisappear {
+            if let m = activityMonitor { NSEvent.removeMonitor(m) }
+            activityMonitor = nil
+            toolsHide?.cancel()
+        }
+        .onChange(of: model.player.isPlaying) { _, _ in wakeTools(force: true) }
+        .onChange(of: tab) { _, _ in wakeTools(force: true) }
         .onChange(of: model.focus) { _, on in
             if on { pointerMoved() } else { exitHide?.cancel(); exitShown = false }
             // Focus always has the lyrics' current line (docs/design.md focus rules): from About it turns to them.
@@ -48,6 +69,21 @@ struct MacNowPlaying: View {
         .clipShape(UnevenRoundedRectangle(topLeadingRadius: full ? 0 : 22, bottomLeadingRadius: full ? 0 : 22,
                                           bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous))
         .shadow(color: .black.opacity(full ? 0 : 0.18), radius: 20, x: -10)
+    }
+
+    /// The lyric tools back, and their 3 s count from now (pointer moves are taken at most a few times a second).
+    private func wakeTools(force: Bool = false) {
+        let now = Date()
+        guard force || toolsIdle || now.timeIntervalSince(lastWake) > 0.3 else { return }
+        lastWake = now
+        if toolsIdle { withAnimation(Yoin.effects) { toolsIdle = false } }
+        toolsHide?.cancel()
+        toolsHide = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, model.player.isPlaying, tab == .lyrics,
+                  case .loaded(true, _, _) = model.lyrics.state else { return }
+            withAnimation(Yoin.effects) { toolsIdle = true }
+        }
     }
 
     /// Shows the exit button; ~2.5 s without movement hides it again, and the cursor with it.
@@ -170,7 +206,11 @@ struct MacNowPlaying: View {
                 .buttonStyle(.plain)
             }
             Spacer(minLength: 0)
-            if tab == .lyrics, model.player.currentTrack != nil { MacLyricsTools() }
+            if tab == .lyrics, model.player.currentTrack != nil {
+                MacLyricsTools()
+                    .opacity(toolsIdle ? 0 : 1)
+                    .allowsHitTesting(!toolsIdle)
+            }
         }
     }
 
