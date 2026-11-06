@@ -611,13 +611,17 @@ struct NowPlayingView: View, Equatable {
             .accessibilityLabel(stage == .compact ? "Collapse Now Playing" : "Back")
             // DockedCoverSlot: the cover row flies the cover into it.
             Spacer().frame(width: docked ? NowPlayingExpanded.dockedSlot : 0)
-            routeLink(albumRoute(p), label: "Go to album") {
+            let from = playingFrom
+            routeLink(from.route, label: from.hint) {
                 VStack(alignment: .leading, spacing: 0) {
-                    // PlayingFromLabel: labelSmall kind over labelMedium name.
-                    Text("PLAYING FROM ALBUM")
-                        .yoinRole(Tokens.type.labelSmall)
-                        .foregroundStyle(scheme.onSurfaceVariant.opacity(0.55))
-                    Text(p.album.title)
+                    // PlayingFromLabel: labelSmall kind over labelMedium name; started from a list,
+                    // the name alone ("NOW PLAYING", no link).
+                    if let kind = from.kind {
+                        Text(kind)
+                            .yoinRole(Tokens.type.labelSmall)
+                            .foregroundStyle(scheme.onSurfaceVariant.opacity(0.55))
+                    }
+                    Text(from.name)
                         .yoinRole(Tokens.type.labelMedium)
                         .foregroundStyle(scheme.onSurface)
                 }
@@ -1842,6 +1846,26 @@ struct NowPlayingView: View, Equatable {
     }
 
     /// The song's album, when it has a page (not a lone song's stand-in).
+    /// Android PlayingFromLabel: the page the queue was started on (album, playlist, artist), or
+    /// "NOW PLAYING" alone when it came from a list or Spotify plays its own song. The mock: its album.
+    private var playingFrom: (kind: String?, name: String, hint: String, route: (() -> Void)?) {
+        if !model.store.isReal {
+            return ("PLAYING FROM ALBUM", model.playback.album.title, "Go to album", albumRoute(model.playback))
+        }
+        guard model.player.externalTrack == nil, let from = model.playingFrom, !from.title.isEmpty else {
+            return (nil, "NOW PLAYING", "", nil)
+        }
+        let hint = switch from {
+        case .album: "Go to album"
+        case .playlist: "Go to playlist"
+        case .artist: "Go to artist"
+        }
+        return (from.kindLabel, from.title, hint, { [model] in
+            Self.leaveForRoute(model)
+            model.open(from.route)
+        })
+    }
+
     private func albumRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
         let album = p.album
         guard !album.id.rawId.isEmpty, !album.id.rawId.hasPrefix("song:") else { return nil }
