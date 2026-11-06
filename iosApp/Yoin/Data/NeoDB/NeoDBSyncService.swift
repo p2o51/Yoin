@@ -16,6 +16,8 @@ final class NeoDBSyncService {
     enum Failure: Error, Equatable {
         case notSignedIn
         case albumNotFound
+        /// The account in use changed while NeoDB answered: nothing is written for the other account.
+        case accountChanged
     }
 
     private let api: NeoDBAPI
@@ -44,13 +46,15 @@ final class NeoDBSyncService {
     func push(_ album: Album) async throws {
         guard let session = account.session else { throw Failure.notSignedIn }
         let provider = album.id.provider, albumId = album.id.rawId
+        // The account the album belongs to: after each answer, local writes go only if it's still in use.
+        let scope = mappings.scope(for: provider)
         guard let local = albums.album(provider: provider, albumId: albumId) else { return }
         let flags = pending.entry(provider: provider, albumId: albumId)
         let ratingDirty = flags?.ratingNeedsSync ?? false
         let reviewDirty = flags?.reviewNeedsSync ?? false
         guard ratingDirty || reviewDirty else { return }
 
-        guard let itemUuid = try await resolveAlbumUuid(album, session: session) else { throw Failure.albumNotFound }
+        guard let itemUuid = try await resolveAlbumUuid(album, scope: scope, session: session) else { throw Failure.albumNotFound }
 
         let text = local.review ?? ""
         let short = text.neoDBHasText && isNeoDBShortComment(text)
@@ -81,10 +85,12 @@ final class NeoDBSyncService {
                     body: NeoDBReviewRequest(visibility: 0, title: album.title, body: text))
                 newUuid = response.uuid ?? flags?.reviewUuid
             }
+            try still(scope, provider)
             if albums.album(provider: provider, albumId: albumId)?.review == local.review {
                 pending.reviewPushed(provider: provider, albumId: albumId, reviewUuid: newUuid)
             }
         }
+        try still(scope, provider)
         if ratingDirty, albums.album(provider: provider, albumId: albumId)?.rating == local.rating {
             pending.ratingPushed(provider: provider, albumId: albumId)
         }
@@ -96,7 +102,8 @@ final class NeoDBSyncService {
     func pull(_ album: Album) async throws -> AlbumMemoryStore.AlbumRecord? {
         guard let session = account.session else { throw Failure.notSignedIn }
         let provider = album.id.provider, albumId = album.id.rawId
-        guard let itemUuid = try await resolveAlbumUuid(album, session: session) else { return nil }
+        let scope = mappings.scope(for: provider)
+        guard let itemUuid = try await resolveAlbumUuid(album, scope: scope, session: session) else { return nil }
         let remote = try await api.getShelfItem(instance: session.instance, token: session.token, itemUuid: itemUuid)
         let existing = albums.album(provider: provider, albumId: albumId)
         let flags = pending.entry(provider: provider, albumId: albumId)
@@ -113,6 +120,7 @@ final class NeoDBSyncService {
 
         // Any failure reading the Review: keep what is here.
         let review = try? await api.getMyReviewForItem(instance: session.instance, token: session.token, itemUuid: itemUuid)
+        try still(scope, provider)
         let remoteText = review?.body.flatMap { $0.neoDBHasText ? $0 : nil }
             ?? remote?.commentText.flatMap { $0.neoDBHasText ? $0 : nil }
         let mergedReview: String? = if reviewDirty {
@@ -149,20 +157,28 @@ final class NeoDBSyncService {
         return albums.album(provider: provider, albumId: albumId) ?? record
     }
 
+    private func still(_ scope: String?, _ provider: String) throws {
+        guard mappings.scope(for: provider) == scope else { throw Failure.accountChanged }
+    }
+
     /// Kotlin `roundToInt().coerceIn(0, 10)`.
     static func grade(_ rating: Double) -> Int {
         min(max(Int((rating).rounded(.toNearestOrAwayFromZero)), 0), 10)
     }
 
     /// The cached uuid, else the first search hit for "title artist" (then cached).
-    private func resolveAlbumUuid(_ album: Album, session: (instance: String, token: String)) async throws -> String? {
-        if let cached = mappings.externalId(provider: album.id.provider, entityId: album.id.rawId) { return cached }
+    private func resolveAlbumUuid(_ album: Album, scope: String?,
+                                  session: (instance: String, token: String)) async throws -> String? {
+        if let cached = mappings.externalId(provider: album.id.provider, entityId: album.id.rawId, scope: .some(scope)) {
+            return cached
+        }
         let query = (!album.artist.neoDBHasText ? album.title : "\(album.title) \(album.artist)")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return nil }
         let hits = try await api.searchAlbum(instance: session.instance, token: session.token, query: query)
         guard let uuid = hits.first?.uuid else { return nil }
-        mappings.upsert(externalId: uuid, provider: album.id.provider, entityId: album.id.rawId, now: now())
+        mappings.upsert(externalId: uuid, provider: album.id.provider, entityId: album.id.rawId, now: now(),
+                        scope: .some(scope))
         return uuid
     }
 }

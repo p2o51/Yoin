@@ -109,7 +109,9 @@ final class NeoDBPendingStore {
 
 /// Yoin album ↔ NeoDB item uuid (Android `external_mappings`, service "neodb", entity "album"): several
 /// Yoin albums (a Subsonic and an Apple Music copy) may point at one NeoDB item; each Yoin album has at
-/// most one uuid. Not per account and backed up, as Android's table is.
+/// most one uuid. Backed up, as Android's table is. Rows are scoped per account like AlbumMemoryStore's
+/// (Codex, 2026-11-06): two Subsonic servers can both have an album "1". Rows written before that have
+/// no scope; the first account to read its provider's rows claims them (AccountScope.adoptLegacy's rule).
 @MainActor
 final class NeoDBMappingStore {
     static let shared = NeoDBMappingStore(fileURL: NeoDBMappingStore.defaultURL)
@@ -120,39 +122,75 @@ final class NeoDBMappingStore {
         var entityType: String
         var entityId: String
         var syncedAt: Int64
+        /// The account; nil for providers without one (Apple Music) and for rows from before scoping.
+        var scope: String?
     }
 
     static let entityAlbum = "album"
 
     private var rows: [String: Mapping] = [:]
     private let fileURL: URL
+    private let scopes: AccountScope
 
     static var defaultURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("Yoin", isDirectory: true).appendingPathComponent("neodb-mappings.json")
     }
 
-    init(fileURL: URL) {
+    init(fileURL: URL, scopes: AccountScope = .shared) {
         self.fileURL = fileURL
+        self.scopes = scopes
         if let data = try? Data(contentsOf: fileURL), let saved = try? JSONDecoder().decode([Mapping].self, from: data) {
-            rows = Dictionary(saved.map { (Self.key($0.provider, $0.entityType, $0.entityId), $0) }, uniquingKeysWith: { $1 })
+            rows = Dictionary(saved.map { (Self.key($0.scope, $0.provider, $0.entityType, $0.entityId), $0) },
+                              uniquingKeysWith: { $1 })
         }
     }
 
-    private static func key(_ provider: String, _ type: String, _ id: String) -> String {
-        [provider, type, id].joined(separator: "\u{1F}")
+    private static func key(_ scope: String?, _ provider: String, _ type: String, _ id: String) -> String {
+        [scope ?? "", provider, type, id].joined(separator: "\u{1F}")
     }
 
-    func externalId(provider: String, entityType: String = entityAlbum, entityId: String) -> String? {
-        rows[Self.key(provider, entityType, entityId)]?.externalId
+    /// The account [provider]'s rows are read and written for now.
+    func scope(for provider: String) -> String? { scopes.scope(for: provider) }
+
+    func externalId(provider: String, entityType: String = entityAlbum, entityId: String,
+                    scope: String?? = nil) -> String? {
+        let scope = scope ?? self.scope(for: provider)
+        claimLegacy(provider: provider, scope: scope)
+        return rows[Self.key(scope, provider, entityType, entityId)]?.externalId
     }
 
-    func upsert(externalId: String, provider: String, entityType: String = entityAlbum, entityId: String, now: Int64) {
-        rows[Self.key(provider, entityType, entityId)] = Mapping(externalId: externalId, provider: provider,
-                                                                 entityType: entityType, entityId: entityId, syncedAt: now)
+    func upsert(externalId: String, provider: String, entityType: String = entityAlbum, entityId: String, now: Int64,
+                scope: String?? = nil) {
+        let scope = scope ?? self.scope(for: provider)
+        claimLegacy(provider: provider, scope: scope)
+        rows[Self.key(scope, provider, entityType, entityId)] = Mapping(
+            externalId: externalId, provider: provider, entityType: entityType, entityId: entityId,
+            syncedAt: now, scope: scope)
+        write()
+    }
+
+    /// Unscoped rows of a scoped provider go to the first account that reads that provider's rows.
+    private func claimLegacy(provider: String, scope: String?) {
+        guard let scope else { return }
+        let legacy = rows.filter { $0.value.provider == provider && $0.value.scope == nil }
+        guard !legacy.isEmpty else { return }
+        for (k, var m) in legacy {
+            rows[k] = nil
+            m.scope = scope
+            let scoped = Self.key(scope, m.provider, m.entityType, m.entityId)
+            if rows[scoped] == nil { rows[scoped] = m }
+        }
+        write()
+    }
+
+    private func write() {
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(rows.values.sorted { $0.entityId < $1.entityId }).write(to: fileURL, options: .atomic)
+            let sorted = rows.values.sorted {
+                Self.key($0.scope, $0.provider, $0.entityType, $0.entityId) < Self.key($1.scope, $1.provider, $1.entityType, $1.entityId)
+            }
+            try JSONEncoder().encode(sorted).write(to: fileURL, options: .atomic)
         } catch {}
     }
 }

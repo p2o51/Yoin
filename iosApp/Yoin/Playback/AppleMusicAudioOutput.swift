@@ -211,6 +211,9 @@ final class AppleMusicAudioOutput: AudioOutput {
             Self.log.info("Apple Music reached end of queue")
             wantsPlay = false
             loaded = false
+            // Nothing left to watch: the clock stops until the next load (it ran at 4 Hz for nothing).
+            timer?.invalidate()
+            timer = nil
             events?.outputDidReachEnd()
             return
         }

@@ -276,10 +276,11 @@ final class AppModel {
                                                 format: kbps == nil ? nil : SubsonicStreamURLs.transcodeFormat))
         }
         OfflineDownloads.shared.pump()
-        player.onScrobble = { [weak engine] track, submission in
+        player.onScrobble = { track, submission, listenedSec in
             store.scrobble(track, submission: submission)
-            // Local play history (Data/History): a row when the song starts, marked once it counts.
-            store.recordHistory(track, submission: submission, positionSec: engine?.progress.positionSec ?? 0)
+            // Local play history (Data/History): a row when the song starts, marked once it counts with
+            // the time really listened (a seek skips, it isn't listening).
+            store.recordHistory(track, submission: submission, positionSec: listenedSec)
         }
         #if DEBUG
         signInFromLaunchArguments()

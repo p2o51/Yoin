@@ -70,7 +70,7 @@ final class PlayerEngine {
 
     /// `submission == false`: the song started ("now playing"); `true`: it
     /// was listened to long enough to count as a play.
-    @ObservationIgnored var onScrobble: ((PlayableTrack, _ submission: Bool) -> Void)?
+    @ObservationIgnored var onScrobble: ((PlayableTrack, _ submission: Bool, _ listenedSec: Double) -> Void)?
     @ObservationIgnored var onEvent: ((PlayerEvent) -> Void)?
     /// Right before sound starts (activate the audio session).
     @ObservationIgnored var onWillPlay: (() -> Void)?
@@ -184,7 +184,6 @@ final class PlayerEngine {
         onWillPlay?()
         isPlaying = true
         output.play()
-        announceIfNeeded()
         onStateChange?()
     }
 
@@ -426,7 +425,6 @@ final class PlayerEngine {
             onWillPlay?()
             isPlaying = true
             output.play()
-            announceIfNeeded()
         } else {
             isPlaying = false
         }
@@ -504,7 +502,7 @@ final class PlayerEngine {
     private func announceIfNeeded() {
         guard externalTrack == nil, let track = currentItem?.track, !scrobble.announced else { return }
         scrobble.announced = true
-        onScrobble?(track, false)
+        onScrobble?(track, false, 0)
     }
 
     private func countListening(to sec: Double) {
@@ -513,12 +511,15 @@ final class PlayerEngine {
         let delta = sec - last
         // Ticks come every 0.25 s; anything wider is a seek or a stall, not listening.
         guard delta > 0, delta < 2 else { return }
+        // Announced (now playing, a history row) once the output really plays it: a start that
+        // failed, or was retried, isn't a play.
+        announceIfNeeded()
         scrobble.listenedSec += delta
         let duration = progress.durationSec > 0 ? progress.durationSec : track.durationSec
         guard !scrobble.submitted, duration > Self.scrobbleMinTrackSec else { return }
         if scrobble.listenedSec >= min(duration / 2, Self.scrobbleMaxListenSec) {
             scrobble.submitted = true
-            onScrobble?(track, true)
+            onScrobble?(track, true, scrobble.listenedSec)
         }
     }
 
@@ -619,7 +620,6 @@ extension PlayerEngine: AudioOutputEvents {
         preloadedID = next?.id
         preloadedURL = next.map { streamURL(for: $0) }
         output.preload(preloadedURL)
-        announceIfNeeded()
         onStateChange?()
     }
 
@@ -661,8 +661,6 @@ extension PlayerEngine: AudioOutputEvents {
         if !playing {
             progress.positionSec = output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0)
             scrobble.lastTickSec = progress.positionSec
-        } else {
-            announceIfNeeded()
         }
         onStateChange?()
     }
