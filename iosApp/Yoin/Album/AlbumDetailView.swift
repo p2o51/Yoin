@@ -67,6 +67,11 @@ struct AlbumDetailView: View {
     /// bounce around page 1 never flips the back swipe mid-gesture.
     @State private var pageTarget: CGFloat = LaunchConfig.screen.hasPrefix("album-scrapbook") ? 1 : 0
     private var offFirstPage: Bool { pageBase != nil || pageTarget > 0 }
+    /// Pull-up haptics: whether the drag is past its snap point (release would
+    /// form the band / fold it back); nil until the drag has moved.
+    @State private var pullArmed: Bool?
+    /// The settle under way is forming the band; its landing gets one beat.
+    @State private var pullLanding = false
     /// The pulled-up list sits at its top (a pull-down there collapses it).
     @State private var listAtTop = true
     /// This page's claim on the edge swipe (AlbumPopGate).
@@ -209,7 +214,7 @@ struct AlbumDetailView: View {
             }
             .coordinateSpace(.named(Self.pageSpace))
             .contentShape(.rect)
-            .gesture(axisPan(width: w, travel: geo.size.height * 0.55))
+            .gesture(axisPan(width: w, travel: pullTravel))
             .onAppear {
                 pageWidth = w
                 // Screenshots: `-pageHold "1,0.75"` = a drag from page 2 held at 0.75
@@ -513,7 +518,10 @@ struct AlbumDetailView: View {
             r.offsetBy(dx: -f * w, dy: 0)
         }
         return Button {
-            if e > 0.5 { settlePull(to: 0, velocity: 0) }
+            if e > 0.5 {
+                AlbumPullHaptics.armed(expanding: false)
+                settlePull(to: 0, velocity: 0)
+            }
         } label: {
             CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                 .frame(width: flown.width, height: flown.height)
@@ -1164,6 +1172,20 @@ struct AlbumDetailView: View {
     ///   there; off page 0 the edge swipe is the pager's, see AlbumPopGate).
     /// - Vertical, on page 0: the pull-up (DetailPullUpReshape); pulled up, only
     ///   a pull-down from the list's top. Anything else is the scroll views'.
+    /// Pull-up distance (51, 2026-11-06: the old 0.55 × screen height, ≈ 500 pt
+    /// on an iPhone Air, with the band forming only past half of it, was too
+    /// far). The finger moves the progress over `pullTravel` points and a
+    /// release past `pullSnap` of it (counted from where the drag started)
+    /// settles the other way. Both are Glass Lab sliders.
+    private var pullTravel: CGFloat {
+        let v = GlassLab.shared.extras["albumPullTravel"] ?? 0
+        return v > 0 ? v : 320
+    }
+    private var pullSnap: CGFloat {
+        let v = GlassLab.shared.extras["albumPullSnap"] ?? 0
+        return v > 0 ? v : 0.3
+    }
+
     private func axisPan(width: CGFloat, travel: CGFloat) -> AlbumAxisPan {
         AlbumAxisPan(
             claims: { axis, d in
@@ -1183,9 +1205,16 @@ struct AlbumDetailView: View {
                 case .vertical:
                     if dragBase == nil {
                         pullSpring.stop()
+                        pullLanding = false
                         dragBase = p
+                        pullArmed = nil
+                        AlbumPullHaptics.prepare()
                     }
                     p = min(1, max(0, (dragBase ?? 0) - t.y / travel))
+                    // One beat each time the drag passes the snap point.
+                    let armed = pullWouldExpand
+                    if let was = pullArmed, was != armed { AlbumPullHaptics.armed(expanding: armed) }
+                    pullArmed = armed
                 }
             },
             ended: { axis, v, cancelled in
@@ -1193,10 +1222,15 @@ struct AlbumDetailView: View {
                 case .horizontal:
                     pagerReleased(v.x, cancelled: cancelled, width: width)
                 case .vertical:
-                    guard dragBase != nil else { return }
+                    guard let base = dragBase else { return }
+                    let positional = pullWouldExpand
                     dragBase = nil
                     let velocity = cancelled ? 0 : -v.y / travel
-                    let expand = velocity >= 1.6 ? true : velocity <= -1.6 ? false : p > 0.5
+                    let expand = velocity >= 1.6 ? true : velocity <= -1.6 ? false : positional
+                    // A fling that changes state without crossing the snap
+                    // point gets its beat on release.
+                    if expand != (base > 0.5) && pullArmed != expand { AlbumPullHaptics.armed(expanding: expand) }
+                    pullArmed = nil
                     settlePull(to: expand ? 1 : 0, velocity: velocity)
                 }
             })
@@ -1232,9 +1266,22 @@ struct AlbumDetailView: View {
         }, completion: { pageMoving = false })
     }
 
+    /// Where a release here would settle, by position alone: past `pullSnap`
+    /// of the travel from where the drag started.
+    private var pullWouldExpand: Bool {
+        (dragBase ?? 0) > 0.5 ? p > 1 - pullSnap : p > pullSnap
+    }
+
     private func settlePull(to target: CGFloat, velocity: CGFloat) {
+        // The band lands once (the spring's first touch of the top, not every
+        // frame of its settle), and only when it is forming, not already formed.
+        pullLanding = target >= 1 && p < 0.98
         pullSpring.run(from: p, to: target, velocity: velocity) { v in
             p = min(1, max(0, v))
+            if pullLanding && v >= 0.995 {
+                pullLanding = false
+                AlbumPullHaptics.landed()
+            }
         }
     }
 
@@ -1320,4 +1367,27 @@ struct AlbumBandBlur: ViewModifier {
                                  maxSampleOffset: CGSize(width: radius, height: radius), isEnabled: on)
         }
     }
+}
+
+/// The album page's pull-up beats (51, 2026-11-06): a firm one when the drag
+/// passes the point where a release forms the spectrum band, a lighter one
+/// when it passes back (a release folds the band), and a soft one when the
+/// band lands at the top. Folding back down lands silently.
+@MainActor
+enum AlbumPullHaptics {
+    private static let form = UIImpactFeedbackGenerator(style: .medium)
+    private static let fold = UIImpactFeedbackGenerator(style: .light)
+    private static let land = UIImpactFeedbackGenerator(style: .soft)
+
+    static func prepare() {
+        form.prepare()
+        fold.prepare()
+        land.prepare()
+    }
+
+    static func armed(expanding: Bool) {
+        if expanding { form.impactOccurred(intensity: 0.8) } else { fold.impactOccurred(intensity: 0.6) }
+    }
+
+    static func landed() { land.impactOccurred(intensity: 0.6) }
 }

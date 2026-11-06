@@ -235,6 +235,7 @@ final class GlassLab {
         ("recedeScale", 0), ("recedeDim", 0), ("recedeBlur", 0), ("coverContactShadow", 0),
         ("sheetRecedeScale", 0), ("sheetRecedeDim", 0), ("sheetRecedeBlur", 0), ("pillAmbient", 0),
         ("darkAmbientStrength", 0), ("darkNeighbourStrength", 0), ("auraOnTop", 0),
+        ("albumPullTravel", 320), ("albumPullSnap", 0.3),
     ]
 
     private func resetValues() {
@@ -709,6 +710,8 @@ struct GlassLabPanel: View {
                     Text("Spectrum").tag(0); Text("Hard edge").tag(3); Text("Glass").tag(1); Text("Blur").tag(2)
                 }
                 .pickerStyle(.segmented)
+                labSlider("Pull-up travel (pt)", "albumPullTravel", 160...520)
+                labSlider("Pull-up snap point", "albumPullSnap", 0.15...0.5)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Filter chips (Library, Search)").font(.gsf(13)).foregroundStyle(.secondary)
