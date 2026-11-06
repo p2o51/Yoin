@@ -6,6 +6,7 @@ import SwiftUI
 struct MacLibraryView: View {
     @Environment(MacModel.self) private var model
     @Environment(\.macTint) private var tint
+    @AppStorage("librarySort.All") private var allSort = LibrarySortOrder.recents.rawValue
     @AppStorage("librarySort.Albums") private var albumSort = LibrarySortOrder.recents.rawValue
     @AppStorage("librarySort.Artists") private var artistSort = LibrarySortOrder.recents.rawValue
     @AppStorage("librarySort.Playlists") private var playlistSort = LibrarySortOrder.recents.rawValue
@@ -13,7 +14,7 @@ struct MacLibraryView: View {
     /// Android librarySortOptions: only orders the data can back.
     static func sortOptions(_ kind: MacModel.LibraryKind) -> [LibrarySortOrder] {
         switch kind {
-        case .albums: [.recents, .recentlyAdded, .alphabetical, .creator]
+        case .all, .albums: [.recents, .recentlyAdded, .alphabetical, .creator]
         case .artists: [.recents, .alphabetical]
         case .playlists: [.recents, .alphabetical, .creator]
         default: []
@@ -21,7 +22,7 @@ struct MacLibraryView: View {
     }
 
     private func sort(_ kind: MacModel.LibraryKind) -> LibrarySortOrder {
-        let raw = kind == .albums ? albumSort : kind == .artists ? artistSort : playlistSort
+        let raw = kind == .all ? allSort : kind == .albums ? albumSort : kind == .artists ? artistSort : playlistSort
         let chosen = LibrarySortOrder(rawValue: raw) ?? .recents
         return Self.sortOptions(kind).contains(chosen) ? chosen : .recents
     }
@@ -29,6 +30,7 @@ struct MacLibraryView: View {
     private func setSort(_ kind: MacModel.LibraryKind, _ order: LibrarySortOrder) {
         withAnimation(Yoin.spatial) {
             switch kind {
+            case .all: allSort = order.rawValue
             case .albums: albumSort = order.rawValue
             case .artists: artistSort = order.rawValue
             default: playlistSort = order.rawValue
@@ -43,10 +45,12 @@ struct MacLibraryView: View {
     /// The kind's items in its order, and the jump bar's runs.
     private func sorted(_ kind: MacModel.LibraryKind) -> (items: [LibraryItem], sections: [LibraryFastScroller.Section]) {
         let lib = model.library
-        let raw: [LibraryItem] = switch kind {
-        case .albums: lib.albums.map {
+        let albumItems = { lib.albums.map {
             LibraryItem(id: $0.id, kind: .album, title: $0.title, subtitle: $0.artist, palette: $0.palette, album: $0)
-        }
+        } }
+        let raw: [LibraryItem] = switch kind {
+        case .all: lib.artists + albumItems() + lib.playlists
+        case .albums: albumItems()
         case .artists: lib.artists
         case .playlists: lib.playlists
         default: []
@@ -103,6 +107,25 @@ struct MacLibraryView: View {
                     // Room for the floating rail (one or two rows).
                     Color.clear.frame(height: max(64, railHeight + 16))
                     switch kind {
+                    case .all:
+                        // Android's All: artists, albums and playlists in one grid, in the chosen order.
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 16, alignment: .top)], spacing: 20) {
+                            ForEach(Array(list.items.enumerated()), id: \.element.id) { i, item in
+                                Group {
+                                    switch item.kind {
+                                    case .album: if let a = item.album { AlbumTile(album: a) }
+                                    case .artist: ArtistTile(item: item)
+                                    case .playlist: PlaylistTile(item: item)
+                                    }
+                                }
+                                .id(Self.anchor(i))
+                            }
+                        }
+                        PhaseNote(phase: lib.phase("albums"), empty: list.items.isEmpty, emptyText: "Nothing in your library yet") {
+                            Task { await lib.loadAlbums(force: true) }
+                        }
+                    case .favorites:
+                        MacFavoritesView()
                     case .albums:
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 124), spacing: 16, alignment: .top)], spacing: 20) {
                             ForEach(Array(list.items.enumerated()), id: \.element.id) { i, item in
@@ -209,6 +232,12 @@ struct MacLibraryView: View {
         }
         .task(id: "\(model.libraryKind.rawValue)|\(model.session.accountKey)") {
             switch model.libraryKind {
+            case .all:
+                async let a: Void = lib.loadAlbums()
+                async let r: Void = lib.loadArtists()
+                async let p: Void = lib.loadPlaylists()
+                _ = await (a, r, p)
+            case .favorites: await lib.loadFavorites()
             case .albums: await lib.loadAlbums()
             case .artists: await lib.loadArtists()
             case .songs: await lib.loadSongs()
@@ -226,7 +255,7 @@ struct MacLibraryView: View {
     /// The rail as one menu button naming the tab (a column too narrow for the rail).
     private var kindMenu: some View {
         Menu {
-            ForEach(MacModel.LibraryKind.allCases.filter { $0 != .downloads || model.session.client != nil }, id: \.self) { k in
+            ForEach(model.libraryKinds, id: \.self) { k in
                 Button(k.rawValue) { withAnimation(Yoin.spatialFast) { model.libraryKind = k } }
             }
         } label: {
@@ -308,8 +337,7 @@ struct FilterRail: View {
     var body: some View {
         HStack(spacing: 2) {
             // Downloads are a Subsonic thing (Apple Music doesn't let an app store its songs).
-            ForEach(MacModel.LibraryKind.allCases.filter { $0 != .downloads || model.session.client != nil },
-                    id: \.self) { k in
+            ForEach(model.libraryKinds, id: \.self) { k in
                 Button { withAnimation(Yoin.spatialFast) { selection = k } } label: {
                     Text(k.rawValue)
                         .lineLimit(1).fixedSize()
@@ -473,6 +501,40 @@ private struct NewPlaylistButton: View {
                 }
             }
             Button("Cancel", role: .cancel) {}
+        }
+    }
+}
+
+/// Library › Favorites (a Subsonic server's starred; Android FavoritesTabContent): artists, albums, then songs.
+private struct MacFavoritesView: View {
+    @Environment(MacModel.self) private var model
+
+    var body: some View {
+        let lib = model.library
+        VStack(alignment: .leading, spacing: 18) {
+            if !lib.favoriteArtists.isEmpty {
+                MacSectionTitle(text: "Artists")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 16, alignment: .top)], spacing: 20) {
+                    ForEach(lib.favoriteArtists, id: \.id) { ArtistTile(item: $0) }
+                }
+            }
+            if !lib.favoriteAlbums.isEmpty {
+                MacSectionTitle(text: "Albums")
+                AlbumGrid(albums: lib.favoriteAlbums, minimum: 124)
+            }
+            if !lib.favoriteSongs.isEmpty {
+                MacSectionTitle(text: "Songs")
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(lib.favoriteSongs.enumerated()), id: \.offset) { i, e in
+                        TrackRow(entry: e, showCover: true) { model.play(lib.favoriteSongs, startAt: i) }
+                    }
+                }
+            }
+            PhaseNote(phase: lib.phase("favorites"),
+                      empty: lib.favoriteArtists.isEmpty && lib.favoriteAlbums.isEmpty && lib.favoriteSongs.isEmpty,
+                      emptyText: "Nothing starred yet") {
+                Task { await lib.loadFavorites(force: true) }
+            }
         }
     }
 }

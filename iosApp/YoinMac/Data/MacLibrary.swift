@@ -103,6 +103,9 @@ final class MacLibrary {
         songs = []
         songsPager = nil
         songsMore = .none
+        favoriteArtists = []
+        favoriteAlbums = []
+        favoriteSongs = []
         albumDetails = [:]
         artistPages = [:]
         phases = [:]
@@ -212,7 +215,7 @@ final class MacLibrary {
         }
         if apple != nil {
             await runApple("albums", force: force) { a, live in
-                let list = try await a.libraryAlbums()
+                let list = try await a.libraryAlbums(cap: 100_000)
                 guard live() else { return }
                 self.albums = list
             }
@@ -221,7 +224,8 @@ final class MacLibrary {
         await run("albums", force: force) { client, m, live in
             var all: [Album] = []
             var offset: Int32 = 0
-            while offset < 5000 {
+            // Batches until the server runs out (Android's guard: 100,000 albums).
+            while offset < 100_000 {
                 let page = try await client.getAlbumList2(type: .alphabeticalByName, size: 500, offset: offset)
                 all += page.map(m.album)
                 if page.count < 500 { break }
@@ -229,6 +233,21 @@ final class MacLibrary {
             }
             guard live() else { return }
             self.albums = all
+        }
+    }
+
+    /// A Subsonic server's starred artists, albums and songs (getStarred2; Android FavoritesTabContent).
+    private(set) var favoriteArtists: [LibraryItem] = []
+    private(set) var favoriteAlbums: [Album] = []
+    private(set) var favoriteSongs: [PlaylistEntry] = []
+
+    func loadFavorites(force: Bool = false) async {
+        await run("favorites", force: force) { client, m, live in
+            let starred = try await client.getStarred2()
+            guard live() else { return }
+            self.favoriteArtists = starred.artists.map(m.artistItem)
+            self.favoriteAlbums = starred.albums.map(m.album)
+            self.favoriteSongs = starred.songs.enumerated().map { m.entry($1, index: $0) }
         }
     }
 

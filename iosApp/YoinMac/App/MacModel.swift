@@ -10,9 +10,11 @@ import YoinShared
 @Observable
 final class MacModel {
     enum Tab: Hashable { case home, library }
+    /// Library's views (Android LibraryUiState): All (artists, albums and playlists together; no filter) first,
+    /// Favorites for a Subsonic server's starred.
     enum LibraryKind: String, CaseIterable, Hashable {
-        case albums = "Albums", artists = "Artists", playlists = "Playlists", songs = "Songs", memories = "Memories",
-             downloads = "Downloads"
+        case all = "All", albums = "Albums", artists = "Artists", playlists = "Playlists", songs = "Songs",
+             favorites = "Favorites", memories = "Memories", downloads = "Downloads"
     }
 
     enum Detail: Hashable {
@@ -43,7 +45,12 @@ final class MacModel {
     @ObservationIgnored private var system: MacPlaybackSystem?
 
     var tab: Tab = .home
-    var libraryKind: LibraryKind = .albums
+    var libraryKind: LibraryKind = .all
+
+    /// The views the account in use has: Favorites and Downloads are a Subsonic server's.
+    var libraryKinds: [LibraryKind] {
+        LibraryKind.allCases.filter { ($0 != .downloads && $0 != .favorites) || session.client != nil }
+    }
     /// Pushed detail pages, newest last (a column when the window is wide enough).
     var details: [Detail] = []
     var npMode: NowPlayingMode = .closed
