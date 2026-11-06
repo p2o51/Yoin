@@ -65,6 +65,8 @@ struct AMSong: Hashable, Sendable {
     /// The album's UI raw id (catalog id, or `library:` id).
     var albumId: String?
     var artistId: String?
+    /// Each artist, when the song has several and the response names them (else empty).
+    var credits: [ArtistCredit] = []
     var durationMs: Int?
     var trackNumber: Int?
     var disc: Int?
@@ -232,6 +234,7 @@ enum AppleMusicMapping {
             albumId: album.flatMap(relatedRawId)
                 ?? albumId(fromSongURL: AppleMusicJSON.string(a, "url") ?? AppleMusicJSON.string(catalogAttributes, "url")),
             artistId: artist.flatMap(relatedRawId),
+            credits: credits(AppleMusicJSON.related(r, "artists") ?? catalog.flatMap { AppleMusicJSON.related($0, "artists") }),
             durationMs: AppleMusicJSON.int(a, "durationInMillis"),
             trackNumber: AppleMusicJSON.int(a, "trackNumber"),
             disc: AppleMusicJSON.int(a, "discNumber"),
@@ -239,6 +242,15 @@ enum AppleMusicMapping {
                 ?? AppleMusicJSON.string(catalogAttributes?["artwork"] as? AppleMusicJSON.Object, "url")),
             genre: genre(a["genreNames"] as? [String]),
             releaseDate: AppleMusicJSON.string(a, "releaseDate"))
+    }
+
+    /// The song's artists one by one: only when there are several and each resource names itself.
+    static func credits(_ artists: [AppleMusicJSON.Object]?) -> [ArtistCredit] {
+        let named = (artists ?? []).compactMap { r -> ArtistCredit? in
+            guard let name = AppleMusicJSON.string(AppleMusicJSON.attributes(r), "name"), !name.isEmpty else { return nil }
+            return ArtistCredit(name: name, id: relatedRawId(r))
+        }
+        return named.count > 1 && named.count == artists?.count ? named : []
     }
 
     /// A related resource's UI raw id (`library:` for library types).
@@ -314,7 +326,8 @@ enum AppleMusicMapping {
               durationSec: (s.durationMs ?? 0) / 1000,
               rating: nil,
               artist: s.artist == albumArtist ? nil : s.artist,
-              disc: s.disc)
+              disc: s.disc,
+              credits: s.credits)
     }
 
     static func album(_ a: AMAlbum) -> Album {

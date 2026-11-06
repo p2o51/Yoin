@@ -132,6 +132,15 @@ internal data class SongDto(
     val playCount: Int? = null,
     /** OpenSubsonic (Navidrome): when the user last played it, ISO-8601. */
     val played: String? = null,
+    /** OpenSubsonic `artists`: every credited artist of the song, one by one. */
+    val artists: List<SongArtistDto> = emptyList(),
+)
+
+/** OpenSubsonic `ArtistID3` as a song's `artists` entry. */
+@Serializable
+internal data class SongArtistDto(
+    val id: String? = null,
+    val name: String = "",
 )
 
 @Serializable

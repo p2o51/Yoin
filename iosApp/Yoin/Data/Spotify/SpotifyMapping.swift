@@ -77,7 +77,17 @@ enum SpotifyMapping {
                      rating: nil,
                      artist: artist == albumArtist ? nil : artist,
                      starred: saved.contains(id),
-                     disc: t.discNumber)
+                     disc: t.discNumber,
+                     credits: credits(t.artists))
+    }
+
+    /// Each artist of a track that has several, with the id of their page (none when there is just one).
+    static func credits(_ artists: [SpotifyDTO.Artist]?) -> [ArtistCredit] {
+        let named = (artists ?? []).compactMap { a -> ArtistCredit? in
+            guard let name = a.name?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return nil }
+            return ArtistCredit(name: name, id: a.id.flatMap { $0.isEmpty ? nil : $0 })
+        }
+        return named.count > 1 ? named : []
     }
 
     /// A loose track's album as far as the track knows it: no tracks, its own cover.

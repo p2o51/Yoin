@@ -254,11 +254,15 @@ struct TrackMenuSheet: View {
                 model.open(track.album)
             })
         }
-        if let artistId = track.album.artistId, !artist.isEmpty {
-            go.append(Row(label: String(localized: "Go to artist"), icon: "artist") { [model, artist] in
-                Self.leaveOverlays(model)
-                model.openArtist(artist, id: artistId)
-            })
+        let artistRows = TrackArtistRows.rows(credits: track.track.credits, fallbackArtistId: track.album.artistId)
+        if !artistRows.isEmpty, !artist.isEmpty {
+            for row in artistRows {
+                let label = row.name.map { String(localized: "Go to \($0)") } ?? String(localized: "Go to artist")
+                go.append(Row(label: label, icon: "artist") { [model, artist] in
+                    Self.leaveOverlays(model)
+                    model.openArtist(row.name ?? artist, id: row.artistId)
+                })
+            }
         } else if track.album.id.provider == "mock" {
             go.append(Row(label: String(localized: "Go to artist"), icon: "artist") { [model, artist] in
                 Self.leaveOverlays(model)

@@ -10,6 +10,7 @@ import com.gpo.yoin.shared.data.model.MediaRef
 import com.gpo.yoin.shared.data.model.PlaylistDetail
 import com.gpo.yoin.shared.data.model.PlaylistSummary
 import com.gpo.yoin.shared.data.model.SearchResult
+import com.gpo.yoin.shared.data.model.SongArtist
 import com.gpo.yoin.shared.data.model.SongInfo
 import com.gpo.yoin.shared.data.model.Starred
 
@@ -47,6 +48,9 @@ internal fun SongDto.toSongInfo(): SongInfo = SongInfo(
     path = path,
     playCount = playCount,
     played = played?.takeIf { it.isNotEmpty() },
+    // Carried only when there is more than the one in `artist` (Android SubsonicMappers.toTrack).
+    artists = artists.filter { it.name.isNotBlank() }.takeIf { it.size > 1 }
+        ?.map { SongArtist(it.name.trim(), it.id?.takeIf(String::isNotEmpty)) }.orEmpty(),
 )
 
 internal fun AlbumDto.toAlbumInfo(): AlbumInfo = AlbumInfo(

@@ -56,7 +56,21 @@ data class SongInfo(
     val playCount: Int?,
     /** OpenSubsonic (Navidrome) `played`: ISO-8601 time of the user's last play, as the server sent it; null when absent. */
     val played: String?,
+    /** Every credited artist when the server names more than one (OpenSubsonic `artists`); else empty. */
+    val artists: List<SongArtist>,
 ) {
+    /** The constructor from before [artists] existed (Swift: the init with `played:` and no `artists:`). */
+    constructor(
+        ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,
+        albumId: String?, track: Int?, disc: Int?, durationSec: Int?, coverArtId: String?, year: Int?,
+        genre: String?, starred: Boolean, starredAt: String?, userRating: Int?, suffix: String?,
+        contentType: String?, bitRate: Int?, size: Long?, path: String?, playCount: Int?, played: String?,
+    ) : this(
+        ref, id, title, artist, artistId, album, albumId, track, disc, durationSec, coverArtId, year,
+        genre, starred, starredAt, userRating, suffix, contentType, bitRate, size, path, playCount, played,
+        emptyList(),
+    )
+
     /** The constructor from before [played] existed (Swift: the init without `played:`). */
     constructor(
         ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,
@@ -66,8 +80,16 @@ data class SongInfo(
     ) : this(
         ref, id, title, artist, artistId, album, albumId, track, disc, durationSec, coverArtId, year,
         genre, starred, starredAt, userRating, suffix, contentType, bitRate, size, path, playCount, null,
+        emptyList(),
     )
 }
+
+/** One credited artist of a song; [id] is null where the server names none. */
+@Serializable
+data class SongArtist(
+    val name: String,
+    val id: String?,
+)
 
 @Serializable
 data class AlbumInfo(

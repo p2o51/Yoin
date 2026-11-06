@@ -73,7 +73,8 @@ struct SubsonicMapping {
                      starred: s.starred,
                      playCount: Self.int(s.playCount),
                      disc: Self.int(s.disc),
-                     bitRateKbps: Self.int(s.bitRate))
+                     bitRateKbps: Self.int(s.bitRate),
+                     credits: s.artists.map { ArtistCredit(name: $0.name, id: $0.id) })
     }
 
     func album(_ a: AlbumInfo) -> Album {

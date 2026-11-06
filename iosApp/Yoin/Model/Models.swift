@@ -60,6 +60,9 @@ struct Track: Identifiable, Hashable, Sendable {
     var disc: Int? = nil
     /// The file's bit rate as the server lists it (Subsonic), for the stream quality.
     var bitRateKbps: Int? = nil
+    /// Every credited artist with the page each opens, when the service names more than one (Android
+    /// Track.artistCredits); empty = just [artist].
+    var credits: [ArtistCredit] = []
 }
 
 enum ReleaseKind: String, Hashable, Sendable {
