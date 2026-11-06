@@ -58,6 +58,7 @@ internal fun TipIllustration(
         contentAlignment = Alignment.Center,
     ) {
         when (tip) {
+            HomeBubbleTip.AccountQuickSwitch -> AccountQuickSwitchDemo(playing)
             HomeBubbleTip.MiniPlayerMenu -> MiniPlayerMenuDemo(playing)
             HomeBubbleTip.FocusCover -> FocusCoverDemo(playing)
             HomeBubbleTip.Downloads -> DownloadsDemo(playing)
