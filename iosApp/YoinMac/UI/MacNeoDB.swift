@@ -64,7 +64,8 @@ struct MacNeoDBSettings: View {
             message = "Invalid NeoDB URL. Include a valid host."
             return
         }
-        account.setInstance(normalized)
+        // The instance is kept only with the token OAuth hands back: a cancelled or failed sign-in to
+        // another instance must not pair it with the old token.
         instance = normalized
         working = true
         Task {
@@ -109,6 +110,7 @@ struct MacAlbumRateSheet: View {
     @State private var score: Double = 0
     @State private var text = ""
     @State private var opened: (score: Double, text: String) = (0, "")
+    @State private var failed = false
     private let neo = AlbumNeoDBSync.shared
 
     private var record: AlbumMemoryStore.AlbumRecord? {
@@ -163,7 +165,8 @@ struct MacAlbumRateSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
-                Button("Save") { save(); dismiss() }.keyboardShortcut(.defaultAction)
+                if failed { Text("Couldn't save").foregroundStyle(.red) }
+                Button("Save") { if save() { dismiss() } else { failed = true } }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(22)
@@ -179,31 +182,41 @@ struct MacAlbumRateSheet: View {
     }
 
     /// iOS commit() + saveReview(): only what changed here is written, each with its own NeoDB flag.
-    private func save() {
+    /// False: something wasn't saved, and the sheet stays with the draft.
+    private func save() -> Bool {
         let store = AlbumMemoryStore.shared
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         let provider = album.id.provider, albumId = album.id.rawId
         var changed = false
+        var ok = true
         if abs(score - opened.score) > 0.001 {
             let was = record
             if store.putAlbum(.init(provider: provider, albumId: albumId, rating: min(10, max(0, score)),
                                     review: was?.review, reviewUpdatedAt: was?.reviewUpdatedAt, updatedAt: now)) {
                 NeoDBPendingStore.shared.markRatingChanged(provider: provider, albumId: albumId)
+                opened.score = score
                 changed = true
+            } else {
+                ok = false
             }
         }
         if text != opened.text {
             let was = record
-            if normalizedText != was?.review, was != nil || normalizedText != nil,
-               store.putAlbum(.init(provider: provider, albumId: albumId, rating: was?.rating ?? 0,
-                                    review: normalizedText, reviewUpdatedAt: normalizedText == nil ? nil : now,
-                                    updatedAt: now)) {
-                NeoDBPendingStore.shared.markReviewChanged(provider: provider, albumId: albumId)
-                changed = true
+            if normalizedText != was?.review, was != nil || normalizedText != nil {
+                if store.putAlbum(.init(provider: provider, albumId: albumId, rating: was?.rating ?? 0,
+                                        review: normalizedText, reviewUpdatedAt: normalizedText == nil ? nil : now,
+                                        updatedAt: now)) {
+                    NeoDBPendingStore.shared.markReviewChanged(provider: provider, albumId: albumId)
+                    opened.text = text
+                    changed = true
+                } else {
+                    ok = false
+                }
             }
         }
         if changed { CloudSync.shared.localChanged() }
         let album = album
         Task { await AlbumNeoDBSync.shared.sheetClosed(album) }
+        return ok
     }
 }

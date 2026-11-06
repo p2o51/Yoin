@@ -50,6 +50,8 @@ final class NeoDBSyncService {
         let reviewDirty = flags?.reviewNeedsSync ?? false
         guard ratingDirty || reviewDirty else { return }
 
+        // The flags clear under the account the push started for; a switch while it ran leaves them.
+        let scope = pending.scope(for: provider)
         guard let itemUuid = try await resolveAlbumUuid(album, session: session) else { throw Failure.albumNotFound }
 
         let text = local.review ?? ""
@@ -81,11 +83,12 @@ final class NeoDBSyncService {
                     body: NeoDBReviewRequest(visibility: 0, title: album.title, body: text))
                 newUuid = response.uuid ?? flags?.reviewUuid
             }
-            if albums.album(provider: provider, albumId: albumId)?.review == local.review {
+            if pending.scope(for: provider) == scope, albums.album(provider: provider, albumId: albumId)?.review == local.review {
                 pending.reviewPushed(provider: provider, albumId: albumId, reviewUuid: newUuid)
             }
         }
-        if ratingDirty, albums.album(provider: provider, albumId: albumId)?.rating == local.rating {
+        if ratingDirty, pending.scope(for: provider) == scope,
+           albums.album(provider: provider, albumId: albumId)?.rating == local.rating {
             pending.ratingPushed(provider: provider, albumId: albumId)
         }
     }

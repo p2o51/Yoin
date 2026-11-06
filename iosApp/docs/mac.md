@@ -93,6 +93,6 @@ Needs, once, in the developer portal: an explicit App ID `com.gpo.yoin.mac` with
 - The first-run Landing (mascot intro); the Mac opens on sign-in.
 - Spotify plays one song at a time over Connect (no Spotify-side queue); no App Remote features (cover from Spotify's player, its own up-next).
 - Spotify / Apple Music five-star ratings stay local (the services have none); Apple Music library add is add-only.
-- Offline downloads for Apple Music and Spotify (Subsonic only, as on iOS).
+- Offline downloads for Apple Music and Spotify (Subsonic only).
 - Home-screen / desktop widgets, Handoff, Shortcuts / App Intents.
 - Real-device Spotify Connect and NeoDB sign-in have only had compile checks on the Mac.

@@ -151,6 +151,7 @@ final class PlayerEngine {
 
     func stop() {
         output.stop()
+        externalTrack = nil
         queue = []
         originalOrder = nil
         currentIndex = nil

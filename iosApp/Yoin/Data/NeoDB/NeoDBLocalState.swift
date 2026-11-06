@@ -53,6 +53,9 @@ final class NeoDBPendingStore {
 
     func entry(provider: String, albumId: String) -> Entry? { all[currentKey(provider, albumId)] }
 
+    /// The account the flags are read and written under now (AccountScope).
+    func scope(for provider: String) -> String? { scopes.scope(for: provider) }
+
     /// Android `setAlbumRating`: the score changed here; NeoDB hears it on the next push.
     func markRatingChanged(provider: String, albumId: String) {
         update(provider, albumId) { $0.ratingNeedsSync = true }

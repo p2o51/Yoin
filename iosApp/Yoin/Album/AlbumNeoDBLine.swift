@@ -104,20 +104,37 @@ final class AlbumNeoDBSync {
 
     func retry(_ album: Album) async { await sync(album) }
 
+    @ObservationIgnored private var inFlight: Set<String> = []
+    @ObservationIgnored private var again: Set<String> = []
+
+    /// One push per album at a time: a sync asked for while one runs goes after it, with what the album
+    /// holds then, so an older push can't land over a newer edit.
     private func sync(_ album: Album) async {
-        let now = computed(album, configured: account.isSignedIn)
-        guard now == .pending else {
-            set(album, now)
+        let k = Self.key(album)
+        guard !inFlight.contains(k) else {
+            again.insert(k)
             return
         }
-        set(album, .syncing)
-        do {
-            try await service().push(album)
-            set(album, .synced)
-        } catch {
-            set(album, .failed)
-            onFailure("Couldn't sync to NeoDB")
-        }
+        inFlight.insert(k)
+        defer { inFlight.remove(k) }
+        repeat {
+            again.remove(k)
+            let now = computed(album, configured: account.isSignedIn)
+            guard now == .pending else {
+                set(album, now)
+                continue
+            }
+            set(album, .syncing)
+            do {
+                try await service().push(album)
+                set(album, .synced)
+            } catch {
+                set(album, .failed)
+                onFailure("Couldn't sync to NeoDB")
+                again.remove(k)
+                return
+            }
+        } while again.contains(k)
     }
 }
 
