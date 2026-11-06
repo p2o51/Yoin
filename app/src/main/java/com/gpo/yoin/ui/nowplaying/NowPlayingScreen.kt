@@ -2711,6 +2711,7 @@ private fun WidePlayingContent(
                             },
                             castState = castState,
                             onCastClick = onCastClick,
+                            playingOn = state.playingOn,
                         )
                         if (topBarAction != null) {
                             Spacer(modifier = Modifier.width(8.dp))
@@ -3791,6 +3792,7 @@ private fun LandscapePlayingContent(
                             },
                             castState = castState,
                             onCastClick = onCastClick,
+                            playingOn = state.playingOn,
                             size = LandscapeHeaderHeight,
                             modifier = Modifier
                                 .graphicsLayer { alpha = resolvedStageProgress.compact }
