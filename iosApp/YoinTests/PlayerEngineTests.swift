@@ -418,6 +418,18 @@ final class PlayerEngineTests: XCTestCase {
         XCTAssertTrue(submitted)
     }
 
+    func test_should_submit_at_four_minutes_when_length_is_unknown() {
+        // Android ScrobbleTracker: no length known yet, four minutes heard still counts.
+        var submitted = false
+        engine.onScrobble = { if $1 { submitted = true }; _ = $2 }
+        engine.play(queue: [track(1, duration: 0)])
+        var t = 0.0
+        while t < 239.5 { t += 0.25; output.tick(to: t) }
+        XCTAssertFalse(submitted)
+        output.tick(to: 240.25)
+        XCTAssertTrue(submitted)
+    }
+
     func test_should_not_count_seeks_as_listening() {
         var submitted = false
         engine.onScrobble = { if $1 { submitted = true }; _ = $2 }
