@@ -84,6 +84,42 @@ enum MacQA {
                 model.closeDetail()
                 model.closeDetail()
                 model.select(.home)
+            case "scrapbook-about", "diary":
+                // QA fixtures on this copy's own stores: two rated songs, a note at 0:42, a question and facts.
+                guard let a = albums.first else { return }
+                let full = await model.library.fullAlbum(a)
+                guard full.tracks.count > 1 else { return }
+                let t1 = full.tracks[0], t2 = full.tracks[1]
+                let artist = t1.artist ?? full.artist
+                LocalRatings.shared.set(9.2, provider: t1.id.provider, songId: t1.id.rawId)
+                LocalRatings.shared.set(7.6, provider: t2.id.provider, songId: t2.id.rawId)
+                if NotesStore.shared.notes(provider: t1.id.provider, trackId: t1.id.rawId).isEmpty {
+                    _ = NotesStore.shared.add(provider: t1.id.provider, trackId: t1.id.rawId, content: "QA note at the bridge",
+                                              positionMs: 42_000, title: t1.title, artist: artist)
+                }
+                SongAboutStore.shared.saveAsk(title: t1.title, artist: artist, album: full.title,
+                                              question: "QA question about this song?",
+                                              reply: .init(title: "QA answer title",
+                                                           answer: "QA answer, first sentence. A second sentence. A third one stays for Read all."))
+                SongAboutStore.shared.saveCanonical(title: t2.title, artist: t2.artist ?? full.artist, album: full.title,
+                                                    values: [.init(key: SongAboutStore.Canon.creationTime, answer: "2021"),
+                                                             .init(key: SongAboutStore.Canon.composer, answer: "QA Composer"),
+                                                             .init(key: SongAboutStore.Canon.review, answer: "QA about paragraph. More of it.")],
+                                                    language: GeminiSettings.shared.targetLanguage)
+                if screen == "diary" {
+                    model.play(album: full, startAt: 0)
+                    try? await Task.sleep(for: .milliseconds(900))
+                    model.player.pause()
+                    model.player.seek(to: 50)
+                    model.libraryKind = .memories
+                    model.select(.library)
+                    try? await Task.sleep(for: .seconds(1.5))
+                    NotificationCenter.default.post(name: Notification.Name("YoinQADiary"), object: nil)
+                } else {
+                    model.open(.album(full))
+                    try? await Task.sleep(for: .seconds(1.2))
+                    NotificationCenter.default.post(name: Notification.Name("YoinQAAlbumPage"), object: 1)
+                }
             case "library-all", "library-favorites":
                 model.libraryKind = screen == "library-all" ? .all : .favorites
                 model.select(.library)

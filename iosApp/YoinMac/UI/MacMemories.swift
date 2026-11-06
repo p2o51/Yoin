@@ -17,6 +17,9 @@ struct MacMemoriesGrid: View {
             }
         }
         .sheet(item: $open) { c in MacMemoryDiary(card: c) }
+        #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("YoinQADiary"))) { _ in open = cards.first }
+        #endif
         .task(id: model.session.accountKey) { await model.hydrateMemoryAlbums() }
     }
 }

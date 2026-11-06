@@ -36,6 +36,10 @@ struct MacAlbumDetail: View {
     @State private var rating_ = false
     @State private var page = MacLaunch.screen == "scrapbook" || MacLaunch.screen == "tour" ? 1 : 0
 
+    #if DEBUG
+    @State private var qaScroll = ScrollPosition()
+    #endif
+
     var body: some View {
         let a = album
         ScrollView {
@@ -106,8 +110,13 @@ struct MacAlbumDetail: View {
             await model.library.refreshAlbumSaved(seed.id.rawId)
         }
         #if DEBUG
+        .scrollPosition($qaScroll)
         .onReceive(NotificationCenter.default.publisher(for: MacQATour.albumPage)) { n in
             if let p = n.object as? Int { withAnimation(Yoin.spatial) { page = p } }
+            // `-macScreen scrapbook-about`: down to the track pieces.
+            if MacLaunch.screen == "scrapbook-about" {
+                Task { try? await Task.sleep(for: .seconds(1)); withAnimation(Yoin.spatial) { qaScroll.scrollTo(y: 560) } }
+            }
         }
         #endif
     }

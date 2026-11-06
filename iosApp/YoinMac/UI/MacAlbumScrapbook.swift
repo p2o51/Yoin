@@ -414,15 +414,16 @@ struct MacAlbumScrapbook: View {
         let tags = a.facts.filter { $0.entry.entryKey != SongAboutStore.Canon.review }
         let review = a.facts.first { $0.entry.entryKey == SongAboutStore.Canon.review }?.entry.answerText
         let cardTilt = -sign(tilt("\(t.number)/tk", Tilt.ticket)) * abs(tilt("\(t.number)/qa", Tilt.card))
-        VStack(alignment: mirrored ? .trailing : .leading, spacing: -6) {
+        // Android's tag slots: a 6 pt gap between tags (its "-6 overlap" is a gap), the first just under the card.
+        VStack(alignment: mirrored ? .trailing : .leading, spacing: 6) {
             if let ask = a.asks.first {
                 askCard(ask, more: a.asks.count - 1, track: t)
                     .rotationEffect(.degrees(cardTilt))
-                    .padding(.bottom, tags.isEmpty ? 0 : 14)
+                    .padding(.bottom, tags.isEmpty ? 0 : 4)
             } else if let review {
                 aboutCard(MacScrapText.excerpt(review, budget: MacScrapText.budget, sentences: 1).text, track: t)
                     .rotationEffect(.degrees(cardTilt))
-                    .padding(.bottom, tags.isEmpty ? 0 : 14)
+                    .padding(.bottom, tags.isEmpty ? 0 : 4)
             }
             ForEach(Array(tags.prefix(3).enumerated()), id: \.offset) { i, tag in
                 factTag(tag.label, tag.entry.answerText,
