@@ -74,6 +74,7 @@ import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.sheetScrollEdge
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.settingsSegmentShape
@@ -385,6 +386,8 @@ internal fun TrackMenuSheetBody(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            // The sheets' one top edge (SheetScrollEdge.kt): rows sink under the tide line, never cut flat.
+            .sheetScrollEdge(scrollState)
             .verticalScroll(scrollState)
             .padding(start = 16.dp, end = 16.dp, bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(TrackMenuGroupGap),

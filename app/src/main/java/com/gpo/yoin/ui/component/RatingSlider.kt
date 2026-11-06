@@ -34,6 +34,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -68,6 +69,8 @@ import kotlin.math.roundToInt
  * @param gestureKey the rated item's identity. Changing it cancels the old
  *   press without committing it; callers should reset their draft/held state
  *   for the new item. Fill and label animations keep their existing state.
+ * @param unratedHint horizontal only: shown at the track's start while unrated,
+ *   so an empty bar reads as a control. Fades out as a first score lands.
  */
 @Composable
 fun RatingSlider(
@@ -78,6 +81,7 @@ fun RatingSlider(
     onInteractionChange: (active: Boolean) -> Unit = {},
     claimOnDown: Boolean = true,
     gestureKey: Any? = null,
+    unratedHint: String? = null,
 ) {
     val isVertical = orientation == Orientation.Vertical
     val haptics = rememberYoinHaptics()
@@ -228,6 +232,20 @@ fun RatingSlider(
             animationSpec = YoinMotion.defaultEffectsSpec(),
             label = "ratingLabelAlpha",
         )
+        // Horizontal and unrated: a hint at the start, so the empty track reads as something to set.
+        if (unratedHint != null && !isVertical) {
+            Text(
+                text = unratedHint,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 1f - labelAlpha),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(horizontal = 20.dp)
+                    .clearAndSetSemantics {},
+            )
+        }
         Text(
             text = label ?: lastLabel.value,
             style = MaterialTheme.typography.titleLarge.withTabularFigures(),
