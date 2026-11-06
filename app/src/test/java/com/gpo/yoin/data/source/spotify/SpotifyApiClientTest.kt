@@ -277,6 +277,8 @@ class SpotifyApiClientTest {
         assertTrue("body carries snapshot_id for optimistic concurrency",
             body.contains("\"snapshot_id\":\"snap-before\""))
         assertTrue(body.contains("\"positions\":[0,3]"))
+        assertTrue("body uses the /items field name", body.contains("\"items\":[{\"uri\":\"spotify:track:aaa\""))
+        assertTrue("no legacy tracks key", !body.contains("\"tracks\""))
     }
 
     @Test

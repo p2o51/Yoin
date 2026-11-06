@@ -368,6 +368,7 @@ fun LibraryScreen(
                     hidden = account.windowUp || (holdingAvatar && !avatarHold.headerAvatarBack),
                     onAvatarPositioned = account.onAnchor,
                     needsReconnect = account.needsReconnect,
+                    quickSwitch = account.quickSwitch,
                     modifier = buttonModifier,
                 )
             }
