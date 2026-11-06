@@ -85,6 +85,8 @@ struct NowPlayingView: View, Equatable {
     /// The page's geometry before the keyboard came up (see `page`).
     @State private var frozenGeometry: PageGeometry?
     @State private var keyboardHeight: CGFloat = 0
+    @State private var spotifyDevicesOpen = false
+    private var spotifySong: Bool { engineTrack?.provider == SpotifyMapping.provider && model.store.spotify != nil }
     /// The expanded Lyrics page (Android NowPlayingScreen's lyricsAutoScroll /
     /// lyricsRecenterTick and LyricsSelectionState): following the playhead,
     /// the Recenter key's tick, select mode and its pick, the editor and the
@@ -203,6 +205,9 @@ struct NowPlayingView: View, Equatable {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .animation(Yoin.effects, value: model.queueSheetOpen)
+        }
+        .sheet(isPresented: $spotifyDevicesOpen) {
+            if let spotify = model.store.spotify { SpotifyDevicesSheet(spotify: spotify, scheme: scheme).reportsSheetRise() }
         }
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet().reportsSheetRise()
@@ -963,10 +968,11 @@ struct NowPlayingView: View, Equatable {
         let actions = LyricsActions.shared
         let translations = actions.shownTranslations(t, count: loaded.lines.count)
         let times = loaded.lyrics.lines.map(\.timeMs)
-        return PlaybackPosition { position, _ in
-            ExpandedLyricsList(
-                lines: loaded.lines, times: times, translations: translations, synced: loaded.synced,
-                active: loaded.activeIndex(positionSec: position),
+        // No PlaybackPosition around it: a list built inside that closure kept the follow / recenter
+        // values of the render that made the closure, so a scroll never stopped following and
+        // Recenter never reached the list. It reads the playhead itself.
+        return ExpandedLyricsList(
+                lines: loaded.lines, times: times, translations: translations, loaded: loaded,
                 follow: lyricsFollow && !lyricsSelecting, recenterTick: lyricsRecenterTick,
                 selecting: lyricsSelecting, selected: lyricsSelected, limitNudge: lyricsLimitNudge > 0,
                 scheme: scheme,
@@ -977,7 +983,6 @@ struct NowPlayingView: View, Equatable {
                 },
                 onTap: { i in lyricLineTapped(i, times: times, synced: loaded.synced) }
             )
-        }
     }
 
     private func lyricLineTapped(_ i: Int, times: [Int64], synced: Bool) {
@@ -1362,8 +1367,9 @@ struct NowPlayingView: View, Equatable {
             switch data.lyricsState(t) {
             case .loading:
                 // Android LyricsDisplay: the loading indicator at the window's start.
-                ProgressView()
-                    .tint(scheme.primary)
+                // It waits a beat: a song skipped past (two Next taps) loads in a moment,
+                // and a spinner over the leaving song's sliding lines read as a stray row.
+                DelayedSpinner(tint: scheme.primary)
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .frame(height: clear, alignment: .center)
                     .accessibilityLabel("Loading lyrics")
@@ -1880,11 +1886,16 @@ struct NowPlayingView: View, Equatable {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 2) {
                 pill("queue", "Queue", shape: AnyShape(Capsule())) { model.queueSheetOpen = true }
-                pill("devices", "Devices", shape: AnyShape(RoundedRectangle(cornerRadius: 20))) { airPlay.present() }
+                // Yoin as the remote of another Spotify device: the pill names it.
+                pill("devices", spotifySong ? SpotifyPlayingDevice.shared.name ?? "Devices" : "Devices",
+                     shape: AnyShape(RoundedRectangle(cornerRadius: 20))) {
+                    if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
+                }
                     // The system route picker, invisible, over the pill: a
                     // finger lands on its own button (the forwarding in
-                    // `present()` is the fallback).
-                    .overlay { AirPlayRoutePicker(trigger: airPlay) }
+                    // `present()` is the fallback). A Spotify song plays in the
+                    // Spotify app: its Connect devices instead (Codex N17).
+                    .overlay { if !spotifySong { AirPlayRoutePicker(trigger: airPlay) } }
                 pill("note", "Write", shape: AnyShape(Capsule())) { startWriting() }
             }
         }
@@ -1895,7 +1906,7 @@ struct NowPlayingView: View, Equatable {
         Button(action: action) {
             HStack(spacing: 4) {
                 YoinIcon(icon, size: 15.8)
-                Text(title).font(.gsf(12, .medium)).tracking(0.1)
+                Text(title).font(.gsf(12, .medium)).tracking(0.1).lineLimit(1)
             }
             // The primary glass reads mid-tone in both modes: onPrimary in
             // light; white in dark, where dark onPrimary (and, on glass,
@@ -2062,7 +2073,9 @@ struct NowPlayingView: View, Equatable {
     }
 
     private var dismissDrag: some Gesture {
-        DragGesture(minimumDistance: 12)
+        // The window's space: `dragY` moves the page this gesture is on, and a finger measured in the
+        // moving page's own space feeds its motion back into itself (tracking and release velocity).
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { v in
                 // 1:1 down, rubber-band up.
                 let t = v.translation.height
@@ -2547,5 +2560,25 @@ struct PlayModeButton: View {
                     .opacity(off && icon == "repeat" ? 1 : 0)
             }
             .labContrast("transportSecondary")
+    }
+}
+
+/// A loading indicator that shows only once loading has taken a beat (Android's
+/// lyrics wait the same before their indicator).
+private struct DelayedSpinner: View {
+    var tint: Color
+    @State private var shown = false
+    /// Under this, a load reads as instant.
+    static let delay: Duration = .milliseconds(400)
+
+    var body: some View {
+        ProgressView()
+            .tint(tint)
+            .opacity(shown ? 1 : 0)
+            .animation(Yoin.effects, value: shown)
+            .task {
+                try? await Task.sleep(for: Self.delay)
+                shown = true
+            }
     }
 }

@@ -169,6 +169,27 @@ final class PlaylistBackupTests: XCTestCase {
         XCTAssertEqual(accounts.closed, accounts.opened, "every source opened is closed")
     }
 
+    /// Codex N19: a delete while the read is in flight must not be undone by the follow's write.
+    func test_should_notBringBackABackup_when_itIsDeletedWhileFollowing() async throws {
+        let s = store()
+        let service = PlaylistBackups(store: s, accounts: StubAccounts([subsonic("p-demo")])) { [unowned self] in self.clock }
+        let backup = try await service.backUp(rawId: "pl-1", from: source({ self.playlist([self.track("s1", "A", "B")]) }))
+        let slow = source({ [unowned s] in
+            s.delete(backup.id)
+            return self.playlist([self.track("s9", "New", "B")])
+        })
+
+        let changed = await service.follow(backup, source: slow, listed: ["subsonic:pl-1"])
+        XCTAssertEqual(changed, .skipped)
+        XCTAssertNil(s.record(backup.id))
+
+        let again = try await service.backUp(rawId: "pl-1", from: source({ self.playlist([self.track("s1", "A", "B")]) }))
+        s.delete(again.id)
+        let gone = await service.follow(again, source: slow, listed: [])
+        XCTAssertEqual(gone, .skipped)
+        XCTAssertNil(s.record(again.id))
+    }
+
     /// Codex #17: each due backup is read from its own account, whichever account is in use; an account
     /// that can't be read now leaves its backups for later, and one not configured here never follows.
     func test_should_followEachBackupOnItsOwnAccount_when_anotherAccountIsInUse() async throws {
@@ -331,6 +352,12 @@ final class PlaylistBackupTests: XCTestCase {
         refused.failCreate = true
         let none = await PlaylistRestore.write(name: "Commute", description: nil, trackIds: ids, to: refused)
         XCTAssertEqual(none, PlaylistWrite(created: false, added: 0, requested: 250))
+
+        let emptyMade = StubDestination(results: [:])
+        emptyMade.failFirstAdd = true
+        let madeEmpty = await PlaylistRestore.write(name: "Commute", description: nil, trackIds: ids, to: emptyMade)
+        XCTAssertEqual(madeEmpty, PlaylistWrite(created: true, added: 0, requested: 250))
+        XCTAssertTrue(emptyMade.batches.isEmpty)
 
         let empty = await PlaylistRestore.write(name: "Commute", description: nil, trackIds: [], to: ok)
         XCTAssertEqual(empty, PlaylistWrite(created: false, added: 0, requested: 0))
@@ -553,6 +580,8 @@ private final class StubDestination: RestoreDestination {
     var searchFails = false
     var searchDelay: Duration?
     var failCreate = false
+    /// Made, then its first songs refused (Spotify's create-then-add).
+    var failFirstAdd = false
     /// Batches that land before one fails (nil: none fails).
     var failAddAfter: Int?
     var created: [String] = []
@@ -573,6 +602,7 @@ private final class StubDestination: RestoreDestination {
         if failCreate { throw URLError(.badServerResponse) }
         created.append(name)
         createdWith.append(trackIds)
+        if failFirstAdd { throw RestoreCreatedEmpty(playlistId: "new-1") }
         return "new-1"
     }
 

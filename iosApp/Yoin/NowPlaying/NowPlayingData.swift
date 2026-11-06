@@ -117,6 +117,19 @@ final class NowPlayingData {
             await loadProviderLyrics(t, k)
             return
         }
+        if t.provider == SpotifyMapping.provider {
+            // Spotify has no lyrics to read (the providers find them); the heart is Liked Songs.
+            if let spotify = AppModel.shared.store.spotify, !hearts.hasReport(provider: t.provider, songId: t.id),
+               !infoRequested.contains(k) {
+                infoRequested.insert(k)
+                let gen = accountGeneration
+                let saved = await spotify.isSaved(t.id)
+                guard gen == accountGeneration else { return }
+                if let saved { hearts.report(saved, provider: t.provider, songId: t.id) } else { infoRequested.remove(k) }
+            }
+            await loadProviderLyrics(t, k)
+            return
+        }
         guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else {
             if lyrics[k] == nil { lyrics[k] = LyricsState.none }
             return
@@ -214,7 +227,8 @@ final class NowPlayingData {
                 return
             }
         }
-        if t.provider == AppleMusicMapping.provider {
+        // Spotify's lyrics come from the providers too (Codex N24): the next song's are ready for the outro.
+        if t.provider == AppleMusicMapping.provider || t.provider == SpotifyMapping.provider {
             await loadProviderLyrics(t, k)
         } else if let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC {
             await loadLyrics(t, k, client)

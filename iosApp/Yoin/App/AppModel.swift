@@ -33,6 +33,13 @@ final class AppModel {
     var padSelection: Album?
     var isPad = false
     var npExpanded = false
+    /// Home's Memories bubble is out of the Dynamic Island (or the notch): the soft status-bar
+    /// band steps aside so the island's black meets the screen's top without a haze.
+    var islandOut = false
+    /// The Spotify sign-in the library's source was built from (account + when it signed in).
+    @ObservationIgnored var spotifySignIn: String?
+    /// Bumps on every start: a page read that ends after a newer start doesn't play (F02).
+    @ObservationIgnored var startGeneration = 0
     /// Phone: the pill ⇄ page morph (one progress value; see
     /// NowPlayingPresentation). Follows `npExpanded`.
     let np = NowPlayingPresentation()
@@ -187,6 +194,10 @@ final class AppModel {
                                        appleAuthorized: { apple.isAuthorized }, forcedSource: forced)
         self.store = LibraryStore(session: session, sources: sources, appleMusic: appleMusic)
         playbackSystem.appleOutput?.resolve = { id in await apple.song(id) }
+        #if DEBUG
+        profiles.useFakeSpotify()
+        #endif
+        observeSpotifyAccount()
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
@@ -253,7 +264,10 @@ final class AppModel {
         player.timeOffsetSupported = { session.supportsTimeOffset }
         // Codex C04: another account replaces the one in use: its queue (signed URLs, scrobble and
         // history callbacks) ends with it.
-        profiles.endPlayback = { [weak engine] in engine?.stop() }
+        profiles.endPlayback = { [weak self, weak engine] in
+            self?.startGeneration += 1
+            engine?.stop()
+        }
         // Offline downloads are signed by the signed-in account only when they open.
         OfflineDownloads.shared.sign = { [weak session] id, quality in
             guard let client = session?.client else { return nil }
@@ -397,7 +411,18 @@ final class AppModel {
         path.removeLast()
     }
 
-    func open(_ album: Album) {
+    /// The cover tile each album was last opened from (`zoomSource(_:_:tile:)`):
+    /// the zoom into its page, and back out, uses that tile's frame alone. Keyed by
+    /// id only, two tiles of one album on a page (Activities and Jump Back In)
+    /// were both sources, and the cover flew out of the wrong one.
+    @ObservationIgnored private var zoomTiles: [MediaId: String] = [:]
+
+    /// The zoom transition's source id for an album's page; nil when it wasn't opened from a
+    /// cover tile (search, an artist, Memories, Now Playing), which then pushes the plain way.
+    func zoomSourceID(_ id: MediaId) -> String? { zoomTiles[id].map { ZoomTile.sourceID(id, tile: $0) } }
+
+    func open(_ album: Album, tile: String? = nil) {
+        zoomTiles[album.id] = tile
         if isPad {
             withAnimation(Yoin.spatial) { padSelection = album }
         } else {
@@ -462,7 +487,10 @@ final class AppModel {
     private(set) var playingFrom: PlayingFrom?
 
     /// Replaces the queue with [entries] and plays [startAt]; shuffle on or off.
+    /// [shuffle]: a Shuffle play (the list starts shuffled, shuffle on). An ordinary start keeps the
+    /// remembered play mode (Codex F03; Android PlaybackManager keeps it across starts).
     func play(_ entries: [PlaylistEntry], startAt: Int = 0, shuffle: Bool = false) {
+        startGeneration += 1
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
         playingFrom = switch path.last ?? padSelection.map({ .album($0) }) {
@@ -471,8 +499,20 @@ final class AppModel {
         case .artist(let ref): .artist(ref.name)
         default: nil
         }
-        player.setShuffle(shuffle)
+        if shuffle { player.setShuffle(true) }
         player.play(queue: tracks, startAt: shuffle ? Int.random(in: 0..<tracks.count) : min(startAt, tracks.count - 1))
+    }
+
+    /// Plays what [load] reads (a page's songs), unless something else started meanwhile (Codex F02:
+    /// a slow read used to replace the queue the listener had started since).
+    func play(loading load: @escaping () async -> [PlaylistEntry], shuffle: Bool = false) {
+        startGeneration += 1
+        let gen = startGeneration
+        Task {
+            let entries = await load()
+            guard gen == startGeneration else { return }
+            play(entries, shuffle: shuffle)
+        }
     }
 
     /// Play next (stacked so the list keeps its order) or Add to queue.
@@ -494,11 +534,17 @@ final class AppModel {
             await store.loadPlaylist(id)
             return playlistInfo(id).entries
         case .artist(let ref):
+            // The discography in order (Codex F01; Android loadArtistPlayTracks): Spotify and Apple
+            // Music start with up to 100 songs, a server with every release.
             let page = artistPage(ref)
-            if !page.mostPlayed.isEmpty { return page.mostPlayed }
-            guard let first = page.releases.first else { return [] }
-            let full = await store.fullAlbum(first)
-            return full.tracks.map { PlaylistEntry(album: full, track: $0) }
+            let limit = store.provider == MediaRef.companion.PROVIDER_SUBSONIC ? Int.max : 100
+            var out: [PlaylistEntry] = []
+            for release in page.releases where out.count < limit {
+                let full = await store.fullAlbum(release)
+                out += full.tracks.map { PlaylistEntry(album: full, track: $0) }
+            }
+            if out.isEmpty { return page.mostPlayed }
+            return Array(out.prefix(limit))
         case .settings, nil:
             return []
         }
@@ -545,6 +591,56 @@ final class AppModel {
     }
 }
 
+extension AppModel {
+    /// The Spotify account in use, as a source for the library and a token for the Spotify app: built
+    /// again whenever the account in use changes (Android ProfileManager.activeSource for Spotify).
+    func observeSpotifyAccount() {
+        withObservationTracking {
+            syncSpotifyAccount()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeSpotifyAccount() }
+        }
+    }
+
+    private func syncSpotifyAccount() {
+        guard let p = profiles.active, p.service == .spotify, !profiles.needsSignIn(p),
+              let tokens = profiles.store.spotify(p.id) else {
+            if store.spotifyAccount != nil {
+                store.spotifyAccount = nil
+                spotifySignIn = nil
+                AccountScope.shared.spotify = nil
+                SpotifyRemote.shared.token = nil
+                SpotifyRemote.shared.bind(account: nil)
+            }
+            return
+        }
+        let scope = AccountScope.spotifyScope(userId: tokens.userId)
+        // A new sign-in for the same user (after a revoke) builds a fresh source too (Codex N09).
+        let signIn = "\(p.id)|\(p.spotifySignedInAt ?? 0)"
+        guard spotifySignIn != signIn else { return }
+        spotifySignIn = signIn
+        // Another account never drives the Spotify app through the previous one's remote (N06).
+        SpotifyRemote.shared.bind(account: p.id)
+        let profiles = profiles
+        let id = p.id
+        let provider = SpotifyTokenProvider(profileId: p.id, tokens: tokens, onRefreshed: { fresh in
+            // One owner of the tokens in memory too (N10): a switch back reuses the refreshed ones.
+            Task { @MainActor in profiles.store.updateSpotify(fresh, for: id) }
+        }) {
+            // Revoked (invalid_grant): the account asks to sign in again (N09).
+            Task { @MainActor in profiles.markSpotifyRevoked(id) }
+        }
+        let api = SpotifyWebAPI(token: { try await provider.accessToken() },
+                                refresh: { _ = try await provider.accessToken(force: true) })
+        let source = SpotifySource(api: api)
+        source.userId = tokens.userId
+        store.spotifyAccount = (source, scope)
+        AccountScope.shared.spotify = scope
+        SpotifyRemote.shared.token = { try await provider.accessToken() }
+        playbackSystem.spotifyOutput?.control = source
+    }
+}
+
 private struct ZoomNamespaceKey: EnvironmentKey {
     static let defaultValue: Namespace.ID? = nil
 }
@@ -557,9 +653,27 @@ extension EnvironmentValues {
     }
 }
 
+/// One cover tile's identity for the album zoom: a tile keeps it as `@State`, marks
+/// its cover with `zoomSource(_:_:tile:)` and opens with `model.open(_:tile:)`.
+struct ZoomTile {
+    let key = UUID().uuidString
+
+    static func sourceID(_ id: MediaId, tile: String?) -> String {
+        "\(tile ?? "-")|\(id.provider)|\(id.rawId)"
+    }
+}
+
 extension View {
+    /// An album page zooms out of (and back into) its tile when it has one. Without one, a zoom
+    /// has nothing to shrink into and its edge swipe didn't follow the finger: the standard
+    /// push, whose back swipe always does.
     @ViewBuilder
-    func zoomSource(_ id: MediaId, _ ns: Namespace.ID?) -> some View {
-        if let ns { matchedTransitionSource(id: id, in: ns) } else { self }
+    func zoomTransition(_ sourceID: String?, _ ns: Namespace.ID) -> some View {
+        if let sourceID { navigationTransition(.zoom(sourceID: sourceID, in: ns)) } else { self }
+    }
+
+    @ViewBuilder
+    func zoomSource(_ id: MediaId, _ ns: Namespace.ID?, tile: String) -> some View {
+        if let ns { matchedTransitionSource(id: ZoomTile.sourceID(id, tile: tile), in: ns) } else { self }
     }
 }

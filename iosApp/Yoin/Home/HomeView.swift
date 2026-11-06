@@ -22,7 +22,15 @@ struct HomeView: View {
     /// signed out: the mock shelf, for screenshots and demos only
     /// (LaunchConfig.demoContent); a real launch with no account gets nil
     /// and the connect prompt.
-    private var feed: HomeFeed? { Self.feed(isReal: model.store.isReal, demo: LaunchConfig.demoContent) { model.store.home } }
+    private var liveFeed: HomeFeed? { Self.feed(isReal: model.store.isReal, demo: LaunchConfig.demoContent) { model.store.home } }
+
+    /// What Home shows: the live feed, except while a page is pushed over it and through the
+    /// zoom back. Opening an album logs a visit, which moves it into Activities (and out of
+    /// Recently Played); applied under the page, the tile the album opened from was gone or
+    /// had moved by the time the page shrank back into it, so the cover jumped. The feed
+    /// catches up once Home is in view again, on a spring.
+    private var feed: HomeFeed? { held ?? liveFeed }
+    @State private var held: HomeFeed?
 
     static func feed(isReal: Bool, demo: Bool, server: () -> HomeFeed?) -> HomeFeed? {
         if isReal { return server() }
@@ -51,6 +59,7 @@ struct HomeView: View {
     var body: some View {
         ZStack(alignment: .top) {
             feedScroll
+                .modifier(IslandPush(bubble: bubble))
                 .modifier(MemoriesHomeBehind(presentation: memories))
             MemoryBubbleOverlay(bubble: bubble, memories: memories, pill: pill, scheme: scheme, scroll: scroll,
                                 covered: covered, edit: edit)
@@ -86,6 +95,18 @@ struct HomeView: View {
         }
         // Something opens over Home: edit mode ends under it.
         .onChange(of: covered) { _, c in if c { edit.exit() } }
+        .onChange(of: model.path.isEmpty) { _, home in
+            if !home {
+                if held == nil { held = liveFeed }
+                return
+            }
+            Task {
+                // The zoom back lands first.
+                try? await Task.sleep(for: .milliseconds(650))
+                guard model.path.isEmpty, held != nil else { return }
+                withAnimation(Yoin.spatial) { held = nil }
+            }
+        }
         #if DEBUG
         // Recording aids, off the view's lifecycle (Home is rebuilt once at launch).
         .onAppear {
@@ -139,6 +160,10 @@ struct HomeView: View {
         // `-screen home-bottom` opens scrolled to the end (screenshots).
         .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        // Behind a pull into Memories Home is scaled, and the bottom edge
+        // effect then drew as an opaque band under the bar, cutting the feed
+        // off with a hard edge. It sits out while Memories is up.
+        .scrollEdgeEffectHidden(memories.mounted, for: .bottom)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             scroll.scrolled = y
         }
@@ -586,6 +611,7 @@ private struct HeroCard: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
+    @State private var zoomTile = ZoomTile()
     var album: Album
     var timeAgo: String
 
@@ -602,10 +628,10 @@ private struct HeroCard: View {
     var body: some View {
         let s = scheme!
         let muted = s.onSurfaceVariant
-        Button { homeTap(edit) { model.open(album) } } label: {
+        Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
             HStack(spacing: 14) {
                 EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 104, stroke: s.primary)
-                    .zoomSource(album.id, zoomNS)
+                    .zoomSource(album.id, zoomNS, tile: zoomTile.key)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(muted)
                     Text(album.title).homeType(Tokens.type.titleLarge, .semibold).foregroundStyle(s.onSurface)
@@ -631,17 +657,24 @@ private struct SmallCard: View {
     var typeLabel: String
     var timeAgo: String
     var title: String
+    @Environment(\.zoomNamespace) private var zoomNS
+    @State private var zoomTile = ZoomTile()
 
     var body: some View {
         let s = scheme!
         Button {
             homeTap(edit) {
-                if entity == .artist { model.openArtist(album.artist, id: album.artistId) } else { model.open(album) }
+                if entity == .artist {
+                    model.openArtist(album.artist, id: album.artistId)
+                } else {
+                    model.open(album, tile: zoomTile.key)
+                }
             }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .center, spacing: 10) {
                     EntityBackdrop(entity: entity, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)
+                        .zoomSource(album.id, entity == .album ? zoomNS : nil, tile: zoomTile.key)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(typeLabel).homeType(Tokens.type.labelSmall)
                         Text(timeAgo).homeType(Tokens.type.labelSmall)
@@ -669,15 +702,16 @@ private struct WideCard: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
+    @State private var zoomTile = ZoomTile()
     var album: Album
     var timeAgo: String
 
     var body: some View {
         let s = scheme!
-        Button { homeTap(edit) { model.open(album) } } label: {
+        Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
             HStack(spacing: 12) {
                 EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: 88, stroke: s.primary)
-                    .zoomSource(album.id, zoomNS)
+                    .zoomSource(album.id, zoomNS, tile: zoomTile.key)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSurfaceVariant)
                     Text(album.title).homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(s.onSurface)
@@ -731,18 +765,19 @@ private struct JBICell: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
+    @State private var zoomTile = ZoomTile()
     var album: Album
     var mark: MemoryMark?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let s = scheme!
-        Button { homeTap(edit) { model.open(album) } } label: {
+        Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
             AlbumItem(album: album, size: Tokens.home.JBI_COVER.cg) {
                 // albumMemoryMarkInk: palette base, accent in dark mode.
                 if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
             }
-            .zoomSource(album.id, zoomNS)
+            .zoomSource(album.id, zoomNS, tile: zoomTile.key)
         }
         .buttonStyle(PressScale())
     }
@@ -920,9 +955,11 @@ private struct AlbumMini: View {
     @Environment(\.colorScheme) private var colorScheme
     var album: Album
     var mark: MemoryMark? = nil
+    @Environment(\.zoomNamespace) private var zoomNS
+    @State private var zoomTile = ZoomTile()
 
     var body: some View {
-        Button { homeTap(edit) { model.open(album) } } label: {
+        Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
             // RecentlyAddedAlbumCard: 82 cover, 6 gap, bodySmall 12/16, labelSmall artist.
             AlbumItem(album: album, size: Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg, titleSize: 12, titleLineHeight: 16,
                       artistStyle: Tokens.type.labelSmall, gap: 6) {
@@ -930,6 +967,7 @@ private struct AlbumMini: View {
                     MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background)
                 }
             }
+            .zoomSource(album.id, zoomNS, tile: zoomTile.key)
         }
         .buttonStyle(PressScale())
     }

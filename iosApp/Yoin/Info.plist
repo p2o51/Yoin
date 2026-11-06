@@ -28,11 +28,25 @@
 				<string>$(YOIN_GOOGLE_IOS_REVERSED_CLIENT_ID)</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.gpo.yoin.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>yoin</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>3</string>
 	<key>GIDClientID</key>
 	<string>$(YOIN_GOOGLE_IOS_CLIENT_ID)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>spotify</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -73,5 +87,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>YoinSpotifyClientID</key>
+	<string>$(YOIN_SPOTIFY_CLIENT_ID)</string>
 </dict>
 </plist>

@@ -251,6 +251,8 @@ class SettingsSyncAdapter(
     override suspend fun readAll(localProfileId: String?): List<DomainRow> = buildList {
         languageValue(tracked(SyncSettingKeys.TRANSLATION_LANGUAGE))
             ?.let { add(DomainRow(SyncSettingKeys.TRANSLATION_LANGUAGE, projection(it), null)) }
+        clientIdValue(tracked(SyncSettingKeys.SPOTIFY_CLIENT_ID))
+            ?.let { add(DomainRow(SyncSettingKeys.SPOTIFY_CLIENT_ID, projection(it), null)) }
     }
 
     override fun project(payload: JsonObject): JsonObject? = payload.requiredString("value")?.let(::projection)
@@ -264,6 +266,8 @@ class SettingsSyncAdapter(
     ): ApplyOutcome = when (key) {
         SyncSettingKeys.TRANSLATION_LANGUAGE ->
             applyLanguage(payload.requiredString("value"), expectedLocalHash, tracked = expectedLocalHash != null)
+        SyncSettingKeys.SPOTIFY_CLIENT_ID ->
+            applyClientId(payload.requiredString("value"), expectedLocalHash, tracked = expectedLocalHash != null)
         else -> ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null)
     }
 
@@ -272,6 +276,7 @@ class SettingsSyncAdapter(
             SkipReason.POLICY,
             when (key) {
                 SyncSettingKeys.TRANSLATION_LANGUAGE -> languageValue(tracked = expectedLocalHash != null)
+                SyncSettingKeys.SPOTIFY_CLIENT_ID -> clientIdValue(tracked = expectedLocalHash != null)
                 else -> null
             }?.let(::projection).hashOrNull(),
         )
@@ -285,6 +290,25 @@ class SettingsSyncAdapter(
         domain.putTranslationLanguage(value).orFailWrite("putTranslationLanguage")
         return ApplyOutcome.Applied(languageValue(tracked)?.let(::projection).hashOrNull())
     }
+
+    /**
+     * Android applyClientId: bootstrap-only. A Client ID arrives only on a device with no override of
+     * its own (not even one cleared since sync tracked it) and no Spotify account yet.
+     */
+    private fun applyClientId(payloadValue: String?, expectedLocalHash: String?, tracked: Boolean): ApplyOutcome {
+        val currentHash = clientIdValue(tracked)?.let(::projection).hashOrNull()
+        val value = payloadValue ?: return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
+        if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
+        if (value.isBlank()) return ApplyOutcome.Skipped(SkipReason.POLICY, currentHash)
+        if (currentHash != null) return ApplyOutcome.Skipped(SkipReason.POLICY, currentHash)
+        if (domain.spotifyProfileCount() > 0) return ApplyOutcome.Skipped(SkipReason.POLICY, currentHash)
+        domain.putSpotifyClientId(value).orFailWrite("putSpotifyClientId")
+        return ApplyOutcome.Applied(clientIdValue(tracked)?.let(::projection).hashOrNull())
+    }
+
+    /** The override set here; "" once sync tracks the setting and it was cleared (Android clientIdValue). */
+    private fun clientIdValue(tracked: Boolean): String? =
+        domain.spotifyClientId()?.takeIf(String::isNotBlank) ?: if (tracked) "" else null
 
     /** Explicit only: a non-default language, or the default once sync tracks this setting. */
     private fun languageValue(tracked: Boolean): String? {

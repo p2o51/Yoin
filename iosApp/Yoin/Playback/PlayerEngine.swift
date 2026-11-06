@@ -609,7 +609,14 @@ extension PlayerEngine: AudioOutputEvents {
     }
 
     func outputDidFail(_ message: String, network: Bool) {
+        PlayTrace.log("engine failure network=\(network): \(message)")
         if network { holdAfterFailure(message) } else { skipAfterFailure(message) }
+    }
+
+    func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?) {
+        if let shuffle { setShuffle(shuffle) }
+        if let repeatMode { setRepeat(repeatMode) }
+        onStateChange?()
     }
 
     func outputPlayingDidChangeExternally(_ playing: Bool) {

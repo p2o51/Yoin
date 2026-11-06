@@ -45,7 +45,7 @@ extension LandingService {
     var pickLine: String {
         switch self {
         case .subsonic: "Navidrome, Gonic and other servers"
-        case .spotify: "Not available on iOS"
+        case .spotify: "Premium account"
         case .appleMusic: "Subscription"
         }
     }
@@ -61,7 +61,7 @@ extension LandingService {
     var tagline: String {
         switch self {
         case .subsonic: "Navidrome, Gonic and other servers"
-        case .spotify: "Premium account"
+        case .spotify: "Your Spotify library, played in the Spotify app"
         case .appleMusic: "Your Apple Music library and catalog"
         }
     }
@@ -211,7 +211,7 @@ private struct ServiceTile: View {
         }
         .buttonStyle(PressScale())
         .disabled(!enabled)
-        // An unavailable service: shown, at half strength (Android's unavailable provider row).
+        // A service that can't be picked: shown at half strength (Android's unavailable provider row).
         .opacity(enabled ? 1 : 0.5)
         .animation(Yoin.effects, value: selected)
         .animation(Yoin.spatialFast, value: selected)
@@ -486,6 +486,229 @@ struct LandingSubsonicScene: View {
         error = message
         shakes += 1
         reactions.refused()
+    }
+}
+
+// MARK: Spotify
+
+/// Spotify needs the user's own app on Spotify for Developers (Android SpotifyConnectScene, minus its
+/// clipboard read and the Spotoolfy line): open the dashboard, paste the Client ID, connect. The sign-in
+/// itself is ProfileManager.connectSpotify, the call Settings › Add account makes. A Client ID that is
+/// already there (built into this build, or set earlier in Settings) skips the two guide steps.
+struct LandingSpotifyScene: View {
+    var connected: Bool
+    var scheme: CoverScheme
+    var reactions: LandingReactions
+    @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
+    @State private var clientId = LandingSpotifyScene.savedClientId
+    @State private var urisOpen = false
+    @State private var working = false
+    @State private var error: String?
+    @State private var shakes = 0
+    @FocusState private var focused: Bool
+
+    /// The ID set in Settings (empty when there is none).
+    private static var savedClientId: String {
+        UserDefaults.standard.string(forKey: SpotifyConfig.clientIdKey)?.trimmingCharacters(in: .whitespaces) ?? ""
+    }
+
+    /// A Client ID this build ships with and nothing overrides: nothing to ask for.
+    private var builtIn: Bool { Self.savedClientId.isEmpty && clientId.isEmpty && SpotifyConfig.clientId != nil }
+
+    var body: some View {
+        LandingSceneColumn {
+            ServiceHeader(service: .spotify, scheme: scheme)
+            if builtIn {
+                HStack(spacing: 10) {
+                    YoinIcon("info", size: 18)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                    Text("Needs Spotify Premium and the Spotify app")
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                }
+                .padding(.leading, 6)
+            } else {
+                GuideStep(number: 1, title: "Create an app", scheme: scheme) {
+                    Text("Free with a Premium account.")
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                    Button {
+                        focused = false
+                        if let url = URL(string: "https://developer.spotify.com/dashboard") { openURL(url) }
+                    } label: {
+                        Text("Open Spotify for Developers")
+                            .yoinRole(Tokens.type.labelLarge)
+                            .foregroundStyle(scheme.onSecondaryContainer)
+                            .padding(.horizontal, 18)
+                            .frame(minHeight: 40)
+                            .background(scheme.secondaryContainer, in: .capsule)
+                            .contentShape(.capsule)
+                    }
+                    .buttonStyle(PressScale())
+                    .padding(.top, 8)
+                }
+                GuideStep(number: 2, title: "Paste the Client ID", scheme: scheme) {
+                    LandingField(label: "Client ID", placeholder: "From your app on developer.spotify.com",
+                                 text: $clientId, focused: focused, scheme: scheme)
+                        .focused($focused)
+                        .submitLabel(.go)
+                        .onSubmit(connect)
+                        .modifier(ShakeOnRefuse(trigger: shakes))
+                        .padding(.top, 6)
+                }
+                redirectUris
+            }
+            ErrorLine(text: error, scheme: scheme)
+            ServiceCta(service: .spotify, label: "Continue", busyLabel: working ? "Waiting for Spotify…" : nil,
+                       done: connected, action: connect)
+        }
+        .animation(Yoin.spatial, value: error)
+        .animation(Yoin.spatial, value: urisOpen)
+        .onChange(of: clientId) { if error != nil { error = nil } }
+    }
+
+    /// What the dashboard asks for, folded away, one value per row.
+    private var redirectUris: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { urisOpen.toggle() } label: {
+                HStack {
+                    Text("For the dashboard")
+                        .yoinRole(Tokens.type.labelLarge)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                    Spacer()
+                    YoinIcon("chevron_down", size: 22)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                        .rotationEffect(.degrees(urisOpen ? 180 : 0))
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 48)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isButton)
+            if urisOpen {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Redirect URIs")
+                        .yoinRole(Tokens.type.labelMedium)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                    CopyRow(value: SpotifyConfig.redirectURI, scheme: scheme)
+                    CopyRow(value: SpotifyConfig.appRemoteRedirectURI, scheme: scheme)
+                    if let bundle = Bundle.main.bundleIdentifier {
+                        Text("iOS bundle ID")
+                            .yoinRole(Tokens.type.labelMedium)
+                            .foregroundStyle(scheme.onSurfaceVariant)
+                            .padding(.top, 4)
+                        CopyRow(value: bundle, scheme: scheme)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(scheme.surfaceBright, in: .rect(cornerRadius: 18))
+        .clipShape(.rect(cornerRadius: 18))
+    }
+
+    private func connect() {
+        guard !working, !connected else { return }
+        focused = false
+        let id = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !builtIn {
+            guard !id.isEmpty else {
+                error = "Paste the Client ID first"
+                shakes += 1
+                reactions.refused()
+                return
+            }
+            SpotifyConfig.setClientId(id)
+        }
+        working = true
+        error = nil
+        Task {
+            let before = Set(model.profiles.profiles.map(\.id))
+            let failure = await model.profiles.connectSpotify(activate: !model.store.isReal)
+            working = false
+            if let failure {
+                error = failure
+                shakes += 1
+                reactions.refused()
+            } else if model.profiles.profiles.contains(where: { $0.service == .spotify && !before.contains($0.id) }) {
+                reactions.connected(.spotify)
+            }
+            // Cancelled in the sign-in sheet: no account, nothing to say.
+        }
+    }
+}
+
+/// A numbered guide step: the number in a circle, the title, then its content.
+private struct GuideStep<Content: View>: View {
+    var number: Int
+    var title: String
+    var scheme: CoverScheme
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(scheme.onSecondaryContainer)
+                .frame(width: 28, height: 28)
+                .background(scheme.secondaryContainer, in: .circle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .yoinRole(Tokens.type.titleMedium, weight: .semibold)
+                    .foregroundStyle(scheme.onSurface)
+                    .padding(.top, 2)
+                content
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.bottom, 14)
+    }
+}
+
+/// A value to copy: tap, and it says "Copied" for a moment.
+private struct CopyRow: View {
+    var value: String
+    var scheme: CoverScheme
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            UIPasteboard.general.string = value
+            copied = true
+            Task {
+                try? await Task.sleep(for: .seconds(1.4))
+                copied = false
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(value)
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(scheme.onSurface)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                if copied {
+                    Text("Copied")
+                        .yoinRole(Tokens.type.labelMedium)
+                        .foregroundStyle(scheme.primary)
+                        .transition(.opacity)
+                } else {
+                    YoinIcon("copy", size: 18).foregroundStyle(scheme.onSurfaceVariant)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 40)
+            .background(scheme.surfaceContainerHighest, in: .rect(cornerRadius: 12))
+            .contentShape(.rect(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .animation(Yoin.effects, value: copied)
+        .accessibilityLabel("Copy \(value)")
     }
 }
 

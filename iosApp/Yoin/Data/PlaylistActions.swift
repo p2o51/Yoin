@@ -7,10 +7,13 @@ import os
 /// for the song sheet, the Add to playlist sheet, the playlist dialogs and
 /// their one-line confirmations.
 ///
-/// Provider rule (Android `Capability.PLAYLISTS_WRITE`): Subsonic writes;
-/// Apple Music doesn't (its API has no rename, delete or remove, so Android
-/// leaves it out and every write affordance hides). Signed out, the mock
-/// screens show the rows and only confirm.
+/// Provider rule (Android `Capability.PLAYLISTS_WRITE`): Subsonic and Spotify
+/// write; Apple Music doesn't (its API has no rename, delete or remove, so
+/// Android leaves it out and every write affordance hides). On Spotify only
+/// the user's own playlists are renamed or deleted (delete = unfollow), and a
+/// collaborative one also takes songs; removals name the occurrence by its
+/// position and the snapshot it was read at (SpotifySource+Playlists).
+/// Signed out, the mock screens show the rows and only confirm.
 ///
 /// Every write is optimistic: the Library row and the cached page change at
 /// once and go back when the server refuses. Writes run one after another,
@@ -116,14 +119,42 @@ final class PlaylistActions {
 
     // MARK: Rules
 
-    func canAddToPlaylist(_ store: LibraryStore) -> Bool { store.client != nil || !store.isReal }
+    /// The account in use's playlist writer: its Subsonic server or its Spotify Web API.
+    private enum Writer {
+        case subsonic(SubsonicClient)
+        case spotify(SpotifySource)
 
-    /// Android `canWrite`: Subsonic, and owned by the signed-in user (or no
-    /// owner); followed playlists hide Rename / Delete / Remove.
+        var provider: String {
+            switch self {
+            case .subsonic: MediaRef.companion.PROVIDER_SUBSONIC
+            case .spotify: SpotifyMapping.provider
+            }
+        }
+    }
+
+    private func writer(_ store: LibraryStore) -> Writer? {
+        if let spotify = store.spotify { return .spotify(spotify) }
+        return store.client.map(Writer.subsonic)
+    }
+
+    func canAddToPlaylist(_ store: LibraryStore) -> Bool { writer(store) != nil || !store.isReal }
+
+    /// Library's New playlist: a service that makes one here (Apple Music's are made in its own app).
+    func canCreate(_ store: LibraryStore) -> Bool { writer(store) != nil }
+
+    /// Android `canWrite`, for Rename and Delete: Subsonic, owned by the signed-in user (or no owner);
+    /// Spotify, made by the signed-in user. Followed playlists hide them.
     func canEdit(_ p: PlaylistInfo, store: LibraryStore) -> Bool {
         if p.id.provider == "mock" { return !store.isReal }
+        if p.id.provider == SpotifyMapping.provider { return store.spotify != nil && p.ownedByMe == true }
         guard store.client != nil, p.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return false }
         return p.owner.isEmpty || p.owner == store.session.account?.username
+    }
+
+    /// Remove from playlist: as [canEdit], and on Spotify a collaborative playlist too (its songs read).
+    func canEditSongs(_ p: PlaylistInfo, store: LibraryStore) -> Bool {
+        guard p.id.provider == SpotifyMapping.provider else { return canEdit(p, store: store) }
+        return store.spotify != nil && !p.tracksUnavailable && (p.ownedByMe == true || p.collaborative)
     }
 
     // MARK: Picker
@@ -131,6 +162,22 @@ final class PlaylistActions {
     /// The writable playlists, fresh each time the sheet opens (Android
     /// refetches too, so a playlist made elsewhere shows up).
     func loadPicks(_ store: LibraryStore, library: any MusicLibrary) async {
+        let gen = store.generation
+        if let spotify = store.spotify {
+            do {
+                let read = try await spotify.writablePlaylists()
+                // Another account since: its list isn't this one's.
+                guard gen == store.generation else { return }
+                store.patchPlaylists { rows, _ in rows = read.all }
+                picks = read.writable.map {
+                    Pick(id: $0.id.rawId, name: $0.title, songCount: $0.count, palette: $0.palette)
+                }
+            } catch {
+                log.error("playlists failed: \(SpotifySource.message(for: error), privacy: .public)")
+                picks = []
+            }
+            return
+        }
         guard let client = store.client else {
             picks = store.isReal ? [] : library.libraryItems().filter { $0.kind == .playlist }.map {
                 Pick(id: $0.id.rawId, name: $0.title, songCount: $0.count, palette: $0.palette)
@@ -140,6 +187,7 @@ final class PlaylistActions {
         let mapping = SubsonicMapping(client: client)
         do {
             let all = try await client.getPlaylists()
+            guard gen == store.generation else { return }
             store.patchPlaylists { rows, _ in rows = all.map(mapping.playlistItem) }
             picks = all.filter(\.canWrite).map {
                 Pick(id: $0.id, name: $0.name, songCount: $0.songCount.map { Int($0.int32Value) },
@@ -161,27 +209,56 @@ final class PlaylistActions {
         }
     }
 
-    private func ids(_ entries: [PlaylistEntry]) -> [String] {
-        entries.filter { $0.track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC }.map(\.track.id.rawId)
+    /// The songs [writer]'s service can hold: its own.
+    private func ids(_ entries: [PlaylistEntry], for writer: Writer) -> [String] {
+        entries.filter { $0.track.id.provider == writer.provider }.map(\.track.id.rawId)
+    }
+
+    private func message(_ error: Error, _ writer: Writer) -> String {
+        if case .spotify = writer { return SpotifySource.message(for: error) }
+        return ServerSession.message(for: error)
     }
 
     /// Adds [entries] to playlist [pick]; "Added to …" or "Couldn't add to …".
     func add(_ entries: [PlaylistEntry], to pick: Pick, store: LibraryStore) {
-        guard let client = store.client else { return show("Added to \(pick.name)") }
-        let songIds = ids(entries)
+        guard let writer = writer(store) else { return show("Added to \(pick.name)") }
+        let mine = entries.filter { $0.track.id.provider == writer.provider }
+        let songIds = ids(mine, for: writer)
         guard !songIds.isEmpty else { return }
+        let entries = mine
         let id = pick.id
+        let gen = store.generation
         store.patchPlaylists { rows, details in
             details[id]?.entries += entries
+            // Spotify: the new rows' positions are known once the page is read again.
+            if case .spotify = writer { details[id]?.positions = nil }
             Self.bump(&rows, id, by: songIds.count)
         }
         serial { [self] in
             do {
-                try await client.updatePlaylist(id: id, name: nil, comment: nil, isPublic: nil,
-                                                songIdsToAdd: songIds, songIndexesToRemove: [])
+                switch writer {
+                case .subsonic(let client):
+                    try await client.updatePlaylist(id: id, name: nil, comment: nil, isPublic: nil,
+                                                    songIdsToAdd: songIds, songIndexesToRemove: [])
+                case .spotify(let spotify):
+                    try await spotify.addTracks(songIds, to: id)
+                    // Its new snapshot and positions, for a removal later (none queued: nothing to clobber).
+                    if gen == store.generation, store.playlist(id) != nil, (queuedRemovals[id] ?? 0) == 0 {
+                        await store.loadPlaylist(id, force: true)
+                    }
+                }
                 show("Added to \(pick.name)")
             } catch {
-                log.error("add failed: \(ServerSession.message(for: error), privacy: .public)")
+                log.error("add failed: \(self.message(error, writer), privacy: .public)")
+                guard gen == store.generation else { return show("Couldn't add to \(pick.name)") }
+                if case .spotify = writer {
+                    // Spotify adds 100 a request: earlier batches may have landed. Read what it holds.
+                    if store.playlist(id) != nil, (queuedRemovals[id] ?? 0) == 0 {
+                        await store.loadPlaylist(id, force: true)
+                    }
+                    await store.loadPlaylists(force: true)
+                    return show("Couldn't add to \(pick.name)")
+                }
                 // Only this write's part comes back out (others may have landed since).
                 withAnimation(Yoin.spatial) {
                     store.patchPlaylists { rows, details in
@@ -203,30 +280,57 @@ final class PlaylistActions {
     func create(_ name: String, with entries: [PlaylistEntry], store: LibraryStore) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        guard let client = store.client else { return show("Added to \(name)") }
-        let songIds = ids(entries)
+        guard let writer = writer(store) else { return show("Added to \(name)") }
+        let songIds = ids(entries, for: writer)
         // A row at once, its real id when the server answers.
         let temp = "pending:\(UUID().uuidString)"
         let palette = entries.first?.album.palette ?? store.placeholderPalette(coverId: nil)
-        let row = LibraryItem(id: MediaId(provider: MediaRef.companion.PROVIDER_SUBSONIC, rawId: temp), kind: .playlist,
+        let row = LibraryItem(id: MediaId(provider: writer.provider, rawId: temp), kind: .playlist,
                               title: name, subtitle: "Playlist · \(songIds.count) songs", palette: palette,
                               count: songIds.count)
         withAnimation(Yoin.spatial) { store.patchPlaylists { rows, _ in rows.insert(row, at: 0) } }
+        let gen = store.generation
         serial { [self] in
             do {
-                let made = try await client.createPlaylist(name: name, comment: nil, songIds: songIds)
-                let mapping = SubsonicMapping(client: client)
-                store.patchPlaylists { rows, details in
-                    rows.removeAll { $0.id.rawId == temp }
-                    if let made {
-                        rows.insert(mapping.playlistItem(made.summary), at: 0)
-                        details[made.summary.id] = mapping.playlist(made)
+                switch writer {
+                case .subsonic(let client):
+                    let made = try await client.createPlaylist(name: name, comment: nil, songIds: songIds)
+                    guard gen == store.generation else { return show("Added to \(name)") }
+                    let mapping = SubsonicMapping(client: client)
+                    store.patchPlaylists { rows, details in
+                        rows.removeAll { $0.id.rawId == temp }
+                        if let made {
+                            rows.insert(mapping.playlistItem(made.summary), at: 0)
+                            details[made.summary.id] = mapping.playlist(made)
+                        }
+                    }
+                    if made == nil { await store.loadPlaylists(force: true) }
+                case .spotify(let spotify):
+                    // Android createPlaylistAndAddTargets: made private and empty, then the songs added.
+                    let made = try await spotify.createPlaylist(name: name)
+                    do {
+                        try await spotify.addTracks(songIds, to: made.id)
+                    } catch {
+                        // The playlist stands; only the songs didn't land.
+                        log.error("create add failed: \(SpotifySource.message(for: error), privacy: .public)")
+                        if gen == store.generation { await store.loadPlaylists(force: true) }
+                        show("Couldn't add to \(name)")
+                        return
+                    }
+                    var item = SpotifyMapping.playlistItem(made)
+                    item.count = songIds.count
+                    item.subtitle = "Playlist · \(songIds.count) songs"
+                    if item.palette.cover == nil { item.palette = palette }
+                    guard gen == store.generation else { return show("Added to \(name)") }
+                    store.patchPlaylists { rows, _ in
+                        rows.removeAll { $0.id.rawId == temp }
+                        rows.insert(item, at: 0)
                     }
                 }
-                if made == nil { await store.loadPlaylists(force: true) }
                 show("Added to \(name)")
             } catch {
-                log.error("create failed: \(ServerSession.message(for: error), privacy: .public)")
+                log.error("create failed: \(self.message(error, writer), privacy: .public)")
+                guard gen == store.generation else { return show("Couldn't create \"\(name)\"") }
                 withAnimation(Yoin.spatial) { store.patchPlaylists { rows, _ in rows.removeAll { $0.id.rawId == temp } } }
                 show("Couldn't create \"\(name)\"")
             }
@@ -236,9 +340,10 @@ final class PlaylistActions {
     func rename(_ p: PlaylistInfo, to name: String, store: LibraryStore) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name != p.title else { return }
-        guard let client = store.client else { return show("Renamed") }
+        guard let writer = writer(store) else { return show("Renamed") }
         let id = p.id.rawId
         let old = p.title
+        let gen = store.generation
         withAnimation(Yoin.spatial) {
             store.patchPlaylists { rows, details in
                 details[id]?.title = name
@@ -247,11 +352,17 @@ final class PlaylistActions {
         }
         serial { [self] in
             do {
-                try await client.updatePlaylist(id: id, name: name, comment: nil, isPublic: nil,
-                                                songIdsToAdd: [], songIndexesToRemove: [])
+                switch writer {
+                case .subsonic(let client):
+                    try await client.updatePlaylist(id: id, name: name, comment: nil, isPublic: nil,
+                                                    songIdsToAdd: [], songIndexesToRemove: [])
+                case .spotify(let spotify):
+                    try await spotify.renamePlaylist(id, name: name)
+                }
                 show("Renamed")
             } catch {
-                log.error("rename failed: \(ServerSession.message(for: error), privacy: .public)")
+                log.error("rename failed: \(self.message(error, writer), privacy: .public)")
+                guard gen == store.generation else { return show("Couldn't rename playlist") }
                 withAnimation(Yoin.spatial) {
                     store.patchPlaylists { rows, details in
                         if details[id]?.title == name { details[id]?.title = old }
@@ -268,8 +379,9 @@ final class PlaylistActions {
         let store = model.store
         let id = p.id.rawId
         if case .playlist(id)? = model.path.last { model.back() }
-        guard let client = store.client else { return show("Playlist deleted") }
+        guard let writer = writer(store) else { return show("Playlist deleted") }
         let undo = store.snapshotPlaylist(id)
+        let gen = store.generation
         withAnimation(Yoin.spatial) {
             store.patchPlaylists { rows, details in
                 rows.removeAll { $0.id.rawId == id }
@@ -278,11 +390,15 @@ final class PlaylistActions {
         }
         serial { [self] in
             do {
-                try await client.deletePlaylist(id: id)
+                switch writer {
+                case .subsonic(let client): try await client.deletePlaylist(id: id)
+                // Spotify has no delete: unfollowing takes it out of the user's playlists.
+                case .spotify(let spotify): try await spotify.unfollowPlaylist(id)
+                }
                 show("Playlist deleted")
             } catch {
-                log.error("delete failed: \(ServerSession.message(for: error), privacy: .public)")
-                withAnimation(Yoin.spatial) { store.restorePlaylist(id, undo) }
+                log.error("delete failed: \(self.message(error, writer), privacy: .public)")
+                if gen == store.generation { withAnimation(Yoin.spatial) { store.restorePlaylist(id, undo) } }
                 show("Couldn't delete playlist")
             }
         }
@@ -294,8 +410,9 @@ final class PlaylistActions {
     @ObservationIgnored private var serverEntries: [String: [PlaylistEntry]] = [:]
     @ObservationIgnored private var queuedRemovals: [String: Int] = [:]
 
-    /// Removes the song at [index] (Subsonic removes by position).
+    /// Removes the song at [index] (Subsonic removes by position; Spotify by the occurrence's position).
     func remove(at index: Int, from playlistId: String, store: LibraryStore) {
+        if let spotify = store.spotify { return removeOnSpotify(at: index, from: playlistId, spotify: spotify, store: store) }
         guard let client = store.client else { return }
         guard let entries = store.playlist(playlistId)?.entries, index < entries.count else { return }
         let removed = entries[index]
@@ -334,6 +451,126 @@ final class PlaylistActions {
                     }
                 }
                 show("Couldn't remove track")
+            }
+        }
+    }
+
+    /// A Spotify playlist as the server holds it while removals are queued: its rows, each row's position
+    /// among all its items, and the snapshot those positions are in.
+    struct SpotifyServerState: Equatable {
+        var entries: [PlaylistEntry]
+        var positions: [Int]
+        var snapshot: String?
+
+        /// [at]'s row gone, as Spotify then numbers the rest (every later item moves up one).
+        mutating func removeRow(_ at: Int) {
+            let position = positions[at]
+            entries.remove(at: at)
+            positions.remove(at: at)
+            positions = positions.map { $0 > position ? $0 - 1 : $0 }
+        }
+    }
+
+    @ObservationIgnored private var spotifyServer: [String: SpotifyServerState] = [:]
+
+    /// Android removeTracksFromPlaylist: the one occurrence at its position, against the snapshot the
+    /// positions were read at; the answer's snapshot is the next removal's. A page read without positions
+    /// (songs just added) is read again first, and only then loses the row.
+    private func removeOnSpotify(at index: Int, from playlistId: String, spotify: SpotifySource, store: LibraryStore) {
+        guard let page = store.playlist(playlistId), index < page.entries.count else { return }
+        let removed = page.entries[index]
+        let gen = store.generation
+        let known = page.positions.flatMap { $0.count == page.entries.count ? $0 : nil }
+        if (queuedRemovals[playlistId] ?? 0) == 0 {
+            spotifyServer[playlistId] = known.map { SpotifyServerState(entries: page.entries, positions: $0,
+                                                                        snapshot: page.snapshotId) }
+        }
+        queuedRemovals[playlistId, default: 0] += 1
+        let optimistic = known != nil
+        if optimistic {
+            withAnimation(Yoin.spatial) {
+                store.patchPlaylists { rows, details in
+                    details[playlistId]?.entries.remove(at: index)
+                    details[playlistId]?.positions?.remove(at: index)
+                    Self.bump(&rows, playlistId, by: -1)
+                }
+            }
+        }
+        serial { [self] in
+            defer {
+                queuedRemovals[playlistId, default: 1] -= 1
+                if queuedRemovals[playlistId] == 0 {
+                    queuedRemovals[playlistId] = nil
+                    spotifyServer[playlistId] = nil
+                }
+            }
+            if spotifyServer[playlistId] == nil {
+                await store.loadPlaylist(playlistId, force: true)
+                if let fresh = store.playlist(playlistId), let positions = fresh.positions,
+                   positions.count == fresh.entries.count {
+                    spotifyServer[playlistId] = SpotifyServerState(entries: fresh.entries, positions: positions,
+                                                                   snapshot: fresh.snapshotId)
+                }
+            }
+            guard var server = spotifyServer[playlistId],
+                  let at = Self.serverIndex(of: removed, in: server.entries, near: index) else {
+                if optimistic, gen == store.generation { restoreRow(removed, at: index, position: nil, in: playlistId, store: store) }
+                return show("Couldn't remove track")
+            }
+            let position = server.positions[at]
+            do {
+                let snapshot = try await spotify.removeTracks([.init(trackRawId: removed.track.id.rawId, position: position)],
+                                                              from: playlistId, snapshotId: server.snapshot)
+                server.removeRow(at)
+                server.snapshot = snapshot
+                spotifyServer[playlistId] = server
+                guard gen == store.generation else { return }
+                // The page's rows now count from the new snapshot too.
+                store.patchPlaylists { rows, details in
+                    guard var d = details[playlistId] else { return }
+                    if !optimistic, let i = Self.serverIndex(of: removed, in: d.entries, near: index) {
+                        d.entries.remove(at: i)
+                        if d.positions?.count == d.entries.count + 1 { d.positions?.remove(at: i) }
+                        Self.bump(&rows, playlistId, by: -1)
+                    }
+                    d.positions = d.positions.map { $0.map { $0 > position ? $0 - 1 : $0 } }
+                    d.snapshotId = snapshot
+                    details[playlistId] = d
+                }
+                // The song is in the playlist again elsewhere: the /items removal no longer documents
+                // per-item positions, so read what Spotify kept rather than trust the one row going.
+                if server.entries.contains(where: { $0.track.id == removed.track.id }) {
+                    await store.loadPlaylist(playlistId, force: true)
+                    if let fresh = store.playlist(playlistId), let positions = fresh.positions,
+                       positions.count == fresh.entries.count {
+                        spotifyServer[playlistId] = SpotifyServerState(entries: fresh.entries, positions: positions,
+                                                                       snapshot: fresh.snapshotId)
+                    }
+                }
+            } catch {
+                log.error("remove failed: \(SpotifySource.message(for: error), privacy: .public)")
+                if optimistic, gen == store.generation { restoreRow(removed, at: index, position: position, in: playlistId, store: store) }
+                show("Couldn't remove track")
+            }
+        }
+    }
+
+    /// A refused removal's row back at [index], with its position as the server now numbers it.
+    private func restoreRow(_ entry: PlaylistEntry, at index: Int, position: Int?, in playlistId: String,
+                            store: LibraryStore) {
+        withAnimation(Yoin.spatial) {
+            store.patchPlaylists { rows, details in
+                guard var d = details[playlistId] else { return }
+                let i = min(index, d.entries.count)
+                d.entries.insert(entry, at: i)
+                if let position, var positions = d.positions, positions.count == d.entries.count - 1 {
+                    positions.insert(position, at: i)
+                    d.positions = positions
+                } else {
+                    d.positions = nil
+                }
+                details[playlistId] = d
+                Self.bump(&rows, playlistId, by: 1)
             }
         }
     }

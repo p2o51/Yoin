@@ -115,3 +115,42 @@ glass only where content moves underneath.
 Run the automated subset on an iPad Pro 13 (`home library album settings np
 search srv`), portrait and landscape; check the Pad shell, split columns and
 NP panel.
+
+## 4. Spotify without a Spotify account (fake Web API)
+
+Debug builds only. `scripts/fake_spotify.py` is an in-memory Spotify Web API (no network, no covers,
+no audio); `-spotifyFake <url>` signs in a stand-in account (`yoin-qa`, "Yoin QA") with dummy tokens
+that never expire and points every Web API call at it. App Remote and the Spotify app are never
+touched: a play start fails quietly. Always pair it with `-silentAudio YES`.
+
+```sh
+python3 scripts/fake_spotify.py                      # :4997; Ctrl-C to stop (state resets on restart)
+xcrun simctl launch $UDID com.gpo.yoin -silentAudio YES -spotifyFake http://127.0.0.1:4997
+```
+
+The account: 350 Liked Songs (offset paging, so Songs reads past its first 300), 12 saved albums,
+6 followed artists, and four playlists: **QA Mix** (yours; holds "Satellite Quiet" twice),
+**Road Trip** (yours), **Shared Jam** (someone else's, collaborative) and **Editorial Picks**
+(someone else's, followed: its songs answer 403, as for a new Client ID since 2026-02). The fake keeps
+the Development Mode limits (search and artist albums refuse `limit` > 10) and takes the writes
+(create, rename, add, positional remove with `snapshot_id`, me/library save / follow / unfollow).
+Inspect it with curl, e.g. `curl -H 'Authorization: Bearer x' 127.0.0.1:4997/playlists/pl_owned/items`.
+
+Walk-throughs (UI tests in `YoinSpotifyQA`, its own scheme, never part of the Yoin tests): Library
+Songs to the foot and Playlists, Search Library | Spotify with the Playlists filter reading three
+pages, an owned playlist's ⋮ (Cloud backup, Rename, Delete), the followed one (no ⋮, the "Spotify only
+shows…" line, 25 tracks), a song's Add to playlist (owned + collaborative only), removing the first
+"Satellite Quiet" from QA Mix (the server keeps the second), and Settings › Cloud sync › Playlist cloud
+backup with Spotify as source and restore destination. Each step writes a screenshot and the element
+tree to `/tmp/yoin-spotify-qa` (`YOIN_QA_OUT` to change).
+
+```sh
+python3 scripts/fake_spotify.py &
+YOIN_SKIP_SHARED_BUILD=1 xcodebuild test -project Yoin.xcodeproj -scheme YoinSpotifyQA \
+  -destination id=$UDID -derivedDataPath /tmp/yoin-dd-<topic>
+# one: -only-testing:YoinSpotifyQA/SpotifyQAUITests/testRemoveDuplicateOccurrence
+```
+
+Restart the fake between runs that write (a restore adds a playlist; a removal shortens QA Mix). The
+stand-in account stays on the simulator after a fake launch; launched without the flag it would ask
+the real Spotify with dummy tokens and turn to "Sign in again": use a throwaway simulator.

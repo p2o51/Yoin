@@ -66,7 +66,7 @@ final class MacModel {
     @ObservationIgnored private var known: [String: PlaylistEntry] = [:]
 
     init() {
-        player = PlayerEngine(output: MacRoutingOutput(av: AVAudioOutput(), apple: appleOutput, spotify: spotifyOutput))
+        player = PlayerEngine(output: RoutingAudioOutput(av: AVAudioOutput(), apple: appleOutput, spotify: spotifyOutput))
         library = MacLibrary(session: session)
         system = MacPlaybackSystem(player: player)
         player.onScrobble = { [weak self] track, submission in

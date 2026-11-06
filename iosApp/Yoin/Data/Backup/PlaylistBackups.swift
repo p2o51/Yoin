@@ -82,6 +82,7 @@ final class PlaylistBackups {
         switch profile.service {
         case .subsonic: guard library.client != nil else { return nil }
         case .appleMusic: guard library.apple != nil else { return nil }
+        case .spotify: guard library.spotify != nil else { return nil }
         }
         return accounts.source(id)
     }
@@ -271,12 +272,16 @@ final class PlaylistBackups {
     func follow(_ backup: PlaylistBackupRecord, source: Source, listed: Set<String>) async -> FollowResult {
         guard let rawId = PlaylistSnapshots.shared.rawIdOf(id: backup.sourcePlaylistId) else { return .skipped }
         if !listed.contains(backup.sourcePlaylistId) {
-            store.save(backup.markedGone(now: now()))
+            // The list was awaited by the caller (and earlier backups in the batch): a deleted row stays deleted.
+            guard let current = store.record(backup.id) else { return .skipped }
+            store.save(current.markedGone(now: now()))
             return .gone
         }
         guard let playlist = try? await source.readPlaylist(rawId) else { return .skipped }
-        // Re-read the row: a sync or a restore may have changed it while the playlist loaded.
-        let current = store.record(backup.id) ?? backup
+        // Re-read the row: a sync or a restore may have changed it while the playlist loaded. A row that is gone
+        // now was deleted here or on another device meanwhile: saving the stale copy would bring it back and sync
+        // it out again, so that's a cancel.
+        guard let current = store.record(backup.id) else { return .skipped }
         let t = now()
         let next = PlaylistSnapshots.shared.refreshed(backup: current, playlist: playlist, profileId: source.profileId,
                                                       profileLabel: source.label, now: t)
@@ -305,6 +310,7 @@ final class PlaylistBackups {
         switch p.service {
         case .subsonic: AccountScope.subsonicProvider
         case .appleMusic: AppleMusicMapping.provider
+        case .spotify: "spotify"
         }
     }
 
@@ -385,7 +391,7 @@ protocol BackupAccounts: AnyObject {
     func destination(_ profileId: String) -> RestoreDestination?
 }
 
-/// The app's accounts (ProfileManager) and this device's Apple Music.
+/// The app's accounts (ProfileManager), this device's Apple Music, and each Spotify account's Web API.
 @MainActor
 final class LiveBackupAccounts: BackupAccounts {
     static let shared = LiveBackupAccounts()
@@ -401,6 +407,7 @@ final class LiveBackupAccounts: BackupAccounts {
         switch p.service {
         case .subsonic: return manager.signIn(p.id) != nil
         case .appleMusic: return apple.isAuthorized
+        case .spotify: return !manager.needsSignIn(p) && manager.store.spotify(p.id) != nil
         }
     }
 
@@ -409,6 +416,7 @@ final class LiveBackupAccounts: BackupAccounts {
         switch p.service {
         case .subsonic: return manager.signIn(p.id).map { PlaylistBackups.subsonicSource(p, account: $0) }
         case .appleMusic: return PlaylistBackups.appleSource(apple, profileId: p.id)
+        case .spotify: return AppModel.shared.spotifySource(forProfile: p.id).map { PlaylistBackups.spotifySource($0, profile: p) }
         }
     }
 
@@ -417,6 +425,7 @@ final class LiveBackupAccounts: BackupAccounts {
         switch p.service {
         case .subsonic: return manager.signIn(p.id).map { SubsonicRestoreDestination(account: $0) }
         case .appleMusic: return AppleMusicRestoreDestination(apple: apple)
+        case .spotify: return AppModel.shared.spotifySource(forProfile: p.id).map(SpotifyRestoreDestination.init(spotify:))
         }
     }
 }

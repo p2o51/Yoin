@@ -115,7 +115,10 @@ struct ScrollPullObserver: UIViewRepresentable {
 
         @objc private func pan(_ g: UIPanGestureRecognizer) {
             guard let sv = scrollView, let presentation else { return }
-            let ty = g.translation(in: sv.superview).y
+            // In the window's space, not the scroll view's: Home itself moves and shrinks with q
+            // (MemoriesHomeBehind), so a finger measured in Home's own space read a pull that
+            // changed q that moved Home that changed the pull, and the page shook while held.
+            let ty = g.translation(in: nil).y
             switch g.state {
             case .began:
                 engaged = false
@@ -142,7 +145,7 @@ struct ScrollPullObserver: UIViewRepresentable {
                 guard engaged else { return }
                 engaged = false
                 sv.contentOffset.y = -sv.adjustedContentInset.top
-                presentation.pullEnded(velocity: g.state == .ended ? g.velocity(in: sv.superview).y : 0)
+                presentation.pullEnded(velocity: g.state == .ended ? g.velocity(in: nil).y : 0)
             default: break
             }
         }

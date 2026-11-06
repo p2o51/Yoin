@@ -1,9 +1,12 @@
-// Mac copy of iosApp/Yoin/Data/Spotify (branch claude/project-thread-2amedi); merge once the branches meet.
 import AuthenticationServices
 import CryptoKit
 import Foundation
 import Security
+#if canImport(UIKit)
+import UIKit
+#else
 import AppKit
+#endif
 
 /// Spotify's constants (Android SpotifyAuthConfig). The Client ID is not one of them: a user sets it
 /// in Settings › Spotify (synced as `spotify_client_id`); a dev build may be seeded with one from
@@ -29,6 +32,8 @@ enum SpotifyConfig {
     static let requiredScopes: Set<String> = [
         "user-read-private", "app-remote-control", "streaming",
         "playlist-modify-private", "playlist-modify-public", "user-modify-playback-state",
+        // Where Spotify plays (GET me/player): starts on another device and Yoin's progress read it.
+        "user-read-playback-state",
     ]
 
     static let clientIdKey = "spotifyClientId"
@@ -239,7 +244,12 @@ enum SpotifyAuth {
         static let shared = AuthAnchor()
         func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
             MainActor.assumeIsolated {
-                NSApp.keyWindow ?? NSApp.mainWindow ?? ASPresentationAnchor()
+                #if canImport(UIKit)
+                let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                return scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+                #else
+                return NSApp.keyWindow ?? NSApp.mainWindow ?? ASPresentationAnchor()
+                #endif
             }
         }
     }
@@ -292,11 +302,7 @@ actor SpotifyTokenProvider {
             let fresh = try await task.value
             tokens = fresh
             let id = profileId
-            // Only over the sign-in this refresh came from: a removed account isn't brought back, and a
-            // newer sign-in of the same account isn't overwritten.
-            await MainActor.run {
-                if SpotifyTokenStore.load(id)?.refreshToken == old.refreshToken { _ = SpotifyTokenStore.save(fresh, for: id) }
-            }
+            await MainActor.run { _ = SpotifyTokenStore.save(fresh, for: id) }
             onRefreshed(fresh)
             return fresh.accessToken
         } catch SpotifyAuthError.revoked {

@@ -1,4 +1,3 @@
-// Mac copy of iosApp/Yoin/Data/Spotify (branch claude/project-thread-2amedi); merge once the branches meet.
 import Foundation
 
 /// What a Spotify Web API call can fail with, beyond URLSession's own errors.
@@ -41,8 +40,8 @@ enum SpotifyAPIError: Error, LocalizedError, Equatable {
 /// coming, throws `.rateLimited` so the screen can say so instead of hanging.
 final class SpotifyWebAPI: Sendable {
     static let liveBase = URL(string: "https://api.spotify.com/v1")!
-    /// The live API (the iOS QA fake isn't on the Mac).
-    static var defaultBase: URL { liveBase }
+    /// The live API, or the QA fake (`-spotifyFake`, DEBUG builds only).
+    static var defaultBase: URL { SpotifyFake.base ?? liveBase }
     static let defaultRetryAfter = 5
 
     private let token: @Sendable () async throws -> String
@@ -106,8 +105,12 @@ final class SpotifyWebAPI: Sendable {
                 req.httpBody = json
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
+            let t0 = Date()
             let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse else { throw SpotifyAPIError.badRequest }
+            if path.hasPrefix("me/player") {
+                PlayTrace.log("API \(method) \(url.path)?\(url.query ?? "") → \(http.statusCode) in \(String(format: "%.2f", Date().timeIntervalSince(t0)))s retry-after=\(http.value(forHTTPHeaderField: "Retry-After") ?? "-")\(http.statusCode >= 300 ? " " + (Self.errorMessage(data) ?? "") : "")")
+            }
             switch http.statusCode {
             case 200..<300:
                 return data

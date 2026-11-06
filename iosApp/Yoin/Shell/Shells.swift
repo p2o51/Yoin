@@ -50,7 +50,7 @@ struct PhoneShell: View {
                         switch route {
                         case .album(let album):
                             AlbumDetailView(album: album)
-                                .navigationTransition(.zoom(sourceID: album.id, in: zoomNS))
+                                .zoomTransition(model.zoomSourceID(album.id), zoomNS)
                         case .artist(let ref):
                             ArtistDetailView(ref: ref)
                         case .playlist(let id):
@@ -73,6 +73,9 @@ struct PhoneShell: View {
                     // Slides away under the keyboard while searching.
                     .offset(y: model.searchActive ? 140 : 0)
                     .opacity(model.searchActive ? 0 : 1)
+                    // Memories (pulled down over Home) takes the whole screen.
+                    .modifier(MemoriesBarRetreat(presentation: model.memories,
+                                                 active: model.section == .home && model.path.isEmpty))
             }
             // World: the shell steps back (scale, dim, blur) as Now Playing
             // unfolds over it or a sheet comes up, off the same progress.
@@ -113,6 +116,8 @@ struct PhoneShell: View {
             // at the end of the close.
             if model.path.isEmpty {
                 StatusEdgeBand()
+                    .opacity(model.islandOut ? 0 : 1)
+                    .animation(Yoin.effects, value: model.islandOut)
             }
         }
         .onChange(of: model.npExpanded) { _, open in model.np.show(open) }
@@ -130,6 +135,25 @@ struct PhoneShell: View {
         #if DEBUG
         .task { await NowPlayingMorphDebug.run(model) }
         #endif
+    }
+}
+
+/// Android YoinNavHost: the bar group slides down and fades out with the
+/// Memories reveal (1 - q), so it leaves on the pull itself rather than when
+/// Memories settles, and comes back the same way. A page pushed from Memories
+/// gets its bar back (Android's detail Activity brings its own).
+/// A modifier of its own so a frame of q re-renders only this, not the shell.
+struct MemoriesBarRetreat: ViewModifier {
+    let presentation: MemoriesPresentation
+    var active: Bool
+
+    func body(content: Content) -> some View {
+        let hide = active ? min(1, max(0, 1 - presentation.fraction)) : 0
+        content
+            .offset(y: hide * 120)
+            .opacity(Double(max(0, 1 - hide * 1.4)))
+            .allowsHitTesting(hide < 0.5)
+            .animation(Yoin.standardDefaultSpatial, value: active)
     }
 }
 

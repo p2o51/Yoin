@@ -58,3 +58,6 @@ local.properties
 # this public repository. Obtain them per app/libs/README-apple-music.md.
 /app/libs/musickitauth-release-*.aar
 /app/libs/mediaplayback-release-*.aar
+
+# Spotify Client ID for iOS dev builds (as Android local.properties)
+iosApp/Config/Spotify.local.xcconfig

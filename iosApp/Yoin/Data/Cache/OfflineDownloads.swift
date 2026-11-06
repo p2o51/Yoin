@@ -478,10 +478,12 @@ final class OfflineDownloads {
 #if os(iOS)
 extension AppModel {
     /// The download the visible album or playlist page is held under (nil
-    /// on other pages, signed out, or off Subsonic).
+    /// on other pages, signed out, or off Subsonic). On a wide window the album picked into the detail column
+    /// (`padSelection`) is the visible page while nothing is pushed over it.
     var detailOfflineCollection: OfflineDownloads.Collection? {
         guard store.isReal, store.client != nil else { return nil }
-        switch path.last {
+        let visible = path.last ?? padSelection.map { Route.album($0) }
+        switch visible {
         case .album(let a) where a.id.provider == MediaRef.companion.PROVIDER_SUBSONIC:
             return .init(kind: .album, id: a.id.rawId, title: a.title, subtitle: a.artist,
                          coverId: OfflineDownloads.coverId(a.palette.cover))
@@ -493,6 +495,24 @@ extension AppModel {
         default:
             return nil
         }
+    }
+
+    /// Plays the lone song [collection] names from what its download kept (title, artist, album, length, cover
+    /// id), through the normal play entry; the stream url's cache key is the download's, so the file plays.
+    /// No-op when the song's download is gone or another account's.
+    func playDownloadedSong(_ collection: OfflineDownloads.Collection) {
+        let offline = OfflineDownloads.shared
+        guard collection.kind == .song,
+              let song = offline.visible.first(where: { $0.collections.contains { $0.key == collection.key } }),
+              store.client != nil else { return }
+        let palette = store.client.map { SubsonicMapping(client: $0).palette(coverId: collection.coverId) }
+            ?? CoverPalette(a: .gray, b: .gray, c: .gray)
+        // A song with no album of its own keeps the "song:" stand-in id the rest of the app uses.
+        let album = Album(id: MediaId(provider: AccountScope.subsonicProvider, rawId: song.albumId ?? "song:\(song.songId)"),
+                          title: song.album, artist: song.artist, year: 0, palette: palette, tracks: [])
+        let track = Track(id: MediaId(provider: AccountScope.subsonicProvider, rawId: song.songId), number: 1,
+                          title: song.title, durationSec: song.durationSec, rating: nil)
+        play([PlaylistEntry(album: album, track: track)])
     }
 
     /// Starts downloading [entries] under [collection] (keys from the signed-in client).
@@ -548,6 +568,8 @@ extension OfflineDownloads {
 struct OfflineMenuButton: View {
     @Environment(AppModel.self) private var model
     var collection: OfflineDownloads.Collection
+    /// The songs to keep, when the page isn't the top of `model.path` (the iPad column's root album).
+    var entries: (() async -> [PlaylistEntry])?
 
     var body: some View {
         let offline = OfflineDownloads.shared
@@ -555,7 +577,11 @@ struct OfflineMenuButton: View {
         Button {
             offline.rowTapped(status, key: collection.key) {
                 let c = collection
-                Task { model.download(c, await model.detailEntries()) }
+                let entries = entries
+                Task {
+                    let songs = if let entries { await entries() } else { await model.detailEntries() }
+                    model.download(c, songs)
+                }
             }
         } label: {
             Label { Text(OfflineDownloads.rowLabel(status)) } icon: { Image("yoin." + OfflineDownloads.rowIcon(status)) }

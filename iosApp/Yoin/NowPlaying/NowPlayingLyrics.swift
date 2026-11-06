@@ -137,11 +137,17 @@ private struct LyricLinesBody: View {
                     .animation(Yoin.slowSpatial) { $0.offset(y: nextRise) }
             }
         }
+        // Every row at its full height: the window offers the list less height
+        // than it needs, and the stack squeezed each row's min-height frame
+        // below its wrapped text, which then drew over the next row.
+        .fixedSize(horizontal: false, vertical: true)
         // Scroll so the active line's box (with its 4 pt pad) sits at
-        // `anchor`; keyed on the offset itself, so a row measured a frame
-        // late (a wrap) glides too.
-        .offset(y: anchor - 4 - above)
-        .animation(handing ? Yoin.slowSpatial : Yoin.spatial, value: anchor - 4 - above)
+        // `anchor`. Only the scroll animates (Android: the list reflows at
+        // once, the scroll springs): a value-keyed animation here also sprang
+        // the rows themselves, so a line that wraps as it lights up overlapped
+        // the next one until the spring settled. A row measured a frame late
+        // (a wrap) still glides, as the offset follows it.
+        .animation(handing ? Yoin.slowSpatial : Yoin.spatial) { $0.offset(y: anchor - 4 - above) }
     }
 
     /// Material FastOutSlowIn (cubic 0.4, 0, 0.2, 1).
@@ -350,18 +356,31 @@ struct NoteComposer: View {
 final class LyricsDirection {
     private(set) var forward = true
     /// The song change swaps in place (no slide): the outro already parked
-    /// the next song's first line where its list opens.
+    /// the next song's first line where its list opens, or the previous
+    /// change's slide is still running (two Next taps in quick succession: a
+    /// second slide drew the middle song's lines over the other two).
     private(set) var inPlace = false
+    /// The in-place swap is a rapid second change (not the outro's): the
+    /// leaving list goes at once instead of riding out the skip's animation.
+    private(set) var rapid = false
     /// Set by the outro once it has handed over to this song.
     var inPlaceNext: String?
     private var key: String?
     private var index: Int?
+    private var changedAt: CFTimeInterval = -.infinity
 
-    func update(key: String, index: Int?) {
+    /// About the spatial spring's settle: a change within it lands as a cut.
+    nonisolated static let rapidWindow: CFTimeInterval = 0.45
+
+    func update(key: String, index: Int?, now: CFTimeInterval = CACurrentMediaTime()) {
         guard key != self.key else { return }
         if let index, let last = self.index { forward = index >= last }
-        inPlace = self.key != nil && key == inPlaceNext
+        let changed = self.key != nil
+        let handedOver = changed && key == inPlaceNext
+        rapid = changed && !handedOver && now - changedAt < Self.rapidWindow
+        inPlace = handedOver || rapid
         inPlaceNext = nil
+        if changed { changedAt = now }
         self.key = key
         self.index = index
     }
@@ -376,8 +395,11 @@ struct LyricsTrackSlide: Transition {
     func body(content: Content, phase: TransitionPhase) -> some View {
         let sign: CGFloat = direction.forward ? 1 : -1
         let moves = !direction.inPlace
+        // The outro's swap keeps both lists opaque (two identical frames); a rapid
+        // second change drops the leaving list at once.
+        let leaves = moves || direction.rapid
         content
             .offset(y: !moves ? 0 : phase == .willAppear ? sign * distance : phase == .didDisappear ? -sign * distance : 0)
-            .opacity(phase.isIdentity || !moves ? 1 : 0)
+            .opacity(phase.isIdentity ? 1 : phase == .didDisappear ? (leaves ? 0 : 1) : (moves ? 0 : 1))
     }
 }

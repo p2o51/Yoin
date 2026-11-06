@@ -22,7 +22,20 @@ struct SearchView: View {
 
         var store: LibraryStore.SearchScope { self == .catalog ? .catalog : .library }
     }
-    enum Filter: String, CaseIterable { case all = "All", artists = "Artists", albums = "Albums", songs = "Songs", playlists = "Playlists" }
+    enum Filter: String, CaseIterable {
+        case all = "All", artists = "Artists", albums = "Albums", songs = "Songs", playlists = "Playlists"
+
+        /// The one result type a filter lists (nil: All, which never reads more).
+        var kind: SearchKind? {
+            switch self {
+            case .all: nil
+            case .artists: .artists
+            case .albums: .albums
+            case .songs: .songs
+            case .playlists: .playlists
+            }
+        }
+    }
 
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
@@ -208,7 +221,7 @@ struct SearchView: View {
                 // 16 type, 56 tall, 16 in), so from there nothing moves.
                 HStack(spacing: 12) {
                     YoinIcon("search", size: 24).foregroundStyle(Yoin.inkVariant)
-                    TextField(scope == .library ? "Search library" : "Search Apple Music", text: $query)
+                    TextField(scope == .library ? "Search library" : "Search \(catalogName)", text: $query)
                         .font(.gsf(16))
                         .focused($focused)
                         .submitLabel(.search)
@@ -286,7 +299,7 @@ struct SearchView: View {
             groups: (model.store.isReal && !model.store.searchesCatalog ? [] : [Scope.allCases.map(SearchChip.scope)])
                 + [availableFilters.map(SearchChip.filter)],
             selected: [.scope(scope), .filter(filter)],
-            label: \.label,
+            label: { $0.label(catalog: catalogName) },
             onTap: { chip in
                 savedOffsets[positionKey] = offset
                 withAnimation(Yoin.spatial) {
@@ -309,17 +322,22 @@ struct SearchView: View {
     /// Android searchFiltersFor: Playlists only where search returns them
     /// (Apple Music, in either scope; not Subsonic's search3).
     private var availableFilters: [Filter] {
-        model.store.isReal && !model.store.searchesCatalog ? Filter.allCases.filter { $0 != .playlists } : Filter.allCases
+        // Spotify returns playlists in both scopes (Codex N14); a Subsonic server has none.
+        model.store.isReal && !model.store.searchesCatalog
+            ? Filter.allCases.filter { $0 != .playlists } : Filter.allCases
     }
+
+    /// The provider whose whole catalog the catalog scope searches.
+    private var catalogName: String { model.store.spotify != nil ? "Spotify" : "Apple Music" }
 
     private var positionKey: String { "\(scope)|\(filter)" }
 
     private enum SearchChip: Hashable {
         case scope(Scope), filter(Filter)
 
-        var label: String {
+        func label(catalog: String) -> String {
             switch self {
-            case .scope(let s): s.rawValue
+            case .scope(let s): s == .catalog ? catalog : s.rawValue
             case .filter(let f): f.rawValue
             }
         }
@@ -353,14 +371,37 @@ struct SearchView: View {
                 // keyboard leave of the screen.
                 Color.clear.frame(height: 1)
             } else {
-                switch filter {
-                case .all: allResults(r)
-                case .artists: artistGrid(r.artists)
-                case .albums: grid(r.albums.map { ($0, false) })
-                case .songs: songList(r.tracks)
-                case .playlists: playlistList(r.playlists)
+                VStack(alignment: .leading, spacing: 0) {
+                    switch filter {
+                    case .all: allResults(r)
+                    case .artists: artistGrid(r.artists)
+                    case .albums: grid(r.albums.map { ($0, false) })
+                    case .songs: songList(r.tracks)
+                    case .playlists: playlistList(r.playlists)
+                    }
+                    if let kind = filter.kind { searchFoot(kind) }
                 }
             }
+        }
+    }
+
+    /// Android LibrarySongsFoot under a type's own list: a loading indicator while Spotify
+    /// has more (reading the next page as it shows), a Retry once a read failed, nothing at the end.
+    @ViewBuilder
+    private func searchFoot(_ kind: SearchKind) -> some View {
+        switch model.store.searchMore(kind) {
+        case .none: EmptyView()
+        case .available, .loading:
+            // The id outermost: each page's foot is a new view, so its onAppear asks for the page after
+            // (an id inside the onAppear left the foot's appearance as it was: only page 2 was read).
+            RowSkeleton(scheme: scheme, rows: 2)
+                .transition(.opacity.animation(Yoin.effects))
+                .onAppear { Task { await model.store.loadMoreSearch(kind) } }
+                .id(model.store.search?.offsets[kind])
+        case .failed:
+            RetryRow(scheme: scheme) { Task { await model.store.loadMoreSearch(kind) } }
+                .padding(.vertical, 12)
+                .transition(.opacity.animation(Yoin.effects))
         }
     }
 
@@ -371,7 +412,8 @@ struct SearchView: View {
         var serverId: String?
         var palette: CoverPalette
         var seed: Int
-        var albumCount: Int
+        /// nil: the service doesn't say (Spotify, Apple Music): the row says "Artist", not "0 albums".
+        var albumCount: Int?
     }
 
     private struct Results {
@@ -388,7 +430,7 @@ struct SearchView: View {
             guard realState == .loaded, let hits = model.store.search else { return Results() }
             return Results(artists: hits.artists.map {
                                ArtistHit(id: $0.id, name: $0.title, serverId: $0.id.rawId, palette: $0.palette,
-                                         seed: 0, albumCount: $0.count ?? 0)
+                                         seed: 0, albumCount: $0.count)
                            },
                            albums: hits.albums, playlists: hits.playlists,
                            tracks: hits.songs.map { ($0.album, $0.track) })
@@ -468,7 +510,8 @@ struct SearchView: View {
                     .yoinRole(Tokens.type.titleSmall)
                     .foregroundStyle(scheme.onSurface)
                 Spacer(minLength: 8)
-                metaPill(albumCount(a.albumCount))
+                // No count from the service: no pill (the section already says Artists).
+                if a.albumCount != nil { metaPill(albumCount(a.albumCount)) }
             }
             .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
@@ -476,8 +519,9 @@ struct SearchView: View {
         .buttonStyle(.plain)
     }
 
-    private func albumCount(_ n: Int) -> String {
-        n == 1 ? "1 album" : "\(n) albums"
+    private func albumCount(_ n: Int?) -> String {
+        guard let n else { return "Artist" }
+        return n == 1 ? "1 album" : "\(n) albums"
     }
 
     private func openArtist(_ a: ArtistHit) {
@@ -573,10 +617,9 @@ struct SearchView: View {
             ForEach(Array(tracks.enumerated()), id: \.offset) { i, item in
                 LibrarySongRow(album: item.0, track: item.1, current: model.playback.track.id == item.1.id,
                                scheme: scheme, horizontalPadding: 0)
-                    .onTapGesture {
+                    .trackRow(for: PlaylistEntry(album: item.0, track: item.1)) {
                         model.play(tracks.map { PlaylistEntry(album: $0.0, track: $0.1) }, startAt: i)
                     }
-                    .trackMenu(for: PlaylistEntry(album: item.0, track: item.1))
             }
         }
     }

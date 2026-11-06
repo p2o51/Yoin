@@ -1,0 +1,15 @@
+{
+  "comment": "Android-shaped state file for a Spotify profile (user 31l77y2m3x5fxbtiwf2ecqkzzw4y), derived by hand from origin/main AccountDescriptorSyncAdapter, TrackRatingSyncAdapter, SongNoteSyncAdapter, AlbumRatingSyncAdapter, AlbumReviewSyncAdapter (a rated album without a review still publishes review: null at ts 0, as the Subsonic golden shows), AlbumTitleSyncAdapter, MemoryCopySyncAdapter projections; scope = \"s-\" + sha256(\"spotify:v1:<userId>\")[0:24] (AccountFingerprints.deterministicId).",
+  "spotifyUserId": "31l77y2m3x5fxbtiwf2ecqkzzw4y",
+  "displayName": "Ada",
+  "createdAt": 1791000000000,
+  "scope": "s-73d686844f6161cd5f22f6b0",
+  "files": [
+    {
+      "fileKind": "state",
+      "shard": 0,
+      "recordCount": 7,
+      "json": "{\"format\":\"yoin-sync\",\"schema\":1,\"epoch\":0,\"deviceId\":\"a1b2c3d4e5f60718\",\"deviceName\":\"Pixel Tablet\",\"fileClass\":\"state\",\"shard\":0,\"writtenAt\":1793000000000,\"appVersionCode\":16,\"records\":[{\"k\":\"account\",\"kv\":1,\"s\":\"\",\"id\":\"s-73d686844f6161cd5f22f6b0\",\"ts\":1791000000000,\"d\":\"a1b2c3d4e5f60718\",\"del\":false,\"v\":{\"provider\":\"spotify\",\"displayName\":\"Ada\",\"createdAt\":1791000000000,\"hint\":null,\"storefront\":null,\"deviceName\":\"Pixel Tablet\"}},{\"k\":\"album_rating\",\"kv\":1,\"s\":\"s-73d686844f6161cd5f22f6b0\",\"id\":\"spotify\\u001f6dVIqQ8qmQ5GBnJ9shOYGE\",\"ts\":1792913600000,\"d\":\"a1b2c3d4e5f60718\",\"del\":false,\"v\":{\"albumId\":\"6dVIqQ8qmQ5GBnJ9shOYGE\",\"provider\":\"spotify\",\"rating\":8.4}},{\"k\":\"album_review\",\"kv\":1,\"s\":\"s-73d686844f6161cd5f22f6b0\",\"id\":\"spotify\\u001f6dVIqQ8qmQ5GBnJ9shOYGE\",\"ts\":0,\"d\":\"a1b2c3d4e5f60718\",\"del\":false,\"v\":{\"albumId\":\"6dVIqQ8qmQ5GBnJ9shOYGE\",\"provider\":\"spotify\",\"review\":null}},{\"k\":\"album_title\",\"kv\":1,\"s\":\"s-73d686844f6161cd5f22f6b0\",\"id\":\"spotify\\u001f6dVIqQ8qmQ5GBnJ9shOYGE\",\"ts\":1792913600000,\"d\":\"a1b2c3d4e5f60718\",\"del\":false,\"v\":{\"title\":\"Summer on the night bus\"}},{\"k\":\"memory_copy\",\"kv\":1,\"s\":\"s-73d686844f6161cd5f22f6b0\",\"id\":\"spotify\\u001falbum\\u001f6dVIqQ8qmQ5GBnJ9shOYGE\",\"ts\":1792827200000,\"d\":\"a1b2c3d4e5f60718\",\"del\":false,\"v\":{\"copy\":\"Windows down, the long way home.\",\"promptHash\":\"prompt-hash-spotify\",\"generatedAt\":1792827200000}},{\"k\":\"song_note\",\"kv\":1,\"s\":\"s-73d686844f6161cd5f22f6b0\",\"id\":\"note-spotify-01\",\"ts\":1792654400000,\"d\":\"a1b2c3d4e5f60718\",\"del\":false,\"v\":{\"trackId\":\"4uLU6hMCjMI75M1A2tKUQC\",\"provider\":\"spotify\",\"content\":\"副歌前那一拍空白\",\"createdAt\":1792568000000,\"updatedAt\":1792654400000,\"title\":\"Night Bus\",\"artist\":\"Ada Lane\",\"positionMs\":61500}},{\"k\":\"track_rating\",\"kv\":1,\"s\":\"s-73d686844f6161cd5f22f6b0\",\"id\":\"spotify\\u001f4uLU6hMCjMI75M1A2tKUQC\",\"ts\":1792395200000,\"d\":\"a1b2c3d4e5f60718\",\"del\":false,\"v\":{\"songId\":\"4uLU6hMCjMI75M1A2tKUQC\",\"provider\":\"spotify\",\"rating\":7.5}}]}"
+    }
+  ]
+}

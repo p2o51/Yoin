@@ -1,0 +1,95 @@
+import XCTest
+@testable import Yoin
+
+/// The engine's stand-in URLs for Spotify songs, and the PKCE challenge.
+@MainActor
+final class SpotifyPlaybackTests: XCTestCase {
+    func test_should_nameTheSpotifyTrack_when_readingTheEnginesURL() {
+        let url = SpotifyAudioOutput.streamURL(trackId: "4uLU6hMCjMI75M1A2tKUQC")
+        XCTAssertTrue(SpotifyAudioOutput.isSpotify(url))
+        XCTAssertEqual(SpotifyAudioOutput.Item(url)?.trackURI, "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+    }
+
+    func test_should_notReadAnotherSourcesURL_when_parsing() {
+        XCTAssertNil(SpotifyAudioOutput.Item(URL(string: "https://example.com/rest/stream?id=1")))
+        XCTAssertFalse(SpotifyAudioOutput.isSpotify(AppleMusicMapping.streamURL(rawId: "1")))
+    }
+
+    /// RFC 7636 appendix B.
+    func test_should_matchTheRFCExample_when_hashingTheVerifier() {
+        XCTAssertEqual(SpotifyAuth.challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+                       "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    }
+
+    func test_should_askToSignInAgain_when_aRequiredScopeIsMissing() {
+        var t = SpotifyTokens(accessToken: "a", refreshToken: "r", expiresAt: 0,
+                              scope: SpotifyConfig.scopes.joined(separator: " "), clientId: "c", userId: "u")
+        XCTAssertFalse(t.missingRequiredScopes)
+        t.scope = "user-read-private"
+        XCTAssertTrue(t.missingRequiredScopes)
+    }
+
+    // MARK: Play modes (Codex N03)
+
+    private func item(_ id: String) -> SpotifyAudioOutput.Item {
+        SpotifyAudioOutput.Item(SpotifyAudioOutput.streamURL(trackId: id))!
+    }
+
+    func test_should_rehand_when_spotifyWouldCarryOnToAStaleSong() {
+        XCTAssertTrue(SpotifyAudioOutput.needsRehand(handed: item("a"), next: item("b"), remainingSec: 120))
+        XCTAssertTrue(SpotifyAudioOutput.needsRehand(handed: item("a"), next: nil, remainingSec: nil))
+    }
+
+    func test_should_notRehand_when_theHandedSongIsStillNext() {
+        XCTAssertFalse(SpotifyAudioOutput.needsRehand(handed: item("a"), next: item("a"), remainingSec: 120))
+    }
+
+    func test_should_notRehand_when_nothingWasHanded() {
+        // The list runs out after the current song: its end starts the engine's next.
+        XCTAssertFalse(SpotifyAudioOutput.needsRehand(handed: nil, next: item("b"), remainingSec: 120))
+    }
+
+    func test_should_notRehand_when_theSongIsAboutToEnd() {
+        XCTAssertFalse(SpotifyAudioOutput.needsRehand(handed: item("a"), next: item("b"), remainingSec: 2))
+    }
+
+    func test_should_takeOverRepeatAndShuffle_when_turnedOnInSpotify() {
+        XCTAssertNil(SpotifyAudioOutput.externalModes(shuffling: false, repeatRaw: 0))
+        let one = SpotifyAudioOutput.externalModes(shuffling: false, repeatRaw: 1)
+        XCTAssertNil(one?.shuffle)
+        XCTAssertEqual(one?.repeatMode, .one)
+        let both = SpotifyAudioOutput.externalModes(shuffling: true, repeatRaw: 2)
+        XCTAssertEqual(both?.shuffle, true)
+        XCTAssertEqual(both?.repeatMode, .all)
+    }
+
+    func test_should_readNoActiveDevice_when_spotifyAnswers404ForAPlayerCommand() {
+        XCTAssertTrue(SpotifyAPIError.http(status: 404, message: "Player command failed: No active device found").isNoActiveDevice)
+        XCTAssertFalse(SpotifyAPIError.http(status: 404, message: "Non existing id").isNoActiveDevice)
+        XCTAssertFalse(SpotifyAPIError.http(status: 403, message: "No active device found").isNoActiveDevice)
+    }
+
+    func test_should_neverCutIn_when_anotherDeviceIsPlaying() {
+        let elsewhere = SpotifySource.PlayerNow(deviceId: "mac", deviceName: "51's Mac", isPlaying: true)
+        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: elsewhere, appRemoteConnected: true), .playingElsewhere("51's Mac"))
+    }
+
+    func test_should_playHere_when_nothingPlaysAndTheAppIsConnected() {
+        let idle = SpotifySource.PlayerNow(deviceId: "mac", deviceName: "Mac", isPlaying: false)
+        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: idle, appRemoteConnected: true), .playHere)
+        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: nil, appRemoteConnected: true), .playHere)
+    }
+
+    func test_should_askToOpenSpotify_when_theAppIsNotConnected() {
+        XCTAssertEqual(SpotifyAudioOutput.noDeviceStep(now: nil, appRemoteConnected: false), .openSpotify)
+    }
+
+    func test_should_driveTheOtherDevice_when_spotifyIsActiveOnAMacOrPixel() {
+        let mac = SpotifySource.PlayerNow(deviceId: "m", deviceName: "51's MacBook", deviceType: "Computer", isPlaying: true)
+        let pixel = SpotifySource.PlayerNow(deviceId: "p", deviceName: "Pixel Tablet", deviceType: "Tablet", isPlaying: false)
+        let phone = SpotifySource.PlayerNow(deviceId: "i", deviceName: "51's iPhone Air", deviceType: "Smartphone", isPlaying: true)
+        XCTAssertFalse(SpotifyAudioOutput.isThisPhone(mac))
+        XCTAssertFalse(SpotifyAudioOutput.isThisPhone(pixel))
+        XCTAssertTrue(SpotifyAudioOutput.isThisPhone(phone))
+    }
+}

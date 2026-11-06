@@ -8,12 +8,14 @@ enum ActiveSource: String, Sendable {
     case mock
     case subsonic
     case appleMusic
+    case spotify
 
     var provider: String? {
         switch self {
         case .mock: nil
         case .subsonic: "subsonic"
         case .appleMusic: AppleMusicMapping.provider
+        case .spotify: "spotify"
         }
     }
 }

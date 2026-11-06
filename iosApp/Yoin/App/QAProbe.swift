@@ -38,12 +38,145 @@ enum QAProbe {
                   + " phases=\(store.phases.map { "\($0.key):\($0.value)" }.sorted())")
         }
         report("launch")
-        try? await Task.sleep(for: .seconds(8))
-        report("8s")
+        typeSpecimen()
+        await screenSpecimen()
+        // `-qaDiagScreens YES`: Home, Library, Settings and Now Playing as they are on this device.
+        if UserDefaults.standard.bool(forKey: "qaDiagScreens") {
+            try? await Task.sleep(for: .seconds(4))
+            snapshot("qa-home.png")
+            model.select(.library)
+            try? await Task.sleep(for: .seconds(3))
+            snapshot("qa-library.png")
+            model.select(.home)
+            model.openSettings()
+            try? await Task.sleep(for: .seconds(3))
+            snapshot("qa-settings.png")
+            model.path.removeAll()
+            try? await Task.sleep(for: .seconds(1))
+            if !model.isIdle {
+                model.setNowPlaying(expanded: true)
+                try? await Task.sleep(for: .seconds(3))
+                snapshot("qa-np.png")
+                model.setNowPlaying(expanded: false)
+            }
+            return report("screens")
+        }
+        // `-qaDiagRestore <profile id>`: just make that account the one in use (undo a cut-off diag run).
+        if let id = UserDefaults.standard.string(forKey: "qaDiagRestore") {
+            await model.profiles.switchTo(id)
+            return report("restored")
+        }
+        print("[diag] profiles \(model.profiles.profiles.map { "\($0.service) \($0.id)" })")
+        // `-qaDiagApple YES`: try the Apple Music account, then go back to the one in use.
+        let original = model.profiles.activeId
+        let apple = UserDefaults.standard.bool(forKey: "qaDiagApple")
+            ? model.profiles.profiles.first { $0.service == .appleMusic } : nil
+        if let apple {
+            await model.profiles.switchTo(apple.id)
+            report("switched")
+            model.select(.library)
+            await model.store.loadLibrary(nil)
+            report("library loaded")
+        }
+        try? await Task.sleep(for: .seconds(4))
+        report("4s")
         snapshot("qa-shot.png")
-        try? await Task.sleep(for: .seconds(8))
-        report("16s")
+        try? await Task.sleep(for: .seconds(4))
+        report("8s")
         snapshot("qa-shot2.png")
+        if apple != nil, let original, original != model.profiles.activeId {
+            await model.profiles.switchTo(original)
+            report("switched back")
+        }
+    }
+
+    /// The same words in each font path, rendered by SwiftUI into Documents/qa-type.png: which of
+    /// them reaches Google Sans Flex on this OS.
+    static func typeSpecimen() {
+        let rows: [(String, Font)] = [
+            ("system", .system(size: 30)),
+            ("gsf static name", .gsf(30)),
+            ("gsf semibold name", .gsf(30, .semibold)),
+            ("variable Font(UIFont)", YoinFont.font(size: 30, YoinFont.Axes(weight: 400))),
+            ("variable rounded 600", YoinFont.rounded(30, semibold: true)),
+        ]
+        let designed: [(String, Font)] = [
+            ("gsf semibold + fontDesign(.default)", .gsf(30, .semibold)),
+            ("variable rounded + fontDesign(.default)", YoinFont.rounded(30, semibold: true)),
+        ]
+        let view = VStack(alignment: .leading, spacing: 10) {
+            ForEach(rows.indices, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(rows[i].0).font(.system(size: 13)).foregroundStyle(.gray)
+                    Text("Rag Gyt 9.6 Home").font(rows[i].1).foregroundStyle(.black)
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 420, alignment: .leading)
+        .background(.white)
+        let withDesign = VStack(alignment: .leading, spacing: 10) {
+            view
+            ForEach(designed.indices, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(designed[i].0).font(.system(size: 13)).foregroundStyle(.gray)
+                    Text("Rag Gyt 9.6 Activities").font(designed[i].1).foregroundStyle(.black)
+                }
+                .fontDesign(.default)
+            }
+        }
+        .padding(.bottom, 20)
+        .background(.white)
+        let renderer = ImageRenderer(content: withDesign)
+        renderer.scale = 3
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("qa-type.png")
+        if let data = renderer.uiImage?.pngData() {
+            try? data.write(to: url)
+            print("[diag] type specimen \(url.path)")
+        }
+    }
+
+    /// The same rows as `typeSpecimen`, but on screen (an overlay window) and captured as the screen
+    /// shows them: Documents/qa-type-screen.png.
+    static func screenSpecimen() async {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
+        let w = UIWindow(windowScene: scene)
+        w.windowLevel = .alert + 1
+        let vc = UIViewController()
+        vc.view.backgroundColor = .white
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        vc.view.addSubview(stack)
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: vc.view.leadingAnchor, constant: 20),
+                                     stack.topAnchor.constraint(equalTo: vc.view.topAnchor, constant: 80)])
+        func label(_ t: String, _ f: UIFont) {
+            let caption = UILabel(); caption.text = t; caption.font = .systemFont(ofSize: 12); caption.textColor = .gray
+            let l = UILabel(); l.text = "Rag Gyt 9.6 Home"; l.font = f; l.textColor = .black
+            stack.addArrangedSubview(caption); stack.addArrangedSubview(l)
+        }
+        label("UIKit system", .systemFont(ofSize: 30))
+        label("UIKit UIFont(name: GoogleSansFlex-Regular)", UIFont(name: "GoogleSansFlex-Regular", size: 30) ?? .systemFont(ofSize: 5))
+        label("UIKit variable instance", YoinFont.uiFont(size: 30, YoinFont.Axes(weight: 400)))
+        let host = UIHostingController(rootView: VStack(alignment: .leading, spacing: 8) {
+            Text("SwiftUI .gsf (custom relativeTo)").font(.system(size: 12)).foregroundStyle(.gray)
+            Text("Rag Gyt 9.6 Home").font(.gsf(30)).foregroundStyle(.black)
+            Text("SwiftUI .custom fixedSize").font(.system(size: 12)).foregroundStyle(.gray)
+            Text("Rag Gyt 9.6 Home").font(.custom("GoogleSansFlex-Regular", fixedSize: 30)).foregroundStyle(.black)
+            Text("SwiftUI Font(UIFont) variable").font(.system(size: 12)).foregroundStyle(.gray)
+            Text("Rag Gyt 9.6 Home").font(YoinFont.font(size: 30, YoinFont.Axes(weight: 400))).foregroundStyle(.black)
+        }.background(Color.white))
+        host.view.backgroundColor = .white
+        stack.addArrangedSubview(host.view)
+        w.rootViewController = vc
+        w.isHidden = false
+        try? await Task.sleep(for: .seconds(1.5))
+        let image = UIGraphicsImageRenderer(bounds: w.bounds).image { _ in w.drawHierarchy(in: w.bounds, afterScreenUpdates: true) }
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("qa-type-screen.png")
+        try? image.pngData()?.write(to: url)
+        print("[diag] screen specimen \(url.path)")
+        w.isHidden = true
     }
 
     static func snapshot(_ name: String) {

@@ -74,15 +74,23 @@ enum YoinFont {
         let missing = statics.filter { UIFont(name: $0, size: 12) == nil }
         let variable = uiFont(size: 17, Axes(weight: 500, round: 100))
         let family = variable.familyName
-        let line = "[YoinFont] statics missing: \(missing.isEmpty ? "none" : missing.joined(separator: ", ")); variable → \(variable.fontName) (\(family)); axes \(axisNames.keys.sorted())"
+        let scaled = UIFontMetrics(forTextStyle: .body).scaledFont(for: variable)
+        let line = "[YoinFont] statics missing: \(missing.isEmpty ? "none" : missing.joined(separator: ", ")); variable → \(variable.fontName) (\(family)); axes \(axisNames.keys.sorted()); text size \(UIApplication.shared.preferredContentSizeCategory.rawValue); scaledFont(for:) → \(scaled.familyName)"
         print(line)
         NSLog("%@", line)
         assert(missing.isEmpty && family.contains("Google Sans"), line)
     }
 
-    /// A SwiftUI font that also scales with Dynamic Type.
+    /// A SwiftUI font that also scales with Dynamic Type. The size is scaled first and the
+    /// instance built at it: `UIFontMetrics.scaledFont(for:)` rebuilds the font from its
+    /// descriptor, a lookup by name that this unregistered instance doesn't answer, so on an
+    /// iPhone whose text size isn't the default the text fell back to the system font.
     static func font(size: CGFloat, _ axes: Axes, relativeTo style: UIFont.TextStyle = .body) -> Font {
-        Font(UIFontMetrics(forTextStyle: style).scaledFont(for: uiFont(size: size, axes)))
+        let scaled = UIFontMetrics(forTextStyle: style).scaledValue(for: size)
+        var a = axes
+        // Optical size follows the designed size, as before scaling.
+        if a.opticalSize == nil { a.opticalSize = size }
+        return Font(uiFont(size: scaled, a))
     }
 
     /// Android `GoogleSansFlexRounded`: ROND 100 at Medium (500) or SemiBold (600) (YoinTokens.Typography).

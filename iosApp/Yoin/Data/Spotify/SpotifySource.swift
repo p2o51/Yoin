@@ -1,4 +1,3 @@
-// Mac copy of iosApp/Yoin/Data/Spotify (branch claude/project-thread-2amedi); merge once the branches meet.
 import Foundation
 import os
 
@@ -28,7 +27,17 @@ final class SpotifySource {
     }
 
     nonisolated static func message(for error: Error) -> String {
-        (error as? SpotifyAPIError)?.errorDescription ?? error.localizedDescription
+        if let e = error as? SpotifyAPIError {
+            switch e {
+            case .unauthorized:
+                return "Reconnect Spotify in Settings"
+            case .http(403, let m) where (m ?? "").localizedCaseInsensitiveContains("scope"):
+                return "Reconnect Spotify in Settings to let Yoin control playback"
+            default:
+                return e.errorDescription ?? error.localizedDescription
+            }
+        }
+        return error.localizedDescription
     }
 
     // MARK: Home
@@ -233,13 +242,25 @@ final class SpotifySource {
     struct PlayerNow: Equatable, Sendable {
         var deviceId: String?
         var deviceName: String
+        var deviceType: String = ""
         var isPlaying: Bool
+        var trackURI: String? = nil
+        var progressMs: Int = 0
+        var durationMs: Int = 0
+        var shuffle: Bool = false
+        /// "off", "track" or "context".
+        var repeatState: String = "off"
     }
 
     private struct PlayerDTO: Decodable {
-        struct D: Decodable { let id: String?; let name: String? }
+        struct D: Decodable { let id: String?; let name: String?; let type: String? }
+        struct I: Decodable { let uri: String?; let durationMs: Int? }
         let device: D?
         let isPlaying: Bool?
+        let item: I?
+        let progressMs: Int?
+        let shuffleState: Bool?
+        let repeatState: String?
     }
 
     func playerNow() async throws -> PlayerNow? {
@@ -247,7 +268,35 @@ final class SpotifySource {
         guard !data.isEmpty else { return nil }  // 204: no active device
         let r = try SpotifyWebAPI.decoder.decode(PlayerDTO.self, from: data)
         guard let d = r.device else { return nil }
-        return PlayerNow(deviceId: d.id, deviceName: d.name ?? "another device", isPlaying: r.isPlaying ?? false)
+        return PlayerNow(deviceId: d.id, deviceName: d.name ?? "another device", deviceType: d.type ?? "",
+                         isPlaying: r.isPlaying ?? false, trackURI: r.item?.uri, progressMs: r.progressMs ?? 0,
+                         durationMs: r.item?.durationMs ?? 0, shuffle: r.shuffleState ?? false,
+                         repeatState: r.repeatState ?? "off")
+    }
+
+    // Transport on a Connect device (Android SpotifyApiClient pause / resume / seek).
+
+    func pausePlayback(deviceId: String?) async throws {
+        try await api.send("PUT", "me/player/pause", deviceId.map { ["device_id": $0] } ?? [:])
+    }
+
+    func resumePlayback(deviceId: String?) async throws {
+        try await api.send("PUT", "me/player/play", deviceId.map { ["device_id": $0] } ?? [:])
+    }
+
+    func seekPlayback(toMs ms: Int, deviceId: String?) async throws {
+        var q = ["position_ms": String(max(0, ms))]
+        if let deviceId { q["device_id"] = deviceId }
+        try await api.send("PUT", "me/player/seek", q)
+    }
+
+    /// Spotify's own shuffle and repeat off (Yoin's engine owns the play modes).
+    func playModesOff(deviceId: String?) async {
+        var q = deviceId.map { ["device_id": $0] } ?? [:]
+        q["state"] = "false"
+        _ = try? await api.send("PUT", "me/player/shuffle", q)
+        q["state"] = "off"
+        _ = try? await api.send("PUT", "me/player/repeat", q)
     }
 
     // MARK: The heart (Liked Songs)

@@ -1,4 +1,3 @@
-// Mac copy of iosApp/Yoin/Data/Spotify (branch claude/project-thread-2amedi); merge once the branches meet.
 import Foundation
 
 /// A kind of search result: the unit Spotify pages and the Search filters list

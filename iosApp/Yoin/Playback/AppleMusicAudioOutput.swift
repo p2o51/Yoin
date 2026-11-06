@@ -244,34 +244,52 @@ final class RoutingAudioOutput: AudioOutput {
 
     let av: AudioOutput
     let apple: AppleMusicAudioOutput
+    /// Spotify songs play in the Spotify app (nil in tests).
+    let spotify: AudioOutput?
     private var active: AudioOutput
     private var gates: [EventsGate] = []
 
-    init(av: AudioOutput, apple: AppleMusicAudioOutput) {
+    init(av: AudioOutput, apple: AppleMusicAudioOutput, spotify: AudioOutput? = nil) {
         self.av = av
         self.apple = apple
+        self.spotify = spotify
         active = av
         gates = [EventsGate(self, av), EventsGate(self, apple)]
         av.events = gates[0]
         apple.events = gates[1]
+        if let spotify {
+            gates.append(EventsGate(self, spotify))
+            spotify.events = gates[2]
+        }
     }
 
     nonisolated static func isApple(_ url: URL?) -> Bool { url?.scheme == AppleMusicMapping.streamScheme }
 
+    /// The output that plays [url].
+    private func output(for url: URL?) -> AudioOutput {
+        if Self.isApple(url) { return apple }
+        #if os(iOS)
+        if let spotify, SpotifyAudioOutput.isSpotify(url) { return spotify }
+        #else
+        if let spotify, MacSpotifyOutput.isSpotify(url) { return spotify }
+        #endif
+        return av
+    }
+
     var currentTimeSec: Double { active.currentTimeSec }
 
     func load(_ current: URL, next: URL?, startSec: Double) {
-        let target: AudioOutput = Self.isApple(current) ? apple : av
+        let target = output(for: current)
         if target !== active {
             active.stop()
             active = target
         }
-        active.load(current, next: Self.isApple(next) == Self.isApple(current) ? next : nil, startSec: startSec)
+        active.load(current, next: output(for: next) === target ? next : nil, startSec: startSec)
     }
 
     func preload(_ next: URL?) {
-        // A song from the other source can't be preloaded: the queue stops there.
-        let sameKind = next == nil || Self.isApple(next) == (active === apple)
+        // A song from another source can't be preloaded: the queue stops there.
+        let sameKind = next == nil || output(for: next) === active
         active.preload(sameKind ? next : nil)
     }
 
@@ -305,5 +323,8 @@ final class RoutingAudioOutput: AudioOutput {
         func outputDidReachEnd() { target?.outputDidReachEnd() }
         func outputDidFail(_ message: String, network: Bool) { target?.outputDidFail(message, network: network) }
         func outputPlayingDidChangeExternally(_ playing: Bool) { target?.outputPlayingDidChangeExternally(playing) }
+        func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?) {
+            target?.outputPlayModesDidChangeExternally(shuffle: shuffle, repeatMode: repeatMode)
+        }
     }
 }

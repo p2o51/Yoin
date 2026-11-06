@@ -1,4 +1,3 @@
-// Mac copy of iosApp/Yoin/Data/Spotify (branch claude/project-thread-2amedi); merge once the branches meet.
 import Foundation
 
 /// Spotify Web API JSON (the shapes Android's SpotifyDtos.kt reads). Everything

@@ -242,6 +242,36 @@ struct ServerSettingsView: View {
                 .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                 .contentShape(.rect)
             }
+            .buttonStyle(.plain)),
+             AnyView(NavigationLink { OpenSourceLicensesView() } label: {
+                HStack {
+                    Text("Open source licenses")
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(app.onSurface)
+                    Spacer(minLength: 16)
+                    YoinIcon("chevron_right", size: 20).foregroundStyle(app.onSurfaceVariant)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)),
+             // Playback diagnostics, shared from the phone (Spotify issues away from the Mac).
+             AnyView(ShareLink(item: PlayTraceExport(), preview: SharePreview("Yoin log")) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Export log")
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(app.onSurface)
+                    Text("Playback diagnostics")
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurfaceVariant)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                .contentShape(.rect)
+            }
             .buttonStyle(.plain))]
         }
     }

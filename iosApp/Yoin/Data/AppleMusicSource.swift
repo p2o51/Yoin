@@ -116,20 +116,29 @@ final class AppleMusicSource {
             let type = response.urlResponse.value(forHTTPHeaderField: "Content-Type") ?? "?"
             let head = String(decoding: response.data.prefix(300), as: UTF8.self)
             log.error("unreadable \(path, privacy: .public): HTTP \(status) \(type, privacy: .public) \(response.data.count) bytes: \(head, privacy: .public)")
-            throw RequestError(message: "Unreadable answer (HTTP \(status), \(response.data.count) bytes)")
+            #if os(iOS)
+            if QAProbe.diag {
+                print("[diag] unreadable \(url.absoluteString) status=\(response.urlResponse.statusCode) bytes=\(response.data.count) "
+                      + "body=\(String(decoding: response.data.prefix(400), as: UTF8.self))")
+            }
+            #endif
+            throw RequestError(message: "Unreadable answer")
         }
         return root
     }
 
-    /// Every page of a list, following `next`, up to [cap] resources.
-    private func all(_ path: String, _ query: [String: String] = [:], cap: Int) async throws -> [AppleMusicJSON.Object] {
+    /// Every page of a list, following `next`, up to [cap] resources. [onPage] gets what has
+    /// arrived so far after each page (a long library shows as it comes).
+    private func all(_ path: String, _ query: [String: String] = [:], cap: Int,
+                     onPage: (([AppleMusicJSON.Object]) -> Void)? = nil) async throws -> [AppleMusicJSON.Object] {
         var out: [AppleMusicJSON.Object] = []
         var root = try await get(path, query)
         out += AppleMusicJSON.resources(root)
         var visited = Set<String>()
         while out.count < cap, let next = AppleMusicJSON.next(root), visited.insert(next).inserted {
-            // Apple's `next` carries only the offset: the first page's limit / include go again (without them
-            // page two answers 401 with an empty body, which failed the whole list as "Unreadable answer").
+            onPage?(out)
+            // Apple's `next` link carries the offset only; asked bare, page 2 answered 401 with no body
+            // (iPhone, 2026-11-05: Albums and Artists past 100 never loaded). The options go back on.
             root = try await get(next, Self.missing(query, in: next))
             out += AppleMusicJSON.resources(root)
         }
@@ -227,16 +236,21 @@ final class AppleMusicSource {
 
     // MARK: Library
 
-    func libraryAlbums(cap: Int = 2000) async throws -> [Album] {
-        let r = try await all("/v1/me/library/albums", ["limit": "100", "include": "catalog"], cap: cap)
+    func libraryAlbums(cap: Int = 2000, onPage: (([Album]) -> Void)? = nil) async throws -> [Album] {
+        let r = try await all("/v1/me/library/albums", ["limit": "100", "include": "catalog"], cap: cap,
+                              onPage: onPage.map { f in { f(AppleMusicMapping.albums(in: $0)) } })
         return AppleMusicMapping.albums(in: r)
     }
 
-    func libraryArtists(cap: Int = 2000) async throws -> [LibraryItem] {
-        let r = try await all("/v1/me/library/artists", ["limit": "100", "include": "catalog"], cap: cap)
-        var seen = Set<String>()
-        return r.compactMap(AppleMusicMapping.artist).filter { seen.insert($0.rawId).inserted }
-            .map(AppleMusicMapping.artistItem)
+    func libraryArtists(cap: Int = 2000, onPage: (([LibraryItem]) -> Void)? = nil) async throws -> [LibraryItem] {
+        func items(_ r: [AppleMusicJSON.Object]) -> [LibraryItem] {
+            var seen = Set<String>()
+            return r.compactMap(AppleMusicMapping.artist).filter { seen.insert($0.rawId).inserted }
+                .map(AppleMusicMapping.artistItem)
+        }
+        let r = try await all("/v1/me/library/artists", ["limit": "100", "include": "catalog"], cap: cap,
+                              onPage: onPage.map { f in { f(items($0)) } })
+        return items(r)
     }
 
     /// Every library playlist, all pages (a backup tells a playlist gone by its absence here, so a prefix

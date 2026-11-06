@@ -115,9 +115,7 @@ struct ExpandedLyricsList: View {
     var lines: [String]
     var times: [Int64]
     var translations: [String?]
-    var synced: Bool
-    /// -1 = before the first line, or unsynced.
-    var active: Int
+    var loaded: NowPlayingData.LoadedLyrics
     /// Follows the playhead (Android `autoScrollEnabled && !selecting`).
     var follow: Bool
     var recenterTick: Int
@@ -131,6 +129,36 @@ struct ExpandedLyricsList: View {
     /// Android LyricsRowInset: rows reach this far past the page edge.
     static let rowInset: CGFloat = 12
 
+    @Environment(AppModel.self) private var model
+
+    var synced: Bool { loaded.synced }
+    /// The playhead's line (-1 = before the first line, or unsynced), as PlaybackPosition reads it.
+    private var active: Int {
+        let sec = model.player.currentTrack != nil ? model.player.progress.positionSec : Double(model.mockPlayback.positionSec)
+        return loaded.activeIndex(positionSec: sec)
+    }
+
+    /// Where the list is right now (a box, so scrolling doesn't re-render the rows).
+    @State private var offset = OffsetBox()
+    /// The list's live geometry, kept off the render path: the offset, the window's height and
+    /// each row's frame in the content (the seat is computed from them, as Android's
+    /// lyricsFocusScrollOffsetPx is from the list's layout info).
+    final class OffsetBox {
+        var y: CGFloat = 0
+        var viewport: CGFloat = 0
+        var contentHeight: CGFloat = 0
+        var rows: [Int: CGRect] = [:]
+        /// The seat waiting out its frame: cancelled by the reader's scroll and by any newer seat.
+        var seating: Task<Void, Never>?
+    }
+    /// The window's top fade (the mask) and bottom fade (LyricsEdgeFade).
+    static let fadeTop: CGFloat = 16
+    static let fadeBottom: CGFloat = 64
+    static let contentSpace = "expandedLyricsContent"
+    /// Scrolled through its binding: a ScrollViewReader scroll asked for after the user's own
+    /// scroll was dropped (the key greyed out, the list stayed put).
+    @State private var position = ScrollPosition(idType: Int.self)
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if selecting {
@@ -143,41 +171,84 @@ struct ExpandedLyricsList: View {
                     .padding(.vertical, 8)
                     .transition(.opacity)
             }
-            ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(lines.indices, id: \.self) { i in
                             row(i).id(i)
+                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: { offset.rows[i] = $0 }
                         }
                         Color.clear.frame(height: 96)
                     }
+                    .scrollTargetLayout()
                     .padding(.top, 48)
                     .padding(.bottom, 48)
+                    // The scroll content's own space: a row's minY here is its content offset.
+                    .coordinateSpace(.named(Self.contentSpace))
                 }
+                .scrollPosition($position)
+                .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, g in
+                    offset.y = g.contentOffset.y
+                    offset.viewport = g.containerSize.height
+                    offset.contentHeight = g.contentSize.height
+                }
+                // A quick flick can go from tracking straight to decelerating, never reporting
+                // .interacting: the list left the line while still "following", so Recenter
+                // stayed greyed out and could not bring it back.
                 .onScrollPhaseChange { _, phase in
-                    if phase == .interacting { onUserScroll() }
+                    if phase == .interacting || phase == .decelerating {
+                        // The reader has the list: a seat still waiting doesn't pull it back (Codex M03).
+                        offset.seating?.cancel()
+                        onUserScroll()
+                    }
                 }
-                .mask(NowPlayingAboutView.fade(top: 16, bottom: 64))
-                .onAppear { seat(proxy, animated: false) }
-                .onChange(of: active) { seat(proxy, animated: true) }
-                .onChange(of: recenterTick) { seat(proxy, animated: true) }
-                .onChange(of: follow) { seat(proxy, animated: true) }
-            }
+                .mask(NowPlayingAboutView.fade(top: Self.fadeTop, bottom: Self.fadeBottom))
+                .onAppear { seat(animated: false) }
+                .onChange(of: active) { seat(animated: true) }
+                // Recenter (and a tapped line) also catches a list still coasting from a fling.
+                .onChange(of: recenterTick) { seat(animated: true, halt: true) }
+                .onChange(of: follow) { seat(animated: true, halt: true) }
         }
         .padding(.horizontal, -Self.rowInset)
         .animation(Yoin.effects, value: selecting)
         .animation(Yoin.effects, value: limitNudge)
     }
 
-    /// The active row's centre in the middle of the window's clean band.
-    private func seat(_ proxy: ScrollViewProxy, animated: Bool) {
+    /// The active row's centre in the middle of the window's clean band, between the two edge
+    /// fades (Android LyricsFocusFraction 0.5 / lyricsFocusScrollOffsetPx); a row taller than the
+    /// band starts at its top. An id-anchored scroll left the line near the top of the window.
+    /// [halt]: a list still coasting from a fling kept its momentum and threw the animated
+    /// scroll away, so Recenter did nothing and, following again, stayed greyed out. Pinning
+    /// the offset where it is first stops the coast (Android: stopScroll, then animate).
+    private func seat(animated: Bool, halt: Bool = false) {
+        offset.seating?.cancel()
+        offset.seating = nil
         guard follow, active >= 0, active < lines.count else { return }
-        let anchor = UnitPoint(x: 0, y: 0.45)
-        if animated {
-            withAnimation(Yoin.spatial) { proxy.scrollTo(active, anchor: anchor) }
-        } else {
-            proxy.scrollTo(active, anchor: anchor)
+        let target = active
+        guard animated else {
+            if let y = seatY(target) { position.scrollTo(y: y) } else { position.scrollTo(id: target, anchor: .center) }
+            return
         }
+        if halt { position.scrollTo(y: offset.y) }
+        offset.seating = Task { @MainActor in
+            // A frame for the row to take its active style (its height is the seat's input).
+            try? await Task.sleep(for: .milliseconds(34))
+            guard !Task.isCancelled else { return }
+            withAnimation(Yoin.spatial) {
+                if let y = seatY(target) { position.scrollTo(y: y) } else { position.scrollTo(id: target, anchor: .center) }
+            }
+        }
+    }
+
+    /// The content offset that seats row [i]; nil before it has been laid out.
+    private func seatY(_ i: Int) -> CGFloat? {
+        guard let row = offset.rows[i], offset.viewport > 0 else { return nil }
+        let bandTop = Self.fadeTop
+        let bandBottom = max(bandTop, offset.viewport - Self.fadeBottom)
+        let rowTop = row.height >= bandBottom - bandTop
+            ? bandTop
+            : min(max(bandTop + (bandBottom - bandTop) * 0.5 - row.height / 2, bandTop), bandBottom - row.height)
+        let maxY = max(0, offset.contentHeight - offset.viewport)
+        return min(max(row.minY - rowTop, 0), maxY)
     }
 
     @ViewBuilder

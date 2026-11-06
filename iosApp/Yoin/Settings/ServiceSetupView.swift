@@ -27,9 +27,11 @@ struct ServiceSetupView: View {
     @State private var working = false
     @State private var error: String?
     @State private var confirmRemove = false
+    /// Spotify's Client ID (Settings › Spotify on Android), kept as typed until it is saved.
+    @State private var clientId = SpotifyConfig.clientId ?? ""
     @FocusState private var focus: Field?
 
-    private enum Field: Hashable { case address, username, password }
+    private enum Field: Hashable { case address, username, password, clientId }
 
     private var profiles: ProfileManager { model.profiles }
     private var apple: AppleMusicSource { model.appleMusic }
@@ -71,6 +73,7 @@ struct ServiceSetupView: View {
                 switch shown {
                 case .subsonic: subsonicGroups
                 case .appleMusic: appleGroups
+                case .spotify: spotifyGroups
                 }
                 if let error {
                     Text(error)
@@ -84,6 +87,7 @@ struct ServiceSetupView: View {
                     submitButton.transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
                 if shown == .appleMusic, adding { appleButton }
+                if shown == .spotify, adding || needsSpotifySignIn { spotifyButton }
                 if editing != nil { removeGroup }
             }
             .padding(.horizontal, 16)
@@ -130,6 +134,7 @@ struct ServiceSetupView: View {
         switch s {
         case .subsonic: "Navidrome, Airsonic and other servers"
         case .appleMusic: appleAdded ? "Added" : "Your Apple Music library and catalog"
+        case .spotify: "Your Spotify library, played in the Spotify app"
         }
     }
 
@@ -188,6 +193,11 @@ struct ServiceSetupView: View {
             [Highlight(icon: "search", title: "Library and catalog",
                        body: "Browse your library and search the Apple Music catalog"),
              Highlight(icon: "play_filled", title: "Playback", body: "Play catalog songs directly in Yoin")]
+        case .spotify:
+            [Highlight(icon: "search", title: "Library and search",
+                       body: "Your saved albums, playlists, Liked Songs and Spotify's catalog"),
+             Highlight(icon: "play_filled", title: "Playback", body: "Plays through the Spotify app, controlled from Yoin"),
+             Highlight(icon: "favorite", title: "Liked Songs", body: "The heart saves to your Spotify library")]
         }
     }
 
@@ -195,6 +205,7 @@ struct ServiceSetupView: View {
         switch s {
         case .subsonic: "Server address, username, password"
         case .appleMusic: "Apple Music subscription"
+        case .spotify: "Spotify Premium, the Spotify app, and a Client ID from developer.spotify.com"
         }
     }
 
@@ -373,6 +384,60 @@ struct ServiceSetupView: View {
         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
     }
 
+    // MARK: Spotify
+
+    private var needsSpotifySignIn: Bool { editing.map(profiles.needsSignIn) ?? false }
+
+    private var spotifyGroups: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            if let p = editing {
+                group("Spotify") {
+                    let tokens = profiles.store.spotify(p.id)
+                    return [AnyView(infoRow("Account", tokens?.displayName ?? tokens?.userId ?? "Not signed in")),
+                            AnyView(infoRow("Status", needsSpotifySignIn ? "Sign in again" : "Connected",
+                                            ink: needsSpotifySignIn ? app.error : app.primary))]
+                }
+            }
+            group("Client ID") {
+                [AnyView(field("Client ID", placeholder: "From your app on developer.spotify.com", text: $clientId,
+                               field: .clientId)),
+                 AnyView(infoRow("Redirect URIs to add to that app",
+                                 "\(SpotifyConfig.redirectURI)\n\(SpotifyConfig.appRemoteRedirectURI)"))]
+            }
+        }
+        .onChange(of: clientId) { _, v in
+            error = nil
+            SpotifyConfig.setClientId(v)
+        }
+    }
+
+    private var spotifyButton: some View {
+        let ready = !clientId.trimmingCharacters(in: .whitespaces).isEmpty && !working
+        return Button(action: connectSpotify) {
+            Text(working ? "Waiting for Spotify…" : adding ? "Connect Spotify" : "Sign in again")
+                .yoinRole(Tokens.type.titleMedium)
+                .foregroundStyle(ready ? app.onPrimary : app.onSurface.opacity(0.38))
+                .contentTransition(.opacity)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .background(ready ? app.primary : app.onSurface.opacity(0.12), in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(PressScale())
+        .disabled(!ready)
+        .animation(Yoin.effects, value: ready)
+    }
+
+    private func connectSpotify() {
+        focus = nil
+        working = true
+        error = nil
+        Task {
+            let failure = await profiles.connectSpotify(activate: adding)
+            working = false
+            if let failure { error = failure } else if adding, profiles.profiles.contains(where: { $0.service == .spotify }) { dismiss() }
+        }
+    }
+
     // MARK: Remove
 
     private var removeGroup: some View {
@@ -456,6 +521,7 @@ struct ServiceSetupView: View {
                 case .address: focus = .username
                 case .username: focus = .password
                 case .password: if canSubmit { submit() }
+            case .clientId: focus = nil
                 }
             }
         }

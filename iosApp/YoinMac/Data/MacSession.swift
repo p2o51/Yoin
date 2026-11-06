@@ -110,7 +110,25 @@ final class MacSession {
             return .init(profileId: p.id, url: a.baseUrl, username: a.username, scope: "\(a.baseUrl)|\(a.username)")
         }
         let apple = profiles.contains { $0.service == .appleMusic } && MusicAuthorizationStatus.isAuthorized
-        return SyncDomainBridge.Accounts(subsonic: subsonic, appleMusic: apple, storefront: nil)
+        // Spotify accounts sync as their Spotify user (rows already carry "spotify|<user id>"), as on iOS.
+        let spotify = profiles.compactMap { p -> SyncDomainBridge.Accounts.Spotify? in
+            guard p.service == .spotify else { return nil }
+            let tokens = SpotifyTokenStore.load(p.id)
+            guard let user = tokens?.userId, !user.isEmpty else { return nil }
+            return .init(profileId: p.id, userId: user, displayName: p.title, createdAt: Self.createdAt(p.id),
+                         credentialsReadable: tokens != nil)
+        }
+        return SyncDomainBridge.Accounts(subsonic: subsonic, appleMusic: apple, storefront: nil, spotify: spotify)
+    }
+
+    /// When this Mac first saw the account (Android Profile.createdAt), kept in the defaults.
+    private static func createdAt(_ id: String) -> Int64 {
+        let key = "profileCreatedAt.\(id)"
+        let saved = UserDefaults.standard.object(forKey: key) as? Int64
+        if let saved { return saved }
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        UserDefaults.standard.set(now, forKey: key)
+        return now
     }
 
     /// Makes [p] the account in use (the caller resets what was shown for the previous one).

@@ -200,6 +200,8 @@ struct LandingView: View {
         case .subsonic:
             LandingSubsonicScene(form: $subsonicForm, connected: flow.connected.contains(.subsonic),
                                  scheme: scheme, reactions: reactions, connectRequests: connectRequests)
+        case .spotify:
+            LandingSpotifyScene(connected: flow.connected.contains(.spotify), scheme: scheme, reactions: reactions)
         case .appleMusic:
             LandingAppleScene(connected: flow.connected.contains(.appleMusic), scheme: scheme, reactions: reactions)
         case .ready: LandingReadyScene(accounts: accounts, scheme: scheme)
@@ -451,7 +453,7 @@ struct LandingView: View {
         // The account list (Data/Profiles.swift), the one in use first.
         let list = model.profiles.profiles.map { p in
             LandingAccount(id: p.id, name: p.title, detail: p.host ?? "Authorized",
-                           service: p.service == .subsonic ? .subsonic : .appleMusic,
+                           service: p.service.landing,
                            inUse: p.id == model.profiles.activeId)
         }
         return list.sorted { $0.inUse && !$1.inUse }

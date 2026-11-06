@@ -229,6 +229,8 @@ struct DiaryScrollObserver: UIViewRepresentable {
         private weak var scrollView: UIScrollView?
         private enum Mode { case none, pull, dismiss }
         private var mode = Mode.none
+        /// This gesture began while the diary was the open one.
+        private var admitted = false
         private var scrolledAtDown = false
         private var atEndAtDown = false
         private var last: CGFloat = 0
@@ -269,8 +271,12 @@ struct DiaryScrollObserver: UIViewRepresentable {
         }
 
         @objc private func pan(_ g: UIPanGestureRecognizer) {
-            guard let sv = scrollView, let router, active else { return }
-            let ty = g.translation(in: sv.superview).y
+            guard let sv = scrollView, let router else { return }
+            // `active` gates only a NEW gesture: the pull itself flips it off once p drops below
+            // half, and a gesture it owns must still reach its release / cancel (else p strands mid-morph).
+            if g.state == .began { admitted = active }
+            guard admitted else { return }
+            let ty = g.translation(in: nil).y
             let diary = router.diary
             switch g.state {
             case .began:
@@ -309,8 +315,9 @@ struct DiaryScrollObserver: UIViewRepresentable {
                     if let r = dismissRoute { router.drag(r, translationY: ty - start) }
                 }
             case .ended, .cancelled, .failed:
+                admitted = false
                 router.lift()
-                let v = g.state == .ended ? g.velocity(in: sv.superview).y : 0
+                let v = g.state == .ended ? g.velocity(in: nil).y : 0
                 switch mode {
                 case .pull:
                     sv.contentOffset.y = top(sv)
@@ -339,6 +346,7 @@ struct DiaryScrollObserver: UIViewRepresentable {
                 // Back at the top of the text: the text has the finger again.
                 mode = .none
                 closeLine = nil
+                diary.endPull()
             } else {
                 sv.contentOffset.y = top(sv)
             }

@@ -231,7 +231,8 @@ enum KeychainItem {
 /// per profile; iOS reads one Subsonic server at a time, so a Subsonic row carries the server + user it was
 /// written under ("baseUrl|username", the same scope as the play history) and is shown and edited only
 /// while that account is in use (Codex C03). Cloud sync reads another account's rows through `reading`.
-/// Apple Music has one account per device: no scope.
+/// Apple Music has one account per device: no scope. Each Spotify account's rows carry its Spotify user
+/// ("spotify|<user id>", Codex N07), so two Spotify accounts never see each other's notes or ratings.
 @MainActor
 @Observable
 final class AccountScope {
@@ -253,19 +254,32 @@ final class AccountScope {
     static func subsonicScope(_ a: ServerSession.Account) -> String { "\(a.baseUrl)|\(a.username)" }
 
     /// The scope a row of [provider] is written under and read back in.
-    func scope(for provider: String) -> String? { provider == Self.subsonicProvider ? (pinned ?? subsonic) : nil }
+    func scope(for provider: String) -> String? {
+        if provider == Self.subsonicProvider { return pinned ?? subsonic }
+        if provider == Self.spotifyProvider { return pinnedSpotify ?? spotify }
+        return nil
+    }
 
-    /// Set only inside `reading`: the Subsonic account the stores read and write for the moment.
+    /// The Spotify account in use's scope; nil without one.
+    var spotify: String? {
+        didSet { if spotify != oldValue { NowPlayingData.shared.accountChanged() } }
+    }
+
+    nonisolated static let spotifyProvider = "spotify"
+    nonisolated static func spotifyScope(userId: String) -> String { "spotify|\(userId)" }
+
+    /// Set only inside `reading`: the Subsonic / Spotify account the stores read and write for the moment.
     @ObservationIgnored private var pinned: String?
+    @ObservationIgnored private var pinnedSpotify: String?
 
-    /// Runs [body] (synchronously, on the main actor) as if [subsonicScope] were the account in use, without
-    /// switching: cloud sync reads and writes each account's rows, not just the one in use. Nothing
-    /// observes the change (no downloads, no legacy adoption).
-    func reading<T>(asSubsonic subsonicScope: String?, _ body: () -> T) -> T {
-        guard let subsonicScope else { return body() }
-        let before = pinned
-        pinned = subsonicScope
-        defer { pinned = before }
+    /// Runs [body] (synchronously, on the main actor) as if [subsonicScope] / [spotifyScope] were the
+    /// account in use, without switching: cloud sync reads and writes each account's rows, not just the one
+    /// in use (Codex N08). Nothing observes the change (no downloads, no legacy adoption).
+    func reading<T>(asSubsonic subsonicScope: String?, asSpotify spotifyScope: String? = nil, _ body: () -> T) -> T {
+        let before = (pinned, pinnedSpotify)
+        if let subsonicScope { pinned = subsonicScope }
+        if let spotifyScope { pinnedSpotify = spotifyScope }
+        defer { (pinned, pinnedSpotify) = before }
         return body()
     }
 

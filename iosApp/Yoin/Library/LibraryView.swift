@@ -387,7 +387,7 @@ struct LibraryView: View {
             VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
                 EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,
                                seed: item.id.rawId.count, size: side, stroke: scheme.primary)
-                    .zoomSource(item.id, zoomNS)
+                    .zoomSource(item.id, zoomNS, tile: "library")
                 Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
                 // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
                 Text(item.title)
@@ -408,14 +408,16 @@ struct LibraryView: View {
         switch item.kind {
         case .artist: model.openArtist(item.title, id: item.id.provider == "mock" ? nil : item.id.rawId)
         case .playlist: model.openPlaylist(item.id.rawId)
-        case .album: if let album = item.album { model.open(album) }
+        case .album: if let album = item.album { model.open(album, tile: "library") }
         }
     }
 
     private func subtitle(_ item: LibraryItem) -> String {
         switch item.kind {
         case .artist:
-            let n = item.count ?? model.library.albums().filter { $0.artist == item.title }.count
+            // A service that doesn't count an artist's albums (Spotify) says "Artist", not the mock's count.
+            guard let n = item.count ?? (item.id.provider == "mock"
+                ? model.library.albums().filter { $0.artist == item.title }.count : nil) else { return "Artist" }
             return n == 1 ? "1 album" : "\(n) albums"
         case .album: return item.album?.artist ?? ""
         case .playlist: return "Playlist"
@@ -447,9 +449,9 @@ struct LibraryView: View {
         }
     }
 
-    /// Android PlaylistsTabContent's FAB: Subsonic writes playlists here
-    /// (PlaylistActions.create); Apple Music's are made in its own app.
-    private var canCreatePlaylist: Bool { model.store.client != nil }
+    /// Android PlaylistsTabContent's FAB: Subsonic and Spotify write playlists
+    /// here (PlaylistActions.create); Apple Music's are made in its own app.
+    private var canCreatePlaylist: Bool { PlaylistActions.shared.canCreate(model.store) }
 
     /// Android ExtendedFloatingActionButton "New playlist": primaryContainer,
     /// + and the label, bottom-end over the list.
@@ -614,7 +616,7 @@ struct LibraryView: View {
         if entries.isEmpty && model.store.isReal {
             let key = filter == .favorites ? "favorites" : "songs"
             if model.store.phase(key) == .failed {
-                RetryRow(scheme: scheme) { Task { await reload(force: true) } }
+                RetryRow(scheme: scheme, message: model.store.failures[key]) { Task { await reload(force: true) } }
             } else if model.store.phase(key) != .loaded {
                 RowSkeleton(scheme: scheme)
             } else if filter == .songs {
@@ -629,8 +631,7 @@ struct LibraryView: View {
                 let e = entries[i]
                 LibrarySongRow(album: e.album, track: e.track, current: model.playback.track.id == e.track.id,
                                scheme: scheme)
-                    .onTapGesture { model.play(entries, startAt: i) }
-                    .trackMenu(for: e)
+                    .trackRow(for: e) { model.play(entries, startAt: i) }
                     .transition(.opacity.animation(Yoin.effects))
             }
         }
@@ -677,7 +678,9 @@ struct LibraryView: View {
     private func loadState(empty: Bool) -> some View {
         let phases = phaseKeys.map { model.store.phase($0) }
         if phases.contains(.failed) {
-            RetryRow(scheme: scheme) { Task { await reload(force: false) } }
+            RetryRow(scheme: scheme, message: phaseKeys.lazy.compactMap { model.store.failures[$0] }.first) {
+                Task { await reload(force: false) }
+            }
                 .padding(.top, empty ? 0 : 12)
                 .transition(.opacity.animation(Yoin.effects))
         } else if empty && phases.contains(where: { $0 != .loaded }) {

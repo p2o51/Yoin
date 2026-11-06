@@ -402,8 +402,10 @@ struct AlbumDetailView: View {
                                      + (playlist != nil ? Tokens.detail.PLAYLIST_MENU_GAP.cg : 0)) * smooth(p))
                 Spacer(minLength: 0)
                 let editable = playlist.map { model.store.isReal ? PlaylistActions.shared.canEdit($0, store: model.store) : true } ?? false
-                // Any playlist of the account in use can be backed up, followed or not (Android onBackUp).
-                let canBackUp = playlist != nil && (!model.store.isReal || PlaylistBackups.shared.source(model.store) != nil)
+                // Any playlist of the account in use can be backed up, followed or not (Android onBackUp),
+                // except one whose songs Spotify refused (nothing to back up).
+                let canBackUp = playlist != nil && playlist?.tracksUnavailable != true
+                    && (!model.store.isReal || PlaylistBackups.shared.source(model.store) != nil)
                 if let playlist, editable || canBackUp || model.detailOfflineCollection != nil {
                     // ⋮: Cloud backup (Data/Backup: read whole and saved; the toast's View opens the
                     // backup), then Rename and Delete when the user can write it (Android canWrite;
@@ -555,8 +557,7 @@ struct AlbumDetailView: View {
             } else if let playlist {
                 playlistMeta(playlist).frame(width: side).frame(maxWidth: .infinity)
                 Spacer().frame(height: 28)
-                Text(flowingTitles)
-                    .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
+                flowingTitles
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
             // Emblem + comment, as wide as the cover.
@@ -590,8 +591,7 @@ struct AlbumDetailView: View {
                 if loadFailed { retryButton }
             }
             Spacer().frame(height: 6)
-            Text(flowingTitles)
-                .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
+            flowingTitles
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -713,25 +713,13 @@ struct AlbumDetailView: View {
         }
     }
 
-    /// Titles in headlineMedium joined by a space, even = onSurface,
-    /// odd = onSurfaceVariant; short titles (≤ 16 units, CJK = 2) are glued
-    /// so they wrap as one unit.
-    private var flowingTitles: AttributedString {
-        var out = AttributedString()
-        for (i, t) in album.tracks.enumerated() {
-            let units = t.title.unicodeScalars.reduce(0) { $0 + ($1.value > 0x2E80 ? 2 : 1) }
-            let title = units <= 16 ? t.title.replacingOccurrences(of: " ", with: "\u{00A0}") : t.title
-            var piece = AttributedString(title)
-            piece.font = .gsf(28)
-            piece.foregroundColor = i.isMultiple(of: 2) ? app.onSurface : app.onSurfaceVariant
-            out += piece
-            if i < album.tracks.count - 1 {
-                var gap = AttributedString(" ")
-                gap.font = .gsf(28)
-                out += gap
-            }
-        }
-        return out
+    /// The track titles as one paragraph; a title plays from that song while
+    /// the hero is up (Android: links only below half the pull).
+    private var flowingTitles: some View {
+        FlowingTrackTitles(titles: album.tracks.map(\.title), primary: app.onSurface, variant: app.onSurfaceVariant,
+                           onPick: p < 0.5 ? { i in
+                               if let playlist { model.play(playlist.entries, startAt: i) } else { playAlbum(from: i) }
+                           } : nil)
     }
 
     /// The listener's review and when it was written (AlbumMemoryStore, as
@@ -783,8 +771,9 @@ struct AlbumDetailView: View {
                     ForEach(Array(playlist.entries.enumerated()), id: \.offset) { i, e in
                         playlistRow(e)
                             .modifier(bandBlur)
-                            .onTapGesture { model.play(playlist.entries, startAt: i) }
-                            .trackMenu(for: e, context: .playlist(playlist.id.rawId, index: i))
+                            .trackRow(for: e, context: .playlist(playlist.id.rawId, index: i)) {
+                                model.play(playlist.entries, startAt: i)
+                            }
                     }
                     playlistMeta(playlist)
                         .padding(.horizontal, 8)
@@ -807,10 +796,10 @@ struct AlbumDetailView: View {
                             .padding(.bottom, 6)
                             .modifier(bandBlur)
                     }
-                    trackRow(t).modifier(bandBlur).onTapGesture { playAlbum(from: i) }
-                        .trackMenu(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
+                    trackRow(t).modifier(bandBlur)
+                        .trackRow(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
                             settlePage(to: 1, velocity: 0)
-                        }))
+                        })) { playAlbum(from: i) }
                 }
                 linerNotes
                     .padding(.horizontal, 8)
@@ -982,12 +971,20 @@ struct AlbumDetailView: View {
     private func playlistMeta(_ pl: PlaylistInfo) -> some View {
         let mins = pl.entries.map(\.track.durationSec).reduce(0, +) / 60
         return VStack(alignment: .leading, spacing: 14) {
+            if pl.tracksUnavailable {
+                // Android detail_playlist_tracks_unavailable: why the list is empty (Codex N18).
+                Text("Spotify only shows this app the songs of playlists you made or collaborate on. To play this one, open it in Spotify.")
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+            }
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     sectionLabel("Length")
-                    Text("\(pl.entries.count) tracks").monospacedDigit()
+                    // The service's count when the songs weren't handed over (Android songCount), and
+                    // "—" for a length nobody knows rather than "0 min".
+                    Text("\(pl.tracksUnavailable ? pl.songCount ?? 0 : pl.entries.count) tracks").monospacedDigit()
                         .yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
-                    Text(mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min").monospacedDigit()
+                    Text(pl.entries.isEmpty ? "—" : mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min").monospacedDigit()
                         .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
                 }
                 Spacer()

@@ -664,7 +664,7 @@ enum BackupTexts {
     }
 
     /// Where a backup can go on this device (Android `restoreTargets`): every account configured here
-    /// whose service takes a new playlist — each Subsonic server and Apple Music — in the accounts' order,
+    /// whose service takes a new playlist — each Subsonic server, Apple Music and Spotify — in the accounts' order,
     /// whichever is in use. One that can't be used now is listed, not choosable, with why.
     static func targets(_ accounts: BackupAccounts = LiveBackupAccounts.shared) -> [RestoreTarget] {
         accounts.profiles.map { p in
@@ -676,6 +676,10 @@ enum BackupTexts {
             case .appleMusic:
                 return RestoreTarget(id: p.id, label: "Apple Music", provider: AppleMusicMapping.provider,
                                      available: usable, note: usable ? nil : "Apple Music access is off for Yoin")
+            case .spotify:
+                // A new private playlist through the Web API (Android SpotifyMusicSource.createPlaylist).
+                return RestoreTarget(id: p.id, label: p.title, provider: SpotifyMapping.provider,
+                                     available: usable, note: usable ? nil : "Sign in again")
             }
         }
     }

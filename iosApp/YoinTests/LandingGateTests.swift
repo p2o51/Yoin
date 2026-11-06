@@ -67,14 +67,19 @@ final class LandingGateTests: XCTestCase {
     func test_should_listOneConnectStepPerPickedService_when_picked() {
         XCTAssertEqual(landingSteps(picked: []), [.hello, .pick, .about, .ready])
         XCTAssertEqual(landingSteps(picked: [.appleMusic, .subsonic]), [.hello, .pick, .about, .subsonic, .appleMusic, .ready])
-        // Spotify has no connect step on iOS.
-        XCTAssertEqual(landingSteps(picked: [.spotify]), [.hello, .pick, .about, .ready])
+        XCTAssertEqual(landingSteps(picked: [.spotify]), [.hello, .pick, .about, .spotify, .ready])
+        XCTAssertEqual(landingSteps(picked: [.appleMusic, .spotify, .subsonic]),
+                       [.hello, .pick, .about, .subsonic, .spotify, .appleMusic, .ready])
     }
 
-    func test_should_ignoreSpotify_when_toggled() {
+    func test_should_pickSpotify_when_toggled() {
         var flow = LandingFlow(mode: .firstRun)
         flow.toggle(.spotify)
-        XCTAssertTrue(flow.picked.isEmpty)
+        XCTAssertEqual(flow.picked, [.spotify])
+        flow.goTo(.spotify)
+        XCTAssertEqual(flow.primary(hasAccount: false).label, "Skip")
+        flow.markConnected(.spotify)
+        XCTAssertEqual(flow.primary(hasAccount: true), LandingPrimary(label: "Next", style: .filled))
     }
 
     func test_should_keepCurrentStep_when_selectionChanges() {

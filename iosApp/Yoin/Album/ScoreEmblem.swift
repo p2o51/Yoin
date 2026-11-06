@@ -47,6 +47,9 @@ struct ScoreEmblem: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// How much of the solid ground still shows through the glass lens.
+    private static let groundAlpha = 0.24
+
     private struct Colors {
         var ground, cut, dots, rim, label, labelRing, ink: Color
         var lit, flare, tiltHigh, tiltLow: Color
@@ -116,6 +119,8 @@ struct ScoreEmblem: View {
             emblem(ch, layout: layout, tilt: t)
         }
         .frame(width: size, height: size)
+        .background { glassGround }
+        .overlay { glassLight }
         .onChange(of: reduceMotion, initial: true) { _, reduced in award?.reducedMotion = reduced }
         .onAppear { if tiltOn { GrooveTilt.shared.acquire() } }
         .onDisappear { if tiltOn { GrooveTilt.shared.release() } }
@@ -158,6 +163,9 @@ struct ScoreEmblem: View {
                         .font(YoinFont.score(label, size: scoreSize, albumRating: true))
                         .foregroundStyle(c.ink)
                 } else {
+                    // The average's open ring gets the disc's own ground under it, so its score
+                    // stays readable over a cover seen through the lens.
+                    Circle().fill(c.ground).frame(width: size * 0.61, height: size * 0.61)
                     Circle()
                         .stroke(c.label, lineWidth: max(1.2, size * 0.017))
                         .frame(width: size * 0.61, height: size * 0.61)
@@ -169,6 +177,39 @@ struct ScoreEmblem: View {
             .scaleEffect(ch.labelScale)
             .opacity(min(1, max(0, ch.labelAlpha)))
         }
+    }
+
+    /// The glass under the grooves (51 2026-11-05, "这个徽章也重做一个 有玻璃质感的"; Lens picked over
+    /// Tinted and Frosted): a clear Liquid Glass lens, the cover's colour seen through it, refracted.
+    /// Still a solid object on the content plane: the label and score keep their solid ink.
+    private var glassGround: some View {
+        Circle().fill(.clear).glassEffect(.clear, in: .circle)
+    }
+
+    /// The light on the lens, from the one source (top-left): a lit rim and an inner highlight.
+    /// Over the grooves, thin and soft, under nothing that has to be read.
+    private var glassLight: some View {
+        let dark = colorScheme == .dark
+        let rimW = max(0.8, size * 0.014)
+        return ZStack {
+            Circle()
+                .strokeBorder(LinearGradient(stops: [
+                    .init(color: .white.opacity(dark ? 0.55 : 0.85), location: 0),
+                    .init(color: .white.opacity(0), location: 0.45),
+                    .init(color: .white.opacity(dark ? 0.12 : 0.25), location: 1),
+                ], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: rimW)
+            // The inner highlight: a soft crescent of light on the upper-left of the disc.
+            Ellipse()
+                .fill(RadialGradient(colors: [.white.opacity(0.32), .clear],
+                                     center: .center, startRadius: 0, endRadius: size * 0.28))
+                .frame(width: size * 0.62, height: size * 0.34)
+                .offset(x: -size * 0.12, y: -size * 0.24)
+                .rotationEffect(.degrees(-28))
+                .blendMode(.plusLighter)
+        }
+        .frame(width: size, height: size)
+        .clipShape(.circle)
+        .allowsHitTesting(false)
     }
 
     /// The unrated label (GrooveEmblem drawLabel/drawType, Unrated): a dashed
@@ -252,7 +293,7 @@ struct ScoreEmblem: View {
             }
         }
 
-        gc.fill(circle(rimR), with: .color(c.ground))
+        gc.fill(circle(rimR), with: .color(c.ground.opacity(Self.groundAlpha)))
         if rimW > 0 {
             let rimPath = circle(rimR)
             gc.stroke(rimPath, with: .color(c.rim), lineWidth: rimW)

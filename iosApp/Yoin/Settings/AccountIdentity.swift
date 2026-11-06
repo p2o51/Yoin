@@ -50,6 +50,7 @@ extension Profile.Service {
         switch self {
         case .subsonic: .subsonic
         case .appleMusic: .appleMusic
+        case .spotify: .spotify
         }
     }
 
