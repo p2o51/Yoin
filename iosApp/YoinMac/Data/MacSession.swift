@@ -314,6 +314,36 @@ final class MacSession {
         }
     }
 
+    /// Asks a server with these details (Android ServiceSetupScreen's Test): its name, or the error.
+    static func test(url: String, username: String, password: String) async throws -> String {
+        let c = SubsonicClient(baseUrl: normalized(url), username: username.trimmingCharacters(in: .whitespaces),
+                               password: password)
+        defer { c.close() }
+        return serverName(try await c.ping())
+    }
+
+    struct AccountExists: LocalizedError {
+        var errorDescription: String? { "Another account here already uses this server and username" }
+    }
+
+    /// New details for the Subsonic account [id] (Android's existing-account form), saved once the server
+    /// takes them; an empty [password] keeps the one saved. The account in use reconnects with them.
+    func updateSubsonic(_ id: String, url: String, username: String, password: String,
+                        beforeReconnect: @MainActor (_ sameLibrary: Bool) -> Void = { _ in }) async throws {
+        guard let i = profiles.firstIndex(where: { $0.id == id }), let old = profiles[i].account else { return }
+        let account = Account(baseUrl: Self.normalized(url), username: username.trimmingCharacters(in: .whitespaces),
+                              password: password.isEmpty ? old.password : password)
+        if profiles.contains(where: { $0.id != id && $0.account?.baseUrl == account.baseUrl
+            && $0.account?.username == account.username }) { throw AccountExists() }
+        _ = try await Self.test(url: account.baseUrl, username: account.username, password: account.password)
+        guard let j = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles[j].account = account
+        persist()
+        guard activeId == id else { return }
+        beforeReconnect(old.baseUrl == account.baseUrl && old.username == account.username)
+        activate(profiles[j])
+    }
+
     /// Signs out of the account in use: it leaves the list (Apple Music: the system keeps its access).
     func signOut() {
         if let id = activeId { remove(id) } else { deactivate() }

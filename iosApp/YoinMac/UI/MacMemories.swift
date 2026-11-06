@@ -42,6 +42,14 @@ private struct MemoryTile: View {
             if card.noteCount > 0 {
                 Text("\(card.noteCount) \(card.noteCount == 1 ? "note" : "notes")").font(.gsf(12)).foregroundStyle(Yoin.ink3)
             }
+            // A diary's words that didn't reach NeoDB after it closed: said here, with Retry.
+            if AlbumNeoDBSync.shared.state(card.album) == .failed {
+                HStack(spacing: 6) {
+                    Text("Couldn't sync to NeoDB").font(.gsf(12)).foregroundStyle(.red)
+                    Button("Retry") { Task { await AlbumNeoDBSync.shared.retry(card.album) } }
+                        .buttonStyle(.link).font(.gsf(12))
+                }
+            }
         }
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Yoin.spatialFast) { hover = h } }
@@ -83,6 +91,7 @@ struct MacMemoryDiary: View {
                 .font(.gsf(14)).scrollContentBackground(.hidden)
                 .padding(8).frame(minHeight: 110)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Yoin.surfaceContainerHigh))
+            neoDBLine
             if !card.diaryTracks.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
@@ -118,6 +127,26 @@ struct MacMemoryDiary: View {
             review = card.review?.text ?? ""
             openedTitle = title
             openedReview = review
+            AlbumNeoDBSync.shared.sheetOpened(card.album)
+        }
+        .onChange(of: review) { _, r in
+            AlbumNeoDBSync.shared.edited(card.album, unsavedWords: r.trimmingCharacters(in: .whitespacesAndNewlines)
+                != (card.review?.text ?? ""))
+        }
+    }
+
+    /// Where NeoDB stands for the review (Android MemoryDiary's footer): syncing, synced, or Couldn't sync
+    /// with Retry.
+    @ViewBuilder private var neoDBLine: some View {
+        let state = AlbumNeoDBSync.shared.state(card.album)
+        if state.isShown, state != .signedOut {
+            HStack(spacing: 8) {
+                Text("NeoDB").font(.gsf(13, .semibold))
+                Text(state.label).font(.gsf(13)).foregroundStyle(state == .failed ? .red : Yoin.inkVariant)
+                if state == .failed {
+                    Button("Retry") { Task { await AlbumNeoDBSync.shared.retry(card.album) } }.buttonStyle(.link)
+                }
+            }
         }
     }
 

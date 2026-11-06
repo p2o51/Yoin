@@ -95,9 +95,8 @@ struct MacAccountPage: View {
             Form {
                 Section {
                     LabeledContent("Service", value: Self.serviceName(p.service))
-                    if let a = p.account {
-                        LabeledContent("Server", value: a.baseUrl)
-                        LabeledContent("Username", value: a.username)
+                    if p.account != nil {
+                        MacSubsonicEditor(profile: p).id(p.id)
                     } else if let name = p.name {
                         LabeledContent("Account", value: name)
                     }
@@ -197,6 +196,80 @@ struct MacAccountPage: View {
         case .connecting: "Connecting"
         case .ready(let s): s.isEmpty ? "Connected" : "Connected to \(s)"
         case .failed(let m): m
+        }
+    }
+}
+
+/// A Subsonic account's sign-in, changed in place (Android ServiceSetupScreen.kt:505): server, username and a
+/// new password (left empty, the saved one stays); Test asks the server, Save keeps them once it answers.
+private struct MacSubsonicEditor: View {
+    var profile: MacSession.Profile
+    @Environment(MacModel.self) private var model
+    @State private var url = ""
+    @State private var username = ""
+    @State private var password = ""
+    @State private var busy = false
+    @State private var result: (ok: Bool, text: String)?
+
+    private var changed: Bool {
+        guard let a = profile.account else { return false }
+        return MacSession.normalized(url) != a.baseUrl
+            || username.trimmingCharacters(in: .whitespaces) != a.username || !password.isEmpty
+    }
+    private var filled: Bool {
+        !url.trimmingCharacters(in: .whitespaces).isEmpty && !username.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        Group {
+            TextField("Server", text: $url).textContentType(.URL)
+            TextField("Username", text: $username).textContentType(.username)
+            SecureField("Password", text: $password, prompt: Text("Unchanged"))
+            HStack {
+                if busy { ProgressView().controlSize(.small) }
+                if let result {
+                    Text(result.text).font(.caption).foregroundStyle(result.ok ? Color.secondary : Color.red)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Button("Test") { test() }.disabled(busy || !filled)
+                Button("Save") { save() }.disabled(busy || !filled || !changed)
+            }
+        }
+        .disabled(busy)
+        .onAppear {
+            url = profile.account?.baseUrl ?? ""
+            username = profile.account?.username ?? ""
+        }
+    }
+
+    private func test() {
+        let pw = password.isEmpty ? (profile.account?.password ?? "") : password
+        busy = true
+        result = nil
+        Task {
+            defer { busy = false }
+            do {
+                let name = try await MacSession.test(url: url, username: username, password: pw)
+                result = (true, "Connected to \(name)")
+            } catch {
+                result = (false, MacSession.message(for: error))
+            }
+        }
+    }
+
+    private func save() {
+        busy = true
+        result = nil
+        Task {
+            defer { busy = false }
+            do {
+                try await model.updateSubsonic(profile.id, url: url, username: username, password: password)
+                password = ""
+                result = (true, "Saved")
+            } catch {
+                result = (false, MacSession.message(for: error))
+            }
         }
     }
 }

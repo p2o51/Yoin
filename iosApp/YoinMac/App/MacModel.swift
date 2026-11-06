@@ -801,6 +801,14 @@ final class MacModel {
         session.switchTo(id)
     }
 
+    /// Saves an existing Subsonic account's new details; the account in use reconnects on them.
+    func updateSubsonic(_ id: String, url: String, username: String, password: String) async throws {
+        try await session.updateSubsonic(id, url: url, username: username, password: password) { sameLibrary in
+            // Another server or user is another library: what was loaded goes (a new password alone keeps it).
+            if !sameLibrary { self.signedOut() }
+        }
+    }
+
     /// Bumps when an Add Account is cancelled or the account changes: a sign-in still running then doesn't land.
     @ObservationIgnored private(set) var authToken = 0
     func supersedeSignIn() { authToken += 1 }
