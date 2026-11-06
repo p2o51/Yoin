@@ -29,3 +29,30 @@ using namespace metal;
     }
     return sum / half(total);
 }
+
+// The album Strip's progressive blur (AlbumDetailView `spectrum`, 51
+// 2026-11-06): none at the screen's top edge, growing along a smoothstep to
+// `maxRadius` at `zoneHeight` (the end of the feather) and beyond. Same
+// Vogel disc as albumBandBlur; samples past the strips are clear, so the
+// band's end also softens into the page.
+[[ stitchable ]] half4 albumStripBlur(float2 position, SwiftUI::Layer layer,
+                                      float zoneHeight, float maxRadius) {
+    float t = clamp(position.y / zoneHeight, 0.0, 1.0);
+    float r = maxRadius * smoothstep(0.0, 1.0, t);
+    if (r < 0.35) {
+        return layer.sample(position);
+    }
+    const int taps = 24;
+    const float golden = 2.39996323;
+    half4 sum = layer.sample(position);
+    float total = 1.0;
+    for (int i = 1; i < taps; i++) {
+        float k = float(i) / float(taps);
+        float d = sqrt(k) * r;
+        float a = float(i) * golden;
+        float w = exp(-2.0 * k);
+        sum += layer.sample(position + float2(cos(a), sin(a)) * d) * half(w);
+        total += w;
+    }
+    return sum / half(total);
+}

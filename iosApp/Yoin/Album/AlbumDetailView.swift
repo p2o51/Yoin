@@ -120,6 +120,11 @@ struct AlbumDetailView: View {
         let v = GlassLab.shared.extras["albumStripFeather"] ?? 0
         return v > 0 ? v : 56
     }
+    /// The Strip's progressive blur radius at the feather's end (Glass Lab slider).
+    private var stripBlur: CGFloat {
+        let v = GlassLab.shared.extras["albumStripBlur"] ?? 0
+        return v > 0 ? v : 22
+    }
     /// How far the strip reaches below the safe area (Glass Lab slider).
     private var stripExtend: CGFloat {
         let v = GlassLab.shared.extras["albumStripExtend"] ?? 0
@@ -1129,13 +1134,17 @@ struct AlbumDetailView: View {
         let slice = side / CGFloat(n)
         let heroX = (w - side) / 2, heroY = headerContent + 28
         let barH = stripBar ? top + stripExtend + stripFeather : top + headerContent + bandFade
+        // The Strip draws in a frame that starts at the screen's top (`shift`
+        // down by the safe area), so its progressive blur sees every strip.
+        let shift: CGFloat = stripBar ? top : 0
+        let blurR = stripBar ? stripBlur * smooth(p, 0.55, 0.95) : 0
         return ZStack(alignment: .topLeading) {
             ForEach(0..<n, id: \.self) { i in
                 let lag = 0.22 * CGFloat(strips[i].slot) / CGFloat(n)
                 let q = smooth(p, 0.06 + lag, 0.6 + lag)
                 let flat = smooth(q, 0, 0.55)
                 let x = lerp(heroX + CGFloat(i) * slice, CGFloat(strips[i].slot) * w / CGFloat(n), q)
-                let y = lerp(heroY, -top, q)
+                let y = lerp(heroY, -top, q) + shift
                 let sw = lerp(slice, w / CGFloat(n), q) + 1.5
                 let sh = lerp(side, barH, q)
                 ZStack(alignment: .topLeading) {
@@ -1157,8 +1166,13 @@ struct AlbumDetailView: View {
                 .offset(x: x, y: y)
             }
         }
-        .frame(width: w, alignment: .topLeading)
-        .mask(alignment: .topLeading) { bandMask(w: w, top: top) }
+        .frame(width: w, height: stripBar ? top + heroY + side + 8 : nil, alignment: .topLeading)
+        // The Strip's progressive blur (51, 2026-11-06): sharp at the top of
+        // the screen, softer down to the end of the feather.
+        .layerEffect(ShaderLibrary.albumStripBlur(.float(max(1, barH)), .float(blurR)),
+                     maxSampleOffset: CGSize(width: blurR, height: blurR), isEnabled: blurR > 0.3)
+        .mask(alignment: .topLeading) { bandMask(w: w, top: top, shift: shift) }
+        .offset(y: -shift)
         .opacity(p > 0.001 ? 1 : 0)
         .allowsHitTesting(false)
     }
@@ -1168,13 +1182,13 @@ struct AlbumDetailView: View {
     /// curve, `albumBandBlur`); it comes in as the list settles, so the strips
     /// in flight are never cut.
     @ViewBuilder
-    private func bandMask(w: CGFloat, top: CGFloat) -> some View {
+    private func bandMask(w: CGFloat, top: CGFloat, shift: CGFloat = 0) -> some View {
         if stripBar {
-            // Solid through the status bar + `stripExtend`, then a long
-            // feather down over the blur (51, 2026-11-06: "过渡下来"): an
-            // ease-out tail, so the color lets go slowly instead of a line.
-            // The strips in flight are taller; only past the strip it fades.
-            // 51, 13:22: the feather starts right at the screen's top edge.
+            // A feather from the screen's top edge (51, 2026-11-06 13:22)
+            // through the safe area, `stripExtend` and `stripFeather`, down
+            // over the header's blur; the strips also blur progressively
+            // (`albumStripBlur`). The strips in flight are taller; only past
+            // the strip it fades.
             let fade = top + stripExtend + stripFeather
             let k = smooth(p, 0.55, 0.95)
             VStack(spacing: 0) {
@@ -1187,7 +1201,7 @@ struct AlbumDetailView: View {
                 Rectangle().opacity(1 - k).frame(height: 4000)
             }
             .frame(width: w + 40)
-            .offset(x: -20, y: -top)
+            .offset(x: -20, y: shift - top)
         } else if bandFade > 0 {
             let k = bandSoft
             VStack(spacing: 0) {
@@ -1201,7 +1215,7 @@ struct AlbumDetailView: View {
                 Rectangle().opacity(1 - k).frame(height: 4000)
             }
             .frame(width: w + 40)
-            .offset(x: -20, y: -top)
+            .offset(x: -20, y: shift - top)
         } else {
             Rectangle().frame(width: w + 40, height: 8000).offset(x: -20, y: -4000)
         }
