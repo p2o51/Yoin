@@ -182,6 +182,7 @@ enum MemoryDeck {
     }
 }
 
+#if os(iOS)
 // MARK: - The mock deck (signed out: the screenshots' library)
 
 extension MemoryDeck {
@@ -264,3 +265,4 @@ extension MemoryDeck {
         var titles: [String: String?] = [:]
     }
 }
+#endif

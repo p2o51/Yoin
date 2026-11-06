@@ -11,7 +11,8 @@ import YoinShared
 final class MacModel {
     enum Tab: Hashable { case home, library }
     enum LibraryKind: String, CaseIterable, Hashable {
-        case albums = "Albums", artists = "Artists", playlists = "Playlists", songs = "Songs", downloads = "Downloads"
+        case albums = "Albums", artists = "Artists", playlists = "Playlists", songs = "Songs", memories = "Memories",
+             downloads = "Downloads"
     }
 
     enum Detail: Hashable {
@@ -343,6 +344,81 @@ final class MacModel {
                                     artistId: e?.album.artistId, title: t.title, album: t.album, artist: t.artist,
                                     coverKey: coverKey, durationSec: t.durationSec)
         openPlay = (t.id, id)
+    }
+
+    // MARK: Memories (iOS MemoryDeck over the local stores)
+
+    var currentProvider: String {
+        session.isAppleMusic ? AppleMusicMapping.provider
+            : session.isSpotify ? SpotifyMapping.provider : MediaRef.companion.PROVIDER_SUBSONIC
+    }
+
+    /// iOS LibraryStore.historyInputs on the Mac: this account's plays, notes, ratings and album memories.
+    func historyInputs() -> HomeHistory.Inputs {
+        let provider = currentProvider
+        var known: [String: Album] = [:]
+        let lists = library.albums + library.home.recentlyPlayed + library.home.recentlyAdded + library.home.random
+        for a in lists where known[a.id.rawId] == nil { known[a.id.rawId] = a }
+        let details = library.albumDetails
+        let ratings = LocalRatings.shared
+        let albumRecords = AlbumMemoryStore.shared.albums.values.filter { $0.provider == provider }
+        let albumRatings = Dictionary(albumRecords.map { ($0.albumId, $0.rating) }, uniquingKeysWith: { $1 })
+        let albumWrites = Dictionary(albumRecords.map { ($0.albumId, max($0.updatedAt, $0.reviewUpdatedAt ?? 0)) },
+                                     uniquingKeysWith: { max($0, $1) })
+        let reviewed = Set(albumRecords.filter { !($0.review ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map(\.albumId))
+        let ratingTimes = ratings.updatedAt
+        let client = session.client
+        return HomeHistory.Inputs(
+            now: HistoryStore.shared.nowMs,
+            plays: HistoryStore.shared.plays(scope: session.accountKey, provider: provider),
+            notes: NotesStore.shared.notes.filter { $0.provider == provider },
+            details: details, known: known,
+            localRating: { ratings.rating(provider: provider, songId: $0) },
+            resolve: { id, snap in
+                if let a = details[id] ?? known[id] { return a }
+                guard let snap, !snap.album.isEmpty || !snap.title.isEmpty else { return nil }
+                let p = MacArtistDetail.placeholder(id)
+                let url: URL? = snap.provider == MediaRef.companion.PROVIDER_SUBSONIC
+                    ? snap.coverKey.flatMap { k in client.flatMap { URL(string: $0.coverArtUrl(id: k, size: nil)) } }
+                    : snap.coverKey.flatMap(URL.init(string:))
+                return Album(id: MediaId(provider: snap.provider, rawId: id),
+                             title: snap.album.isEmpty ? snap.title : snap.album, artist: snap.artist, year: 0,
+                             palette: CoverPalette(a: p.a, b: p.b, c: p.c, cover: url.map { CoverRef(url: $0) }),
+                             tracks: [], artistId: snap.artistId)
+            },
+            localAlbumRating: { albumRatings[$0] },
+            ratedAlbumIds: albumRecords
+                .filter { $0.rating > 0 || !($0.review ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .map(\.albumId),
+            ratingWrittenAt: { ratingTimes[LocalRatings.key(provider: provider, songId: $0)] },
+            albumWrittenAt: { albumWrites[$0] },
+            albumReviewed: { reviewed.contains($0) })
+    }
+
+    /// The Memories deck (iOS memoryDeckInputs): memories, each album's notes, reviews, titles, ratings.
+    func memoryCards() -> [MemoryCard] {
+        let provider = currentProvider
+        let inputs = historyInputs()
+        var songAlbum: [String: String] = [:]
+        for p in inputs.plays { if let a = p.albumId { songAlbum[p.songId] = a } }
+        for (id, album) in inputs.details { for t in album.tracks where songAlbum[t.id.rawId] == nil { songAlbum[t.id.rawId] = id } }
+        var byAlbum: [String: [SongNote]] = [:]
+        for n in inputs.notes { if let a = songAlbum[n.trackId] { byAlbum[a, default: []].append(n) } }
+        let store = AlbumMemoryStore.shared
+        return MemoryDeck.cards(MemoryDeck.Inputs(
+            memories: HomeHistory.memories(inputs), notes: byAlbum,
+            review: { id in
+                guard let r = store.album(provider: provider, albumId: id), let text = r.review else { return nil }
+                return (text, r.reviewUpdatedAt ?? r.updatedAt)
+            },
+            title: { id in
+                if let t = store.userTitle(provider: provider, albumId: id) { return (t, true) }
+                return store.memoryTitle(provider: provider, albumId: id).map { ($0, false) }
+            },
+            rating: { LocalRatings.shared.rating(provider: provider, songId: $0) },
+            yoinTitle: { store.memory(provider: provider, entityId: $0)?.title },
+            copy: { store.memory(provider: provider, entityId: $0)?.copy }))
     }
 
     /// Albums this account has played here, the most recent first (Home's Memories shelf).

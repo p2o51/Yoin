@@ -159,6 +159,8 @@ targets:
       - path: Yoin/Data/Cache/OfflineDownloads.swift
       - path: Yoin/Data/Cache/DetailDiskCache.swift
       - path: Yoin/Data/History/HistoryStore.swift
+      - path: Yoin/Data/History/HomeHistory.swift
+      - path: Yoin/Memories/MemoryDeck.swift
       - path: Yoin/Data/About/GeminiClient.swift
       - path: Yoin/Data/About/GeminiSettings.swift
       - path: Yoin/Data/About/SongAboutLoader.swift

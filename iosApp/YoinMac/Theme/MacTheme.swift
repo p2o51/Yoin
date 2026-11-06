@@ -100,23 +100,6 @@ func formatTime(_ sec: Int) -> String {
     String(format: "%d:%02d", sec / 60, sec % 60)
 }
 
-// MARK: - Stand-ins for iOS-only Home types that Models.swift names
-
-/// iOS keeps these in Data/History/HomeHistory.swift (Memories, out of the Mac P0).
-enum AlbumMemoryMark: Hashable, Sendable { case solid, outline, dashed }
-
-struct JBISignal: Hashable, Sendable {
-    enum Kind: Hashable, Sendable { case ratedAlbum, notedTrack }
-    var kind: Kind
-    var album: Album
-    var title: String
-    var subtitle: String
-    var score: String
-    var basis: String?
-    var comment: String?
-    var song: PlaylistEntry?
-}
-
 /// Settings the Mac keeps in its defaults.
 @MainActor
 enum MacSettings {

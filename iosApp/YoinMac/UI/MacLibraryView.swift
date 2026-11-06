@@ -35,6 +35,8 @@ struct MacLibraryView: View {
                     PhaseNote(phase: lib.phase("playlists"), empty: lib.playlists.isEmpty, emptyText: "No playlists") {
                         Task { await lib.loadPlaylists(force: true) }
                     }
+                case .memories:
+                    MacMemoriesGrid()
                 case .downloads:
                     MacDownloadsList()
                 case .songs:
@@ -62,7 +64,7 @@ struct MacLibraryView: View {
             case .artists: await lib.loadArtists()
             case .songs: await lib.loadSongs()
             case .playlists: await lib.loadPlaylists()
-            case .downloads: break
+            case .downloads, .memories: break
             }
         }
     }
