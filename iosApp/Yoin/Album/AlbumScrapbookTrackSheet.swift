@@ -5,7 +5,12 @@ struct ScrapSheetOpen: Identifiable {
     let id = UUID()
     var track: Track
     var editing: SongAboutStore.Entry.Ref? = nil
+    /// The tab it opens on (Android ScrapSheetTab): a clipping's "+N notes" opens Notes.
+    var tab: ScrapSheetTab = .about
 }
+
+/// The track sheet's two tabs (Android YoinTabGroup About / Notes, parity B-F10).
+enum ScrapSheetTab: Hashable { case about, notes }
 
 /// Page 2's track sheet (Android AlbumScrapbookTrackSheet, owner-approved
 /// prototype v3, 2026-11-02), About part: the number, title and score on top
@@ -27,6 +32,11 @@ struct ScrapTrackSheet: View {
     /// The mock's hand-set scores are not editable.
     var scoreEditable = true
     var initialEditing: SongAboutStore.Entry.Ref? = nil
+    var initialTab: ScrapSheetTab = .about
+    /// Plays the song from a note's moment (nil: from the start); the sheet closes.
+    var onPlayFrom: (Int64?) -> Void = { _ in }
+    @Environment(\.dismiss) private var dismiss
+    @State private var tab: ScrapSheetTab = .about
 
     @Environment(\.colorScheme) private var colorScheme
     /// One row at a time is open.
@@ -67,11 +77,16 @@ struct ScrapTrackSheet: View {
                     } else {
                         plainHeader.padding(.bottom, 20)
                     }
-                    Text("About")
-                        .yoinRole(Tokens.type.labelLarge, weight: .semibold)
-                        .foregroundStyle(scheme.onSurfaceVariant)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 4)
+                    Picker("Section", selection: $tab) {
+                        Text("About").tag(ScrapSheetTab.about)
+                        Text("Notes").tag(ScrapSheetTab.notes)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 14)
+                    if tab == .notes {
+                        notesTab
+                    } else {
                     ForEach(Array(short.enumerated()), id: \.element.ref) { i, fact in
                         let open = fact.ref == editing
                         if i > 0, !open, short[i - 1].ref != editing {
@@ -100,6 +115,7 @@ struct ScrapTrackSheet: View {
                         }
                     }
                     .padding(.top, 22)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 28)
@@ -113,6 +129,8 @@ struct ScrapTrackSheet: View {
             .onAppear {
                 guard !started else { return }
                 started = true
+                tab = initialEditing != nil ? .about : initialTab
+                if initialTab == .notes { detent = .large }
                 guard let ref = initialEditing, about.entry(ref) != nil else { return }
                 // One opened from Now Playing is brought into view without the keyboard.
                 focusEditor = false
@@ -138,6 +156,51 @@ struct ScrapTrackSheet: View {
         .animation(Yoin.spatial, value: toast.toast)
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
+    }
+
+    // MARK: Notes
+
+    /// Every note on the song, oldest first: a tap plays the song from its moment (Android
+    /// AlbumScrapbookTrackSheet's Notes tab); a long press deletes it, with Undo.
+    @ViewBuilder
+    private var notesTab: some View {
+        let notes = NotesStore.shared.notes(provider: track.id.provider, trackId: track.id.rawId)
+            .sorted { ($0.positionMs ?? .max, $0.createdAt) < ($1.positionMs ?? .max, $1.createdAt) }
+        if notes.isEmpty {
+            Text("No notes on this song yet")
+                .font(.gsf(15))
+                .foregroundStyle(scheme.onSurfaceVariant)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 12)
+        }
+        ForEach(notes) { note in
+            Button {
+                onPlayFrom(note.positionMs)
+                dismiss()
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    Text(note.positionMs.map(NotesStore.formatPosition) ?? "")
+                        .font(.gsf(12, .medium)).monospacedDigit()
+                        .foregroundStyle(scheme.primary)
+                        .frame(width: 48, alignment: .leading)
+                    Text(note.content).font(.gsf(15))
+                        .foregroundStyle(scheme.onSurface)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .multilineTextAlignment(.leading)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 10)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(note.positionMs.map { "Play from \(NotesStore.formatPosition($0))" } ?? "Play")
+            .contextMenu {
+                Button("Delete", role: .destructive) {
+                    guard let gone = NotesStore.shared.delete(id: note.id) else { return }
+                    toast.show("Deleted", action: .init(label: "Undo") { NotesStore.shared.restore(gone) })
+                }
+            }
+        }
     }
 
     /// The mock's head: the number and title, no score bar.

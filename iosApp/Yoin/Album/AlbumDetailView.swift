@@ -798,6 +798,8 @@ struct AlbumDetailView: View {
                     }
                     trackRow(t).modifier(bandBlur)
                         .trackRow(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
+                            // Page 2, scrolled to the song's piece (Android onViewInScrapbook).
+                            ScrapbookFocusRequest.shared.request(songId: t.id, openSheet: false)
                             settlePage(to: 1, velocity: 0)
                         })) { playAlbum(from: i) }
                 }

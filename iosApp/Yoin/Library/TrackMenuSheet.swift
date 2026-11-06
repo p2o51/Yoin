@@ -246,6 +246,13 @@ struct TrackMenuSheet: View {
         }
         if let view = context.viewInScrapbook {
             go.append(Row(label: "View in Scrapbook", icon: "note", action: view))
+        } else if hasAlbum, track.album.id.provider != "mock" {
+            // Anywhere else: the album opens at page 2 on the song's piece (Android TrackMenu).
+            go.append(Row(label: "View in Scrapbook", icon: "note") { [model, track] in
+                ScrapbookFocusRequest.shared.request(songId: track.track.id, openSheet: false)
+                Self.leaveOverlays(model)
+                model.open(track.album)
+            })
         }
         if let artistId = track.album.artistId, !artist.isEmpty {
             go.append(Row(label: "Go to artist", icon: "artist") { [model, artist] in

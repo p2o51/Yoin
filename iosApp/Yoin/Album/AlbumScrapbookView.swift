@@ -59,6 +59,9 @@ struct AlbumScrapbookView: View {
     /// emblem's award plays when the pager comes to rest here; until then it
     /// waits uncut. No haptics on the album page (D3 §11.12).
     @State private var stamped = false
+    /// View in Scrapbook's song: scrolled to, then [pulsed] while it swells.
+    @State private var pointedOut: MediaId?
+    @State private var pulsed: MediaId?
     @State private var award: ScoreEmblemAward?
 
     private var s: CoverScheme { CoverScheme(album: album, dark: colorScheme == .dark) }
@@ -71,7 +74,7 @@ struct AlbumScrapbookView: View {
 
     // MARK: Records
 
-    private struct Note { var time: String; var text: String }
+    private struct Note { var time: String; var text: String; var positionMs: Int64? = nil }
 
     /// The mock library: hand-set records (screenshots); a server album: the listener's own.
     private var isMock: Bool { album.id.provider == "mock" }
@@ -109,7 +112,34 @@ struct AlbumScrapbookView: View {
             }
         }
         let list = NotesStore.shared.notes(provider: provider, trackId: t.id.rawId)
-        return list.isEmpty ? nil : list.map { Note(time: $0.positionMs.map(NotesStore.formatPosition) ?? "", text: $0.content) }
+        return list.isEmpty ? nil : list.map {
+            Note(time: $0.positionMs.map(NotesStore.formatPosition) ?? "", text: $0.content, positionMs: $0.positionMs)
+        }
+    }
+
+    /// The song's questions, About paragraph and facts on the paper (Android buildAlbumScrapbook).
+    private func about(_ t: Track) -> ScrapAboutPieces {
+        #if DEBUG
+        // `-aboutDemo` files About rows under the mock song: page 2 shows them (screenshots).
+        let demo = SongAboutDemo.mode != nil
+        #else
+        let demo = false
+        #endif
+        guard !isMock || demo else { return .none }
+        return ScrapAboutPieces.of(SongAboutStore.shared.entries(
+            SongAboutStore.key(title: t.title, artist: t.artist ?? album.artist, album: album.title)))
+    }
+
+    /// A ticket's tap (Android onSongClick): the album from this song; a note's from its moment. The
+    /// song already current isn't restarted: it seeks there and plays on.
+    private func play(_ t: Track, at ms: Int64? = nil) {
+        guard !isMock, let index = album.tracks.firstIndex(where: { $0.id == t.id }) else { return }
+        let current = model.player.currentTrack?.id == t.id.rawId
+        if !current {
+            model.play(album.tracks.map { PlaylistEntry(album: album, track: $0) }, startAt: index)
+        }
+        if let ms { model.player.seek(to: Double(ms) / 1000) }
+        if current { model.player.resume() }
     }
     private func starred(_ t: Track) -> Bool { isMock ? [2, 3].contains(t.number) : t.starred }
     /// The Bun's inputs from the local stores (AlbumBun: what page 1 reads too).
@@ -125,6 +155,7 @@ struct AlbumScrapbookView: View {
     private var averageScore: Double? { bun.average }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: Tokens.detail.SCRAPBOOK_PIECE_GAP.cg) {
                 opening
@@ -168,10 +199,24 @@ struct AlbumScrapbookView: View {
         .onDisappear { onScreen = false }
         .onChange(of: ScrapbookFocusRequest.shared.pending) { _, _ in openFocus() }
         .onChange(of: album.tracks.map(\.id)) { _, _ in openFocus() }
+        .onChange(of: pointedOut) { _, id in
+            // View in Scrapbook: the song's piece comes into view and swells a touch, then settles.
+            guard let id else { return }
+            withAnimation(Yoin.spatial) { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: 0.3)) }
+            Task {
+                try? await Task.sleep(for: .milliseconds(650))
+                withAnimation(Yoin.spatial) { pulsed = id }
+                try? await Task.sleep(for: .milliseconds(320))
+                withAnimation(Yoin.spatial) { pulsed = nil }
+                pointedOut = nil
+            }
+        }
         .sheet(item: $trackSheet) { open in
             ScrapTrackSheet(track: open.track, album: album, scheme: s, store: model.store,
-                            scoreEditable: !isMock, initialEditing: open.editing)
+                            scoreEditable: !isMock, initialEditing: open.editing, initialTab: open.tab,
+                            onPlayFrom: { ms in play(open.track, at: ms) })
                 .reportsSheetRise()
+        }
         }
     }
 
@@ -183,6 +228,7 @@ struct AlbumScrapbookView: View {
         Task {
             guard onScreen, let focus = ScrapbookFocusRequest.shared.take(for: album.tracks.map(\.id)),
                   let t = album.tracks.first(where: { $0.id == focus.songId }) else { return }
+            guard focus.openSheet else { return pointedOut = t.id }
             trackSheet = ScrapSheetOpen(track: t, editing: focus.edit)
         }
     }
@@ -427,9 +473,10 @@ struct AlbumScrapbookView: View {
             run.removeAll()
         }
         for t in album.tracks {
-            if notes(t) != nil || t.id == bestTrack?.id {
+            let a = about(t)
+            if notes(t) != nil || t.id == bestTrack?.id || a.needsCluster {
                 flush(); out.append(.cluster(t))
-            } else if score(t) != nil {
+            } else if score(t) != nil || a.touches {
                 run.append(t)
             }
         }
@@ -454,6 +501,25 @@ struct AlbumScrapbookView: View {
                     notesClipping(t, ns)
                         .frame(maxWidth: .infinity, alignment: mirrored ? .leading : .trailing)
                         .zIndex(1)
+                }
+                let a = about(t)
+                if let ask = a.ask {
+                    askCard(t, ask, more: a.moreAsks)
+                        .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
+                        .padding(.top, Tokens.detail.SCRAPBOOK_PIECE_OVERLAP.cg + 6)
+                        .zIndex(2)
+                } else if let line = a.aboutLine {
+                    aboutCard(t, line)
+                        .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
+                        .padding(.top, Tokens.detail.SCRAPBOOK_PIECE_OVERLAP.cg + 6)
+                        .zIndex(2)
+                }
+                ForEach(Array(a.tags.enumerated()), id: \.offset) { i, tag in
+                    factTag(t, tag, index: i, extra: i == a.tags.count - 1 ? a.hiddenTags : 0)
+                        .frame(maxWidth: .infinity, alignment: mirrored ? .leading : .trailing)
+                        .padding(.horizontal, 12)
+                        .padding(.top, Tokens.detail.SCRAPBOOK_PIECE_OVERLAP.cg + (i == 0 ? 8 : 6))
+                        .zIndex(3)
                 }
             }
             .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
@@ -547,26 +613,52 @@ struct AlbumScrapbookView: View {
             }
         }
         .contentShape(TicketShape())
-        // A server album's ticket opens its sheet: score and About (the mock's are hand-set).
-        .onTapGesture { if !isMock { trackSheet = ScrapSheetOpen(track: t) } }
+        // Android Ticket: a tap plays the album from the song, a long press opens its sheet (score,
+        // About, Notes). The mock's are hand-set and do neither.
+        .onTapGesture { play(t) }
+        .onLongPressGesture { if !isMock { trackSheet = ScrapSheetOpen(track: t) } }
         .accessibilityAddTraits(isMock ? [] : .isButton)
+        .accessibilityAction(named: "Score and edit") { if !isMock { trackSheet = ScrapSheetOpen(track: t) } }
+        .scaleEffect(pulsed == t.id ? 1.05 : 1)
         .modifier(layer(tilt("\(t.number)/tk", Tilt.ticket), depth: 0.5))
+        .id(t.id)
     }
 
     private func notesClipping(_ t: Track, _ ns: [Note]) -> some View {
         ZStack(alignment: .leading) {
             Capsule().fill(s.primary).frame(width: 3).padding(.vertical, 14).padding(.leading, 11)
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(ns.prefix(3).enumerated()), id: \.offset) { _, n in
-                    HStack(alignment: .firstTextBaseline, spacing: 0) {
-                        Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.primary)
-                            .frame(width: 42, alignment: .leading)
-                        // userTextStyle: GSF 15, line 1.5 em.
-                        Text(n.text).font(.gsf(15))
-                            .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
-                            .foregroundStyle(s.onSurface)
+                ForEach(Array(ns.prefix(ScrapbookRules.notesShown).enumerated()), id: \.offset) { _, n in
+                    // A note plays the song from its moment (Android NoteLine).
+                    Button { play(t, at: n.positionMs) } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 0) {
+                            Text(n.time).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(s.primary)
+                                .frame(width: 42, alignment: .leading)
+                            // userTextStyle: GSF 15, line 1.5 em.
+                            Text(n.text).font(.gsf(15))
+                                .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
+                                .foregroundStyle(s.onSurface)
+                                .multilineTextAlignment(.leading)
+                        }
+                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
                     }
-                    .padding(.vertical, 4)
+                    .buttonStyle(.plain)
+                    .disabled(isMock)
+                    .accessibilityLabel(n.time.isEmpty ? "Note: \(n.text)" : "Note at \(n.time): \(n.text)")
+                }
+                if ns.count > ScrapbookRules.notesShown {
+                    // Android "+N notes": the rest in the sheet's Notes tab.
+                    Button { trackSheet = ScrapSheetOpen(track: t, tab: .notes) } label: {
+                        Text(ScrapbookText.hiddenNotes(ns.count - ScrapbookRules.notesShown))
+                            .yoinRole(Tokens.type.labelLarge, weight: .semibold)
+                            .foregroundStyle(s.primary)
+                            .padding(.leading, 42).padding(.top, 6).padding(.bottom, 4).padding(.trailing, 8)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isMock)
                 }
             }
             .padding(.leading, 24).padding(.trailing, 12).padding(.vertical, 8)
@@ -574,6 +666,110 @@ struct AlbumScrapbookView: View {
         .frame(width: min(330, 0.78 * 368), alignment: .leading)
         .background(s.surfaceContainerHighest, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         .modifier(layer(-sign(tilt("\(t.number)/tk", Tilt.ticket)) * abs(tilt("\(t.number)/nt", Tilt.paper)), depth: 0.4))
+    }
+
+    // MARK: About on the paper (Android AskCard / AboutCard / FactTag)
+
+    /// A question asked in Now Playing: the listener's words, Gemini's title and whole sentences of
+    /// its answer; "Read all" (and +N more questions) when the sheet holds more. Opens the sheet.
+    private func askCard(_ t: Track, _ ask: ScrapAboutPieces.Ask, more: Int) -> some View {
+        let excerpt = ScrapbookText.answerExcerpt(ask.answer, budget: ScrapbookRules.answerBudget)
+        let tiltValue = tilt("\(t.number)/qa", Tilt.card)
+        return Button { trackSheet = ScrapSheetOpen(track: t) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(ask.question)
+                    .font(.gsf(14)).lineSpacing(YoinType.lineSpacing(size: 14, lineHeight: 14 * 1.45))
+                    .foregroundStyle(s.onTertiaryContainer.opacity(0.8))
+                if let title = ask.title {
+                    Text(title).font(.gsf(16, .semibold))
+                        .foregroundStyle(s.onTertiaryContainer)
+                        .padding(.top, 8)
+                }
+                Text(Self.bold(excerpt.text))
+                    .font(.gsf(14.5)).lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.55))
+                    .foregroundStyle(s.onTertiaryContainer)
+                    .padding(.top, 4)
+                if excerpt.truncated || more > 0 {
+                    HStack(spacing: 8) {
+                        // Android colors it askMark (tertiary); on a light container that read as nothing.
+                        Text("Read all").yoinRole(Tokens.type.labelLarge, weight: .semibold)
+                            .foregroundStyle(s.onTertiaryContainer)
+                        if more > 0 {
+                            Text("+\(more)").font(.gsf(11, .medium)).monospacedDigit()
+                                .foregroundStyle(s.onTertiary)
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .background(s.tertiary, in: .capsule)
+                        }
+                    }
+                    .padding(.top, 6)
+                }
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(s.tertiaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            .overlay(alignment: .topLeading) {
+                Text("Q").font(.gsf(14, .semibold)).foregroundStyle(s.onTertiary)
+                    .frame(width: 28, height: 28)
+                    .background(s.tertiary, in: .circle)
+                    .rotationEffect(.degrees(tiltValue * 6))
+                    .offset(x: -11, y: -12)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Asked about \(t.title): \(ask.title ?? ask.question)")
+        .accessibilityHint("Read all")
+        .frame(maxWidth: 380)
+        .containerRelativeFrame(.horizontal) { w, _ in min(w * 0.92, 380) }
+        .modifier(layer(tiltValue, depth: 0.35))
+    }
+
+    /// The About paragraph's first sentence, for a song with About but no question.
+    private func aboutCard(_ t: Track, _ line: String) -> some View {
+        Button { trackSheet = ScrapSheetOpen(track: t) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("About").yoinRole(Tokens.type.labelLarge, weight: .semibold)
+                    .foregroundStyle(s.onTertiaryContainer.opacity(0.8))
+                Text(Self.bold(line))
+                    .font(.gsf(14.5)).lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.55))
+                    .foregroundStyle(s.onTertiaryContainer)
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(s.tertiaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("About \(t.title): \(line)")
+        .accessibilityHint("Read all")
+        .containerRelativeFrame(.horizontal) { w, _ in min(w * 0.92, 380) }
+        .modifier(layer(tilt("\(t.number)/qa", Tilt.card), depth: 0.35))
+    }
+
+    /// A short fact as a tag (the last one says how many more the sheet has).
+    private func factTag(_ t: Track, _ tag: ScrapAboutPieces.Tag, index: Int, extra: Int) -> some View {
+        Button { trackSheet = ScrapSheetOpen(track: t) } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(tag.label).font(.gsf(11.5, .medium)).foregroundStyle(s.onSecondaryContainer.opacity(0.75))
+                Text(extra > 0 ? "\(tag.value)  +\(extra)" : tag.value)
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(s.onSecondaryContainer)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            // A capped radius, not a capsule: a long value wraps (Android FactTagShape).
+            .background(s.secondaryContainer, in: .rect(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: 340, alignment: .leading)
+        .modifier(layer(tilt("\(t.number)/fact\(index)", Tilt.tag), depth: 0.7))
+    }
+
+    /// `**bold**` runs as bold (Android markdownBoldAnnotatedString).
+    private static func bold(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
     }
 
     // MARK: Receipt
@@ -637,6 +833,8 @@ struct AlbumScrapbookView: View {
         static var ticket: KotlinFloatArray { ScrapbookTilt.shared.TICKET }
         static var sticker: KotlinFloatArray { ScrapbookTilt.shared.STICKER }
         static var cover: KotlinFloatArray { ScrapbookTilt.shared.COVER }
+        static var card: KotlinFloatArray { ScrapbookTilt.shared.CARD }
+        static var tag: KotlinFloatArray { ScrapbookTilt.shared.TAG }
     }
 
     private func tilt(_ key: String, _ set: KotlinFloatArray) -> Double {

@@ -17,14 +17,17 @@ final class ScrapbookFocusRequest {
         var at: Date
         /// The About row whose editor opens (nil: just the song's sheet).
         var edit: SongAboutStore.Entry.Ref?
+        /// The song's sheet opens (Now Playing's Manage); false: the page only scrolls to the song's
+        /// piece and points it out (the song menu's View in Scrapbook, Android onViewInScrapbook).
+        var openSheet = true
     }
 
     static let freshFor: TimeInterval = 10
 
     private(set) var pending: Pending?
 
-    func request(songId: MediaId, edit: SongAboutStore.Entry.Ref? = nil, now: Date = Date()) {
-        pending = Pending(songId: songId, at: now, edit: edit)
+    func request(songId: MediaId, edit: SongAboutStore.Entry.Ref? = nil, openSheet: Bool = true, now: Date = Date()) {
+        pending = Pending(songId: songId, at: now, edit: edit, openSheet: openSheet || edit != nil)
     }
 
     /// Takes the request when it is for one of `songIds` and still fresh; nil otherwise.
