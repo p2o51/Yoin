@@ -20,11 +20,11 @@ enum LandingService: String, CaseIterable, Sendable {
     }
 }
 
-/// Android LandingStep, minus the steps iOS has nothing behind yet: Spotoolfy
-/// (no Spotoolfy import on iOS) and Edge (no scroll-edge styles on iOS). Home
-/// (the section toggles and order, saved per account) comes once an account exists.
+/// Android LandingStep, minus Edge (no scroll-edge styles on iOS). Spotoolfy
+/// ("Using Spotoolfy?") comes right before Spotify's connect step; Home (the
+/// section toggles and order, saved per account) once an account exists.
 enum LandingStep: String, CaseIterable, Sendable, Hashable {
-    case hello, pick, about, subsonic, spotify, appleMusic, home, ready
+    case hello, pick, about, subsonic, spotoolfy, spotify, appleMusic, home, ready
 
     var service: LandingService? {
         switch self {
@@ -53,10 +53,14 @@ enum LandingMode: Sendable, Equatable {
 }
 
 /// The step list for a selection (Android `landingSteps`): one connect step per picked service, in the
-/// catalog's order; Home only once an account exists to own the layout.
+/// catalog's order, Spotify's preceded by the Spotoolfy question (its notes go into the Spotify account
+/// connected next); Home only once an account exists to own the layout.
 func landingSteps(picked: Set<LandingService>, hasAccount: Bool = false) -> [LandingStep] {
     var steps: [LandingStep] = [.hello, .pick, .about]
-    steps += LandingService.allCases.filter { picked.contains($0) }.compactMap(LandingStep.connect)
+    for service in LandingService.allCases where picked.contains(service) {
+        if service == .spotify { steps.append(.spotoolfy) }
+        if let step = LandingStep.connect(service) { steps.append(step) }
+    }
     if hasAccount { steps.append(.home) }
     steps.append(.ready)
     return steps
@@ -119,8 +123,9 @@ struct LandingFlow: Equatable, Sendable {
     }
 
     /// Android primaryFor: what the pill's button says and how strongly.
-    func primary(hasAccount: Bool) -> LandingPrimary {
+    func primary(hasAccount: Bool, spotoolfy: SpotoolfyStepState = SpotoolfyStepState()) -> LandingPrimary {
         switch step {
+        case .spotoolfy: return spotoolfyPrimary(spotoolfy)
         case .hello: return LandingPrimary(label: String(localized: "Get started"), style: .filled, arrow: true)
         case .pick:
             if !picked.isEmpty { return LandingPrimary(label: String(localized: "Next"), style: .filled) }
@@ -136,8 +141,13 @@ struct LandingFlow: Equatable, Sendable {
     }
 
     /// The pill's button was refused (Pick with nothing picked and no account).
-    func refusesPrimary(hasAccount: Bool) -> Bool {
-        step == .pick && picked.isEmpty && !hasAccount
+    func refusesPrimary(hasAccount: Bool, spotoolfy: SpotoolfyStepState = SpotoolfyStepState()) -> Bool {
+        switch step {
+        case .pick: picked.isEmpty && !hasAccount
+        // No answer yet, or the file is still being read.
+        case .spotoolfy: spotoolfy.choice == nil || spotoolfy.file == .reading
+        default: false
+        }
     }
 }
 
@@ -148,6 +158,7 @@ func landingBubble(_ step: LandingStep, noAccounts: Bool) -> (title: String, bod
     case .pick: ("What do you listen with?", nil)
     case .about: ("Here's my part, and what stays with your service.", nil)
     case .subsonic: ("Where's your server?", nil)
+    case .spotoolfy: (String(localized: "Using Spotoolfy?"), nil)
     case .spotify: ("Spotify wants an app ID from you.", "I'll walk you through it.")
     case .appleMusic: ("Apple Music needs your OK.", nil)
     case .home: (String(localized: "What goes on Home?"), nil)

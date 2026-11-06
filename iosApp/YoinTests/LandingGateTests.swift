@@ -67,9 +67,9 @@ final class LandingGateTests: XCTestCase {
     func test_should_listOneConnectStepPerPickedService_when_picked() {
         XCTAssertEqual(landingSteps(picked: []), [.hello, .pick, .about, .ready])
         XCTAssertEqual(landingSteps(picked: [.appleMusic, .subsonic]), [.hello, .pick, .about, .subsonic, .appleMusic, .ready])
-        XCTAssertEqual(landingSteps(picked: [.spotify]), [.hello, .pick, .about, .spotify, .ready])
+        XCTAssertEqual(landingSteps(picked: [.spotify]), [.hello, .pick, .about, .spotoolfy, .spotify, .ready])
         XCTAssertEqual(landingSteps(picked: [.appleMusic, .spotify, .subsonic]),
-                       [.hello, .pick, .about, .subsonic, .spotify, .appleMusic, .ready])
+                       [.hello, .pick, .about, .subsonic, .spotoolfy, .spotify, .appleMusic, .ready])
     }
 
     func test_should_pickSpotify_when_toggled() {

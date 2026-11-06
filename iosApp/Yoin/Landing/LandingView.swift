@@ -40,6 +40,9 @@ struct LandingView: View {
     @State private var bubbleTask: Task<Void, Never>?
     @State private var started = false
     @State private var subsonicForm = LandingSubsonicForm()
+    @State private var spotoolfy = SpotoolfyStepModel()
+    @State private var pickingSpotoolfyFile = false
+    @State private var askDropSpotoolfy = false
     /// The Home step's choice (a re-run starts from the account's own).
     @State private var homeLayout = HomeLayout.default
     /// Accounts there before this landing opened: any other one was added here.
@@ -109,6 +112,34 @@ struct LandingView: View {
         }
         .task { await start() }
         .onChange(of: model.profiles.profiles.map(\.id)) { _, ids in profilesChanged(ids) }
+        .onChange(of: spotoolfy.state) { commitSpotoolfyIfReady() }
+        .onChange(of: spotoolfy.refusals) { refuse() }
+        .onChange(of: flow.step) { _, step in
+            // Leaving the step with the recap open (a back swipe): it closes.
+            if step != .spotoolfy { spotoolfy.recapShown = false }
+        }
+        .fileImporter(isPresented: $pickingSpotoolfyFile, allowedContentTypes: [.json, .plainText, .data]) { result in
+            Task { await spotoolfy.pick(result) }
+        }
+        .sheet(isPresented: Bindable(spotoolfy).recapShown) {
+            if let recap = spotoolfy.recap {
+                SpotoolfyRecapView(recap: recap, scheme: scheme) { spotoolfy.recapShown = false }
+                    .presentationDetents([.large])
+                    .presentationBackground(scheme.surfaceContainer)
+            }
+        }
+        .alert(String(localized: "Spotoolfy's data won't be kept"), isPresented: $askDropSpotoolfy) {
+            Button(String(localized: "Go back and connect")) {
+                move(forward: false) { $0.goTo(flow.steps.contains(.spotify) ? .spotify : .pick) }
+            }
+            Button(String(localized: "Don't keep it"), role: .destructive) {
+                spotoolfy.discardUnwritten()
+                finish()
+            }
+            Button(String(localized: "Cancel"), role: .cancel) {}
+        } message: {
+            Text("It goes into a Spotify account. With none connected, it's left out.")
+        }
         #if DEBUG
         .task { await runScript() }
         #endif
@@ -203,6 +234,7 @@ struct LandingView: View {
         case .hello: EmptyView()
         case .pick: LandingPickScene(picked: flow.picked, scheme: scheme, onToggle: toggle)
         case .about: LandingAboutScene(picked: flow.picked, scheme: scheme)
+        case .spotoolfy: LandingSpotoolfyScene(model: spotoolfy, scheme: scheme)
         case .home:
             LandingHomeScene(layout: homeLayout, scheme: scheme,
                              onEnabled: { section, on in homeLayout = homeLayout.withEnabled(section, on) },
@@ -211,7 +243,8 @@ struct LandingView: View {
             LandingSubsonicScene(form: $subsonicForm, connected: flow.connected.contains(.subsonic),
                                  scheme: scheme, reactions: reactions, connectRequests: connectRequests)
         case .spotify:
-            LandingSpotifyScene(connected: flow.connected.contains(.spotify), scheme: scheme, reactions: reactions)
+            LandingSpotifyScene(connected: flow.connected.contains(.spotify), scheme: scheme, reactions: reactions,
+                                importedLine: spotoolfy.writtenLine)
         case .appleMusic:
             LandingAppleScene(connected: flow.connected.contains(.appleMusic), scheme: scheme, reactions: reactions)
         case .ready: LandingReadyScene(accounts: accounts, scheme: scheme)
@@ -272,7 +305,7 @@ struct LandingView: View {
     private func pill(_ f: LandingFrame) -> some View {
         let hello = flow.step == .hello
         let showBack = !hello || session.mode == .rerun
-        let primary = flow.primary(hasAccount: !accounts.isEmpty)
+        let primary = flow.primary(hasAccount: !accounts.isEmpty, spotoolfy: spotoolfy.state)
         return LandingPill(hello: hello, showBack: showBack, backIsClose: !flow.canGoBack,
                            primary: primary, dotCount: flow.steps.count - 1,
                            dotIndex: max(flow.index - 1, 0), scheme: scheme,
@@ -344,7 +377,23 @@ struct LandingView: View {
         switch flow.step {
         case .ready: finish()
         case .pick where flow.refusesPrimary(hasAccount: !accounts.isEmpty): refuse()
+        case .spotoolfy:
+            if flow.refusesPrimary(hasAccount: !accounts.isEmpty, spotoolfy: spotoolfy.state) {
+                refuse()
+            } else if spotoolfy.state.choice == .using, spotoolfyNeedsFile {
+                pickingSpotoolfyFile = true
+            } else {
+                move(forward: true) { $0.next() }
+            }
         default: move(forward: true) { $0.next() }
+        }
+    }
+
+    /// Nothing usable read yet: the pill chooses a file instead of moving on.
+    private var spotoolfyNeedsFile: Bool {
+        switch spotoolfy.state.file {
+        case .none, .failed: true
+        default: false
         }
     }
 
@@ -364,6 +413,7 @@ struct LandingView: View {
         confirms += 1
         withAnimation(Yoin.spatial) { flow.markConnected(service) }
         mascot.cheer()
+        commitSpotoolfyIfReady()
     }
 
     /// The accounts changed: Home joins the steps with the first one, and the ones added here are remembered.
@@ -372,6 +422,16 @@ struct LandingView: View {
         profilesAtStart = start
         for id in ids where !start.contains(id) && !createdProfileIds.contains(id) { createdProfileIds.append(id) }
         withAnimation(Yoin.spatial) { flow.setHasAccount(!ids.isEmpty) }
+    }
+
+    /// Spotify connected with a Spotoolfy file waiting: it goes into the account this landing just added.
+    private func commitSpotoolfyIfReady() {
+        guard flow.connected.contains(.spotify), spotoolfy.state.unwritten else { return }
+        let before = profilesAtStart ?? []
+        let account = model.profiles.profiles
+            .filter { $0.service == .spotify && !before.contains($0.id) }
+            .max { $0.createdAt < $1.createdAt }
+        if let account { spotoolfy.commit(to: account) }
     }
 
     private func start() async {
@@ -443,6 +503,12 @@ struct LandingView: View {
     /// shell's bar is in the same place), the mascot waves and flies to the corner, the surface fades.
     private func finish() {
         guard !finishing else { return }
+        // A Spotoolfy file read but never put into an account: say so before it's dropped.
+        if spotoolfy.state.unwritten {
+            refuse()
+            askDropSpotoolfy = true
+            return
+        }
         finishing = true
         confirms += 1
         writeHomeLayouts()
@@ -477,6 +543,7 @@ struct LandingView: View {
     /// A re-run closed from its first step: fades back to where it was opened.
     private func close() {
         guard !finishing else { return }
+        spotoolfy.discardUnwritten()
         finishing = true
         withAnimation(Yoin.slowEffects) { reveal = 0 } completion: { model.landing = nil }
     }

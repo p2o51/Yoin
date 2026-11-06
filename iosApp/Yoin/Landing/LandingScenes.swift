@@ -337,7 +337,7 @@ private struct ServiceCta: View {
     }
 }
 
-private struct ErrorLine: View {
+struct ErrorLine: View {
     var text: String?
     var scheme: CoverScheme
     var body: some View {
@@ -499,6 +499,8 @@ struct LandingSpotifyScene: View {
     var connected: Bool
     var scheme: CoverScheme
     var reactions: LandingReactions
+    /// "12 notes are now in <account>": the Spotoolfy file went into the account this step connected.
+    var importedLine: String? = nil
     @Environment(AppModel.self) private var model
     @Environment(\.openURL) private var openURL
     @State private var clientId = LandingSpotifyScene.savedClientId
@@ -562,9 +564,17 @@ struct LandingSpotifyScene: View {
             ErrorLine(text: error, scheme: scheme)
             ServiceCta(service: .spotify, label: String(localized: "Continue"), busyLabel: working ? String(localized: "Waiting for Spotify…") : nil,
                        done: connected, action: connect)
+            if let importedLine {
+                Text(importedLine)
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 10)
+            }
         }
         .animation(Yoin.spatial, value: error)
         .animation(Yoin.spatial, value: urisOpen)
+        .animation(Yoin.spatial, value: importedLine)
         .onChange(of: clientId) { if error != nil { error = nil } }
     }
 
