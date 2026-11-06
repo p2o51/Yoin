@@ -893,6 +893,7 @@ final class MacLibrary {
             let found = await apple.isInLibrary(songId)
             guard gen == self.generation, let found else { return }
             self.inLibrary[songId] = found
+            if found { self.pendingLibrary.remove(songId) }
             if found { self.starredOverride["song:\(songId)"] = nil }
         }
     }

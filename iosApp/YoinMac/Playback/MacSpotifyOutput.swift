@@ -218,14 +218,18 @@ final class MacSpotifyOutput: AudioOutput {
                 // Confirmed only once Spotify reports this song on that device (Android / design.md 起播确认):
                 // until then the start stays buffering — no PAUSE, nothing counted. Spotify may relink the song
                 // to another market's id: after the wait, anything playing there counts; nothing playing fails.
+                // The device it plays on can change meanwhile (Devices): the one owned now is the one asked. The
+                // last read alone decides (an empty or other-device read clears it); 10 s at most, each read 3 s.
                 var confirmed = false
                 var playingThere = false
-                for _ in 0..<12 {
+                let deadline = Date().addingTimeInterval(10)
+                while Date() < deadline {
                     try? await Task.sleep(for: .milliseconds(700))
                     guard gen == generation else { return }
-                    guard let now = try? await s.playerNow(), now.deviceId == id else { continue }
+                    let device = owned?.device ?? id
+                    guard let now = await Self.quickNow(s), now.deviceId == device else { playingThere = false; continue }
                     playingThere = now.isPlaying
-                    if now.trackURI == item.uri { confirmed = true; break }
+                    if now.trackURI == item.uri, now.isPlaying || !wantsPlay { confirmed = true; break }
                 }
                 guard gen == generation else { return }
                 guard confirmed || playingThere else {
@@ -233,20 +237,32 @@ final class MacSpotifyOutput: AudioOutput {
                     fail("Couldn't start playback.", gen: gen)
                     return
                 }
+                let owner = owned ?? (s, id)
                 startedAt = Date()
                 startedOn = name
                 quietUntil = Date().addingTimeInterval(2.5)
                 guard gen == generation else { return }
                 // Named only once it's really playing there.
-                onDevice(Self.isThisMac(name) ? nil : name)
-                if !wantsPlay { command((s, id), "PUT", "me/player/pause") }
+                if owner.device == id { onDevice(Self.isThisMac(name) ? nil : name) }
+                if !wantsPlay { command(owner, "PUT", "me/player/pause") }
                 playing = wantsPlay
                 lastTick = Date()
                 events?.outputIsBufferingDidChange(false)
-                watch(item, owner: (s, id), gen: gen)
+                watch(item, owner: owner, gen: gen)
             }
         } catch {
             fail(SpotifySource.message(for: error), gen: gen)
+        }
+    }
+
+    /// /me/player, given 3 s at most (its own retries under rate limiting can take far longer).
+    private static func quickNow(_ s: SpotifySource) async -> SpotifySource.PlayerNow? {
+        await withTaskGroup(of: SpotifySource.PlayerNow?.self) { group in
+            group.addTask { try? await s.playerNow() }
+            group.addTask { try? await Task.sleep(for: .seconds(3)); return nil }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
         }
     }
 

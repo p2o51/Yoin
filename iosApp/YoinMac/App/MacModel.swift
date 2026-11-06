@@ -869,6 +869,8 @@ final class MacModel {
         searchKind = nil
         spotifyQueue = []
         spotifyModes = (false, "off")
+        noticeHide?.cancel()
+        notice = nil
         mirrored = nil
         authToken += 1
         playRequest += 1
