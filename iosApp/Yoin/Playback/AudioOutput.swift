@@ -23,10 +23,14 @@ protocol AudioOutput: AnyObject {
     /// Next / previous on a song the output plays that isn't the engine's (see
     /// `outputExternalTrackDidChange`): the player that owns it skips.
     func skipExternal(forward: Bool)
+    /// Shuffle or repeat changed in the engine (an output whose player keeps its own modes, Spotify
+    /// playing an album or playlist as itself, follows them).
+    func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode)
 }
 
 extension AudioOutput {
     func skipExternal(forward: Bool) {}
+    func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode) {}
 }
 
 /// Callbacks from an [AudioOutput], all on the main actor.
@@ -52,11 +56,31 @@ protocol AudioOutputEvents: AnyObject {
     /// on the device Yoin drives): shown as now playing while the engine's queue stays parked; nil when
     /// the engine's own song is back. [positionSec] and [playing] are that song's.
     func outputExternalTrackDidChange(_ track: PlayableTrack?, positionSec: Double, playing: Bool)
+    /// The songs auto-advance plays after the current one, in order (wrapping on repeat all, the current
+    /// song again on repeat one), at most [limit]: what a player that carries on by itself is handed.
+    func outputUpcoming(limit: Int) -> [URL]
+    /// The player that owns the sound moved on by itself past what the engine knows (Spotify ran
+    /// through its list while iOS suspended Yoin): the engine takes [url] as current, nothing loaded.
+    /// false: not in the queue.
+    func outputDidJump(to url: URL) -> Bool
+    /// The queue as the output may compare it: stream URLs in play order, whether the listener
+    /// queued any of them, and the play modes.
+    func outputQueueSnapshot() -> OutputQueueSnapshot
+}
+
+struct OutputQueueSnapshot: Equatable {
+    var urls: [URL] = []
+    var userQueued = false
+    var shuffle = false
+    var repeatMode: RepeatMode = .all
 }
 
 extension AudioOutputEvents {
     func outputPlayModesDidChangeExternally(shuffle: Bool?, repeatMode: RepeatMode?) {}
     func outputExternalTrackDidChange(_ track: PlayableTrack?, positionSec: Double, playing: Bool) {}
+    func outputUpcoming(limit: Int) -> [URL] { [] }
+    func outputDidJump(to url: URL) -> Bool { false }
+    func outputQueueSnapshot() -> OutputQueueSnapshot { OutputQueueSnapshot() }
 
     /// A failure of the song itself.
     func outputDidFail(_ message: String) { outputDidFail(message, network: false) }

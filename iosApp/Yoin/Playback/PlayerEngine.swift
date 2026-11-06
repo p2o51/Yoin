@@ -299,6 +299,7 @@ final class PlayerEngine {
             originalOrder = nil
         }
         syncPreload()
+        output.playModesDidChange(shuffle: shuffle, repeatMode: repeatMode)
     }
 
     /// Now Playing's round play-mode button (Android `PlayMode.next()`), one
@@ -318,6 +319,7 @@ final class PlayerEngine {
         guard mode != repeatMode else { return }
         repeatMode = mode
         syncPreload()
+        output.playModesDidChange(shuffle: shuffle, repeatMode: repeatMode)
     }
 
     // MARK: Queue edits
@@ -598,6 +600,43 @@ final class PlayerEngine {
 // MARK: - AudioOutputEvents
 
 extension PlayerEngine: AudioOutputEvents {
+    func outputUpcoming(limit: Int) -> [URL] {
+        guard let i = currentIndex, limit > 0 else { return [] }
+        switch repeatMode {
+        case .one: return Array(repeating: streamURL(for: queue[i]), count: limit)
+        case .off: return queue[(i + 1)...].prefix(limit).map { streamURL(for: $0) }
+        case .all:
+            guard queue.count > 1 else { return [] }
+            return (1...limit).map { streamURL(for: queue[(i + $0) % queue.count]) }
+        }
+    }
+
+    func outputDidJump(to url: URL) -> Bool {
+        guard let i = currentIndex, !queue.isEmpty else { return false }
+        // The first copy ahead in play order (wrapping), the current song last.
+        let order = (1...queue.count).map { (i + $0) % queue.count }
+        guard let index = order.first(where: { streamURL(for: queue[$0]) == url }), index != i else { return false }
+        currentIndex = index
+        ended = false
+        failure = nil
+        let item = queue[index]
+        timeBaseSec = 0
+        progress.positionSec = 0
+        progress.durationSec = item.track.durationSec
+        beginScrobble(item, at: 0)
+        let next = autoAdvanceIndex.map { queue[$0] }
+        preloadedID = next?.id
+        preloadedURL = next.map { streamURL(for: $0) }
+        output.preload(preloadedURL)
+        onStateChange?()
+        return true
+    }
+
+    func outputQueueSnapshot() -> OutputQueueSnapshot {
+        OutputQueueSnapshot(urls: queue.map { streamURL(for: $0) }, userQueued: queue.contains(where: \.userQueued),
+                            shuffle: shuffle, repeatMode: repeatMode)
+    }
+
     func outputTimeDidChange(_ outputSec: Double) {
         if externalTrack != nil {
             // Spotify's own song: its clock, nothing counted for the queue's song.

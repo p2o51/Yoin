@@ -535,8 +535,47 @@ final class AppModel {
         case .artist(let ref): .artist(ref)
         default: nil
         }
+        playbackSystem.spotifyOutput?.contextPlan = spotifyContext(entries, tracks: tracks)
         if shuffle { player.setShuffle(true) }
         player.play(queue: tracks, startAt: shuffle ? Int.random(in: 0..<tracks.count) : min(startAt, tracks.count - 1))
+    }
+
+    /// The album or playlist page a Spotify queue starts from, as Spotify's own context (C-F1): this
+    /// iPhone's Spotify then plays on through it while iOS suspends Yoin. Lists from Home, Library or
+    /// Search have none.
+    private func spotifyContext(_ entries: [PlaylistEntry], tracks: [PlayableTrack]) -> SpotifyContextPlan? {
+        guard store.spotify != nil, tracks.allSatisfy({ $0.provider == SpotifyMapping.provider }) else { return nil }
+        let entryIds = entries.map(\.track.id.rawId)
+        switch playingFrom {
+        case .album(let a) where a.id.provider == SpotifyMapping.provider:
+            // The album page's songs are the album's, in its order.
+            return Self.spotifyContext(uri: "spotify:album:\(a.id.rawId)", contextIds: entryIds,
+                                       indices: Array(entryIds.indices), queueIds: tracks.map(\.id))
+        case .playlist(let id, _):
+            // A playlist's items that aren't songs count in its indices (positions).
+            let info = playlistInfo(id)
+            guard info.id.provider == SpotifyMapping.provider, let positions = info.positions,
+                  info.entries.map(\.track.id.rawId) == entryIds else { return nil }
+            return Self.spotifyContext(uri: "spotify:playlist:\(id)", contextIds: entryIds, indices: positions,
+                                       queueIds: tracks.map(\.id))
+        default:
+            return nil
+        }
+    }
+
+    /// [queueIds] (the playable songs, in order) placed in a context of [contextIds] at [indices]; nil
+    /// when one isn't there.
+    nonisolated static func spotifyContext(uri: String, contextIds: [String], indices: [Int],
+                                           queueIds: [String]) -> SpotifyContextPlan? {
+        guard contextIds.count == indices.count, !queueIds.isEmpty else { return nil }
+        var from = 0
+        var placed: [Int] = []
+        for id in queueIds {
+            guard let i = contextIds[from...].firstIndex(of: id) else { return nil }
+            placed.append(indices[i])
+            from = i + 1
+        }
+        return SpotifyContextPlan(uri: uri, trackIds: queueIds, indices: placed)
     }
 
     /// Plays what [load] reads (a page's songs), unless something else started meanwhile (Codex F02:
@@ -560,6 +599,7 @@ final class AppModel {
             if player.externalTrack != nil { return play(entries) }
             // An empty player takes them in order and waits for Play (Android addMediaItems).
             playingFrom = nil
+            playbackSystem.spotifyOutput?.contextPlan = nil
             return player.cue(queue: tracks)
         }
         if next { tracks.reversed().forEach(player.playNext) } else { tracks.forEach(player.addToQueue) }

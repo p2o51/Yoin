@@ -114,6 +114,7 @@ final class SpotifyRemote: NSObject {
     }
 
     var player: SPTAppRemotePlayerAPI? { remote?.playerAPI }
+    var content: SPTAppRemoteContentAPI? { remote?.contentAPI }
 
     private func finishConnect(_ ok: Bool) {
         let waiters = connectWaiters
@@ -188,6 +189,16 @@ final class SpotifyAudioOutput: AudioOutput {
     private var next: Item?
     /// The next song Spotify was handed with the current one (what it carries on to by itself).
     private var handedNext: Item?
+    /// Another device: everything handed after the current song (a Web API start takes the queue,
+    /// up to [handOffLimit], so the device carries on while iOS suspends Yoin; parity C-F1).
+    private var handedList: [Item] = []
+    /// The album or playlist the queue was started from (set by the app on each start): played as
+    /// Spotify's own context on this iPhone, so Spotify carries on through it while Yoin is away.
+    var contextPlan: SpotifyContextPlan?
+    /// This iPhone plays [contextPlan] as a context (the current start went that way).
+    private var contextActive = false
+    /// The handed list went stale mid-song (the queue changed): re-handed at the next song, not now.
+    private var staleHandoff = false
     private var generation = 0
     private var wantsPlay = false
     /// A start is on its way (Codex N04): a Resume now would wake the previous song first.
@@ -305,6 +316,9 @@ final class SpotifyAudioOutput: AudioOutput {
         self.current = item
         self.next = Item(next)
         handedNext = nil
+        handedList = []
+        contextActive = false
+        staleHandoff = false
         awaitingWake = false
         externalURI = nil
         adopted = false
@@ -357,19 +371,11 @@ final class SpotifyAudioOutput: AudioOutput {
     private func startHere(_ item: Item, gen: Int) async {
         if await remote.connect(timeout: Self.localConnectSec) {
             guard gen == generation else { return }
-            remote.player?.play(item.trackURI) { [weak self] _, error in
-                MainActor.assumeIsolated {
-                    guard let self, gen == self.generation else { return }
-                    if let error {
-                        PlayTrace.log("SP AR play failed \(error.localizedDescription)")
-                        self.starting = false
-                        self.events?.outputDidFail("Open Spotify on this iPhone, then tap Play", network: true)
-                    } else {
-                        self.startedHere(item)
-                    }
-                }
+            if let plan = contextPlan, let events,
+               let index = plan.contextIndex(of: item, following: events.outputQueueSnapshot()) {
+                return startContextHere(item, plan: plan, index: index, gen: gen)
             }
-            return
+            return startSingleHere(item, gen: gen)
         }
         guard gen == generation else { return }
         awaitingWake = true
@@ -378,22 +384,90 @@ final class SpotifyAudioOutput: AudioOutput {
 
     nonisolated static let localConnectSec: Double = 1.5
 
+    /// The queue is the album or playlist it was started from: Spotify plays that as its own context
+    /// from the song (playItem + skipToTrackIndex), with Yoin's shuffle and repeat, and carries on
+    /// through it by itself while iOS suspends Yoin. A context that can't be read starts the song alone.
+    private func startContextHere(_ item: Item, plan: SpotifyContextPlan, index: Int, gen: Int) {
+        guard let content = remote.content, let player = remote.player else { return startSingleHere(item, gen: gen) }
+        PlayTrace.log("SP context start \(plan.uri) at=\(index)")
+        content.fetchContentItem(forURI: plan.uri) { [weak self] result, error in
+            MainActor.assumeIsolated {
+                guard let self, gen == self.generation else { return }
+                guard let contextItem = result as? SPTAppRemoteContentItem, error == nil else {
+                    PlayTrace.log("SP context unreadable \(error?.localizedDescription ?? "-"): the song alone")
+                    return self.startSingleHere(item, gen: gen)
+                }
+                player.play(contextItem, skipToTrackIndex: index) { [weak self] _, error in
+                    MainActor.assumeIsolated {
+                        guard let self, gen == self.generation else { return }
+                        if let error {
+                            PlayTrace.log("SP context play failed \(error.localizedDescription): the song alone")
+                            return self.startSingleHere(item, gen: gen)
+                        }
+                        self.startedHere(item, context: true)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The song alone through App Remote (the engine's next goes into Spotify's queue).
+    private func startSingleHere(_ item: Item, gen: Int) {
+        remote.player?.play(item.trackURI) { [weak self] _, error in
+            MainActor.assumeIsolated {
+                guard let self, gen == self.generation else { return }
+                if let error {
+                    PlayTrace.log("SP AR play failed \(error.localizedDescription)")
+                    self.starting = false
+                    self.events?.outputDidFail("Open Spotify on this iPhone, then tap Play", network: true)
+                } else {
+                    self.startedHere(item)
+                }
+            }
+        }
+    }
+
     /// The song plays here: the engine's next goes into Spotify's queue (it carries on there while iOS
     /// suspends Yoin), Spotify's own modes off, the position and a pause applied.
-    private func startedHere(_ item: Item) {
-        PlayTrace.log("SP started here \(item.trackId)")
+    private func startedHere(_ item: Item, context: Bool = false) {
+        PlayTrace.log("SP started here \(item.trackId)\(context ? " in its context" : "")")
         starting = false
         playing = wantsPlay
         lastTick = Date()
         modesQuietUntil = Date().addingTimeInterval(Self.modesQuietSec)
-        remote.player?.setShuffle(false, callback: nil)
-        remote.player?.setRepeatMode(.off, callback: nil)
+        contextActive = context
+        let snapshot = events?.outputQueueSnapshot() ?? OutputQueueSnapshot()
+        // A context plays with Yoin's modes (Spotify runs it); a lone song with Spotify's off (the engine
+        // runs the queue).
+        remote.player?.setShuffle(context && snapshot.shuffle, callback: nil)
+        remote.player?.setRepeatMode(context ? Self.spotifyRepeat(snapshot.repeatMode) : .off, callback: nil)
         if pendingStart > 1 { remote.player?.seek(toPosition: Int(pendingStart * 1000), callback: nil) }
         lastTime = pendingStart > 1 ? pendingStart : 0
         if !wantsPlay { remote.player?.pause(nil) }
+        if context {
+            // The context carries on by itself: what it plays next is the engine's next while unshuffled.
+            handedNext = snapshot.shuffle ? nil : next
+            return
+        }
         // The next goes into Spotify's queue once the song is seen playing: right after the start App Remote
         // refused it (-3000, 51's build 7 log, 18:22:38).
         enqueueWhenPlaying = true
+    }
+
+    nonisolated static func spotifyRepeat(_ mode: RepeatMode) -> SPTAppRemotePlaybackOptionsRepeatMode {
+        switch mode {
+        case .one: .track
+        case .all: .context
+        case .off: .off
+        }
+    }
+
+    func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode) {
+        // Only a context Spotify runs takes Yoin's modes; a lone song keeps Spotify's off.
+        guard contextActive, isHere, !silent, let player = remote.player else { return }
+        modesQuietUntil = Date().addingTimeInterval(Self.modesQuietSec)
+        player.setShuffle(shuffle, callback: nil)
+        player.setRepeatMode(Self.spotifyRepeat(repeatMode), callback: nil)
     }
 
     private var enqueueWhenPlaying = false
@@ -410,7 +484,7 @@ final class SpotifyAudioOutput: AudioOutput {
 
     /// The engine's next, queued in Spotify once per song.
     private func enqueueNext(retried: Bool = false) {
-        guard isHere, !onSpotifysOwnSong, handedNext == nil || retried, let next, let player = remote.player else { return }
+        guard isHere, !contextActive, !onSpotifysOwnSong, handedNext == nil || retried, let next, let player = remote.player else { return }
         enqueueWhenPlaying = false
         handedNext = next
         let gen = generation, song = current
@@ -532,18 +606,20 @@ final class SpotifyAudioOutput: AudioOutput {
             && now.deviceName.localizedCaseInsensitiveContains("iPhone")
     }
 
-    /// The Web API start: [current, next] from the remembered position. Spotify's own modes go off
+    /// The Web API start: the current song and the queue after it (up to [handOffLimit], so the device
+    /// carries on through it while iOS suspends Yoin; parity C-F1) from the remembered position. Spotify's own modes go off
     /// first, and only when [modes] (the device's state just read) has one on: a mode change right
     /// after the start reached an Android device while it loaded the song and left it with none (51's
     /// log, build 4: shuffle took 2 s, then the Pixel had no song).
     private func send(_ item: Item, gen: Int, modes: SpotifySource.PlayerNow? = nil) async {
         let next = self.next
+        let after = Self.handOff(next: next, upcoming: (events?.outputUpcoming(limit: Self.handOffLimit - 1) ?? []).compactMap(Item.init))
         // The start often runs as Spotify comes to the front: iOS would suspend Yoin mid-request.
         let bg = UIApplication.shared.beginBackgroundTask(withName: "spotify-start")
         defer { if bg != .invalid { UIApplication.shared.endBackgroundTask(bg) } }
         do {
             let at = pendingStart > 1 ? Int(pendingStart * 1000) : 0
-            let uris = [item.trackURI] + (next.map { [$0.trackURI] } ?? [])
+            let uris = [item.trackURI] + after.map(\.trackURI)
             PlayTrace.log("SP send PUT play \(uris) at=\(at) wantsPlay=\(wantsPlay) target=\(target ?? "-")")
             guard let control else { throw SpotifyPlaybackError("Sign in to Spotify again in Settings.") }
             if let modes, modes.shuffle || modes.repeatState != "off" {
@@ -560,7 +636,9 @@ final class SpotifyAudioOutput: AudioOutput {
                 if stopped { Task { try? await control.pausePlayback(deviceId: device) } }
                 return
             }
-            handedNext = next
+            handedList = after
+            handedNext = after.first
+            staleHandoff = false
             starting = false
             playing = wantsPlay
             lastTime = Double(at) / 1000
@@ -688,6 +766,11 @@ final class SpotifyAudioOutput: AudioOutput {
 
     func preload(_ next: URL?) {
         self.next = Item(next)
+        // A context carries on by itself: its next is the engine's while the queue follows it unshuffled.
+        if contextActive, let snapshot = events?.outputQueueSnapshot() {
+            handedNext = contextPlan?.follows(snapshot) == true && !snapshot.shuffle ? self.next : nil
+            return
+        }
         scheduleRehand()
     }
 
@@ -700,9 +783,22 @@ final class SpotifyAudioOutput: AudioOutput {
         guard !onSpotifysOwnSong else { return }
         // Here the next goes into Spotify's queue instead (it can't be taken back out).
         guard !isHere else { return enqueueNext() }
-        guard !silent, !starting, playing, current != nil,
-              Self.needsRehand(handed: handedNext, next: next, remainingSec: duration > 0 ? duration - currentTimeSec : nil)
-        else { return }
+        guard !silent, !starting, playing, current != nil else { return }
+        let upcoming = (events?.outputUpcoming(limit: Self.handOffLimit - 1) ?? []).compactMap(Item.init)
+        let fresh = Self.handOff(next: next, upcoming: upcoming)
+        switch Self.rehandTiming(handed: handedList, fresh: fresh, elapsedSec: currentTimeSec,
+                                 remainingSec: duration > 0 ? duration - currentTimeSec : nil) {
+        case .none:
+            staleHandoff = false
+            return
+        case .atNextSong:
+            // Not mid-song (it would cut in): the next song is the engine's, read right at the switch.
+            staleHandoff = true
+            if duration > 0 { refresh(after: max(duration - currentTimeSec, 0) + Self.endReadSlackSec) }
+            return
+        case .now:
+            break
+        }
         rehandTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Self.rehandDelayMs))
             guard !Task.isCancelled else { return }
@@ -711,9 +807,11 @@ final class SpotifyAudioOutput: AudioOutput {
     }
 
     private func rehand() {
-        // Paused since it was scheduled: the next play hands the new pair.
-        guard !onSpotifysOwnSong, wantsPlay, playing, !starting, let current,
-              Self.needsRehand(handed: handedNext, next: next, remainingSec: duration > 0 ? duration - currentTimeSec : nil)
+        // Paused since it was scheduled: the next play hands the new list.
+        guard !onSpotifysOwnSong, wantsPlay, playing, !starting, let current else { return }
+        let fresh = Self.handOff(next: next, upcoming: (events?.outputUpcoming(limit: Self.handOffLimit - 1) ?? []).compactMap(Item.init))
+        guard Self.rehandTiming(handed: handedList, fresh: fresh, elapsedSec: currentTimeSec,
+                                remainingSec: duration > 0 ? duration - currentTimeSec : nil) == .now
         else { return }
         pendingStart = currentTimeSec
         starting = true
@@ -730,6 +828,49 @@ final class SpotifyAudioOutput: AudioOutput {
     }
 
     nonisolated static let rehandMinRemainingSec: Double = 4
+
+    /// What a Web API start hands after the current song: the engine's upcoming list, or (an engine that
+    /// doesn't list it) just its next.
+    nonisolated static func handOff(next: Item?, upcoming: [Item]) -> [Item] {
+        upcoming.isEmpty ? (next.map { [$0] } ?? []) : upcoming
+    }
+
+    /// A Web API start carries the queue this far (Spotify's uris limit).
+    nonisolated static let handOffLimit = 100
+
+    enum RehandTiming: Equatable { case none, now, atNextSong }
+
+    /// The device was handed [handed] after the current song; the engine now has [fresh]. Same list:
+    /// nothing. Different: at the song's very start a new start costs nothing audible, so now; later
+    /// it waits for the next song (51: never cut into a song), which the end's read starts as the
+    /// engine's. Nothing handed (a list that ran out) waits for the end too.
+    nonisolated static func rehandTiming(handed: [Item], fresh: [Item], elapsedSec: Double,
+                                         remainingSec: Double?) -> RehandTiming {
+        guard handed != fresh else { return .none }
+        guard !handed.isEmpty else { return .atNextSong }
+        if elapsedSec <= rehandEarlySec, (remainingSec ?? .infinity) > rehandMinRemainingSec { return .now }
+        return .atNextSong
+    }
+
+    nonisolated static let rehandEarlySec: Double = 3
+    /// A read this long after the song's expected end catches Spotify on the stale next at once.
+    nonisolated static let endReadSlackSec: Double = 0.4
+
+    /// Spotify moved on to [uri] by itself, beyond the next it was handed (it ran through its list or its
+    /// context while iOS suspended Yoin): the song the engine should jump to, or nil when following
+    /// it would leave Yoin's queue (a stale list, a context the queue no longer follows, a song that
+    /// isn't in either). [handed] is the Web API list (another device); [context] this iPhone's.
+    nonisolated static func jumpTarget(uri: String, handed: [Item], upcoming: [Item],
+                                       context: SpotifyContextPlan?, snapshot: OutputQueueSnapshot) -> Item? {
+        if let context {
+            guard context.follows(snapshot), context.trackIds.contains(where: { "spotify:track:\($0)" == uri })
+            else { return nil }
+            return snapshot.urls.compactMap(Item.init).first { $0.trackURI == uri }
+        }
+        guard let i = handed.firstIndex(where: { $0.trackURI == uri }),
+              Array(handed[...i]) == Array(upcoming.prefix(i + 1)) else { return nil }
+        return handed[i]
+    }
     nonisolated static let rehandDelayMs = 600
     nonisolated static let modesQuietSec: Double = 3
 
@@ -977,6 +1118,9 @@ final class SpotifyAudioOutput: AudioOutput {
         current = nil
         next = nil
         handedNext = nil
+        handedList = []
+        contextActive = false
+        staleHandoff = false
         playing = false
         timer?.invalidate()
         timer = nil
@@ -1119,8 +1263,24 @@ final class SpotifyAudioOutput: AudioOutput {
                 // Spotify carried on to the song the engine has next.
                 current = handed
                 self.next = nil
-                handedNext = nil
+                if !handedList.isEmpty { handedList.removeFirst() }
+                handedNext = contextActive ? nil : handedList.first
                 return events?.outputDidAdvanceToPreloaded() ?? ()
+            }
+            if let events {
+                let snapshot = events.outputQueueSnapshot()
+                let upcoming = events.outputUpcoming(limit: Self.handOffLimit).compactMap(Item.init)
+                if let target = Self.jumpTarget(uri: uri, handed: handedList, upcoming: upcoming,
+                                                context: contextActive ? contextPlan : nil, snapshot: snapshot),
+                   events.outputDidJump(to: Self.streamURL(trackId: target.trackId)) {
+                    PlayTrace.log("SP caught up with Spotify on \(target.trackId)")
+                    current = target
+                    if let i = handedList.firstIndex(of: target) { handedList.removeFirst(i + 1) }
+                    handedNext = contextActive ? (snapshot.shuffle ? nil : next) : handedList.first
+                    sawCurrent = true
+                    events.outputTimeDidChange(lastTime)
+                    return
+                }
             }
             if duration > 0, before >= duration - Self.carriedOnWindowSec {
                 // The song ran out and Spotify carried on by itself to something else (the list was
@@ -1155,6 +1315,16 @@ final class SpotifyAudioOutput: AudioOutput {
     /// Shuffle or repeat turned on in the Spotify app (Yoin keeps both off there): the engine takes the
     /// mode over and Spotify's goes back off. Off can't be told apart from Yoin's own setting.
     private func takeOverModes(shuffling: Bool, repeatRaw: UInt) {
+        if contextActive {
+            // A context runs on Yoin's modes: one changed in the Spotify app is the listener's, taken over
+            // as it is (Spotify's isn't turned back off).
+            guard Date() >= modesQuietUntil, let snapshot = events?.outputQueueSnapshot() else { return }
+            let mode = Self.repeatMode(repeatRaw)
+            guard shuffling != snapshot.shuffle || mode != snapshot.repeatMode else { return }
+            modesQuietUntil = Date().addingTimeInterval(Self.modesQuietSec)
+            events?.outputPlayModesDidChangeExternally(shuffle: shuffling, repeatMode: mode)
+            return
+        }
         guard Date() >= modesQuietUntil,
               let modes = Self.externalModes(shuffling: shuffling, repeatRaw: repeatRaw)
         else { return }
@@ -1162,6 +1332,14 @@ final class SpotifyAudioOutput: AudioOutput {
         let device = target
         Task { await control?.playModesOff(deviceId: device) }
         events?.outputPlayModesDidChangeExternally(shuffle: modes.shuffle, repeatMode: modes.repeatMode)
+    }
+
+    nonisolated static func repeatMode(_ raw: UInt) -> RepeatMode {
+        switch raw {
+        case SPTAppRemotePlaybackOptionsRepeatMode.track.rawValue: .one
+        case SPTAppRemotePlaybackOptionsRepeatMode.context.rawValue: .all
+        default: .off
+        }
     }
 
     /// What the Spotify app's modes ask of the engine; nil when both are off (Yoin's own state there).
@@ -1203,4 +1381,29 @@ final class SpotifyPlayingDevice {
     var name: String?
     /// Posted by Devices after a transfer (userInfo: id, name).
     nonisolated static let transferred = Notification.Name("SpotifyPlayingDevice.transferred")
+}
+
+/// The album or playlist a Spotify queue was started from, as Spotify's context (Android SpotifyStartPlan's
+/// native context): its URI and the queue's songs with their index in it.
+struct SpotifyContextPlan: Equatable, Sendable {
+    /// spotify:album:… or spotify:playlist:…
+    var uri: String
+    /// The queue's songs in the context's order (Spotify ids).
+    var trackIds: [String]
+    /// Each of [trackIds]' index in the context (a playlist's items that aren't songs count).
+    var indices: [Int]
+
+    /// The queue (as the engine plays it) is still the context: the same songs, none queued by the
+    /// listener, and (unshuffled) in the context's order. Shuffled, Spotify picks the order.
+    func follows(_ snapshot: OutputQueueSnapshot) -> Bool {
+        guard !snapshot.userQueued else { return false }
+        let ids = snapshot.urls.map { $0.scheme == SpotifyAudioOutput.scheme ? $0.lastPathComponent : "" }
+        return snapshot.shuffle ? ids.sorted() == trackIds.sorted() : ids == trackIds
+    }
+
+    /// Where [item] sits in the context, when the queue still follows it.
+    func contextIndex(of item: SpotifyAudioOutput.Item, following snapshot: OutputQueueSnapshot) -> Int? {
+        guard follows(snapshot), let i = trackIds.firstIndex(of: item.trackId), indices.indices.contains(i) else { return nil }
+        return indices[i]
+    }
 }

@@ -72,6 +72,32 @@ final class SpotifyMirroringTests: XCTestCase {
         XCTAssertNil(engine.currentTrack)
     }
 
+    /// C-F1: the Pixel is handed the queue and plays on through it while iOS suspends Yoin; back in front,
+    /// Yoin follows it to the song it reached, without starting anything again.
+    func test_should_catchUpWithThePixel_when_itPlayedOnThroughTheQueueWhileYoinWasAway() async throws {
+        MirrorStub.route = { s in s.method == "GET" ? .init(status: 200, body: Self.pixel(shuffle: false)) : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: ["s1", "s2", "s3", "s4"].map(song))
+        try await waitUntil { self.puts.contains("/v1/me/player/play") }
+        // The start is seen playing on the Pixel...
+        MirrorStub.route = { s in
+            s.method == "GET" ? .init(status: 200, body: Self.pixel(uri: "spotify:track:s1", shuffle: false)) : .init(status: 204, body: "")
+        }
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(engine.currentTrack?.id, "s1")
+        // ...and, back from the background, it is two songs on: Yoin follows it there.
+        MirrorStub.route = { s in
+            s.method == "GET" ? .init(status: 200, body: Self.pixel(uri: "spotify:track:s3", shuffle: false)) : .init(status: 204, body: "")
+        }
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        try await waitUntil { self.engine.currentTrack?.id == "s3" }
+        XCTAssertEqual(engine.currentItem?.track.id, "s3")
+        XCTAssertNil(engine.externalTrack)
+        XCTAssertEqual(puts.filter { $0 == "/v1/me/player/play" }.count, 1)
+    }
+
     func test_should_turnModesOffBeforeThePlay_when_startingOnThePlayingPixel() async throws {
         MirrorStub.route = { s in s.method == "GET" ? .init(status: 200, body: Self.pixel()) : .init(status: 204, body: "") }
         spotify.adopt = { false }
