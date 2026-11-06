@@ -3,6 +3,7 @@ import SwiftUI
 /// Signed out: the sign-in page. Signed in: the window shell.
 struct MacGate: View {
     @Environment(MacModel.self) private var model
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Group {
@@ -23,6 +24,14 @@ struct MacGate: View {
         .onChange(of: model.session.accountKey) { model.accountDidChange() }
         .onOpenURL { _ = CloudSync.handle(url: $0) }
         .task { await MacQA.endTourLanding(model) }
+        #if DEBUG
+        // `-openSettings YES` (QA screenshots): the Settings window, a moment after launch.
+        .task {
+            guard UserDefaults.standard.bool(forKey: "openSettings") else { return }
+            try? await Task.sleep(for: .seconds(3))
+            openSettings()
+        }
+        #endif
         // Handoff: the song playing (and its album), advertised while there is one. The iOS app doesn't take
         // it yet; the type and keys are documented in docs/mac.md for when it does.
         .userActivity(MacHandoff.playingType, isActive: model.player.currentTrack != nil) { activity in

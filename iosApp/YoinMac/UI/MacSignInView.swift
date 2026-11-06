@@ -176,11 +176,13 @@ struct MacSettingsView: View {
     @AppStorage(MacMiniPlayer.floatsKey) private var miniFloats = true
     @AppStorage("lyricsShowTranslation") private var showTranslation = true
     @AppStorage(MacSettings.appearanceKey) private var appearance = "system"
+    /// The tab shown (`-settingsTab <name>` opens on one, debug).
+    @State private var tab = UserDefaults.standard.string(forKey: "settingsTab") ?? "accounts"
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             MacAccountsSettings()
-                .tabItem { Label("Accounts", image: "yoin.artist") }
+                .tabItem { Label("Accounts", image: "yoin.artist") }.tag("accounts")
 
             Form {
                 MacPlaybackCacheSection()
@@ -194,7 +196,7 @@ struct MacSettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .tabItem { Label("Storage", image: "yoin.download") }
+            .tabItem { Label("Storage", image: "yoin.download") }.tag("storage")
 
             Form {
                 Section("Lyrics") {
@@ -217,21 +219,29 @@ struct MacSettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .tabItem { Label("General", image: "yoin.settings") }
+            .tabItem { Label("General", image: "yoin.settings") }.tag("general")
 
             MacSyncSettings()
-                .tabItem { Label("Sync", image: "yoin.cloud") }
+                .tabItem { Label("Sync", image: "yoin.cloud") }.tag("sync")
 
             MacBackupsSettings()
-                .tabItem { Label("Backups", image: "yoin.playlist") }
+                .tabItem { Label("Backups", image: "yoin.playlist") }.tag("backups")
 
             MacNeoDBSettings()
-                .tabItem { Label("NeoDB", image: "yoin.star") }
+                .tabItem { Label("NeoDB", image: "yoin.star") }.tag("neodb")
 
             MacAboutSettings()
-                .tabItem { Label("About", image: "yoin.info") }
+                .tabItem { Label("About", image: "yoin.info") }.tag("about")
         }
         .frame(width: 520, height: 440)
+        #if DEBUG
+        // `-settingsTour YES` (QA screenshots): the account page first, then General.
+        .task {
+            guard UserDefaults.standard.bool(forKey: "settingsTour") else { return }
+            try? await Task.sleep(for: .seconds(20))
+            tab = "general"
+        }
+        #endif
     }
 }
 
