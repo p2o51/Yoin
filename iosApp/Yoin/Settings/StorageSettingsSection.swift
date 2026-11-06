@@ -24,11 +24,10 @@ struct StorageSettingsSection: View {
                 .accessibilityAddTraits(.isHeader)
             VStack(spacing: 2) {
                 cacheRow
-                    .background(row, in: CloudSyncView.segment(0, 3))
-                // Android #131: Settings › Storage › Downloads.
-                DownloadsEntryRow(app: app, row: row, shape: CloudSyncView.segment(1, 3))
+                    .background(row, in: CloudSyncView.segment(0, 2))
+                // Downloads (Subsonic only) are on the Subsonic account's page (SubsonicAccountSettings).
                 // Android keeps Cloud sync in this group (Settings › Storage).
-                CloudSyncEntryRow(app: app, row: row, shape: CloudSyncView.segment(2, 3))
+                CloudSyncEntryRow(app: app, row: row, shape: CloudSyncView.segment(1, 2))
             }
         }
         .animation(Yoin.effects, value: bytes)

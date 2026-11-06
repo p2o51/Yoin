@@ -89,6 +89,10 @@ struct ServiceSetupView: View {
                 if shown == .appleMusic, adding { appleButton }
                 if shown == .spotify, adding || needsSpotifySignIn { spotifyButton }
                 if editing != nil { removeGroup }
+                // What belongs to this service only, at the bottom of its page (51's rule).
+                if shown == .subsonic, editing != nil {
+                    SubsonicAccountSettings(app: app, row: row, showsDownloads: isActive)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 40 + ShellBarMetrics.clearance)
