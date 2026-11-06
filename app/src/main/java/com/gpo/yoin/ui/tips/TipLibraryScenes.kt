@@ -128,6 +128,7 @@ internal fun MiniPlayerMenuDemo(playing: Boolean) {
         delay(1_800)
         moveTo(0.5f, 0.12f)
         tap { open = false }
+        lift()
         delay(500)
     }) {
         DemoLibraryPage(
@@ -176,21 +177,24 @@ internal fun DownloadsDemo(playing: Boolean) {
         delay(300)
         moveTo("row2", fx = 0.45f)
         hold { open = true }
-        delay(500)
+        // Off the song the moment the sheet is up, so the dot never sits on its buttons.
         moveTo("offline", fx = 0.4f)
-        tap {
-            downloaded = true
-            open = false
-        }
+        delay(250)
+        tap {}
+        // The row answers first; the sheet goes down once the dot has left it.
+        downloaded = true
+        lift()
+        open = false
         delay(900)
         moveTo("row2", fx = 0.45f)
         hold { open = true }
-        delay(400)
         moveTo("offline", fx = 0.4f)
+        delay(300)
         lift()
         delay(1_800)
         moveTo("row0", fx = 0.5f)
         tap { open = false }
+        lift()
         delay(500)
     }) {
         DemoAlbumPage(album = album, cover = cover, onLongPressRow = { open = true })
