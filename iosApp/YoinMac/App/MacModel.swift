@@ -514,7 +514,20 @@ final class MacModel {
     }
 
     func entry(for t: PlayableTrack?) -> PlaylistEntry? { t.flatMap { known[$0.id] } }
-    var currentEntry: PlaylistEntry? { entry(for: player.currentTrack) }
+    /// The current song as an entry: the queue's own, else one made from the track (Spotify's own song,
+    /// picked in Spotify: its title and cover).
+    var currentEntry: PlaylistEntry? {
+        guard let t = player.currentTrack else { return nil }
+        if let e = entry(for: t) { return e }
+        let p = MacArtistDetail.placeholder(t.albumId ?? t.id)
+        let album = Album(id: MediaId(provider: t.provider, rawId: t.albumId ?? "song:\(t.id)"), title: t.album,
+                          artist: t.artist, year: 0,
+                          palette: CoverPalette(a: p.a, b: p.b, c: p.c, cover: t.coverURL.map { CoverRef(url: $0) }),
+                          tracks: [])
+        let track = Track(id: MediaId(provider: t.provider, rawId: t.id), number: 0, title: t.title,
+                          durationSec: Int(t.durationSec), rating: nil, artist: t.artist)
+        return PlaylistEntry(album: album, track: track)
+    }
 
     /// The song before the current one in play order (for the room's top edge).
     var previousTrack: PlayableTrack? {

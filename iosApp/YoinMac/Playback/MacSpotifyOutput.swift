@@ -61,6 +61,7 @@ final class MacSpotifyOutput: AudioOutput {
 
     func load(_ current: URL, next: URL?, startSec: Double) {
         generation += 1
+        showingExternal = false
         poll?.cancel()
         self.current = Item(current)
         playing = false
@@ -223,7 +224,16 @@ final class MacSpotifyOutput: AudioOutput {
 
     private struct NowDTO: Decodable {
         struct DeviceDTO: Decodable { let id: String?; let name: String? }
-        struct ItemDTO: Decodable { let id: String?; let durationMs: Int? }
+        struct ItemDTO: Decodable {
+            struct Named: Decodable { let name: String? }
+            struct Image: Decodable { let url: String? }
+            struct AlbumDTO: Decodable { let id: String?; let name: String?; let images: [Image]? }
+            let id: String?
+            let name: String?
+            let durationMs: Int?
+            let artists: [Named]?
+            let album: AlbumDTO?
+        }
         let device: DeviceDTO?
         let isPlaying: Bool?
         let progressMs: Int?
@@ -274,14 +284,19 @@ final class MacSpotifyOutput: AudioOutput {
                     }
                     continue
                 }
-                // Moved to another device on the same song (Spotify Connect, the listener's move): Yoin follows.
-                if let id = now.device?.id, id != owner.device, now.item?.id == item.trackId {
+                // Moved to another device (Spotify Connect, the listener's move): Yoin follows it there.
+                if let id = now.device?.id, id != owner.device {
                     owner = (owner.source, id)
                     self.owned = owner
                     let name = now.device?.name ?? "another device"
                     self.onDevice(Self.isThisMac(name) ? nil : name)
                 }
                 let progress = now.progressMs.map { Double($0) / 1000 }
+                if now.item?.id == item.trackId, self.showingExternal {
+                    // The queue's own song is back.
+                    self.showingExternal = false
+                    self.events?.outputExternalTrackDidChange(nil, positionSec: progress ?? 0, playing: now.isPlaying ?? false)
+                }
                 if now.item?.id == item.trackId {
                     if let d = now.item?.durationMs, Double(d) / 1000 != self.duration {
                         self.duration = Double(d) / 1000
@@ -324,12 +339,40 @@ final class MacSpotifyOutput: AudioOutput {
                         self.events?.outputPlayingDidChangeExternally(isPlaying)
                     }
                 } else if !quiet {
-                    // Another song on this device: Spotify's autoplay after the end, or the listener's choice.
-                    if nearEnd { self.ended(gen: gen) } else { self.letGo(gen: gen, message: nil) }
-                    return
+                    // Another song there: after this one's last seconds it's Spotify's autoplay (the end, the
+                    // engine goes on); otherwise the listener picked it in Spotify — Now Playing shows it
+                    // (iOS dfbe17ea), the queue stays parked under it, controls act on it.
+                    if nearEnd, !self.showingExternal { self.ended(gen: gen); return }
+                    if let t = Self.external(now.item) {
+                        self.showingExternal = true
+                        self.playing = now.isPlaying ?? false
+                        self.lastTime = progress ?? 0
+                        self.lastTick = Date()
+                        self.events?.outputExternalTrackDidChange(t, positionSec: progress ?? 0,
+                                                                  playing: now.isPlaying ?? false)
+                    }
                 }
             }
         }
+    }
+
+    /// Spotify plays a song that isn't the queue's (see `watch`).
+    private var showingExternal = false
+
+    /// Next / previous on Spotify's own song: Spotify skips, on the device Yoin drives.
+    func skipExternal(forward: Bool) {
+        guard let o = owned else { return }
+        command(o, "POST", forward ? "me/player/next" : "me/player/previous")
+    }
+
+    /// Spotify's song as the engine shows it (title, artists, album and its cover).
+    private static func external(_ i: NowDTO.ItemDTO?) -> PlayableTrack? {
+        guard let i, let id = i.id else { return nil }
+        let artist = (i.artists ?? []).compactMap(\.name).joined(separator: ", ")
+        return PlayableTrack(id: id, provider: SpotifyMapping.provider, title: i.name ?? "", artist: artist,
+                             album: i.album?.name ?? "", albumId: i.album?.id,
+                             durationSec: Double(i.durationMs ?? 0) / 1000, streamURL: streamURL(trackId: id),
+                             coverURL: i.album?.images?.first?.url.flatMap(URL.init(string:)))
     }
 
     private func ended(gen: Int) {
