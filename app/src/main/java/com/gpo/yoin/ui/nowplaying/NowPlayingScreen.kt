@@ -3348,7 +3348,6 @@ private fun LandscapePlayingContent(
         val columnWidth = frameWidth - columnX
         // Stacked: the transport and the title live in the left column, which
         // narrows to the cover while a page is open.
-        val leftWidth = lerpDp(geometry.leftWidth, geometry.restCover, if (stacked) detailProgress else 0f)
         val transportX = if (stacked) 0.dp else columnX
         val transportWidth = if (stacked) geometry.leftWidth else columnWidth
         val transportTop = if (stacked) {
@@ -3357,7 +3356,7 @@ private fun LandscapePlayingContent(
             lerpDp(titleTop - LandscapeTransportGap - geometry.restTransport, focusTransportTop, focus)
         }
         val titleX = if (stacked) 0.dp else columnX
-        val titleWidth = if (stacked) leftWidth else columnWidth
+        val titleWidth = if (stacked) geometry.leftWidth else columnWidth
 
         // The lyric area: under the header and the tabs at rest and expanded,
         // the whole column in focus (down to the transport — at ease, to the
@@ -3645,34 +3644,64 @@ private fun LandscapePlayingContent(
         }
 
         // ── Title + artist, one row at the bottom (vertical space is the
-        // scarce axis here). Stacked it sits under the cover.
-        Row(
-            modifier = Modifier
-                .offset(x = titleX, y = titleTop)
-                .width(titleWidth)
-                .height(LandscapeTitleRow),
-            horizontalArrangement = Arrangement.spacedBy(HeroOneLineGap),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            NowPlayingMarqueeTitle(
-                text = state.songTitle,
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                stretchScale = 1f,
+        // scarce axis here). Stacked it sits under the cover; with a page
+        // open the column narrows to the cover, so the artist drops under
+        // the title in the room the transport left.
+        val stackedTitleBlock = if (stacked) detailProgress else 0f
+        if (stackedTitleBlock > HiddenLayerVisibilityThreshold) {
+            Column(
                 modifier = Modifier
-                    .weight(1f, fill = false)
-                    .alignByBaseline(),
-            )
-            Text(
-                text = state.artist,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                    .offset(x = 0.dp, y = frameHeight - LandscapeStackedTitleBlock)
+                    .width(geometry.restCover)
+                    .height(LandscapeStackedTitleBlock)
+                    .graphicsLayer { alpha = stackedTitleBlock },
+                verticalArrangement = Arrangement.Bottom,
+            ) {
+                NowPlayingMarqueeTitle(
+                    text = state.songTitle,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    stretchScale = 1f,
+                )
+                Text(
+                    text = state.artist,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (stackedTitleBlock < 1f - HiddenLayerVisibilityThreshold) {
+            Row(
                 modifier = Modifier
-                    .maxWidthFraction(HeroOneLineArtistShare)
-                    .alignByBaseline(),
-            )
+                    .offset(x = titleX, y = titleTop)
+                    .width(titleWidth)
+                    .height(LandscapeTitleRow)
+                    .graphicsLayer { alpha = 1f - stackedTitleBlock },
+                horizontalArrangement = Arrangement.spacedBy(HeroOneLineGap),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                NowPlayingMarqueeTitle(
+                    text = state.songTitle,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    stretchScale = 1f,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .alignByBaseline(),
+                )
+                Text(
+                    text = state.artist,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .maxWidthFraction(HeroOneLineArtistShare)
+                        .alignByBaseline(),
+                )
+            }
         }
 
         // ── Header + tabs (last: the header's end slot may drop over the page,
@@ -3726,7 +3755,7 @@ private fun LandscapePlayingContent(
                     onAlbumClick = onAlbumClick,
                     onArtistClick = onArtistClick,
                     onPlaylistClick = onPlaylistClick,
-                    singleLine = true,
+                    fitLines = true,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -3919,6 +3948,7 @@ private val LandscapeLyricsToTransport = 8.dp
 
 /** Focus: the progress row under the one-row transport (shortFocusControlsHeight). */
 private val LandscapePageBottomFade = 24.dp
+private val LandscapeStackedTitleBlock = 60.dp
 private val LandscapeFocusProgressRow = 36.dp
 private const val LandscapeFocusLinesAbove = 2
 private const val LandscapeFocusLyricScale = 1.35f
@@ -5783,6 +5813,11 @@ private fun PlayingFromLabel(
     onPlaylistClick: (String) -> Unit,
     singleLine: Boolean = false,
     modifier: Modifier = Modifier,
+    /**
+     * One line while kind + name fit the width, else kind over name — the
+     * landscape header, whose width the end slot's actions decide.
+     */
+    fitLines: Boolean = false,
 ) {
     val kindLabel: String?
     val nameLabel: String
@@ -5812,10 +5847,33 @@ private fun PlayingFromLabel(
         }
     }
 
+    if (fitLines && kindLabel != null) {
+        val measurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val kindStyle = MaterialTheme.typography.labelSmall
+        val nameStyle = MaterialTheme.typography.labelMedium
+        BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.CenterStart) {
+            val oneLinePx = remember(kindLabel, nameLabel, kindStyle, nameStyle, density) {
+                measurer.measure(kindLabel, kindStyle, maxLines = 1).size.width +
+                    measurer.measure(nameLabel, nameStyle, maxLines = 1).size.width +
+                    with(density) { (6.dp + 8.dp).roundToPx() }
+            }
+            PlayingFromLabel(
+                activityContext = activityContext,
+                fallbackAlbumName = fallbackAlbumName,
+                onAlbumClick = onAlbumClick,
+                onArtistClick = onArtistClick,
+                onPlaylistClick = onPlaylistClick,
+                singleLine = oneLinePx <= constraints.maxWidth,
+            )
+        }
+        return
+    }
+
     val routeInteraction = clickAction?.let { action ->
         rememberNowPlayingRouteInteraction(onNavigate = action)
     }
-    val columnModifier = modifier
+    val interactionModifier = Modifier
         .then(
             routeInteraction?.let { interaction ->
                 Modifier
@@ -5830,6 +5888,7 @@ private fun PlayingFromLabel(
             } ?: Modifier
         )
         .padding(vertical = 2.dp, horizontal = 4.dp)
+    val columnModifier = modifier.then(interactionModifier)
 
     if (singleLine && kindLabel != null) {
         // Wide: kind + name on ONE horizontal line using the full bar width, so
