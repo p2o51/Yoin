@@ -71,6 +71,11 @@ internal data class SpotifyRemoteSnapshot(
     val connectionErrorMessage: String? = null,
     val connectionFailure: SpotifyConnectFailure? = null,
     val observedPlayerState: Boolean = false,
+    /**
+     * The other Spotify Connect device Spotify plays on (a speaker, a computer), shown on Now
+     * Playing; null when it plays on this phone or Yoin doesn't know where.
+     */
+    val playingOn: String? = null,
 ) {
     /** [queue] without the song from outside it ([foreignIndex]): the queue Yoin handed Spotify. */
     val yoinQueue: List<Track>
@@ -116,17 +121,11 @@ sealed interface SpotifyConnectFailure {
 
     /**
      * The Spotify app didn't answer a start the user is waiting on (asleep in
-     * the background, or closed). Opening it wakes App Remote; the start then
-     * runs when Yoin is back, unless Spotify is already playing something.
+     * the background, or closed), and no other device plays Spotify either.
+     * Opening it wakes App Remote; the start then runs when Yoin is back,
+     * unless Spotify is already playing something.
      */
     data object SpotifyAsleep : SpotifyConnectFailure
-
-    /**
-     * Spotify didn't answer here, and the Web API says it is playing on
-     * [deviceName], another of the account's devices. Yoin doesn't take that
-     * over unasked: the shell offers "Play here".
-     */
-    data class PlayingElsewhere(val deviceName: String) : SpotifyConnectFailure
 
     fun userMessage(resources: Resources? = null): String = when (this) {
         NoClientId -> resources?.getString(R.string.player_spotify_no_client_id)
@@ -145,9 +144,18 @@ sealed interface SpotifyConnectFailure {
         }
         SpotifyAsleep -> resources?.getString(R.string.player_spotify_asleep)
             ?: "Can't reach Spotify. Open it, come back, and this song plays."
-        is PlayingElsewhere -> resources?.getString(R.string.player_spotify_playing_elsewhere, deviceName)
-            ?: "Spotify is playing on $deviceName."
     }
+}
+
+/**
+ * Spotify Connect through the Web API, for when Spotify plays on another device and App Remote
+ * can't reach the Spotify app on this phone: where and what it plays, and the commands that
+ * drive that device. Null state: no device is active.
+ */
+internal interface SpotifyConnectWeb {
+    suspend fun state(): com.gpo.yoin.data.source.spotify.SpotifyConnectState?
+
+    suspend fun command(command: com.gpo.yoin.data.source.spotify.SpotifyConnectCommand, deviceId: String?)
 }
 
 /**
@@ -177,11 +185,10 @@ internal class SpotifyAppRemotePlayer(
     /** Spotify's queue through the Web API ([SpotifyQueueMirror.syncUserQueue]); null when there's no way to read it. */
     private val queueReader: suspend () -> SpotifyPlayerQueue? = { null },
     /**
-     * The name of another device Spotify is playing on right now, through the Web API
-     * (`GET /me/player`, a read that changes nothing); null when it plays nowhere, plays
-     * here, or can't be read. Asked only once App Remote can't reach the Spotify app.
+     * Spotify Connect through the Web API ([SpotifyConnectWeb]): where Spotify plays, and the
+     * commands for another device. Null where there is no way to reach it (tests, no account).
      */
-    private val playingElsewhere: suspend () -> String? = { null },
+    private val connectWeb: SpotifyConnectWeb? = null,
     /** The Spotify app's own launcher entry ([SpotifyAppRemoteCompat.launchIntent]); null when there's none. */
     private val spotifyLaunchIntent: (Context) -> android.content.Intent? = SpotifyAppRemoteCompat::launchIntent,
 ) {
@@ -221,7 +228,11 @@ internal class SpotifyAppRemotePlayer(
     private val startMutex = Mutex()
     private var pendingStart: PendingStart? = null
 
-    private class PendingStart(val track: Track) {
+    private class PendingStart(
+        val track: Track,
+        /** The Web API start, on a device id (null: this phone); null when the start has none. */
+        val webStart: (suspend (deviceId: String?) -> Unit)? = null,
+    ) {
         val heard = CompletableDeferred<Unit>()
         var commandSent = false
     }
@@ -282,8 +293,16 @@ internal class SpotifyAppRemotePlayer(
     /** The user opened Spotify from the hint: the held start may run on the next connect. */
     private var openedForStart: Boolean = false
 
-    /** "Play here": the held start runs even if Spotify is playing (on another device) by then. */
-    private var playHere: Boolean = false
+    /**
+     * The other device Spotify plays on while App Remote isn't connected: Yoin drives it
+     * through the Web API ([connectWeb]) and polls its state ([webPollJob]). Null otherwise.
+     */
+    private var webDevice: WebDevice? = null
+    private var webPollJob: Job? = null
+    private var webCheckJob: Job? = null
+    private var deviceNameJob: Job? = null
+
+    private data class WebDevice(val id: String?, val name: String)
 
     /** The host is now [context] (another started Activity); the connection stays as it is. */
     fun onHostChanged(context: Context) {
@@ -302,6 +321,7 @@ internal class SpotifyAppRemotePlayer(
             connectIfPossible()
             if (pendingOperations.isNotEmpty()) armUnreachableWatch()
         }
+        if (webDevice != null) startWebPolling(immediately = true)
     }
 
     /**
@@ -332,9 +352,14 @@ internal class SpotifyAppRemotePlayer(
             }
             return
         }
+        if (webDevice != null) {
+            startWebPolling(immediately = true)
+        }
         if (connectJob?.isActive == true) return
         Log.d(tag, "warmConnection: attempting soft connect for PlayerState observation")
         connectIfPossible()
+        // Meanwhile: Spotify on a speaker or a computer shows (and is driven) without the app here.
+        checkOtherDevice()
     }
 
     fun onHostStop() {
@@ -348,6 +373,8 @@ internal class SpotifyAppRemotePlayer(
         transportRetryAvailable = true
         unreachableWatch?.cancel()
         unreachableWatch = null
+        webPollJob?.cancel()
+        webPollJob = null
         // Cancel any in-flight handshake so a late onConnected can't
         // resurrect playback in the background (assign a remote, flush
         // queued play ops, then defeat the next onHostStart's
@@ -372,6 +399,9 @@ internal class SpotifyAppRemotePlayer(
         replaceableOperationJob = null
         pendingStart = null
         clearUnreachable()
+        exitWebMode()
+        webCheckJob?.cancel()
+        deviceNameJob?.cancel()
         disconnectRemote(preserveSnapshot = !resetState)
         if (resetState) {
             publish(SpotifyRemoteSnapshot())
@@ -387,7 +417,7 @@ internal class SpotifyAppRemotePlayer(
     fun playQueue(
         tracks: List<Track>,
         startIndex: Int,
-        startContextPlayback: (suspend () -> Unit)? = null,
+        startContextPlayback: (suspend (deviceId: String?) -> Unit)? = null,
         playMode: PlayMode? = null,
         queued: List<Track> = emptyList(),
         remoteContextStart: (suspend () -> SpotifyRemoteContextStart?)? = null,
@@ -403,7 +433,7 @@ internal class SpotifyAppRemotePlayer(
         adoptedFor = null
         val modeWrite = playMode?.let(::PlayModeWrite)
         playModeWrite = modeWrite
-        val start = PendingStart(tracks[startIndex])
+        val start = PendingStart(tracks[startIndex], startContextPlayback)
         pendingStart = start
         val repeatMode = playMode?.repeatMode ?: lastSnapshot.repeatMode
         val shuffleEnabled = playMode?.shuffle ?: lastSnapshot.shuffleEnabled
@@ -430,12 +460,26 @@ internal class SpotifyAppRemotePlayer(
                 observedPlayerState = false,
             ),
         )
+        if (remote?.isConnected != true && connectWeb != null) {
+            // App Remote isn't up: if Spotify plays on another device, start there now rather than
+            // wait on the app here (a speaker playing is where the user listens).
+            scope.launch {
+                val state = readConnectState()
+                if (pendingStart === start && remote?.isConnected != true && state != null && state.playsElsewhere) {
+                    clearUnreachable()
+                    startOnOtherDevice(state)
+                }
+            }
+        }
         enqueueOperation(replacePending = true) { connected ->
             try {
                 if (pendingStart !== start) return@enqueueOperation
                 start.commandSent = true
                 val accepted = startContextPlayback?.let { command ->
-                    runCatching { command() }.onFailure { error ->
+                    // Where Spotify plays now: a song tapped while a speaker plays starts there.
+                    val target = startTarget()
+                    if (pendingStart !== start) return@enqueueOperation
+                    runCatching { command(target) }.onFailure { error ->
                         if (error is CancellationException) throw error
                         emitContextPlaybackActionIfNeeded(error)
                         Log.w(tag, "Web API start failed; trying App Remote", error)
@@ -514,6 +558,7 @@ internal class SpotifyAppRemotePlayer(
     }
 
     fun pause() {
+        if (webCommand(com.gpo.yoin.data.source.spotify.SpotifyConnectCommand.Pause, lastSnapshot.copy(isPlaying = false))) return
         Log.d(tag, "pause")
         enqueueOperation { connected ->
             connected.playerApi.pause().awaitUnit()
@@ -521,6 +566,7 @@ internal class SpotifyAppRemotePlayer(
     }
 
     fun resume() {
+        if (webCommand(com.gpo.yoin.data.source.spotify.SpotifyConnectCommand.Resume, lastSnapshot.copy(isPlaying = true))) return
         Log.d(tag, "resume")
         enqueueOperation { connected ->
             connected.playerApi.resume().awaitUnit()
@@ -528,24 +574,45 @@ internal class SpotifyAppRemotePlayer(
     }
 
     fun skipNext() {
+        if (webCommand(com.gpo.yoin.data.source.spotify.SpotifyConnectCommand.Next, null)) return
         enqueueOperation { connected ->
             connected.playerApi.skipNext().awaitUnit()
         }
     }
 
     fun skipPrevious() {
+        if (webCommand(com.gpo.yoin.data.source.spotify.SpotifyConnectCommand.Previous, null)) return
         enqueueOperation { connected ->
             connected.playerApi.skipPrevious().awaitUnit()
         }
     }
 
     fun seekTo(positionMs: Long) {
+        if (webCommand(
+                com.gpo.yoin.data.source.spotify.SpotifyConnectCommand.Seek(positionMs.coerceAtLeast(0L)),
+                lastSnapshot.copy(positionMs = positionMs.coerceAtLeast(0L)),
+            )
+        ) {
+            return
+        }
         enqueueOperation { connected ->
             connected.playerApi.seekTo(positionMs.coerceAtLeast(0L)).awaitUnit()
         }
     }
 
     fun setRepeatMode(mode: Int) {
+        val repeatState = when (mode) {
+            Player.REPEAT_MODE_ONE -> "track"
+            Player.REPEAT_MODE_ALL -> "context"
+            else -> "off"
+        }
+        if (webCommand(
+                com.gpo.yoin.data.source.spotify.SpotifyConnectCommand.Repeat(repeatState),
+                lastSnapshot.copy(repeatMode = mode),
+            )
+        ) {
+            return
+        }
         enqueueOperation { connected ->
             connected.playerApi.setRepeat(mode.coerceIn(Player.REPEAT_MODE_OFF, Player.REPEAT_MODE_ALL))
                 .awaitUnit()
@@ -553,6 +620,13 @@ internal class SpotifyAppRemotePlayer(
     }
 
     fun setShuffle(enabled: Boolean) {
+        if (webCommand(
+                com.gpo.yoin.data.source.spotify.SpotifyConnectCommand.Shuffle(enabled),
+                lastSnapshot.copy(shuffleEnabled = enabled),
+            )
+        ) {
+            return
+        }
         enqueueOperation { connected ->
             connected.playerApi.setShuffle(enabled).awaitUnit()
         }
@@ -928,6 +1002,9 @@ internal class SpotifyAppRemotePlayer(
                 Log.d(tag, "connectIfPossible: connected")
                 unreachableWatch?.cancel()
                 unreachableWatch = null
+                // App Remote reaches Spotify, wherever it plays (Spotify Connect included).
+                exitWebMode()
+                refreshPlayingOn()
                 if (parked) {
                     try {
                         settleHeldStart(connected)
@@ -1041,7 +1118,10 @@ internal class SpotifyAppRemotePlayer(
                         }
                         start?.heard?.complete(Unit)
                         pendingStart = null
+                        val before = lastSnapshot.currentTrack?.id
                         publish(fromPlayerState(playerState))
+                        // A new song may be playing on another device: Now Playing names it.
+                        if (lastSnapshot.currentTrack?.id != before) refreshPlayingOn()
                         followSpotifyQueue()
                     }
                 }
@@ -1241,6 +1321,7 @@ internal class SpotifyAppRemotePlayer(
         if (!userStart && !isUserWaitingOnConnection()) {
             Log.d(tag, "handleRemoteError: warm-connect failure, suppressing Error banner")
             disconnectRemote(preserveSnapshot = true)
+            checkOtherDevice()
             return
         }
 
@@ -1315,10 +1396,10 @@ internal class SpotifyAppRemotePlayer(
     }
 
     /**
-     * Stops trying and holds the waiting start ([parked]), then tells the user: Spotify plays
-     * on another device ([SpotifyConnectFailure.PlayingElsewhere], asked of the Web API, which
-     * only reads), or it is asleep here ([SpotifyConnectFailure.SpotifyAsleep]). Nothing here
-     * plays, pauses or moves Spotify's playback.
+     * Stops waiting on App Remote and asks the Web API (a read) where Spotify plays. On another
+     * device: Yoin drives that one ([enterWebMode]) and the waiting start plays there. Nowhere:
+     * the start is held ([parked]) and the user is told Spotify is asleep here
+     * ([SpotifyConnectFailure.SpotifyAsleep]). Nothing here pauses or moves Spotify's playback.
      */
     private fun reportUnreachable() {
         retryJob?.cancel()
@@ -1329,69 +1410,56 @@ internal class SpotifyAppRemotePlayer(
         connectJob = null
         parked = true
         openedForStart = false
-        playHere = false
         val held = pendingOperations.size
         scope.launch {
-            val device = try {
-                withTimeoutOrNull(PLAYING_ELSEWHERE_TIMEOUT_MS) { playingElsewhere() }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                Log.w(tag, "reportUnreachable: playback state unreadable", error)
-                null
-            }
-            // A new start, a connection or a sign-out came first: this hint is stale.
+            val state = readConnectState()
+            // A new start, a connection or a sign-out came first: this answer is stale.
             if (!parked || remote?.isConnected == true || pendingOperations.size != held) return@launch
-            Log.d(tag, "reportUnreachable: elsewhere=${device != null}")
-            val failure = device?.let(SpotifyConnectFailure::PlayingElsewhere) ?: SpotifyConnectFailure.SpotifyAsleep
-            publishError(failure, failure.userMessage(applicationContext.resources))
+            Log.d(tag, "reportUnreachable: elsewhere=${state?.playsElsewhere == true}")
+            if (state != null && state.playsElsewhere) {
+                parked = false
+                startOnOtherDevice(state)
+            } else {
+                publishError(SpotifyConnectFailure.SpotifyAsleep, SpotifyConnectFailure.SpotifyAsleep.userMessage(applicationContext.resources))
+            }
         }
     }
 
     /**
      * Opens the Spotify app from the hint, without a song, so nothing it plays changes; App
      * Remote connects when Yoin is back, and the held start runs then, unless Spotify is
-     * playing by that time. [playHere] runs it anyway: the user asked to move playback here.
-     * False when the Spotify app can't be opened.
+     * playing by that time. False when the Spotify app can't be opened.
      */
-    fun openSpotify(playHere: Boolean): Boolean {
+    fun openSpotify(): Boolean {
         val context = hostContext ?: applicationContext
         val intent = spotifyLaunchIntent(context) ?: return false
         if (context !is android.app.Activity) intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         val opened = runCatching { context.startActivity(intent) }
             .onFailure { Log.w(tag, "openSpotify: launch failed", it) }
             .isSuccess
-        if (opened && parked) {
-            openedForStart = true
-            this.playHere = playHere
-        }
+        if (opened && parked) openedForStart = true
         return opened
     }
 
     /**
      * The first connect after a hint decides what the held start does: dropped unless the
      * user opened Spotify for it, and dropped when Spotify is already playing by then (the
-     * user picked something there), unless they asked for "Play here".
+     * user picked something there).
      */
     private suspend fun settleHeldStart(connected: SpotifyAppRemote) {
         // The flags stay set through the look: a host stop that cancels it leaves the start
         // held, and the next connect looks again instead of playing it unchecked.
         val opened = openedForStart
-        val force = playHere
-        val keep = when {
-            !opened -> false
-            force -> true
-            else -> {
-                val state = try {
-                    withTimeoutOrNull(PLAYER_STATE_LOOK_TIMEOUT_MS) { connected.playerApi.playerState.awaitData() }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Throwable) {
-                    null
-                }
-                // Unknown counts as playing: better a start the user taps again than one that cuts in.
-                state?.isPaused == true
+        val keep = opened && run {
+            val state = try {
+                withTimeoutOrNull(PLAYER_STATE_LOOK_TIMEOUT_MS) { connected.playerApi.playerState.awaitData() }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                null
             }
+            // Unknown counts as playing: better a start the user taps again than one that cuts in.
+            state?.isPaused == true
         }
         // A new tap during the look replaced the held start (and cleared [parked]): it is the user's own.
         if (!parked) {
@@ -1400,8 +1468,7 @@ internal class SpotifyAppRemotePlayer(
         }
         parked = false
         openedForStart = false
-        playHere = false
-        Log.d(tag, "settleHeldStart: opened=$opened force=$force keep=$keep")
+        Log.d(tag, "settleHeldStart: opened=$opened keep=$keep")
         if (!keep) dropHeldStart()
     }
 
@@ -1427,9 +1494,222 @@ internal class SpotifyAppRemotePlayer(
     private fun clearUnreachable() {
         parked = false
         openedForStart = false
-        playHere = false
         unreachableWatch?.cancel()
         unreachableWatch = null
+    }
+
+    // ── Spotify on another device (Spotify Connect through the Web API) ──────────
+
+    /** Where Spotify plays (a read); null when nothing is active, it can't be read, or there's no [connectWeb]. */
+    private suspend fun readConnectState(): com.gpo.yoin.data.source.spotify.SpotifyConnectState? {
+        val web = connectWeb ?: return null
+        return try {
+            withTimeoutOrNull(CONNECT_STATE_TIMEOUT_MS) { web.state() }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            Log.w(tag, "readConnectState: unreadable", error)
+            null
+        }
+    }
+
+    /**
+     * The device a start plays on: the other device Spotify is playing on right now, so a tap
+     * there carries on there (51, 2026-11-06); null (this phone) when it plays nowhere else.
+     * Records that device for Now Playing either way.
+     */
+    private suspend fun startTarget(): String? {
+        val state = readConnectState()
+        val elsewhere = state?.takeIf { it.playsElsewhere }
+        if (lastSnapshot.playingOn != elsewhere?.deviceName) publish(lastSnapshot.copy(playingOn = elsewhere?.deviceName))
+        return elsewhere?.deviceId
+    }
+
+    /** True while Yoin drives another device through the Web API instead of App Remote. */
+    private val drivingOtherDevice: Boolean
+        get() = webDevice != null && remote?.isConnected != true
+
+    /**
+     * Spotify plays on another device and App Remote can't reach the app here: Yoin follows that
+     * device from the Web API, polling while a Yoin screen is up, and its controls drive it there.
+     */
+    private fun enterWebMode(state: com.gpo.yoin.data.source.spotify.SpotifyConnectState) {
+        Log.d(tag, "enterWebMode: device=${state.deviceName}")
+        wantsConnection = true
+        webDevice = WebDevice(state.deviceId, state.deviceName)
+        unreachableWatch?.cancel()
+        unreachableWatch = null
+        publishWebState(state)
+        startWebPolling()
+    }
+
+    private fun exitWebMode() {
+        if (webDevice == null) return
+        Log.d(tag, "exitWebMode")
+        webDevice = null
+        webPollJob?.cancel()
+        webPollJob = null
+    }
+
+    private fun startWebPolling(immediately: Boolean = false) {
+        if (webDevice == null || hostContext == null) return
+        webPollJob?.cancel()
+        webPollJob = scope.launch {
+            if (!immediately) delay(WEB_POLL_MS)
+            while (webDevice != null && remote?.isConnected != true) {
+                val state = readConnectState()
+                when {
+                    remote?.isConnected == true || webDevice == null -> return@launch
+                    // Nothing plays anywhere any more: show it stopped, and leave the device.
+                    state == null -> {
+                        publish(lastSnapshot.copy(isPlaying = false, playingOn = null))
+                        exitWebMode()
+                        return@launch
+                    }
+                    // Spotify moved to this phone: App Remote reaches it now.
+                    state.isThisDevice -> {
+                        publish(lastSnapshot.copy(playingOn = null))
+                        exitWebMode()
+                        connectIfPossible()
+                        return@launch
+                    }
+                    else -> {
+                        webDevice = WebDevice(state.deviceId, state.deviceName)
+                        publishWebState(state)
+                    }
+                }
+                delay(WEB_POLL_MS)
+            }
+        }
+    }
+
+    private fun publishWebState(state: com.gpo.yoin.data.source.spotify.SpotifyConnectState) {
+        val start = pendingStart
+        val heard = state.track
+        // A Yoin start still on its way: its song, not the one the device played before it.
+        if (start != null && (heard == null || !sameSong(heard, start.track))) return
+        if (start != null) {
+            start.heard.complete(Unit)
+            pendingStart = null
+        }
+        val mapped = heard?.let { song -> mirroredQueue.firstOrNull { it.id == song.id } ?: song }
+        val current = mapped ?: lastSnapshot.currentTrack
+        val mirrorIndex = mapped?.let(mirror::onPlaying) ?: -1
+        val currentTrack = mirroredQueue.getOrNull(mirrorIndex)?.takeIf { it.id == mapped?.id } ?: current
+        val view = mirror.view(currentTrack, state.shuffle)
+        publish(
+            lastSnapshot.copy(
+                currentTrack = currentTrack,
+                pendingTrack = null,
+                isPlaying = state.isPlaying,
+                positionMs = state.progressMs,
+                durationMs = currentTrack?.durationSec?.times(1_000L) ?: lastSnapshot.durationMs,
+                shuffleEnabled = state.shuffle,
+                repeatMode = when (state.repeatState) {
+                    "track" -> Player.REPEAT_MODE_ONE
+                    "context" -> Player.REPEAT_MODE_ALL
+                    else -> Player.REPEAT_MODE_OFF
+                },
+                connectionPhase = ConnectionPhase.Ready,
+                connectionErrorMessage = null,
+                connectionFailure = null,
+                observedPlayerState = true,
+                playingOn = state.deviceName,
+            ).withView(view),
+        )
+    }
+
+    private fun sameSong(heard: Track, wanted: Track): Boolean =
+        heard.id == wanted.id ||
+            (heard.title.orEmpty().equals(wanted.title.orEmpty(), ignoreCase = true) && heard.title != null)
+
+    /**
+     * The waiting start, played on the other device [state] names (App Remote can't reach the
+     * app here); then Yoin follows that device. Without a Web API start, the device carries on
+     * with what it plays and Yoin shows that.
+     */
+    private fun startOnOtherDevice(state: com.gpo.yoin.data.source.spotify.SpotifyConnectState) {
+        val start = pendingStart
+        pendingOperations.clear()
+        enterWebMode(state)
+        val webStart = start?.webStart ?: run {
+            pendingStart = null
+            publishWebState(state)
+            return
+        }
+        launchOperation(replaceable = true) {
+            if (pendingStart !== start) return@launchOperation
+            start.commandSent = true
+            try {
+                webStart(state.deviceId)
+                // Spotify Connect takes a moment to report the new song.
+                withTimeoutOrNull(SPOTIFY_START_HEARD_TIMEOUT_MS) {
+                    while (pendingStart === start) {
+                        delay(WEB_START_POLL_MS)
+                        readConnectState()?.let(::publishWebState)
+                    }
+                }
+                if (pendingStart === start) {
+                    // Heard nothing that matches (a relinked copy): show what the device plays.
+                    pendingStart = null
+                    readConnectState()?.let(::publishWebState)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Log.w(tag, "startOnOtherDevice: start failed", error)
+                if (pendingStart === start) pendingStart = null
+                publishError(
+                    SpotifyConnectFailure.TransportFailure(applicationContext.getString(R.string.player_spotify_unavailable)),
+                    applicationContext.getString(R.string.player_spotify_unavailable),
+                )
+            }
+        }
+    }
+
+    /** One control on the other device; Spotify's state is read back shortly after. */
+    private fun webCommand(command: com.gpo.yoin.data.source.spotify.SpotifyConnectCommand, optimistic: SpotifyRemoteSnapshot? = null): Boolean {
+        val device = webDevice?.takeIf { drivingOtherDevice } ?: return false
+        val web = connectWeb ?: return false
+        optimistic?.let(::publish)
+        scope.launch {
+            try {
+                web.command(command, device.id)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Log.w(tag, "webCommand: $command failed", error)
+            }
+            delay(WEB_COMMAND_SETTLE_MS)
+            if (drivingOtherDevice) readConnectState()?.takeIf { !it.isThisDevice }?.let(::publishWebState)
+            startWebPolling()
+        }
+        return true
+    }
+
+    /**
+     * App Remote couldn't connect without anyone waiting (opening Yoin, coming back to it): if
+     * Spotify plays on another device, Yoin shows that and drives it. Nothing is played or paused.
+     */
+    private fun checkOtherDevice() {
+        if (connectWeb == null || webDevice != null || webCheckJob?.isActive == true) return
+        webCheckJob = scope.launch {
+            val state = readConnectState()
+            if (state != null && state.playsElsewhere && remote?.isConnected != true && pendingStart == null) {
+                enterWebMode(state)
+            }
+        }
+    }
+
+    /** With App Remote connected: the other device Spotify plays on, for Now Playing (it doesn't say). */
+    private fun refreshPlayingOn() {
+        if (connectWeb == null) return
+        deviceNameJob?.cancel()
+        deviceNameJob = scope.launch {
+            val state = readConnectState() ?: return@launch
+            val name = state.deviceName.takeIf { !state.isThisDevice }
+            if (name != lastSnapshot.playingOn) publish(lastSnapshot.copy(playingOn = name))
+        }
     }
 
     private fun isUserWaitingOnConnection(): Boolean =
@@ -1476,8 +1756,17 @@ internal class SpotifyAppRemotePlayer(
          */
         const val TRANSPORT_RETRY_DELAY_MS = 800L
 
-        /** The Web API's word on where Spotify plays, for the hint; past this the hint says "asleep". */
-        const val PLAYING_ELSEWHERE_TIMEOUT_MS = 2_500L
+        /** The Web API's word on where Spotify plays; past this it counts as unknown. */
+        const val CONNECT_STATE_TIMEOUT_MS = 2_500L
+
+        /** How often Yoin reads the other device's state while it drives it. */
+        const val WEB_POLL_MS = 2_000L
+
+        /** How often a start on the other device is looked for. */
+        const val WEB_START_POLL_MS = 600L
+
+        /** How long after a command on the other device its state is read back. */
+        const val WEB_COMMAND_SETTLE_MS = 500L
 
         /** The look at Spotify's state before a held start runs ([settleHeldStart]). */
         const val PLAYER_STATE_LOOK_TIMEOUT_MS = 2_000L

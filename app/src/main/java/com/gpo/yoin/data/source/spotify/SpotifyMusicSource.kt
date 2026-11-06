@@ -551,12 +551,28 @@ class SpotifyMusicSource(
     suspend fun listDevices(): List<SpotifyDevice> = apiClient.listDevices()
 
     /**
-     * The name of the device Spotify is playing on, when it is another one than this phone
-     * ([localNames], as [localDeviceId] matches them); null when nothing plays or it plays
-     * here. A read only: it never starts, pauses or moves playback.
+     * Where Spotify plays and what (`GET /me/player`), with [SpotifyConnectState.isThisDevice]
+     * judged by [localNames] as [localDeviceId] matches them. Null when no device is active.
+     * A read only: it never starts, pauses or moves playback.
      */
-    suspend fun playingElsewhere(localNames: List<String>): String? =
-        playingElsewhere(apiClient.getPlaybackState(), localNames)
+    suspend fun connectState(localNames: List<String>): SpotifyConnectState? =
+        connectState(apiClient.getPlaybackState(), localNames, knownSavedTrackIds())
+
+    /** One Spotify Connect command on [deviceId] (the device playing; null: the active one). */
+    suspend fun connectCommand(command: SpotifyConnectCommand, deviceId: String?) {
+        when (command) {
+            SpotifyConnectCommand.Pause -> apiClient.playerCommand("PUT", "pause", deviceId)
+            SpotifyConnectCommand.Resume -> apiClient.playerCommand("PUT", "play", deviceId)
+            SpotifyConnectCommand.Next -> apiClient.playerCommand("POST", "next", deviceId)
+            SpotifyConnectCommand.Previous -> apiClient.playerCommand("POST", "previous", deviceId)
+            is SpotifyConnectCommand.Seek ->
+                apiClient.playerCommand("PUT", "seek", deviceId, mapOf("position_ms" to command.positionMs.toString()))
+            is SpotifyConnectCommand.Shuffle ->
+                apiClient.playerCommand("PUT", "shuffle", deviceId, mapOf("state" to command.on.toString()))
+            is SpotifyConnectCommand.Repeat ->
+                apiClient.playerCommand("PUT", "repeat", deviceId, mapOf("state" to command.state))
+        }
+    }
 
     suspend fun transferPlayback(deviceId: String, play: Boolean = true) {
         apiClient.transferPlayback(deviceId = deviceId, play = play)
@@ -817,13 +833,58 @@ class SpotifyMusicSource(
 }
 
 /** The device in [devices] named like this phone; with several, the active one wins. */
-/** [SpotifyMusicSource.playingElsewhere]: [state]'s device name when it plays and isn't one of [localNames]. */
-internal fun playingElsewhere(state: SpotifyPlaybackStateResponse?, localNames: List<String>): String? {
-    if (state == null || !state.isPlaying) return null
-    val device = state.device ?: return null
+/**
+ * Spotify Connect's word on playback ([SpotifyMusicSource.connectState]): the device
+ * ([deviceId], [deviceName]; [isThisDevice] when it is this phone), whether it plays, the
+ * song ([track], null for an episode or an ad) at [progressMs], and Spotify's play modes.
+ */
+data class SpotifyConnectState(
+    val deviceId: String?,
+    val deviceName: String,
+    val isThisDevice: Boolean,
+    val isPlaying: Boolean,
+    val track: Track?,
+    val progressMs: Long,
+    val shuffle: Boolean,
+    /** "off", "track" or "context". */
+    val repeatState: String,
+) {
+    /** Playing on another of the account's devices: Yoin drives that one, never takes it over. */
+    val playsElsewhere: Boolean get() = isPlaying && !isThisDevice
+}
+
+/** A Spotify Connect command ([SpotifyMusicSource.connectCommand]). */
+sealed interface SpotifyConnectCommand {
+    data object Pause : SpotifyConnectCommand
+    data object Resume : SpotifyConnectCommand
+    data object Next : SpotifyConnectCommand
+    data object Previous : SpotifyConnectCommand
+    data class Seek(val positionMs: Long) : SpotifyConnectCommand
+    data class Shuffle(val on: Boolean) : SpotifyConnectCommand
+
+    /** "off", "track" or "context". */
+    data class Repeat(val state: String) : SpotifyConnectCommand
+}
+
+/** [SpotifyMusicSource.connectState] from [state]; this device is the one named in [localNames]. */
+internal fun connectState(
+    state: SpotifyPlaybackStateResponse?,
+    localNames: List<String>,
+    savedTrackIds: Set<String> = emptySet(),
+): SpotifyConnectState? {
+    val device = state?.device ?: return null
     val names = localNames.map(String::trim).filter(String::isNotEmpty)
-    if (names.any { it.equals(device.name.trim(), ignoreCase = true) }) return null
-    return device.name.trim().ifEmpty { null }
+    val item = state.item?.takeUnless { it.isLocal || (it.type != null && it.type != "track") || it.id == null }
+    return SpotifyConnectState(
+        deviceId = device.id,
+        deviceName = device.name.trim(),
+        isThisDevice = names.any { it.equals(device.name.trim(), ignoreCase = true) },
+        isPlaying = state.isPlaying,
+        track = item?.let { runCatching { it.toTrack(savedTrackIds = savedTrackIds) }.getOrNull() },
+        progressMs = (state.progressMs ?: 0L).coerceAtLeast(0L),
+        shuffle = state.shuffleState,
+        repeatState = state.repeatState,
+    )
 }
 
 internal fun pickLocalSpotifyDevice(devices: List<SpotifyDevice>, localNames: List<String>): SpotifyDevice? {

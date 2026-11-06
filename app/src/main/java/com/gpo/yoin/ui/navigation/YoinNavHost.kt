@@ -853,9 +853,7 @@ private fun YoinShell(
                     if (result == SnackbarResult.ActionPerformed) {
                         when {
                             event.failure.shouldOpenSpotifySettings() -> navigateToSettingsFromShell("spotify")
-                            event.failure.opensSpotifyApp() -> app.container.playbackManager.openSpotify(
-                                playHere = event.failure is SpotifyConnectFailure.PlayingElsewhere,
-                            )
+                            event.failure.opensSpotifyApp() -> app.container.playbackManager.openSpotify()
                         }
                     }
                 }
@@ -871,9 +869,7 @@ private fun YoinShell(
                     if (result == SnackbarResult.ActionPerformed) {
                         when {
                             event.failure.shouldOpenSpotifySettings() -> navigateToSettingsFromShell("spotify")
-                            event.failure.opensSpotifyApp() -> app.container.playbackManager.openSpotify(
-                                playHere = event.failure is SpotifyConnectFailure.PlayingElsewhere,
-                            )
+                            event.failure.opensSpotifyApp() -> app.container.playbackManager.openSpotify()
                         }
                     }
                 }
@@ -1618,7 +1614,6 @@ private fun actionLabelForFailure(
         context.getString(R.string.shell_snackbar_open_settings_auth)
     is SpotifyConnectFailure.TransportFailure -> null
     SpotifyConnectFailure.SpotifyAsleep -> context.getString(R.string.shell_snackbar_open_spotify)
-    is SpotifyConnectFailure.PlayingElsewhere -> context.getString(R.string.shell_snackbar_play_here)
 }
 
 private fun SpotifyConnectFailure.shouldOpenSpotifySettings(): Boolean = when (this) {
@@ -1628,12 +1623,10 @@ private fun SpotifyConnectFailure.shouldOpenSpotifySettings(): Boolean = when (t
     SpotifyConnectFailure.PremiumRequired -> false
     is SpotifyConnectFailure.TransportFailure -> false
     SpotifyConnectFailure.SpotifyAsleep -> false
-    is SpotifyConnectFailure.PlayingElsewhere -> false
 }
 
-/** The unreachable hints' action opens the Spotify app ([com.gpo.yoin.player.PlaybackManager.openSpotify]). */
-private fun SpotifyConnectFailure.opensSpotifyApp(): Boolean =
-    this == SpotifyConnectFailure.SpotifyAsleep || this is SpotifyConnectFailure.PlayingElsewhere
+/** The asleep hint's action opens the Spotify app ([com.gpo.yoin.player.PlaybackManager.openSpotify]). */
+private fun SpotifyConnectFailure.opensSpotifyApp(): Boolean = this == SpotifyConnectFailure.SpotifyAsleep
 
 /**
  * Flatten a track's cover art into the storage-key shape used by

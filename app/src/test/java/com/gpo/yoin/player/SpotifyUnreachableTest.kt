@@ -5,6 +5,8 @@ import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.source.spotify.SpotifyConnectCommand
+import com.gpo.yoin.data.source.spotify.SpotifyConnectState
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
@@ -51,9 +53,9 @@ class SpotifyUnreachableTest {
     private val appRemote = WakeableAppRemote()
     private val snapshots = mutableListOf<SpotifyRemoteSnapshot>()
     private val song = spotifyTrack("t1")
-    private var elsewhere: String? = null
-    private var elsewhereReads = 0
+    private val web = FakeConnectWeb()
     private var webStarts = 0
+    private val startedOn = mutableListOf<String?>()
     private val players = mutableListOf<SpotifyAppRemotePlayer>()
 
     @After
@@ -76,21 +78,92 @@ class SpotifyUnreachableTest {
         assertEquals(SpotifyConnectFailure.SpotifyAsleep, snapshots.last().connectionFailure)
         assertEquals(ConnectionPhase.Error, snapshots.last().connectionPhase)
         assertEquals(song, snapshots.last().pendingTrack)
-        assertEquals(1, elsewhereReads)
+        assertTrue(web.reads > 0)
         assertEquals(0, webStarts)
     }
 
     @Test
-    fun should_nameTheOtherDevice_when_spotifyPlaysThere() = runTest {
+    fun should_startOnTheOtherDevice_when_spotifyPlaysThereAndTheAppHereIsAsleep() = runTest {
         val player = hostedPlayer()
-        elsewhere = "Living Room"
+        web.state = speaker(uri = "spotify:track:theirs")
 
         tap(player)
-        advanceTimeBy(SPOTIFY_UNREACHABLE_AFTER_MS + 100)
+        advanceTimeBy(2_000)
         runCurrent()
 
-        assertEquals(SpotifyConnectFailure.PlayingElsewhere("Living Room"), snapshots.last().connectionFailure)
+        assertEquals(listOf<String?>("speaker"), startedOn)
+        assertEquals(song, snapshots.last().currentTrack)
+        assertEquals("Living Room", snapshots.last().playingOn)
+        assertNull(snapshots.last().connectionFailure)
+    }
+
+    @Test
+    fun should_driveTheOtherDevice_when_theUserPausesThere() = runTest {
+        val player = hostedPlayer()
+        web.state = speaker(uri = "spotify:track:theirs")
+        tap(player)
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        player.pause()
+        player.skipNext()
+        runCurrent()
+
+        assertEquals(
+            listOf(
+                SpotifyConnectCommand.Pause to "speaker",
+                SpotifyConnectCommand.Next to "speaker",
+            ),
+            web.commands,
+        )
+        assertEquals(false, snapshots.any { it.connectionPhase == ConnectionPhase.Error })
+    }
+
+    @Test
+    fun should_showTheOtherDevicesSong_when_yoinOpensWithoutTheAppHere() = runTest {
+        val player = hostedPlayer()
+        web.state = speaker(uri = "spotify:track:theirs")
+
+        player.warmConnection()
+        runCurrent()
+
+        assertEquals(MediaId.spotify("theirs"), snapshots.last().currentTrack?.id)
+        assertEquals("Living Room", snapshots.last().playingOn)
+        assertTrue(snapshots.last().isPlaying)
         assertEquals(0, webStarts)
+        assertTrue(web.commands.isEmpty())
+    }
+
+    @Test
+    fun should_startOnTheOtherDevice_when_appRemoteIsConnectedAndASpeakerPlays() = runTest {
+        appRemote.answers = true
+        val player = hostedPlayer()
+        player.warmConnection()
+        runCurrent()
+        web.state = speaker(uri = "spotify:track:theirs")
+
+        tap(player)
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf<String?>("speaker"), startedOn)
+        assertEquals("Living Room", snapshots.last().playingOn)
+    }
+
+    @Test
+    fun should_startOnThisPhone_when_nothingPlaysElsewhere() = runTest {
+        appRemote.answers = true
+        val player = hostedPlayer()
+        player.warmConnection()
+        runCurrent()
+        web.state = speaker(uri = "spotify:track:theirs").copy(isPlaying = false)
+
+        tap(player)
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(listOf<String?>(null), startedOn)
+        assertNull(snapshots.last().playingOn)
     }
 
     @Test
@@ -110,7 +183,7 @@ class SpotifyUnreachableTest {
     fun should_playTheHeldSong_when_theUserOpenedSpotifyAndItIsPaused() = runTest {
         val player = hintShown()
 
-        assertTrue(player.openSpotify(playHere = false))
+        assertTrue(player.openSpotify())
         comeBack(player, spotifyState = state(paused = true))
 
         assertEquals(1, webStarts)
@@ -121,7 +194,7 @@ class SpotifyUnreachableTest {
     fun should_notCutIn_when_spotifyIsAlreadyPlayingOnTheWayBack() = runTest {
         val player = hintShown()
 
-        player.openSpotify(playHere = false)
+        player.openSpotify()
         comeBack(player, spotifyState = state(uri = "spotify:track:theirs", paused = false))
 
         assertEquals(0, webStarts)
@@ -137,17 +210,6 @@ class SpotifyUnreachableTest {
 
         assertEquals(0, webStarts)
         assertNull(snapshots.last().pendingTrack)
-    }
-
-    @Test
-    fun should_playHere_when_theUserAskedToMovePlaybackFromAnotherDevice() = runTest {
-        elsewhere = "Living Room"
-        val player = hintShown()
-
-        player.openSpotify(playHere = true)
-        comeBack(player, spotifyState = state(uri = "spotify:track:theirs", paused = false))
-
-        assertEquals(1, webStarts)
     }
 
     @Test
@@ -171,13 +233,12 @@ class SpotifyUnreachableTest {
         runCurrent()
 
         assertTrue(snapshots.last().connectionFailure is SpotifyConnectFailure.AuthFailure)
-        assertEquals(0, elsewhereReads)
     }
 
     @Test
     fun should_playTheNewTap_when_itComesInWhileTheHeldStartIsLookedAt() = runTest {
         val player = hintShown()
-        player.openSpotify(playHere = false)
+        player.openSpotify()
         player.onHostStop()
         runCurrent()
         appRemote.answers = true
@@ -199,7 +260,7 @@ class SpotifyUnreachableTest {
     @Test
     fun should_lookAgain_when_yoinLeavesDuringTheLook() = runTest {
         val player = hintShown()
-        player.openSpotify(playHere = false)
+        player.openSpotify()
         player.onHostStop()
         runCurrent()
         appRemote.answers = true
@@ -243,8 +304,10 @@ class SpotifyUnreachableTest {
         player.playQueue(
             listOf(song),
             startIndex = 0,
-            startContextPlayback = {
+            startContextPlayback = { deviceId ->
                 webStarts++
+                startedOn += deviceId
+                if (deviceId != null) web.state = speaker(uri = "spotify:track:t1")
                 appRemote.report(state(paused = false))
             },
         )
@@ -256,10 +319,7 @@ class SpotifyUnreachableTest {
         clientIdProvider = { "client-id" },
         onSnapshot = { snapshot -> snapshots += snapshot },
         appRemote = appRemote,
-        playingElsewhere = {
-            elsewhereReads++
-            elsewhere
-        },
+        connectWeb = web,
         spotifyLaunchIntent = { Intent(Intent.ACTION_MAIN).setPackage("com.spotify.music") },
     ).also {
         players += it
@@ -300,6 +360,34 @@ class SpotifyUnreachableTest {
         userRating = null,
     )
 
+    /** Spotify playing [uri] on the living-room speaker, as the Web API reports it. */
+    private fun speaker(uri: String) = SpotifyConnectState(
+        deviceId = "speaker",
+        deviceName = "Living Room",
+        isThisDevice = false,
+        isPlaying = true,
+        track = spotifyTrack(uri.substringAfterLast(':')),
+        progressMs = 1_000L,
+        shuffle = false,
+        repeatState = "context",
+    )
+
+    /** Spotify Connect through the Web API: [state] is what it reports; commands are recorded. */
+    private class FakeConnectWeb : SpotifyConnectWeb {
+        var state: SpotifyConnectState? = null
+        var reads = 0
+        val commands = mutableListOf<Pair<SpotifyConnectCommand, String?>>()
+
+        override suspend fun state(): SpotifyConnectState? {
+            reads++
+            return state
+        }
+
+        override suspend fun command(command: SpotifyConnectCommand, deviceId: String?) {
+            commands += command to deviceId
+        }
+    }
+
     /**
      * App Remote with a Spotify app that may be asleep: while [answers] is false a connect
      * never hears back (or fails with [failWith]); once true it connects, and Spotify's state
@@ -338,7 +426,10 @@ class SpotifyUnreachableTest {
 
         override fun disconnect(remote: SpotifyAppRemote) = Unit
 
-        fun report(state: PlayerState) = playerStates.last().onEvent(state)
+        /** Spotify reports [state] on the newest PlayerState subscription, when there is one. */
+        fun report(state: PlayerState) {
+            playerStates.lastOrNull()?.onEvent(state)
+        }
 
         fun answerStateRead() {
             heldRead?.invoke()

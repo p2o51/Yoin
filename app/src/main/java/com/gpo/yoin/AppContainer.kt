@@ -350,8 +350,7 @@ class AppContainer(private val context: Context) {
                         val failure = event.failure
                         // The unreachable hints too: the next connect clears them.
                         if (failure !is SpotifyConnectFailure.TransportFailure &&
-                            failure != SpotifyConnectFailure.SpotifyAsleep &&
-                            failure !is SpotifyConnectFailure.PlayingElsewhere
+                            failure != SpotifyConnectFailure.SpotifyAsleep
                         ) {
                             _lastSpotifyStickyFailure.value = failure
                         }

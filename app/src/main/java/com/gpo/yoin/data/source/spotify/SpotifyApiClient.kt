@@ -346,6 +346,27 @@ class SpotifyApiClient(
         ).items
     }
 
+    /**
+     * One Spotify Connect command on [deviceId] (`/me/player/<path>`): pause, play (resume),
+     * next, previous, seek, shuffle, repeat. [query] carries its value (`position_ms`, `state`).
+     * Needs `user-modify-playback-state`; throws on 4xx/5xx like [startPlayback].
+     */
+    suspend fun playerCommand(
+        method: String,
+        path: String,
+        deviceId: String?,
+        query: Map<String, String> = emptyMap(),
+    ) = withContext(Dispatchers.IO) {
+        val url = apiUrl("v1", "me", "player", path)
+            .newBuilder()
+            .apply {
+                query.forEach { (name, value) -> addQueryParameter(name, value) }
+                if (deviceId != null) addQueryParameter("device_id", deviceId)
+            }
+            .build()
+        executeWithJsonBodyIgnoringResponse(method = method, url = url, jsonBody = null)
+    }
+
     suspend fun transferPlayback(deviceId: String, play: Boolean = true) = withContext(Dispatchers.IO) {
         val body = JSON.encodeToString(
             SpotifyTransferPlaybackRequest.serializer(),
