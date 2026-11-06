@@ -305,6 +305,8 @@ final class MacModel {
     // MARK: Playback
 
     func play(_ entries: [PlaylistEntry], startAt: Int = 0) {
+        // A new queue: anything still loading for an earlier request stops landing.
+        playRequest += 1
         for e in entries { known[e.track.id.rawId] = e }
         let tracks = entries.compactMap(library.playable)
         guard !tracks.isEmpty else { return }
@@ -343,6 +345,35 @@ final class MacModel {
     }
 
     @ObservationIgnored private var playRequest = 0
+
+    /// An artist's Play / Shuffle (Android: every release, not only the first): the releases' songs in order
+    /// (newest release first, as the page lists them), or all of them shuffled; the newest request only, for
+    /// the account it was made in.
+    func play(releases: [Album], shuffle: Bool = false) {
+        playRequest += 1
+        var token = playRequest
+        let gen = library.accountGeneration
+        Task {
+            var entries: [PlaylistEntry] = []
+            for album in releases {
+                let full = await library.fullAlbum(album)
+                guard token == playRequest, gen == library.accountGeneration else { return }
+                entries += full.tracks.map { PlaylistEntry(album: full, track: $0) }
+                // The first release starts at once; the rest join the queue as they load.
+                if album.id == releases.first?.id, !shuffle, !entries.isEmpty {
+                    play(entries)
+                    token = playRequest
+                }
+            }
+            guard token == playRequest, gen == library.accountGeneration, !entries.isEmpty else { return }
+            if shuffle {
+                play(entries.shuffled())
+            } else {
+                let started = releases.first.map { a in entries.prefix { $0.album.id == a.id }.count } ?? 0
+                for e in entries.dropFirst(started) { addToQueue(e) }
+            }
+        }
+    }
 
     /// Downloads an album (its full track list) for offline listening, or removes / retries it.
     func toggleDownload(album: Album) {

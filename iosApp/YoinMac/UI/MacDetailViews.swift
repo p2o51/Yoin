@@ -156,10 +156,13 @@ struct MacArtistDetail: View {
                              title: page?.name ?? name, subtitle: nil,
                              meta: page.map { "\($0.releases.count) \($0.releases.count == 1 ? "release" : "releases")" } ?? "",
                              circle: true, onSubtitle: {})
-                if let page, let first = page.releases.first {
+                if let page, !page.releases.isEmpty {
+                    // Every release (Android "Play artist"): in the page's order, or shuffled across them all.
                     HStack(spacing: 10) {
-                        DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(album: first) }
-                        DetailAction(title: "Shuffle", icon: "shuffle", prominent: false) { model.play(album: first, shuffle: true) }
+                        DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(releases: page.releases) }
+                        DetailAction(title: "Shuffle", icon: "shuffle", prominent: false) {
+                            model.play(releases: page.releases, shuffle: true)
+                        }
                     }
                     .padding(.bottom, 8)
                 }
