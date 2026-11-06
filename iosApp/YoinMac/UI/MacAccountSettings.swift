@@ -162,8 +162,12 @@ struct MacAccountPage: View {
                     HStack {
                         Button("Reconnect Spotify") {
                             reconnectError = nil
+                            let token = model.authToken
                             Task {
-                                do { try await model.session.useSpotify() } catch {
+                                do {
+                                    try await model.session.reconnectSpotify(profileId: p.id) { token == model.authToken }
+                                } catch is MacSession.Superseded {
+                                } catch {
                                     reconnectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                                 }
                             }

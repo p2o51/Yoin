@@ -145,6 +145,24 @@ final class MacSession {
     }
 
     /// Takes [id] out of the list; the one in use leaves the app signed out.
+    struct WrongSpotifyUser: LocalizedError {
+        var errorDescription: String? { "That's a different Spotify account. Sign in as the one this page is for." }
+    }
+
+    /// Reconnect: signs this Spotify profile in again (PKCE) and gives it the new tokens. It must be the same
+    /// Spotify user; nothing switches. The account in use gets a fresh source.
+    func reconnectSpotify(profileId: String, commitIf: @MainActor () -> Bool = { true }) async throws {
+        guard let p = profiles.first(where: { $0.id == profileId }), p.service == .spotify else { return }
+        let tokens = try await SpotifyAuth.signIn()
+        guard commitIf() else { throw Superseded() }
+        if let expected = p.spotifyUserId, expected != tokens.userId { throw WrongSpotifyUser() }
+        guard let i = profiles.firstIndex(where: { $0.id == profileId }) else { return }
+        profiles[i].spotifyUserId = tokens.userId
+        _ = SpotifyTokenStore.save(tokens, for: profileId)
+        persist()
+        if activeId == profileId { activate(profiles[i]) }
+    }
+
     /// Signs in to Spotify in the browser sheet (PKCE, the listener's own Client ID) and switches to it.
     func useSpotify(commitIf: @MainActor () -> Bool = { true }) async throws {
         let tokens = try await SpotifyAuth.signIn()

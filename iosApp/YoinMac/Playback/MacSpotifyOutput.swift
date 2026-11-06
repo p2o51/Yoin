@@ -78,6 +78,7 @@ final class MacSpotifyOutput: AudioOutput {
         handed = []
         poll?.cancel()
         self.current = Item(current)
+        engineNext = Item(next)
         playing = false
         lastTime = startSec
         lastTick = Date()
@@ -136,6 +137,8 @@ final class MacSpotifyOutput: AudioOutput {
     func stop() {
         generation += 1
         starting = false
+        engineNext = nil
+        handed = []
         poll?.cancel()
         poll = nil
         playing = false
@@ -304,8 +307,9 @@ final class MacSpotifyOutput: AudioOutput {
     private func watch(_ first: Item?, owner start: (source: SpotifySource, device: String), gen: Int) {
         poll?.cancel()
         poll = Task { [weak self] in
-            /// The queue song Spotify plays now (it moves on through the handed list).
+            /// The queue song Spotify plays now, and its place in the handed list (it moves on through it).
             var item = first
+            var pos = 0
             /// The furthest the song was seen playing: an end is a stop (or another song) after its last seconds.
             var furthest: Double = 0
             var wait: Duration = .seconds(1)
@@ -369,19 +373,36 @@ final class MacSpotifyOutput: AudioOutput {
                 let progress = now.progressMs.map { Double($0) / 1000 }
                 // Spotify went on to the next handed song: the engine's next one is the same → the engine moves
                 // there too; a different one (the queue was edited after the start) → the engine starts its own.
-                if let current = item, let playingId = now.item?.id, playingId != current.trackId, !quiet,
-                   let at = self.handed.firstIndex(where: { $0.trackId == current.trackId }),
-                   self.handed.dropFirst(at + 1).contains(where: { $0.trackId == playingId }) {
+                // Where Spotify is in the handed list goes by position, so a song twice in a row ([A, A, B])
+                // moves on too: the same id starting over from its top after its last seconds is the next one.
+                let nextHanded = pos + 1 < self.handed.count ? self.handed[pos + 1] : nil
+                let movedOn: Bool = {
+                    guard let current = item, let playingId = now.item?.id, !quiet else { return false }
+                    if playingId != current.trackId {
+                        return self.handed.dropFirst(pos + 1).contains { $0.trackId == playingId }
+                    }
+                    let restarted = (progress ?? 0) < 3 && self.duration > 0 && furthest >= self.duration - 4
+                    return restarted && nextHanded?.trackId == playingId
+                }()
+                if movedOn, let playingId = now.item?.id {
                     if let n = self.engineNext, n.trackId == playingId {
                         item = n
                         self.current = n
+                        pos = (self.handed.indices.dropFirst(pos + 1).first { self.handed[$0].trackId == playingId }) ?? pos + 1
                         furthest = 0
                         self.duration = 0
                         self.lastTime = progress ?? 0
                         self.lastTick = Date()
                         self.startedAt = Date()
                         self.events?.outputDidAdvanceToPreloaded()
+                    } else if self.engineNext == nil {
+                        // The queue ends here now (Up Next cleared after the start): Spotify stops with it.
+                        self.command(owner, "PUT", "me/player/pause")
+                        self.playing = false
+                        self.events?.outputDidReachEnd()
+                        return
                     } else {
+                        // The queue was edited after the start: the engine starts its own next.
                         self.advance()
                         return
                     }

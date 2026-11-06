@@ -21,6 +21,8 @@ struct MacAlbumScrapbook: View {
     @State private var titleOpened = ""
     @FocusState private var titleFocused: Bool
     @State private var openTrack: String?
+    /// The lane's inner width: tickets and clippings never get wider than it.
+    @State private var laneWidth: CGFloat = 528
 
     private var s: CoverScheme { CoverScheme(album: album, dark: colorScheme == .dark) }
     private var provider: String { album.id.provider }
@@ -84,8 +86,9 @@ struct MacAlbumScrapbook: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 20)
-        // One lane up to 560, narrower in a narrow column (never wider than the page).
+        // One lane up to 560, narrower in a narrow column (never wider than the page); its pieces size to it.
         .frame(maxWidth: Self.lane)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { laneWidth = max(160, $0 - 32) }
         .background { DotPaper(color: s.outlineVariant.opacity(colorScheme == .dark ? 0.35 : 0.45)) }
         .frame(maxWidth: .infinity)
         .onChange(of: awardKey, initial: true) { _, _ in
@@ -121,22 +124,26 @@ struct MacAlbumScrapbook: View {
         let coverArt = MacCover(palette: album.palette, corner: Tokens.shape.HERO.cg)
             .frame(width: cover, height: cover)
             .rotationEffect(.degrees(tilt("cover", Tilt.cover)))
+        // A narrow lane puts the title and Last Play under the cover instead of beside it.
+        let stacked = laneWidth < 380
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+                             : AnyLayout(HStackLayout(alignment: .top, spacing: 0))
         return VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 0) {
+            layout {
                 if stampBeside {
                     // A clear gap past the cover's tilted corners, the stamp level with its foot.
                     HStack(alignment: .bottom, spacing: CoverMarks.gap) {
                         coverArt.padding(6)
                         emblem.rotationEffect(.degrees(tilt("stamp", Tilt.sticker)))
                     }
-                    Spacer().frame(width: 16)
+                    if !stacked { Spacer().frame(width: 16) }
                 } else {
                     ZStack(alignment: .bottomTrailing) {
                         coverArt
                             .frame(width: cover, height: cover + Tokens.detail.SCRAPBOOK_BADGE_OVERHANG_Y.cg * badge, alignment: .top)
                         emblem.offset(x: overhangX * badge)
                     }
-                    Spacer().frame(width: overhangX * badge + 12)
+                    if !stacked { Spacer().frame(width: overhangX * badge + 12) }
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     if let memoryTitle { openingTitle(memoryTitle) }
@@ -275,7 +282,7 @@ struct MacAlbumScrapbook: View {
         switch b {
         case .cluster(let t):
             VStack(alignment: mirrored ? .trailing : .leading, spacing: -Tokens.detail.SCRAPBOOK_PIECE_OVERLAP.cg) {
-                ticket(t, width: 300, mini: false).zIndex(0)
+                ticket(t, width: min(300, laneWidth), mini: false).zIndex(0)
                 if let ns = notes(t) {
                     notesClipping(t, ns)
                         .frame(maxWidth: .infinity, alignment: mirrored ? .leading : .trailing)
@@ -292,7 +299,7 @@ struct MacAlbumScrapbook: View {
                 }
                 .padding(.top, 6)
             } else {
-                ticket(ts[0], width: 240, mini: true)
+                ticket(ts[0], width: min(240, laneWidth), mini: true)
                     .frame(maxWidth: .infinity, alignment: mirrored ? .trailing : .leading)
                     .padding(.top, 6)
             }
@@ -376,7 +383,7 @@ struct MacAlbumScrapbook: View {
             }
             .padding(.leading, 24).padding(.trailing, 12).padding(.vertical, 8)
         }
-        .frame(width: 340, alignment: .leading)
+        .frame(width: min(340, laneWidth), alignment: .leading)
         .background(s.surfaceContainerHighest, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         .rotationEffect(.degrees(-sign(tilt("\(t.number)/tk", Tilt.ticket)) * abs(tilt("\(t.number)/nt", Tilt.paper))))
         .onTapGesture { openTrack = t.id.rawId }
@@ -416,7 +423,7 @@ struct MacAlbumScrapbook: View {
             }
         }
         .padding(.leading, 18).padding(.trailing, 18).padding(.top, 16).padding(.bottom, 24)
-        .frame(maxWidth: 340)
+        .frame(maxWidth: min(340, laneWidth))
         .background { ReceiptShape().fill(s.surfaceContainer) }
         .rotationEffect(.degrees(tilt("receipt", Tilt.paper)))
     }

@@ -48,6 +48,11 @@ struct MacAlbumDetail: View {
                 ViewThatFits(in: .horizontal) {
                     actions(a, iconOnly: false)
                     actions(a, iconOnly: true)
+                    // Narrowest: Play on its own row, the rest as icons under it.
+                    VStack(alignment: .leading, spacing: 10) {
+                        DetailAction(title: "Play", icon: "play_filled", prominent: true) { model.play(album: a) }
+                        secondaryActions(a)
+                    }
                 }
                 .sheet(isPresented: $rating_) { MacAlbumRateSheet(album: a).environment(\.macTint, tint) }
                 .padding(.bottom, 18)
@@ -92,6 +97,19 @@ struct MacAlbumDetail: View {
             if let p = n.object as? Int { withAnimation(Yoin.spatial) { page = p } }
         }
         #endif
+    }
+
+    private func secondaryActions(_ a: Album) -> some View {
+        HStack(spacing: 8) {
+            DetailAction(title: "Shuffle", icon: "shuffle", prominent: false, iconOnly: true) { model.play(album: a, shuffle: true) }
+            if model.session.client != nil {
+                let status = OfflineDownloads.shared.status(OfflineDownloads.albumKey(a.id.rawId))
+                DetailAction(title: OfflineDownloads.rowLabel(status), icon: OfflineDownloads.rowIcon(status),
+                             prominent: false, iconOnly: true) { model.toggleDownload(album: a) }
+            }
+            DetailAction(title: "Rate", icon: "star", prominent: false, iconOnly: true) { rating_ = true }
+        }
+        .fixedSize()
     }
 
     private func actions(_ a: Album, iconOnly: Bool) -> some View {
