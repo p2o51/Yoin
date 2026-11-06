@@ -118,7 +118,7 @@ struct AlbumDetailView: View {
     /// How far the strip reaches below the safe area (Glass Lab slider).
     private var stripExtend: CGFloat {
         let v = GlassLab.shared.extras["albumStripExtend"] ?? 0
-        return v > 0 ? v : 14
+        return v > 0 ? v : 6
     }
     private static let bandBlurRadius: CGFloat = 10
     /// The page's own space (the header's top edge is y = 0), where the list
@@ -181,7 +181,8 @@ struct AlbumDetailView: View {
                             .opacity(smooth(p, 0.3, 0.85))
                     case 4:
                         // The layering: the progressive blur, as the blur bar.
-                        ProgressiveEdgeBlur(tint: topTint)
+                        // Stronger and steeper than the scrapbook's (51, 2026-11-06).
+                        ProgressiveEdgeBlur(tint: topTint, strong: true)
                             .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
                             .offset(y: -geo.safeAreaInsets.top)
                             .opacity(smooth(p, 0.3, 0.85))
@@ -260,6 +261,7 @@ struct AlbumDetailView: View {
             }
             .onChange(of: offFirstPage) { _, off in AlbumPopGate.set(off, by: gateID) }
             .onChange(of: w) { _, now in pageWidth = now }
+            .onChange(of: p) { was, now in bandTicks(from: was, to: now) }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(Yoin.surface)
@@ -1304,6 +1306,31 @@ struct AlbumDetailView: View {
         }, completion: { pageMoving = false })
     }
 
+    /// The spectrum's bands land one after another (each strip at
+    /// p = 0.6 + its slot's lag, see `spectrum`): a faint tick as each band of
+    /// one color lands, only while the band is forming (p rising), so the
+    /// beats run with the band coming in (51, 2026-11-06).
+    private func bandTicks(from was: CGFloat, to now: CGFloat) {
+        guard topBar != 1 && topBar != 2, now > was, page <= 0.001 else { return }
+        for t in bandLandings where was < t && now >= t {
+            AlbumPullHaptics.band()
+        }
+    }
+
+    /// Where each color band of the spectrum lands, in p.
+    private var bandLandings: [CGFloat] {
+        let strips = AlbumSpectrum.strips(for: album)
+        let n = CGFloat(AlbumSpectrum.strips)
+        let bySlot = strips.sorted { $0.slot < $1.slot }
+        var out: [CGFloat] = []
+        var last: Color?
+        for st in bySlot where st.color != last {
+            last = st.color
+            out.append(0.6 + 0.22 * CGFloat(st.slot) / n)
+        }
+        return out
+    }
+
     /// Where a release here would settle, by position alone: past `pullSnap`
     /// of the travel from where the drag started.
     private var pullWouldExpand: Bool {
@@ -1420,6 +1447,7 @@ enum AlbumPullHaptics {
     static func prepare() {
         form.prepare()
         fold.prepare()
+        tick.prepare()
         land.prepare()
     }
 
@@ -1428,4 +1456,8 @@ enum AlbumPullHaptics {
     }
 
     static func landed() { land.impactOccurred(intensity: 0.6) }
+
+    /// One band of the spectrum landing: faint, several in a row.
+    static func band() { tick.impactOccurred(intensity: 0.35) }
+    private static let tick = UIImpactFeedbackGenerator(style: .rigid)
 }

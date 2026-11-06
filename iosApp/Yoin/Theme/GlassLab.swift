@@ -239,7 +239,7 @@ final class GlassLab {
         ("recedeScale", 0), ("recedeDim", 0), ("recedeBlur", 0), ("coverContactShadow", 0),
         ("sheetRecedeScale", 0), ("sheetRecedeDim", 0), ("sheetRecedeBlur", 0), ("pillAmbient", 0),
         ("darkAmbientStrength", 0), ("darkNeighbourStrength", 0), ("auraOnTop", 0),
-        ("albumPullTravel", 320), ("albumPullSnap", 0.3), ("albumStripExtend", 14),
+        ("albumPullTravel", 320), ("albumPullSnap", 0.3), ("albumStripExtend", 6),
     ]
 
     private func resetValues() {

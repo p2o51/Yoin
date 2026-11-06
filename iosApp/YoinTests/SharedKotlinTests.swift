@@ -21,7 +21,7 @@ final class SharedKotlinTests: XCTestCase {
         expectedExtras["detailTopBar"] = 4
         expectedExtras["albumPullTravel"] = 320
         expectedExtras["albumPullSnap"] = 0.3
-        expectedExtras["albumStripExtend"] = 14
+        expectedExtras["albumStripExtend"] = 6
         expected["homeCards"] = SurfaceStyle(variant: .material, role: .auto, tintOpacity: 0.45,
                                              interactive: false, cornerRadius: 16)
         // 51, 2026-11-03: rating track and NP pills are glass; the selected bar
