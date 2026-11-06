@@ -463,8 +463,11 @@ final class MacSpotifyOutput: AudioOutput {
                     // engine goes on); otherwise the listener picked it in Spotify — Now Playing shows it
                     // (iOS dfbe17ea), the queue stays parked under it, controls act on it.
                     if nearEnd, !self.showingExternal { self.ended(gen: gen); return }
+                    // Spotify's own song: its shuffle / repeat are what the mode button shows and changes.
+                    self.reportModes(shuffle: now.shuffleState ?? false, repeatState: now.repeatState ?? "off")
                     if let t = Self.external(now.item), t.id != self.externalId || (now.isPlaying ?? false) != self.playing
                         || abs((progress ?? 0) - self.currentTimeSec) > 3 {
+                        if t.id != self.externalId { self.refreshQueue() }
                         self.externalId = t.id
                         self.showingExternal = true
                         self.playing = now.isPlaying ?? false
@@ -492,6 +495,45 @@ final class MacSpotifyOutput: AudioOutput {
 
     /// Spotify plays a song that isn't the queue's (see `watch`).
     private var showingExternal = false
+
+    // MARK: Spotify's own queue and modes (while Yoin mirrors a song it didn't start)
+
+    /// Spotify's shuffle and repeat ("off", "context", "track") as last read, for the mode button.
+    var onModes: (_ shuffle: Bool, _ repeatState: String) -> Void = { _, _ in }
+    /// Spotify's Up Next (the mirrored song's queue).
+    var onQueue: ([PlayableTrack]) -> Void = { _ in }
+    private var lastModes: (Bool, String)?
+
+    private func reportModes(shuffle: Bool, repeatState: String) {
+        guard Date() >= quietUntil, lastModes.map({ $0 != shuffle || $1 != repeatState }) ?? true else { return }
+        lastModes = (shuffle, repeatState)
+        onModes(shuffle, repeatState)
+    }
+
+    /// Sets Spotify's own shuffle / repeat on the device it plays on (mirroring only; Yoin's own queue keeps
+    /// Spotify's modes off).
+    func setSpotifyModes(shuffle: Bool, repeatState: String) {
+        guard let o = owned, showingExternal else { return }
+        lastModes = (shuffle, repeatState)
+        command(o, "PUT", "me/player/shuffle", ["state": shuffle ? "true" : "false"])
+        command(o, "PUT", "me/player/repeat", ["state": repeatState])
+    }
+
+    private struct QueueDTO: Decodable {
+        let queue: [NowDTO.ItemDTO]?
+    }
+
+    /// Reads Spotify's queue (GET /me/player/queue) for Up Next while mirroring.
+    func refreshQueue() {
+        guard let s = source() else { return }
+        let gen = generation
+        Task { [weak self] in
+            guard let data = try? await s.api.send("GET", "me/player/queue"), !data.isEmpty,
+                  let q = try? SpotifyWebAPI.decoder.decode(QueueDTO.self, from: data) else { return }
+            guard let self, gen == self.generation, self.showingExternal else { return }
+            self.onQueue((q.queue ?? []).compactMap { Self.external($0) })
+        }
+    }
     private var externalId: String?
 
     // MARK: Looking at Spotify while Yoin drives nothing

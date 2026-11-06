@@ -148,6 +148,9 @@ final class MacModel {
             }
         }
         spotifyOutput.onDevice = { [weak self] name in self?.spotifyDevice = name }
+        // Mirroring a Spotify song Yoin didn't start: Spotify's own modes and Up Next.
+        spotifyOutput.onModes = { [weak self] shuffle, rep in self?.spotifyModes = (shuffle, rep) }
+        spotifyOutput.onQueue = { [weak self] q in self?.spotifyQueue = q }
         // Spotify gets the queue's next songs with a start, and asks the engine on when they part ways.
         // (Repeat one: Spotify gets the song alone, and its end plays it again.)
         spotifyOutput.upcoming = { [weak self] in
@@ -599,6 +602,26 @@ final class MacModel {
 
     /// The Spotify device Yoin plays on when it isn't this Mac (Now Playing names it).
     var spotifyDevice: String?
+    /// Spotify's own shuffle / repeat ("off" / "context" / "track") and Up Next, while Yoin mirrors its song.
+    var spotifyModes: (shuffle: Bool, repeatState: String) = (false, "off")
+    var spotifyQueue: [PlayableTrack] = []
+
+    /// The mode button on a mirrored Spotify song: Spotify's own modes, in the engine's cycle order.
+    func cycleSpotifyModes() {
+        let rep: RepeatMode = spotifyModes.repeatState == "track" ? .one : spotifyModes.repeatState == "context" ? .all : .off
+        var shuffle = spotifyModes.shuffle
+        var next = rep
+        switch (shuffle, rep) {
+        case (false, .all): shuffle = true
+        case (true, .all): next = .one
+        case (true, .one): shuffle = false
+        case (false, .one): next = .all
+        case (_, .off): next = .all
+        }
+        let state = next == .one ? "track" : next == .all ? "context" : "off"
+        spotifyModes = (shuffle, state)
+        spotifyOutput.setSpotifyModes(shuffle: shuffle, repeatState: state)
+    }
     /// Shows or hides the mini player window (set by the window, for the Dock menu).
     @ObservationIgnored var toggleMiniPlayer: (() -> Void)?
     /// The first-run landing on screen (nil: none).

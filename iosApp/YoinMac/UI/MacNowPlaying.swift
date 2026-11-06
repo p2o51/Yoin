@@ -228,9 +228,17 @@ struct MacNowPlaying: View {
                 .animation(Yoin.standardFastSpatial, value: p.isPlaying)
                 RoundControl(icon: "skip_next_filled") { p.next() }
                 Spacer(minLength: 0)
-                RoundControl(icon: p.shuffle ? "shuffle" : "repeat", badge: p.repeatMode == .one ? "1" : nil,
-                             dim: p.repeatMode == .off) { p.cyclePlayMode() }
-                    .help("Play Mode")
+                if p.externalTrack?.provider == SpotifyMapping.provider {
+                    // A Spotify song Yoin mirrors: Spotify's own shuffle / repeat.
+                    let m = model.spotifyModes
+                    RoundControl(icon: m.shuffle ? "shuffle" : "repeat", badge: m.repeatState == "track" ? "1" : nil,
+                                 dim: m.repeatState == "off" && !m.shuffle) { model.cycleSpotifyModes() }
+                        .help("Spotify's Play Mode")
+                } else {
+                    RoundControl(icon: p.shuffle ? "shuffle" : "repeat", badge: p.repeatMode == .one ? "1" : nil,
+                                 dim: p.repeatMode == .off) { p.cyclePlayMode() }
+                        .help("Play Mode")
+                }
             }
             HStack(spacing: 10) {
                 RoundControl(icon: "skip_previous_filled") { p.previous() }
@@ -480,11 +488,52 @@ private struct QueuePopover: View {
     @Environment(MacModel.self) private var model
 
     var body: some View {
+        if model.player.externalTrack?.provider == SpotifyMapping.provider {
+            spotifyUpNext
+        } else {
+            yoinUpNext
+        }
+    }
+
+    /// Mirroring a Spotify song Yoin didn't start: Spotify's own Up Next (read there; changed in Spotify).
+    private var spotifyUpNext: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Up Next in Spotify").font(.gsf(15, .semibold)).padding(.horizontal, 10)
+            if model.spotifyQueue.isEmpty {
+                Text("Nothing queued in Spotify").font(.gsf(13)).foregroundStyle(Yoin.inkVariant).padding(10)
+            } else {
+                List {
+                    ForEach(Array(model.spotifyQueue.enumerated()), id: \.offset) { _, t in
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(t.title).font(.gsf(13.5)).lineLimit(1)
+                                Text(t.artist).font(.gsf(12)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
+                            }
+                            Spacer(minLength: 8)
+                            Text(formatTime(Int(t.durationSec))).font(.gsf(12).monospacedDigit()).foregroundStyle(Yoin.ink3)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .frame(height: min(400, CGFloat(model.spotifyQueue.count) * 46 + 8))
+            }
+        }
+        .padding(12)
+        .frame(width: 340)
+        .onAppear { model.spotifyOutput.refreshQueue() }
+    }
+
+    private var yoinUpNext: some View {
         let p = model.player
         let start = (p.currentIndex ?? 0) + 1
         // Every song after the current one (the List draws only the rows on screen).
         let upcoming = Array(p.upcoming)
-        VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Up Next").font(.gsf(15, .semibold))
                 Spacer()
