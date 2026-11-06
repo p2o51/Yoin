@@ -218,8 +218,9 @@ enum SpotifyAuth {
 
     private static func webAuth(_ url: URL) async throws -> URL {
         try await withCheckedThrowingContinuation { cont in
-            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(SpotifyConfig.callbackScheme)) { callback, error in
-                MainActor.assumeIsolated { current = nil }
+            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(SpotifyConfig.callbackScheme)) { @Sendable callback, error in
+                // macOS answers on a background queue (iOS on main): hop, never assume.
+                Task { @MainActor in current = nil }
                 if let callback { cont.resume(returning: callback); return }
                 if let e = error as? ASWebAuthenticationSessionError, e.code == .canceledLogin {
                     cont.resume(throwing: SpotifyAuthError.cancelled)

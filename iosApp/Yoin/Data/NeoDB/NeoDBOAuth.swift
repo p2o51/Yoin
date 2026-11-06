@@ -137,7 +137,8 @@ final class SystemWebAuthenticator: NSObject, NeoDBWebAuthenticating {
     func authenticate(url: URL, callbackScheme: String) async throws -> URL {
         defer { session = nil }
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-            let s = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) { callback, error in
+            let s = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) { @Sendable callback, error in
+                // @Sendable: macOS answers on a background queue, and a main-actor closure would trap there.
                 if let callback {
                     continuation.resume(returning: callback)
                 } else if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
