@@ -120,8 +120,9 @@ extension NowPlayingData {
         case searching
         /// A key is saved and nothing is cached yet: ask now.
         case pending(AboutSong)
-        /// Gemini's rows for the song (Android `Ready`).
-        case gemini([SongAboutStore.Entry])
+        /// Gemini's rows for the song (Android `Ready`), with the server's
+        /// facts beside them when it has any (Android always shows both).
+        case gemini([SongAboutStore.Entry], SongFacts? = nil)
         /// No Gemini key (Android `ApiKeyMissing`), over the server's facts.
         case noKey(SongFacts?)
         /// Android `Error`: the message and a retry.
@@ -142,7 +143,7 @@ extension NowPlayingData {
             case .failed(let message):
                 return .failed(message, song)
             case _ where !entries.isEmpty:
-                return .gemini(entries)
+                return .gemini(entries, facts)
             case .loading:
                 return .searching
             case .noKey:
@@ -181,7 +182,7 @@ struct NowPlayingAboutView: View {
     private var shown: NowPlayingData.AboutState {
         #if DEBUG
         if case .gemini = state { return state }
-        if let rows = SongAboutDemo.rows(), !rows.isEmpty { return .gemini(rows) }
+        if let rows = SongAboutDemo.rows(), !rows.isEmpty { return .gemini(rows, nil) }
         #endif
         return state
     }
@@ -205,8 +206,8 @@ struct NowPlayingAboutView: View {
                 searching
                     .task(id: song.key) { await SongAboutLoader.shared.ensure(title: song.title, artist: song.artist, album: song.album) }
                     .transition(.opacity)
-            case .gemini(let entries):
-                list(items(entries))
+            case .gemini(let entries, let facts):
+                list(Self.rows(entries: entries, facts: facts, expanded: expanded))
                     .transition(.opacity)
             case .noKey(let facts):
                 list((facts?.facts ?? []).map { Item(label: $0.label, value: $0.value) }, header: AnyView(noKey))
@@ -224,7 +225,7 @@ struct NowPlayingAboutView: View {
         // its row, so Manage never pairs one song's row with the next song's album.
         .onChange(of: shown) { _, now in
             guard let open = menuFor else { return }
-            guard case .gemini(let rows) = now, rows.contains(where: { $0.ref == open.entry.ref }) else {
+            guard case .gemini(let rows, _) = now, rows.contains(where: { $0.ref == open.entry.ref }) else {
                 menuFor = nil
                 return
             }
@@ -233,7 +234,7 @@ struct NowPlayingAboutView: View {
         #if DEBUG
         .task {
             // `-aboutDemo sheet`: the question's sheet, as a long-press opens it.
-            guard expanded, SongAboutDemo.mode == "sheet", case .gemini(let rows) = shown,
+            guard expanded, SongAboutDemo.mode == "sheet", case .gemini(let rows, _) = shown,
                   let ask = rows.first(where: { $0.kind == SongAboutStore.Kind.ask }) else { return }
             try? await Task.sleep(for: .seconds(1.5))
             menuFor = .init(entry: ask, label: ask.heading ?? "")
@@ -312,7 +313,7 @@ struct NowPlayingAboutView: View {
 
     // MARK: Rows
 
-    private struct Item: Identifiable {
+    struct Item: Identifiable {
         var label: String
         var value: String
         /// Android's small window sets the review 8 lower with its own heading gap.
@@ -322,19 +323,32 @@ struct NowPlayingAboutView: View {
         var id: String { entry.map { "\($0.kind)/\($0.entryKey)" } ?? label + "\u{1}" + value }
     }
 
-    /// Android's rows: canonical in order (blank ones skipped), then the
-    /// asks and the listener's own entries: every one expanded under a 20
-    /// gap, the latest only in the small window under a 12 gap. The review
-    /// reads "About".
-    private func items(_ entries: [SongAboutStore.Entry]) -> [Item] {
-        var out: [Item] = entries.filter { $0.kind == SongAboutStore.Kind.canonical }.map { row in
-            Item(label: Self.label(row.entryKey, expanded: expanded), value: row.answerText,
-                 gapAbove: !expanded && row.entryKey == SongAboutStore.Canon.review ? 8 : 0, entry: row)
+    /// Android's receipt order (`aboutReceiptRows`): who wrote it and when
+    /// and where (Gemini's canonical rows, blank ones skipped), then
+    /// everything the server says, then the review, then the asks and the
+    /// listener's own entries (every one expanded under a 20 gap, the
+    /// latest only in the small window under a 12 gap). The server's facts
+    /// show whenever there are any, whatever else is on the page.
+    static func rows(entries: [SongAboutStore.Entry], facts: SongFacts?, expanded: Bool) -> [Item] {
+        let canonical = entries.filter { $0.kind == SongAboutStore.Kind.canonical }
+        func row(_ key: String) -> Item? {
+            canonical.first { $0.entryKey == key }.map {
+                Item(label: label(key, expanded: expanded), value: $0.answerText, entry: $0)
+            }
+        }
+        let receiptOrder = [SongAboutStore.Canon.lyricist, SongAboutStore.Canon.composer,
+                            SongAboutStore.Canon.producer, SongAboutStore.Canon.creationTime,
+                            SongAboutStore.Canon.creationLocation]
+        var out = receiptOrder.compactMap(row)
+        out += (facts?.facts ?? []).map { Item(label: $0.label, value: $0.value) }
+        if var review = row(SongAboutStore.Canon.review) {
+            review.gapAbove = expanded ? 0 : 8
+            out.append(review)
         }
         let asks = entries.filter { $0.kind != SongAboutStore.Kind.canonical }
-        for (i, row) in (expanded ? asks : Array(asks.prefix(1))).enumerated() {
-            out.append(Item(label: row.heading ?? "", value: row.answerText,
-                            gapAbove: i == 0 ? (expanded ? 20 : 12) : 0, entry: row))
+        for (i, ask) in (expanded ? asks : Array(asks.prefix(1))).enumerated() {
+            out.append(Item(label: ask.heading ?? "", value: ask.answerText,
+                            gapAbove: i == 0 ? (expanded ? 20 : 12) : 0, entry: ask))
         }
         return out
     }
