@@ -388,36 +388,19 @@ fun PlaylistDetailScreen(
                             )
                             // The playlist's own albums fanned behind the cover
                             // (PlaylistSleeves.kt): whole, never clipped, and on the
-                            // pull-up they close in behind the flying cover and ride
-                            // it into the stamp. Above the spectrum, below the cover.
+                            // pull-up they break up into dots where they rest.
+                            // Above the spectrum, below the cover.
                             val sleeveClearancePx = with(density) { PlaylistSleeveEdgeClearance.toPx() }
                             val heroCornerPx = with(density) { PlaylistHeroCorner.toPx() }
-                            val stampCornerPx = with(density) { PlaylistStampCorner.toPx() }
                             val heroRisePx = with(density) { PlaylistHeroRise.toPx() }
-                            // Where the cover is now: AlbumFlyingCover's rect (reduced
-                            // motion: it never flies, it fades where it rests).
-                            val heroNow: () -> Rect = {
-                                val g = geometry()
-                                when {
-                                    g == null -> Rect.Zero
-                                    reduced -> coverNow()
-                                    else -> albumBarCoverRect(g, coverNow(), progress().coerceIn(0f, 1f))
-                                }
-                            }
                             PlaylistSleeves(
                                 covers = content.sleeveCoverUrls,
                                 reveal = sleeveReveal,
                                 restingSide = { geometry()?.cover?.width ?: 0f },
-                                cover = heroNow,
-                                // AlbumFlyingCover's corner: Hero → Thumb as it flies.
-                                corner = {
-                                    if (reduced) {
-                                        heroCornerPx
-                                    } else {
-                                        val t = smoothStep(0f, 1f, progress().coerceIn(0f, 1f))
-                                        heroCornerPx + (stampCornerPx - heroCornerPx) * t
-                                    }
-                                },
+                                // They stay where the cover rests and break up into
+                                // dots as it flies to the stamp (owner 2026-11-06).
+                                cover = coverNow,
+                                corner = { heroCornerPx },
                                 // The tighter of the cover's two sides to the page edges.
                                 spread = {
                                     val rest = geometry()?.cover
@@ -428,16 +411,17 @@ fun PlaylistDetailScreen(
                                         playlistSleeveSpread(rest.width, room)
                                     }
                                 },
-                                fold = { if (reduced) 0f else smoothStep(0f, PlaylistSleeveFoldEnd, progress()) },
-                                // Reduced motion: no fan motion, they fade out with the cover.
+                                leaving = { smoothStep(0f, PlaylistSleeveLeaveEnd, progress()) },
+                                // Reduced motion: no dots, they fade out with the cover.
                                 fade = { if (reduced) (1f - 2f * progress()).coerceIn(0f, 1f) else 1f },
                                 reduced = reduced,
                                 // The cover lands on its staged beat (risen, grown in):
-                                // its ring follows what is actually on screen.
+                                // its ring follows what is actually on screen, and goes
+                                // as soon as the cover starts to leave.
                                 coverRing = {
-                                    stagedBeatRect(heroNow(), stagedReveal.hero, heroRisePx, PlaylistHeroScaleFrom)
+                                    stagedBeatRect(coverNow(), stagedReveal.hero, heroRisePx, PlaylistHeroScaleFrom)
                                 },
-                                coverAlpha = { stagedReveal.hero },
+                                coverAlpha = { stagedReveal.hero * (1f - smoothStep(0f, 0.2f, progress())) },
                                 modifier = Modifier.fillMaxSize(),
                             )
                             // Below the header and body on purpose: the artwork's
@@ -1262,14 +1246,14 @@ private fun PlaylistLandscapeLayers(
                 ) {
                     // Whole sleeves around the cover, fanned no wider than the
                     // start margin and the gutter to the meta allow; the pull-up
-                    // closes them behind the cover as the hero fades.
+                    // breaks them up into dots as the hero fades.
                     PlaylistCoverSleeves(
                         covers = content.sleeveCoverUrls,
                         reveal = sleeveReveal,
                         coverSide = coverSide,
                         sideRoom = minOf(PlaylistLandscapeCoverStart, PlaylistLandscapeGutter),
                         corner = PlaylistHeroCorner,
-                        fold = { smoothStep(0f, PlaylistSleeveFoldEnd, expandNow()) },
+                        leaving = { smoothStep(0f, PlaylistSleeveLeaveEnd, expandNow()) },
                         modifier = Modifier.fillMaxSize(),
                     )
                     ExpressiveMediaArtwork(

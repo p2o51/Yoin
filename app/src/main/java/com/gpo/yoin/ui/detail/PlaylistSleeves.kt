@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -18,6 +19,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -47,6 +49,7 @@ import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.StagedReveal
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.nowplaying.dotDissolve
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -76,8 +79,10 @@ import kotlinx.coroutines.launch
  *     sheets and nothing grows a halo over the page background.
  *   - Never cut: the sheets are drawn whole (no clip on them); a caller shrinks
  *     the fan ([playlistSleeveSpread]) where its box is narrow.
+ *   - Leaving (the pull-up): they stay where they are and break up into fine
+ *     dots, like the album's butterfly and the artist's ring (owner 2026-11-06).
  *
- * Everything per frame (reveal, fold, the moving cover) is read in placement
+ * Everything per frame (reveal, leaving, the moving cover) is read in placement
  * or draw only, so a pull-up or the entrance never recomposes the page.
  */
 
@@ -96,8 +101,8 @@ internal const val PlaylistSleeveDrop = 0.07f
 /** The full fan's tilt: the start sleeve leans toward the start, the other toward the end. */
 internal const val PlaylistSleeveTiltDegrees = 6.3f
 
-/** The pull-up has closed the fan behind the cover by this progress (fold = smoothStep(0, this, progress)). */
-internal const val PlaylistSleeveFoldEnd = 0.75f
+/** The pull-up has broken the sleeves up into dots by this progress (leaving = smoothStep(0, this, progress)). */
+internal const val PlaylistSleeveLeaveEnd = 0.7f
 
 /** Knock-out ring width, × the cover side, never under [PlaylistSleeveMinGap]. */
 private const val PlaylistSleeveGapFraction = 0.025f
@@ -265,7 +270,7 @@ internal fun rememberPlaylistSleeveReveal(stagedReveal: StagedReveal): PlaylistS
  * @param cover the cover's rect now (read in placement and draw).
  * @param corner the cover's on-screen corner radius now, px; the sleeves match it.
  * @param spread the fan offset, from [playlistSleeveSpread].
- * @param fold 0 = fanned, 1 = closed behind the cover (the pull-up).
+ * @param leaving 0 = whole, 1 = broken up into dots (the pull-up).
  * @param fade multiplies the sleeves' opacity (reduced motion's pull-up).
  * @param coverRing the cover's visible rect for its knock-out ring, when it
  *   differs from [cover] (the hero's own staged beat).
@@ -280,7 +285,7 @@ internal fun PlaylistSleeves(
     corner: () -> Float,
     spread: () -> Float,
     modifier: Modifier = Modifier,
-    fold: () -> Float = { 0f },
+    leaving: () -> Float = { 0f },
     fade: () -> Float = { 1f },
     reduced: Boolean = false,
     coverRing: () -> Rect = cover,
@@ -304,7 +309,7 @@ internal fun PlaylistSleeves(
         val now = cover()
         if (now.width <= 0f) return null
         val beat = reveal.progress(index)
-        val open = if (reduced) 1f else beat * (1f - fold().coerceIn(0f, 1f))
+        val open = if (reduced) 1f else beat
         val grow = if (reduced) 1f else PlaylistSleeveEnterScaleFrom + (1f - PlaylistSleeveEnterScaleFrom) * beat
         return playlistSleevePose(now, index, open, grow, spread(), rtl)
     }
@@ -313,7 +318,7 @@ internal fun PlaylistSleeves(
             fade().coerceIn(0f, 1f) *
             slots[index].presence.value
 
-    Box(modifier) {
+    Box(modifier.dotDissolve { if (reduced) 0f else leaving().coerceIn(0f, 1f) }) {
         slots.forEachIndexed { index, slot ->
             val url = slot.url ?: return@forEachIndexed
             if (index > 0 && slots[index - 1].url != null) {
@@ -390,7 +395,7 @@ internal fun PlaylistCoverSleeves(
     sideRoom: Dp,
     corner: Dp,
     modifier: Modifier = Modifier,
-    fold: () -> Float = { 0f },
+    leaving: () -> Float = { 0f },
     artworkModifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -398,20 +403,30 @@ internal fun PlaylistCoverSleeves(
     val sidePx = with(density) { coverSide.toPx() }
     val cornerPx = with(density) { corner.toPx() }
     val spread = playlistSleeveSpread(sidePx, with(density) { (sideRoom - PlaylistSleeveEdgeClearance).toPx() })
-    val rect = Rect(0f, 0f, sidePx, sidePx)
-    PlaylistSleeves(
-        covers = covers,
-        reveal = reveal,
-        restingSide = { sidePx },
-        cover = { rect },
-        corner = { cornerPx },
-        spread = { spread },
-        modifier = modifier,
-        fold = if (reduced) ({ 0f }) else fold,
-        reduced = reduced,
-        artworkModifier = artworkModifier,
-    )
+    // The stage reaches past the cover's box (centred on it), so the dissolve's
+    // layer holds the fanned sheets whole.
+    val stage = coverSide * PlaylistCoverSleeveStage
+    val inset = with(density) { (stage - coverSide).toPx() } / 2f
+    val rect = Rect(inset, inset, inset + sidePx, inset + sidePx)
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        PlaylistSleeves(
+            covers = covers,
+            reveal = reveal,
+            restingSide = { sidePx },
+            cover = { rect },
+            corner = { cornerPx },
+            spread = { spread },
+            modifier = Modifier.requiredSize(stage),
+            leaving = leaving,
+            reduced = reduced,
+            artworkModifier = artworkModifier,
+        )
+    }
 }
+
+// The cover-box stage's side, × the cover side: room for the fanned sheets (half
+// extent + spread + drop, all under 0.8 of the side from the centre).
+private const val PlaylistCoverSleeveStage = 1.6f
 
 /** A slot's url: the last one it showed stays while it fades out. */
 @Stable

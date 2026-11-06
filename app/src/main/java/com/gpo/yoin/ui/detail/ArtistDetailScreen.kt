@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -80,8 +81,8 @@ import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
-import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -103,7 +104,7 @@ import com.gpo.yoin.ui.theme.withTabularFigures
  * on the user's OWN layer instead, like the Album page does:
  *
  *   header      back, name, year span, follow star
- *   hero        pinwheel mark around the portrait
+ *   hero        open ring around the portrait
  *   Most Played your own most-played songs (local play history)
  *   Discography release timeline: year column, type, track count
  */
@@ -159,12 +160,11 @@ fun ArtistDetailScreen(
     // animated so the resolve doesn't pop.
     val scheme = rememberCoverColorScheme(heroUrl) ?: MaterialTheme.colorScheme
     val titleColor by animateColorAsState(scheme.primary, YoinMotion.effectsSpring(), label = "artistTitleColor")
-    val armLowerLeft by animateColorAsState(scheme.tertiary, YoinMotion.effectsSpring(), label = "artistArmLowerLeft")
-    val armUpper by animateColorAsState(scheme.primary, YoinMotion.effectsSpring(), label = "artistArmUpper")
-    val armLowerRight by animateColorAsState(scheme.secondary, YoinMotion.effectsSpring(), label = "artistArmLowerRight")
+    val ringColor by animateColorAsState(scheme.primary, YoinMotion.effectsSpring(), label = "artistRing")
+    val ringDotColor by animateColorAsState(scheme.tertiary, YoinMotion.effectsSpring(), label = "artistRingDot")
     val colors = ArtistPageColors(
-        // Pinwheel arms in mark order: lower-left, upper, lower-right.
-        arms = listOf(armLowerLeft, armUpper, armLowerRight),
+        ring = ringColor,
+        ringDot = ringDotColor,
         accent = titleColor,
     )
 
@@ -344,7 +344,8 @@ fun ArtistDetailScreen(
 
 /** Cover-seeded colours the page body needs, resolved once at the screen level. */
 private class ArtistPageColors(
-    val arms: List<Color>,
+    val ring: Color,
+    val ringDot: Color,
     val accent: Color,
 )
 
@@ -505,12 +506,16 @@ private fun ArtistBody(
         val wide = !landscape && layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val scrollState = rememberScrollState()
-        // The pinwheel turns with the page as it scrolls (read at draw time —
-        // no recomposition per scroll frame); still under reduced motion.
-        val turnWithScroll = LocalMotionProfile.current != MotionProfile.AdaptiveReduced
-        val pinwheelTurn: () -> Float = {
-            ArtistPinwheelRestDegrees +
-                if (turnWithScroll) scrollState.value * ArtistPinwheelDegreesPerPx else 0f
+        // The ring turns with the page as it scrolls and breaks up into dots as
+        // the hero leaves (both read at draw time — no recomposition per scroll
+        // frame). Reduced motion: no turn, and the hero just scrolls away whole.
+        val reducedMotion = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+        val ringTurn: () -> Float = {
+            if (reducedMotion) 0f else scrollState.value * ArtistRingDegreesPerPx
+        }
+        val dissolvePx = with(LocalDensity.current) { ArtistRingDissolveDistance.toPx() }
+        val ringLeaving: () -> Float = {
+            if (reducedMotion) 0f else smoothStep(0f, dissolvePx, scrollState.value.toFloat())
         }
         val mostPlayedVisible = content.listening?.mostPlayed?.isNotEmpty() == true
 
@@ -534,27 +539,27 @@ private fun ArtistBody(
                     content = content,
                     heroUrl = heroUrl,
                     colors = colors,
-                    pinwheelTurn = pinwheelTurn,
+                    ring = ArtistRingMotion(turn = ringTurn, leaving = ringLeaving),
                     onMostPlayedClick = onMostPlayedClick,
                 )
                 wide -> ArtistWideHero(
                     content = content,
                     heroUrl = heroUrl,
                     colors = colors,
-                    pinwheelTurn = pinwheelTurn,
+                    ring = ArtistRingMotion(turn = ringTurn, leaving = ringLeaving),
                     desktop = desktop,
                     follow = follow,
                     modifier = if (desktop) Modifier else Modifier.yoinPageContentWidth(),
                 )
                 else -> {
-                    // Portrait on the pinwheel's hub.
+                    // Portrait in the middle of its ring.
                     val portraitSize = minOf(maxW * 0.52f, 216.dp)
-                    ArtistPinwheelHero(
+                    ArtistRingHero(
                         heroUrl = heroUrl,
                         artistName = content.artistName,
                         colors = colors,
                         portraitSize = portraitSize,
-                        pinwheelTurn = pinwheelTurn,
+                        ring = ArtistRingMotion(turn = ringTurn, leaving = ringLeaving),
                     )
                 }
             }
@@ -638,8 +643,8 @@ private val ArtistDesktopMostPlayedWidth = 480.dp
 
 /**
  * Landscape handset (ArtistLandscape): the portrait turned sideways — the
- * 220dp circle on its pinwheel on the left (arms kept whole and clear of the
- * capsule band), Most Played on the right. The name is in the header row
+ * 220dp circle in its ring on the left (kept whole and clear of the capsule
+ * band), Most Played on the right. The name is in the header row
  * only; the discography follows below with the page.
  */
 @Composable
@@ -647,26 +652,26 @@ private fun ArtistLandscapeHero(
     content: ArtistDetailUiState.Content,
     heroUrl: String?,
     colors: ArtistPageColors,
-    pinwheelTurn: () -> Float,
+    ring: ArtistRingMotion,
     onMostPlayedClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            // The arms reach ~137dp from the hub: this keeps them whole — clear
+            // The ring reaches ~136dp from the centre: this keeps it whole — clear
             // of the capsule band on the left and of the scroll edge on top.
             .padding(start = 40.dp, end = 24.dp, top = 28.dp),
         horizontalArrangement = Arrangement.spacedBy(48.dp),
     ) {
         Box(modifier = Modifier.size(ArtistLandscapePortraitSize)) {
-            ArtistPinwheelBackground(
-                colors = colors.arms,
-                lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+            ArtistOpenRing(
+                ringColor = colors.ring,
+                dotColor = colors.ringDot,
                 portraitSize = ArtistLandscapePortraitSize,
-                rotationDegrees = pinwheelTurn,
-                modifier = Modifier.fillMaxSize(),
-                markScale = ArtistPinwheelLandscapeScale,
+                rotationDegrees = ring.turn,
+                leaving = ring.leaving,
+                reach = ArtistRingLandscapeReach,
             )
             ArtistPortrait(heroUrl = heroUrl, artistName = content.artistName, modifier = Modifier.fillMaxSize())
         }
@@ -690,40 +695,38 @@ private fun ArtistLandscapeHero(
 
 private val ArtistLandscapePortraitSize = 220.dp
 
-// Arms reach ≈0.46 × portrait × scale from the hub: 1.35 keeps them whole
-// inside the 40dp gutter, never under the capsules.
-private const val ArtistPinwheelLandscapeScale = 1.35f
+// 0.62 × 220 ≈ 136dp from the centre: 26dp past the portrait, inside the 40dp
+// gutter (never under the capsules) and the 28dp above it.
+private const val ArtistRingLandscapeReach = 0.62f
 
 // ---------------------------------------------------------------------------
 // Hero
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ArtistPinwheelHero(
+private fun ArtistRingHero(
     heroUrl: String?,
     artistName: String,
     colors: ArtistPageColors,
     portraitSize: Dp,
-    pinwheelTurn: () -> Float,
+    ring: ArtistRingMotion,
     modifier: Modifier = Modifier,
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(portraitSize + ArtistPinwheelBandExtra)
-            // Full width, so the bleeding arms stay inside the print.
+            .height(portraitSize + ArtistRingBandExtra)
             .seamDissolve(),
         contentAlignment = Alignment.Center,
     ) {
-        // Width = the page (no side padding): the arms bleed off the screen
-        // edges only; the band is tall enough that they clear the first
-        // section below at the resting turn.
-        ArtistPinwheelBackground(
-            colors = colors.arms,
-            lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+        // The band is tall enough that the ring clears the header above and the
+        // first section below.
+        ArtistOpenRing(
+            ringColor = colors.ring,
+            dotColor = colors.ringDot,
             portraitSize = portraitSize,
-            rotationDegrees = pinwheelTurn,
-            modifier = Modifier.fillMaxSize(),
+            rotationDegrees = ring.turn,
+            leaving = ring.leaving,
         )
         ArtistPortrait(heroUrl = heroUrl, artistName = artistName, modifier = Modifier.size(portraitSize))
     }
@@ -745,7 +748,7 @@ private fun ArtistPortrait(heroUrl: String?, artistName: String, modifier: Modif
 }
 
 /**
- * >= Medium hero (ArtistFold / ArtistDesktop): the pinwheel portrait on the
+ * >= Medium hero (ArtistFold / ArtistDesktop): the ringed portrait on the
  * left (180 Medium, 220 Wide), the identity column on the right — the ONLY
  * place the name appears here (the header keeps just back), the meta line
  * and Follow. Play lives in the bottom bar, not here.
@@ -755,7 +758,7 @@ private fun ArtistWideHero(
     content: ArtistDetailUiState.Content,
     heroUrl: String?,
     colors: ArtistPageColors,
-    pinwheelTurn: () -> Float,
+    ring: ArtistRingMotion,
     modifier: Modifier = Modifier,
     desktop: Boolean = false,
     follow: (@Composable () -> Unit)? = null,
@@ -766,9 +769,8 @@ private fun ArtistWideHero(
             .fillMaxWidth()
             .padding(
                 // The boards' portrait insets (ArtistFold 24, ArtistDesktop
-                // 64): with the matching mark scale below they keep the
-                // pinwheel's left arm inside the pane — a split pane's edge
-                // clips it otherwise.
+                // 64): with the matching ring reach below they keep the ring
+                // inside the pane — a split pane's edge clips it otherwise.
                 horizontal = if (desktop) 64.dp else 24.dp,
                 vertical = ArtistWideHeroGap,
             ),
@@ -776,15 +778,15 @@ private fun ArtistWideHero(
         horizontalArrangement = Arrangement.spacedBy(ArtistWideHeroGap),
     ) {
         Box(modifier = Modifier.size(portraitSize)) {
-            // Drawn around the portrait's own box (the Canvas does not clip),
-            // so the hub stays under the circle wherever the row puts it.
-            ArtistPinwheelBackground(
-                colors = colors.arms,
-                lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+            // Centred on the portrait's own box (sized for itself, past the
+            // box), so it stays round the circle wherever the row puts it.
+            ArtistOpenRing(
+                ringColor = colors.ring,
+                dotColor = colors.ringDot,
                 portraitSize = portraitSize,
-                rotationDegrees = pinwheelTurn,
-                modifier = Modifier.fillMaxSize(),
-                markScale = if (desktop) ArtistPinwheelWideScale else ArtistPinwheelMediumScale,
+                rotationDegrees = ring.turn,
+                leaving = ring.leaving,
+                reach = if (desktop) ArtistRingWideReach else ArtistRingMediumReach,
             )
             ArtistPortrait(heroUrl = heroUrl, artistName = content.artistName, modifier = Modifier.fillMaxSize())
         }
@@ -808,21 +810,25 @@ private fun ArtistWideHero(
     }
 }
 
-// Height the band adds around the portrait so the pinwheel's arms clear the
-// first section below at the resting turn.
-private val ArtistPinwheelBandExtra = 150.dp
+/** The ring's two draw-time inputs: its scroll-linked turn and how far it has dissolved. */
+private class ArtistRingMotion(val turn: () -> Float, val leaving: () -> Float)
 
-// Scroll-linked turn of the pinwheel, degrees per px scrolled (~18° per 100dp at 3×).
-private const val ArtistPinwheelDegreesPerPx = 0.06f
+// Height the band adds around the portrait: room for the ring (0.84 × 216 ≈
+// 181dp from the centre, inside the band's 183) above and below.
+private val ArtistRingBandExtra = 150.dp
 
-// >= Medium: the pinwheel sits behind a side portrait with the name column to
-// its right; the arms reach ≈0.78 × portrait from the hub, so the row's gap
-// and vertical room keep them clear of that text.
-private const val ArtistPinwheelWideScale = 1.7f
+// Scroll-linked turn of the ring, degrees per px scrolled (~18° per 100dp at 3×).
+private const val ArtistRingDegreesPerPx = 0.06f
 
-// Medium's 180dp portrait sits 24dp in: at this scale the arms reach ≈19dp
-// past the portrait, so they stay inside the pane.
-private const val ArtistPinwheelMediumScale = 1.5f
+// The ring has broken up into dots by the time the page has scrolled this far.
+private val ArtistRingDissolveDistance = 220.dp
+
+// >= Medium: the ring sits round a side portrait with the name column to its
+// right; at 0.78 × portrait the row's gap and vertical room keep it clear of
+// that text (Wide: 62dp past a 220dp portrait set 64dp in), and Medium's ring
+// (22dp past a 180dp portrait set 24dp in) stays inside the pane.
+private const val ArtistRingWideReach = 0.78f
+private const val ArtistRingMediumReach = 0.62f
 private val ArtistWideHeroGap = 56.dp
 
 @Composable
