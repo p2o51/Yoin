@@ -206,6 +206,11 @@ targets:
       - path: Yoin/Data/Backup/PlaylistBackups.swift
       - path: Yoin/Data/Backup/PlaylistRestore.swift
       - path: Yoin/Data/Backup/SpotifyBackups.swift
+      - path: Yoin/Settings/OpenSourceLicensesView.swift
+      - path: Yoin/Resources/Licenses/license_apache_2_0.txt
+        buildPhase: resources
+      - path: Yoin/Resources/Licenses/license_ofl_1_1.txt
+        buildPhase: resources
       - path: Yoin/YoinSymbols.xcassets
       - path: Yoin/Resources/Fonts/google_sans_flex_400.ttf
         buildPhase: resources

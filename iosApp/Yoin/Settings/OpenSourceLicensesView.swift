@@ -50,6 +50,7 @@ let openSourceComponents: [OssComponent] = [
                  license: .mitMPMessagePack),
 ]
 
+#if os(iOS)
 /// Settings › About › Open source licenses (Android OpenSourceLicensesPage): the fonts and libraries
 /// Yoin ships, each with its copyright and license; a tap shows the license in full.
 struct OpenSourceLicensesView: View {
@@ -160,3 +161,4 @@ struct OpenSourceLicensesView: View {
     NavigationStack { OpenSourceLicensesView() }
         .environment(AppModel.shared)
 }
+#endif

@@ -210,6 +210,7 @@ struct MacSettingsView: View {
             .tabItem { Label("Playback", image: "yoin.play_filled") }
 
             Form {
+            MacPlaybackCacheSection()
             if model.session.client != nil {
                 @Bindable var offline = OfflineDownloads.shared
                 Section("Downloads") {
@@ -228,7 +229,7 @@ struct MacSettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .tabItem { Label("Downloads", image: "yoin.download") }
+            .tabItem { Label("Storage", image: "yoin.download") }
 
             Form {
                 Section("Lyrics") {
@@ -265,6 +266,9 @@ struct MacSettingsView: View {
 
             MacNeoDBSettings()
                 .tabItem { Label("NeoDB", image: "yoin.star") }
+
+            MacAboutSettings()
+                .tabItem { Label("About", image: "yoin.info") }
         }
         .frame(width: 520, height: 440)
     }
