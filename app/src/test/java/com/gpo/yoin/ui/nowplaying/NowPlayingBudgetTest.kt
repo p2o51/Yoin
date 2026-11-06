@@ -392,6 +392,18 @@ class NowPlayingBudgetTest {
     }
 
     @Test
+    fun should_keepStackInsideFrame_when_shortNarrowLandscape() {
+        // 568×320 less the frame padding and system bars; a 20dp label line.
+        val height = 248.dp
+        val layout = resolveLandscapeLayout(width = 520.dp, height = height, labelLine = 20.dp)
+        assertTrue(layout.stacked)
+        val stack = layout.restCover + LandscapeCoverToTransport + layout.restTransport +
+            LandscapeTransportToTitle + LandscapeTitleRow
+        assertTrue("stack $stack over $height", stack <= height + 0.5.dp)
+        assertTrue(layout.focusCover <= layout.leftWidth)
+    }
+
+    @Test
     fun should_stackTransportUnderCover_when_narrowLandscape() {
         // Fold outer screen on its side: 750×475 → about 702×411 of content.
         val layout = resolveLandscapeLayout(width = 702.dp, height = 411.dp, labelLine = 20.dp)

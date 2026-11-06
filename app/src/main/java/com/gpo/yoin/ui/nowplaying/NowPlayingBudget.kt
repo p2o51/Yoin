@@ -694,9 +694,11 @@ fun resolveLandscapeLayout(
     // Stacked: the cover takes what the two transport rows and the title
     // leave; the transport spans the cover + rating column, so its time
     // labels move under the wave below 360 wide — measure twice.
+    // A short window (a 568×320 one, say) lets the cover go below the
+    // wide floor before the stack spills past the frame.
     fun coverFor(transport: Dp): Dp =
         (height - LandscapeCoverToTransport - transport - LandscapeTransportToTitle - LandscapeTitleRow)
-            .coerceAtLeast(LandscapeCoverFloor)
+            .coerceAtLeast(LandscapeStackedCoverFloor)
     var transport = playbackControlsHeight(controlSize, 0.dp, labelLine)
     var cover = coverFor(transport)
     transport = playbackControlsHeight(controlSize, cover + rating, labelLine)
@@ -706,7 +708,7 @@ fun resolveLandscapeLayout(
         height - LandscapeCoverToTransport - shortFocusControlsHeight(controlSize) -
             LandscapeTransportToTitle - LandscapeTitleRow,
         leftWidth,
-    ).coerceAtLeast(LandscapeCoverFloor)
+    ).coerceAtLeast(LandscapeStackedCoverFloor)
     return LandscapeLayout(
         stacked = true,
         restCover = cover,
@@ -871,6 +873,7 @@ internal val LandscapeTitleRow = 36.dp
 internal val LandscapeCoverToTransport = 10.dp
 internal val LandscapeTransportToTitle = 4.dp
 private val LandscapeCoverFloor = 120.dp
+private val LandscapeStackedCoverFloor = 72.dp
 private val LandscapeRestColumnMin = 300.dp
 private val LandscapeFocusColumnMin = 300.dp
 private const val LandscapeFocusCoverShare = 0.44f
