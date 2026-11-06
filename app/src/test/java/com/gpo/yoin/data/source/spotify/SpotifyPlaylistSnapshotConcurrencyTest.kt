@@ -63,5 +63,7 @@ class SpotifyPlaylistSnapshotConcurrencyTest {
         val body = request.body.readUtf8()
         assertTrue(body.contains("\"snapshot_id\":\"snap-before\""))
         assertTrue(body.contains("\"positions\":[0,3]"))
+        assertTrue("body uses the /items field name", body.contains("\"items\":[{\"uri\":\"spotify:track:aaa\""))
+        assertTrue("no legacy tracks key", !body.contains("\"tracks\""))
     }
 }
