@@ -491,6 +491,19 @@ final class ProfileManager {
         }
     }
 
+    /// Asks the server once with the entered sign-in and says how it went, saving and switching
+    /// nothing (Android ServiceSetup Test). Returns nil when the server answered, else the error to show.
+    func testSubsonic(baseUrl: String, username: String, password: String) async -> String? {
+        let account = ServerSession.Account(baseUrl: ServerSession.normalized(baseUrl), username: username,
+                                            password: password)
+        do {
+            try await probe(account).client.close()
+            return nil
+        } catch {
+            return Self.short(error)
+        }
+    }
+
     /// Signs in to Spotify (its consent page) and saves the account; it becomes the account in use
     /// with [activate] or when there is none. Returns the error to show, nil when it is saved (or
     /// the sign-in was cancelled: nothing to say).

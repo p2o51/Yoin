@@ -28,10 +28,14 @@ struct ServiceSetupView: View {
     @State private var password = ""
     @State private var working = false
     @State private var error: String?
+    /// What the last Test connection found: nil error = the server answered.
+    @State private var testResult: TestResult?
     @State private var confirmRemove = false
     /// Spotify's Client ID (Settings › Spotify on Android), kept as typed until it is saved.
     @State private var clientId = SpotifyConfig.clientId ?? ""
     @FocusState private var focus: Field?
+
+    private enum TestResult: Equatable { case testing, reachable, failed(String) }
 
     private enum Field: Hashable { case address, username, password, clientId }
 
@@ -114,9 +118,9 @@ struct ServiceSetupView: View {
             fill()
             apple.refreshAuthorization()
         }
-        .onChange(of: address) { error = nil }
-        .onChange(of: username) { error = nil }
-        .onChange(of: password) { error = nil }
+        .onChange(of: address) { error = nil; testResult = nil }
+        .onChange(of: username) { error = nil; testResult = nil }
+        .onChange(of: password) { error = nil; testResult = nil }
         .alert("Remove this account?", isPresented: $confirmRemove) {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) {
@@ -261,7 +265,46 @@ struct ServiceSetupView: View {
             [AnyView(field(String(localized: "Server address"), placeholder: "https://music.example.com", text: $address,
                            field: .address, keyboard: .URL)),
              AnyView(field(String(localized: "Username"), placeholder: String(localized: "Your username"), text: $username, field: .username)),
-             AnyView(field(String(localized: "Password"), placeholder: String(localized: "Password"), text: $password, field: .password, secure: true))]
+             AnyView(field(String(localized: "Password"), placeholder: String(localized: "Password"), text: $password, field: .password, secure: true)),
+             AnyView(testRow)]
+        }
+    }
+
+    private var filled: Bool {
+        !address.trimmingCharacters(in: .whitespaces).isEmpty && !username.isEmpty && !password.isEmpty
+    }
+
+    /// Android's Test: asks the server with what is typed and saves nothing.
+    private var testRow: some View {
+        let busy = testResult == .testing || working
+        return Button(action: test) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(testResult == .testing ? String(localized: "Reaching your server…") : String(localized: "Test connection"))
+                    .yoinRole(Tokens.type.bodyLarge)
+                    .foregroundStyle(filled && !busy ? app.primary : app.onSurface.opacity(0.38))
+                switch testResult {
+                case .reachable:
+                    Text("Connected").yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.primary)
+                case .failed(let message):
+                    Text(message).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.error).lineLimit(2)
+                default: EmptyView()
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(!filled || busy)
+    }
+
+    private func test() {
+        focus = nil
+        testResult = .testing
+        Task {
+            let failure = await profiles.testSubsonic(baseUrl: address, username: username, password: password)
+            testResult = failure.map(TestResult.failed) ?? .reachable
         }
     }
 
