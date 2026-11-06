@@ -2489,6 +2489,21 @@ extension View {
 }
 
 
+/// The merged play-mode button's symbol (Android `PlayMode.toSymbol`):
+/// shuffle picks the shuffle symbol, else repeat; repeat one wears the 1 and
+/// repeat off the slash on either, so all six combinations read apart.
+struct PlayModeGlyph: Equatable {
+    var icon: String
+    var one: Bool
+    var off: Bool
+
+    init(shuffle: Bool, repeatMode: RepeatMode) {
+        icon = shuffle ? "shuffle" : "repeat"
+        one = repeatMode == .one
+        off = repeatMode == .off
+    }
+}
+
 /// Android PlayModeButton (owner 2026-10-17 / 10-21): a round button whose
 /// symbol shows the mode; a tap steps the cycle (repeat all → shuffle →
 /// shuffle + one → one). A long-press splits it into two segments —
@@ -2547,7 +2562,8 @@ struct PlayModeButton: View {
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
             } else {
-                glyph(shuffle ? "shuffle" : "repeat", one: repeatMode == .one, off: repeatMode == .off)
+                let merged = PlayModeGlyph(shuffle: shuffle, repeatMode: repeatMode)
+                glyph(merged.icon, one: merged.one, off: merged.off)
                     .foregroundStyle(ink)
                     .frame(width: Self.size, height: Self.size)
                     .contentShape(.capsule)
@@ -2607,11 +2623,12 @@ struct PlayModeButton: View {
     }
 
     /// The mode's symbol: repeat one wears a small 1, repeat off is struck
-    /// through (drawn in on the effects spring).
+    /// through (drawn in on the effects spring), on the shuffle symbol too
+    /// (Android `PlayMode.toSymbol` + `repeatOffSlash`).
     private func glyph(_ icon: String, one: Bool, off: Bool) -> some View {
         YoinIcon(icon, size: 28)
             .overlay(alignment: .bottomTrailing) {
-                if one && icon == "repeat" {
+                if one {
                     Text("1").font(.gsf(10, .bold)).offset(x: 4, y: 2)
                 }
             }
@@ -2619,8 +2636,8 @@ struct PlayModeButton: View {
                 Capsule()
                     .frame(width: 2, height: 30)
                     .rotationEffect(.degrees(-45))
-                    .scaleEffect(y: off && icon == "repeat" ? 1 : 0.001)
-                    .opacity(off && icon == "repeat" ? 1 : 0)
+                    .scaleEffect(y: off ? 1 : 0.001)
+                    .opacity(off ? 1 : 0)
             }
             .labContrast("transportSecondary")
     }
