@@ -437,7 +437,7 @@ final class SpotifyAudioOutput: AudioOutput {
     /// build 11: it played, Yoin held at 0:00 with "Playback unavailable"). Its state decides: the song
     /// there is a start that landed; only a Spotify without it is a failure. Nothing is sent again.
     private func confirmOrFail(_ item: Item, gen: Int) {
-        guard let player = remote.player else { return failStart(gen: gen) }
+        guard let player = remote.player else { return confirmOnWeb(item, gen: gen) { [weak self] in self?.failStart(gen: gen) } }
         player.getPlayerState { [weak self] state, _ in
             MainActor.assumeIsolated {
                 guard let self, gen == self.generation else { return }
@@ -446,10 +446,34 @@ final class SpotifyAudioOutput: AudioOutput {
                     PlayTrace.log("SP start landed despite the error")
                     self.startedHere(item)
                 } else {
-                    self.failStart(gen: gen)
+                    self.confirmOnWeb(item, gen: gen) { [weak self] in self?.failStart(gen: gen) }
                 }
             }
         }
+    }
+
+    /// App Remote can come up after a wake and say nothing for a minute and more (51's log, 23:02:07 to
+    /// 23:03:36, while Spotify played the song): the Web API's me/player (a read) says what this iPhone
+    /// plays. The song there is the start, landed; otherwise [otherwise].
+    private func confirmOnWeb(_ item: Item, gen: Int, otherwise: @escaping () -> Void) {
+        guard let control else { return otherwise() }
+        Task { [weak self] in
+            let now = (try? await control.playerNow()) ?? nil
+            guard let self, gen == self.generation else { return }
+            PlayTrace.log("SP web check \(Self.describe(now))")
+            if Self.landedHere(now, wanted: item.trackURI) {
+                PlayTrace.log("SP start landed (me/player)")
+                self.startedHere(item)
+            } else {
+                otherwise()
+            }
+        }
+    }
+
+    /// me/player shows the song on this iPhone (a start here that App Remote didn't report).
+    nonisolated static func landedHere(_ now: SpotifySource.PlayerNow?, wanted: String) -> Bool {
+        guard let now, now.trackURI == wanted else { return false }
+        return isThisPhone(now)
     }
 
     nonisolated static func startLanded(playingURI: String?, wanted: String) -> Bool { playingURI == wanted }
@@ -632,6 +656,15 @@ final class SpotifyAudioOutput: AudioOutput {
         wakeWait = nil
         lastWakeURI = nil
         guard finish != .none, let player = remote.player else { return startedHere(current) }
+        if final, finish == .play {
+            // No state with the song came over App Remote: me/player may still show it playing here.
+            return confirmOnWeb(current, gen: gen) { [weak self] in self?.finishWake(current, finish, player: player, gen: gen) }
+        }
+        finishWake(current, finish, player: player, gen: gen)
+    }
+
+    private func finishWake(_ current: Item, _ finish: WakeFinish, player: SPTAppRemotePlayerAPI, gen: Int) {
+        guard gen == generation else { return }
         PlayTrace.log("SP woken \(finish == .resume ? "paused on the song: resume" : "without the song: play it")")
         let done: SPTAppRemoteCallback = { [weak self] _, error in
             MainActor.assumeIsolated {

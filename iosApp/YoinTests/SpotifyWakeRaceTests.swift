@@ -53,4 +53,18 @@ final class SpotifyWakeRaceTests: XCTestCase {
     func test_should_keep_the_context_start_off_by_default() {
         XCTAssertFalse(SpotifyAudioOutput.contextStartEnabled)
     }
+
+    func test_should_take_the_start_from_me_player_when_app_remote_stays_silent() {
+        // 51's log, 23:02:07 to 23:03:36: App Remote connected but reported nothing while the song played.
+        let here = SpotifySource.PlayerNow(deviceId: "ecfc", deviceName: "iPhone", deviceType: "Smartphone",
+                                           isPlaying: true, trackURI: wanted)
+        XCTAssertTrue(SpotifyAudioOutput.landedHere(here, wanted: wanted))
+        var other = here
+        other.trackURI = "spotify:track:other"
+        XCTAssertFalse(SpotifyAudioOutput.landedHere(other, wanted: wanted))
+        let pixel = SpotifySource.PlayerNow(deviceId: "7a3d", deviceName: "Pixel 11 Pro", deviceType: "Smartphone",
+                                            isPlaying: true, trackURI: wanted)
+        XCTAssertFalse(SpotifyAudioOutput.landedHere(pixel, wanted: wanted))
+        XCTAssertFalse(SpotifyAudioOutput.landedHere(nil, wanted: wanted))
+    }
 }
