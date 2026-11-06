@@ -271,6 +271,10 @@ struct RediscoverEntry: Hashable, Sendable {
     /// Left group (a date) and the plays count.
     var footnoteDate: String
     var footnotePlays: String
+    /// A song card (Android `HomeRediscoverItem.song`): the song a tap plays; nil = an album card.
+    var song: PlaylistEntry? = nil
+    /// A song card's newest note, when no score badge says it.
+    var noteSnippet: String? = nil
 }
 
 /// Home's sections, in the order the page lays them out.

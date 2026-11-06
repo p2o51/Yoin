@@ -325,34 +325,187 @@ enum HomeHistory {
         .filter { !exclude.contains($0.memory.albumId) }
     }
 
+    // MARK: Rediscover songs (RediscoverSelection.kt, SongMemoryAggregate)
+
+    /// A song with something kept on it (Android `SongMemoryAggregate`): its rating or a written
+    /// note, with what the play history says of it (one row per song id).
+    struct SongMemory: Hashable, Sendable {
+        var songId: String
+        var provider: String
+        var title: String
+        var artist: String
+        var album: String
+        /// Blank when the track played without an album.
+        var albumId: String
+        var coverKey: String?
+        var durationSec: Double
+        var playCount: Int
+        var firstPlayedAt: Int64
+        var lastPlayedAt: Int64
+        /// The track rating (0-10); nil when unrated.
+        var rating: Double?
+        /// Non-blank notes on the track.
+        var noteCount: Int
+        /// The newest non-blank note's text.
+        var latestNote: String?
+    }
+
+    /// `PlayHistoryDao.getRediscoverSongs`: every played song that carries a rating or a non-blank
+    /// note (its metadata is the newest play's), in no particular order.
+    static func songMemories(_ x: Inputs) -> [SongMemory] {
+        var notes: [String: [SongNote]] = [:]
+        for n in x.notes where !n.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            notes[n.trackId, default: []].append(n)
+        }
+        var plays: [String: [PlayEvent]] = [:]
+        for p in x.plays { plays[p.songId, default: []].append(p) }
+        return plays.compactMap { id, rows in
+            let rating = x.localRating(id)
+            let written = notes[id] ?? []
+            guard rating != nil || !written.isEmpty, let newest = rows.max(by: { $0.startedAt < $1.startedAt }) else { return nil }
+            return SongMemory(songId: id, provider: newest.provider, title: newest.title, artist: newest.artist,
+                              album: newest.album, albumId: newest.albumId ?? "", coverKey: newest.coverKey,
+                              durationSec: rows.map(\.durationSec).max() ?? 0, playCount: rows.count,
+                              firstPlayedAt: rows.map(\.startedAt).min() ?? 0,
+                              lastPlayedAt: newest.startedAt, rating: rating, noteCount: written.count,
+                              latestNote: written.max { ($0.updatedAt, $0.createdAt) < ($1.updatedAt, $1.createdAt) }?.content)
+        }
+    }
+
+    struct RediscoverSongPick: Hashable {
+        var song: SongMemory
+        /// The track rating; nil when the song comes back on a note alone.
+        var score: Double?
+        var lastPlayedAt: Int64
+    }
+
+    /// `hasRediscoverMemory(song)`: a rating, or a non-blank note.
+    static func hasMemory(_ s: SongMemory) -> Bool {
+        s.rating != nil || (s.noteCount > 0 && !(s.latestNote ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    /// `selectRediscoverSongs`: a memory, 90+ days since its last play, in Rediscover's order;
+    /// songs shown elsewhere on Home, or whose album is, stay off.
+    static func selectRediscoverSongs(_ songs: [SongMemory], now: Int64, excludeSongIds: Set<String> = [],
+                                      excludeAlbumIds: Set<String> = []) -> [RediscoverSongPick] {
+        var seen = Set<String>()
+        return songs
+            .filter { hasMemory($0) && now - $0.lastPlayedAt >= awayMs }
+            .map { RediscoverSongPick(song: $0, score: $0.rating, lastPlayedAt: $0.lastPlayedAt) }
+            .sorted { a, b in
+                if (a.score == nil) != (b.score == nil) { return a.score != nil }
+                if (a.score ?? 0) != (b.score ?? 0) { return (a.score ?? 0) > (b.score ?? 0) }
+                if a.lastPlayedAt != b.lastPlayedAt { return a.lastPlayedAt < b.lastPlayedAt }
+                return a.song.songId < b.song.songId
+            }
+            .filter { seen.insert($0.song.songId).inserted }
+            .filter { !excludeSongIds.contains($0.song.songId) && !excludeAlbumIds.contains($0.song.albumId) }
+    }
+
+    /// One card of the shelf: an album or a song (Android `RediscoverEntry`).
+    enum RediscoverShelfEntry: Hashable {
+        case album(RediscoverPick)
+        case song(RediscoverSongPick)
+
+        var score: Double? {
+            switch self { case .album(let p): p.score; case .song(let p): p.score }
+        }
+        var lastPlayedAt: Int64 {
+            switch self { case .album(let p): p.lastPlayedAt; case .song(let p): p.lastPlayedAt }
+        }
+    }
+
+    /// `selectRediscoverShelf`: albums and songs in one order (an album first on a tie), at most
+    /// [limit]; a song whose album is on the shelf as an album card stays off it.
+    static func selectRediscoverShelf(_ albums: [RediscoverPick], _ songs: [RediscoverSongPick],
+                                      limit: Int = rediscoverLimit) -> [RediscoverShelfEntry] {
+        let merged = (albums.map(RediscoverShelfEntry.album) + songs.map(RediscoverShelfEntry.song)).enumerated()
+            .sorted { l, r in
+                let a = l.element, b = r.element
+                if (a.score == nil) != (b.score == nil) { return a.score != nil }
+                if (a.score ?? 0) != (b.score ?? 0) { return (a.score ?? 0) > (b.score ?? 0) }
+                if a.lastPlayedAt != b.lastPlayedAt { return a.lastPlayedAt < b.lastPlayedAt }
+                return l.offset < r.offset
+            }
+            .map(\.element)
+        // Dropping a song only lets later cards in, so the shelf's albums only grow.
+        var shownAlbums = Set<String>()
+        while true {
+            let shelf = merged.filter { e in
+                if case .song(let p) = e { return !shownAlbums.contains(p.song.albumId) }
+                return true
+            }.prefix(limit)
+            let onShelf = Set(shelf.compactMap { e -> String? in
+                if case .album(let p) = e { return p.memory.albumId }
+                return nil
+            })
+            if onShelf.isSubset(of: shownAlbums) { return Array(shelf) }
+            shownAlbums.formUnion(onShelf)
+        }
+    }
+
+    /// `mixRediscoverShelf` over album cards alone.
+    static func mix(_ listening: [RediscoverPick], _ notes: [RediscoverPick], limit: Int = rediscoverLimit) -> [RediscoverPick] {
+        mixShelf(listening.map(RediscoverShelfEntry.album), notes, limit: limit).compactMap {
+            if case .album(let p) = $0 { return p }
+            return nil
+        }
+    }
+
     /// `mixRediscoverShelf`: every third card a note card, either kind
     /// filling the other's places when it runs short.
-    static func mix(_ listening: [RediscoverPick], _ notes: [RediscoverPick], limit: Int = rediscoverLimit) -> [RediscoverPick] {
+    static func mixShelf(_ listening: [RediscoverShelfEntry], _ notes: [RediscoverPick],
+                         limit: Int = rediscoverLimit) -> [RediscoverShelfEntry] {
         guard !notes.isEmpty, limit > 0 else { return Array(listening.prefix(limit)) }
         let share = max(1, Int((Double(limit) * noteShare).rounded()))
         let listeningCount = min(listening.count, limit - min(share, notes.count))
         let noteCount = min(notes.count, limit - listeningCount)
-        var shelf: [RediscoverPick] = []
+        var shelf: [RediscoverShelfEntry] = []
         var l = 0, n = 0
         while l < listeningCount || n < noteCount {
             let noteTurn = n < noteCount && (l >= listeningCount || shelf.count % 3 == 2)
-            if noteTurn { shelf.append(notes[n]); n += 1 } else { shelf.append(listening[l]); l += 1 }
+            if noteTurn { shelf.append(.album(notes[n])); n += 1 } else { shelf.append(listening[l]); l += 1 }
         }
         return shelf
     }
 
+    /// A song's card: its album's cover (else a quiet placeholder) under the song's own words.
+    /// [album] resolves the song's album for the cover; [song] the entry a tap plays.
+    static func songEntry(_ p: RediscoverSongPick, now: Int64, album: (SongMemory) -> Album) -> RediscoverEntry {
+        let s = p.song
+        let cover = album(s)
+        var track = cover.tracks.first { $0.id.rawId == s.songId }
+            ?? Track(id: MediaId(provider: s.provider, rawId: s.songId), number: 1, title: s.title,
+                     durationSec: max(1, Int(s.durationSec.rounded())), rating: s.rating,
+                     artist: s.artist.isEmpty ? nil : s.artist)
+        track.title = track.title.isEmpty ? s.title : track.title
+        return RediscoverEntry(album: cover, reason: "", away: awayEyebrow(lastPlayedAt: p.lastPlayedAt, now: now),
+                               score: p.score, footnoteDate: "", footnotePlays: "",
+                               song: PlaylistEntry(album: cover, track: track),
+                               noteSnippet: p.score == nil ? s.latestNote?.trimmingCharacters(in: .whitespacesAndNewlines) : nil)
+    }
+
     /// The shelf as cards: the reason line only with no score (or on a note
     /// card), the away line except on a note card, then first-play month and
-    /// plays in Yoin.
-    static func rediscover(_ memories: [AlbumMemory], now: Int64, exclude: Set<String>) -> [RediscoverEntry] {
-        let shelf = mix(selectRediscover(memories, now: now, exclude: exclude),
-                        selectRediscoverNotes(memories, now: now, exclude: exclude))
-        return shelf.map { p in
-            let m = p.memory
-            return RediscoverEntry(album: m.album, reason: rediscoverReason(p) ?? "",
-                                   away: p.fromNotes ? "" : awayEyebrow(lastPlayedAt: p.lastPlayedAt, now: now),
-                                   score: p.score, footnoteDate: m.firstPlayedAt.map(yearMonth) ?? "",
-                                   footnotePlays: m.playCount > 0 ? "\(m.playCount)" : "")
+    /// plays in Yoin. [songs] (picked with [selectRediscoverSongs]) share the shelf
+    /// with the albums, each as a card that plays the song.
+    static func rediscover(_ memories: [AlbumMemory], now: Int64, exclude: Set<String>,
+                           songs: [RediscoverSongPick] = [], songAlbum: ((SongMemory) -> Album)? = nil) -> [RediscoverEntry] {
+        let listening = selectRediscoverShelf(selectRediscover(memories, now: now, exclude: exclude),
+                                              songAlbum == nil ? [] : songs)
+        let shelf = mixShelf(listening, selectRediscoverNotes(memories, now: now, exclude: exclude))
+        return shelf.compactMap { e -> RediscoverEntry? in
+            switch e {
+            case .song(let p):
+                guard let songAlbum else { return nil }
+                return songEntry(p, now: now, album: songAlbum)
+            case .album(let p):
+                let m = p.memory
+                return RediscoverEntry(album: m.album, reason: rediscoverReason(p) ?? "",
+                                       away: p.fromNotes ? "" : awayEyebrow(lastPlayedAt: p.lastPlayedAt, now: now),
+                                       score: p.score, footnoteDate: m.firstPlayedAt.map(yearMonth) ?? "",
+                                       footnotePlays: m.playCount > 0 ? "\(m.playCount)" : "")
+            }
         }
     }
 

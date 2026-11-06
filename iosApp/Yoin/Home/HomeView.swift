@@ -499,11 +499,18 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(String(localized: "Rediscover"))
             ScrollView(.horizontal) {
-                HStack(spacing: Tokens.home.REDISCOVER_GAP.cg) {
+                // A smaller song card sits on the album cards' centre line.
+                HStack(alignment: .center, spacing: Tokens.home.REDISCOVER_GAP.cg) {
                     ForEach(Array(cards.enumerated()), id: \.offset) { _, c in
-                        RediscoverCard(album: c.album, reason: c.reason, away: c.away, score: c.score,
-                                       footnote: (c.footnoteDate, c.footnotePlays))
-                            .frame(width: contentWidth * 0.86)
+                        Group {
+                            if let song = c.song {
+                                RediscoverSongCard(entry: song, away: c.away, score: c.score, snippet: c.noteSnippet)
+                            } else {
+                                RediscoverCard(album: c.album, reason: c.reason, away: c.away, score: c.score,
+                                               footnote: (c.footnoteDate, c.footnotePlays))
+                            }
+                        }
+                        .frame(width: contentWidth * 0.86)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -1089,6 +1096,79 @@ private struct RediscoverCard: View {
             .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())
+    }
+}
+
+/// A song you rated or noted, as the album card's smaller sibling (Android RediscoverSongCard):
+/// the song's circle backdrop at 76, the away line, title, artist and album, and, with no score
+/// to badge, one line of its newest note on a rail. Tapping plays it alone.
+private struct RediscoverSongCard: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.homeEdit) private var edit
+    @Environment(\.homeScheme) private var scheme
+    @Environment(\.colorScheme) private var colorScheme
+    var entry: PlaylistEntry
+    var away: String
+    var score: Double?
+    var snippet: String?
+
+    /// Android RediscoverSongCardHeight / BackdropSize / CardPadding.
+    private static let height: CGFloat = 116, backdrop: CGFloat = 76, padding: CGFloat = 12
+
+    var body: some View {
+        let s = scheme!
+        let album = entry.album
+        let ink = cardInk(album.palette, dark: colorScheme == .dark)
+        let container = cardWash(s, album.palette)
+        let onCover = CoverMarks.onCover(provider: album.id.provider)
+        Button { homeTap(edit) { model.play([entry]) } } label: {
+            HStack(spacing: Self.padding) {
+                EntityBackdrop(entity: .song, palette: album.palette, seed: album.seed, size: Self.backdrop, stroke: s.primary)
+                    .overlay(alignment: .bottomTrailing) { if onCover { badge(ink, container) } }
+                VStack(alignment: .leading, spacing: 0) {
+                    if !onCover { badge(ink, container).padding(.bottom, 4) }
+                    Text(away).homeType(Tokens.type.labelMedium).foregroundStyle(ink)
+                    Text(entry.track.title)
+                        .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 22)
+                        .foregroundStyle(s.onSurface)
+                        .padding(.top, 2)
+                    HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+                        if let artist = entry.track.artist, !artist.isEmpty { Text(artist) }
+                        if !album.title.isEmpty { Text(album.title).opacity(Tokens.metaLine.MUTED_ALPHA) }
+                    }
+                    .homeType(Tokens.type.bodyMedium)
+                    .foregroundStyle(s.onSurfaceVariant)
+                    if let snippet, !snippet.isEmpty {
+                        Text(snippet)
+                            .homeType(Tokens.type.bodySmall)
+                            .foregroundStyle(s.onSurface)
+                            .padding(.top, 2)
+                            .padding(.leading, 10)
+                            .overlay(alignment: .leading) { Capsule().fill(ink).frame(width: 2).padding(.vertical, 2) }
+                    }
+                }
+                .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(Self.padding)
+            .frame(height: Self.height)
+            .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+        }
+        .buttonStyle(PressScale())
+        .accessibilityHint(String(localized: "Play"))
+    }
+
+    @ViewBuilder
+    private func badge(_ ink: Color, _ container: Color) -> some View {
+        if let score {
+            Text(String(format: "%.1f", score))
+                .homeType(Tokens.type.labelLarge, .bold, digits: true)
+                .foregroundStyle(container)
+                .padding(.horizontal, Tokens.home.REDISCOVER_BADGE_PADDING.cg)
+                .frame(height: Tokens.home.REDISCOVER_BADGE_HEIGHT.cg)
+                .background(ink, in: .capsule)
+                .offset(x: CoverMarks.onCover(provider: entry.album.id.provider) ? Tokens.home.REDISCOVER_BADGE_HANG.cg : 0)
+        }
     }
 }
 

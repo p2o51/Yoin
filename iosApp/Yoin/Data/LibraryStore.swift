@@ -455,7 +455,21 @@ final class LibraryStore {
         let added = l.newest.filter { a in Self.epochMs(a.created).map { $0 >= monthAgo } ?? false }
         let exclude = Set(o.signals.filter { $0.kind == .ratedAlbum }.map(\.album.id.rawId))
             .union(added.map(\.id.rawId))
-        o.rediscover = HomeHistory.rediscover(memories, now: inputs.now, exclude: exclude)
+        // Songs you rated or noted come back too (Android selectRediscoverSongs): not the Jump Back In
+        // noted track, not Recently Added's, and not those of an album Recently Added shows.
+        let excludeSongs = Set(l.recentTracks.map(\.track.id.rawId))
+            .union(o.signals.compactMap { $0.kind == .notedTrack ? $0.song?.track.id.rawId : nil })
+        let songs = HomeHistory.selectRediscoverSongs(HomeHistory.songMemories(inputs), now: inputs.now,
+                                                      excludeSongIds: excludeSongs,
+                                                      excludeAlbumIds: Set(added.map(\.id.rawId)))
+        o.rediscover = HomeHistory.rediscover(memories, now: inputs.now, exclude: exclude, songs: songs,
+                                              songAlbum: { [weak self] s in
+            let play = inputs.plays.filter { $0.songId == s.songId }.max { $0.startedAt < $1.startedAt }
+            return (s.albumId.isEmpty ? nil : inputs.details[s.albumId] ?? inputs.resolve(s.albumId, play))
+                ?? self?.songPlaceholderAlbum(s)
+                ?? Album(id: MediaId(provider: s.provider, rawId: "song:\(s.songId)"), title: s.title, artist: s.artist,
+                         year: 0, palette: AppleMusicMapping.palette(nil, key: s.songId), tracks: [])
+        })
         return o
     }
 
@@ -1537,6 +1551,12 @@ final class LibraryStore {
         }
         return Album(id: MediaId(provider: snap.provider, rawId: id), title: snap.album.isEmpty ? snap.title : snap.album,
                      artist: snap.artist, year: 0, palette: palette, tracks: [], artistId: snap.artistId)
+    }
+
+    /// A Rediscover song's cover when its album isn't known: a quiet placeholder.
+    private func songPlaceholderAlbum(_ s: HomeHistory.SongMemory) -> Album {
+        Album(id: MediaId(provider: s.provider, rawId: "song:\(s.songId)"), title: s.title, artist: s.artist, year: 0,
+              palette: placeholderPalette(coverId: s.coverKey), tracks: [])
     }
 
     /// A noted song's cover when it never played here: a quiet placeholder.
