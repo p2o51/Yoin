@@ -311,6 +311,7 @@ internal fun HomeEditorialContent(
     onAccountAnchor: (Rect) -> Unit = {},
     // The account in use needs its owner: its avatar wears a dot.
     accountNeedsReconnect: Boolean = false,
+    accountQuickSwitch: HomeAccountQuickSwitch? = null,
     onNavigateToMemories: () -> Unit,
     editController: HomeEditController? = null,
     footerNewBadge: Boolean = false,
@@ -990,6 +991,7 @@ internal fun HomeEditorialContent(
                         accountButtonHidden = accountButtonHidden,
                         onAccountAnchor = onAccountAnchor,
                         accountNeedsReconnect = accountNeedsReconnect,
+                        accountQuickSwitch = accountQuickSwitch,
                         onNavigateToMemories = onNavigateToMemories,
                         memoriesHintProgress = memoriesHintProgress,
                         memoryPill = memoryPill,
@@ -1549,6 +1551,7 @@ private fun HomeContentHeader(
     accountButtonHidden: Boolean,
     onAccountAnchor: (Rect) -> Unit,
     accountNeedsReconnect: Boolean,
+    accountQuickSwitch: HomeAccountQuickSwitch?,
     onNavigateToMemories: () -> Unit,
     memoriesHintProgress: () -> Float,
     // Edit mode's P (read in draw and layout only), its hit targets, and the
@@ -1643,6 +1646,7 @@ private fun HomeContentHeader(
                 hidden = accountButtonHidden,
                 onAvatarPositioned = onAccountAnchor,
                 needsReconnect = accountNeedsReconnect,
+                quickSwitch = accountQuickSwitch,
                 modifier = headerControl,
             )
         } else {

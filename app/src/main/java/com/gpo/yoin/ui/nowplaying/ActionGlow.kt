@@ -52,20 +52,28 @@ internal enum class ActionGlowKind(val durationMs: Int) {
     /** The rating was cleared: the light drains down the bar. */
     RatingClear(800),
 
-    /** Shuffle on: the cover's three colours trade places, dots scatter like dealt cards. */
-    ShuffleOn(1300),
+    /*
+     * Play mode (owner 2026-11-06: the first lights were flashy and greasy).
+     * Every turn of the key gets the same quiet light: one soft glow in the
+     * cover's colour swells from the key and settles; no dots, no colours
+     * trading places, no comet. Turning something off draws a dimmer glow
+     * back in. A tap while the last one is still lit takes it over.
+     */
 
-    /** Shuffle off: the dots line back up and fade. */
-    ShuffleOff(850),
+    /** Shuffle on: the key's quiet glow. */
+    ShuffleOn(PlayModeOnMs),
 
-    /** Repeat all: a comet runs once round the key. */
-    RepeatAll(1400),
+    /** Shuffle off: a dimmer glow drawn back into the key. */
+    ShuffleOff(PlayModeOffMs),
 
-    /** Repeat one: two tight rings, one beat. */
-    RepeatOne(1400),
+    /** Repeat all: the key's quiet glow. */
+    RepeatAll(PlayModeOnMs),
 
-    /** Repeat off: the ring breaks into dots that drop. */
-    RepeatOff(800),
+    /** Repeat one: the key's quiet glow. */
+    RepeatOne(PlayModeOnMs),
+
+    /** Repeat off: a dimmer glow drawn back into the key. */
+    RepeatOff(PlayModeOffMs),
 
     /** The wave bar let go: a flash where the playhead landed. */
     SeekRelease(650),
@@ -92,6 +100,10 @@ internal enum class ActionGlowKind(val durationMs: Int) {
     LineGlow(1400),
     ;
 
+    /** A play-mode light: a newer one takes over from it instead of piling on. */
+    val isPlayMode: Boolean
+        get() = this == ShuffleOn || this == ShuffleOff || this == RepeatAll || this == RepeatOne || this == RepeatOff
+
     /** A full-marks rating sprays dots and runs longer. */
     fun durationFor(value: Float): Int = if (this == RatingCommit && value >= FullRating) 1700 else durationMs
 }
@@ -108,8 +120,30 @@ internal data class ActionGlow(
     val value: Float = 0f,
     val targetY: Float = Float.NaN,
     val areaRoot: Rect? = null,
+    /** When a newer light of the same family took over; this one fades out over [GlowHandOverMs]. */
+    val retiredUptimeMs: Long = Long.MAX_VALUE,
 ) {
     val durationMs: Int get() = kind.durationFor(value)
+
+    /** Done drawing at [nowMs]: its time is up, or it has handed over. */
+    fun isDone(nowMs: Long): Boolean = nowMs - bornUptimeMs > durationMs || nowMs - retiredUptimeMs > GlowHandOverMs
+}
+
+/**
+ * Adds [incoming] to the running lights: a play-mode light retires the
+ * play-mode lights still running, so quick taps round the cycle read as one
+ * light moving on rather than a pile.
+ */
+internal fun MutableList<ActionGlow>.addHandingOver(incoming: ActionGlow) {
+    if (incoming.kind.isPlayMode) {
+        for (i in indices) {
+            val g = this[i]
+            if (g.kind.isPlayMode && g.retiredUptimeMs == Long.MAX_VALUE) {
+                this[i] = g.copy(retiredUptimeMs = incoming.bornUptimeMs)
+            }
+        }
+    }
+    add(incoming)
 }
 
 /** A finger held on a control: the rating bar's column, the wave bar's scrub. */
@@ -219,7 +253,9 @@ internal fun DrawScope.drawActionGlow(
     if (tMs < 0f || tMs > d) return
     val u = tMs / d
     val dp = density
-    val k = pal.cap
+    // A light that handed over fades out quickly under the one that took over.
+    val since = glow.bornUptimeMs + tMs.toLong() - glow.retiredUptimeMs
+    val k = pal.cap * if (since > 0) 1f - (since.toFloat() / GlowHandOverMs).coerceIn(0f, 1f) else 1f
     val a = glow.anchorRoot.translate(-origin)
     val c = a.center
     val w = size.width
@@ -305,73 +341,10 @@ internal fun DrawScope.drawActionGlow(
                 blend = blend,
             )
         }
-        ActionGlowKind.ShuffleOn -> {
-            val cols = listOf(pal.p, pal.s, pal.t)
-            val r = (40f + 60f * easeOut(u)) * dp
-            for (i in 0 until 3) {
-                val ang = i / 3f * TAU + easeOut(u) * TAU / 3f * 2f - PI.toFloat() / 2f
-                glowBloom(
-                    Offset(c.x + cos(ang) * r, c.y - 30f * dp + sin(ang) * r * 0.7f),
-                    80f * dp,
-                    cols[i],
-                    k * 1.2f * bell(u),
-                    blend,
-                )
-            }
-            val spread = easeOut(min(1f, u * 1.3f))
-            for (i in 0 until 22) {
-                val a0 = (i * GoldenAngle) % TAU
-                val rr = (10f + 160f * spread * (0.4f + 0.6f * ((i * 7) % 10) / 10f)) * dp
-                glowDot(
-                    Offset(c.x + cos(a0) * rr, c.y - 20f * dp + sin(a0) * rr * 0.8f),
-                    1.6f * dp,
-                    pal.dotColor(cols[i % 3], (1f - u) * 0.9f),
-                )
-            }
-        }
-        ActionGlowKind.ShuffleOff -> {
-            val q = easeOut(min(1f, u * 1.4f))
-            for (i in 0 until 16) {
-                val a0 = (i * GoldenAngle) % TAU
-                val sx = c.x + cos(a0) * 90f * dp
-                val sy = c.y - 20f * dp + sin(a0) * 60f * dp
-                val tx = c.x - 60f * dp + i * 8f * dp
-                val ty = c.y - 44f * dp
-                glowDot(Offset(sx + (tx - sx) * q, sy + (ty - sy) * q), 1.5f * dp, pal.dotColor(pal.s, 0.8f * (1f - u)))
-            }
-            glowBloom(c, 60f * dp, pal.s, k * 0.6f * bell(u), blend)
-        }
-        ActionGlowKind.RepeatAll -> {
-            val r = 44f * dp
-            val head = -PI.toFloat() / 2f + easeOut(min(1f, tMs / 1000f)) * TAU
-            for (j in 0 until 18) {
-                val aj = head - j * 0.17f
-                if (aj < -PI.toFloat() / 2f) break
-                glowDot(
-                    Offset(c.x + cos(aj) * r, c.y + sin(aj) * r),
-                    2.2f * (1f - j / 18f) * dp,
-                    pal.dotColor(pal.p, (1f - u) * (1f - j / 18f)),
-                )
-            }
-            glowBloom(Offset(c.x + cos(head) * r, c.y + sin(head) * r), 46f * dp, pal.p, k * 1.3f * bell(u), blend)
-            glowRing(c, r + 12f * dp, pal.p, k * 0.7f * bell(u), blend)
-        }
-        ActionGlowKind.RepeatOne -> {
-            glowRing(c, (30f + 30f * easeOut(u)) * dp, pal.t, k * 1.6f * bell(u), blend)
-            val v = max(0f, u - 0.15f)
-            glowRing(c, (20f + 20f * easeOut(v)) * dp, pal.t, k * 1.2f * bell(v), blend)
-            glowBloom(c, 40f * dp, pal.t, k * 0.8f * bell(u), blend)
-        }
-        ActionGlowKind.RepeatOff ->
-            for (j in 0 until 14) {
-                val aj = j / 14f * TAU
-                val fall = 40f * dp * u * u * (1f + (j % 3) / 2f)
-                glowDot(
-                    Offset(c.x + cos(aj) * 40f * dp, c.y + sin(aj) * 40f * dp + fall),
-                    1.7f * dp,
-                    pal.dotColor(pal.s, 0.8f * (1f - u)),
-                )
-            }
+        ActionGlowKind.ShuffleOn, ActionGlowKind.RepeatAll, ActionGlowKind.RepeatOne ->
+            glowBloom(c, (56f + 34f * easeOut(u)) * dp, pal.p, k * 0.75f * swell(u), blend)
+        ActionGlowKind.ShuffleOff, ActionGlowKind.RepeatOff ->
+            glowBloom(c, (72f - 28f * easeOut(u)) * dp, pal.s, k * 0.45f * swell(u), blend)
         ActionGlowKind.SeekRelease -> {
             glowBloom(c, (40f + 50f * u) * dp, pal.p, k * 1.3f * bell(u), blend)
             glowEllipse(
@@ -629,10 +602,23 @@ private fun DrawScope.glowDotRow(y: Float, x0: Float, x1: Float, color: Color, t
 
 private fun bell(t: Float): Float = sin(PI.toFloat() * t.coerceIn(0f, 1f))
 
+/** Up quickly, then a long settle: a light that arrives and lets go without a bounce. */
+private fun swell(t: Float): Float {
+    val u = t.coerceIn(0f, 1f)
+    if (u < SwellPeak) return sin(PI.toFloat() / 2f * u / SwellPeak)
+    val v = (u - SwellPeak) / (1f - SwellPeak)
+    return 1f - v * v * (3f - 2f * v)
+}
+
 private fun easeOut(t: Float): Float = 1f - (1f - t.coerceIn(0f, 1f)).pow(3)
 
 private const val TAU = (2.0 * PI).toFloat()
-private const val GoldenAngle = 2.39996f
+private const val SwellPeak = 0.28f
+private const val PlayModeOnMs = 800
+private const val PlayModeOffMs = 550
+
+/** How long a light that was taken over takes to fade out. */
+internal const val GlowHandOverMs = 160L
 private const val FullRatingScale = 10f
 
 /** A rating this high counts as full marks for the spray. */

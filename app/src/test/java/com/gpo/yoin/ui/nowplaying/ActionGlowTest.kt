@@ -4,7 +4,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import com.gpo.yoin.player.PlayMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ActionGlowTest {
@@ -57,5 +59,33 @@ class ActionGlowTest {
         val bar = Rect(0f, 0f, 200f, 40f)
         assertEquals(Offset(50f, 20f), ratingPoint(bar, 2.5f, vertical = false, rtl = false))
         assertEquals(Offset(150f, 20f), ratingPoint(bar, 2.5f, vertical = false, rtl = true))
+    }
+
+    @Test
+    fun should_retireRunningPlayModeLight_when_keyTappedAgain() {
+        val key = Rect(0f, 0f, 48f, 48f)
+        val glows = mutableListOf(ActionGlow(ActionGlowKind.ShuffleOn, key, bornUptimeMs = 1_000L))
+        glows.addHandingOver(ActionGlow(ActionGlowKind.RepeatOne, key, bornUptimeMs = 1_300L))
+        assertEquals(1_300L, glows[0].retiredUptimeMs)
+        assertEquals(Long.MAX_VALUE, glows[1].retiredUptimeMs)
+        assertFalse(glows[0].isDone(1_300L + GlowHandOverMs))
+        assertTrue(glows[0].isDone(1_301L + GlowHandOverMs))
+        assertFalse(glows[1].isDone(1_301L + GlowHandOverMs))
+    }
+
+    @Test
+    fun should_leaveOtherLightsRunning_when_playModeLightFires() {
+        val key = Rect(0f, 0f, 48f, 48f)
+        val glows = mutableListOf(ActionGlow(ActionGlowKind.FavoriteOn, key, bornUptimeMs = 1_000L))
+        glows.addHandingOver(ActionGlow(ActionGlowKind.ShuffleOn, key, bornUptimeMs = 1_100L))
+        assertEquals(Long.MAX_VALUE, glows[0].retiredUptimeMs)
+        assertEquals(2, glows.size)
+    }
+
+    @Test
+    fun should_keepPlayModeLightsShort_when_fired() {
+        val kinds = ActionGlowKind.entries.filter { it.isPlayMode }
+        assertEquals(5, kinds.size)
+        kinds.forEach { assertTrue("$it runs ${it.durationMs} ms", it.durationMs <= 800) }
     }
 }
