@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -58,9 +59,18 @@ fun AlbumVersionTitle(
         },
     ) { measurables, constraints ->
         val gap = TagGap.roundToPx()
-        val tagPlaceable = measurables[1].measure(constraints.copy(minWidth = 0, minHeight = 0))
         // +1: the measured width is rounded down; a pixel less would ellipsize or scroll.
         val natural = measurer.measure(shown, titleStyle, maxLines = 1, softWrap = false).size.width + 1
+        // The name comes first: a long version ("Deluxe Edition") on a narrow
+        // card may take at most what the name leaves, at least half the width,
+        // and is cut short itself rather than hide the name.
+        val tagMax = if (constraints.hasBoundedWidth) {
+            val nameRoom = min(natural, constraints.maxWidth / 2)
+            (constraints.maxWidth - nameRoom - gap).coerceAtLeast(0)
+        } else {
+            Constraints.Infinity
+        }
+        val tagPlaceable = measurables[1].measure(Constraints(maxWidth = tagMax, maxHeight = constraints.maxHeight))
         val available = if (constraints.hasBoundedWidth) {
             (constraints.maxWidth - tagPlaceable.width - gap).coerceAtLeast(0)
         } else {
@@ -102,6 +112,7 @@ fun AlbumVersionTag(
             style = style,
             maxLines = 1,
             softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
         )
     }
