@@ -66,7 +66,7 @@ targets:
       properties:
         CFBundleDisplayName: Yoin
         CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "4"
+        CFBundleVersion: "5"
         # Only HTTPS and Apple's own crypto: no export compliance paperwork per build.
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
@@ -122,7 +122,7 @@ targets:
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         TARGETED_DEVICE_FAMILY: "1,2"
         MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "4"
+        CURRENT_PROJECT_VERSION: "5"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     scheme:
       testTargets:

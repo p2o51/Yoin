@@ -519,7 +519,8 @@ final class AppModel {
     func enqueue(_ entries: [PlaylistEntry], next: Bool) {
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
-        guard player.currentTrack != nil else { return play(entries) }
+        // Spotify's own song (no queue under it) isn't something to queue after.
+        guard player.currentItem != nil else { return play(entries) }
         if next { tracks.reversed().forEach(player.playNext) } else { tracks.forEach(player.addToQueue) }
     }
 
