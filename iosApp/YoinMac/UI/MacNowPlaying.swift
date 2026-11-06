@@ -15,16 +15,48 @@ struct MacNowPlaying: View {
 
     enum NPTab: String, CaseIterable { case lyrics = "Lyrics", about = "About" }
 
+    /// Focus hides the chrome; moving the pointer brings back a way out for a moment.
+    @State private var exitShown = false
+    @State private var exitHide: Task<Void, Never>?
+
     var body: some View {
         GeometryReader { g in
-            ZStack {
+            ZStack(alignment: .topLeading) {
                 MacRoom()
                 if full { fullLayout(g.size) } else { panelLayout(g.size) }
+                if model.focus {
+                    // Right of the traffic lights, in their band: back out of focus (Esc and the cover too).
+                    GlassCircleButton(icon: "close", size: 32) { model.toggleFocus() }
+                        .help("Exit Focus (Esc)")
+                        .padding(.leading, full ? 86 : 16).padding(.top, full ? 6 : 16)
+                        .opacity(exitShown ? 1 : 0)
+                        .allowsHitTesting(exitShown)
+                        .animation(Yoin.effects, value: exitShown)
+                }
             }
+        }
+        .onContinuousHover { phase in
+            guard model.focus, case .active = phase else { return }
+            pointerMoved()
+        }
+        .onChange(of: model.focus) { _, on in
+            if on { pointerMoved() } else { exitHide?.cancel(); exitShown = false }
         }
         .clipShape(UnevenRoundedRectangle(topLeadingRadius: full ? 0 : 22, bottomLeadingRadius: full ? 0 : 22,
                                           bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous))
         .shadow(color: .black.opacity(full ? 0 : 0.18), radius: 20, x: -10)
+    }
+
+    /// Shows the exit button; ~2.5 s without movement hides it again, and the cursor with it.
+    private func pointerMoved() {
+        exitShown = true
+        exitHide?.cancel()
+        exitHide = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled, model.focus else { return }
+            exitShown = false
+            NSCursor.setHiddenUntilMouseMoves(true)
+        }
     }
 
     // MARK: Layouts
