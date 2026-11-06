@@ -54,6 +54,10 @@ final class LibraryStore {
     /// Pages and lists on disk (Data/Cache/DetailDiskCache): painted at once, refreshed behind.
     @ObservationIgnored let disk: DetailDiskCache
     @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "library")
+    /// Subsonic plays waiting for the server, and when each song started (its submission's time).
+    @ObservationIgnored let scrobbles: ScrobbleOutbox = .shared
+    @ObservationIgnored private var scrobbleStarts: [String: Int64] = [:]
+    @ObservationIgnored private var flushingScrobbles = false
 
     /// Bumps on every sign-in / sign-out; views key their load tasks on it.
     private(set) var generation = 0
@@ -208,6 +212,8 @@ final class LibraryStore {
     func loadHome(force: Bool = false) async {
         guard force || homePhase == .idle || homePhase == .failed else { return }
         guard isReal else { return }
+        // A launch or an account: plays left over from before go out now.
+        flushScrobbles()
         // The last feed paints at once (Android's Home snapshot); the load below replaces it.
         let gen = generation, epoch = diskEpoch, scope = historyScope
         homePhase = .loading
@@ -1344,12 +1350,54 @@ final class LibraryStore {
     func scrobble(_ track: PlayableTrack, submission: Bool) {
         // Apple Music counts its own plays (ApplicationMusicPlayer reports them).
         guard let client, track.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
-        let ms = submission ? KotlinLong(value: Int64(Date().timeIntervalSince1970 * 1000)) : nil
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        guard submission else {
+            scrobbleStarts[track.id] = nowMs
+            // Now playing is live or nothing: a failure (offline) is dropped, never queued (Android).
+            Task {
+                do { try await client.scrobble(id: track.id, submission: false, timeMs: nil) } catch {
+                    log.info("now playing not sent: \(ServerSession.message(for: error), privacy: .public)")
+                }
+            }
+            return
+        }
+        guard let scope = session.scope else { return }
+        // A play is kept until the server has it (Android PendingScrobbles), timed when it started.
+        scrobbles.add(PendingScrobble(scope: scope, songId: track.id,
+                                      timeMs: scrobbleStarts.removeValue(forKey: track.id) ?? nowMs))
+        flushScrobbles()
+    }
+
+    /// Sends the account's waiting plays, oldest first, one at a time: each leaves the outbox once the
+    /// server took it, or refused it for good (a missing song); the network or the server being away
+    /// stops the run, and the next play, the next launch or the network coming back tries again.
+    func flushScrobbles() {
+        guard !flushingScrobbles, let client, let scope = session.scope, scrobbles.next(for: scope) != nil else { return }
+        flushingScrobbles = true
         Task {
-            do { try await client.scrobble(id: track.id, submission: submission, timeMs: ms) } catch {
-                log.info("scrobble failed: \(ServerSession.message(for: error), privacy: .public)")
+            defer { flushingScrobbles = false }
+            while let play = scrobbles.next(for: scope) {
+                do {
+                    try await client.scrobble(id: play.songId, submission: true, timeMs: KotlinLong(value: play.timeMs))
+                    scrobbles.remove(play)
+                } catch {
+                    let message = ServerSession.message(for: error)
+                    guard Self.scrobbleRefused(error) else {
+                        log.info("plays kept for later: \(message, privacy: .public)")
+                        return
+                    }
+                    log.info("play dropped: \(message, privacy: .public)")
+                    scrobbles.remove(play)
+                }
             }
         }
+    }
+
+    /// The server answered and said no to this play (an API error that isn't about the sign-in):
+    /// sending it again won't change that. Unreachable, HTTP or a bad sign-in keep it.
+    nonisolated static func scrobbleRefused(_ error: Error) -> Bool {
+        guard let k = (error as NSError).kotlinException as? SubsonicException else { return false }
+        return k.code >= 0 && !k.isAuthFailure
     }
 
     // MARK: Local history

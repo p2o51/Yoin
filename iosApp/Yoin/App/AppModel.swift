@@ -276,6 +276,13 @@ final class AppModel {
                                                 format: kbps == nil ? nil : SubsonicStreamURLs.transcodeFormat))
         }
         OfflineDownloads.shared.pump()
+        // Waiting plays go out when the network comes back or the app comes to the front.
+        store.scrobbles.onReachable = { [weak store] in store?.flushScrobbles() }
+        store.scrobbles.watchNetwork()
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+                                               queue: .main) { [weak store] _ in
+            MainActor.assumeIsolated { store?.flushScrobbles() }
+        }
         player.onScrobble = { track, submission, listenedSec in
             store.scrobble(track, submission: submission)
             // Local play history (Data/History): a row when the song starts, marked once it counts with
