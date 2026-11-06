@@ -331,8 +331,9 @@ internal fun AlbumSpectrumLayer(
     coverNow: () -> Rect,
     pageShift: () -> Float,
     modifier: Modifier = Modifier,
-    // The Playlist page keeps its stacked V instead of the two blocks: it fades
-    // on its own, and only the spectrum and the cover fly.
+    // The Playlist page has its album sleeves instead of the two blocks
+    // (PlaylistSleeves.kt): they fold behind the cover, and only the spectrum
+    // and the cover fly.
     butterfly: Boolean = true,
 ) {
     Spacer(

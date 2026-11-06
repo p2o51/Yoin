@@ -18,8 +18,9 @@ import com.gpo.yoin.ui.component.drawYoinArm
  *   Album    — the two lower arms, enlarged into edge-bleeding colour blocks
  *              (AlbumArrowBackground).
  *   Artist   — the WHOLE mark as a pinwheel, the portrait sitting on its hub.
- *   Playlist — the upper arm's V repeated as a layered stack (a stack of
- *              records / a run of tracks) behind the cover.
+ *
+ * The Playlist page draws no mark: its own album covers fan out behind its
+ * cover as sleeves (PlaylistSleeves.kt).
  *
  * Colours are the page's cover-seeded roles; the white centre lines stay as a
  * translucent surface-coloured line, as on the album blocks.
@@ -62,56 +63,6 @@ internal fun ArtistPinwheelBackground(
             translate(-hub.x, -hub.y)
         }) {
             for (arm in 0..2) drawYoinArm(arm, colors[arm], lineColor)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Playlist — stacked V.
-// ---------------------------------------------------------------------------
-
-// The upper arm's own box in view space: x 169–842 (centre ≈505), and the
-// visual middle of the V's wings sits around y≈350.
-private val UpperArmCentre = Offset(505f, 350f)
-private const val UpperArmWidth = 674f
-
-/** Each layer spans this multiple of the band width, so both wings bleed off the edges. */
-private const val PlaylistStackWidthFactor = 1.3f
-
-/**
- * First layer's offset from the band centre, and the step between layers — ×
- * cover side. Sized so the back layer's wing tips stay inside the hero band
- * (they never reach up into the header).
- */
-private const val PlaylistStackFirstOffset = -0.06f
-private const val PlaylistStackStep = 0.14f
-
-/**
- * The mark's upper arm, repeated as a layered stack behind the cover. The
- * layers step down the band; the last one drawn (front) is the lowest, so its
- * V dips below the cover like the lip of a stack.
- *
- * @param colors layer colours, back to front.
- */
-@Composable
-internal fun PlaylistStackBackground(
-    colors: List<Color>,
-    lineColor: Color,
-    coverSide: Dp,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier) {
-        val scale = size.width * PlaylistStackWidthFactor / UpperArmWidth
-        val side = coverSide.toPx()
-        colors.forEachIndexed { index, color ->
-            val dy = side * (PlaylistStackFirstOffset + index * PlaylistStackStep)
-            withTransform({
-                translate(size.width / 2f, size.height / 2f + dy)
-                scale(scale, scale, pivot = Offset.Zero)
-                translate(-UpperArmCentre.x, -UpperArmCentre.y)
-            }) {
-                drawYoinArm(arm = 1, color = color, lineColor = lineColor)
-            }
         }
     }
 }

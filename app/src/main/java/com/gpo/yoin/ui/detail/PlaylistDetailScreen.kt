@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
@@ -27,7 +28,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -62,7 +62,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
@@ -96,7 +95,6 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
@@ -209,8 +207,8 @@ fun PlaylistDetailScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val content = uiState as? PlaylistDetailUiState.Content
 
-    // Header title/subtitle + backdrop colours seeded from the cover (same MCU
-    // path as the Album & Artist pages); animated so the resolve doesn't pop.
+    // Header title/subtitle colours seeded from the cover (same MCU path as the
+    // Album & Artist pages); animated so the resolve doesn't pop.
     val coverScheme = rememberCoverColorScheme(content?.coverArtUrl)
     val headerScheme = coverScheme ?: MaterialTheme.colorScheme
     val titleColorState =
@@ -219,11 +217,6 @@ fun PlaylistDetailScreen(
     // The rows' note markers read it while drawing: the colour spring repaints
     // them instead of recomposing the track list every frame.
     val rowAccent: () -> Color = remember(titleColorState) { { titleColorState.value } }
-    // Stacked-V layers, back to front.
-    val stackBack by animateColorAsState(headerScheme.tertiary, YoinMotion.effectsSpring(), label = "playlistStackBack")
-    val stackMiddle by animateColorAsState(headerScheme.secondary, YoinMotion.effectsSpring(), label = "playlistStackMiddle")
-    val stackFront by animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistStackFront")
-    val stackColors = listOf(stackBack, stackMiddle, stackFront)
 
     val accentColor = rememberDetailPageAccent(content?.coverArtUrl)
 
@@ -236,6 +229,8 @@ fun PlaylistDetailScreen(
     DetailPullUpReconcile(revealState, expanded)
     // Staged "启幕": the cover lands first, the meta + titles rise a beat later.
     val stagedReveal = rememberStagedReveal("playlist-${content?.playlistId}")
+    // The sleeves behind the cover open a beat after it, left then right.
+    val sleeveReveal = rememberPlaylistSleeveReveal(stagedReveal)
 
     // The Album's cover → spectrum bar (AlbumSpectrumBar.kt), on the portrait
     // pull-up — the overview PlaylistDetailContent picks for a Compact or
@@ -375,38 +370,14 @@ fun PlaylistDetailScreen(
                         )
 
                         if (useBar && content != null) {
-                            // The stacked V behind the resting cover, below the header:
-                            // it lands with the cover and fades as the cover leaves
-                            // (the Album's blocks fly into the bar; these stay put).
-                            if (headerHeight > 0) {
-                                val heroCoverSide = minOf(maxWidth * 0.74f, 300.dp)
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .offset { IntOffset(0, headerHeight) }
-                                        .clipToBounds(),
-                                ) {
-                                    PlaylistStackBackground(
-                                        colors = stackColors,
-                                        lineColor = surface.copy(alpha = 0.65f),
-                                        coverSide = heroCoverSide,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(heroCoverSide + PlaylistHeroStackBand)
-                                            .graphicsLayer {
-                                                alpha = stagedReveal.hero.coerceIn(0f, 1f) *
-                                                    (1f - smoothStep(0f, 0.6f, progress()))
-                                            },
-                                    )
-                                }
-                            }
                             AlbumSpectrumLayer(
                                 geometry = geometry,
                                 source = spectrumSource,
                                 previous = previousSpectrum,
                                 swap = { spectrumSwap.value },
-                                blockA = stackFront,
-                                blockB = stackMiddle,
+                                // Unused: no butterfly on this page (the sleeves stand there).
+                                blockA = titleColor,
+                                blockB = titleColor,
                                 surface = surface,
                                 reduced = reduced,
                                 rtl = rtl,
@@ -414,6 +385,60 @@ fun PlaylistDetailScreen(
                                 coverNow = coverNow,
                                 pageShift = noPageShift,
                                 butterfly = false,
+                            )
+                            // The playlist's own albums fanned behind the cover
+                            // (PlaylistSleeves.kt): whole, never clipped, and on the
+                            // pull-up they close in behind the flying cover and ride
+                            // it into the stamp. Above the spectrum, below the cover.
+                            val sleeveClearancePx = with(density) { PlaylistSleeveEdgeClearance.toPx() }
+                            val heroCornerPx = with(density) { PlaylistHeroCorner.toPx() }
+                            val stampCornerPx = with(density) { PlaylistStampCorner.toPx() }
+                            val heroRisePx = with(density) { PlaylistHeroRise.toPx() }
+                            // Where the cover is now: AlbumFlyingCover's rect (reduced
+                            // motion: it never flies, it fades where it rests).
+                            val heroNow: () -> Rect = {
+                                val g = geometry()
+                                when {
+                                    g == null -> Rect.Zero
+                                    reduced -> coverNow()
+                                    else -> albumBarCoverRect(g, coverNow(), progress().coerceIn(0f, 1f))
+                                }
+                            }
+                            PlaylistSleeves(
+                                covers = content.sleeveCoverUrls,
+                                reveal = sleeveReveal,
+                                restingSide = { geometry()?.cover?.width ?: 0f },
+                                cover = heroNow,
+                                // AlbumFlyingCover's corner: Hero → Thumb as it flies.
+                                corner = {
+                                    if (reduced) {
+                                        heroCornerPx
+                                    } else {
+                                        val t = smoothStep(0f, 1f, progress().coerceIn(0f, 1f))
+                                        heroCornerPx + (stampCornerPx - heroCornerPx) * t
+                                    }
+                                },
+                                // The tighter of the cover's two sides to the page edges.
+                                spread = {
+                                    val rest = geometry()?.cover
+                                    if (rest == null) {
+                                        0f
+                                    } else {
+                                        val room = minOf(rest.left, widthPx - rest.right) - sleeveClearancePx
+                                        playlistSleeveSpread(rest.width, room)
+                                    }
+                                },
+                                fold = { if (reduced) 0f else smoothStep(0f, PlaylistSleeveFoldEnd, progress()) },
+                                // Reduced motion: no fan motion, they fade out with the cover.
+                                fade = { if (reduced) (1f - 2f * progress()).coerceIn(0f, 1f) else 1f },
+                                reduced = reduced,
+                                // The cover lands on its staged beat (risen, grown in):
+                                // its ring follows what is actually on screen.
+                                coverRing = {
+                                    stagedBeatRect(heroNow(), stagedReveal.hero, heroRisePx, PlaylistHeroScaleFrom)
+                                },
+                                coverAlpha = { stagedReveal.hero },
+                                modifier = Modifier.fillMaxSize(),
                             )
                             // Below the header and body on purpose: the artwork's
                             // Surface swallows touches, so the page above must get the
@@ -426,8 +451,8 @@ fun PlaylistDetailScreen(
                                 coverNow = coverNow,
                                 pageShift = noPageShift,
                                 // Hero → Thumb (YoinArtworkShapes), as arcs while they move.
-                                restingCorner = 8.dp,
-                                stampCorner = 4.dp,
+                                restingCorner = PlaylistHeroCorner,
+                                stampCorner = PlaylistStampCorner,
                                 modifier = Modifier.fillMaxSize(),
                                 reduced = reduced,
                             ) {
@@ -436,7 +461,11 @@ fun PlaylistDetailScreen(
                                     contentDescription = content.playlistName,
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .stagedBeat(progress = { stagedReveal.hero }, rise = 20.dp, scaleFrom = 0.94f)
+                                        .stagedBeat(
+                                            progress = { stagedReveal.hero },
+                                            rise = PlaylistHeroRise,
+                                            scaleFrom = PlaylistHeroScaleFrom,
+                                        )
                                         // Only the stamp is a button; the resting cover is just a picture.
                                         .then(
                                             if (docked) {
@@ -553,7 +582,7 @@ fun PlaylistDetailScreen(
                                     is PlaylistDetailUiState.Content ->
                                         PlaylistDetailContent(
                                             content = state,
-                                            stackColors = stackColors,
+                                            sleeveReveal = sleeveReveal,
                                             rowMarks = PlaylistRowMarks(
                                                 notedSongIds,
                                                 accent = rowAccent,
@@ -850,6 +879,15 @@ private fun PlaylistBarHeaderTwin(
 private val PlaylistHeaderTopPadding = 4.dp
 private val PlaylistHeaderBottomPadding = 6.dp
 
+// The hero cover's corner (YoinArtworkShapes.Hero) and the stamp's (Thumb); the
+// sleeves behind the cover always match the cover's.
+private val PlaylistHeroCorner = 8.dp
+private val PlaylistStampCorner = 4.dp
+
+// The Compact cover's staged beat: it rises this far and grows from this scale.
+private val PlaylistHeroRise = 20.dp
+private const val PlaylistHeroScaleFrom = 0.94f
+
 // The overflow button's footprint at the header's end (48dp + the row's 4dp end
 // padding): the stamp sits 4dp before it, so 40dp past the bar's own 16dp inset.
 private val PlaylistBarOverflowRoom = 40.dp
@@ -891,8 +929,8 @@ private fun RenamePlaylistDialog(
 }
 
 /**
- * Compact: the Album page's two-state pull-up — hero (stacked-V backdrop,
- * cover, meta, flowing titles) ⇄ track list, the cover docking to a straight
+ * Compact: the Album page's two-state pull-up — hero (cover on its album
+ * sleeves, meta, flowing titles) ⇄ track list, the cover docking to a straight
  * full-bleed band (or a capsule for short playlists). >= Medium (Tabletop
  * stays Compact): one plain scrolling list with a hero row on top, like the
  * Album's Medium overview.
@@ -900,7 +938,7 @@ private fun RenamePlaylistDialog(
 @Composable
 private fun PlaylistDetailContent(
     content: PlaylistDetailUiState.Content,
-    stackColors: List<Color>,
+    sleeveReveal: PlaylistSleeveReveal,
     rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
     revealState: RevealState,
@@ -915,7 +953,7 @@ private fun PlaylistDetailContent(
     when {
         windowInfo.isCompactHeight -> PlaylistPullUpOverview(
             content = content,
-            stackColors = stackColors,
+            sleeveReveal = sleeveReveal,
             rowMarks = rowMarks,
             onSongClick = onSongClick,
             revealState = revealState,
@@ -926,15 +964,20 @@ private fun PlaylistDetailContent(
         )
         layoutMode == LayoutMode.Wide -> PlaylistWideOverview(
             content = content,
-            stackColors = stackColors,
+            sleeveReveal = sleeveReveal,
             rowMarks = rowMarks,
             onSongClick = onSongClick,
         )
         layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop ->
-            PlaylistMediumOverview(content = content, rowMarks = rowMarks, onSongClick = onSongClick)
+            PlaylistMediumOverview(
+                content = content,
+                sleeveReveal = sleeveReveal,
+                rowMarks = rowMarks,
+                onSongClick = onSongClick,
+            )
         else -> PlaylistPullUpOverview(
             content = content,
-            stackColors = stackColors,
+            sleeveReveal = sleeveReveal,
             rowMarks = rowMarks,
             onSongClick = onSongClick,
             revealState = revealState,
@@ -945,12 +988,12 @@ private fun PlaylistDetailContent(
     }
 }
 
-// Wide full window: the Album's identity column (cover 360 on its stacked V,
-// Length | Owner) beside the full list (max 800).
+// Wide full window: the Album's identity column (cover 360 on its album
+// sleeves, Length | Owner) beside the full list (max 800).
 @Composable
 private fun PlaylistWideOverview(
     content: PlaylistDetailUiState.Content,
-    stackColors: List<Color>,
+    sleeveReveal: PlaylistSleeveReveal,
     rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
 ) {
@@ -958,24 +1001,33 @@ private fun PlaylistWideOverview(
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 40.dp, end = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(40.dp),
+            .padding(end = 24.dp),
     ) {
         Column(
             modifier = Modifier
-                .width(PlaylistWideIdentityWidth)
+                // The 40dp start margin and the 40dp gutter to the list sit
+                // inside the scroll column: a vertical scroll clips its sides,
+                // and the sleeves fan out past the cover into that room.
+                .width(PlaylistWideIdentityWidth + PlaylistWideMargin * 2)
                 .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 24.dp, bottom = 120.dp),
+                .padding(
+                    start = PlaylistWideMargin,
+                    end = PlaylistWideMargin,
+                    top = 24.dp,
+                    bottom = 120.dp,
+                ),
         ) {
             Box(
-                modifier = Modifier.size(PlaylistWideCoverSide + 40.dp),
+                modifier = Modifier.size(PlaylistWideCoverSide + PlaylistWideCoverInset * 2),
                 contentAlignment = Alignment.Center,
             ) {
-                PlaylistStackBackground(
-                    colors = stackColors,
-                    lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                PlaylistCoverSleeves(
+                    covers = content.sleeveCoverUrls,
+                    reveal = sleeveReveal,
                     coverSide = PlaylistWideCoverSide,
+                    sideRoom = PlaylistWideCoverInset + PlaylistWideMargin,
+                    corner = PlaylistHeroCorner,
                     modifier = Modifier.size(PlaylistWideCoverSide),
                 )
                 ExpressiveMediaArtwork(
@@ -1009,12 +1061,17 @@ private fun PlaylistWideOverview(
 
 private val PlaylistWideIdentityWidth = 400.dp
 private val PlaylistWideCoverSide = 360.dp
+
+// The cover's inset in its 400dp box, and the room on either side of the
+// identity column (window start margin; gutter to the list).
+private val PlaylistWideCoverInset = 20.dp
+private val PlaylistWideMargin = 40.dp
 private val PlaylistWideListMaxWidth = 800.dp
 
 @Composable
 private fun PlaylistPullUpOverview(
     content: PlaylistDetailUiState.Content,
-    stackColors: List<Color>,
+    sleeveReveal: PlaylistSleeveReveal,
     rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
     // The pull-up, hoisted to the screen (its spectrum bar follows it too).
@@ -1023,7 +1080,7 @@ private fun PlaylistPullUpOverview(
     onExpandedCommit: (Boolean) -> Unit,
     stagedReveal: StagedReveal,
     // Landscape handset (PlaylistLandscape): the hero turned sideways — cover
-    // on its stacked V at the left, Length | Owner and the flowing titles on
+    // on its album sleeves at the left, Length | Owner and the flowing titles on
     // the right — over the SAME pull-up into the list.
     landscape: Boolean = false,
 ) {
@@ -1045,8 +1102,9 @@ private fun PlaylistPullUpOverview(
         if (landscape) {
             PlaylistLandscapeLayers(
                 content = content,
-                stackColors = stackColors,
+                sleeveReveal = sleeveReveal,
                 expand = expand,
+                expandNow = { 1f - revealState.fraction },
                 expanded = expanded,
                 coverSide = minOf(PlaylistLandscapeCoverSide, maxHeight - 36.dp),
                 gestures = gestures,
@@ -1059,12 +1117,12 @@ private fun PlaylistPullUpOverview(
 
         // Pane-relative: the Album hero's cover footprint (0.74 × width, ≤ 300dp).
         val heroCoverSide = minOf(maxW * 0.74f, 300.dp)
-        // The hero slot: the cover's square plus the band for the stacked V. The
-        // cover and the V are drawn by the screen's bar layer behind this page
+        // The hero slot: the cover's square plus its band. The cover and its
+        // sleeves are drawn by the screen's bar layer behind this page
         // (AlbumFlyingCover, as on the Album); here the slot only makes room for
         // them, and closes as the cover flies into the bar, so the list docks
         // straight under the header.
-        val slotHeight = lerp(heroCoverSide + PlaylistHeroStackBand, 0.dp, expand.coerceIn(0f, 1f))
+        val slotHeight = lerp(heroCoverSide + PlaylistHeroBand, 0.dp, expand.coerceIn(0f, 1f))
 
         Column(
             modifier = Modifier
@@ -1136,16 +1194,24 @@ private fun PlaylistPullUpOverview(
     }
 }
 
-// Room the hero band adds around the cover for the stacked-V backdrop.
-private val PlaylistHeroStackBand = 56.dp
+// Room the hero band adds around the cover (albumHeroBandPx's 56dp): the
+// sleeves hang at most ~0.07 × the side below the cover, well inside it.
+private val PlaylistHeroBand = 56.dp
 
 private val PlaylistLandscapeCoverSide = 256.dp
+
+// The landscape cover's start margin and its gutter to the meta: the sleeves
+// fan out into whichever is tighter.
+private val PlaylistLandscapeCoverStart = 44.dp
+private val PlaylistLandscapeGutter = 40.dp
 
 @Composable
 private fun PlaylistLandscapeLayers(
     content: PlaylistDetailUiState.Content,
-    stackColors: List<Color>,
+    sleeveReveal: PlaylistSleeveReveal,
     expand: Float,
+    // The same pull-up, read lazily: the sleeves fold in their layer.
+    expandNow: () -> Float,
     expanded: Boolean,
     coverSide: Dp,
     gestures: DetailPullUpGestures,
@@ -1187,21 +1253,24 @@ private fun PlaylistLandscapeLayers(
                         alpha = (1f - expand).coerceIn(0f, 1f)
                         translationY = -expand * 40f
                     }
-                    // Top room: the back layer rides ~6% above the cover.
-                    .padding(start = 44.dp, top = 24.dp, end = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(40.dp),
+                    .padding(start = PlaylistLandscapeCoverStart, top = 24.dp, end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(PlaylistLandscapeGutter),
             ) {
                 Box(
                     modifier = Modifier.size(coverSide),
                     contentAlignment = Alignment.Center,
                 ) {
-                    // Whole layers around the cover — nothing cut straight, and
-                    // the 40dp gutter keeps the wings clear of the capsules.
-                    PlaylistStackBackground(
-                        colors = stackColors,
-                        lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                    // Whole sleeves around the cover, fanned no wider than the
+                    // start margin and the gutter to the meta allow; the pull-up
+                    // closes them behind the cover as the hero fades.
+                    PlaylistCoverSleeves(
+                        covers = content.sleeveCoverUrls,
+                        reveal = sleeveReveal,
                         coverSide = coverSide,
-                        modifier = Modifier.size(coverSide),
+                        sideRoom = minOf(PlaylistLandscapeCoverStart, PlaylistLandscapeGutter),
+                        corner = PlaylistHeroCorner,
+                        fold = { smoothStep(0f, PlaylistSleeveFoldEnd, expandNow()) },
+                        modifier = Modifier.fillMaxSize(),
                     )
                     ExpressiveMediaArtwork(
                         model = content.coverArtUrl,
@@ -1509,13 +1578,25 @@ private fun PlaylistNoteMarker(visible: Boolean, accent: () -> Color) {
 // >= Medium hero cover: a fixed side (no reshape to travel), like the Album's.
 private val PlaylistMediumHeroCoverSide = 240.dp
 
+// The room the >= Medium cover keeps on each side for its sleeves.
+private val PlaylistMediumSleeveRoom = 40.dp
+
 @Composable
 private fun PlaylistMediumOverview(
     content: PlaylistDetailUiState.Content,
+    sleeveReveal: PlaylistSleeveReveal,
     rowMarks: PlaylistRowMarks,
     onSongClick: (songId: String) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    // Room beside the cover for its sleeves: the list clips its sides, so the
+    // cover steps in from the list's start and away from the meta. Only with
+    // sleeves; a refresh that adds or drops them moves the cover on a spring.
+    val sleeveRoom by animateDpAsState(
+        targetValue = if (content.sleeveCoverUrls.isNotEmpty()) PlaylistMediumSleeveRoom else 0.dp,
+        animationSpec = YoinMotion.spatialSpring(),
+        label = "playlistMediumSleeveRoom",
+    )
     PlaylistTrackList(
         content = content,
         listState = listState,
@@ -1531,21 +1612,38 @@ private fun PlaylistMediumOverview(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp, bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp + sleeveRoom),
             ) {
-                ExpressiveMediaArtwork(
-                    model = content.coverArtUrl,
-                    contentDescription = content.playlistName,
+                // The sleeves scroll with the cover (they live in its row) and
+                // break into the seam's halftone with it.
+                Box(
                     modifier = Modifier
-                        .size(PlaylistMediumHeroCoverSide)
-                        .seamDissolve(),
-                    shape = YoinArtworkShapes.Hero,
-                    fallbackIcon = YoinSymbols.Playlist,
-                    border = null,
-                    shadowElevation = 0.dp,
-                    tonalElevation = 3.dp,
-                    requestSizePx = 640,
-                )
+                        .padding(start = sleeveRoom)
+                        .size(PlaylistMediumHeroCoverSide),
+                ) {
+                    PlaylistCoverSleeves(
+                        covers = content.sleeveCoverUrls,
+                        reveal = sleeveReveal,
+                        coverSide = PlaylistMediumHeroCoverSide,
+                        sideRoom = PlaylistMediumSleeveRoom,
+                        corner = PlaylistHeroCorner,
+                        modifier = Modifier.fillMaxSize(),
+                        artworkModifier = Modifier.seamDissolve(),
+                    )
+                    ExpressiveMediaArtwork(
+                        model = content.coverArtUrl,
+                        contentDescription = content.playlistName,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .seamDissolve(),
+                        shape = YoinArtworkShapes.Hero,
+                        fallbackIcon = YoinSymbols.Playlist,
+                        border = null,
+                        shadowElevation = 0.dp,
+                        tonalElevation = 3.dp,
+                        requestSizePx = 640,
+                    )
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     PlaylistHeroMeta(content = content)
                 }
@@ -1672,6 +1770,19 @@ private fun PlaylistDetailLandscapePreview() {
     YoinTheme { ProvidePreviewWindow(widthDp = 844, heightDp = 390) { PlaylistDetailPreviewContent() } }
 }
 
+// The cover rests in place here (no staged beat), so the sleeves behind it show.
+@Preview(name = "Medium", widthDp = 700, heightDp = 1000, showBackground = true)
+@Composable
+private fun PlaylistDetailMediumPreview() {
+    YoinTheme { ProvidePreviewWindow(widthDp = 700, heightDp = 1000) { PlaylistDetailPreviewContent() } }
+}
+
+@Preview(name = "Wide", widthDp = 1280, heightDp = 800, showBackground = true)
+@Composable
+private fun PlaylistDetailWidePreview() {
+    YoinTheme { ProvidePreviewWindow(widthDp = 1280, heightDp = 800) { PlaylistDetailPreviewContent() } }
+}
+
 @Composable
 private fun PlaylistDetailPreviewContent() {
         PlaylistDetailScreen(
@@ -1684,6 +1795,8 @@ private fun PlaylistDetailPreviewContent() {
                 songCount = 2,
                 totalDuration = 768,
                 coverArtUrl = null,
+                // Two of its albums fanned behind the cover.
+                sleeveCoverUrls = listOf("preview://ok-computer", "preview://the-wall"),
                 songs = listOf(
                     PlaylistSong(
                         id = "1",
