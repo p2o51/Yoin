@@ -382,6 +382,8 @@ internal fun TrackMenuSheetBody(
     scrollState: ScrollState = rememberScrollState(),
     quickActions: List<TrackMenuQuickAction> = emptyList(),
     onQuickActionClick: (TrackMenuQuickAction) -> Unit = {},
+    // Tips' demo phone names a row for its touch dot; the app passes none.
+    rowModifier: (TrackMenuRow) -> Modifier = { Modifier },
 ) {
     Column(
         modifier = modifier
@@ -405,6 +407,7 @@ internal fun TrackMenuSheetBody(
                     icon = row.icon,
                     shape = shape,
                     onClick = { onRowClick(row) },
+                    modifier = rowModifier(row),
                 )
             }
         }
@@ -555,12 +558,18 @@ internal fun TrackMenuGroup(count: Int, row: @Composable (index: Int, shape: Sha
 }
 
 @Composable
-internal fun TrackMenuRowItem(label: String, icon: ImageVector, shape: Shape, onClick: () -> Unit) {
+internal fun TrackMenuRowItem(
+    label: String,
+    icon: ImageVector,
+    shape: Shape,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Surface(
         onClick = onClick,
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         TrackMenuRowContent(label = label, icon = icon)
     }

@@ -58,6 +58,9 @@ internal fun TipIllustration(
         contentAlignment = Alignment.Center,
     ) {
         when (tip) {
+            HomeBubbleTip.MiniPlayerMenu -> MiniPlayerMenuDemo(playing)
+            HomeBubbleTip.FocusCover -> FocusCoverDemo(playing)
+            HomeBubbleTip.Downloads -> DownloadsDemo(playing)
             HomeBubbleTip.EditHome -> EditHomeDemo(playing)
             HomeBubbleTip.PullForMemories -> PullDemo(playing)
             HomeBubbleTip.CoverMenu -> CoverMenuDemo(playing, keepScreenOn = false)

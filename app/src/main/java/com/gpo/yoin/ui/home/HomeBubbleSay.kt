@@ -5,6 +5,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import java.time.LocalDate
 import kotlin.random.Random
 
 /**
@@ -26,26 +27,38 @@ internal sealed interface BubbleSay {
  * [title]; a tap opens the tip on its own page with the [text] (owner
  * 2026-10-18: a short line read cut off in the bubble), where it can be
  * marked read. Read tips no longer come up (ui/tips/TipReadStore).
+ *
+ * [updated] is the day what the tip shows last changed (owner 2026-11-06: new
+ * features get a tip, and every tip says when it was last updated). A tip
+ * read before that day is unread again, so the bubble brings the change up.
+ * A wording change alone keeps the day. The copy itself is Gemini's (owner
+ * 2026-11-06: one short line per tip, written by Gemini, never by Claude).
  */
 internal enum class HomeBubbleTip(
     @StringRes val title: Int,
     @StringRes val text: Int,
+    val updated: LocalDate,
     private val symbol: () -> ImageVector,
 ) {
-    EditHome(R.string.home_tip_edit_home_title, R.string.home_tip_edit_home, { YoinSymbols.DragHandle }),
-    PullForMemories(R.string.home_tip_pull_memories_title, R.string.home_tip_pull_memories, { YoinSymbols.Memory }),
-    CoverMenu(R.string.home_tip_cover_menu_title, R.string.home_tip_cover_menu, { YoinSymbols.Album }),
-    SongMenu(R.string.home_tip_song_menu_title, R.string.home_tip_song_menu, { YoinSymbols.Queue }),
-    PlayModes(R.string.home_tip_play_modes_title, R.string.home_tip_play_modes, { YoinSymbols.Shuffle }),
-    NoteMoments(R.string.home_tip_note_moments_title, R.string.home_tip_note_moments, { YoinSymbols.EditNote }),
-    LibrarySearch(R.string.home_tip_library_search_title, R.string.home_tip_library_search, { YoinSymbols.Search }),
-    KeepScreenOn(R.string.home_tip_keep_screen_on_title, R.string.home_tip_keep_screen_on, { YoinSymbols.LightMode }),
-    ScrollEdge(R.string.home_tip_scroll_edge_title, R.string.home_tip_scroll_edge, { YoinSymbols.Settings }),
-    Name(R.string.home_tip_name_title, R.string.home_tip_name, { YoinSymbols.Sparkle }),
+    MiniPlayerMenu(R.string.home_tip_mini_player_menu_title, R.string.home_tip_mini_player_menu, day(2026, 11, 4), { YoinSymbols.PlayCircle }),
+    FocusCover(R.string.home_tip_focus_cover_title, R.string.home_tip_focus_cover, day(2026, 11, 3), { YoinSymbols.OpenInFull }),
+    Downloads(R.string.home_tip_downloads_title, R.string.home_tip_downloads, day(2026, 11, 4), { YoinSymbols.Download }),
+    EditHome(R.string.home_tip_edit_home_title, R.string.home_tip_edit_home, day(2026, 10, 17), { YoinSymbols.DragHandle }),
+    PullForMemories(R.string.home_tip_pull_memories_title, R.string.home_tip_pull_memories, day(2026, 10, 17), { YoinSymbols.Memory }),
+    CoverMenu(R.string.home_tip_cover_menu_title, R.string.home_tip_cover_menu, day(2026, 11, 4), { YoinSymbols.Album }),
+    SongMenu(R.string.home_tip_song_menu_title, R.string.home_tip_song_menu, day(2026, 11, 4), { YoinSymbols.Queue }),
+    PlayModes(R.string.home_tip_play_modes_title, R.string.home_tip_play_modes, day(2026, 10, 21), { YoinSymbols.Shuffle }),
+    NoteMoments(R.string.home_tip_note_moments_title, R.string.home_tip_note_moments, day(2026, 10, 17), { YoinSymbols.EditNote }),
+    LibrarySearch(R.string.home_tip_library_search_title, R.string.home_tip_library_search, day(2026, 10, 17), { YoinSymbols.Search }),
+    KeepScreenOn(R.string.home_tip_keep_screen_on_title, R.string.home_tip_keep_screen_on, day(2026, 10, 17), { YoinSymbols.LightMode }),
+    ScrollEdge(R.string.home_tip_scroll_edge_title, R.string.home_tip_scroll_edge, day(2026, 10, 17), { YoinSymbols.Settings }),
+    Name(R.string.home_tip_name_title, R.string.home_tip_name, day(2026, 10, 17), { YoinSymbols.Sparkle }),
     ;
 
     val icon: ImageVector get() = symbol()
 }
+
+private fun day(year: Int, month: Int, dayOfMonth: Int): LocalDate = LocalDate.of(year, month, dayOfMonth)
 
 /**
  * What the idle bubble says on one of its turns: Memories and tips take turns
