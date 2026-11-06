@@ -225,6 +225,18 @@ final class SpotifyAudioOutput: AudioOutput {
     /// The engine answers a failure with a pause; after a failure Yoin reported that pause is not
     /// sent (a command is never error handling: a pause to a device that lost the song was refused).
     private var quietPause = false
+    /// Spotify answered a start on another device but no read has shown it there yet: transport
+    /// commands wait in [held], in order (a resume sent right after a start got 403 Restriction
+    /// violated, 2026-11-06 Mac run). They go when the start is seen, or are dropped with it.
+    private var landing = false
+    private var held: [() -> Void] = []
+    /// When the last start on another device went out, from where, and whether it's still waiting to
+    /// be seen playing: a device that drops it is said so, not shown as a plain pause.
+    private var startedAt = Date.distantPast
+    private var startedAtSec: Double = 0
+    private var awaitingPlay = false
+    /// The last thing the engine did was stop (not load another song).
+    private var stopped = false
     private var observers: [NSObjectProtocol] = []
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "spotify")
 
@@ -287,6 +299,7 @@ final class SpotifyAudioOutput: AudioOutput {
     func load(_ current: URL, next: URL?, startSec: Double) {
         PlayTrace.log("SP load \(current.lastPathComponent) start=\(startSec)")
         generation += 1
+        stopped = false
         rehandTask?.cancel()
         let item = Item(current)
         self.current = item
@@ -296,6 +309,7 @@ final class SpotifyAudioOutput: AudioOutput {
         externalURI = nil
         adopted = false
         quietPause = false
+        resetStart()
         sawCurrent = false
         playing = false
         lastTime = startSec
@@ -470,16 +484,26 @@ final class SpotifyAudioOutput: AudioOutput {
                 await control.playModesOff(deviceId: target)
                 guard gen == generation else { return }
             }
-            try await control.startPlayback(uris: uris, positionMs: at, deviceId: target)
+            let device = target
+            try await control.startPlayback(uris: uris, positionMs: at, deviceId: device)
             PlayTrace.log("SP send done gen=\(gen == generation)")
-            guard gen == generation else { return }
+            guard gen == generation else {
+                // Stopped while the start was on its way: it mustn't keep playing there (stop() sends
+                // nothing for a start not yet answered).
+                if stopped { Task { try? await control.pausePlayback(deviceId: device) } }
+                return
+            }
             handedNext = next
             starting = false
             playing = wantsPlay
             lastTime = Double(at) / 1000
             lastTick = Date()
             modesQuietUntil = Date().addingTimeInterval(Self.modesQuietSec)
-            if !wantsPlay { transport(report: false, aim(song: true)) { try await $0.pausePlayback(deviceId: $1, while: $2) } }
+            startedAt = Date()
+            startedAtSec = lastTime
+            awaitingPlay = wantsPlay
+            landing = true
+            if !wantsPlay { held.append { [weak self] in self?.sendPause() } }
             verifyStarted(item, gen: gen)
             // The engine's next changed while this start was on its way.
             scheduleRehand()
@@ -513,13 +537,77 @@ final class SpotifyAudioOutput: AudioOutput {
             if let now, now.trackURI == item.trackURI || now.trackURI == handedNext?.trackURI { return apply(now) }
             // Something else plays there (the start is late, or never took): Yoin shows that, and
             // moves back onto the queue's song if Spotify gets to it.
-            if let now, now.isPlaying, now.trackURI != nil { return apply(now) }
-            playing = false
-            wantsPlay = false
-            let name = SpotifyPlayingDevice.shared.name ?? "that device"
-            quietPause = true
-            events?.outputDidFail("Spotify on \(name) isn't responding — open Spotify there", network: true)
+            if let now, now.isPlaying, now.trackURI != nil {
+                land(false)
+                return apply(now)
+            }
+            dropped()
         }
+    }
+
+    /// The device took the start and then had no song, or never played it: said once, with Retry (which
+    /// starts on this iPhone, as nothing plays there); no command follows and Yoin doesn't switch by itself.
+    private func dropped() {
+        PlayTrace.log("SP start dropped on \(SpotifyPlayingDevice.shared.name ?? "-")")
+        resetStart()
+        lastTime = currentTimeSec
+        lastTick = Date()
+        playing = false
+        wantsPlay = false
+        quietPause = true
+        events?.outputDidFail(Self.droppedMessage(device: SpotifyPlayingDevice.shared.name), network: true)
+    }
+
+    nonisolated static func droppedMessage(device: String?) -> String {
+        "Spotify on \(device ?? "that device") stopped the song. Retry plays it on this iPhone."
+    }
+
+    /// What a read within [dropWindowSec] of a start says of it: dropped (no song there, or the queue's
+    /// song still parked at its start after [stalledSec]), waiting (not playing yet), or nil (it plays,
+    /// or something else is the listener's).
+    nonisolated static func startCheck(_ now: SpotifySource.PlayerNow?, uri: String, fromSec: Double,
+                                       elapsed: Double) -> StartCheck? {
+        guard elapsed < dropWindowSec else { return nil }
+        guard let now, let playingURI = now.trackURI else { return .dropped }
+        guard playingURI == uri, !now.isPlaying else { return nil }
+        if Double(now.progressMs) / 1000 > fromSec + 1 { return nil }
+        return elapsed > stalledSec ? .dropped : .waiting
+    }
+
+    enum StartCheck { case dropped, waiting }
+
+    nonisolated static let dropWindowSec: Double = 20
+    nonisolated static let stalledSec: Double = 6
+
+    /// The start was seen ([ok]) or given up: held commands go, or are dropped with it.
+    private func land(_ ok: Bool) {
+        guard landing else { return }
+        landing = false
+        let acts = held
+        held = []
+        PlayTrace.log("SP start \(ok ? "landed" : "not landed"), held=\(acts.count)")
+        if ok { acts.forEach { $0() } }
+    }
+
+    private func resetStart() {
+        landing = false
+        held = []
+        awaitingPlay = false
+        startedAt = .distantPast
+    }
+
+    /// A transport command to another device waits while a start lands there.
+    private func holdWhileLanding(_ act: @escaping () -> Void) -> Bool {
+        // Reads that never come (the network) don't hold commands for good.
+        if landing, Date().timeIntervalSince(startedAt) > Self.dropWindowSec { land(true) }
+        guard landing else { return false }
+        PlayTrace.log("SP command held (start landing)")
+        held.append(act)
+        return true
+    }
+
+    private func sendPause() {
+        transport(report: false, aim(song: true)) { try await $0.pausePlayback(deviceId: $1, while: $2) }
     }
 
     nonisolated static let verifySec: Double = 2.5
@@ -595,7 +683,11 @@ final class SpotifyAudioOutput: AudioOutput {
         playing = true
         lastTick = Date()
         if isHere { return command(aim(song: false)) { $0.resume(nil) } }
-        transport(report: true, aim(song: false)) { try await $0.resumePlayback(deviceId: $1, while: $2) }
+        let resume = { [weak self] in
+            guard let self else { return }
+            self.transport(report: true, self.aim(song: false)) { try await $0.resumePlayback(deviceId: $1, while: $2) }
+        }
+        if !holdWhileLanding(resume) { resume() }
     }
 
     func pause() {
@@ -611,8 +703,9 @@ final class SpotifyAudioOutput: AudioOutput {
         lastTime = currentTimeSec
         lastTick = Date()
         playing = false
+        awaitingPlay = false
         if isHere { return command(aim(song: true)) { $0.pause(nil) } }
-        transport(report: false, aim(song: true)) { try await $0.pausePlayback(deviceId: $1, while: $2) }
+        if !holdWhileLanding({ [weak self] in self?.sendPause() }) { sendPause() }
     }
 
     func seek(to sec: Double) {
@@ -624,7 +717,11 @@ final class SpotifyAudioOutput: AudioOutput {
         guard !silent, !starting else { return }
         let ms = Int(sec * 1000)
         if isHere { return command(aim(song: true)) { $0.seek(toPosition: ms, callback: nil) } }
-        transport(report: false, aim(song: true)) { try await $0.seekPlayback(toMs: ms, deviceId: $1, while: $2) }
+        let seek = { [weak self] in
+            guard let self else { return }
+            self.transport(report: false, self.aim(song: true)) { try await $0.seekPlayback(toMs: ms, deviceId: $1, while: $2) }
+        }
+        if !holdWhileLanding(seek) { seek() }
     }
 
     /// A command to this iPhone's Spotify through App Remote, reconnecting first (the connection is
@@ -792,8 +889,11 @@ final class SpotifyAudioOutput: AudioOutput {
     func stop() {
         PlayTrace.log("SP stop wantsPlay=\(wantsPlay)")
         generation += 1
+        stopped = true
         rehandTask?.cancel()
-        if !silent, wantsPlay, let control {
+        // Only a song Yoin has playing is paused: a stop after a start that never went out (Spotify
+        // not installed, the wake failed) sent a pause to whatever device Spotify had active.
+        if !silent, wantsPlay, playing, !starting, !awaitingWake, let control {
             let device = target
             Task { try? await control.pausePlayback(deviceId: device) }
         }
@@ -803,6 +903,7 @@ final class SpotifyAudioOutput: AudioOutput {
         adopted = false
         externalURI = nil
         quietPause = false
+        resetStart()
         SpotifyPlayingDevice.shared.name = nil
         wantsPlay = false
         starting = false
@@ -843,6 +944,15 @@ final class SpotifyAudioOutput: AudioOutput {
     /// A Web API read: nothing active is Spotify stopped where it was.
     private func apply(_ now: SpotifySource.PlayerNow?) {
         guard !starting, !awaitingWake, isDriving else { return }
+        if awaitingPlay, !isHere, let current {
+            switch Self.startCheck(now, uri: current.trackURI, fromSec: startedAtSec,
+                                   elapsed: Date().timeIntervalSince(startedAt)) {
+            case .dropped: return dropped()
+            case .waiting: return
+            case nil: awaitingPlay = false
+            }
+        }
+        if landing { land(now?.trackURI == current?.trackURI || now?.trackURI == handedNext?.trackURI) }
         guard let now, let uri = now.trackURI else {
             guard playing || wantsPlay else { return }
             lastTime = currentTimeSec

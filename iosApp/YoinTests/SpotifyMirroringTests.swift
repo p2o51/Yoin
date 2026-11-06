@@ -108,6 +108,7 @@ final class SpotifyMirroringTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertFalse(engine.isPlaying)
         XCTAssertEqual(puts, ["/v1/me/player/play"])
+        XCTAssertEqual(engine.failure?.message, "Spotify on Pixel 11 Pro stopped the song. Retry plays it on this iPhone.")
     }
 
     func test_should_showTheOtherSong_when_theDeviceStillPlaysItAtTheCheck() async throws {
@@ -122,11 +123,101 @@ final class SpotifyMirroringTests: XCTestCase {
         XCTAssertTrue(engine.isPlaying)
     }
 
+    // MARK: Where a start goes (51, 2026-11-06 06:51)
+
+    /// A start with Spotify's active device in [reply]: whether a Web API command went anywhere.
+    private func start(with reply: MirrorStub.Reply) async throws {
+        MirrorStub.route = { s in s.method == "GET" ? reply : .init(status: 204, body: "") }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1")])
+        try await waitUntil { MirrorStub.requests.contains { $0.url.path == "/v1/me/player" } }
+        try await Task.sleep(for: .seconds(2))
+    }
+
+    func test_should_playOnThisIPhone_when_theActiveDeviceIsPaused() async throws {
+        // A paused Pixel is still Spotify's active device: the start isn't sent there.
+        try await start(with: .init(status: 200, body: Self.pixel(playing: false, shuffle: false)))
+        XCTAssertEqual(puts, [])
+        XCTAssertFalse(MirrorStub.requests.contains { $0.method != "GET" })
+        XCTAssertNil(SpotifyPlayingDevice.shared.name)
+    }
+
+    func test_should_playOnThisIPhone_when_nothingIsActive() async throws {
+        try await start(with: .init(status: 204, body: ""))
+        XCTAssertFalse(MirrorStub.requests.contains { $0.method != "GET" })
+        XCTAssertNil(SpotifyPlayingDevice.shared.name)
+    }
+
+    func test_should_beTheRemote_when_theActiveDeviceIsPlaying() async throws {
+        try await start(with: .init(status: 200, body: Self.pixel(shuffle: false)))
+        // Remote control only: a start with its device_id, no transfer.
+        XCTAssertEqual(puts, ["/v1/me/player/play"])
+        XCTAssertEqual(MirrorStub.requests.first { $0.url.path == "/v1/me/player/play" }?.url.query, "device_id=7a3d")
+        XCTAssertFalse(MirrorStub.requests.contains { $0.method == "PUT" && $0.url.path == "/v1/me/player" })
+        XCTAssertEqual(SpotifyPlayingDevice.shared.name, "Pixel 11 Pro")
+    }
+
+    // MARK: The Mac end-to-end rule (2026-11-06)
+
+    func test_should_holdAPauseUntilTheStartIsSeen_when_pausedRightAfterAStart() async throws {
+        MirrorStub.route = { s in
+            if s.method != "GET" { return .init(status: 204, body: "") }
+            let started = MirrorStub.requests.contains { $0.url.path == "/v1/me/player/play" }
+            return .init(status: 200, body: Self.pixel(uri: started ? "spotify:track:2FNGRT6OEuexOkwHcWRsm1"
+                                                                    : "spotify:track:34h4HhkN3FD0FqIf3Pm4F6", shuffle: false))
+        }
+        spotify.adopt = { false }
+        spotify.control = source
+        engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1")])
+        try await waitUntil { self.puts.contains("/v1/me/player/play") }
+        try await Task.sleep(for: .milliseconds(100))
+        engine.pause()
+        engine.seek(to: 30)
+        try await Task.sleep(for: .milliseconds(500))
+        // Nothing goes into the load on its way.
+        XCTAssertEqual(puts, ["/v1/me/player/play"])
+        try await waitUntil(5) { self.puts.count == 3 }
+        XCTAssertEqual(puts.first, "/v1/me/player/play")
+        XCTAssertEqual(Set(puts.dropFirst()), ["/v1/me/player/pause", "/v1/me/player/seek"])
+    }
+
+    func test_should_judgeAStart_when_readWithinItsWindow() {
+        let uri = "spotify:track:a"
+        func now(_ u: String?, playing: Bool, at ms: Int = 0) -> SpotifySource.PlayerNow? {
+            SpotifySource.PlayerNow(deviceId: "7a3d", deviceName: "Pixel 11 Pro", deviceType: "Smartphone",
+                                    isPlaying: playing, trackURI: u, progressMs: ms)
+        }
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(nil, uri: uri, fromSec: 0, elapsed: 3), .dropped)
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(now(nil, playing: false), uri: uri, fromSec: 0, elapsed: 12), .dropped)
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(now(uri, playing: false), uri: uri, fromSec: 0, elapsed: 3), .waiting)
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(now(uri, playing: false), uri: uri, fromSec: 0, elapsed: 8), .dropped)
+        XCTAssertNil(SpotifyAudioOutput.startCheck(now(uri, playing: true), uri: uri, fromSec: 0, elapsed: 3))
+        // Played a while, then paused on the device: the listener's pause.
+        XCTAssertNil(SpotifyAudioOutput.startCheck(now(uri, playing: false, at: 9000), uri: uri, fromSec: 0, elapsed: 12))
+        XCTAssertNil(SpotifyAudioOutput.startCheck(nil, uri: uri, fromSec: 0, elapsed: 25))
+    }
+
+    func test_should_moveTheClock_when_showingSpotifysOwnSong() async throws {
+        MirrorStub.route = { _ in .init(status: 200, body: Self.pixel()) }
+        spotify.adopt = { true }
+        spotify.control = source
+        try await waitUntil { self.engine.currentTrack?.title == "Song On Pixel" }
+        let first = engine.progress.positionSec
+        try await Task.sleep(for: .milliseconds(1200))
+        XCTAssertGreaterThan(engine.progress.positionSec, first + 0.7)
+    }
+
     // MARK: Late commands and Spotify's own song (Codex review, 2026-11-06)
 
     func test_should_dropARetriedSeek_when_theSongChangedMeanwhile() async throws {
         MirrorStub.route = { s in
-            if s.method == "GET" { return .init(status: 200, body: Self.pixel(shuffle: false)) }
+            if s.method == "GET" {
+                // The start is seen, so the seek isn't held.
+                let started = MirrorStub.requests.contains { $0.url.path == "/v1/me/player/play" }
+                return .init(status: 200, body: Self.pixel(uri: started ? "spotify:track:2FNGRT6OEuexOkwHcWRsm1"
+                                                                        : "spotify:track:34h4HhkN3FD0FqIf3Pm4F6", shuffle: false))
+            }
             let seeks = MirrorStub.requests.filter { $0.url.path == "/v1/me/player/seek" }.count
             if s.url.path == "/v1/me/player/seek", seeks == 0 { return .init(status: 429, body: "") }
             return .init(status: 204, body: "")
@@ -142,6 +233,7 @@ final class SpotifyMirroringTests: XCTestCase {
         spotify.control = source
         engine.play(queue: [song("2FNGRT6OEuexOkwHcWRsm1"), song("07AxzhPisOpLqA7vnHXLZ4")])
         try await waitUntil { self.puts.contains("/v1/me/player/play") }
+        try await waitUntil(5) { MirrorStub.requests.filter { $0.method == "GET" }.count >= 2 }
         try await Task.sleep(for: .milliseconds(100))
         engine.seek(to: 30)
         try await waitUntil { self.puts.filter { $0 == "/v1/me/player/play" }.count == 2 }
