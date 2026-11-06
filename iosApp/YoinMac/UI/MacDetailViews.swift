@@ -229,7 +229,7 @@ struct MacPlaylistDetail: View {
                     VStack(spacing: 2) {
                         ForEach(Array(p.entries.enumerated()), id: \.offset) { i, e in
                             TrackRow(entry: e, showCover: true,
-                                     removeFromPlaylist: model.library.canEdit(p) ? {
+                                     removeFromPlaylist: model.library.canEdit(p) && !model.library.busyPlaylists.contains(id) ? {
                                          Task { await write { try await model.library.remove(entryAt: i, fromPlaylist: id) } }
                                      } : nil) { model.play(p.entries, startAt: i) }
                         }
@@ -253,11 +253,18 @@ struct MacPlaylistDetail: View {
         }
         .task(id: id) { await model.library.loadPlaylist(id) }
         .overlay(alignment: .topTrailing) {
-            if let p, model.library.canEdit(p) {
+            if let p, model.library.canManage(p) {
                 Menu {
                     Button("Rename…") { newName = p.title; renaming = true }
                     Button(model.session.isSpotify ? "Remove from Library" : "Delete Playlist", role: .destructive) {
-                        Task { await write { try await model.library.deletePlaylist(id); model.closeDetail() } }
+                        let gen = model.library.accountGeneration
+                        Task {
+                            await write { try await model.library.deletePlaylist(id) }
+                            // Only this page, and only if it's still the one showing for the same account.
+                            if gen == model.library.accountGeneration, case .playlist(id, _)? = model.detail {
+                                model.closeDetail()
+                            }
+                        }
                     }
                 } label: {
                     YoinIcon("more_horizontal", size: 18).foregroundStyle(Yoin.ink).frame(width: 34, height: 34)

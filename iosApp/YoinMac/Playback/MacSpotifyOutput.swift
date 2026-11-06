@@ -108,6 +108,7 @@ final class MacSpotifyOutput: AudioOutput {
         current = nil
         if let o = owned { command(o, "PUT", "me/player/pause") }
         owned = nil
+        onDevice(nil)
     }
 
     /// A command for the device Yoin owns, on the account that started it (never the active device).
@@ -138,7 +139,6 @@ final class MacSpotifyOutput: AudioOutput {
                 onDevice(nil)
                 fail("Can't reach Spotify. Open the Spotify app on this Mac, then try again.", gen: gen)
             case .device(let id, let name):
-                onDevice(Self.isThisMac(name) ? nil : name)
                 try await s.startPlayback(uris: [item.uri], positionMs: sec > 1 ? Int(sec * 1000) : 0, deviceId: id)
                 guard gen == generation else {
                     // Stopped while the start was on its way: it mustn't keep playing.
@@ -151,6 +151,8 @@ final class MacSpotifyOutput: AudioOutput {
                 try? await s.api.send("PUT", "me/player/shuffle", ["state": "false", "device_id": id])
                 try? await s.api.send("PUT", "me/player/repeat", ["state": "off", "device_id": id])
                 guard gen == generation else { return }
+                // Named only once it's really playing there.
+                onDevice(Self.isThisMac(name) ? nil : name)
                 if !wantsPlay { command((s, id), "PUT", "me/player/pause") }
                 playing = wantsPlay
                 lastTick = Date()
@@ -168,6 +170,10 @@ final class MacSpotifyOutput: AudioOutput {
             return .device(id: id, name: now.deviceName)
         }
         if let id = try await localDevice(s, launch: launch) {
+            // Opening Spotify here took a while: if the listener started it somewhere meanwhile, that wins.
+            if let now = try await s.playerNow(), let active = now.deviceId, active != id {
+                return .device(id: active, name: now.deviceName)
+            }
             return .device(id: id, name: Host.current().localizedName ?? "This Mac")
         }
         return .unreachable
@@ -326,6 +332,7 @@ final class MacSpotifyOutput: AudioOutput {
     private func fail(_ message: String, gen: Int) {
         guard gen == generation else { return }
         Self.log.error("start: \(message, privacy: .public)")
+        onDevice(nil)
         events?.outputIsBufferingDidChange(false)
         events?.outputDidFail(message, network: true)
     }

@@ -216,7 +216,9 @@ final class MacLyrics {
             apply(s, credits, Origin(provider: r.providerName, songId: r.providerSongId), for: id)
             return
         }
-        // No source has one: Gemini translates the lines shown (the listener's own key, when there is one).
+        // No source has one: Gemini translates the lines shown (the listener's own key, when there is one) —
+        // only for the song this began for.
+        guard gen == generation, songId == id, !Task.isCancelled else { return }
         let gemini = GeminiSettings.shared
         guard gemini.hasKey, case .loaded(let synced, let lines, let source) = state, !lines.isEmpty else { return }
         let texts = lines.map(\.text)

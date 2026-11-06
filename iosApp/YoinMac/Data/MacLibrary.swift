@@ -64,6 +64,8 @@ final class MacLibrary {
         inflight.values.forEach { $0.cancel() }
         inflight = [:]
         inLibrary = [:]
+        spotifyWritable = []
+        busyPlaylists = []
         playlists = []
         playlistDetails = [:]
         home = Home()
@@ -313,6 +315,12 @@ final class MacLibrary {
 
     /// Who may change [p]: on Subsonic its owner (the signed-in user); on Spotify its owner or, when it is
     /// collaborative, anyone it is shared with.
+    /// Renaming / deleting is the owner's (a collaborator may only add and remove songs).
+    func canManage(_ p: PlaylistInfo) -> Bool {
+        if spotify != nil { return p.ownedByMe == true }
+        return canEdit(p)
+    }
+
     func canEdit(_ p: PlaylistInfo) -> Bool {
         if spotify != nil { return p.ownedByMe == true || p.collaborative }
         if let user = session.account?.username { return client != nil && (p.owner.isEmpty || p.owner == user) }
@@ -351,9 +359,15 @@ final class MacLibrary {
         await loadPlaylists(force: true)
     }
 
-    /// Takes the entry at [index] (its place in the page) out of the playlist.
+    /// Playlists with a write on its way: positions are only good again after the reread.
+    private(set) var busyPlaylists: Set<String> = []
+
+    /// Takes the entry at [index] (its place in the page) out of the playlist. One write per playlist at a
+    /// time; the page's positions are reread after it (and dropped when the reread fails).
     func remove(entryAt index: Int, fromPlaylist id: String) async throws {
-        guard let p = playlistDetails[id], p.entries.indices.contains(index) else { return }
+        guard !busyPlaylists.contains(id), let p = playlistDetails[id], p.entries.indices.contains(index) else { return }
+        busyPlaylists.insert(id)
+        defer { busyPlaylists.remove(id) }
         let gen = generation
         if let spotify {
             guard let position = p.positions?[index] else {
@@ -369,6 +383,8 @@ final class MacLibrary {
         }
         guard gen == generation else { return }
         await loadPlaylist(id, force: true)
+        guard gen == generation else { return }
+        if case .failed = phase("playlist:\(id)") { playlistDetails[id] = nil }
         await loadPlaylists(force: true)
     }
 
@@ -385,8 +401,9 @@ final class MacLibrary {
         }
         guard gen == generation else { return nil }
         await loadPlaylists(force: true)
+        guard gen == generation else { return nil }
         await loadWritablePlaylists()
-        return id
+        return gen == generation ? id : nil
     }
 
     func renamePlaylist(_ id: String, to name: String) async throws {
