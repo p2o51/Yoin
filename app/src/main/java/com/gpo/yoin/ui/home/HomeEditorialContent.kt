@@ -201,7 +201,9 @@ import com.gpo.yoin.ui.home.edit.homeEditExclusion
 import com.gpo.yoin.ui.home.edit.homeEditFooterEntry
 import com.gpo.yoin.ui.home.edit.homeEditGestures
 import com.gpo.yoin.ui.home.edit.homeEditHeaderIcon
+import com.gpo.yoin.ui.settings.AccountMark
 import com.gpo.yoin.ui.settings.ProfileCard
+import com.gpo.yoin.ui.settings.serviceIdentity
 import com.gpo.yoin.ui.home.edit.homeEditInteractive
 import com.gpo.yoin.ui.home.edit.homeEditShelfClip
 import com.gpo.yoin.ui.home.edit.homeEditTrayItems
@@ -2821,14 +2823,26 @@ private fun OtherProfileCard(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.seamFade(),
         )
-        Text(
-            text = item.profileName,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.seamFade(),
-        )
+        // The account's mark (its avatar shape + service) before its name, so
+        // the line reads as "another account", not as an artist.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            AccountMark(
+                shapeIndex = item.profileShape,
+                identity = item.profileProvider.serviceIdentity,
+                size = 14.dp,
+            )
+            Text(
+                text = item.profileName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false).seamFade(),
+            )
+        }
     }
 }
 
