@@ -2281,6 +2281,7 @@ private fun CompactPlayingContent(
                         ) {
                             BottomPills(
                                 supportsYoinCast = state.serviceFeatures.supportsYoinCast,
+                playingOn = state.playingOn,
                                 onQueueClick = { showQueue = true },
                                 onDevicesClick = { showDevicesSheet = true },
                                 onWriteClick = {
@@ -2947,6 +2948,7 @@ private fun WidePlayingContent(
                     Spacer(modifier = Modifier.weight(1f))
                     BottomPills(
                         supportsYoinCast = state.serviceFeatures.supportsYoinCast,
+                playingOn = state.playingOn,
                         onQueueClick = { showQueue = true },
                         onDevicesClick = { showDevicesSheet = true },
                         onWriteClick = {
@@ -3683,6 +3685,7 @@ private fun LandscapePlayingContent(
                     } else {
                         BottomPills(
                             supportsYoinCast = state.serviceFeatures.supportsYoinCast,
+                playingOn = state.playingOn,
                             onQueueClick = { showQueue = true },
                             onDevicesClick = { showDevicesSheet = true },
                             onWriteClick = {
@@ -4100,6 +4103,7 @@ private fun TabletopPlayingContent(
                 Spacer(modifier = Modifier.height(20.dp))
                 BottomPills(
                     supportsYoinCast = state.serviceFeatures.supportsYoinCast,
+                playingOn = state.playingOn,
                     onQueueClick = { showQueue = true },
                     onDevicesClick = { showDevicesSheet = true },
                     onWriteClick = {},

@@ -100,6 +100,7 @@ import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.YoinTabGroup
+import com.gpo.yoin.ui.component.sheetScrollEdge
 import com.gpo.yoin.ui.component.formatNotePosition
 import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.component.quickPromptsFor
@@ -193,16 +194,22 @@ internal fun ScrapTrackSheet(
                 .fillMaxWidth()
                 .imePadding(),
         ) {
+            // The track's name and score stay put (owner 2026-11-06); everything under them scrolls and sinks
+            // under the tide line at the scroll's top instead of being cut flat under the handle.
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = SheetGutter)) {
+                ScoreHeader(track = track, colors = colors, onEdit = onEdit, onNotice = onNotice)
+            }
+            val scroll = rememberScrollState()
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .sheetScrollEdge(scroll)
+                    .verticalScroll(scroll)
                     .padding(start = SheetGutter, end = SheetGutter, bottom = 24.dp)
                     // A removed row folds away instead of the sheet snapping shorter.
                     .animateContentSize(YoinMotion.defaultSpatialSpec()),
             ) {
-                ScoreHeader(track = track, colors = colors, onEdit = onEdit, onNotice = onNotice)
                 YoinTabGroup(
                     labels = listOf(
                         stringResource(R.string.detail_scrap_tab_about),
@@ -254,8 +261,15 @@ internal fun ScrapTrackSheet(
                 Spacer(modifier = Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
             // At the sheet's foot while it is open; the page shows the same host once it closes.
+            // It pads for the navigation bar only while a notice is up: an empty host holding the bar's height
+            // would cut the scroll off above the bar and undo the edge to edge.
             snackbar?.let { host ->
-                YoinSnackbarHost(hostState = host, modifier = Modifier.fillMaxWidth().navigationBarsPadding())
+                YoinSnackbarHost(
+                    hostState = host,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (host.currentSnackbarData != null) Modifier.navigationBarsPadding() else Modifier),
+                )
             }
         }
     }
@@ -332,7 +346,8 @@ private fun ScoreHeader(
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(
-                    text = scoreText ?: "—", // i18n-allow: the unrated pill's dash
+                    // Unrated: the word, not a dash (a lone "—" read as a collapse button).
+                    text = scoreText ?: stringResource(R.string.detail_scrap_rate),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.SemiBold,
                         fontFeatureSettings = "tnum",
@@ -363,6 +378,7 @@ private fun ScoreHeader(
                     if (!active) commit(live)
                 },
                 gestureKey = track.songId,
+                unratedHint = stringResource(R.string.detail_scrap_rate_hint),
                 modifier = Modifier.weight(1f),
             )
             // The only clear in the app (owner 2026-11-04): back to "not rated", never 0.0. Undo puts the score back.
@@ -381,18 +397,21 @@ private fun ScoreHeader(
     }
 }
 
-/** "Clear rating" beside the slider; its width is held when it fades out, so clearing a score doesn't shift the bar. */
+/**
+ * "Clear rating" beside the slider. Unrated, it takes no room and the bar runs the full row (owner
+ * 2026-11-06); a first score makes room for it, a clear folds it away again.
+ */
 @Composable
 private fun ClearScoreButton(visible: Boolean, onClick: () -> Unit) {
-    Box(modifier = Modifier.widthIn(min = 112.dp), contentAlignment = Alignment.CenterEnd) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-            exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
-        ) {
-            TextButton(onClick = onClick) {
-                Text(stringResource(R.string.detail_scrap_clear))
-            }
+    AnimatedVisibility(
+        visible = visible,
+        enter = YoinMotion.expandHorizontally(role = YoinMotionRole.Standard, expandFrom = Alignment.Start) +
+            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard, shrinkTowards = Alignment.Start) +
+            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+    ) {
+        TextButton(onClick = onClick, modifier = Modifier.padding(start = 8.dp)) {
+            Text(stringResource(R.string.detail_scrap_clear))
         }
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.edit
 import com.gpo.yoin.ui.home.HomeBubbleTip
+import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +38,26 @@ internal fun nextUnreadTip(current: HomeBubbleTip, read: Set<HomeBubbleTip>): Ho
         .firstOrNull { it !in read && it != current }
 }
 
+/**
+ * A read tip is kept as "Name@2026-11-04": its name and the [HomeBubbleTip.updated]
+ * day the user read. A tip updated since counts as unread again; one renamed
+ * or removed simply drops out. Bare names were written before tips had a day
+ * and stand for what every tip said up to [LegacyReadThrough].
+ */
+internal fun encodeReadTips(read: Set<HomeBubbleTip>): Set<String> =
+    read.mapTo(mutableSetOf()) { "${it.name}$ReadDaySeparator${it.updated}" }
+
+internal fun decodeReadTips(saved: Set<String>): Set<HomeBubbleTip> =
+    HomeBubbleTip.entries.filterTo(mutableSetOf()) { tip ->
+        "${tip.name}$ReadDaySeparator${tip.updated}" in saved ||
+            (tip.name in saved && !tip.updated.isAfter(LegacyReadThrough))
+    }
+
+private const val ReadDaySeparator = '@'
+
+/** The last day a tip changed before read tips kept their day (the play-mode tip, 2026-10-21). */
+private val LegacyReadThrough: LocalDate = LocalDate.of(2026, 10, 21)
+
 /** One per process, so the reader, Settings and Home see the same set at once. */
 internal class SharedPrefsTipReadStore private constructor(context: Context) : TipReadStore {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -55,7 +76,7 @@ internal class SharedPrefsTipReadStore private constructor(context: Context) : T
     }
 
     private fun persist() {
-        prefs.edit { putStringSet(KEY_READ, state.value.mapTo(mutableSetOf()) { it.name }) }
+        prefs.edit { putStringSet(KEY_READ, encodeReadTips(state.value)) }
     }
 
     companion object {
@@ -71,9 +92,7 @@ internal class SharedPrefsTipReadStore private constructor(context: Context) : T
                 instance ?: SharedPrefsTipReadStore(context).also { instance = it }
             }
 
-        // A tip renamed or removed since it was read simply drops out.
-        private fun decode(names: Set<String>): Set<HomeBubbleTip> =
-            HomeBubbleTip.entries.filterTo(mutableSetOf()) { it.name in names }
+        private fun decode(names: Set<String>): Set<HomeBubbleTip> = decodeReadTips(names)
     }
 }
 

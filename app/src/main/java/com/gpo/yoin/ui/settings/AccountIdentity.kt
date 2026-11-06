@@ -293,6 +293,37 @@ internal fun AccountAvatar(
     }
 }
 
+/**
+ * An account's avatar at text size, for a line that names the account (Home's
+ * other-accounts shelf): just the account's shape in the service's colour with
+ * the service mark on it, no person badge (too small to read). Same shape as
+ * the account's full [AccountAvatar], so the two read as one account.
+ * Decorative: the name is the text beside it.
+ */
+@Composable
+internal fun AccountMark(
+    shapeIndex: Int,
+    identity: ServiceIdentity,
+    modifier: Modifier = Modifier,
+    size: Dp = 16.dp,
+) {
+    val tone = identity.hue.tone()
+    Surface(
+        modifier = modifier.size(size).clearAndSetSemantics {},
+        shape = rememberAvatarShape(shapeIndex),
+        color = tone.accent,
+        contentColor = tone.onAccent,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = identity.glyph,
+                contentDescription = null,
+                modifier = Modifier.size(size * 0.6f),
+            )
+        }
+    }
+}
+
 /** Smallest legible badge: room for one letter or a face. */
 private val AvatarBadgeMinSize = 18.dp
 

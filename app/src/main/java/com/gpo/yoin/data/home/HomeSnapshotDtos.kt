@@ -40,6 +40,7 @@ internal data class HomeFeedDto(
     val heroYear: Int? = null,
     val heroSongCount: Int? = null,
     val heroMinutes: Int? = null,
+    val heroVersion: String? = null,
     val widgetGrid: List<HomeCardDto> = emptyList(),
     val recentlyAddedTracks: List<TrackDto> = emptyList(),
     val recentlyAddedAlbums: List<AlbumDto> = emptyList(),
@@ -96,7 +97,8 @@ internal fun HomeFeedDto.keepingFrom(previous: HomeFeedDto?, blocks: Set<HomeNet
                     heroFootnote = previous.heroFootnote,
                     heroYear = previous.heroYear,
                     heroSongCount = previous.heroSongCount,
-                    heroMinutes = previous.heroMinutes
+                    heroMinutes = previous.heroMinutes,
+                    heroVersion = previous.heroVersion
                 )
             }
         }
@@ -177,7 +179,8 @@ internal data class HomeCardDto(
     val commentIsHeadline: Boolean = false,
     val commentSerif: Boolean = true,
     val expanded: Boolean = false,
-    val target: HomeCardTargetDto
+    val target: HomeCardTargetDto,
+    val version: String? = null
 )
 
 /** A card's tap: [kind] is album | playlist | song | memory, with its [id], [song] or [sessionId]. */

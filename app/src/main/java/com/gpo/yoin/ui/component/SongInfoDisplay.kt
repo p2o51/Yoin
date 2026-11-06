@@ -39,8 +39,8 @@ import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
  * Compact About used inside `NowPlayingScreen`'s middle pager (owner 2026-11-05): a carousel of the
- * fullscreen About's receipt lines (a few at a time) and its paragraphs, turning on its own; a tap turns
- * to the next. Gemini's state (loading, no key, an error) sits under it, or alone when there is nothing
+ * fullscreen About's receipt lines (a few at a time) and its paragraphs, turning on its own; a tap
+ * expands About (owner 2026-11-06). Gemini's state (loading, no key, an error) sits under it, or alone when there is nothing
  * to show yet. Editing / asking happens in the fullscreen About pane; this surface is read-only.
  */
 @Composable

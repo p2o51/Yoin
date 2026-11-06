@@ -222,4 +222,19 @@ class AlbumSpectrumTest {
         assertTrue(albumHeroFitsPortrait(390f, 844f, fontScale = 1f))
         assertFalse(albumHeroFitsPortrait(390f, 844f, fontScale = 1.3f))
     }
+
+    @Test
+    fun should_keepTheButterflyWhole_when_heroRestsOnPageZero() {
+        assertEquals(0f, albumButterflyLeaving(progress = 0f, page = 0f), 0.0001f)
+        // Early in the swipe the wing runs on into the scrapbook whole.
+        assertEquals(0f, albumButterflyLeaving(progress = 0f, page = 0.4f), 0.0001f)
+    }
+
+    @Test
+    fun should_dissolveTheButterfly_when_pulledUpOrScrapbookSettles() {
+        assertEquals(1f, albumButterflyLeaving(progress = 0.7f, page = 0f), 0.0001f)
+        assertEquals(1f, albumButterflyLeaving(progress = 0f, page = 1f), 0.0001f)
+        val mid = albumButterflyLeaving(progress = 0.35f, page = 0f)
+        assertTrue(mid > 0f && mid < 1f)
+    }
 }

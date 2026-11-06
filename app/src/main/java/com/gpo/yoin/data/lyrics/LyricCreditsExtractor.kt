@@ -78,6 +78,9 @@ object LyricCreditsExtractor {
         if (headOk) removed += head
         val tail = block(kinds, texts.indices.reversed(), head = false).filter { it !in removed }
         if (tail.isNotEmpty() && tail.counts(kinds, extra = headOk)) removed += tail
+        // Some files put part of the credits after the first sung lines (Vsinger: "作词" first, the rest after
+        // an intro). Once the head counted, a run of MIN_ROLES or more credit lines in the middle goes too.
+        if (headOk) removed += middleRuns(kinds, removed)
 
         if (removed.isEmpty() || texts.size - removed.size < MIN_LINES_LEFT) return null
 
@@ -112,6 +115,25 @@ object LyricCreditsExtractor {
             hit += index
         }
         return hit
+    }
+
+    /** Runs between the head and the tail made only of credit lines, holding [MIN_ROLES] or more roles. */
+    private fun middleRuns(kinds: List<Kind>, removed: Set<Int>): List<Int> {
+        val taken = mutableListOf<Int>()
+        var run = mutableListOf<Int>()
+        fun close() {
+            val roles = run.count { (kinds[it] as? Kind.Credit)?.names?.isNotEmpty() == true }
+            if (roles >= MIN_ROLES) taken += run
+            run = mutableListOf()
+        }
+        kinds.indices.forEach { index ->
+            val kind = kinds[index]
+            val creditLine = kind is Kind.Credit || kind is Kind.Notice || kind is Kind.Continuation ||
+                (kind == Kind.Junk && run.isNotEmpty())
+            if (index !in removed && creditLine) run += index else close()
+        }
+        close()
+        return taken
     }
 
     /**
@@ -166,14 +188,20 @@ object LyricCreditsExtractor {
             if (NOTICE.containsMatchIn(text)) return Kind.Notice(text)
             return Kind.Lyric
         }
-        val key = match.groupValues[1].trim()
+        val written = match.groupValues[1].trim()
         val names = match.groupValues[2].trim()
         if (names.isNotEmpty() && SENTENCE_END.containsMatchIn(names)) return Kind.Lyric
 
-        headlineOf(key)?.let { return Kind.Credit(key, names, headline = it) }
-        if (NOTICE_ROLE.containsMatchIn(key)) return Kind.Notice("$key：$names")
+        // Bilingual roles ("作词 Lyricist", "调声 Tuning", "录音版权Sub Publishing", Vsinger's albums): the
+        // Chinese part names the role, and is what About shows; the English part can vouch for it too.
+        val bilingual = BILINGUAL_KEY.matchEntire(written)
+        val key = bilingual?.groupValues?.get(1)?.trim() ?: written
+        val english = bilingual?.groupValues?.get(2)?.trim()
+
+        (headlineOf(key) ?: english?.let(::headlineOf))?.let { return Kind.Credit(key, names, headline = it) }
+        if (NOTICE_ROLE.containsMatchIn(key)) return Kind.Notice("$written：$names")
         val isRole = if (HAS_CJK.containsMatchIn(key)) {
-            key.length <= MAX_CJK_ROLE && CJK_ROLE.containsMatchIn(key)
+            (key.length <= MAX_CJK_ROLE && CJK_ROLE.containsMatchIn(key)) || english?.let(::isLatinRole) == true
         } else {
             isLatinRole(key)
         }
@@ -214,6 +242,7 @@ object LyricCreditsExtractor {
     private val NOTICE_ROLE = Regex("""(版权|版權|出品|发行|發行|监制|監製|著作)""")
     private val SENTENCE_END = Regex("""[。！？]$""")
     private val HAS_CJK = Regex("""[぀-ヿ㐀-鿿가-힯]""")
+    private val BILINGUAL_KEY = Regex("""^(.*[぀-ヿ㐀-鿿가-힯])\s*([A-Za-z][A-Za-z0-9 &.'/()-]*)$""")
     private val NON_WORD = Regex("""[^a-z&]+""")
 
     private val HEADLINES = listOf(
@@ -236,9 +265,10 @@ object LyricCreditsExtractor {
     )
 
     private val CJK_ROLE = Regex(
-        "(词|詞|曲|制作|製作|琴|吉他|贝斯|貝斯|鼓|箫|笛|胡|唢呐|键盘|鍵盤|弦乐|弦樂|和声|和聲|和音|合声|合唱|人声|人聲|配唱|" +
+        "(词|詞|曲|制作|製作|琴|筝|箏|琵琶|阮|笙|埙|吉他|贝斯|貝斯|鼓|箫|笛|胡|唢呐|键盘|鍵盤|弦乐|弦樂|和声|和聲|和音|合声|合唱|人声|人聲|配唱|" +
             "采样|录音|錄音|混音|缩混|母带|母帶|工程|助理|编写|編寫|编程|演奏|乐队|樂隊|乐手|乐团|樂團|总监|監製|监制|" +
             "统筹|統籌|企划|企劃|策划|协力|協力|出品|发行|發行|版权|版權|宣传|推广|视觉|封面|摄影|设计|後期|后期|谱|譜|贡献者|" +
+            "调声|調聲|调教|調教|调校|翻译|翻譯|经纪|經紀|编辑|編輯|剪辑|剪輯|绘|繪|美术|美術|动画|動畫|" +
             "ギター|ベース|ドラム|ピアノ|コーラス|レコーディング|ミックス|マスタリング|プログラミング|" +
             "믹싱|마스터링|녹음|기타|베이스|드럼|피아노|코러스|디렉팅|프로그래밍)",
     )
@@ -254,6 +284,7 @@ object LyricCreditsExtractor {
             "electric acoustic talkbox tenor alto baritone editing editor edited digital assisted engineered " +
             "original writer writers sub musicians credits arragement arrangements orchestra orchestration " +
             "conductor conducted brass trombone woodwinds clarinet harp banjo mandolin ukulele turntables " +
-            "scratches beats beat"
+            "scratches beats beat tuning tuner translator translation manager management supervisor illustration " +
+            "illustrator artwork animation animator video pv guzheng pipa erhu dizi xiao guqin suona"
         ).split(' ').toSet()
 }

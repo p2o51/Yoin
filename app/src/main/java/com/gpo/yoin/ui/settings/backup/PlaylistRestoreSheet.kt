@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -93,6 +94,7 @@ import com.gpo.yoin.ui.component.MorphPolygonShape
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.component.formatTrackDuration
+import com.gpo.yoin.ui.component.sheetScrollEdge
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.SettingsRowIcon
 import com.gpo.yoin.ui.settings.settingsSegmentShape
@@ -442,10 +444,13 @@ private fun Review(
                 }
             }
         }
+        val list = rememberLazyListState()
         LazyColumn(
+            state = list,
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .sheetScrollEdge(list),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(SegmentGap),
         ) {
@@ -958,21 +963,26 @@ private fun RestoreSearchSheet(
                             .align(Alignment.TopCenter)
                             .padding(top = 32.dp),
                     )
-                    else -> LazyColumn(
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp + navBottom),
-                        verticalArrangement = Arrangement.spacedBy(SegmentGap),
-                    ) {
-                        itemsIndexed(search.results, key = { _, result -> result.id.toString() }) { index, result ->
-                            CandidateRow(
-                                candidate = result,
-                                selected = false,
-                                enabled = true,
-                                shape = settingsSegmentShape(index, search.results.size),
-                                onClick = {
-                                    haptics.performConfirm()
-                                    onPick(result)
-                                },
-                            )
+                    else -> {
+                        val list = rememberLazyListState()
+                        LazyColumn(
+                            state = list,
+                            modifier = Modifier.sheetScrollEdge(list),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp + navBottom),
+                            verticalArrangement = Arrangement.spacedBy(SegmentGap),
+                        ) {
+                            itemsIndexed(search.results, key = { _, result -> result.id.toString() }) { index, result ->
+                                CandidateRow(
+                                    candidate = result,
+                                    selected = false,
+                                    enabled = true,
+                                    shape = settingsSegmentShape(index, search.results.size),
+                                    onClick = {
+                                        haptics.performConfirm()
+                                        onPick(result)
+                                    },
+                                )
+                            }
                         }
                     }
                 }
