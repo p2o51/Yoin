@@ -41,4 +41,12 @@ final class SpotifyStartRecoveryTests: XCTestCase {
         XCTAssertEqual(SpotifyAudioOutput.verifyOutcome(.some(theirs), wanted: "spotify:track:a", next: nil), .other(theirs))
         XCTAssertEqual(SpotifyAudioOutput.verifyOutcome(.some(stopped), wanted: "spotify:track:a", next: nil), .dropped)
     }
+
+    func test_should_dropAWatchAnswer_when_theAccountOrSessionMoved() {
+        let a = NSObject(), b = NSObject()
+        XCTAssertTrue(SpotifyAudioOutput.watchStillValid(asked: a, current: a, askedGen: 2, generation: 2))
+        XCTAssertFalse(SpotifyAudioOutput.watchStillValid(asked: a, current: b, askedGen: 2, generation: 2), "account switched")
+        XCTAssertFalse(SpotifyAudioOutput.watchStillValid(asked: a, current: nil, askedGen: 2, generation: 2))
+        XCTAssertFalse(SpotifyAudioOutput.watchStillValid(asked: a, current: a, askedGen: 2, generation: 3), "a new start")
+    }
 }

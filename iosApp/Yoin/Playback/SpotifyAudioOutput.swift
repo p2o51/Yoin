@@ -1291,9 +1291,14 @@ final class SpotifyAudioOutput: AudioOutput {
     /// One look at where Spotify plays (the remote poll covers a device Yoin already drives).
     private func watch() {
         guard !silent, !starting, !awaitingWake, pollTimer == nil, let control else { return }
+        let gen = generation
         Task { [weak self] in
             guard let now = try? await control.playerNow() else { return }
             guard let self, !self.starting, !self.awaitingWake, self.pollTimer == nil else { return }
+            // An answer for the account (or the session) that asked: one that comes back after an account
+            // switch or a new start is the old one's (Codex 11-07).
+            guard Self.watchStillValid(asked: control, current: self.control, askedGen: gen, generation: self.generation)
+            else { return PlayTrace.log("SP watch: a stale answer, dropped") }
             PlayTrace.log("SP watch \(Self.describe(now)) driving=\(self.isDriving)")
             guard now.isPlaying, now.trackURI != nil else { return }
             if self.isDriving {
@@ -1320,6 +1325,11 @@ final class SpotifyAudioOutput: AudioOutput {
     }
 
     nonisolated static let watchSec: Double = 10
+
+    /// A watch answer counts only for the source that asked it, in the session it asked in.
+    nonisolated static func watchStillValid(asked: AnyObject, current: AnyObject?, askedGen: Int, generation: Int) -> Bool {
+        current === asked && askedGen == generation
+    }
 
     private func startPolling() {
         guard pollTimer == nil, !silent, UIApplication.shared.applicationState != .background else { return }
