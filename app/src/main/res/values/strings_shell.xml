@@ -40,6 +40,7 @@
     <string name="player_apple_music_notification_title" translatable="false">Apple Music</string>
     <string name="player_apple_music_preparing">Preparing playback…</string>
     <string name="player_apple_music_connecting">Connecting to Apple Music…</string>
+    <string name="player_apple_music_error_code">%1$s (error %2$s)</string>
     <string name="player_apple_music_play_failed">Apple Music could not play this song. Try again or choose another song.</string>
     <string name="player_apple_music_io_failed">Apple Music could not load this song. Check your connection and try again.</string>
     <string name="player_apple_music_drm_failed">Apple Music could not unlock this song for playback. Try it in the Apple Music app.</string>
