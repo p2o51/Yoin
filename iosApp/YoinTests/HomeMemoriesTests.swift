@@ -197,6 +197,19 @@ final class HomeMemoriesTests: XCTestCase {
         XCTAssertEqual(MemoryDeck.deck(.init(memories: Array(ms.prefix(2))), focus: nil).count, 2)
     }
 
+    func test_should_sayLastHeardWithTheYearOnlyWhenNotThisOne() {
+        let en = Locale(identifier: "en_US")
+        var c = DateComponents(); c.year = 2026; c.month = 11; c.day = 7; c.hour = 12
+        let now = Calendar.current.date(from: c)!
+        c.day = 2
+        let ms = Int64(Calendar.current.date(from: c)!.timeIntervalSince1970 * 1000)
+        XCTAssertEqual(MemoriesTopBar.lastHeard(ms, now: now, locale: en), "Nov 2")
+        c.year = 2025
+        let old = Int64(Calendar.current.date(from: c)!.timeIntervalSince1970 * 1000)
+        XCTAssertEqual(MemoriesTopBar.lastHeard(old, now: now, locale: en), "Nov 2, 2025")
+        XCTAssertNil(MemoriesTopBar.lastHeard(nil, now: now))
+    }
+
     func test_should_turnOnFlickOrPastHalf_when_pagerReleased() {
         XCTAssertEqual(MemoryDeck.settlePage(position: 1.4, velocity: 0, count: 5), 1)
         XCTAssertEqual(MemoryDeck.settlePage(position: 1.6, velocity: 0, count: 5), 2)

@@ -199,8 +199,11 @@ struct MemoryCardFace: View {
             Spacer(minLength: 24)
             teaser(tones)
                 .morphLayer(diary) { p in diary.reduced ? MorphPose() : MemoriesMorph.teaser(p) }
-                .padding(.bottom, metrics.short ? 28 : 40)
+                // The air under the buttons, from the screen's edge (Android: max of it and the nav bar):
+                // the card runs past the bottom bar's clearance Home keeps as safe area.
+                .padding(.bottom, max(metrics.short ? 28 : 40, MemoriesView.windowSafeBottom))
         }
+        .ignoresSafeArea(.container, edges: .bottom)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { excerptWidth = $0 }
         .padding(.horizontal, 28)
         .frame(maxWidth: metrics.column ?? .infinity)
@@ -302,7 +305,7 @@ struct MemoryCardFace: View {
             if card.titleKind != .album {
                 Text(card.album.title)
                     .font(.gsf(17, .semibold))
-                    .foregroundStyle(tones.ink)
+                    .foregroundStyle(scheme.onSurface)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
             }
@@ -325,9 +328,14 @@ struct MemoryCardFace: View {
                         YoinIcon("note", size: 18)
                         Text("Diary").font(.gsf(15, .semibold))
                         if card.noteCount > 0 {
+                            // The count on its own 18 % pill, lighter than the label.
                             Text("\(card.noteCount)")
-                                .font(.gsf(12, .medium)).monospacedDigit()
+                                .font(.gsf(15, .medium)).monospacedDigit()
                                 .opacity(0.78)
+                                .padding(.horizontal, 6)
+                                .frame(minWidth: 24, minHeight: 24)
+                                .background(tones.ink.opacity(0.18), in: .capsule)
+                                .padding(.leading, -2)
                         }
                     }
                     .foregroundStyle(tones.ink)
@@ -354,7 +362,7 @@ struct MemoryCardFace: View {
     private func excerpt(_ e: MemoryCard.Excerpt, _ tones: MemoryTones) -> some View {
         // Whole sentences only, never an ellipsis: the most that fits four lines, else the attribution alone.
         let shown = MemoryExcerptFit.pick(e.candidates, width: min(MemoryExcerptFit.maxWidth, excerptWidth))
-        return VStack(spacing: 6) {
+        return VStack(spacing: 8) {
             if let text = shown {
                 Text("“\(text)”")
                     .font(.gsf(MemoryExcerptFit.size(text), MemoryExcerptFit.weight(text)))
@@ -364,10 +372,10 @@ struct MemoryCardFace: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: MemoryExcerptFit.maxWidth)
             }
-            HStack(spacing: 8) {
+            HStack(spacing: 12) {
                 Text(e.kind == .review ? String(localized: "Your review") : String(localized: "Your note"))
                     .homeType(Tokens.type.labelSmall)
-                    .foregroundStyle(tones.ink)
+                    .foregroundStyle(scheme.onSurfaceVariant)
                 if let d = e.detail {
                     Text(d).font(.gsf(12, .medium)).monospacedDigit().foregroundStyle(scheme.onSurface.opacity(0.6))
                 }

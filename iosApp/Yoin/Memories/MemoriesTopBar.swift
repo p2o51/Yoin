@@ -45,6 +45,7 @@ struct MemoriesTopBar: View {
     var body: some View {
         let fp = fp
         ZStack(alignment: .leading) {
+            ForEach(visible, id: \.self) { i in slotA(i) }
             if layout.twoState && diary.isShown {
                 ForEach(visible, id: \.self) { i in slotB(i) }
             }
@@ -107,6 +108,52 @@ struct MemoriesTopBar: View {
         }
     }
 
+    /// The per-page slots' end inset: clear of the dot cluster by 12.
+    private var slotEnd: CGFloat { layout.dotsEnd + 18 * CGFloat(cards.count) + 19 }
+
+    /// Card [i]'s slot A ("Memories" / "Last heard …"), with the pager's
+    /// parallax; it lifts and fades as the diary opens (gone by p .45).
+    private func slotA(_ i: Int) -> some View {
+        let card = cards[i]
+        let rel = CGFloat(i) - position
+        let page = max(0, 1 - abs(rel) * Self.slotFade)
+        let p = layout.twoState ? min(max(diary.fraction, 0), 1) : 0
+        let a = diary.reduced ? MemoriesMorph.reducedCardAlpha(p) : 1 - smoothstep(0, MemoriesMorphTokens.slotAFadeTo, p)
+        let heard = Self.lastHeard(card.lastHeardAt)
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("Memories")
+                .font(.gsf(15, .semibold))
+                .foregroundStyle(scheme.onSurface)
+            if let heard {
+                Text("Last heard \(heard)")
+                    .font(.gsf(12, .medium))
+                    .foregroundStyle(scheme.onSurfaceVariant)
+            }
+        }
+        .lineLimit(1)
+        .padding(.leading, layout.slotAStart)
+        .padding(.trailing, slotEnd)
+        .frame(width: width, height: Self.height, alignment: .leading)
+        .offset(y: diary.reduced ? 0 : -MemoriesMorphTokens.slotALift * p)
+        .opacity(Double(a))
+        .offset(x: rel * width * Self.slotParallax)
+        .opacity(Double(page))
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(heard.map { String(localized: "Memories, last heard \($0)") } ?? String(localized: "Memories"))
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityHidden(i != currentIndex || p >= 0.5)
+    }
+
+    /// "Nov 2"; with the year when it isn't this one (Android formatMemoryChromeDate).
+    static func lastHeard(_ ms: Int64?, now: Date = .now, locale: Locale = .current) -> String? {
+        guard let ms else { return nil }
+        let date = Date(timeIntervalSince1970: Double(ms) / 1000)
+        let sameYear = Calendar.current.component(.year, from: date) == Calendar.current.component(.year, from: now)
+        let style = Date.FormatStyle(locale: locale).month(.abbreviated).day()
+        return date.formatted(sameYear ? style : style.year())
+    }
+
     /// Card [i]'s bar cover and slot B, with the pager's parallax.
     private func slotB(_ i: Int) -> some View {
         let card = cards[i]
@@ -122,11 +169,21 @@ struct MemoriesTopBar: View {
                 .frame(width: Self.barCover, height: Self.barCover)
                 .opacity(Double(coverAlpha))
             HStack(spacing: 6) {
-                Text(card.album.title)
-                    .font(.gsf(15, .semibold))
-                    .foregroundStyle(scheme.onSurface)
-                    .lineLimit(1)
-                    .pageFrame { r in if i == currentIndex, abs(rel) < 0.01 { morph.barTitle = r } }
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(card.album.title)
+                        .font(.gsf(15, .semibold))
+                        .foregroundStyle(scheme.onSurface)
+                        .pageFrame { r in if i == currentIndex, abs(rel) < 0.01 { morph.barTitle = r } }
+                    // Artist, then the year at 60 %.
+                    HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+                        if !card.album.artist.isEmpty { Text(card.album.artist).foregroundStyle(scheme.onSurface) }
+                        if card.album.year > 0 {
+                            Text(String(card.album.year)).monospacedDigit().foregroundStyle(scheme.onSurface.opacity(0.6))
+                        }
+                    }
+                    .font(.gsf(12, .medium))
+                }
+                .lineLimit(1)
                 YoinIcon("chevron_down", size: 18)
                     .foregroundStyle(scheme.onSurfaceVariant)
             }
@@ -135,7 +192,7 @@ struct MemoriesTopBar: View {
         }
         .padding(.leading, layout.barCoverStart)
         // Clear of the dot cluster.
-        .padding(.trailing, layout.dotsEnd + 18 * CGFloat(cards.count) + 19)
+        .padding(.trailing, slotEnd)
         .frame(width: width, height: Self.height, alignment: .leading)
         .contentShape(.rect)
         .onTapGesture { if i == currentIndex, diary.isDiaryLevel { deck.closeDiary() } }

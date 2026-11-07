@@ -162,6 +162,13 @@ struct MemoriesView: View {
             ?? scenes.first?.keyWindow?.bounds.height ?? 844
     }
 
+    /// The window's bottom inset (the home indicator): the card's buttons keep at least this
+    /// much air from the screen's edge.
+    static var windowSafeBottom: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return (scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)?.keyWindow?.safeAreaInsets.bottom ?? 0
+    }
+
     private var visibleIndices: [Int] {
         guard !cards.isEmpty else { return [] }
         let lo = max(0, Int(position.rounded(.down)) - 1), hi = min(cards.count - 1, Int(position.rounded(.up)) + 1)

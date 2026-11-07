@@ -44,6 +44,8 @@ struct MemoriesLayout: Equatable {
     var isSpread: Bool { tier == .spread }
     var twoState: Bool { tier != .spread }
     /// The bar cover's start (the pill is 36 there) and slot B's.
+    /// Slot A ("Memories" / "Last heard …") after the pill.
+    var slotAStart: CGFloat { pillStart + 100 }
     var barCoverStart: CGFloat { pillStart + 48 }
     var slotBStart: CGFloat { pillStart + 102 }
 }

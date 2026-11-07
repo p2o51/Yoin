@@ -28,7 +28,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」"
+            "value": "“%@”"
           }
         }
       }
@@ -7668,6 +7668,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 年前"
+          }
+        }
+      }
+    },
+    "Last heard %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次收听于 %@"
+          }
+        }
+      }
+    },
+    "Memories, last heard %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memories，上次收听于 %@"
           }
         }
       }

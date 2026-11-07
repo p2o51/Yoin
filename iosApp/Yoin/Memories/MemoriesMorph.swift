@@ -57,6 +57,9 @@ enum MemoriesMorphTokens {
     static let frozenCardFadeTo: CGFloat = 0.55
     static let frozenResetBelow: CGFloat = 0.05
     /// The bar's slot B (album name + ⌄) arrives.
+    /// Slot A lifts this far and is gone by this p as the diary opens.
+    static let slotALift: CGFloat = 6
+    static let slotAFadeTo: CGFloat = 0.45
     static let slotBFadeFrom: CGFloat = 0.55
     static let slotBFadeTo: CGFloat = 0.92
     static let slotBDrop: CGFloat = 10
