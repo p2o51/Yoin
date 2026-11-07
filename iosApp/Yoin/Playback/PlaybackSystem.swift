@@ -188,60 +188,66 @@ final class PlaybackSystem {
 
     // MARK: Remote commands
 
+    /// A remote command's work on the main actor: right away when the command arrives there (it does in
+    /// practice), else hopped to it — never a trap on a thread iOS doesn't promise (Codex 11-07).
+    nonisolated static func onMain(_ body: @escaping @MainActor () -> Void) {
+        if Thread.isMainThread { MainActor.assumeIsolated(body) } else { DispatchQueue.main.async { MainActor.assumeIsolated(body) } }
+    }
+
     private func installRemoteCommands() {
         guard !commandsInstalled else { return }
         commandsInstalled = true
         let c = MPRemoteCommandCenter.shared()
         c.playCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.engine.resume() }
+            Self.onMain { self?.engine.resume() }
             return .success
         }
         c.pauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.engine.pause() }
+            Self.onMain { self?.engine.pause() }
             return .success
         }
         c.togglePlayPauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.engine.togglePlayPause() }
+            Self.onMain { self?.engine.togglePlayPause() }
             return .success
         }
         c.nextTrackCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.engine.next() }
+            Self.onMain { self?.engine.next() }
             return .success
         }
         c.previousTrackCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.engine.previous() }
+            Self.onMain { self?.engine.previous() }
             return .success
         }
         c.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let e = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             let sec = e.positionTime
-            MainActor.assumeIsolated { self?.engine.seek(to: sec) }
+            Self.onMain { self?.engine.seek(to: sec) }
             return .success
         }
         c.changeShuffleModeCommand.isEnabled = true
         c.changeShuffleModeCommand.addTarget { [weak self] event in
             guard let e = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
             let on = RemoteCommandState.shuffle(e.shuffleType)
-            MainActor.assumeIsolated { self?.engine.setShuffle(on) }
+            Self.onMain { self?.engine.setShuffle(on) }
             return .success
         }
         c.changeRepeatModeCommand.isEnabled = true
         c.changeRepeatModeCommand.addTarget { [weak self] event in
             guard let e = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
             let mode = RemoteCommandState.repeatMode(e.repeatType)
-            MainActor.assumeIsolated { self?.engine.setRepeat(mode) }
+            Self.onMain { self?.engine.setRepeat(mode) }
             return .success
         }
         // The heart (Android's quick-action favorite): the same write Now
         // Playing's heart makes. Enabled per song in `refreshFavoriteCommand`.
         c.likeCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, let t = self.engine.currentTrack,
-                      RemoteCommandState.canLike(provider: t.provider) else { return MPRemoteCommandHandlerStatus.commandFailed }
+            // Answered at once; the like itself runs on the main actor.
+            Self.onMain {
+                guard let self, let t = self.engine.currentTrack, RemoteCommandState.canLike(provider: t.provider) else { return }
                 self.favorite.toggle(t)
                 self.refreshRemoteCommandState()
-                return .success
             }
+            return .success
         }
         refreshRemoteCommandState()
         for unused in [c.dislikeCommand, c.bookmarkCommand, c.skipForwardCommand,
