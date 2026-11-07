@@ -23,15 +23,17 @@ class PullUpHandoffTest {
     }
 
     @Test
-    fun should_neverStackTheFlowingTitlesOnTheRows_when_midway() {
-        // The flowing titles are gone by half way; the list only starts after 0.35,
-        // so the two are never both more than faintly visible at once.
+    fun should_neitherStackNorEmpty_when_midway() {
+        // The flowing titles are gone just past half way and the list comes in as
+        // they thin out, so the two are never both more than faintly visible at
+        // once, and the middle of the pull is never empty either.
         var e = 0f
         while (e <= 1f) {
             assertTrue("e=$e", minOf(pullUpHeroAlpha(e), pullUpListAlpha(e)) < 0.2f)
+            assertTrue("e=$e", maxOf(pullUpHeroAlpha(e), pullUpListAlpha(e)) > 0.12f)
             e += 0.01f
         }
-        assertEquals(0f, pullUpHeroAlpha(0.5f), 0.0001f)
+        assertEquals(0f, pullUpHeroAlpha(0.55f), 0.0001f)
     }
 
     @Test

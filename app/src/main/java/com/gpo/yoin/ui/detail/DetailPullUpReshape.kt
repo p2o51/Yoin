@@ -151,7 +151,7 @@ internal fun rememberDetailPullUpGestures(
 // ---- The hero ⇄ track list handoff --------------------------------------------
 //
 // One shared vertical axis (owner 2026-11-07): as the pull-up runs, the hero's
-// dense flowing titles drift up a short way and are gone by half way, and the
+// dense flowing titles drift up a short way and are gone just past half way, and the
 // track list comes up the same short way into its rows behind them. Before, the
 // two crossfaded over the whole drag nearly in place, so the flowing titles sat
 // on top of the rows. Pulling down plays the same thing backwards.
@@ -159,14 +159,17 @@ internal fun rememberDetailPullUpGestures(
 /** How far each side travels in the handoff. Small on purpose: a nudge, not a slide. */
 internal val PullUpHandoffShift = 28.dp
 
-/** The hero's opacity at [expand] (0 = hero, 1 = list): gone by half way. */
-internal fun pullUpHeroAlpha(expand: Float): Float = 1f - smoothStep(0f, 0.5f, expand)
+/** The hero's opacity at [expand] (0 = hero, 1 = list): gone just past half way. */
+internal fun pullUpHeroAlpha(expand: Float): Float = 1f - smoothStep(0f, 0.55f, expand)
 
 /** The hero's rise at [expand], as a fraction of [PullUpHandoffShift] (0 → 1, upwards). */
 internal fun pullUpHeroRise(expand: Float): Float = smoothStep(0f, 0.6f, expand)
 
-/** The list's opacity at [expand]: starts as the hero is nearly gone. */
-internal fun pullUpListAlpha(expand: Float): Float = smoothStep(0.35f, 0.9f, expand)
+/**
+ * The list's opacity at [expand]: comes in as the hero thins out, overlapping it
+ * faintly (each under ~15%, and 28dp apart) so the middle never reads as empty.
+ */
+internal fun pullUpListAlpha(expand: Float): Float = smoothStep(0.3f, 0.8f, expand)
 
 /** How far below its rows the list still sits at [expand], as a fraction of [PullUpHandoffShift]. */
 internal fun pullUpListDrop(expand: Float): Float = 1f - smoothStep(0.25f, 1f, expand)
