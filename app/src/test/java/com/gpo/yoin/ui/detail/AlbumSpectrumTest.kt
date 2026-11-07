@@ -129,7 +129,8 @@ class AlbumSpectrumTest {
     fun should_putTheStampAtTheBarsEnd_when_layoutIsLeftToRight() {
         val g = geometry(AlbumBarLayout.Compact)
         assertEquals(412f - 16f - 48f, g.stamp.left, 0.01f)
-        assertEquals(28f + (52f - 48f) / 2f, g.stamp.top, 0.01f)
+        // Level with the title row where it settles, lifted into the bar.
+        assertEquals(28f + (52f - 48f) / 2f - 6f, g.stamp.top, 0.01f)
         assertEquals(Rect(0f, 0f, 412f, 112f), g.bar)
     }
 

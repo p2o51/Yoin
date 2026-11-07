@@ -49,6 +49,7 @@ import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.detail.AlbumSong
 import com.gpo.yoin.ui.detail.AlbumBarHeaderTwin
+import com.gpo.yoin.ui.detail.AlbumBarTitleLift
 import com.gpo.yoin.ui.detail.AlbumTrackCountLabel
 import com.gpo.yoin.ui.detail.AlbumTrackRow
 import com.gpo.yoin.ui.detail.TrackMenuRow
@@ -419,6 +420,8 @@ private fun BoxScope.DemoAlbumPage(album: DemoAlbum, cover: String, onLongPressR
                     pageCount = 2,
                     titleEndRoom = 64.dp,
                     titleEndProgress = { 1f },
+                    // Docked: the title has risen into the bar, as on the real page.
+                    lift = { 1f },
                 )
                 ExpressiveMediaArtwork(
                     model = cover,
@@ -429,7 +432,7 @@ private fun BoxScope.DemoAlbumPage(album: DemoAlbum, cover: String, onLongPressR
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .statusBarsPadding()
-                        .padding(top = 12.dp, end = 16.dp)
+                        .padding(top = 12.dp - AlbumBarTitleLift, end = 16.dp)
                         .size(48.dp),
                 )
             }

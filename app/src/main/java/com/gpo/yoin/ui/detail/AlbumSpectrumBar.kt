@@ -204,7 +204,8 @@ internal fun albumBarGeometry(
     val bar = Rect(0f, 0f, width, headerHeight)
     val stampSide = (if (layout == AlbumBarLayout.Landscape) AlbumBarLandscapeStampSize else AlbumBarStampSize).toPx()
     val stampStart = width - endInset - AlbumBarStampEndInset.toPx() - stampSide
-    val stampTop = titleRowTop + (titleRowHeight - stampSide) / 2f
+    // Level with the title row where it settles: lifted into the bar (albumBarTitleLift).
+    val stampTop = titleRowTop + (titleRowHeight - stampSide) / 2f - AlbumBarTitleLift.toPx()
     val coverStart: Float
     val coverTop: Float
     val coverSide: Float
@@ -288,6 +289,32 @@ private fun huggingPose(
 
 /** Header text / icons hand over to white over this much of the morph. */
 internal fun albumBarTextProgress(progress: Float): Float = smoothStep(0.25f, 0.7f, progress)
+
+/**
+ * As the bar forms, the header's title cluster rises [AlbumBarTitleLift] into it
+ * and settles a touch smaller (top-start pivot, so the meta line under the title
+ * comes up a little further), so the dense header reads as moving up into the
+ * bar instead of only changing colour under it (owner 2026-11-07). Follows the
+ * pull-up / scroll frame by frame; the stamp is placed level with where it lands.
+ */
+internal val AlbumBarTitleLift = 6.dp
+internal const val AlbumBarTitleDockedScale = 0.9f
+
+/** 0 = the header at rest, 1 = lifted into the formed bar. */
+internal fun albumBarTitleLift(progress: Float): Float = smoothStep(0f, 1f, progress)
+
+/** The whole header's content (title row and page dots) rises with the lift. Draw only. */
+internal fun Modifier.albumBarHeaderLift(lift: () -> Float): Modifier = graphicsLayer {
+    translationY = -AlbumBarTitleLift.toPx() * lift().coerceIn(0f, 1f)
+}
+
+/** The title and meta settle smaller about their top-start corner. Draw only. */
+internal fun Modifier.albumBarTitleSettle(lift: () -> Float, rtl: Boolean): Modifier = graphicsLayer {
+    val s = 1f - (1f - AlbumBarTitleDockedScale) * lift().coerceIn(0f, 1f)
+    scaleX = s
+    scaleY = s
+    transformOrigin = TransformOrigin(if (rtl) 1f else 0f, 0f)
+}
 
 /** The bar counts as formed (status bar icons, stamp tap) past half way. */
 internal const val AlbumBarDockedThreshold = 0.5f
