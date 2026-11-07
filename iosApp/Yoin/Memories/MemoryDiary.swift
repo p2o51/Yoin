@@ -60,7 +60,6 @@ struct MemoryDiaryView: View {
     var onOpenAlbum: () -> Void
     var onTitle: (MemoryTitles.Outcome) -> Void
     var onReview: (String) -> Bool
-    var onOpenNeoDBSettings: () -> Void
     var horizontalPager: AnyGesture<DragGesture.Value>
 
     @State private var scroll = ScrollPosition(edge: .top)
@@ -76,7 +75,7 @@ struct MemoryDiaryView: View {
                     .pageFrame { r in if morph.scrollY < 0.5 { morph.diaryTop = r.minY } }
                 DiaryBlocks(card: card, deck: deck, scheme: scheme, tones: tones, interactive: interactive,
                             showGo: true, firstBlock: card.paragraph != nil && card.review == nil && card.titleKind != .album ? 1 : 0,
-                            onOpenAlbum: onOpenAlbum, onReview: onReview, onOpenNeoDBSettings: onOpenNeoDBSettings) { k, view in
+                            onOpenAlbum: onOpenAlbum, onReview: onReview) { k, view in
                     AnyView(view.morphLayer(diary) { p in blockPose(p, k: k) })
                 }
             }
@@ -304,7 +303,6 @@ struct DiaryBlocks: View {
     var firstBlock: Int
     var onOpenAlbum: () -> Void
     var onReview: (String) -> Bool
-    var onOpenNeoDBSettings: () -> Void
     var block: (Int, AnyView) -> AnyView = { _, v in v }
 
     @Environment(AppModel.self) private var model
@@ -473,7 +471,7 @@ struct DiaryBlocks: View {
                 .disabled(!interactive)
                 .padding(.top, footer != nil ? MemoryDiaryTokens.goTop : 0)
             }
-            DiaryNeoDBLine(album: card.album, scheme: scheme, interactive: interactive, onSignIn: onOpenNeoDBSettings)
+            DiaryNeoDBLine(album: card.album, scheme: scheme, interactive: interactive)
                 .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
@@ -501,14 +499,13 @@ private struct DiaryRowStyle: ButtonStyle {
 /// NeoDB's state for the album, one quiet line (Android DiaryNeoDbLine). Sync
 /// is automatic (a saved review goes on its own), so it mostly reports:
 /// "Synced to NeoDB". A waiting change is "Sync to NeoDB" (tappable), a failed
-/// push the status and Retry. Signed out, "Sign in to NeoDB" opens Settings
-/// (Android hides the line there and offers sign-in on a push instead). The
+/// push the status and Retry. Signed out it says nothing (Android
+/// diaryNeoDbText, parity D-U4): signing in is Settings' and the rating's. The
 /// 48 pt slot is kept, so the diary's end never jumps as it reads.
 struct DiaryNeoDBLine: View {
     var album: Album
     var scheme: CoverScheme
     var interactive: Bool
-    var onSignIn: () -> Void
 
     private var state: AlbumNeoDBState { AlbumNeoDBSync.shared.state(album) }
 
@@ -528,14 +525,11 @@ struct DiaryNeoDBLine: View {
             case .pending:
                 Button("Sync to NeoDB") { Task { await AlbumNeoDBSync.shared.retry(album) } }
                     .foregroundStyle(scheme.primary)
-            case .signedOut:
-                Button("Sign in to NeoDB", action: onSignIn)
-                    .foregroundStyle(scheme.primary)
             case .syncing:
                 Text("Syncing to NeoDB…").foregroundStyle(scheme.onSurfaceVariant)
             case .synced:
                 Text("Synced to NeoDB").foregroundStyle(scheme.onSurfaceVariant)
-            case .unknown, .idle:
+            case .unknown, .idle, .signedOut:
                 Color.clear
             }
         }

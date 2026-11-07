@@ -25,7 +25,6 @@ struct MemoriesSpreadPage: View {
     var onOpenAlbum: () -> Void
     var onTitle: (MemoryTitles.Outcome) -> Void
     var onReview: (String) -> Bool
-    var onOpenNeoDBSettings: () -> Void
     var leftGesture: AnyGesture<DragGesture.Value>
     var horizontalPager: AnyGesture<DragGesture.Value>
 
@@ -120,8 +119,7 @@ struct MemoriesSpreadPage: View {
         GeometryReader { geo in
             ScrollView {
                 DiaryBlocks(card: card, deck: deck, scheme: scheme, tones: tones, interactive: current, showGo: false,
-                            firstBlock: 0, onOpenAlbum: onOpenAlbum, onReview: onReview,
-                            onOpenNeoDBSettings: onOpenNeoDBSettings)
+                            firstBlock: 0, onOpenAlbum: onOpenAlbum, onReview: onReview)
                     .frame(width: layout.measure)
                     .padding(.vertical, 24)
                     .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .leading)

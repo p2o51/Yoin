@@ -417,7 +417,6 @@ struct MemoryPageView: View {
     var onOpenAlbum: () -> Void
     var onTitle: (MemoryTitles.Outcome) -> Void
     var onReview: (String) -> Bool
-    var onOpenNeoDBSettings: () -> Void
     var horizontalPager: AnyGesture<DragGesture.Value>
 
     @State private var warm = false
@@ -440,7 +439,7 @@ struct MemoryPageView: View {
             if diary.isShown || (current && warm && deck.presentation.isOpen) {
                 MemoryDiaryView(card: card, deck: deck, morph: morph, layout: layout, scheme: scheme, dark: dark,
                                 interactive: current && (diary.isDiaryLevel || diary.isPulling), onOpenAlbum: onOpenAlbum,
-                                onTitle: onTitle, onReview: onReview, onOpenNeoDBSettings: onOpenNeoDBSettings,
+                                onTitle: onTitle, onReview: onReview,
                                 horizontalPager: horizontalPager)
             }
         }

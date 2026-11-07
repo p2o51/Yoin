@@ -144,12 +144,12 @@ struct MemoriesView: View {
             MemoriesSpreadPage(card: card, deck: deck, layout: layout, cover: cover, seal: deck.sealSize, size: size,
                                scheme: scheme, dark: dark, current: i == currentIndex,
                                onOpenAlbum: { open(card) }, onTitle: { title(card, $0) },
-                               onReview: { review(card, $0) }, onOpenNeoDBSettings: openNeoDBSettings,
+                               onReview: { review(card, $0) },
                                leftGesture: pageGesture(zone: .card), horizontalPager: horizontalPager())
         } else {
             MemoryPageView(card: card, deck: deck, layout: layout, scheme: scheme, dark: dark, current: i == currentIndex,
                            onOpenAlbum: { open(card) }, onTitle: { title(card, $0) },
-                           onReview: { review(card, $0) }, onOpenNeoDBSettings: openNeoDBSettings,
+                           onReview: { review(card, $0) },
                            horizontalPager: horizontalPager())
         }
     }
@@ -258,11 +258,6 @@ struct MemoriesView: View {
     }
 
     /// NeoDB signs in in Settings: Memories retreats, Settings opens.
-    private func openNeoDBSettings() {
-        home()
-        model.openSettings()
-    }
-
     private func home() {
         MemoriesHaptics.click()
         deck.awards.onDismissCommitted()
