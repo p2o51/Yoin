@@ -785,11 +785,31 @@ struct AlbumDetailView: View {
 
     /// The track titles as one paragraph; a title plays from that song while
     /// the hero is up (Android: links only below half the pull).
+    @ViewBuilder
     private var flowingTitles: some View {
-        FlowingTrackTitles(titles: album.tracks.map(\.title), primary: app.onSurface, variant: app.onSurfaceVariant,
-                           onPick: p < 0.5 ? { i in
-                               if let playlist { model.play(playlist.entries, startAt: i) } else { playAlbum(from: i) }
-                           } : nil)
+        if playlistIsEmpty {
+            // Android's quiet empty state: the bottom bar stays armed, Play just does nothing.
+            emptyPlaylistLine
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+        } else {
+            FlowingTrackTitles(titles: album.tracks.map(\.title), primary: app.onSurface, variant: app.onSurfaceVariant,
+                               onPick: p < 0.5 ? { i in
+                                   if let playlist { model.play(playlist.entries, startAt: i) } else { playAlbum(from: i) }
+                               } : nil)
+        }
+    }
+
+    /// A playlist that loaded with nothing in it (Android PlaylistDetailScreen empty states, parity B-U15).
+    private var playlistIsEmpty: Bool {
+        guard let playlist, !isMock, !bodyPending else { return false }
+        return playlist.entries.isEmpty
+    }
+
+    private var emptyPlaylistLine: some View {
+        Text("This playlist is empty.")
+            .yoinRole(Tokens.type.bodyMedium)
+            .foregroundStyle(app.onSurfaceVariant)
     }
 
     /// The listener's review and when it was written (AlbumMemoryStore, as
@@ -838,6 +858,12 @@ struct AlbumDetailView: View {
                 if bodyPending {
                     EmptyView()
                 } else if let playlist {
+                    if playlistIsEmpty {
+                        emptyPlaylistLine
+                            .padding(.leading, 8)
+                            .padding(.top, 8)
+                            .modifier(bandBlur)
+                    }
                     ForEach(Array(playlist.entries.enumerated()), id: \.offset) { i, e in
                         playlistRow(e)
                             .modifier(bandBlur)
@@ -1172,9 +1198,18 @@ struct AlbumDetailView: View {
                 .frame(width: 44, height: 44)
                 .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(e.track.title).lineLimit(1)
-                    .yoinRole(Tokens.type.titleMedium)
-                    .foregroundStyle(app.onSurface)
+                HStack(spacing: 6) {
+                    Text(e.track.title).lineLimit(1)
+                        .yoinRole(Tokens.type.titleMedium)
+                        .foregroundStyle(app.onSurface)
+                    // The album row's note marker (Android PlaylistNoteMarker, parity B-U14).
+                    if hasNote(e.track) {
+                        YoinIcon("note", size: 12)
+                            .foregroundStyle(s.primary.opacity(0.8))
+                            .accessibilityLabel("Has note")
+                            .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .leading)))
+                    }
+                }
                 LibraryMetaLine(parts: [(e.album.artist, false), (e.album.title, true)], scheme: app)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -7449,6 +7449,16 @@
           }
         }
       }
+    },
+    "This playlist is empty.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此播放列表为空。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
