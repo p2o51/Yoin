@@ -134,6 +134,7 @@ struct CloudSyncView: View {
                     [AnyView(PlaylistBackupsEntryRow(app: app, row: row, shape: Self.segment(0, 1)))]
                 }
                 whatSyncs
+                goodToKnow
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 40 + ShellBarMetrics.clearance)
@@ -337,6 +338,26 @@ struct CloudSyncView: View {
             [AnyView(info(String(localized: "Syncs"), String(localized: "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups"))),
              AnyView(info(String(localized: "Stays on this device"), String(localized: "Listening history\nPasswords, sign-ins and API keys\nCaches and downloads")))]
         }
+    }
+
+    /// Android's "Good to know" (CloudSyncScreen, parity D-U3): where the data lives and what that means.
+    private var goodToKnow: some View {
+        group(String(localized: "Good to know")) {
+            Self.goodToKnowLines.map { line in
+                AnyView(Text(line)
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14))
+            }
+        }
+    }
+
+    static var goodToKnowLines: [String] {
+        [String(localized: "Saved in a hidden Yoin folder in your own Google Drive. It's protected by your Google account, not end-to-end encrypted, and counts toward your storage."),
+         String(localized: "Only server addresses and usernames sync; passwords, sign-ins and API keys stay on this device."),
+         String(localized: "Listening history stays on each device.")]
     }
 
     // MARK: Pieces (ServerSettingsView's)

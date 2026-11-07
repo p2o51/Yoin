@@ -7469,6 +7469,46 @@
           }
         }
       }
+    },
+    "Good to know": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "说明"
+          }
+        }
+      }
+    },
+    "Saved in a hidden Yoin folder in your own Google Drive. It's protected by your Google account, not end-to-end encrypted, and counts toward your storage.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存在你 Google Drive 的隐藏 Yoin 文件夹中。由 Google 账号保护，不是端到端加密，并计入你的网盘存储空间。"
+          }
+        }
+      }
+    },
+    "Only server addresses and usernames sync; passwords, sign-ins and API keys stay on this device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅同步服务器地址与用户名；密码、登录状态与 API 密钥始终保存在本地。"
+          }
+        }
+      }
+    },
+    "Listening history stays on each device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放记录仅保存在本地。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
