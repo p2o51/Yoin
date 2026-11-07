@@ -47,4 +47,18 @@ final class AccountQuickSwitchTests: XCTestCase {
         XCTAssertEqual(Tips.all.prefix(2).map(\.id), ["HomeScreenWidgets", "AccountQuickSwitch"])
         XCTAssertEqual(Tips.all[1].textZhHans, "长按头像并滑动以切换账号")
     }
+
+    func test_should_letATapThrough_when_noHoldRanRecently() {
+        // 51, 2026-11-07: the hold swallowed every tap. Only the release that ends a hold is swallowed.
+        XCTAssertFalse(AccountFan.swallows(holding: false, endedAgo: 10))
+        XCTAssertTrue(AccountFan.swallows(holding: true, endedAgo: 10))
+        XCTAssertTrue(AccountFan.swallows(holding: false, endedAgo: 0.1))
+    }
+
+    func test_should_sayTheServer_when_twoAccountsShareAName() {
+        var p = profile("a")
+        p.baseUrl = "http://127.0.0.1:5022"
+        XCTAssertTrue(p.spokenAccount.hasSuffix(", 127.0.0.1:5022"))
+        XCTAssertEqual(profile("b", .appleMusic).spokenAccount, profile("b", .appleMusic).title)
+    }
 }

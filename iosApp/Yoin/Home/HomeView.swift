@@ -289,7 +289,7 @@ struct HomeView: View {
             .padding(.trailing, Tokens.home.HEADER_TITLE_BREATHING.cg)
             Spacer(minLength: 0)
             HeaderActions(edit: edit, scheme: scheme) {
-                Button { model.openSettings() } label: {
+                Button { if !AccountFan.shared.swallowsTap { model.openSettings() } } label: {
                     // 32 dp avatar in a 48 dp target: the account in use (its shape, service colour and
                     // letter); with none, the mock's (profile 0 = Cookie6Sided).
                     HeaderAccountAvatar(profile: model.profiles.active,
@@ -299,7 +299,7 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Account")
-                .accessibilityValue(model.profiles.active?.title ?? "")
+                .accessibilityValue(model.profiles.active?.spokenAccount ?? "")
                 // Hold and slide onto another account (Android #162).
                 .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
             }

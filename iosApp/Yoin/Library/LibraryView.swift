@@ -282,7 +282,7 @@ struct LibraryView: View {
             .opacity(model.searchActive && model.searchOrigin == .bar ? 0 : 1)
             .animation(Yoin.effects, value: model.searchActive)
             // The account Library is reading, as on Home (Android: 资料库也要显示当前的账号).
-            Button { model.openSettings() } label: {
+            Button { if !AccountFan.shared.swallowsTap { model.openSettings() } } label: {
                 HeaderAccountAvatar(profile: model.profiles.active,
                                     shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
                                     fallback: scheme.primary, onFallback: scheme.onPrimary,
@@ -290,7 +290,7 @@ struct LibraryView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Account")
-            .accessibilityValue(model.profiles.active?.title ?? "")
+            .accessibilityValue(model.profiles.active?.spokenAccount ?? "")
             // Hold and slide onto another account (Android #162).
             .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
         }

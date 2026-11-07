@@ -60,6 +60,17 @@ final class AccountFan {
     private(set) var accounts: [Profile] = []
     private(set) var shapes: [String: Int] = [:]
     @ObservationIgnored private var onPick: (Profile) -> Void = { _ in }
+    /// When the last hold ended: the release that ends a hold is no tap on the avatar.
+    @ObservationIgnored private(set) var holdEndedAt = Date.distantPast
+
+    /// The avatar's tap is the hold's own release (a hold runs, or just ended): it opens nothing.
+    var swallowsTap: Bool { Self.swallows(holding: holding, endedAgo: Date().timeIntervalSince(holdEndedAt)) }
+
+    nonisolated static let releaseWindow: TimeInterval = 0.5
+
+    nonisolated static func swallows(holding: Bool, endedAgo: TimeInterval) -> Bool {
+        holding || endedAgo < releaseWindow
+    }
 
     func begin(anchor: CGRect, accounts: [Profile], shapes: [String: Int], onPick: @escaping (Profile) -> Void) {
         guard !accounts.isEmpty else { return }
@@ -96,10 +107,21 @@ final class AccountFan {
     /// The gesture went away (cancelled): the column goes back in, nothing picked.
     func close() {
         guard holding else { return }
+        holdEndedAt = Date()
         withAnimation(Yoin.spatial) {
             holding = false
             hover = -1
         }
+    }
+}
+
+extension Profile {
+    /// What VoiceOver says for the account in use: its name, and its server when it has one (two accounts
+    /// may share a name).
+    var spokenAccount: String {
+        guard let host = baseUrl.flatMap(URL.init(string:)).flatMap({ u in u.host.map { h in u.port.map { "\(h):\($0)" } ?? h } })
+        else { return title }
+        return "\(title), \(host)"
     }
 }
 
@@ -135,9 +157,11 @@ private struct AccountQuickSwitchModifier: ViewModifier {
         let fan = AccountFan.shared
         content
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
-            // Ahead of the tap: once the hold is long enough, it's the fan's, the let-go included. Moving
-            // before then fails the press (the scroll's), and a short tap still reaches the button.
-            .highPriorityGesture(
+            // Beside the button's own tap (a high-priority gesture here swallowed every tap, 51 2026-11-07):
+            // a short tap opens what it opened; once the hold is long enough it's the fan's, and the
+            // button ignores the release that ends it (AccountFan.swallowsTap). Moving before then fails
+            // the press (the scroll's).
+            .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.45)
                     .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
                     .updating($pressing) { value, state, _ in

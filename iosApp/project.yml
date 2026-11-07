@@ -198,6 +198,23 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin.tests
+  # The Home avatar's tap and hold (needs the demo Subsonic servers on :5021 and :5022): its own scheme,
+  # not part of the Yoin scheme's unit tests.
+  YoinUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: YoinUITests
+    dependencies:
+      - target: Yoin
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin.uitests
+        TEST_TARGET_NAME: Yoin
+    scheme:
+      testTargets:
+        - YoinUITests
   # Spotify QA against scripts/fake_spotify.py (docs/qa-script.md): its own scheme, never part of
   # the Yoin scheme's tests (it needs the fake server and writes screenshots to /tmp/yoin-spotify-qa).
   YoinSpotifyQA:
