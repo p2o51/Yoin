@@ -73,6 +73,15 @@ class YoinHaptics internal constructor(private val view: View) {
         }
     }
 
+    /** One of many small things landing in quick succession (the album bar's colour bands). */
+    fun performFrequentTick() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            view.performHapticFeedback(HapticFeedbackConstants.SEGMENT_FREQUENT_TICK)
+        } else {
+            performLightTick()
+        }
+    }
+
     /** A drag passing a limit (the rubber band starts). */
     fun performThreshold() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

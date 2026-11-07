@@ -207,6 +207,13 @@ interface MusicMetadata {
     suspend fun alternateNames(trackId: MediaId): TrackNames? = null
 
     /**
+     * The album [trackId] is on, for a song that came without one: Apple Music names a song's album only when
+     * the request included it, and its playlists, library songs and search rows don't. Null when the service
+     * can't say (the default: everywhere else a song carries its album already).
+     */
+    suspend fun albumIdFor(trackId: MediaId): MediaId? = null
+
+    /**
      * A public web link to [id] (an album, artist, playlist or track) for
      * Share and "Open in …" — the provider's own app opens it where one is
      * installed. Null where there is none: a self-hosted server, or an item

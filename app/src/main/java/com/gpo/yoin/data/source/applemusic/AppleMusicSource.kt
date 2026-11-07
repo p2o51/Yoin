@@ -78,6 +78,12 @@ class AppleMusicSource(
             size > ALTERNATE_NAMES_MEMORY
     }
 
+    /** Song id → its album (null: Apple named none); see [albumIdFor]. */
+    private val albumIdBySong = object : LinkedHashMap<String, MediaId?>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MediaId?>?) =
+            size > ALTERNATE_NAMES_MEMORY
+    }
+
     private val regionalNames = AppleMusicNameResolver(
         catalog = { segments, query -> api.resourcePage(segments, personal = false, query = query) },
         songsByIsrc = { storefront, isrcs, language -> api.catalogSongsByIsrc(storefront, isrcs, language) },
@@ -734,6 +740,22 @@ class AppleMusicSource(
         val names = TrackNames(title, artist).takeIf { title.isNotEmpty() && artist.isNotEmpty() }
         synchronized(alternateNamesByCatalogId) { alternateNamesByCatalogId[catalogId] = names }
         return names
+    }
+
+    /**
+     * The song's album, read once and kept (misses too): its own `albums` relationship, in the catalog for a
+     * catalog song and in the library (a library album) for one the user added from elsewhere.
+     */
+    override suspend fun albumIdFor(trackId: MediaId): MediaId? {
+        if (trackId.provider != id || trackId.rawId.removePrefix("library:").isBlank()) return null
+        val key = trackId.rawId
+        synchronized(albumIdBySong) {
+            if (key in albumIdBySong) return albumIdBySong[key]
+        }
+        val album = page(path("songs", trackId), mapOf("include" to "albums")).resources().firstOrNull()
+            ?.related("albums")?.firstOrNull()?.takeIf { it.text("id") != null }?.mediaId()
+        synchronized(albumIdBySong) { albumIdBySong[key] = album }
+        return album
     }
 
     // Catalog ids only (digits; "pl." for curated playlists): a library id

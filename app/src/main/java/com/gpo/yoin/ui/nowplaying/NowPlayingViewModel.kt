@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -603,8 +604,37 @@ class NowPlayingViewModel(
         }
     }
 
+    /**
+     * Song id → its album, for a playing song that came without one (Apple Music's playlist, library and
+     * search songs): asked of its service once it plays, so the title still opens the album.
+     */
+    private val resolvedAlbumIds = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    init {
+        viewModelScope.launch {
+            playbackManager.playbackState
+                .map { it.currentTrack }
+                .distinctUntilChangedBy { it?.id }
+                .collectLatest { track ->
+                    if (track == null || track.albumId != null) return@collectLatest
+                    val key = track.id.toString()
+                    if (key in resolvedAlbumIds.value) return@collectLatest
+                    val albumId = repository.albumIdFor(track) ?: return@collectLatest
+                    resolvedAlbumIds.update { it + (key to albumId.toString()) }
+                }
+        }
+    }
+
+    private val baseWithAlbum = combine(baseUiState, resolvedAlbumIds) { base, resolved ->
+        if (base is NowPlayingUiState.Playing && base.albumId == null) {
+            resolved[base.songId]?.let { base.copy(albumId = it) } ?: base
+        } else {
+            base
+        }
+    }
+
     val uiState: StateFlow<NowPlayingUiState> = combine(
-        baseUiState,
+        baseWithAlbum,
         playbackAndContext,
         PlaybackService.playingFormat,
         PlaybackService.usingDlna,

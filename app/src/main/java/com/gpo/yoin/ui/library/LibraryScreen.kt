@@ -266,7 +266,7 @@ fun LibraryScreen(
     onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
-    onAddSongToPlaylist: (Track) -> Unit = {},
+    onSongLongClick: (Track) -> Unit = {},
     // The Wide shell opens results as its detail column, BEHIND the
     // full-window search dialog: a result tap must collapse the search (the
     // query is kept) so the page it opened is seen.
@@ -403,7 +403,7 @@ fun LibraryScreen(
                 onFavoriteSongClick = onFavoriteSongClick,
                 onSongsListClick = onSongsListClick,
                 onSearchSongClick = onSearchSongClick,
-                onAddSongToPlaylist = onAddSongToPlaylist,
+                onSongLongClick = onSongLongClick,
                 collapseSearchOnOpen = collapseSearchOnOpen,
                 onAddSongToLibrary = viewModel::addSongToLibrary,
                 onCreatePlaylist = viewModel::createPlaylist,
@@ -467,7 +467,7 @@ fun LibraryContent(
         onSongClick(track)
     },
     collapseSearchOnOpen: Boolean = false,
-    onAddSongToPlaylist: (Track) -> Unit = {},
+    onSongLongClick: (Track) -> Unit = {},
     onAddSongToLibrary: (Track) -> Unit = {},
     onCreatePlaylist: (name: String) -> Unit = {},
     onRetry: () -> Unit,
@@ -572,7 +572,7 @@ fun LibraryContent(
                             onFavoriteSongClick = onFavoriteSongClick,
                             onSongsListClick = onSongsListClick,
                             onSearchSongClick = onSearchSongClick,
-                            onAddSongToPlaylist = onAddSongToPlaylist,
+                            onSongLongClick = onSongLongClick,
                             onAddSongToLibrary = onAddSongToLibrary,
                             onCreatePlaylist = onCreatePlaylist,
                             coverArtUrlBuilder = coverArtUrlBuilder,
@@ -618,7 +618,7 @@ private fun LibraryContentBody(
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
-    onAddSongToPlaylist: (Track) -> Unit,
+    onSongLongClick: (Track) -> Unit,
     onAddSongToLibrary: (Track) -> Unit,
     onCreatePlaylist: (name: String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
@@ -966,7 +966,7 @@ private fun LibraryContentBody(
                                 isPlaying = isPlaying,
                                 notedSongIds = notedSongIds,
                                 onSongClick = onSongsListClick,
-                                onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
+                                onSongLongClick = onSongLongClick,
                                 onReshuffle = onReshuffleSongs,
                                 canReshuffle = state.canReshuffleSongs,
                                 more = state.songsMore,
@@ -993,7 +993,7 @@ private fun LibraryContentBody(
                                 onAlbumClick = onAlbumClick,
                                 onSongClick = onSongClick,
                                 onFavoriteSongClick = onFavoriteSongClick,
-                                onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
+                                onSongLongClick = onSongLongClick,
                                 coverArtUrlBuilder = coverArtUrlBuilder,
                             )
                         }
@@ -1055,7 +1055,7 @@ private fun LibraryContentBody(
             onAlbumClick = fromSearch(onSearchAlbumClick),
             onPlaylistClick = fromSearch(onSearchPlaylistClick),
             onSongClick = onSearchSongClick,
-            onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
+            onSongLongClick = onSongLongClick,
             onAddSongToLibrary = onAddSongToLibrary,
             coverArtUrlBuilder = coverArtUrlBuilder,
             // 全屏搜索面是独立 surface,不在上面的限宽列里 —— 结果列表
@@ -1767,7 +1767,7 @@ private fun SongsTabContent(
     isPlaying: Boolean = false,
     notedSongIds: Set<String>,
     onSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
-    onAddSongToPlaylist: ((Track) -> Unit)?,
+    onSongLongClick: ((Track) -> Unit)?,
     onReshuffle: () -> Unit,
     canReshuffle: Boolean = true,
     // A list read a page at a time reads on near its end; its foot shows how.
@@ -1835,7 +1835,7 @@ private fun SongsTabContent(
                         // window's start. Spotify plays its Liked Songs context and Apple Music's
                         // list is read whole, so neither stops short.
                         onClick = { onSongClick(song, songs, index) },
-                        onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
+                        onLongClick = onSongLongClick?.let { open -> { open(song) } },
                         isCurrentTrack = song.id.toString() == activeSongId,
                         isPlaying = isPlaying,
                         extractBackdropColors = false,
@@ -2122,7 +2122,7 @@ private fun FavoritesTabContent(
     onAlbumClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
-    onAddSongToPlaylist: ((Track) -> Unit)?,
+    onSongLongClick: ((Track) -> Unit)?,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -2233,7 +2233,7 @@ private fun FavoritesTabContent(
                     onClick = {
                         onFavoriteSongClick(song, favorites.tracks, index)
                     },
-                    onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
+                    onLongClick = onSongLongClick?.let { open -> { open(song) } },
                     isCurrentTrack = song.id.toString() == activeSongId,
                     isPlaying = isPlaying,
                     extractBackdropColors = false,
@@ -2384,7 +2384,7 @@ private fun SearchResultsContent(
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
-    onAddSongToPlaylist: ((Track) -> Unit)?,
+    onSongLongClick: ((Track) -> Unit)?,
     onAddSongToLibrary: (Track) -> Unit = {},
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
@@ -2449,7 +2449,7 @@ private fun SearchResultsContent(
                 val songs = searchResults.tracks
                 onSongClick(song, songs, songs.indexOfFirst { it.id == song.id })
             },
-            onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
+            onLongClick = onSongLongClick?.let { open -> { open(song) } },
             onAddToLibrary = { onAddSongToLibrary(song) },
             coverArtUrlBuilder = coverArtUrlBuilder,
             modifier = rowModifier

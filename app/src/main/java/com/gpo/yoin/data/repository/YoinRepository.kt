@@ -1159,6 +1159,22 @@ class YoinRepository(
             null
         }
 
+    /**
+     * [track]'s album: its own, or the one its service names when asked (Apple Music's playlist, library and
+     * search songs come without one; see MusicMetadata.albumIdFor). Null when there is none to open.
+     */
+    suspend fun albumIdFor(track: Track): MediaId? {
+        track.albumId?.let { return it }
+        return try {
+            val source = requireSource()
+            if (source.id != track.id.provider) null else source.metadata().albumIdFor(track.id)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // ── Playlists ──────────────────────────────────────────────────────
 
     suspend fun getPlaylists(): List<Playlist> {
