@@ -37,6 +37,9 @@ final class MacSpotifyOutput: AudioOutput {
     /// The listener's newest transport wish (play, pause, skip, stop, a new song): a play or pause still on
     /// its way, or waiting out a 429, is dropped once a newer one was made (a late pause never beats a resume).
     private var intent = 0
+    /// Bumped whenever the song changes (a load, or Spotify moving on through the handed list): a seek is
+    /// for the song it was made on.
+    private var songTurn = 0
     private var wantsPlay = false
     /// What Yoin owns: the account and device the current song started on (nil: nothing is Yoin's).
     private var owned: (source: SpotifySource, device: String)?
@@ -78,6 +81,8 @@ final class MacSpotifyOutput: AudioOutput {
     func load(_ current: URL, next: URL?, startSec: Double) {
         generation += 1
         intent += 1
+        songTurn += 1
+        unconfirmed = false
         showingExternal = false
         externalId = nil
         handed = []
@@ -134,6 +139,8 @@ final class MacSpotifyOutput: AudioOutput {
     private func restartCurrent() {
         guard let item = current, !silent, source() != nil else { return }
         generation += 1
+        songTurn += 1
+        unconfirmed = false
         let gen = generation
         let at = lastTime
         PlayTrace.log("SP play with no device: the song again at \(Int(at))s")
@@ -165,6 +172,7 @@ final class MacSpotifyOutput: AudioOutput {
     func stop() {
         generation += 1
         intent += 1
+        unconfirmed = false
         starting = false
         engineNext = nil
         handed = []
@@ -186,19 +194,25 @@ final class MacSpotifyOutput: AudioOutput {
         quietUntil = Date().addingTimeInterval(2.5)
         var q = query
         q["device_id"] = o.device
-        let mine = intent, gen = generation
+        let mine = intent, gen = generation, turn = songTurn
         // Play / pause / skip go one after another: a newer wish waits for the one already on its way, so it
         // lands last (Spotify applies its Player calls in whatever order they arrive); queued ones it
         // overtook are dropped by the check below.
         let before = transport ? transportChain : nil
+        // The one before is overtaken now: a 429 wait it's sitting in ends at once rather than holding this
+        // one up; this one still goes only after it has finished, so the newest wish is the last to land.
+        if transport { before?.cancel() }
         let task = Task { [weak self] in
             await before?.value
             do {
                 try await o.source.api.send(method, path, q, while: { [weak self] in
-                    await self?.commandWanted(o, gen: gen, intent: transport ? mine : nil, needsOwner: needsOwner) ?? false
+                    await self?.commandWanted(o, gen: gen, turn: turn, intent: transport ? mine : nil,
+                                              needsOwner: needsOwner) ?? false
                 })
             } catch is SpotifyCommandDropped {
                 PlayTrace.log("SP \(method) \(path) dropped: a newer wish, another device or account")
+            } catch is CancellationError {
+                PlayTrace.log("SP \(method) \(path) overtaken while waiting")
             } catch {
                 // Refused (device gone, no Premium, rate limit): say so, and read where Spotify really is.
                 guard let self, self.source() === o.source else { return }
@@ -211,12 +225,15 @@ final class MacSpotifyOutput: AudioOutput {
         if transport { transportChain = task }
     }
 
+    /// A start that stood without a single answer from Spotify: buffering until the watch hears one.
+    private var unconfirmed = false
+
     /// The play / pause / skip on its way (the next one waits for it).
     private var transportChain: Task<Void, Never>?
 
-    private func commandWanted(_ o: (source: SpotifySource, device: String), gen: Int, intent mine: Int?,
+    private func commandWanted(_ o: (source: SpotifySource, device: String), gen: Int, turn: Int, intent mine: Int?,
                                needsOwner: Bool) -> Bool {
-        Self.stillWanted(sameAccount: source() === o.source, sameStart: gen == generation,
+        Self.stillWanted(sameAccount: source() === o.source, sameStart: gen == generation && turn == songTurn,
                          ownsDevice: owned.map { $0.source === o.source && $0.device == o.device } ?? false,
                          intent: mine, newest: intent, needsOwner: needsOwner)
     }
@@ -236,7 +253,9 @@ final class MacSpotifyOutput: AudioOutput {
     }
 
     /// Whether a stopped start's clean-up pause still goes: nothing newer started or owns a device since.
-    private func cleanupWanted(_ s: SpotifySource) -> Bool { current == nil && !starting && owned == nil && source() === s }
+    private func cleanupWanted(_ s: SpotifySource, _ stopped: Int) -> Bool {
+        stopped == generation && current == nil && !starting && owned == nil && source() === s
+    }
 
     /// Whether a start's request still goes: the same start, on the same account.
     private func startWanted(_ gen: Int, _ s: SpotifySource) -> Bool { gen == generation && source() === s }
@@ -299,8 +318,9 @@ final class MacSpotifyOutput: AudioOutput {
                     // Stopped while the start was on its way: it mustn't keep playing — unless something newer
                     // has started since (the pause is asked again before it goes and before any retry).
                     if current == nil {
+                        let stopped = generation
                         _ = try? await s.api.send("PUT", "me/player/pause", ["device_id": id], while: { [weak self] in
-                            await self?.cleanupWanted(s) ?? false
+                            await self?.cleanupWanted(s, stopped) ?? false
                         })
                     }
                     return
@@ -337,7 +357,7 @@ final class MacSpotifyOutput: AudioOutput {
                 guard Self.startStands(confirmed: confirmed, known: known) else {
                     Self.log.error("start not confirmed on …\(id.suffix(4), privacy: .public)")
                     if Self.retries(retry: retry, toThisMac: toThisMac, error: nil) {
-                        return await again(item, at: sec, gen: gen)
+                        return await again(item, at: sec, gen: gen, on: s)
                     }
                     fail("Couldn't start playback.", gen: gen)
                     return
@@ -350,9 +370,11 @@ final class MacSpotifyOutput: AudioOutput {
                 // Named only once it's really playing there.
                 if owner.device == id { onDevice(Self.isThisMac(name) ? nil : name) }
                 if !wantsPlay { command(owner, "PUT", "me/player/pause") }
-                playing = wantsPlay
+                // No answer at all yet: still buffering, the clock still; the watch's first answer decides.
+                unconfirmed = !confirmed && known == nil
+                playing = wantsPlay && !unconfirmed
                 lastTick = Date()
-                events?.outputIsBufferingDidChange(false)
+                if !unconfirmed { events?.outputIsBufferingDidChange(false) }
                 watch(item, owner: owner, gen: gen)
             }
         } catch is SpotifyCommandDropped {
@@ -361,7 +383,7 @@ final class MacSpotifyOutput: AudioOutput {
             guard startWanted(gen, s) else { return }
             if Self.retries(retry: retry, toThisMac: toThisMac, error: error) {
                 Self.log.error("start refused: \(SpotifySource.message(for: error), privacy: .public)")
-                return await again(item, at: sec, gen: gen)
+                return await again(item, at: sec, gen: gen, on: s)
             }
             fail(SpotifySource.message(for: error), gen: gen)
         }
@@ -369,13 +391,13 @@ final class MacSpotifyOutput: AudioOutput {
 
     /// The one more go: the device is let go of, and after a short gap the start runs from the top (devices
     /// read afresh, Spotify opened here if it's gone from them).
-    private func again(_ item: Item, at sec: Double, gen: Int) async {
-        // A newer start owns the device by now: this one lets nothing go.
-        guard gen == generation else { return }
+    private func again(_ item: Item, at sec: Double, gen: Int, on s: SpotifySource) async {
+        // A newer start owns the device by now (or another account is in use): this one lets nothing go.
+        guard startWanted(gen, s) else { return }
         Self.log.info("start didn't land on this Mac: devices again, once")
         owned = nil
         try? await Task.sleep(for: .milliseconds(Self.retryGapMs))
-        guard gen == generation else { return }
+        guard startWanted(gen, s) else { return }
         await start(item, at: sec, gen: gen, retry: false)
     }
 
@@ -559,8 +581,12 @@ final class MacSpotifyOutput: AudioOutput {
                 guard let now else {
                     // Nothing active any more (twice running): after its last seconds that's the end, else
                     // Spotify stopped.
-                    if !quiet, empties >= 2 {
-                        if nearEnd, wasPlaying, self.wantsPlay { self.ended(gen: gen) }
+                    if !quiet || self.unconfirmed, empties >= 2 {
+                        if self.unconfirmed {
+                            self.unconfirmed = false
+                            self.events?.outputIsBufferingDidChange(false)
+                            self.letGo(gen: gen, message: "Couldn't start playback.")
+                        } else if nearEnd, wasPlaying, self.wantsPlay { self.ended(gen: gen) }
                         else if item != nil, Date().timeIntervalSince(self.startedAt) < 20 {
                             // The device took the start and then dropped it (a phone's Spotify asleep in
                             // the background did, 51's 2026-11-06 log): said so; no command follows.
@@ -596,6 +622,7 @@ final class MacSpotifyOutput: AudioOutput {
                     if let n = self.engineNext, n.trackId == playingId {
                         item = n
                         self.current = n
+                        self.songTurn += 1
                         pos = (self.handed.indices.dropFirst(pos + 1).first { self.handed[$0].trackId == playingId }) ?? pos + 1
                         furthest = 0
                         self.duration = 0
@@ -620,6 +647,11 @@ final class MacSpotifyOutput: AudioOutput {
                     // The queue's own song is back.
                     self.showingExternal = false
                     self.events?.outputExternalTrackDidChange(nil, positionSec: progress ?? 0, playing: now.isPlaying ?? false)
+                }
+                if isQueueSong, self.unconfirmed {
+                    // The first answer for a start that had none: it's playing (or paused) there after all.
+                    self.unconfirmed = false
+                    self.events?.outputIsBufferingDidChange(false)
                 }
                 if isQueueSong {
                     if let d = now.item?.durationMs, Double(d) / 1000 != self.duration {
