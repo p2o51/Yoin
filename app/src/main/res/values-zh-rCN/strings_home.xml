@@ -178,7 +178,7 @@
     <string name="home_tip_cover_menu_title">歌曲菜单</string>
     <string name="home_tip_cover_menu">正在播放里长按封面，打开歌曲菜单与快捷操作</string>
     <string name="home_tip_song_menu_title">长按歌曲操作</string>
-    <string name="home_tip_song_menu">长按专辑或歌单里的歌，下一首播放、加入队列、收藏或分享</string>
+    <string name="home_tip_song_menu">长按专辑、歌单或资料库里的歌，下一首播放、加入队列、收藏或分享</string>
     <string name="home_tip_play_modes_title">随机与循环</string>
     <string name="home_tip_play_modes">点按切换随机与循环；长按拆成两个按钮，单独开关循环</string>
     <string name="home_tip_note_moments_title">笔记记住那一秒</string>
