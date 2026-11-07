@@ -580,17 +580,28 @@ final class MacLibrary {
             }
             _ = try await spotify.removeTracks([.init(trackRawId: p.entries[index].track.id.rawId, position: position)],
                                                from: id, snapshotId: p.snapshotId)
-        } else if let client {
-            // Subsonic removes by position: the list is read again first, and a change made elsewhere since
-            // (another client) stops the removal rather than taking out a different song.
+        } else if let client, let mapping {
+            // Subsonic removes by position: the list is read again first, straight from the server (never the
+            // cached page: a failed read would leave the old positions in place), and the song is found again
+            // by its id and which of its copies it was. A read that fails, or a song that's gone, deletes nothing.
             let shown = p.entries.map(\.track.id.rawId)
-            await loadPlaylist(id, force: true)
+            let fresh: [String]
+            do {
+                guard let d = try await client.getPlaylist(id: id) else {
+                    throw WriteError(message: "Couldn't read the playlist. Try again")
+                }
+                fresh = mapping.playlist(d).entries.map(\.track.id.rawId)
+            } catch let e as WriteError {
+                throw e
+            } catch {
+                throw WriteError(message: "Couldn't read the playlist. Try again")
+            }
             guard gen == generation else { return }
-            guard playlistDetails[id]?.entries.map(\.track.id.rawId) == shown else {
+            guard let at = Self.rematch(index, in: shown, fresh: fresh) else {
                 throw WriteError(message: "The playlist changed. Check it and try again")
             }
             try await client.updatePlaylist(id: id, name: nil, comment: nil, isPublic: nil, songIdsToAdd: [],
-                                            songIndexesToRemove: [KotlinInt(int: Int32(index))])
+                                            songIndexesToRemove: [KotlinInt(int: Int32(at))])
         } else {
             throw WriteError(message: "Not available for this account")
         }
@@ -599,6 +610,16 @@ final class MacLibrary {
         guard gen == generation else { return }
         if case .failed = phase("playlist:\(id)") { playlistDetails[id] = nil }
         await loadPlaylists(force: true)
+    }
+
+    /// Where the entry shown at [index] is in [fresh], the playlist as just read: the same song id, and the
+    /// same copy of it (the 2nd "Frost" stays the 2nd). Nil when that copy isn't there any more.
+    nonisolated static func rematch(_ index: Int, in shown: [String], fresh: [String]) -> Int? {
+        guard shown.indices.contains(index) else { return nil }
+        let id = shown[index]
+        let copy = shown[..<index].filter { $0 == id }.count
+        let places = fresh.indices.filter { fresh[$0] == id }
+        return places.indices.contains(copy) ? places[copy] : nil
     }
 
     /// A new, empty playlist; its raw id.
