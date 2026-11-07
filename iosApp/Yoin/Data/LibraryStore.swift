@@ -1172,6 +1172,13 @@ final class LibraryStore {
         }
     }
 
+    /// A Subsonic playlist's entries read from the server now (no cache), for a write that needs the
+    /// server's positions; nil when the server has no such playlist.
+    func serverPlaylistEntries(_ id: String, client: SubsonicClient) async throws -> [PlaylistEntry]? {
+        let mapping = SubsonicMapping(client: client)
+        return try await client.getPlaylist(id: id).map(mapping.playlist)?.entries
+    }
+
     /// The playlist's library row, for a page whose detail is still loading.
     func playlistSummary(_ id: String) -> LibraryItem? { playlists.first { $0.id.rawId == id } }
 

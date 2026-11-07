@@ -411,20 +411,20 @@ final class PlaylistActions {
         }
     }
 
-    /// Per playlist, its entries as the server holds them while removals are queued: each queued removal
-    /// finds its position here when it runs, not when it was tapped, so a failed earlier removal (its row
-    /// restored) can't shift a later one onto the wrong song (Codex C05).
-    @ObservationIgnored private var serverEntries: [String: [PlaylistEntry]] = [:]
+    /// Removals queued per playlist (a reload waits for them).
     @ObservationIgnored private var queuedRemovals: [String: Int] = [:]
 
     /// Removes the song at [index] (Subsonic removes by position; Spotify by the occurrence's position).
+    /// Subsonic: the position is found in the playlist read fresh from the server right before the
+    /// removal, never in the page on screen (another client may have changed it: index 1 of a stale
+    /// [A, B] was A on the server's [X, A, B]); no fresh read, no removal (Codex 11-07). A removal for an
+    /// account no longer in use sends nothing and restores nothing.
     func remove(at index: Int, from playlistId: String, store: LibraryStore) {
         if let spotify = store.spotify { return removeOnSpotify(at: index, from: playlistId, spotify: spotify, store: store) }
         guard let client = store.client else { return }
         guard let entries = store.playlist(playlistId)?.entries, index < entries.count else { return }
         let removed = entries[index]
-        // Nothing queued: what's on screen is what the server holds.
-        if (queuedRemovals[playlistId] ?? 0) == 0 { serverEntries[playlistId] = entries }
+        let gen = store.generation
         queuedRemovals[playlistId, default: 0] += 1
         withAnimation(Yoin.spatial) {
             store.patchPlaylists { rows, details in
@@ -435,19 +435,11 @@ final class PlaylistActions {
         serial { [self] in
             defer {
                 queuedRemovals[playlistId, default: 1] -= 1
-                if queuedRemovals[playlistId] == 0 {
-                    queuedRemovals[playlistId] = nil
-                    serverEntries[playlistId] = nil
-                }
+                if queuedRemovals[playlistId] == 0 { queuedRemovals[playlistId] = nil }
             }
-            let server = serverEntries[playlistId] ?? entries
-            guard let at = Self.serverIndex(of: removed, in: server, near: index) else { return }
-            do {
-                try await client.updatePlaylist(id: playlistId, name: nil, comment: nil, isPublic: nil,
-                                                songIdsToAdd: [], songIndexesToRemove: [KotlinInt(int: Int32(at))])
-                serverEntries[playlistId]?.remove(at: at)
-            } catch {
-                log.error("remove failed: \(ServerSession.message(for: error), privacy: .public)")
+            guard gen == store.generation else { return }
+            let restore = {
+                guard gen == store.generation else { return }
                 withAnimation(Yoin.spatial) {
                     store.patchPlaylists { rows, details in
                         if var d = details[playlistId] {
@@ -457,7 +449,25 @@ final class PlaylistActions {
                         Self.bump(&rows, playlistId, by: 1)
                     }
                 }
-                show(String(localized: "Couldn't remove track"))
+                self.show(String(localized: "Couldn't remove track"))
+            }
+            let server: [PlaylistEntry]
+            do {
+                guard let fresh = try await store.serverPlaylistEntries(playlistId, client: client) else { return restore() }
+                server = fresh
+            } catch {
+                log.error("remove: fresh read failed: \(ServerSession.message(for: error), privacy: .public)")
+                return restore()
+            }
+            guard gen == store.generation else { return }
+            // Already gone on the server (removed elsewhere): nothing to send.
+            guard let at = Self.serverIndex(ofTrack: removed.track.id, in: server, near: index) else { return }
+            do {
+                try await client.updatePlaylist(id: playlistId, name: nil, comment: nil, isPublic: nil,
+                                                songIdsToAdd: [], songIndexesToRemove: [KotlinInt(int: Int32(at))])
+            } catch {
+                log.error("remove failed: \(ServerSession.message(for: error), privacy: .public)")
+                restore()
             }
         }
     }
@@ -584,6 +594,11 @@ final class PlaylistActions {
 
     /// Where [entry] sits in the server's list: the occurrence nearest [hint] (a song can be in a
     /// playlist twice; entries of one playlist differ by position number otherwise).
+    /// The server's position of [track] (the occurrence nearest the row tapped, for a song listed twice).
+    nonisolated static func serverIndex(ofTrack track: MediaId, in server: [PlaylistEntry], near hint: Int) -> Int? {
+        server.indices.filter { server[$0].track.id == track }.min { abs($0 - hint) < abs($1 - hint) }
+    }
+
     nonisolated static func serverIndex(of entry: PlaylistEntry, in server: [PlaylistEntry], near hint: Int) -> Int? {
         server.indices.filter { server[$0] == entry }.min { abs($0 - hint) < abs($1 - hint) }
     }

@@ -862,6 +862,17 @@ final class G3RulesTests: XCTestCase {
         XCTAssertNil(PlaylistActions.serverIndex(of: b, in: [a, c], near: 0))
     }
 
+    func test_should_removeTheTappedSong_when_anotherClientChangedThePlaylist() {
+        // On screen [A, B]; another client put X first: the server holds [X, A, B]. Removing B must send
+        // B's server position (2), never the screen's 1 (that was A) (Codex 11-07).
+        let x = entry(9, song: "X"), a = entry(1, song: "A"), b = entry(2, song: "B")
+        XCTAssertEqual(PlaylistActions.serverIndex(ofTrack: b.track.id, in: [x, a, b], near: 1), 2)
+        // Removed elsewhere already: nothing to send.
+        XCTAssertNil(PlaylistActions.serverIndex(ofTrack: b.track.id, in: [x, a], near: 1))
+        // Listed twice: the occurrence nearest the row tapped.
+        XCTAssertEqual(PlaylistActions.serverIndex(ofTrack: b.track.id, in: [b, x, a, b], near: 3), 3)
+    }
+
     func test_should_treatAPauseNearTheEndAsAPause_and_aRunOutAsTheEnd() {
         // The listener paused 1 s before the end: the playhead is where it was playing.
         XCTAssertFalse(AppleMusicAudioOutput.isNaturalEnd(status: .paused, hasEntry: true, time: 199,
