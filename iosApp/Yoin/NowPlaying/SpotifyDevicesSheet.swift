@@ -17,14 +17,23 @@ struct SpotifyDevicesSheet: View {
                 Text("Devices")
                     .yoinRole(Tokens.type.headlineSmall)
                     .foregroundStyle(scheme.onSurface)
+                // A failed load or move says so above the list, whether or not the list has devices
+                // (Android DevicesSheet errorMessage, parity C-U10).
+                if let failure {
+                    Text(failure)
+                        .yoinRole(Tokens.type.bodySmall)
+                        .foregroundStyle(scheme.error)
+                        .padding(.horizontal, 8)
+                        .transition(.opacity)
+                }
                 if let devices, !devices.isEmpty {
                     VStack(spacing: 2) {
                         ForEach(Array(devices.enumerated()), id: \.element.id) { i, d in
                             row(d).background(scheme.surfaceBright, in: CloudSyncView.segment(i, devices.count))
                         }
                     }
-                } else {
-                    Text(failure ?? (devices == nil ? String(localized: "Looking for devices…") : String(localized: "No Spotify devices found. Open Spotify on the device you want to play on.")))
+                } else if let line = Self.statusLine(devices: devices, failed: failure != nil) {
+                    Text(line)
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(scheme.onSurfaceVariant)
                 }
@@ -36,6 +45,15 @@ struct SpotifyDevicesSheet: View {
         .presentationBackground(scheme.surfaceContainerLow)
         .task { await load() }
         .animation(Yoin.effects, value: devices)
+        .animation(Yoin.effects, value: failure)
+    }
+
+    /// The line where the list would be: looking (not loaded yet), none found, or nothing when a
+    /// failed load already says why.
+    static func statusLine(devices: [SpotifySource.Device]?, failed: Bool) -> String? {
+        guard devices?.isEmpty ?? true else { return nil }
+        if devices == nil { return String(localized: "Looking for devices…") }
+        return failed ? nil : String(localized: "No Spotify devices found. Open Spotify on the device you want to play on.")
     }
 
     private func row(_ d: SpotifySource.Device) -> some View {
@@ -66,12 +84,15 @@ struct SpotifyDevicesSheet: View {
 
     private func load() async {
         do { devices = try await spotify.devices() } catch {
+            // A move's failure (said just before this reload) isn't replaced by an empty list.
+            if devices?.isEmpty == false { return }
             devices = []
             failure = SpotifySource.message(for: error)
         }
     }
 
     private func move(to d: SpotifySource.Device) async {
+        failure = nil
         moving = d.id
         defer { moving = nil }
         do {
