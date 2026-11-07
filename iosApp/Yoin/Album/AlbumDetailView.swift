@@ -845,11 +845,14 @@ struct AlbumDetailView: View {
     private func trackList(w: CGFloat) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                countLabel
-                    .padding(.leading, 8)
-                    .padding(.top, 2)
-                    .padding(.bottom, 10)
-                    .modifier(bandBlur)
+                // An empty playlist has no count; its empty line stands in (Android PlaylistTrackList).
+                if !playlistIsEmpty {
+                    countLabel
+                        .padding(.leading, 8)
+                        .padding(.top, 2)
+                        .padding(.bottom, 10)
+                        .modifier(bandBlur)
+                }
                 if bodyPending {
                     Group {
                         if loadFailed { RetryRow(scheme: app, action: retry) } else { RowSkeleton(scheme: app) }
