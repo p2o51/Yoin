@@ -89,7 +89,7 @@ import com.gpo.yoin.data.transfer.ReviewStatus
 import com.gpo.yoin.data.transfer.ReviewSummary
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveTextField
-import com.gpo.yoin.ui.component.MorphPolygonShape
+import com.gpo.yoin.ui.component.MorphProgressShape
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.component.formatTrackDuration
@@ -745,7 +745,7 @@ private fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean,
             modifier = Modifier
                 .size(36.dp)
                 .graphicsLayer { rotationZ = 40f * progress.value }
-                .background(container, MorphPolygonShape(morph, progress.value)),
+                .background(container, remember(morph, progress) { MorphProgressShape(morph) { progress.value } }),
         )
         if (checked) {
             Icon(

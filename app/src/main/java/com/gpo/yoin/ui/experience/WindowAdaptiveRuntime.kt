@@ -7,27 +7,28 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
-import androidx.compose.material3.adaptive.WindowAdaptiveInfo
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.material3.adaptive.currentWindowDpSize
+import androidx.compose.material3.adaptive.collectFoldingFeaturesAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.toComposeRect
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.window.WindowSdkExtensions
 import androidx.window.core.layout.WindowSizeClass
+import androidx.window.layout.FoldingFeature
 import androidx.window.embedding.ActivityEmbeddingController
 import androidx.window.embedding.SplitController
 import kotlinx.coroutines.flow.Flow
@@ -103,7 +104,7 @@ internal fun resolveShellChromeForm(
 
 /**
  * Window configuration snapshot. Recomposes on fold / rotate / split-screen
- * because [rememberYoinWindowInfo] reads the observable [currentWindowAdaptiveInfo].
+ * because [rememberYoinWindowInfo] observes the window size and fold state.
  *
  * @param hingeBounds the horizontal hinge rectangle in WINDOW coordinates when
  *   in [LayoutMode.Tabletop]; null otherwise. Used to split the kickstand layout.
@@ -173,29 +174,65 @@ val LocalShellChromeInsets = staticCompositionLocalOf { PaddingValues(0.dp) }
  * tabletop posture -> Tabletop; width >= Expanded (840dp) -> Wide; width >=
  * Medium (600dp) -> Medium; otherwise Compact. [ShellChromeForm] is read off
  * height first ([resolveShellChromeForm]). [YoinWindowInfo.feedUnits] comes
- * from the live window width (the same `currentWindowDpSize` source as
- * `rememberWindowWidthDp`). The instance is remembered on its discrete
- * values, so a resize that crosses no breakpoint keeps the SAME object.
+ * from the live window width (the same `LocalWindowInfo` container size as
+ * `rememberWindowWidthDp`). It is a derived state over those inputs, so a
+ * resize that crosses no breakpoint or column step recomposes nothing.
  */
-@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun rememberYoinWindowInfo(): YoinWindowInfo {
-    val adaptiveInfo: WindowAdaptiveInfo = currentWindowAdaptiveInfo()
-    val windowWidth = currentWindowDpSize().width
-    val widthAtLeastMedium = adaptiveInfo.windowSizeClass.isWidthAtLeastBreakpoint(
-        WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND,
-    )
-    val widthAtLeastExpanded = adaptiveInfo.windowSizeClass.isWidthAtLeastBreakpoint(
-        WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND,
-    )
-    val heightAtLeastMedium = adaptiveInfo.windowSizeClass.isHeightAtLeastBreakpoint(
-        WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND,
-    )
-    // A horizontal hinge (fold line runs left-to-right) splits top/bottom.
-    val horizontalHinge = adaptiveInfo.windowPosture.hingeList.firstOrNull { hinge ->
-        !hinge.isVertical
+    // Read the window size and fold state INSIDE derivedStateOf, never in
+    // composition: dragging a free-form / desktop window edge changes the
+    // container size every frame, and a composition read here would rerun
+    // YoinActivityRoot each frame. derivedStateOf only hands a new value on
+    // when the resolved YoinWindowInfo (a data class) actually changes —
+    // a breakpoint, chrome form, hinge or feed-column step. Same idea as the
+    // Compose 1.13 derivedMediaQuery, without its experimental flag.
+    // (currentWindowAdaptiveInfo() is not used: it reads the size in
+    // composition too.)
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val foldingFeatures = collectFoldingFeaturesAsState()
+    val info by remember(windowInfo, density, foldingFeatures) {
+        derivedStateOf {
+            val sizePx = windowInfo.containerSize
+            // A horizontal hinge (fold line runs left-to-right) splits top/bottom.
+            val features = foldingFeatures.value
+            val horizontalHinge = features.firstOrNull { feature ->
+                feature.orientation == FoldingFeature.Orientation.HORIZONTAL
+            }
+            val isTabletop = horizontalHinge != null &&
+                features.any { feature ->
+                    feature.orientation == FoldingFeature.Orientation.HORIZONTAL &&
+                        feature.state == FoldingFeature.State.HALF_OPENED
+                }
+            with(density) {
+                resolveYoinWindowInfo(
+                    width = sizePx.width.toDp(),
+                    height = sizePx.height.toDp(),
+                    isTabletop = isTabletop,
+                    hingeBounds = horizontalHinge?.bounds?.toComposeRect(),
+                )
+            }
+        }
     }
-    val isTabletop = adaptiveInfo.windowPosture.isTabletop && horizontalHinge != null
+    return info
+}
+
+/**
+ * The pure window rules behind [rememberYoinWindowInfo] (and
+ * [previewYoinWindowInfo]): Medium ≥ 600dp wide, Wide ≥ 840dp, a medium
+ * height ≥ 480dp — the WindowSizeClass breakpoints — then the chrome form and
+ * the feed's column counts from the live width.
+ */
+internal fun resolveYoinWindowInfo(
+    width: Dp,
+    height: Dp,
+    isTabletop: Boolean,
+    hingeBounds: Rect?,
+): YoinWindowInfo {
+    val widthAtLeastMedium = width.value >= WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND
+    val widthAtLeastExpanded = width.value >= WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND
+    val heightAtLeastMedium = height.value >= WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND
     val layoutMode = when {
         isTabletop -> LayoutMode.Tabletop
         widthAtLeastExpanded -> LayoutMode.Wide
@@ -207,28 +244,15 @@ fun rememberYoinWindowInfo(): YoinWindowInfo {
         widthAtLeastMedium = widthAtLeastMedium,
         heightAtLeastMedium = heightAtLeastMedium,
     )
-    val feedUnits = feedUnitsForContainer(windowWidth, layoutMode, chromeForm)
-    val feedCoverColumns = feedCoverColumnsForContainer(windowWidth, layoutMode, chromeForm)
-    val hingeBounds = horizontalHinge?.bounds
-    return remember(
-        layoutMode,
-        widthAtLeastMedium,
-        heightAtLeastMedium,
-        hingeBounds,
-        chromeForm,
-        feedUnits,
-        feedCoverColumns,
-    ) {
-        YoinWindowInfo(
-            layoutMode = layoutMode,
-            isWidthAtLeastMedium = widthAtLeastMedium,
-            isHeightAtLeastMedium = heightAtLeastMedium,
-            hingeBounds = hingeBounds,
-            chromeForm = chromeForm,
-            feedUnits = feedUnits,
-            feedCoverColumns = feedCoverColumns,
-        )
-    }
+    return YoinWindowInfo(
+        layoutMode = layoutMode,
+        isWidthAtLeastMedium = widthAtLeastMedium,
+        isHeightAtLeastMedium = heightAtLeastMedium,
+        hingeBounds = hingeBounds,
+        chromeForm = chromeForm,
+        feedUnits = feedUnitsForContainer(width, layoutMode, chromeForm),
+        feedCoverColumns = feedCoverColumnsForContainer(width, layoutMode, chromeForm),
+    )
 }
 
 /**
