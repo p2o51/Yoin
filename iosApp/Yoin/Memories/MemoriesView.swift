@@ -120,6 +120,16 @@ struct MemoriesView: View {
             guard await model.store.hydrateMemoryAlbums(), open == presentation.openCount else { return }
             withAnimation(Yoin.effects) { refreshInPlace() }
         }
+        // Titles and narration for the cards not yet tried in this language (MemoryGeneration: once per
+        // album and language, never again on the next open); each answer lands on its card in place.
+        .task(id: [String(presentation.openCount), GeminiSettings.shared.targetLanguage,
+                   GeminiSettings.shared.hasKey ? "key" : ""]) {
+            let open = presentation.openCount
+            await model.generateMemoryText {
+                guard open == presentation.openCount else { return }
+                withAnimation(Yoin.effects) { refreshInPlace() }
+            }
+        }
         .onChange(of: reduceMotion, initial: true) { _, r in deck.diary.reduced = r }
         // VoiceOver's two-finger scrub is iOS's back for an overlay: one level at a time.
         .accessibilityAction(.escape) { back() }
@@ -180,7 +190,8 @@ struct MemoriesView: View {
     /// The deck for this open: the pool rebuilt every time, stopped on the focus, every card on its card face.
     private func rebuild() {
         builtFor = presentation.openCount
-        cards = MemoryDeck.cards(model.store.memoryDeckInputs())
+        let inputs = model.store.memoryDeckInputs()
+        cards = model.voicedMemoryCards(MemoryDeck.cards(inputs), inputs)
         pager.stop()
         position = CGFloat(MemoryDeck.startIndex(cards, focus: presentation.focusAlbumId))
         deck.diary.snap(to: 0)
@@ -200,6 +211,7 @@ struct MemoriesView: View {
         var next = cards.map { MemoryDeck.card(latest[$0.id] ?? $0.memory, inputs) }
         let have = Set(next.map(\.id))
         next += MemoryDeck.cards(inputs).filter { !have.contains($0.id) }.prefix(max(0, MemoryDeck.limit - next.count))
+        next = model.voicedMemoryCards(next, inputs)
         guard next != cards else { return }
         cards = next
         for c in next { deck.refresh(c) }
@@ -208,7 +220,8 @@ struct MemoriesView: View {
     /// One card again after a write, in place (the deck's order holds while it is open).
     private func refresh(_ card: MemoryCard) {
         guard let i = cards.firstIndex(where: { $0.id == card.id }) else { return }
-        let fresh = MemoryDeck.card(card.memory, model.store.memoryDeckInputs())
+        let inputs = model.store.memoryDeckInputs()
+        let fresh = model.voicedMemoryCards([MemoryDeck.card(card.memory, inputs)], inputs)[0]
         cards[i] = fresh
         deck.refresh(fresh)
     }

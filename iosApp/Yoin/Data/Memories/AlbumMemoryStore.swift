@@ -45,13 +45,10 @@ final class AlbumMemoryStore {
         var title: String?
         var titlePromptHash: String?
         var scope: String? = nil
-        #if os(macOS)
         /// Local per-language attempts; the current generated text also occupies the synced columns above.
         var generatedByLanguage: [String: GeneratedText]? = nil
-        #endif
     }
 
-    #if os(macOS)
     struct GeneratedText: Codable, Hashable, Sendable {
         var titleAttempted = false
         var narrationAttempted = false
@@ -61,7 +58,6 @@ final class AlbumMemoryStore {
         var titlePromptHash: String?
         var promptHash: String?
     }
-    #endif
 
     private struct File: Codable {
         var albums: [AlbumRecord] = []
@@ -85,12 +81,8 @@ final class AlbumMemoryStore {
     }
     var memories: [String: MemoryCopy] {
         let rows = visible(allMemories) { ($0.provider, $0.scope, Self.key($0.provider, $0.entityType, $0.entityId)) }
-        #if os(macOS)
         // Attempt-only rows are local bookkeeping, never empty copy to upload over another device's words.
         return rows.filter { !$0.value.copy.isEmpty || !($0.value.title ?? "").isEmpty }
-        #else
-        return rows
-        #endif
     }
 
     init(fileURL: URL, scopes: AccountScope = .shared) {
@@ -175,12 +167,10 @@ final class AlbumMemoryStore {
     @discardableResult func putMemory(_ r: MemoryCopy) -> Bool {
         var r = r
         r.scope = current(r.provider)
-        #if os(macOS)
         // Cloud rows carry the shared columns only; keep this device's attempt history on import.
         if r.generatedByLanguage == nil {
             r.generatedByLanguage = memory(provider: r.provider, entityType: r.entityType, entityId: r.entityId)?.generatedByLanguage
         }
-        #endif
         var m = allMemories; m[Self.storageKey(r.scope, r.provider, r.entityType, r.entityId)] = r
         return commit(memories: m)
     }
