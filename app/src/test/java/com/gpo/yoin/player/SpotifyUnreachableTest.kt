@@ -57,6 +57,8 @@ class SpotifyUnreachableTest {
     private var webStarts = 0
     private val startedOn = mutableListOf<String?>()
     private val players = mutableListOf<SpotifyAppRemotePlayer>()
+    private var spotifyOpenable = true
+    private var spotifyLaunches = 0
 
     @After
     fun tearDown() {
@@ -215,7 +217,33 @@ class SpotifyUnreachableTest {
     }
 
     @Test
-    fun should_dropTheHeldSong_when_theHintWasDismissed() = playerTest {
+    fun should_openSpotifyItself_when_nothingPlaysAnywhere() = playerTest {
+        val player = hintShown()
+
+        assertEquals(1, spotifyLaunches)
+        comeBack(player, spotifyState = state(paused = true))
+
+        assertEquals(1, webStarts)
+        assertEquals(song, snapshots.last().currentTrack)
+    }
+
+    @Test
+    fun should_openSpotifyOnlyOncePerTap_when_itStillDoesntAnswerOnTheWayBack() = playerTest {
+        val player = hintShown()
+
+        player.onHostStop()
+        runCurrent()
+        player.onHostStart(context)
+        advanceTimeBy(SPOTIFY_UNREACHABLE_AFTER_MS + 100)
+        runCurrent()
+
+        assertEquals(1, spotifyLaunches)
+        assertEquals(SpotifyConnectFailure.SpotifyAsleep, snapshots.last().connectionFailure)
+    }
+
+    @Test
+    fun should_dropTheHeldSong_when_spotifyCouldntBeOpenedAndTheHintWasDismissed() = playerTest {
+        spotifyOpenable = false
         val player = hintShown()
 
         comeBack(player, spotifyState = state(paused = true))
@@ -332,7 +360,14 @@ class SpotifyUnreachableTest {
         onSnapshot = { snapshot -> snapshots += snapshot },
         appRemote = appRemote,
         connectWeb = web,
-        spotifyLaunchIntent = { Intent(Intent.ACTION_MAIN).setPackage("com.spotify.music") },
+        spotifyLaunchIntent = {
+            if (spotifyOpenable) {
+                spotifyLaunches++
+                Intent(Intent.ACTION_MAIN).setPackage("com.spotify.music")
+            } else {
+                null
+            }
+        },
     ).also {
         players += it
         it.onHostStart(context)
