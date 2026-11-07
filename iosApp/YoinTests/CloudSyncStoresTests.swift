@@ -7,6 +7,8 @@ import YoinShared
 @MainActor
 final class CloudSyncStoresTests: XCTestCase {
     private var dir: URL!
+    /// No account signed in: the stores here don't follow whatever account the test host app has open.
+    private let unscoped = AccountScope()
 
     override func setUp() async throws {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -20,7 +22,7 @@ final class CloudSyncStoresTests: XCTestCase {
     }
 
     func test_should_buildBunFromLocalStores_when_serverHasNoRatings() {
-        let ratings = LocalRatings(fileURL: dir.appendingPathComponent("ratings.json"))
+        let ratings = LocalRatings(fileURL: dir.appendingPathComponent("ratings.json"), scopes: unscoped)
         let memories = AlbumMemoryStore(fileURL: dir.appendingPathComponent("album-memories.json"))
         let tracks = (1...4).map { Track(id: MediaId(provider: "subsonic", rawId: "t\($0)"), number: $0, title: "T\($0)",
                                          durationSec: 200, rating: 2) }
@@ -52,11 +54,11 @@ final class CloudSyncStoresTests: XCTestCase {
     /// 51, 2026-11-04: nil (never rated) and 0 (rated at the bottom) are different everywhere a rating shows.
     func test_should_keepZeroApartFromUnrated_when_storedAndReloaded() {
         let url = dir.appendingPathComponent("ratings.json")
-        let ratings = LocalRatings(fileURL: url)
+        let ratings = LocalRatings(fileURL: url, scopes: unscoped)
         XCTAssertNil(ratings.rating(provider: "subsonic", songId: "t1"))
         ratings.set(0, provider: "subsonic", songId: "t1")
-        XCTAssertEqual(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "t1"), 0)
-        XCTAssertNil(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "t2"))
+        XCTAssertEqual(LocalRatings(fileURL: url, scopes: unscoped).rating(provider: "subsonic", songId: "t1"), 0)
+        XCTAssertNil(LocalRatings(fileURL: url, scopes: unscoped).rating(provider: "subsonic", songId: "t2"))
 
         let memories = AlbumMemoryStore(fileURL: dir.appendingPathComponent("album-memories.json"))
         let tracks = (1...2).map { Track(id: MediaId(provider: "subsonic", rawId: "t\($0)"), number: $0, title: "T\($0)",
@@ -75,12 +77,12 @@ final class CloudSyncStoresTests: XCTestCase {
     func test_should_readLegacyZeroAsUnrated_when_noZeroMarkExists() throws {
         let url = dir.appendingPathComponent("ratings.json")
         try JSONEncoder().encode(["subsonic:s1": 0.0, "subsonic:s2": 4.2]).write(to: url)
-        let store = LocalRatings(fileURL: url)
+        let store = LocalRatings(fileURL: url, scopes: unscoped)
         XCTAssertNil(store.rating(provider: "subsonic", songId: "s1"))
         XCTAssertEqual(store.rating(provider: "subsonic", songId: "s2"), 4.2)
         store.syncPut(0, provider: "subsonic", songId: "s3", updatedAt: 5)
         store.syncPut(nil, provider: "subsonic", songId: "s2", updatedAt: 6)
-        let reloaded = LocalRatings(fileURL: url)
+        let reloaded = LocalRatings(fileURL: url, scopes: unscoped)
         XCTAssertEqual(reloaded.rating(provider: "subsonic", songId: "s3"), 0)
         XCTAssertNil(reloaded.rating(provider: "subsonic", songId: "s2"))
         XCTAssertTrue(reloaded.hasRow(key: "subsonic:s2"))
@@ -92,14 +94,14 @@ final class CloudSyncStoresTests: XCTestCase {
         var local = 0
         LocalRatings.onLocalChange = { local += 1 }
         let url = dir.appendingPathComponent("ratings.json")
-        let ratings = LocalRatings(fileURL: url)
+        let ratings = LocalRatings(fileURL: url, scopes: unscoped)
         ratings.set(6.4, provider: "subsonic", songId: "s1")
         ratings.clear(provider: "subsonic", songId: "s1")
         XCTAssertNil(ratings.rating(provider: "subsonic", songId: "s1"))
         // The row stays (sync carries the clear as a bare `rating: 0`), with a new change time.
         XCTAssertTrue(ratings.hasRow(key: "subsonic:s1"))
         XCTAssertNotNil(ratings.updatedAt["subsonic:s1"])
-        XCTAssertNil(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "s1"))
+        XCTAssertNil(LocalRatings(fileURL: url, scopes: unscoped).rating(provider: "subsonic", songId: "s1"))
         XCTAssertEqual(local, 2)
         ratings.clear(provider: "subsonic", songId: "s1")
         XCTAssertEqual(local, 2, "nothing to clear: no edit")
@@ -108,7 +110,7 @@ final class CloudSyncStoresTests: XCTestCase {
     func test_should_readLegacyRatings_when_noTimesFileExists() throws {
         let url = dir.appendingPathComponent("ratings.json")
         try JSONEncoder().encode(["subsonic:s1": 7.5]).write(to: url)
-        let store = LocalRatings(fileURL: url)
+        let store = LocalRatings(fileURL: url, scopes: unscoped)
         XCTAssertEqual(store.rating(provider: "subsonic", songId: "s1"), 7.5)
         XCTAssertNil(store.updatedAt["subsonic:s1"])
     }
@@ -117,14 +119,14 @@ final class CloudSyncStoresTests: XCTestCase {
         var local = 0
         LocalRatings.onLocalChange = { local += 1 }
         NotesStore.onLocalChange = { local += 1 }
-        let ratings = LocalRatings(fileURL: dir.appendingPathComponent("ratings.json"))
+        let ratings = LocalRatings(fileURL: dir.appendingPathComponent("ratings.json"), scopes: unscoped)
         let notes = NotesStore(fileURL: dir.appendingPathComponent("notes.json"))
 
         ratings.syncPut(9.3, provider: "subsonic", songId: "s1", updatedAt: 42)
         notes.syncPut(SongNote(id: "n1", provider: "subsonic", trackId: "s1", content: "from Android", createdAt: 1,
                                updatedAt: 2, title: "T", artist: "A", positionMs: 74_000))
         XCTAssertEqual(local, 0)
-        XCTAssertEqual(LocalRatings(fileURL: dir.appendingPathComponent("ratings.json")).updatedAt["subsonic:s1"], 42)
+        XCTAssertEqual(LocalRatings(fileURL: dir.appendingPathComponent("ratings.json"), scopes: unscoped).updatedAt["subsonic:s1"], 42)
 
         ratings.set(8, provider: "subsonic", songId: "s2")
         notes.update(id: "n1", content: "edited here")
@@ -171,7 +173,7 @@ final class CloudSyncStoresTests: XCTestCase {
         let ratingsDir = dir.appendingPathComponent("r", isDirectory: true)
         try FileManager.default.createDirectory(at: ratingsDir.appendingPathComponent("ratings-v2.json"),
                                                 withIntermediateDirectories: true)
-        let ratings = LocalRatings(fileURL: ratingsDir.appendingPathComponent("ratings.json"))
+        let ratings = LocalRatings(fileURL: ratingsDir.appendingPathComponent("ratings.json"), scopes: unscoped)
         XCTAssertFalse(ratings.syncPut(7, provider: "subsonic", songId: "s1", updatedAt: 3))
         XCTAssertNil(ratings.rating(provider: "subsonic", songId: "s1"))
         // A user edit still shows for this run.
@@ -186,7 +188,7 @@ final class CloudSyncStoresTests: XCTestCase {
         try JSONEncoder().encode(["subsonic:a": Int64(10), "subsonic:b": 20, "subsonic:c": 30])
             .write(to: dir.appendingPathComponent("ratings-times.json"))
         try JSONEncoder().encode(Set(["subsonic:a"])).write(to: dir.appendingPathComponent("ratings-zero.json"))
-        let migrated = LocalRatings(fileURL: url)
+        let migrated = LocalRatings(fileURL: url, scopes: unscoped)
         XCTAssertEqual(migrated.rating(provider: "subsonic", songId: "a"), 0)
         XCTAssertNil(migrated.rating(provider: "subsonic", songId: "b"))
         XCTAssertTrue(migrated.hasRow(key: "subsonic:b"))
@@ -195,7 +197,7 @@ final class CloudSyncStoresTests: XCTestCase {
         for name in ["ratings.json", "ratings-times.json", "ratings-zero.json"] {
             try FileManager.default.removeItem(at: dir.appendingPathComponent(name))
         }
-        let reloaded = LocalRatings(fileURL: url)
+        let reloaded = LocalRatings(fileURL: url, scopes: unscoped)
         XCTAssertEqual(reloaded.rating(provider: "subsonic", songId: "a"), 0)
         XCTAssertNil(reloaded.rating(provider: "subsonic", songId: "b"))
         XCTAssertEqual(reloaded.updatedAt["subsonic:a"], 10)
@@ -203,7 +205,7 @@ final class CloudSyncStoresTests: XCTestCase {
         let doc = try JSONSerialization.jsonObject(with: Data(contentsOf: dir.appendingPathComponent("ratings-v2.json")))
             as? [String: Any]
         XCTAssertEqual(doc?["version"] as? Int, 2)
-        XCTAssertNil(LocalRatings(fileURL: url).rating(provider: "subsonic", songId: "a"))
+        XCTAssertNil(LocalRatings(fileURL: url, scopes: unscoped).rating(provider: "subsonic", songId: "a"))
     }
 
     /// C03: another server's notes, ratings and album memories never show under this one.
