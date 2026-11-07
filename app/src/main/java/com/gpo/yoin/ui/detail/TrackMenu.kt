@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.offline.OfflineStatus
 import com.gpo.yoin.data.model.isUnplayableAppleImport
@@ -174,11 +175,12 @@ internal fun TrackMenuSheet(
     // Read once as the sheet opens, so it is the song as it is now.
     val track = remember(songId) { host.trackFor(songId) }
     val coverUrl = remember(track) { track?.coverArt?.let { repository.resolveCoverUrl(it) } }
-    // Its album: the song's own, or asked of its service (Apple Music's playlist, library and search songs
-    // come without one) so "Go to album" is there for them too.
-    val albumId by produceState(track?.albumId, track) {
-        if (value == null && track != null) value = repository.albumIdFor(track)
+    // Its album and artist: the song's own, or asked of its service (Apple Music's playlist, library and
+    // search songs come without them) so "Go to album / artist" are there for them too.
+    val links by produceState(track?.let { SongLinks(it.albumId, it.artistId) }, track) {
+        if (track != null && (track.albumId == null || track.artistId == null)) value = repository.songLinks(track)
     }
+    val albumId = links?.albumId
     val link = rememberDetailWebLink(host.container, WebLinkKind.Track, songId)
     val menu = rememberDetailMenu(
         container = host.container,
@@ -331,7 +333,10 @@ internal fun TrackMenuSheet(
             }
             else -> null
         },
-        *goToArtistRows(track, host.onGoToArtist).toTypedArray(),
+        *goToArtistRows(
+            track?.let { song -> if (song.artistId == null) song.copy(artistId = links?.artistId) else song },
+            host.onGoToArtist,
+        ).toTypedArray(),
         menu.onOpenIn?.let { open -> menu.openInLabel?.let { TrackMenuRow(it, YoinSymbols.Launch, open) } },
     )
 

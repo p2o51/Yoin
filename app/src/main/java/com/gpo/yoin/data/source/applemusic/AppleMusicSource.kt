@@ -32,6 +32,7 @@ import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.PLAYLIST_ADD_BATCH
 import com.gpo.yoin.data.source.PartialPlaylistImportException
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.source.TrackNames
 import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.ConcurrentHashMap
@@ -78,9 +79,9 @@ class AppleMusicSource(
             size > ALTERNATE_NAMES_MEMORY
     }
 
-    /** Song id → its album (null: Apple named none); see [albumIdFor]. */
-    private val albumIdBySong = object : LinkedHashMap<String, MediaId?>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MediaId?>?) =
+    /** Song id → its album and artist; see [songLinks]. */
+    private val linksBySong = object : LinkedHashMap<String, SongLinks>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SongLinks>?) =
             size > ALTERNATE_NAMES_MEMORY
     }
 
@@ -743,19 +744,21 @@ class AppleMusicSource(
     }
 
     /**
-     * The song's album, read once and kept (misses too): its own `albums` relationship, in the catalog for a
-     * catalog song and in the library (a library album) for one the user added from elsewhere.
+     * The song's album and artist, read once and kept: its own `albums` and `artists` relationships, in the
+     * catalog for a catalog song and in the library (a library album / artist) for one added from elsewhere.
      */
-    override suspend fun albumIdFor(trackId: MediaId): MediaId? {
+    override suspend fun songLinks(trackId: MediaId): SongLinks? {
         if (trackId.provider != id || trackId.rawId.removePrefix("library:").isBlank()) return null
         val key = trackId.rawId
-        synchronized(albumIdBySong) {
-            if (key in albumIdBySong) return albumIdBySong[key]
+        synchronized(linksBySong) {
+            linksBySong[key]?.let { return it }
         }
-        val album = page(path("songs", trackId), mapOf("include" to "albums")).resources().firstOrNull()
-            ?.related("albums")?.firstOrNull()?.takeIf { it.text("id") != null }?.mediaId()
-        synchronized(albumIdBySong) { albumIdBySong[key] = album }
-        return album
+        val song = page(path("songs", trackId), mapOf("include" to "albums,artists")).resources().firstOrNull()
+        fun first(relation: String) =
+            song?.related(relation)?.firstOrNull()?.takeIf { it.text("id") != null }?.mediaId()
+        val links = SongLinks(albumId = first("albums"), artistId = first("artists"))
+        synchronized(linksBySong) { linksBySong[key] = links }
+        return links
     }
 
     // Catalog ids only (digits; "pl." for curated playlists): a library id
