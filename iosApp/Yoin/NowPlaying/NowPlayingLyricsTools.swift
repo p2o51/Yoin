@@ -475,19 +475,74 @@ struct LyricsShareSnapshot: Identifiable {
     var artist: String
 }
 
+/// What a pick is shared as (Android LyricsShareFormat): the quote card on its own, or a 9:16 story
+/// with the card centred on the tone's backdrop.
+enum LyricsShareFormat: Hashable, CaseIterable { case card, story }
+
+/// The card's colour pairings (Android LyricsCardTone, spotoolfy's four poster styles), from the
+/// playing palette.
+enum LyricsCardTone: Hashable, CaseIterable {
+    case soft, deep, vivid, mist
+
+    struct Colors {
+        var card: Color
+        var content: Color
+        var backdrop: Color
+    }
+
+    func colors(_ s: CoverScheme) -> Colors {
+        switch self {
+        case .soft: Colors(card: s.primaryContainer, content: s.onPrimaryContainer, backdrop: s.primary)
+        case .deep: Colors(card: s.onPrimaryContainer, content: s.primaryContainer, backdrop: s.primaryContainer)
+        case .vivid: Colors(card: s.tertiary, content: s.onTertiary, backdrop: s.tertiaryContainer)
+        case .mist: Colors(card: s.tertiaryContainer, content: s.onTertiaryContainer, backdrop: s.tertiary)
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .soft: String(localized: "Soft colours")
+        case .deep: String(localized: "Deep colours")
+        case .vivid: String(localized: "Vivid colours")
+        case .mist: String(localized: "Mist colours")
+        }
+    }
+}
+
+enum LyricsShareLayout {
+    /// The card's logical width (with its padding).
+    static let cardWidth: CGFloat = 376
+    /// The story's logical size: 1080 × 1920 at 3×.
+    static let story = CGSize(width: 360, height: 640)
+    /// The story's card stays clear of the chrome stories draw over the top and bottom.
+    static let storyMargin = CGSize(width: 28, height: 72)
+    static let swatch: CGFloat = 36
+    static let swatchTouch: CGFloat = 48
+    static let swatchSelectedCorner: CGFloat = 10
+
+    /// The card's scale inside the story: as is when it fits, smaller (never larger) when it doesn't.
+    static func storyScale(card: CGSize) -> CGFloat {
+        guard card.width > 0, card.height > 0 else { return 1 }
+        let room = CGSize(width: story.width - 2 * storyMargin.width, height: story.height - 2 * storyMargin.height)
+        return min(1, room.width / card.width, room.height / card.height)
+    }
+}
+
 struct LyricsShareCard: View {
     var snapshot: LyricsShareSnapshot
     var scheme: CoverScheme
+    var tone: LyricsCardTone = .soft
 
     var body: some View {
+        let c = tone.colors(scheme)
         VStack(alignment: .leading, spacing: 6) {
             ForEach(snapshot.lines.indices, id: \.self) { i in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(snapshot.lines[i])
                         .font(YoinFont.rounded(22, semibold: true))
-                        .foregroundStyle(scheme.onPrimaryContainer)
+                        .foregroundStyle(c.content)
                     if let t = snapshot.translations[i], !t.isEmpty {
-                        Text(t).font(.gsf(15)).foregroundStyle(scheme.onPrimaryContainer.opacity(0.75))
+                        Text(t).font(.gsf(15)).foregroundStyle(c.content.opacity(0.75))
                     }
                 }
                 .padding(.top, snapshot.passageStarts.contains(i) ? 14 : 0)
@@ -495,29 +550,79 @@ struct LyricsShareCard: View {
             if let credit = LyricsRules.credit(title: snapshot.title, artist: snapshot.artist) {
                 Text("— \(credit)")
                     .font(.gsf(13, .medium)).tracking(0.1)
-                    .foregroundStyle(scheme.onPrimaryContainer.opacity(0.7))
+                    .foregroundStyle(c.content.opacity(0.7))
                     .padding(.top, 18)
             }
         }
-        .frame(width: 320, alignment: .leading)
+        .frame(width: LyricsShareLayout.cardWidth - 56, alignment: .leading)
         .padding(28)
-        .background(scheme.primaryContainer, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .background(c.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 }
 
+/// The 9:16 story (Android LyricsShareStory): the tone's backdrop, full bleed, the card centred and
+/// scaled down to fit rather than ever cutting a line.
+struct LyricsShareStory: View {
+    var snapshot: LyricsShareSnapshot
+    var scheme: CoverScheme
+    var tone: LyricsCardTone
+    /// LyricsShareLayout.storyScale of the card's measured size (ImageRenderer draws in one pass).
+    var cardScale: CGFloat
+
+    var body: some View {
+        ZStack {
+            tone.colors(scheme).backdrop
+            LyricsShareCard(snapshot: snapshot, scheme: scheme, tone: tone)
+                .fixedSize()
+                .scaleEffect(cardScale)
+        }
+        .frame(width: LyricsShareLayout.story.width, height: LyricsShareLayout.story.height)
+        .clipped()
+    }
+}
+
+/// The exported image in the chosen format and tone.
+struct LyricsShareImage: View {
+    var snapshot: LyricsShareSnapshot
+    var scheme: CoverScheme
+    var format: LyricsShareFormat
+    var tone: LyricsCardTone
+    var cardScale: CGFloat = 1
+
+    var body: some View {
+        switch format {
+        case .card: LyricsShareCard(snapshot: snapshot, scheme: scheme, tone: tone)
+        case .story: LyricsShareStory(snapshot: snapshot, scheme: scheme, tone: tone, cardScale: cardScale)
+        }
+    }
+}
+
+/// Android LyricsShareSheet: the preview, Card / Story, four tones, then Close and Share.
 struct LyricsShareSheet: View {
     var snapshot: LyricsShareSnapshot
     var scheme: CoverScheme
     var onClose: () -> Void
+    @State private var format: LyricsShareFormat = .card
+    @State private var tone: LyricsCardTone = .soft
     @State private var image: UIImage?
+    @State private var cardScale: CGFloat = 1
 
     var body: some View {
-        VStack(spacing: 20) {
-            ScrollView {
-                LyricsShareCard(snapshot: snapshot, scheme: scheme)
-                    .padding(.top, 24)
-                    .frame(maxWidth: .infinity)
+        VStack(spacing: 16) {
+            GeometryReader { geo in
+                ScrollView {
+                    preview(room: geo.size)
+                        .padding(.top, 24)
+                        .frame(maxWidth: .infinity)
+                }
             }
+            Picker("Format", selection: $format.animation(Yoin.spatial)) {
+                Text("Card").tag(LyricsShareFormat.card)
+                Text("Story").tag(LyricsShareFormat.story)
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 280)
+            swatches
             HStack(spacing: 12) {
                 Button(action: onClose) {
                     Text("Close").yoinRole(Tokens.type.labelLarge).foregroundStyle(scheme.primary)
@@ -542,10 +647,58 @@ struct LyricsShareSheet: View {
             .padding(.bottom, 12)
         }
         .background(scheme.surfaceContainerHigh.ignoresSafeArea())
-        .task {
-            let r = ImageRenderer(content: LyricsShareCard(snapshot: snapshot, scheme: scheme))
-            r.scale = 3
-            image = r.uiImage
+        .task(id: [format.hashValue, tone.hashValue]) { render() }
+    }
+
+    /// The image as it will be shared; a story is shown scaled down to the room it has.
+    @ViewBuilder
+    private func preview(room: CGSize) -> some View {
+        let img = LyricsShareImage(snapshot: snapshot, scheme: scheme, format: format, tone: tone, cardScale: cardScale)
+        switch format {
+        case .card:
+            img
+        case .story:
+            let s = min(1, (room.width - 48) / LyricsShareLayout.story.width,
+                        max(0.3, room.height - 48) / LyricsShareLayout.story.height)
+            img.scaleEffect(s)
+                .frame(width: LyricsShareLayout.story.width * s, height: LyricsShareLayout.story.height * s)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+    }
+
+    private var swatches: some View {
+        HStack(spacing: 4) {
+            ForEach(LyricsCardTone.allCases, id: \.self) { t in
+                let c = t.colors(scheme)
+                let on = t == tone
+                Button { withAnimation(Yoin.spatial) { tone = t } } label: {
+                    RoundedRectangle(cornerRadius: on ? LyricsShareLayout.swatchSelectedCorner : LyricsShareLayout.swatch / 2,
+                                     style: .continuous)
+                        .fill(c.card)
+                        .frame(width: LyricsShareLayout.swatch, height: LyricsShareLayout.swatch)
+                        .overlay {
+                            if on {
+                                YoinIcon("check", size: 20).foregroundStyle(c.content)
+                                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                            }
+                        }
+                        .frame(width: LyricsShareLayout.swatchTouch, height: LyricsShareLayout.swatchTouch)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressScale())
+                .accessibilityLabel(t.label)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+    }
+
+    private func render() {
+        // The card's own size, the same in every tone: what the story scales it by.
+        let card = ImageRenderer(content: LyricsShareCard(snapshot: snapshot, scheme: scheme).fixedSize())
+        if let size = card.uiImage?.size { cardScale = LyricsShareLayout.storyScale(card: size) }
+        let r = ImageRenderer(content: LyricsShareImage(snapshot: snapshot, scheme: scheme, format: format, tone: tone,
+                                                        cardScale: cardScale))
+        r.scale = 3
+        image = r.uiImage
     }
 }
