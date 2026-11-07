@@ -30,6 +30,13 @@ enum Tips {
     /// The tips, in the order the bubble goes through them. Left out (iOS has no such thing): Android's
     /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line).
     static let all: [Tip] = [
+        // Home screen widgets (Widgets/, parity A-F10); Argon's wording (.argon/ios-widgets-tip), the widget
+        // names as the gallery shows them.
+        Tip(id: "HomeScreenWidgets", icon: "library", updated: "2026-11-07",
+            title: "Add Home Screen widgets",
+            text: "Long-press an empty area on the Home Screen and tap Edit to add the Play and Memory widgets",
+            titleZhHans: "添加桌面小组件",
+            textZhHans: "长按主屏幕空白处，在左上角「编辑」里添加「播放」和「Memories」小组件"),
         // Android #162 (owner's wording, 2026-11-06). No person symbol in YoinSymbols yet: the artist one.
         Tip(id: "AccountQuickSwitch", icon: "artist", updated: "2026-11-06",
             title: "Switch accounts",
