@@ -26,7 +26,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
     # One version for the app and its widget extension (they must match); a new build bumps this line only.
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "21"
+    CURRENT_PROJECT_VERSION: "22"
 targets:
   Yoin:
     type: application
