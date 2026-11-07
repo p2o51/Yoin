@@ -332,3 +332,76 @@ struct PhaseNote: View {
         .padding(.vertical, 40)
     }
 }
+
+/// One line that scrolls when it doesn't fit (Android MarqueeText): 1.2 s before it starts, about 30 pt/s, a
+/// copy following a third of the width behind, 1.8 s between loops, 18 pt fades at both clipped edges. A line
+/// that fits stands still, with no fades.
+struct MacMarqueeText: View {
+    var text: String
+    var font: Font
+    var color: Color
+    @State private var contentWidth: CGFloat = 0
+    @State private var containerWidth: CGFloat = 0
+    @State private var offset: CGFloat = 0
+
+    private var overflows: Bool { containerWidth > 0 && contentWidth > containerWidth + 0.5 }
+    private var gap: CGFloat { containerWidth / 3 }
+
+    var body: some View {
+        // The slot: one line's height and whatever width it's given (its own text never widens it).
+        Text(text).font(font).lineLimit(1)
+            .hidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
+            .overlay(alignment: .leading) {
+                HStack(spacing: gap) {
+                    label
+                    if overflows { label }
+                }
+                .fixedSize()
+                .offset(x: -offset)
+            }
+            .clipped()
+            .mask { fades }
+            .background {
+                label.fixedSize().hidden()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(text)
+            .task(id: "\(text)|\(Int(contentWidth))|\(Int(containerWidth))") { await run() }
+    }
+
+    private var label: some View {
+        Text(text).font(font).foregroundStyle(color).lineLimit(1).fixedSize()
+    }
+
+    @ViewBuilder private var fades: some View {
+        if overflows {
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: 18)
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 18)
+            }
+        } else {
+            Color.black
+        }
+    }
+
+    /// Runs while the line overflows (Yoin's rule: a playing marquee never freezes); a new text starts over.
+    private func run() async {
+        offset = 0
+        guard overflows else { return }
+        try? await Task.sleep(for: .milliseconds(1200))
+        while !Task.isCancelled {
+            let distance = contentWidth + gap
+            let seconds = Double(distance) / 30
+            withAnimation(.linear(duration: seconds)) { offset = distance }
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            // The copy now stands where the line began: back without a jump.
+            offset = 0
+            try? await Task.sleep(for: .milliseconds(1800))
+        }
+    }
+}

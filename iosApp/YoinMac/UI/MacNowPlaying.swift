@@ -150,7 +150,11 @@ struct MacNowPlaying: View {
                 Spacer(minLength: 0)
                 art(side: side, barHeight: min(220, side * 0.62))
                 meta(large: true).padding(.top, 24)
+                // The transport ends where the rating column ends (Android two-pane, PR #163; 51, 11-06/11-07):
+                // the cover plus its 12 + 56 rating column, the cover alone in focus.
                 controls.padding(.top, 12)
+                    // (Never narrower than PLAY, next and the mode button need, in a very small window.)
+                    .frame(width: max(280, model.focus ? side : side + 68), alignment: .leading)
                 pills.padding(.top, 18).chrome(model.focus)
             }
             .frame(width: leftW)
@@ -264,9 +268,9 @@ struct MacNowPlaying: View {
             } else if model.player.currentTrack?.provider == SpotifyMapping.provider, let device = model.spotifyDevice {
                 Text("Playing on \(device)").font(.gsf(12.5)).foregroundStyle(Yoin.ink3).lineLimit(1)
             }
-            Text(model.player.currentTrack?.title ?? "Not playing")
-                .font(.gsf(large ? 40 : 34, .semibold)).foregroundStyle(Yoin.ink)
-                .lineLimit(2).minimumScaleFactor(0.7)
+            // One line, scrolling when it's longer (51, 2026-11-07; Android's title marquee).
+            MacMarqueeText(text: model.player.currentTrack?.title ?? "Not playing",
+                           font: .gsf(large ? 40 : 34, .semibold), color: Yoin.ink)
         }
     }
 

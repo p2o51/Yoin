@@ -172,9 +172,14 @@ enum MacQA {
                     if let t = full.tracks.dropFirst().first { model.selectedTrack = t.id.rawId }
                 }
             case "np-panel", "np-full", "np-focus":
-                guard let a = model.library.home.recentlyPlayed.first ?? albums.first else { return }
+                // `-qaAlbum <title> -qaTrack <n>`: that album and song (a long title, say), else the usual one.
+                await model.library.loadAlbums()
+                let named = UserDefaults.standard.string(forKey: "qaAlbum").flatMap { t in
+                    model.library.albums.first { $0.title == t } }
+                guard let a = named ?? model.library.home.recentlyPlayed.first ?? albums.first else { return }
                 let full = await model.library.fullAlbum(a)
-                model.play(album: full, startAt: min(1, max(0, full.tracks.count - 1)))
+                let track = named != nil ? UserDefaults.standard.integer(forKey: "qaTrack") : 1
+                model.play(album: full, startAt: min(track, max(0, full.tracks.count - 1)))
                 try? await Task.sleep(for: .milliseconds(800))
                 model.player.seek(to: 52)
                 model.toggleNowPlaying()
