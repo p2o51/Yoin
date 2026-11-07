@@ -3276,7 +3276,16 @@
         }
       }
     },
-    "Listening history\nPasswords, sign-ins and API keys\nCaches and downloads": {},
+    "Listening history\nPasswords, sign-ins and API keys\nCaches and downloads": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放记录\n密码、登录状态与 API 密钥\n播放缓存与下载"
+          }
+        }
+      }
+    },
     "Lit on scroll": {},
     "Loading": {
       "localizations": {
@@ -4170,7 +4179,16 @@
         }
       }
     },
-    "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups": {},
+    "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲笔记\n歌曲与专辑评分、专辑乐评\nMemories 标题、歌曲信息与问 Gemini\n歌单云备份"
+          }
+        }
+      }
+    },
     "Nothing here yet": {
       "localizations": {
         "zh-Hans": {
@@ -7506,6 +7524,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "播放记录仅保存在本地。"
+          }
+        }
+      }
+    },
+    "1 playlist": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个歌单"
+          }
+        }
+      }
+    },
+    "%lld playlists": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个歌单"
           }
         }
       }

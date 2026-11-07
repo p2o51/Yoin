@@ -46,7 +46,7 @@ struct PlaylistBackupsEntryRow: View {
 
     private var summary: String {
         let n = backups.all.count
-        return n == 0 ? String(localized: "No backups") : "\(n) \(n == 1 ? "playlist" : "playlists")"
+        return n == 0 ? String(localized: "No backups") : n == 1 ? String(localized: "1 playlist") : String(localized: "\(n) playlists")
     }
 }
 
