@@ -397,7 +397,7 @@ struct LibraryView: View {
                     .lineLimit(1)
                     .yoinRole(Tokens.type.titleSmall)
                     .foregroundStyle(scheme.onSurface)
-                Text(subtitle(item))
+                Text(gridSubtitle(item))
                     .lineLimit(1)
                     .yoinRole(Tokens.type.bodySmall)
                     .foregroundStyle(scheme.onSurfaceVariant)
@@ -412,6 +412,16 @@ struct LibraryView: View {
         case .artist: model.openArtist(item.title, id: item.id.provider == "mock" ? nil : item.id.rawId)
         case .playlist: model.openPlaylist(item.id.rawId)
         case .album: if let album = item.album { model.open(album, tile: "library") }
+        }
+    }
+
+    /// The grid's line under a cover, Spotify's way (51, 2026-11-07): "Album • Artist",
+    /// "Single • Artist", "Playlist • owner", "Artist" (round cover) — the grid mixes all three.
+    private func gridSubtitle(_ item: LibraryItem) -> String {
+        switch item.kind {
+        case .artist: String(localized: "Artist")
+        case .album: item.album?.kindLine ?? ReleaseKind.album.label
+        case .playlist: KindLine.make(String(localized: "Playlist"), item.owner ?? "")
         }
     }
 

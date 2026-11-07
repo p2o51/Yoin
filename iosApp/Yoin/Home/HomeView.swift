@@ -742,7 +742,7 @@ private struct SmallCard: View {
                     EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)
                         .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: zoomTile.key)
                     VStack(alignment: .leading, spacing: 0) {
-                        // Too narrow for "Album · Artist": the kind alone (the title names the rest).
+                        // Too narrow for "Album • Artist": the kind alone (the title names the rest).
                         Text(entry.typeLabel).homeType(Tokens.type.labelSmall)
                         Text(entry.eyebrow).homeType(Tokens.type.labelSmall)
                     }

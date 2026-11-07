@@ -211,7 +211,7 @@ final class HomeMemoriesTests: XCTestCase {
     }
 
     func test_should_sayWhatAndWho_when_inAMixedList() {
-        XCTAssertEqual(KindLine.make("Album", "Kiri Ono"), "Album \u{00B7} Kiri Ono")
+        XCTAssertEqual(KindLine.make("Album", "Kiri Ono"), "Album \u{2022} Kiri Ono")
         XCTAssertEqual(KindLine.make("Playlist", ""), "Playlist")
         XCTAssertEqual(KindLine.make("Playlist", "playlist"), "Playlist")
         XCTAssertEqual(KindLine.make("播放列表", "Playlist"), "播放列表")
