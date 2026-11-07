@@ -58,19 +58,34 @@ final class SpotifyRemote: NSObject {
         guard !SpotifyFake.isOn, account != nil, let r = appRemote() else { return false }
         if r.isConnected { return true }
         if let token, let t = try? await token() { r.connectionParameters.accessToken = t }
-        // With the Spotify app asleep the SDK neither connects nor fails for a long while (Play
-        // looked dead until Spotify was opened by hand): past [timeout] the caller wakes it.
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(timeout))
-            self?.finishConnect(false)
-        }
+        if r.isConnected { return true }
         return await withCheckedContinuation { cont in
             connectWaiters.append(cont)
-            if connectWaiters.count == 1 { r.connect() }
+            guard connectWaiters.count == 1 else { return }
+            // One attempt per connect the SDK is asked for. With the Spotify app asleep the SDK neither
+            // connects nor fails for a long while (Play looked dead until Spotify was opened by hand):
+            // past [timeout] the caller wakes it. The timeout ends only its own attempt: an earlier
+            // one's timer firing during a later connect failed it (Codex 11-07: after one song, another
+            // album went to Spotify again).
+            attempt += 1
+            let mine = attempt
+            r.connect()
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(timeout))
+                guard let self, Self.timeoutEnds(attempt: mine, current: self.attempt) else { return }
+                PlayTrace.log("SR connect timed out")
+                self.finishConnect(false)
+            }
         }
     }
 
     nonisolated static let connectTimeoutSec: Double = 3
+
+    /// The connect attempt waiting for the SDK; a finished attempt moves it on.
+    private var attempt = 0
+
+    /// A timer ends a connect only while its own attempt is the one waiting.
+    nonisolated static func timeoutEnds(attempt: Int, current: Int) -> Bool { attempt == current }
 
     /// Yoin is leaving the foreground: iOS would cut the connection silently (it would still read as
     /// connected); it is closed cleanly instead and reconnected on return. Spotify keeps playing.
@@ -124,6 +139,8 @@ final class SpotifyRemote: NSObject {
     var content: SPTAppRemoteContentAPI? { remote?.contentAPI }
 
     private func finishConnect(_ ok: Bool) {
+        // Whatever ended this attempt, its timer no longer ends anything.
+        attempt += 1
         let waiters = connectWaiters
         connectWaiters = []
         waiters.forEach { $0.resume(returning: ok) }
@@ -174,6 +191,8 @@ extension SpotifyRemote: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDelegate {
         MainActor.assumeIsolated {
             Self.log.info("connect failed: \(error?.localizedDescription ?? "-", privacy: .public)")
             PlayTrace.log("SR connect failed \(error?.localizedDescription ?? "-")")
+            // A dropped remote's late failure isn't the current connection's.
+            guard appRemote === remote else { return }
             finishConnect(false)
         }
     }

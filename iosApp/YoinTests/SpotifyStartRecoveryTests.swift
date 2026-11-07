@@ -21,4 +21,11 @@ final class SpotifyStartRecoveryTests: XCTestCase {
     func test_should_waitForTheCloseBeforeReconnecting() {
         XCTAssertGreaterThan(SpotifyAudioOutput.reconnectGapMs, 0)
     }
+
+    func test_should_endOnlyItsOwnConnect_when_aConnectTimerFires() {
+        // An earlier connect's 3 s timer fired during the next one and failed it, so the next album
+        // woke Spotify again (Codex 11-07 #9): a timer ends only its own attempt.
+        XCTAssertTrue(SpotifyRemote.timeoutEnds(attempt: 4, current: 4))
+        XCTAssertFalse(SpotifyRemote.timeoutEnds(attempt: 3, current: 4))
+    }
 }
