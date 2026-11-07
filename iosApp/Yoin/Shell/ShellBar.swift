@@ -387,16 +387,13 @@ struct PillContent: View {
                     np?.pillCoverFrame = r
                 }
             VStack(alignment: .leading, spacing: 1) {
-                Text(s.title)
-                    .font(.gsf(15, .semibold))
-                    .foregroundStyle(Yoin.ink)
+                // A long title or artist scrolls (Android pill basicMarquee, parity C-U9).
+                MarqueeText(text: s.title, font: .gsf(15, .semibold), color: Yoin.ink)
                     .opacity(showTitle ? 1 : 0)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
                         np?.pillTitleFrame = r
                     }
-                Text(s.artist)
-                    .font(.gsf(13))
-                    .foregroundStyle(Yoin.inkVariant)
+                MarqueeText(text: s.artist, font: .gsf(13), color: Yoin.inkVariant)
             }
             .lineLimit(1)
             .labContrast("miniPlayer")
