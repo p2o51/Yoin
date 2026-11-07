@@ -282,6 +282,10 @@ actor SpotifyTokenProvider {
 
     var current: SpotifyTokens { tokens }
 
+    /// A refresh's invalid_grant revokes the account only while the stored sign-in is the one it refreshed
+    /// (nil stored: the account is already gone, nothing to revoke).
+    nonisolated static func revokes(stored: String?, refreshed: String) -> Bool { stored == refreshed }
+
     /// A token valid for at least a minute; [force] refreshes even so (after a 401).
     func accessToken(force: Bool = false) async throws -> String {
         if !force && !tokens.expiresSoon { return tokens.accessToken }
@@ -304,7 +308,13 @@ actor SpotifyTokenProvider {
             if current { onRefreshed(fresh) }
             return fresh.accessToken
         } catch SpotifyAuthError.revoked {
-            onRevoked()
+            // Only the sign-in this refresh came from is gone: a re-login that landed meanwhile (its own
+            // refresh token) isn't marked to reconnect by the old one's invalid_grant (Codex 11-07).
+            let id = profileId
+            let stillThatSignIn = await MainActor.run {
+                Self.revokes(stored: SpotifyTokenStore.load(id)?.refreshToken, refreshed: old.refreshToken)
+            }
+            if stillThatSignIn { onRevoked() }
             throw SpotifyAuthError.revoked
         }
     }

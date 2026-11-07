@@ -49,4 +49,11 @@ final class SpotifyStartRecoveryTests: XCTestCase {
         XCTAssertFalse(SpotifyAudioOutput.watchStillValid(asked: a, current: nil, askedGen: 2, generation: 2))
         XCTAssertFalse(SpotifyAudioOutput.watchStillValid(asked: a, current: a, askedGen: 2, generation: 3), "a new start")
     }
+
+    func test_should_revokeOnlyTheSignInThatWasRefreshed() {
+        // An old refresh's invalid_grant after a re-login must not mark the new sign-in (Codex 11-07).
+        XCTAssertTrue(SpotifyTokenProvider.revokes(stored: "r1", refreshed: "r1"))
+        XCTAssertFalse(SpotifyTokenProvider.revokes(stored: "r2", refreshed: "r1"))
+        XCTAssertFalse(SpotifyTokenProvider.revokes(stored: nil, refreshed: "r1"))
+    }
 }
