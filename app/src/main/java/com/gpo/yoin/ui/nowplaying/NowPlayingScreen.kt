@@ -236,6 +236,8 @@ fun NowPlayingScreen(
     // single-column body for its directional cover ride-in.
     skipDirection: Int = 1,
     onTogglePlayPause: () -> Unit,
+    // Opens the Spotify app (no song) from the "can't reach Spotify" page.
+    onOpenSpotify: () -> Unit = {},
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSeek: (Float) -> Unit,
@@ -551,6 +553,7 @@ fun NowPlayingScreen(
                 is NowPlayingUiState.ConnectError -> ConnectErrorContent(
                     state = uiState,
                     onDismiss = onDismiss,
+                    onOpenSpotify = onOpenSpotify,
                     dismissFraction = dismissFraction,
                 )
                 is NowPlayingUiState.Playing -> PlayingContent(
@@ -723,6 +726,7 @@ private fun LaunchingContent(
 private fun ConnectErrorContent(
     state: NowPlayingUiState.ConnectError,
     onDismiss: () -> Unit,
+    onOpenSpotify: () -> Unit = {},
     dismissFraction: () -> Float = { 0f },
     modifier: Modifier = Modifier,
 ) {
@@ -778,6 +782,14 @@ private fun ConnectErrorContent(
             color = MaterialTheme.colorScheme.error,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
+        if (state.opensSpotify) {
+            // The way out sits on the page itself: the shell snackbar that also
+            // offers it is hidden behind Now Playing and gone after a few seconds.
+            Spacer(modifier = Modifier.height(20.dp))
+            FilledTonalButton(onClick = onOpenSpotify) {
+                Text(text = stringResource(R.string.shell_snackbar_open_spotify))
+            }
+        }
     }
 }
 

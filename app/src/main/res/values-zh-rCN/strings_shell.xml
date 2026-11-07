@@ -24,6 +24,7 @@
     <string name="player_spotify_update_app">请更新 Spotify 应用以使用应用内播放。</string>
     <string name="player_spotify_unavailable">Spotify 播放不可用。</string>
     <string name="player_spotify_asleep">连不上 Spotify。打开 Spotify 再回来，就会接着播这首。</string>
+    <string name="player_spotify_opened">Spotify 没响应，已经帮你打开了。回到这里就会接着播这首。</string>
     <string name="player_spotify_track_only_fallback">Spotify 播放已退回单曲模式。打开「设置 → Spotify」重新连接，以恢复专辑与播放列表上下文。</string>
     <string name="player_spotify_needs_permission">需要在 Spotify 应用中授予权限。请打开 Spotify，在提示时允许访问后再试。</string>
     <string name="player_spotify_needs_authorization">需要在 Spotify 应用中完成授权。请打开 Spotify 后再试。</string>

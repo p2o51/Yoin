@@ -42,6 +42,8 @@ sealed interface NowPlayingUiState {
         val artist: String,
         val coverArtUrl: String?,
         val message: UiText,
+        /** Spotify here didn't answer: the page offers to open it. */
+        val opensSpotify: Boolean = false,
     ) : NowPlayingUiState
 
     /**
