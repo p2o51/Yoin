@@ -125,6 +125,18 @@ final class PlayerEngineTests: XCTestCase {
         XCTAssertTrue(engine.isPlaying)
     }
 
+    func test_should_dropSpotifysOwnSong_when_stopped() {
+        // An account switch stops the engine: the old account's Spotify song mustn't stay on Now Playing.
+        engine.play(queue: tracks(2), startAt: 0)
+        let theirs = PlayableTrack(id: "1IEKU3", provider: "spotify", title: "Their Song", artist: "Them", album: "Theirs",
+                                   albumId: nil, durationSec: 171, streamURL: URL(string: "spotify-yoin://track/1IEKU3")!,
+                                   coverURL: nil)
+        engine.outputExternalTrackDidChange(theirs, positionSec: 3, playing: true)
+        engine.stop()
+        XCTAssertNil(engine.currentTrack)
+        XCTAssertNil(engine.failure)
+    }
+
     func test_should_load_start_and_preload_next_when_playing_a_queue() {
         engine.play(queue: tracks(3), startAt: 1)
         XCTAssertEqual(engine.currentTrack?.id, "t2")

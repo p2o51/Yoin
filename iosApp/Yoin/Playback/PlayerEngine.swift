@@ -180,6 +180,10 @@ final class PlayerEngine {
         queue = []
         originalOrder = nil
         currentIndex = nil
+        // Spotify's own song and a failure belong to the session that stopped (an account switch).
+        externalTrack = nil
+        failure = nil
+        consecutiveFailures = 0
         isPlaying = false
         isBuffering = false
         ended = false
