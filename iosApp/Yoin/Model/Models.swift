@@ -67,6 +67,33 @@ struct Track: Identifiable, Hashable, Sendable {
 
 enum ReleaseKind: String, Hashable, Sendable {
     case album = "Album", ep = "EP", single = "Single", compilation = "Compilation"
+
+    /// The release's word in a mixed list ("Album", "Single", …).
+    var label: String {
+        switch self {
+        case .album: String(localized: "Album")
+        case .ep: String(localized: "EP")
+        case .single: String(localized: "Single")
+        case .compilation: String(localized: "Compilation")
+        }
+    }
+}
+
+/// A mixed list's subtitle, Spotify's way (51, 2026-11-07): what it is, a dot,
+/// then who: "Album · Kiri Ono", "Playlist · owner", "Artist" alone. The kind is
+/// a label, the name is data; a name that only repeats the kind is dropped.
+enum KindLine {
+    static func make(_ kind: String, _ name: String) -> String {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty, n.caseInsensitiveCompare(kind) != .orderedSame,
+              !["album", "artist", "playlist", "song", "track"].contains(n.lowercased()) else { return kind }
+        return "\(kind) \u{00B7} \(n)"
+    }
+}
+
+extension Album {
+    /// "Album · Artist" (or Single / EP / Compilation).
+    var kindLine: String { KindLine.make(kind.label, artist) }
 }
 
 struct Album: Identifiable, Hashable, Sendable {
@@ -163,10 +190,19 @@ struct ActivityEntry: Identifiable, Hashable, Sendable {
         }
     }
 
+    /// The card's subtitle in a mixed list: "Album · Artist", "Playlist · owner", "Artist".
+    var kindLine: String {
+        switch entity {
+        case .artist: typeLabel
+        case .album: album.kindLine
+        default: KindLine.make(typeLabel, album.artist)
+        }
+    }
+
     /// The small card's type line (Android `activityTypeLabel`).
     var typeLabel: String {
         switch entity {
-        case .album: String(localized: "Album")
+        case .album: album.kind.label
         case .artist: String(localized: "Artist")
         case .playlist: String(localized: "Playlist")
         case .song: String(localized: "Track")

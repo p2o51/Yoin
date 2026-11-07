@@ -7691,6 +7691,36 @@
           }
         }
       }
+    },
+    "Single": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单曲"
+          }
+        }
+      }
+    },
+    "EP": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EP"
+          }
+        }
+      }
+    },
+    "Compilation": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合辑"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

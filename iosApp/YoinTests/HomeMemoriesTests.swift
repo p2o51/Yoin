@@ -210,6 +210,13 @@ final class HomeMemoriesTests: XCTestCase {
         XCTAssertNil(MemoriesTopBar.lastHeard(nil, now: now))
     }
 
+    func test_should_sayWhatAndWho_when_inAMixedList() {
+        XCTAssertEqual(KindLine.make("Album", "Kiri Ono"), "Album \u{00B7} Kiri Ono")
+        XCTAssertEqual(KindLine.make("Playlist", ""), "Playlist")
+        XCTAssertEqual(KindLine.make("Playlist", "playlist"), "Playlist")
+        XCTAssertEqual(KindLine.make("播放列表", "Playlist"), "播放列表")
+    }
+
     func test_should_turnOnFlickOrPastHalf_when_pagerReleased() {
         XCTAssertEqual(MemoryDeck.settlePage(position: 1.4, velocity: 0, count: 5), 1)
         XCTAssertEqual(MemoryDeck.settlePage(position: 1.6, velocity: 0, count: 5), 2)

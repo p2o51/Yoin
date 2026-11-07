@@ -712,7 +712,7 @@ private struct HeroCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(muted)
                     Text(album.title).homeType(Tokens.type.titleLarge, .semibold).foregroundStyle(s.onSurface)
-                    Text(album.artist).homeType(Tokens.type.bodySmall).foregroundStyle(muted)
+                    Text(entry.kindLine).homeType(Tokens.type.bodySmall).foregroundStyle(muted)
                     MetaLine(groups: heroMeta, color: muted)
                 }
                 .lineLimit(1)
@@ -742,6 +742,7 @@ private struct SmallCard: View {
                     EntityBackdrop(entity: entry.backdrop, palette: album.palette, seed: album.seed, size: 52, stroke: s.primary)
                         .zoomSource(album.id, entry.entity == .album ? zoomNS : nil, tile: zoomTile.key)
                     VStack(alignment: .leading, spacing: 0) {
+                        // Too narrow for "Album · Artist": the kind alone (the title names the rest).
                         Text(entry.typeLabel).homeType(Tokens.type.labelSmall)
                         Text(entry.eyebrow).homeType(Tokens.type.labelSmall)
                     }
@@ -782,7 +783,7 @@ private struct WideCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSurfaceVariant)
                     Text(album.title).homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(s.onSurface)
-                    Text(album.artist).homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
+                    Text(entry.kindLine).homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
                 }
                 .lineLimit(1)
                 Spacer(minLength: 0)
@@ -809,7 +810,7 @@ private struct StripCard: View {
             HStack(spacing: 10) {
                 HStack(spacing: 12) {
                     Text(album.title).homeType(Tokens.type.bodyMedium, .semibold).foregroundStyle(s.onSurface)
-                    Text(album.artist).homeType(Tokens.type.bodyMedium).foregroundStyle(s.onSurface.opacity(0.6))
+                    Text(entry.kindLine).homeType(Tokens.type.bodyMedium).foregroundStyle(s.onSurface.opacity(0.6))
                 }
                 Spacer(minLength: 0)
                 Text(timeAgo).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSurfaceVariant)
@@ -841,7 +842,7 @@ private struct JBICell: View {
     var body: some View {
         let s = scheme!
         Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
-            AlbumItem(album: album, size: Tokens.home.JBI_COVER.cg) {
+            AlbumItem(album: album, size: Tokens.home.JBI_COVER.cg, subtitle: album.kindLine) {
                 // albumMemoryMarkInk: palette base, accent in dark mode.
                 if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
             }
@@ -886,6 +887,8 @@ struct AlbumItem<Mark: View>: View {
     var titleLineHeight: CGFloat = 22
     var artistStyle: YoinTokens.TypographyStyle = Tokens.type.bodySmall
     var gap: CGFloat = 5
+    /// Under the title: the artist, or a mixed list's "Album · Artist".
+    var subtitle: String? = nil
     @ViewBuilder var mark: () -> Mark
 
     var body: some View {
@@ -906,7 +909,7 @@ struct AlbumItem<Mark: View>: View {
                         mark().padding(-8)
                     }
                 }
-                Text(album.artist)
+                Text(subtitle ?? album.artist)
                     .homeType(artistStyle)
                     .foregroundStyle(s.onSurfaceVariant)
             }
@@ -961,7 +964,8 @@ private struct SignalCard: View {
                             .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
                             .homeLine(16, 22)
                             .foregroundStyle(s.onSurface)
-                        Text(signal.subtitle).homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
+                        Text(signal.kind == .ratedAlbum ? album.kindLine : signal.subtitle)
+                            .homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
                     }
                     .lineLimit(1)
                     .frame(width: Tokens.home.JBI_COVER.cg, alignment: .leading)
