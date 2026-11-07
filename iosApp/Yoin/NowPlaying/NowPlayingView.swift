@@ -1348,8 +1348,17 @@ struct NowPlayingView: View, Equatable {
             draftAnchorMs: draftAnchorMs, writing: composing,
             playheadMs: { playheadMs },
             onSeek: { ms in if engineTrack != nil { model.player.seek(to: Double(ms) / 1000) } },
-            onDelete: { NotesStore.shared.delete(id: $0) },
-            onRestore: { NotesStore.shared.restore($0) },
+            onDelete: { id in
+                // Not written: the note stays, and says so.
+                let gone = NotesStore.shared.delete(id: id)
+                if gone == nil { PlaylistActions.shared.show(String(localized: "Couldn't delete the note. Try again")) }
+                return gone
+            },
+            onRestore: { note in
+                let back = NotesStore.shared.restore(note)
+                if !back { PlaylistActions.shared.show(String(localized: "Couldn't restore the note. Try again")) }
+                return back
+            },
             onRealign: { NotesStore.shared.realign(id: $0, positionMs: $1) },
             editingId: editingNoteId,
             onEdit: { startEditing($0) }

@@ -7721,6 +7721,26 @@
           }
         }
       }
+    },
+    "Couldn't delete the note. Try again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法删除笔记，请重试"
+          }
+        }
+      }
+    },
+    "Couldn't restore the note. Try again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法恢复笔记，请重试"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

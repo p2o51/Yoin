@@ -83,52 +83,43 @@ final class NotesStore {
         return note
     }
 
-    /// Removes a note and hands it back (for Undo); nil when it isn't there.
+    /// Removes a note and hands it back (for Undo); nil when it isn't there or the change couldn't be
+    /// written (then nothing changed).
     @discardableResult
     func delete(id: String) -> SongNote? {
         guard let i = index(id) else { return nil }
-        let removed = stored.remove(at: i)
-        persist()
-        return removed
+        var next = stored
+        let removed = next.remove(at: i)
+        return change(next) ? removed : nil
     }
 
-    /// Puts a deleted note back as it was (Android's 撤销 after a delete).
-    func restore(_ note: SongNote) {
-        guard !stored.contains(where: { $0.id == note.id && $0.scope == note.scope }) else { return }
-        stored.append(note)
-        persist()
+    /// Puts a deleted note back as it was (Android's 撤销 after a delete). False when it couldn't be written.
+    @discardableResult
+    func restore(_ note: SongNote) -> Bool {
+        guard !stored.contains(where: { $0.id == note.id && $0.scope == note.scope }) else { return true }
+        return change(stored + [note])
     }
 
     /// New words for a note; blank words are ignored. Returns the stored note; nil when it couldn't be
-    /// written (nothing changes, so the editor keeps the words; Codex 11-07).
+    /// written (the note keeps its old words).
     @discardableResult
     func update(id: String, content: String) -> SongNote? {
         let words = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty, let i = index(id) else { return nil }
-        var note = stored[i]
-        note.content = words
-        note.updatedAt = nowMs
-        return commit(note, at: i)
+        var next = stored
+        next[i].content = words
+        next[i].updatedAt = nowMs
+        return change(next) ? stored[i] : nil
     }
 
-    /// Android "Align to now": the note moves to [positionMs] of its song. nil when it couldn't be written.
+    /// Android "Align to now": the note moves to [positionMs] of its song (nil: not written, not moved).
     @discardableResult
     func realign(id: String, positionMs: Int64) -> SongNote? {
         guard let i = index(id) else { return nil }
-        var note = stored[i]
-        note.positionMs = max(0, positionMs)
-        note.updatedAt = nowMs
-        return commit(note, at: i)
-    }
-
-    /// [note] in place of the one at [i], only once it is on disk.
-    private func commit(_ note: SongNote, at i: Int) -> SongNote? {
         var next = stored
-        next[i] = note
-        guard write(next) else { return nil }
-        stored = next
-        Self.onLocalChange?()
-        return note
+        next[i].positionMs = max(0, positionMs)
+        next[i].updatedAt = nowMs
+        return change(next) ? stored[i] : nil
     }
 
     // MARK: Cloud sync (Data/Sync)
@@ -183,9 +174,11 @@ final class NotesStore {
 
     private var nowMs: Int64 { Int64((now().timeIntervalSince1970 * 1000).rounded()) }
 
-    private func persist() {
-        persistOnly()
+    /// A user's change: [next] on disk first, then in memory, then sync told. False: not written, nothing changed.
+    private func change(_ next: [SongNote]) -> Bool {
+        guard commit(next) else { return false }
         Self.onLocalChange?()
+        return true
     }
 
     private func persistOnly() {

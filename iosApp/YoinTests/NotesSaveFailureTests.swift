@@ -16,20 +16,20 @@ final class NotesSaveFailureTests: XCTestCase {
     }
 
     func test_should_keepTheOldWords_when_anEditCantBeWritten() throws {
-        // An edit that didn't reach the disk isn't saved: nil, and the note keeps its old words (Codex 11-07).
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("notes-edit-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("notes.json")
-        let notes = NotesStore(fileURL: url, scopes: AccountScope())
-        let note = try XCTUnwrap(notes.add(provider: "subsonic", trackId: "t1", content: "Old words",
+        let file = dir.appendingPathComponent("notes.json")
+        let notes = NotesStore(fileURL: file, scopes: AccountScope())
+        let note = try XCTUnwrap(notes.add(provider: "applemusic", trackId: "t1", content: "First words",
                                            positionMs: 1000, title: "T", artist: "A"))
-        // The file becomes a folder: every write fails from here.
-        try FileManager.default.removeItem(at: url)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        // The folder becomes a file: the next write fails.
+        try FileManager.default.removeItem(at: dir)
+        try Data().write(to: dir)
         XCTAssertNil(notes.update(id: note.id, content: "New words"))
         XCTAssertNil(notes.realign(id: note.id, positionMs: 5000))
-        let kept = try XCTUnwrap(notes.notes(provider: "subsonic", trackId: "t1").first)
-        XCTAssertEqual(kept.content, "Old words")
+        XCTAssertNil(notes.delete(id: note.id))
+        let kept = try XCTUnwrap(notes.note(id: note.id))
+        XCTAssertEqual(kept.content, "First words")
         XCTAssertEqual(kept.positionMs, 1000)
     }
 }

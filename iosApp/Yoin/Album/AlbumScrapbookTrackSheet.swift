@@ -197,8 +197,12 @@ struct ScrapTrackSheet: View {
             .accessibilityHint(note.positionMs.map { String(localized: "Play from \(NotesStore.formatPosition($0))") } ?? String(localized: "Play"))
             .contextMenu {
                 Button("Delete", role: .destructive) {
-                    guard let gone = NotesStore.shared.delete(id: note.id) else { return }
-                    toast.show(String(localized: "Deleted"), action: .init(label: String(localized: "Undo")) { NotesStore.shared.restore(gone) })
+                    guard let gone = NotesStore.shared.delete(id: note.id) else {
+                        return toast.show(String(localized: "Couldn't delete the note. Try again"))
+                    }
+                    toast.show(String(localized: "Deleted"), action: .init(label: String(localized: "Undo")) {
+                        if !NotesStore.shared.restore(gone) { toast.show(String(localized: "Couldn't restore the note. Try again")) }
+                    })
                 }
             }
         }

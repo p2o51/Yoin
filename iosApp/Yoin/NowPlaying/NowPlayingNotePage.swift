@@ -18,7 +18,8 @@ struct NowPlayingNotePage: View {
     var playheadMs: () -> Int64
     var onSeek: (Int64) -> Void
     var onDelete: (String) -> SongNote?
-    var onRestore: (SongNote) -> Void
+    /// False: the note couldn't be written back (Undo stays).
+    var onRestore: (SongNote) -> Bool
     var onRealign: (String, Int64) -> Void
     /// The note the composer is editing (its line reads "Editing…").
     var editingId: String? = nil
@@ -225,10 +226,9 @@ struct NowPlayingNotePage: View {
                 undoTask?.cancel()
                 guard let d = deleted else { return }
                 seeks += 1
-                withAnimation(Yoin.spatial) {
-                    deleted = nil
-                    onRestore(d)
-                }
+                // Written back first: a restore that didn't reach the disk keeps Undo on offer.
+                guard onRestore(d) else { return }
+                withAnimation(Yoin.spatial) { deleted = nil }
             } label: {
                 Text("Undo")
                     .yoinRole(Tokens.type.labelLarge, weight: .semibold)
