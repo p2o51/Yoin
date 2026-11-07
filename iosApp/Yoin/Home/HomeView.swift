@@ -13,6 +13,8 @@ struct HomeView: View {
     @State private var edit = HomeEditController()
     /// The Memories bubble's motion and turns (HomeMemoryBubble.swift).
     @State private var bubble = MemoryBubbleController()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var intro: HomeIntro { .shared }
     @State private var scroll = HomeScrollState()
     /// How far the window runs past Home's frame (status bar above, bottom bar below): Memories covers it.
     @State private var pageBleed = EdgeInsets()
@@ -264,13 +266,22 @@ struct HomeView: View {
                     .font(YoinFont.rounded(16, relativeTo: .subheadline))
                     .foregroundStyle(scheme.onSurfaceVariant)
                     .frame(height: 24)
+                    .opacity(intro.greeting)
+                    .offset(y: (1 - intro.greeting) * 12)
                 EditTitleSwap(edit: edit, scheme: scheme)
                     .frame(height: 36)
+                    .opacity(intro.title)
+                    .offset(y: (1 - intro.title) * 16)
                     // An easy way into Glass Lab on a real phone (besides the
                     // three-finger long-press).
                     .onLongPressGesture { withAnimation(Yoin.spatial) { GlassLab.shared.panelOpen = true } }
             }
             .lineLimit(1)
+            // A cold start: the mark blooms where the title will be, then gives way to it.
+            .overlay(alignment: .leading) {
+                if intro.markShown { HomeIntroMark(intro: intro, scheme: scheme) }
+            }
+            .onAppear { intro.play(reduceMotion: reduceMotion) }
             // The bubble takes the title's place when it speaks.
             .modifier(BubbleTitleShift(bubble: bubble))
             // Where the title rests (outside the shift, so the bubble's own push doesn't move it).

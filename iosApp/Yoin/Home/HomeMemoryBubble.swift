@@ -317,7 +317,8 @@ struct MemoryBubbleOverlay: View {
         try? await Task.sleep(for: .seconds(BubbleTiming.newsDelay))
         // Waiting to be readable, it must stay so, untouched, a beat first.
         while !Task.isCancelled {
-            if bubble.canSpeak && Date().timeIntervalSince(bubble.idleSince) > 0.3 { break }
+            // Not over the cold-start bloom (HomeIntro): the mark finishes first.
+            if bubble.canSpeak && !HomeIntro.shared.running && Date().timeIntervalSince(bubble.idleSince) > 0.3 { break }
             try? await Task.sleep(for: .milliseconds(100))
         }
         guard !Task.isCancelled else { return }
