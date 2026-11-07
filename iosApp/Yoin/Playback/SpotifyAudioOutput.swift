@@ -911,18 +911,52 @@ final class SpotifyAudioOutput: AudioOutput {
         Task {
             try? await Task.sleep(for: .seconds(Self.verifySec))
             guard gen == generation, let control else { return }
-            let now = (try? await control.playerNow()) ?? nil
-            PlayTrace.log("SP verify \(Self.describe(now))")
-            guard gen == generation else { return }
-            if let now, now.trackURI == item.trackURI || now.trackURI == handedNext?.trackURI { return apply(now) }
-            // Something else plays there (the start is late, or never took): Yoin shows that, and
-            // moves back onto the queue's song if Spotify gets to it.
-            if let now, now.isPlaying, now.trackURI != nil {
-                land(false)
-                return apply(now)
+            // A read that failed (timeout, 401, 429) says nothing of the device: read again, and with no
+            // answer at all the start stands (polling follows it) — only an answer can drop it (Codex 11-07).
+            var answer: SpotifySource.PlayerNow??
+            for attempt in 0..<Self.verifyReads {
+                if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+                guard gen == generation else { return }
+                do {
+                    answer = .some(try await control.playerNow())
+                    break
+                } catch {
+                    PlayTrace.log("SP verify read failed \(error)")
+                }
             }
-            dropped()
+            guard gen == generation else { return }
+            if let now = answer { PlayTrace.log("SP verify \(Self.describe(now))") }
+            switch Self.verifyOutcome(answer, wanted: item.trackURI, next: handedNext?.trackURI) {
+            case .stands: PlayTrace.log("SP verify: no answer, the start stands")
+            case .ours(let now): apply(now)
+            case .other(let now):
+                // Something else plays there (the start is late, or never took): Yoin shows that, and
+                // moves back onto the queue's song if Spotify gets to it.
+                land(false)
+                apply(now)
+            case .dropped: dropped()
+            }
         }
+    }
+
+    nonisolated static let verifyReads = 3
+
+    enum VerifyOutcome: Equatable {
+        /// No read answered: nothing is known, the start stands.
+        case stands
+        case ours(SpotifySource.PlayerNow)
+        case other(SpotifySource.PlayerNow)
+        /// Spotify answered with no song there, or a stopped one that isn't ours.
+        case dropped
+    }
+
+    /// What the reads after a start say: [answer] nil = every read failed; .some(nil) = 204, nothing there.
+    nonisolated static func verifyOutcome(_ answer: SpotifySource.PlayerNow??, wanted: String, next: String?) -> VerifyOutcome {
+        guard let answer else { return .stands }
+        guard let now = answer else { return .dropped }
+        if now.trackURI == wanted || (next != nil && now.trackURI == next) { return .ours(now) }
+        if now.isPlaying, now.trackURI != nil { return .other(now) }
+        return .dropped
     }
 
     /// The device took the start and then had no song, or never played it: said once, with Retry (which
@@ -930,6 +964,8 @@ final class SpotifyAudioOutput: AudioOutput {
     private func dropped() {
         PlayTrace.log("SP start dropped on \(SpotifyPlayingDevice.shared.name ?? "-")")
         resetStart()
+        // Spotify seen playing the song after all clears the failure (apply).
+        failedHere = true
         lastTime = currentTimeSec
         lastTick = Date()
         playing = false
