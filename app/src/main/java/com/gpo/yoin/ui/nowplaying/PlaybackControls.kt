@@ -62,9 +62,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -146,7 +148,8 @@ internal fun PlaybackControls(
     // progress bar stays (owner 2026-11-05 「按键没了也应该显示进度条」).
     atEase: Float = 0f,
 ) {
-    val awayModifier = Modifier.graphicsLayer { alpha = (1f - atEase).coerceIn(0f, 1f) }
+    val away = atEase.coerceIn(0f, 1f)
+    val awayModifier = Modifier.graphicsLayer { alpha = 1f - away }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
         // Publish the PLAY/PAUSE press to the reactive background so it can gather
@@ -488,20 +491,28 @@ internal fun PlaybackControls(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 // PREVIOUS's slot (button + gap) narrows to nothing as the
-                                // button rises into the top row (drawn over both rows, below).
-                                Spacer(modifier = Modifier.width((controlSize + 8.dp) * (1f - prevToTopRow)))
+                                // button rises into the top row (drawn over both rows, below)
+                                // or steps away at ease: the bar then runs the whole width,
+                                // the cover's edges in focus (owner 2026-11-05).
+                                Spacer(
+                                    modifier = Modifier.width(
+                                        (controlSize + 8.dp) * (1f - prevToTopRow) * (1f - away),
+                                    ),
+                                )
 
                                 if (labelsInline) {
                                     PlaybackTimeLabel(
                                         text = formatTrackDurationMs(positionMs),
-                                        modifier = awayModifier
+                                        modifier = Modifier
+                                            .stepAwayWidth(away, fromEnd = false)
+                                            .then(awayModifier)
                                             // minWidth (not fixed width): fontScale>1 grows
                                             // instead of clipping; tabular figures keep the
                                             // fontScale-1 footprint identical.
                                             .defaultMinSize(minWidth = 44.dp)
                                             .offset(y = 6.dp),
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.width(8.dp * (1f - away)))
                                 }
                                 WaveProgressBar(
                                     progress = progress,
@@ -521,10 +532,12 @@ internal fun PlaybackControls(
                                         .trackGlowBounds(waveGlow.bounds),
                                 )
                                 if (labelsInline) {
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.width(8.dp * (1f - away)))
                                     PlaybackTimeLabel(
                                         text = "-${formatTrackDurationMs((durationMs - positionMs).coerceAtLeast(0L))}",
-                                        modifier = awayModifier
+                                        modifier = Modifier
+                                            .stepAwayWidth(away, fromEnd = true)
+                                            .then(awayModifier)
                                             .defaultMinSize(minWidth = 52.dp)
                                             .offset(y = 6.dp),
                                         textAlign = androidx.compose.ui.text.style.TextAlign.End,
@@ -551,17 +564,43 @@ internal fun PlaybackControls(
                 }
                 // PREVIOUS: at the start of the progress row at rest, gliding up to the
                 // start of the top row in short focus (one button, so one press state).
+                // Offset first, then the fade's layer: a layer outside the offset
+                // keeps the button's un-moved bounds and cut it off at the PAUSE
+                // row's bottom as it slid down, popping back once settled.
                 Box(
-                    modifier = awayModifier.offset {
+                    modifier = Modifier.offset {
                         val secondRowTop = (controlSize + TransportRowGap).toPx()
                         val secondRowHeight = lerp(controlSize, ShortFocusProgressRowHeight, prevToTopRow).toPx()
                         val restTop = secondRowTop + (secondRowHeight - controlSize.toPx()) / 2f
                         IntOffset(0, (restTop * (1f - prevToTopRow)).roundToInt())
-                    },
+                    }.then(awayModifier),
                 ) {
                     prevButton()
                 }
             }
+        }
+    }
+}
+
+/**
+ * At ease, an inline time label gives its width back to the progress bar as
+ * it fades ([away] 0 = all of it .. 1 = none), clipped and sliding out at its
+ * own edge, so the bar grows to the row's ends.
+ */
+private fun Modifier.stepAwayWidth(away: Float, fromEnd: Boolean): Modifier = if (away <= 0f) {
+    this
+} else {
+    // Clip across only: the label draws 6dp below its box (offset), which a
+    // full clip would cut while it steps away and pop back once settled.
+    drawWithContent {
+        clipRect(left = 0f, top = -size.height, right = size.width, bottom = size.height * 2f) {
+            this@drawWithContent.drawContent()
+        }
+    }.layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints.copy(minWidth = 0))
+        val width = (placeable.width * (1f - away)).roundToInt().coerceAtLeast(0)
+        layout(width, placeable.height) {
+            placeable.placeRelative(if (fromEnd) 0 else width - placeable.width, 0)
         }
     }
 }

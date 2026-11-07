@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
@@ -20,7 +23,9 @@ import androidx.compose.material3.ButtonGroupScope
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,6 +38,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -194,6 +200,88 @@ internal class BottomPillsLayout(
     fun fitsPressedLabel(label: String): Boolean =
         iconOnlyWidth + PillLabelGap + (labelWidths[label] ?: 0.dp) <= maxWidth - PillsSafetyMargin
 }
+
+/**
+ * The queue / devices / write actions as plain icons, for the end of a top
+ * bar: the landscape and two-pane players set them there (owner 2026-11-06
+ * 「三个按钮应该在右上角」, prototype v10's three icons) — the pills would
+ * crowd out the "playing from" line.
+ */
+@Composable
+internal fun TopBarActionIcons(
+    onQueueClick: () -> Unit,
+    onDevicesClick: () -> Unit,
+    onWriteClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    castState: CastState = CastState.NotAvailable,
+    onCastClick: () -> Unit = {},
+    supportsYoinCast: Boolean = true,
+    size: Dp = 40.dp,
+    // Spotify plays on another device: the devices button names it (owner
+    // 2026-11-06, as the Devices pill does).
+    playingOn: String? = null,
+) {
+    val haptics = rememberYoinHaptics()
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CastButton(
+            castState = if (supportsYoinCast) castState else CastState.NotAvailable,
+            onClick = onCastClick,
+        )
+        listOf(
+            Triple(YoinSymbols.Queue, R.string.np_pill_queue, onQueueClick),
+            Triple(YoinSymbols.Devices, R.string.np_pill_devices, onDevicesClick),
+            Triple(YoinSymbols.Note, R.string.np_pill_write, onWriteClick),
+        ).forEach { (icon, label, onClick) ->
+            if (icon == YoinSymbols.Devices && playingOn != null) {
+                Surface(
+                    onClick = {
+                        haptics.performContextClick()
+                        onClick()
+                    },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.height(size),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(imageVector = icon, contentDescription = null)
+                        Text(
+                            text = playingOn,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = TopBarDeviceNameMax),
+                        )
+                    }
+                }
+                return@forEach
+            }
+            IconButton(
+                onClick = {
+                    haptics.performContextClick()
+                    onClick()
+                },
+                modifier = Modifier.size(size),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = stringResource(label),
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+}
+
+private val TopBarDeviceNameMax = 96.dp
 
 @Composable
 private fun rememberBottomPillsLayout(

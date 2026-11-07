@@ -1,11 +1,9 @@
 package com.gpo.yoin.ui.memories.emblem
 
-import androidx.compose.ui.text.ExperimentalTextApi
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import com.gpo.yoin.R
+import com.gpo.yoin.ui.theme.yoinFont
 import kotlin.math.roundToInt
 
 /**
@@ -29,20 +27,19 @@ internal object GrooveType {
 
     private fun opsz(sizeDp: Double): Int = sizeDp.roundToInt().coerceIn(6, 144)
 
-    @OptIn(ExperimentalTextApi::class)
     private fun family(axes: Axes): Pair<FontFamily, FontWeight> {
         val weight = FontWeight(axes.weight)
         val family = synchronized(cache) {
             cache.getOrPut(axes) {
                 FontFamily(
-                    Font(
+                    yoinFont(
                         R.font.google_sans_flex_variable,
-                        weight = weight,
-                        variationSettings = FontVariation.Settings(
-                            FontVariation.weight(axes.weight),
-                            FontVariation.width(axes.width),
-                            FontVariation.Setting("ROND", axes.round),
-                            FontVariation.Setting("opsz", axes.opticalSize.toFloat()),
+                        weight,
+                        mapOf(
+                            "wght" to axes.weight.toFloat(),
+                            "wdth" to axes.width,
+                            "ROND" to axes.round,
+                            "opsz" to axes.opticalSize.toFloat(),
                         ),
                     ),
                 )
