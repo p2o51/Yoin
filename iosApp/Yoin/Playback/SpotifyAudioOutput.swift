@@ -923,17 +923,25 @@ final class SpotifyAudioOutput: AudioOutput {
             guard gen == generation, let control else { return }
             // A read that failed (timeout, 401, 429) says nothing of the device: read again, and with no
             // answer at all the start stands (polling follows it) — only an answer can drop it (Codex 11-07).
+            // Nothing there (204) counts only when said twice in a row, as the Mac reads it.
             var answer: SpotifySource.PlayerNow??
+            var empties = 0
             for attempt in 0..<Self.verifyReads {
                 if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
                 guard gen == generation else { return }
                 do {
-                    answer = .some(try await control.playerNow())
-                    break
+                    let now = try await control.playerNow()
+                    answer = .some(now)
+                    if now != nil { break }
+                    empties += 1
+                    if empties >= 2 { break }
                 } catch {
                     PlayTrace.log("SP verify read failed \(error)")
+                    empties = 0
                 }
             }
+            // A single 204 among failed reads isn't the device stopping.
+            if case .some(.none) = answer, empties < 2 { answer = nil }
             guard gen == generation else { return }
             if let now = answer { PlayTrace.log("SP verify \(Self.describe(now))") }
             switch Self.verifyOutcome(answer, wanted: item.trackURI, next: handedNext?.trackURI) {
