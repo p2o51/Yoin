@@ -819,7 +819,7 @@ private struct LyricsList: View {
             }
             .onChange(of: current, initial: true) { _, i in
                 guard i >= 0, following else { return }
-                withAnimation(Yoin.spatial) {
+                withAnimation(Self.scroll) {
                     proxy.scrollTo(i, anchor: UnitPoint(x: 0, y: total > 0 ? anchor / total : 0.2))
                 }
             }
@@ -828,7 +828,7 @@ private struct LyricsList: View {
             if !following, current >= 0 {
                 Button {
                     following = true
-                    withAnimation(Yoin.spatial) {
+                    withAnimation(Self.scroll) {
                         proxy.scrollTo(current, anchor: UnitPoint(x: 0, y: total > 0 ? anchor / total : 0.2))
                     }
                 } label: {
@@ -848,6 +848,10 @@ private struct LyricsList: View {
           }
         }
     }
+
+    /// The list's glide to the next line (iOS LyricLinesBody.scroll, Android animateScrollToItem): the spatial
+    /// spring's pace, critically damped, so the lines never swing past their places and back on an advance.
+    static var scroll: Animation { .spring(response: 0.42, dampingFraction: 1) }
 
     /// Android LyricLineItem's falloff: the current line whole, its neighbours 0.55, then 0.40, the rest 0.28.
     static func compactAlpha(_ distance: Int) -> Double {

@@ -182,8 +182,14 @@ final class MacSpotifyOutput: AudioOutput {
         case unreachable
     }
 
-    private func start(_ item: Item, at sec: Double, gen: Int) async {
+    /// [retry]: a start on this Mac that doesn't land gets one more go (iOS b7cc9e27a, 51 2026-11-07: another
+    /// album after the first). The Web API's version of iOS's fresh App Remote connection: the devices are read
+    /// again (the token refreshing on the way if it lapsed) and Spotify here opened in the background if it
+    /// dropped out of them, then the song once more. Never a message asking the listener to open Spotify while
+    /// that could still work.
+    private func start(_ item: Item, at sec: Double, gen: Int, retry: Bool = true) async {
         guard let s = source() else { fail("No Spotify account", gen: gen); return }
+        var toThisMac = false
         do {
             let target = try await Self.target(s, launch: true)
             guard gen == generation else { return }
@@ -193,6 +199,7 @@ final class MacSpotifyOutput: AudioOutput {
                 onDevice(nil)
                 fail(Self.unreachableMessage, gen: gen)
             case .device(let id, let name):
+                toThisMac = Self.isThisMac(name)
                 // Yoin's queue and modes rule: Spotify's own shuffle / repeat go off, before the start and
                 // only when one is on (iOS 7702336e; the desktop app takes either order, 2026-11-06 runs).
                 if let now = try? await s.playerNow(), now.deviceId == id, now.shuffle || now.repeatState != "off" {
@@ -234,6 +241,9 @@ final class MacSpotifyOutput: AudioOutput {
                 guard gen == generation else { return }
                 guard confirmed || playingThere else {
                     Self.log.error("start not confirmed on …\(id.suffix(4), privacy: .public)")
+                    if Self.retries(retry: retry, toThisMac: toThisMac, error: nil) {
+                        return await again(item, at: sec, gen: gen)
+                    }
                     fail("Couldn't start playback.", gen: gen)
                     return
                 }
@@ -251,9 +261,38 @@ final class MacSpotifyOutput: AudioOutput {
                 watch(item, owner: owner, gen: gen)
             }
         } catch {
+            if Self.retries(retry: retry, toThisMac: toThisMac, error: error) {
+                Self.log.error("start refused: \(SpotifySource.message(for: error), privacy: .public)")
+                return await again(item, at: sec, gen: gen)
+            }
             fail(SpotifySource.message(for: error), gen: gen)
         }
     }
+
+    /// The one more go: the device is let go of, and after a short gap the start runs from the top (devices
+    /// read afresh, Spotify opened here if it's gone from them).
+    private func again(_ item: Item, at sec: Double, gen: Int) async {
+        // A newer start owns the device by now: this one lets nothing go.
+        guard gen == generation else { return }
+        Self.log.info("start didn't land on this Mac: devices again, once")
+        owned = nil
+        try? await Task.sleep(for: .milliseconds(Self.retryGapMs))
+        guard gen == generation else { return }
+        await start(item, at: sec, gen: gen, retry: false)
+    }
+
+    /// Whether a start that didn't land tries once more: only to this Mac (a device playing elsewhere is the
+    /// listener's), only the first time, and never for what another go can't change (no Premium, a rate limit).
+    nonisolated static func retries(retry: Bool, toThisMac: Bool, error: Error?) -> Bool {
+        guard retry, toThisMac else { return false }
+        if let e = error as? SpotifyAPIError {
+            if e.isForbidden { return false }
+            if case .rateLimited = e { return false }
+        }
+        return true
+    }
+
+    nonisolated static let retryGapMs = 300
 
     /// /me/player, given 3 s at most (its own retries under rate limiting can take far longer).
     private static func quickNow(_ s: SpotifySource) async -> SpotifySource.PlayerNow? {

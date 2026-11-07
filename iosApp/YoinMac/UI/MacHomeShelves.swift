@@ -69,16 +69,15 @@ private struct MacHomeEntryCard: View {
     @State private var hover = false
     @State private var memory: MemoryCard?
 
-    /// Spotify's mixed-list line (51, 2026-11-07): the kind, a middle dot, then who or how many; an artist
-    /// is just "Artist". No separate kind row or icon.
+    /// Spotify's mixed-list line (51, 2026-11-07), iOS's strings (ActivityEntry.kindLine): the kind, Spotify's
+    /// bullet, then who; an artist is just "Artist". No separate kind row or icon.
     private var label: (title: String, subtitle: String, palette: CoverPalette) {
         switch content {
-        case .album(let a): (a.title, "Album · \(a.artist)", a.palette)
+        case .album(let a): (a.title, MacKindLine.album(a), a.palette)
         case .artist(let a): (a.title, "Artist", a.palette)
-        case .playlist(let p):
-            (p.title, "Playlist · " + (p.count.map { "\($0) \($0 == 1 ? "song" : "songs")" } ?? ""), p.palette)
-        case .song(let s): (s.track.title, "Song · \(s.track.artist ?? s.album.artist)", s.album.palette)
-        case .signal(let s): (s.title, "\(s.kind == .ratedAlbum ? "Memory" : "Note") · \(s.subtitle)", s.album.palette)
+        case .playlist(let p): (p.title, MacKindLine.playlist(p), p.palette)
+        case .song(let s): (s.track.title, MacKindLine.make("Track", s.track.artist ?? s.album.artist), s.album.palette)
+        case .signal(let s): (s.title, s.kind == .ratedAlbum ? MacKindLine.album(s.album) : s.subtitle, s.album.palette)
         }
     }
 

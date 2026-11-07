@@ -447,9 +447,8 @@ struct PlaylistTile: View {
     private var subtitleLine: String {
         let songs = item.count.map { "\($0) \($0 == 1 ? "song" : "songs")" }
         guard mixed else { return songs ?? item.subtitle }
-        // "Playlist · <owner>" when the service names one, else the songs.
-        let owner = item.subtitle.hasPrefix("Playlist") ? nil : item.subtitle.isEmpty ? nil : item.subtitle
-        return "Playlist · " + (owner ?? songs ?? "")
+        // "Playlist • owner" (iOS gridSubtitle), the kind alone where no owner is named.
+        return MacKindLine.playlist(item)
     }
 
     var body: some View {

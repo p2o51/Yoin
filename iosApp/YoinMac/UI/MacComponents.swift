@@ -12,7 +12,7 @@ extension EnvironmentValues {
     /// Inside a detail page: what it opens goes on top of it (a back stack), not in its place.
     @Entry var inDetailPage = false
     /// A list mixing albums, artists, playlists and songs (51, 2026-11-07, Spotify's way): each line says its
-    /// kind first — "Album · artist", "Playlist · 8 songs", "Song · artist", "Artist".
+    /// kind first — "Album • artist", "Playlist • owner", "Track • artist", "Artist" (MacKindLine).
     @Entry var mixedKinds = false
     /// A detail page's big title reports how far down its bottom edge is (in the page), so the page's top bar can
     /// take the title over as it scrolls away.
@@ -25,6 +25,26 @@ extension EnvironmentValues {
 }
 
 /// A cover: the server image (CoverArtwork), its placeholder colour until it lands. Solid, no border.
+/// A mixed list's subtitle, Spotify's way, in iOS's words (Models.swift KindLine, 51, 2026-11-07): what it is,
+/// Spotify's bullet, then who: "Album • Kiri Ono", "Playlist • owner", "Artist" alone. A name that only
+/// repeats the kind is dropped. English only until the Mac has localization.
+enum MacKindLine {
+    static func make(_ kind: String, _ name: String?) -> String {
+        let n = (name ?? "").trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty, n.caseInsensitiveCompare(kind) != .orderedSame,
+              !["album", "artist", "playlist", "song", "track"].contains(n.lowercased()) else { return kind }
+        return "\(kind) \u{2022} \(n)"
+    }
+
+    /// "Album • Artist" (or Single / EP / Compilation).
+    static func album(_ a: Album) -> String { make(a.kind.rawValue, a.artist) }
+
+    /// "Playlist • owner": the owner where the service names one, else the kind alone.
+    static func playlist(_ p: LibraryItem) -> String {
+        make("Playlist", p.owner ?? (p.subtitle.hasPrefix("Playlist") ? nil : p.subtitle))
+    }
+}
+
 struct MacCover: View {
     var palette: CoverPalette
     var corner: CGFloat = Tokens.shape.COVER.cg
@@ -63,7 +83,7 @@ struct AlbumTile: View {
                     .foregroundStyle(Yoin.ink)
                     .lineLimit(1)
                     .padding(.top, 8)
-                Text(subtitle ?? (mixed ? "Album · \(album.artist)" : album.artist))
+                Text(subtitle ?? (mixed ? MacKindLine.album(album) : album.artist))
                     .font(.gsf(12.5))
                     .foregroundStyle(Yoin.inkVariant)
                     .lineLimit(1)

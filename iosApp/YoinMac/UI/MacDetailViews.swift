@@ -9,11 +9,23 @@ struct MacDetailPage: View {
     /// Where the big title's bottom edge is in the page (it scrolls up with the content).
     @State private var titleState = MacDetailTitle()
 
-    /// The title moves into the top bar over its last 32 pt before the bar (Android's album header collapse):
-    /// driven by the scroll itself, so it follows the content both ways.
+    /// The title moves into the top bar over its last 60 pt before the bar (Android's album header collapse):
+    /// driven by the scroll itself, so it follows the content both ways. Twice the axis travel, so the big
+    /// title's rise out (gone by 0.4) still takes a couple of dozen points of scrolling.
     private var collapse: CGFloat {
-        let bar: CGFloat = 60
-        return min(1, max(0, (bar + 32 - titleState.bottom) / 32))
+        let bar: CGFloat = 60, span = Self.axisTravel * 2
+        return min(1, max(0, (bar + span - titleState.bottom) / span))
+    }
+
+    /// Header ⇄ top bar (MD3 shared axis, as iOS's album page): each travels 30 pt; the big title is gone
+    /// by 0.4, the bar's title starts to show at 0.3.
+    static let axisTravel: CGFloat = 30
+    static let axisOutEnd: CGFloat = 0.4
+    static let axisInStart: CGFloat = 0.3
+
+    static func smooth(_ x: CGFloat, _ a: CGFloat = 0, _ b: CGFloat = 1) -> CGFloat {
+        let t = min(1, max(0, (x - a) / (b - a)))
+        return t * t * (3 - 2 * t)
     }
 
     private var title: String {
@@ -45,8 +57,9 @@ struct MacDetailPage: View {
                 .padding(.leading, (asColumn ? 8 : 86) + 44)
                 .padding(.trailing, 24)
                 .frame(height: 36).padding(.top, 14)
-                .offset(y: (1 - collapse) * 8)
-                .opacity(collapse)
+                // Shared axis Y, iOS's values (AlbumDetailView axis*): in from 30 pt below, showing from 0.3.
+                .offset(y: (1 - Self.smooth(collapse)) * Self.axisTravel)
+                .opacity(Self.smooth(collapse, Self.axisInStart, 1))
                 .allowsHitTesting(false)
             GlassCircleButton(icon: asColumn && model.details.count <= 1 ? "close" : "back") { model.closeDetail() }
                 .help(model.details.count > 1 ? "Back" : (asColumn ? "Close" : "Back"))
@@ -70,6 +83,11 @@ struct MacAlbumDetail: View {
 
     #if DEBUG
     @State private var qaScroll = ScrollPosition()
+    /// `-qaScrollY`: how far the QA scroll goes (mid-way through the header's hand-over, say); 560 by default.
+    private static var qaScrollY: CGFloat {
+        let y = UserDefaults.standard.double(forKey: "qaScrollY")
+        return y > 0 ? y : 560
+    }
     #endif
 
     var body: some View {
@@ -143,11 +161,17 @@ struct MacAlbumDetail: View {
         }
         #if DEBUG
         .scrollPosition($qaScroll)
+        // `-macScreen album -qaScrollY <y>`: the header part-way into the top bar.
+        .task {
+            guard MacLaunch.screen == "album", UserDefaults.standard.double(forKey: "qaScrollY") > 0 else { return }
+            try? await Task.sleep(for: .seconds(2))
+            qaScroll.scrollTo(y: Self.qaScrollY)
+        }
         .onReceive(NotificationCenter.default.publisher(for: MacQATour.albumPage)) { n in
             if let p = n.object as? Int { withAnimation(Yoin.spatial) { page = p } }
             // `-macScreen scrapbook-about`: down to the track pieces.
             if MacLaunch.screen == "scrapbook-about" {
-                Task { try? await Task.sleep(for: .seconds(1)); withAnimation(Yoin.spatial) { qaScroll.scrollTo(y: 560) } }
+                Task { try? await Task.sleep(for: .seconds(1)); withAnimation(Yoin.spatial) { qaScroll.scrollTo(y: Self.qaScrollY) } }
             }
         }
         #endif
@@ -392,12 +416,13 @@ struct DetailHeader: View {
             Text(eyebrow).font(.gsf(13)).foregroundStyle(Yoin.inkVariant)
             Text(title).font(.gsf(30, .semibold)).foregroundStyle(Yoin.ink).lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
-                // Steps back and up as the top bar takes it over.
-                .opacity(1 - collapse * 0.8)
-                .offset(y: -collapse * 6)
+                // Measured where it rests (before the offset below), so its own rise never feeds the collapse.
                 .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("detailPage")).maxY } action: { y in
                     titleState?.bottom = y
                 }
+                // Rises out 30 pt and is gone by 0.4 as the top bar takes it over (shared axis Y).
+                .opacity(1 - MacDetailPage.smooth(collapse, 0, MacDetailPage.axisOutEnd))
+                .offset(y: -MacDetailPage.smooth(collapse) * MacDetailPage.axisTravel)
             if let subtitle {
                 Button(action: onSubtitle) {
                     Text(subtitle).font(.gsf(16, .semibold))
