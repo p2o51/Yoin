@@ -253,11 +253,20 @@ struct NowPlayingFocusField: View {
     }
 }
 
-/// Android OneLineLyricPreview's line: bodyLarge rounded SemiBold in primary;
-/// the next line lands from 94 % at its leading edge while the old one fades.
+/// Android OneLineLyricPreview's line: bodyLarge rounded SemiBold in primary.
+/// A new line lands (oneLineLyricLanding): it grows from 94 % at its leading
+/// edge and rises a sixth of its height as it fades in, on the spatial
+/// spring; the old line settles back to 94 % and fades out fast. Keyed by the
+/// line, so a repeated line ("oh, oh") still reads as the lyric moving on.
+/// Nothing scrolls, so no neighbouring line ever passes through the row.
 struct OneLineLyricLine: View, Equatable {
     var text: String
     var primary: Color
+    /// The line's index (-1 before the first): with the text, what makes a change.
+    var key: Int = 0
+
+    /// A sixth of the 32 pt row (Android slideInVertically { it / 6 }).
+    static let rise: CGFloat = 32 / 6
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -268,11 +277,15 @@ struct OneLineLyricLine: View, Equatable {
                 .lineLimit(1)
                 .padding(.vertical, 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .id(text)
-                .transition(.asymmetric(insertion: .scale(scale: 0.94, anchor: .leading).combined(with: .opacity),
-                                        removal: .opacity))
+                .id("\(key)\u{0}\(text)")
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.94, anchor: .leading)
+                        .combined(with: .offset(y: Self.rise))
+                        .combined(with: .opacity.animation(Yoin.effects)),
+                    removal: .scale(scale: 0.94, anchor: .leading)
+                        .combined(with: .opacity.animation(Yoin.spatialFast))))
         }
-        .animation(Yoin.spatial, value: text)
+        .animation(Yoin.spatial, value: "\(key)\u{0}\(text)")
     }
 }
 

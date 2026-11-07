@@ -147,7 +147,14 @@ private struct LyricLinesBody: View {
         // the rows themselves, so a line that wraps as it lights up overlapped
         // the next one until the spring settled. A row measured a frame late
         // (a wrap) still glides, as the offset follows it.
-        .animation(handing ? Yoin.slowSpatial : Yoin.spatial) { $0.offset(y: anchor - 4 - above) }
+        // No overshoot (Android animateScrollToItem): a bouncing list swung the
+        // lines past their places and back on every advance.
+        .animation(handing ? Yoin.slowSpatial : Self.scroll) { $0.offset(y: anchor - 4 - above) }
+    }
+
+    /// The list's glide to the next line: the spatial spring's pace, critically damped.
+    @MainActor static var scroll: Animation {
+        .spring(response: 0.42, dampingFraction: 1).speed(LaunchConfig.animationSpeed)
     }
 
     /// Material FastOutSlowIn (cubic 0.4, 0, 0.2, 1).

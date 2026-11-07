@@ -1367,7 +1367,7 @@ struct NowPlayingView: View, Equatable {
                 PlaybackPosition { position, _ in
                     let i = loaded.activeIndex(positionSec: position)
                     OneLineLyricLine(text: i >= 0 && i < loaded.lines.count && !loaded.lines[i].isEmpty
-                                     ? loaded.lines[i] : t.title, primary: scheme.primary)
+                                     ? loaded.lines[i] : t.title, primary: scheme.primary, key: i)
                         .equatable()
                 }
             } else {
@@ -1375,7 +1375,7 @@ struct NowPlayingView: View, Equatable {
             }
         } else {
             OneLineLyricLine(text: p.lyrics.indices.contains(p.activeLyric) ? p.lyrics[p.activeLyric] : p.track.title,
-                             primary: scheme.primary)
+                             primary: scheme.primary, key: p.activeLyric)
         }
     }
 
@@ -1395,6 +1395,18 @@ struct NowPlayingView: View, Equatable {
             case .none:
                 // Android LyricsDisplay: the empty label at the window's start.
                 windowLabel(String(localized: "No lyrics available"), clear: clear)
+            case .lines(let loaded) where loaded.synced && !wraps && !solo:
+                // The one-line row (Android OneLineLyricRow): the line replaced
+                // in place, never a list scrolled through a 32 pt slot.
+                lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
+                    PlaybackPosition { position, _ in
+                        let i = loaded.activeIndex(positionSec: position)
+                        OneLineLyricLine(text: i >= 0 && i < loaded.lines.count && !loaded.lines[i].isEmpty
+                                         ? loaded.lines[i] : t.title, primary: scheme.primary, key: i)
+                            .equatable()
+                            .padding(.top, anchor - 4)
+                    }
+                }
             case .lines(let loaded) where loaded.synced:
                 // Only this subtree reads the position; the line index is
                 // derived per tick and the lines re-render when it moves.
@@ -1412,6 +1424,12 @@ struct NowPlayingView: View, Equatable {
                     UnsyncedLyricsView(lines: loaded.lines, onSurfaceVariant: scheme.onSurfaceVariant)
                         .onTapGesture { if stage == .compact { openPage(.lyrics) } }
                 }
+            }
+        } else if !wraps && !solo {
+            lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
+                OneLineLyricLine(text: p.lyrics.indices.contains(p.activeLyric) ? p.lyrics[p.activeLyric] : p.track.title,
+                                 primary: scheme.primary, key: p.activeLyric)
+                    .padding(.top, anchor - 4)
             }
         } else {
             lyricWindow(clear: clear, under: under, fadeTop: fadeTop) {
