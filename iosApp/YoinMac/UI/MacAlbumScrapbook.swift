@@ -652,6 +652,7 @@ private struct MacScrapTrack: View {
                             .onTapGesture { editing = n.id; editDraft = n.content; editOpened = n.content }
                         Button {
                             if NotesStore.shared.delete(id: n.id) != nil { CloudSync.shared.localChanged() }
+                            else { model.showNotice("Couldn't delete the note. Try again") }
                         } label: { YoinIcon("delete", size: 16).foregroundStyle(Yoin.inkVariant) }
                             .buttonStyle(.plain).help("Delete Note")
                     }

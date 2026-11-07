@@ -1592,6 +1592,7 @@ private struct NotesPopover: View {
                         .contextMenu {
                             Button("Delete Note", role: .destructive) {
                                 if NotesStore.shared.delete(id: n.id) != nil { CloudSync.shared.localChanged() }
+                                else { model.showNotice("Couldn't delete the note. Try again") }
                             }
                         }
                     }
