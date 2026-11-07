@@ -266,7 +266,8 @@ fun LibraryScreen(
     onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
-    onSongLongClick: (Track) -> Unit = {},
+    // [leave]: run before the song's menu opens another page (Wide search collapses first, as a result tap does).
+    onSongLongClick: (song: Track, leave: () -> Unit) -> Unit = { _, _ -> },
     // The Wide shell opens results as its detail column, BEHIND the
     // full-window search dialog: a result tap must collapse the search (the
     // query is kept) so the page it opened is seen.
@@ -467,7 +468,7 @@ fun LibraryContent(
         onSongClick(track)
     },
     collapseSearchOnOpen: Boolean = false,
-    onSongLongClick: (Track) -> Unit = {},
+    onSongLongClick: (song: Track, leave: () -> Unit) -> Unit = { _, _ -> },
     onAddSongToLibrary: (Track) -> Unit = {},
     onCreatePlaylist: (name: String) -> Unit = {},
     onRetry: () -> Unit,
@@ -618,7 +619,7 @@ private fun LibraryContentBody(
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSongsListClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onSearchSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
-    onSongLongClick: (Track) -> Unit,
+    onSongLongClick: (song: Track, leave: () -> Unit) -> Unit,
     onAddSongToLibrary: (Track) -> Unit,
     onCreatePlaylist: (name: String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
@@ -718,12 +719,15 @@ private fun LibraryContentBody(
             }
         }
     }
+    val leaveSearch: () -> Unit = {
+        if (collapseSearchOnOpen && searchBarState.currentValue == SearchBarValue.Expanded) {
+            keepQueryOnCollapse = true
+            scope.launch { searchBarState.animateToCollapsed() }
+        }
+    }
     val fromSearch: ((String) -> Unit) -> (String) -> Unit = { open ->
         { id ->
-            if (collapseSearchOnOpen && searchBarState.currentValue == SearchBarValue.Expanded) {
-                keepQueryOnCollapse = true
-                scope.launch { searchBarState.animateToCollapsed() }
-            }
+            leaveSearch()
             open(id)
         }
     }
@@ -966,7 +970,7 @@ private fun LibraryContentBody(
                                 isPlaying = isPlaying,
                                 notedSongIds = notedSongIds,
                                 onSongClick = onSongsListClick,
-                                onSongLongClick = onSongLongClick,
+                                onSongLongClick = { song -> onSongLongClick(song) {} },
                                 onReshuffle = onReshuffleSongs,
                                 canReshuffle = state.canReshuffleSongs,
                                 more = state.songsMore,
@@ -993,7 +997,7 @@ private fun LibraryContentBody(
                                 onAlbumClick = onAlbumClick,
                                 onSongClick = onSongClick,
                                 onFavoriteSongClick = onFavoriteSongClick,
-                                onSongLongClick = onSongLongClick,
+                                onSongLongClick = { song -> onSongLongClick(song) {} },
                                 coverArtUrlBuilder = coverArtUrlBuilder,
                             )
                         }
@@ -1055,7 +1059,7 @@ private fun LibraryContentBody(
             onAlbumClick = fromSearch(onSearchAlbumClick),
             onPlaylistClick = fromSearch(onSearchPlaylistClick),
             onSongClick = onSearchSongClick,
-            onSongLongClick = onSongLongClick,
+            onSongLongClick = { song -> onSongLongClick(song, leaveSearch) },
             onAddSongToLibrary = onAddSongToLibrary,
             coverArtUrlBuilder = coverArtUrlBuilder,
             // 全屏搜索面是独立 surface,不在上面的限宽列里 —— 结果列表
