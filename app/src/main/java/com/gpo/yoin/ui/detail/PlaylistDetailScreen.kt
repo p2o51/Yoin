@@ -1144,7 +1144,7 @@ private fun PlaylistPullUpOverview(
                         onSongClick = onSongClick,
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = expand.coerceIn(0f, 1f) }
+                            .pullUpListLayer { expand }
                             .nestedScroll(gestures.listConnection),
                         footer = {
                             // The hero's meta block again at the end of the
@@ -1175,10 +1175,7 @@ private fun PlaylistPullUpOverview(
                         onSongClick = onSongClick,
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer {
-                                alpha = (1f - expand).coerceIn(0f, 1f)
-                                translationY = -expand * 40f
-                            }
+                            .pullUpHeroLayer(expand = { expand })
                             .stagedBeat(
                                 progress = { stagedReveal.meta },
                                 rise = 14.dp,
@@ -1225,10 +1222,7 @@ private fun PlaylistLandscapeLayers(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
-                    .graphicsLayer {
-                        alpha = expand.coerceIn(0f, 1f)
-                        translationY = (1f - expand) * 40f
-                    }
+                    .pullUpListLayer { expand }
                     .nestedScroll(gestures.listConnection),
                 footer = {
                     PlaylistHeroMeta(
@@ -1245,10 +1239,7 @@ private fun PlaylistLandscapeLayers(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(gestures.heroDrag(enabled = !expanded))
-                    .graphicsLayer {
-                        alpha = (1f - expand).coerceIn(0f, 1f)
-                        translationY = -expand * 40f
-                    }
+                    .pullUpHeroLayer(expand = { expand })
                     .padding(start = PlaylistLandscapeCoverStart, top = 24.dp, end = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(PlaylistLandscapeGutter),
             ) {
