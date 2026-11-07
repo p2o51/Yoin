@@ -294,6 +294,12 @@ internal class SpotifyAppRemotePlayer(
     private var openedForStart: Boolean = false
 
     /**
+     * The start Yoin already opened Spotify for by itself: once per tap, so coming back to a
+     * Spotify that still doesn't answer shows the hint instead of bouncing to Spotify again.
+     */
+    private var autoOpenedFor: PendingStart? = null
+
+    /**
      * The other device Spotify plays on while App Remote isn't connected: Yoin drives it
      * through the Web API ([connectWeb]) and polls its state ([webPollJob]). Null otherwise.
      */
@@ -1420,7 +1426,19 @@ internal class SpotifyAppRemotePlayer(
                 parked = false
                 startOnOtherDevice(state)
             } else {
-                publishError(SpotifyConnectFailure.SpotifyAsleep, SpotifyConnectFailure.SpotifyAsleep.userMessage(applicationContext.resources))
+                // Nothing plays anywhere, so opening Spotify cuts into nothing: do it for the
+                // user (51, 2026-11-07), once per tap and only while Yoin is on screen. The
+                // launcher intent carries no song; the held start plays when Yoin is back.
+                val start = pendingStart
+                val opened = hostContext != null && start != null && autoOpenedFor !== start && openSpotify()
+                if (opened) autoOpenedFor = start
+                Log.d(tag, "reportUnreachable: openedSpotify=$opened")
+                val message = if (opened) {
+                    applicationContext.resources.getString(R.string.player_spotify_opened)
+                } else {
+                    SpotifyConnectFailure.SpotifyAsleep.userMessage(applicationContext.resources)
+                }
+                publishError(SpotifyConnectFailure.SpotifyAsleep, message)
             }
         }
     }
