@@ -160,7 +160,11 @@ class AppleMusicMedia3Player(
                     "YoinMusicKitError",
                     musicKitPlaybackErrorDiagnostic(error.type, error.errorCode, error.componentErrorCode)
                 )
-                failure = appContext.getString(musicKitPlaybackErrorMessage(error.type))
+                failure = appContext.getString(
+                    R.string.player_apple_music_error_code,
+                    appContext.getString(musicKitPlaybackErrorMessage(error.type)),
+                    musicKitPlaybackErrorCode(error.type, error.errorCode)
+                )
                 publish()
             }
         }

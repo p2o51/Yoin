@@ -16,6 +16,14 @@ internal fun musicKitPlaybackErrorMessage(type: Int): Int = when (type) {
     else -> R.string.player_apple_music_play_failed
 }
 
+/**
+ * The short code shown after the message: the SDK's type, then its error code when it has one. For
+ * type 0 (a refused song) the code is Apple's `failureType` from the song's webPlayback answer, which
+ * is what says why; a screenshot carries it without a log.
+ */
+internal fun musicKitPlaybackErrorCode(type: Int, code: Int): String =
+    if (code == MediaPlayerException.ERROR_UNKNOWN) "$type" else "$type/$code"
+
 /** Keep numeric SDK diagnostics in release builds without logging its messages, causes or credentials. */
 internal fun musicKitPlaybackErrorDiagnostic(type: Int, code: Int, component: Int): String =
     "type=$type code=$code component=$component"
