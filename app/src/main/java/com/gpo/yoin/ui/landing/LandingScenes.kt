@@ -166,7 +166,7 @@ private fun ServiceTile(
                 tint = avatarGlyph,
                 modifier = Modifier
                     .size(24.dp)
-                    .graphicsLayer { rotationZ = -morphProgress * 22.5f },
+                    .graphicsLayer { rotationZ = -morphProgress.value * 22.5f },
             )
         }
         Column(modifier = Modifier.weight(1f)) {
