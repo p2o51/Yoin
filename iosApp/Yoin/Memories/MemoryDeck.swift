@@ -30,6 +30,10 @@ struct MemoryCard: Identifiable, Hashable {
         var text: String
         /// The note's track title, or the review's date ("Nov 1").
         var detail: String?
+
+        /// What the slot may show, best first: a review's whole sentences, the most first; a note whole
+        /// (MemorySentences, Android MemoryExcerpt). None fitting: the attribution alone.
+        var candidates: [String] { kind == .review ? MemorySentences.reviewCandidates(text) : [text] }
     }
 
     var album: Album

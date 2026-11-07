@@ -184,6 +184,8 @@ struct MemoryCardFace: View {
     var interactive: Bool
     var onOpenAlbum: () -> Void
     var onTitle: (MemoryTitles.Outcome) -> Void
+    /// The column's inside width: what the excerpt's lines are measured at.
+    @State private var excerptWidth: CGFloat = MemoryExcerptFit.maxWidth
 
     private var diary: MemoriesDiary { deck.diary }
     private var barHeight: CGFloat { MemoriesLayoutTokens.barHeight }
@@ -199,6 +201,7 @@ struct MemoryCardFace: View {
                 .morphLayer(diary) { p in diary.reduced ? MorphPose() : MemoriesMorph.teaser(p) }
                 .padding(.bottom, metrics.short ? 28 : 40)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { excerptWidth = $0 }
         .padding(.horizontal, 28)
         .frame(maxWidth: metrics.column ?? .infinity)
         .frame(maxWidth: .infinity)
@@ -349,14 +352,18 @@ struct MemoryCardFace: View {
     }
 
     private func excerpt(_ e: MemoryCard.Excerpt, _ tones: MemoryTones) -> some View {
-        VStack(spacing: 6) {
-            Text("“\(e.text)”")
-                .font(.gsf(e.text.count < 60 ? 22 : 17, e.text.count < 60 ? .medium : .regular))
-                .lineSpacing(e.text.count < 60 ? 22 * 0.4 - 6 : 17 * 0.65 - 5)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(scheme.onSurface)
-                .lineLimit(4)
-                .frame(maxWidth: 324)
+        // Whole sentences only, never an ellipsis: the most that fits four lines, else the attribution alone.
+        let shown = MemoryExcerptFit.pick(e.candidates, width: min(MemoryExcerptFit.maxWidth, excerptWidth))
+        return VStack(spacing: 6) {
+            if let text = shown {
+                Text("“\(text)”")
+                    .font(.gsf(MemoryExcerptFit.size(text), MemoryExcerptFit.weight(text)))
+                    .lineSpacing(MemoryExcerptFit.lineSpacing(text))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(scheme.onSurface)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: MemoryExcerptFit.maxWidth)
+            }
             HStack(spacing: 8) {
                 Text(e.kind == .review ? String(localized: "Your review") : String(localized: "Your note"))
                     .homeType(Tokens.type.labelSmall)
