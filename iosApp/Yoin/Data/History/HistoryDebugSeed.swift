@@ -15,6 +15,7 @@ extension LibraryStore {
     /// 1×2); 5 two tracks rated, 14 months away; 6 rated on 70 %, 4 months
     /// away; 7 one note, 6 months away (Rediscover; the note is the noted 1×2).
     func seedHistory(_ mode: String) async {
+        if mode == "promo" { return await seedPromo() }
         guard mode == "demo", isReal, !Self.didSeed else { return }
         Self.didSeed = true
         // Let the sign-in's reset land first (it would drop the lists loaded here).
@@ -83,6 +84,65 @@ extension LibraryStore {
                           positionMs: 64_000, title: t.title, artist: t.artist ?? a.artist)
             }
             ratings.set(8, provider: provider, songId: t.id.rawId)
+        }
+    }
+
+    /// `-historySeed promo`: the promo demo server's memories, as Android's promo kit seeds them
+    /// (Yoin-archive/promo-demo-2026-11-02/seed.py): plays, track and album ratings, reviews, titles
+    /// and timed notes on the same albums, so the two platforms' Memories can be shot side by side.
+    private func seedPromo() async {
+        guard isReal, !Self.didSeed else { return }
+        Self.didSeed = true
+        try? await Task.sleep(for: .milliseconds(300))
+        let now = history.nowMs, day = HomeHistory.dayMs, hour: Int64 = 3_600_000
+        // album id, plays, days ago of the newest, track ratings, album rating, review, title
+        let albums: [(String, Int, Int64, [Double], Double, String?, String)] = [
+            ("al-harbor", 9, 0, [8.2, 9.4, 7.6, 8.8, 8.1, 7.9, 6.8, 8.5, 9.1, 8.3], 8.7,
+             "Sounds like a warm evening by the water. \"Paper Lanterns\" is the one I keep coming back to; the second chorus gets me every time.",
+             "港口的灯一盏盏亮起"),
+            ("al-yehang", 8, 1, [9.6, 8.7, 9.0, 7.4, 8.2, 7.8, 8.9], 9.2,
+             "适合夜里一个人坐车的时候听。《夜航》最后那句“晚安，我的远方”太温柔了，整张专辑像一封写给故乡的长信。",
+             "写给远方的晚安"),
+            ("al-soda", 5, 3, [9.0, 8.4, 7.7, 8.0], 8.4, "夏天的汽水味。Summer Line 一响就想去海边。", "汽水味的夏天"),
+            ("al-glass", 4, 6, [7.5, 8.6, 7.1, 6.9, 8.0], 7.8, nil, "Neon in the orchard"),
+            ("al-velvet", 3, 9, [7.8, 7.0, 6.5, 7.6, 8.3], 7.3, "Slow Dance in a Fast Car is a perfect title.",
+             "Slow dances, fast cars"),
+        ]
+        // track index, position, words (Android's song notes on these albums)
+        let timed: [String: [(Int, Int64, String)]] = [
+            "al-harbor": [(1, 21_000, "The opening synth sounds like a lighthouse blinking."),
+                          (1, 68_000, "这句歌词写得太好了：every light a word I never said"),
+                          (1, 142_000, "第二段副歌的和声，耳机里会从左边绕到右边。"),
+                          (8, 120_000, "Title track, saved for the end.")],
+            "al-yehang": [(0, 30_000, "前奏的口琴，像远处的船笛。"), (0, 96_000, "“数到第七颗 就天亮”"),
+                          (0, 171_000, "最后一句 live 版唱得更轻。"), (2, 60_000, "北方的信，写给一个再也没见过的人。")],
+            "al-soda": [(0, 45_000, "ベースライン最高")],
+            "al-glass": [(1, 80_000, "Guitar solo at 1:20 — turn it up.")],
+        ]
+        history.removeAll(scope: historyScope, provider: provider)
+        let store = AlbumMemoryStore.shared
+        for (id, plays, ago, rated, rating, review, title) in albums {
+            await loadAlbum(id)
+            guard let a = album(id), !a.tracks.isEmpty else { continue }
+            for k in 0..<plays {
+                let t = a.tracks[k % a.tracks.count]
+                let at = now - ago * day - Int64(k) * 7 * day - Int64(k % 3 + 1) * hour
+                let p = history.recordPlay(scope: historyScope, provider: provider, songId: t.id.rawId, albumId: id,
+                                           artistId: a.artistId, title: t.title, album: a.title, artist: t.artist ?? a.artist,
+                                           coverKey: Self.coverKey(a.coverURL, provider: provider),
+                                           durationSec: Double(t.durationSec), at: at)
+                history.markListened(playId: p, listenedSec: Double(t.durationSec), completed: true)
+            }
+            for (t, r) in zip(a.tracks, rated) { ratings.set(r, provider: provider, songId: t.id.rawId) }
+            store.putAlbum(.init(provider: provider, albumId: id, rating: rating, review: review,
+                                 reviewUpdatedAt: review == nil ? nil : now - 4 * day, updatedAt: now - 4 * day))
+            store.putTitle(.init(provider: provider, albumId: id, title: title, updatedAt: now - 3 * day))
+            for (track, pos, words) in timed[id] ?? [] where track < a.tracks.count {
+                let t = a.tracks[track]
+                if notes.notes(provider: provider, trackId: t.id.rawId).contains(where: { $0.content == words }) { continue }
+                notes.add(provider: provider, trackId: t.id.rawId, content: words, positionMs: pos,
+                          title: t.title, artist: t.artist ?? a.artist)
+            }
         }
     }
 }

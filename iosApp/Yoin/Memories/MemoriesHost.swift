@@ -174,6 +174,7 @@ enum MemoriesScript {
     private static var started = false
 
     static func run(_ memories: MemoriesPresentation, focus: String?) async {
+        await runShot(memories)
         await runDiary(memories, focus: focus)
         guard UserDefaults.standard.bool(forKey: "memoriesScripted"), !started else { return }
         started = true
@@ -198,6 +199,18 @@ enum MemoriesScript {
         memories.open(focus: focus)
         try? await Task.sleep(for: .seconds(2.5))
         memories.close()
+    }
+
+    /// `-memoriesShot <album id>`: open on that card and stay (screenshots); with
+    /// `-memoriesShotDiary YES`, its diary too.
+    static func runShot(_ memories: MemoriesPresentation) async {
+        guard let target = UserDefaults.standard.string(forKey: "memoriesShot"), !started else { return }
+        started = true
+        try? await Task.sleep(for: .seconds(4))
+        memories.open(focus: target)
+        guard UserDefaults.standard.bool(forKey: "memoriesShotDiary") else { return }
+        try? await Task.sleep(for: .seconds(2.5))
+        if let deck, let card = current?() { deck.openDiary(card) }
     }
 
     /// A sideways swipe on the deck (set by MemoriesView): −1 = to the next card.
