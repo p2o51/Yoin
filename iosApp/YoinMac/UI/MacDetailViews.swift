@@ -6,6 +6,23 @@ struct MacDetailPage: View {
     var detail: MacModel.Detail
     var asColumn: Bool
     @Environment(MacModel.self) private var model
+    /// Where the big title's bottom edge is in the page (it scrolls up with the content).
+    @State private var titleState = MacDetailTitle()
+
+    /// The title moves into the top bar over its last 32 pt before the bar (Android's album header collapse):
+    /// driven by the scroll itself, so it follows the content both ways.
+    private var collapse: CGFloat {
+        let bar: CGFloat = 60
+        return min(1, max(0, (bar + 32 - titleState.bottom) / 32))
+    }
+
+    private var title: String {
+        switch detail {
+        case .album(let a): model.library.album(a.id.rawId)?.title ?? a.title
+        case .artist(_, let name): name
+        case .playlist(let id, let title): model.library.playlist(id)?.title ?? title
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -17,12 +34,27 @@ struct MacDetailPage: View {
                 }
             }
             .environment(\.inDetailPage, true)
+            .environment(\.detailTitle, titleState)
+            .environment(\.detailTitleCollapse, collapse)
+            // The top bar: the surface fading in under the title it takes over.
+            LinearGradient(colors: [Yoin.surface, Yoin.surface.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 72)
+                .opacity(collapse)
+                .allowsHitTesting(false)
+            Text(title).font(.gsf(15, .semibold)).foregroundStyle(Yoin.ink).lineLimit(1)
+                .padding(.leading, (asColumn ? 8 : 86) + 44)
+                .padding(.trailing, 24)
+                .frame(height: 36).padding(.top, 14)
+                .offset(y: (1 - collapse) * 8)
+                .opacity(collapse)
+                .allowsHitTesting(false)
             GlassCircleButton(icon: asColumn && model.details.count <= 1 ? "close" : "back") { model.closeDetail() }
                 .help(model.details.count > 1 ? "Back" : (asColumn ? "Close" : "Back"))
                 .padding(.top, 12)
                 // Pushed full width, the button sits after the traffic lights (header breathing).
                 .padding(.leading, asColumn ? 8 : 86)
         }
+        .coordinateSpace(name: "detailPage")
     }
 }
 
@@ -337,6 +369,8 @@ struct DetailHeader: View {
     var circle = false
     var onSubtitle: () -> Void
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.detailTitle) private var titleState
+    @Environment(\.detailTitleCollapse) private var collapse
 
     var body: some View {
         // Stacked, nothing may be wider than the column: an overflowing header would centre the whole
@@ -358,6 +392,12 @@ struct DetailHeader: View {
             Text(eyebrow).font(.gsf(13)).foregroundStyle(Yoin.inkVariant)
             Text(title).font(.gsf(30, .semibold)).foregroundStyle(Yoin.ink).lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
+                // Steps back and up as the top bar takes it over.
+                .opacity(1 - collapse * 0.8)
+                .offset(y: -collapse * 6)
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("detailPage")).maxY } action: { y in
+                    titleState?.bottom = y
+                }
             if let subtitle {
                 Button(action: onSubtitle) {
                     Text(subtitle).font(.gsf(16, .semibold))

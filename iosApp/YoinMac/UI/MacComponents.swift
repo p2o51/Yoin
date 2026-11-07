@@ -1,8 +1,24 @@
 import SwiftUI
 
+/// Where a detail page's big title's bottom edge is, in the page (one object per page, so a scroll only
+/// redraws what reads it).
+@MainActor
+@Observable
+final class MacDetailTitle {
+    var bottom: CGFloat = .greatestFiniteMagnitude
+}
+
 extension EnvironmentValues {
     /// Inside a detail page: what it opens goes on top of it (a back stack), not in its place.
     @Entry var inDetailPage = false
+    /// A list mixing albums, artists, playlists and songs (51, 2026-11-07, Spotify's way): each line says its
+    /// kind first — "Album · artist", "Playlist · 8 songs", "Song · artist", "Artist".
+    @Entry var mixedKinds = false
+    /// A detail page's big title reports how far down its bottom edge is (in the page), so the page's top bar can
+    /// take the title over as it scrolls away.
+    @Entry var detailTitle: MacDetailTitle? = nil
+    /// 0 → 1 as the page's top bar takes the title over (the big title steps back with it).
+    @Entry var detailTitleCollapse: CGFloat = 0
     /// The playing cover's colour roles (Yoin violet before anything plays).
     @Entry var macTint = MacTint(primary: Yoin.violet, onPrimary: .white, container: Yoin.surfaceContainerHigh,
                                  onContainer: Yoin.ink)
@@ -33,6 +49,7 @@ struct AlbumTile: View {
     var subtitle: String?
     @Environment(MacModel.self) private var model
     @Environment(\.inDetailPage) private var inDetail
+    @Environment(\.mixedKinds) private var mixed
     @State private var hover = false
 
     var body: some View {
@@ -46,7 +63,7 @@ struct AlbumTile: View {
                     .foregroundStyle(Yoin.ink)
                     .lineLimit(1)
                     .padding(.top, 8)
-                Text(subtitle ?? album.artist)
+                Text(subtitle ?? (mixed ? "Album · \(album.artist)" : album.artist))
                     .font(.gsf(12.5))
                     .foregroundStyle(Yoin.inkVariant)
                     .lineLimit(1)
@@ -84,13 +101,17 @@ struct ArtistTile: View {
     @Environment(\.inDetailPage) private var inDetail
     @State private var hover = false
 
+    @Environment(\.mixedKinds) private var mixed
+
     var body: some View {
         Button { model.open(.artist(id: item.id.rawId, name: item.title), push: inDetail) } label: {
             VStack(spacing: 8) {
                 MacCover(palette: item.palette, circle: true)
                     .scaleEffect(hover ? 1.03 : 1)
                 Text(item.title).font(.gsf(14, .semibold)).foregroundStyle(Yoin.ink).lineLimit(1)
-                if let n = item.count {
+                if mixed {
+                    Text("Artist").font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant)
+                } else if let n = item.count {
                     Text(n == 1 ? "1 album" : "\(n) albums").font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant)
                 }
             }

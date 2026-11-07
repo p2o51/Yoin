@@ -119,6 +119,7 @@ struct MacLibraryView: View {
                                     }
                                 }
                                 .id(Self.anchor(i))
+                                .environment(\.mixedKinds, true)
                             }
                         }
                         PhaseNote(phase: lib.phase("albums"), empty: list.items.isEmpty, emptyText: "Nothing in your library yet") {
@@ -441,14 +442,23 @@ struct PlaylistTile: View {
 
     private var writable: Bool { MacDrag.accepts(item, model: model) }
 
+    @Environment(\.mixedKinds) private var mixed
+
+    private var subtitleLine: String {
+        let songs = item.count.map { "\($0) \($0 == 1 ? "song" : "songs")" }
+        guard mixed else { return songs ?? item.subtitle }
+        // "Playlist · <owner>" when the service names one, else the songs.
+        let owner = item.subtitle.hasPrefix("Playlist") ? nil : item.subtitle.isEmpty ? nil : item.subtitle
+        return "Playlist · " + (owner ?? songs ?? "")
+    }
+
     var body: some View {
         Button { model.open(.playlist(id: item.id.rawId, title: item.title)) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 MacCover(palette: item.palette)
                     .scaleEffect(hover ? 1.03 : 1)
                 Text(item.title).font(.gsf(14, .semibold)).foregroundStyle(Yoin.ink).lineLimit(1).padding(.top, 8)
-                Text(item.count.map { "\($0) \($0 == 1 ? "song" : "songs")" } ?? item.subtitle)
-                    .font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
+                Text(subtitleLine).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
             }
             .contentShape(Rectangle())
         }

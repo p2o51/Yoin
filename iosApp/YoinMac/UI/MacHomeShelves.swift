@@ -29,6 +29,7 @@ struct MacActivityBento: View {
             }
         }
         .animation(Yoin.spatial, value: entries)
+        .environment(\.mixedKinds, true)
     }
 }
 
@@ -68,15 +69,16 @@ private struct MacHomeEntryCard: View {
     @State private var hover = false
     @State private var memory: MemoryCard?
 
-    private var label: (title: String, subtitle: String, kind: String, icon: String, palette: CoverPalette) {
+    /// Spotify's mixed-list line (51, 2026-11-07): the kind, a middle dot, then who or how many; an artist
+    /// is just "Artist". No separate kind row or icon.
+    private var label: (title: String, subtitle: String, palette: CoverPalette) {
         switch content {
-        case .album(let a): (a.title, a.artist, "Album", "album", a.palette)
-        case .artist(let a): (a.title, a.subtitle, "Artist", "artist", a.palette)
-        // The kind line already says Playlist: the count alone (no "Playlist · n songs").
-        case .playlist(let p): (p.title, p.count.map { "\($0) \($0 == 1 ? "song" : "songs")" } ?? "", "Playlist", "playlist",
-                                p.palette)
-        case .song(let s): (s.track.title, s.track.artist ?? s.album.artist, "Song", "music_note", s.album.palette)
-        case .signal(let s): (s.title, s.subtitle, s.kind == .ratedAlbum ? "Memory" : "Note", "album", s.album.palette)
+        case .album(let a): (a.title, "Album · \(a.artist)", a.palette)
+        case .artist(let a): (a.title, "Artist", a.palette)
+        case .playlist(let p):
+            (p.title, "Playlist · " + (p.count.map { "\($0) \($0 == 1 ? "song" : "songs")" } ?? ""), p.palette)
+        case .song(let s): (s.track.title, "Song · \(s.track.artist ?? s.album.artist)", s.album.palette)
+        case .signal(let s): (s.title, "\(s.kind == .ratedAlbum ? "Memory" : "Note") · \(s.subtitle)", s.album.palette)
         }
     }
 
@@ -88,11 +90,6 @@ private struct MacHomeEntryCard: View {
                 MacCover(palette: label.palette, circle: { if case .artist = content { return true }; return false }())
                     .frame(width: 76, height: 76)
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 5) {
-                        YoinIcon(label.icon, size: 12)
-                        Text(label.kind).font(.gsf(11.5))
-                    }
-                    .foregroundStyle(Yoin.inkVariant)
                     Text(label.title).font(.gsf(14, .semibold)).foregroundStyle(Yoin.ink).lineLimit(2)
                     Text(label.subtitle).font(.gsf(12.5)).foregroundStyle(Yoin.inkVariant).lineLimit(1)
                     if case .signal(let signal) = content {
@@ -109,7 +106,8 @@ private struct MacHomeEntryCard: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
-            .background(Yoin.surfaceContainerHigh.opacity(hover ? 0.8 : 0.45),
+            // No shape behind the cover at rest (51, 2026-11-07); a pointer over it lights the row, as Spotify.
+            .background(Yoin.surfaceContainerHigh.opacity(hover ? 0.7 : 0),
                         in: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg))
             .contentShape(Rectangle())
         }

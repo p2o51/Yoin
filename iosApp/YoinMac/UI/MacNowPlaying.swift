@@ -777,7 +777,12 @@ private struct LyricsList: View {
                         // iOS LyricLinesView's proportions: regular neighbours, the current line semibold
                         // and ~1.14× larger; row pitch about 2.1× the neighbour size.
                         let lit = on && synced
-                        let size: CGFloat = large ? (lit ? 32 : 30) : (lit ? 17 : 15)
+                        // The panel's lines (Android LyricsDisplay): one size for every line, so nothing re-lays
+                        // out while the list glides; the current line lands by scale instead (0.94 → 1 from its
+                        // left edge, spatial spring) and the rest fade by distance (51, 11-07: the old size swap
+                        // looked bad next to Android's).
+                        let size: CGFloat = large ? (lit ? 32 : 30) : 16
+                        let distance = current >= 0 ? abs(l.id - current) : 99
                         VStack(alignment: .leading, spacing: large ? 4 : 2) {
                             Text(l.text.isEmpty ? "♪" : l.text)
                                 .modifier(LyricLineFont(size: size, weight: lit || !synced ? .semibold : (large ? .medium : .regular)))
@@ -791,14 +796,17 @@ private struct LyricsList: View {
                                     .opacity(0.75)
                             }
                         }
-                            .foregroundStyle(on ? tint.primary : (synced ? Yoin.ink3 : Yoin.ink))
-                            .opacity(model.focus && !on && synced ? 0.35 : 1)
+                            .foregroundStyle(on ? tint.primary : (synced ? (large ? Yoin.ink3 : Yoin.inkVariant) : Yoin.ink))
+                            .opacity(large || !synced ? (model.focus && !on && synced ? 0.35 : 1) : Self.compactAlpha(distance))
+                            .scaleEffect(large || !synced || lit ? 1 : 0.94, anchor: .leading)
+                            .animation(Yoin.spatial, value: lit)
                             .padding(.vertical, large ? 9 : 5)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                             .onTapGesture { if synced { model.player.seek(to: l.timeSec) } }
                             .id(l.id)
                             .animation(Yoin.effects, value: on)
+                            .animation(Yoin.effects, value: distance)
                     }
                     Color.clear.frame(height: max(200, total))
                 }
@@ -838,6 +846,16 @@ private struct LyricsList: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
           }
+        }
+    }
+
+    /// Android LyricLineItem's falloff: the current line whole, its neighbours 0.55, then 0.40, the rest 0.28.
+    static func compactAlpha(_ distance: Int) -> Double {
+        switch distance {
+        case 0: 1
+        case 1: 0.55
+        case 2: 0.40
+        default: 0.28
         }
     }
 
