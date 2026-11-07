@@ -151,9 +151,12 @@ struct LandingView: View {
     private func stage(_ f: LandingFrame) -> some View {
         let step = flow.step
         let hello = step == .hello
-        let winH = hello ? LandingFrame.pillHeight : min(windowHeight, maxWindowHeight(f))
+        let maxH = maxWindowHeight(f)
+        // Two columns: the window keeps a calm height while short scenes come and go (Android minH).
+        let winH = hello ? LandingFrame.pillHeight
+            : min(max(windowHeight, f.wide ? min(maxH, max(380, maxH * 0.62)) : 0), maxH)
         let winRect = handoff ? f.barRect
-            : hello ? f.pillRect
+            : hello ? f.helloPillRect
             : CGRect(x: f.colX, y: f.floor - winH, width: f.colW, height: winH)
         let mp = mascotPose(step, f, winH: winH)
         ZStack(alignment: .topLeading) {
@@ -174,6 +177,7 @@ struct LandingView: View {
 
     /// The window can't reach higher than the mascot's row above it.
     private func maxWindowHeight(_ f: LandingFrame) -> CGFloat {
+        if f.wide { return max(LandingFrame.pillHeight, f.floor - (f.top + 28)) }
         let row = max(88 * 0.8, flowBubbleHeight)
         return max(LandingFrame.pillHeight, f.floor - (f.top + 18 + row + 14))
     }
@@ -185,9 +189,14 @@ struct LandingView: View {
     private func mascotPose(_ step: LandingStep, _ f: LandingFrame, winH: CGFloat) -> Pose {
         if fly { return Pose(cx: 44, cy: f.top + 32, size: 56) }
         if step == .hello {
-            let size = min(f.width * 0.62, 250)
+            let size = f.wide ? 300 : min(f.width * 0.62, 250)
             let group = size * 0.8 + 15 + helloBubbleHeight
             return Pose(cx: f.width / 2, cy: (f.top + f.pillTop) / 2 * 0.94 - group / 2 + size * 0.4, size: size)
+        }
+        if f.wide {
+            // The left column; a keyboard lifts the floor and Yoin shrinks into the room above it.
+            let ratio = min(max((f.floor - f.top) / max(1, f.pillTop - 12 - f.top), 0), 1)
+            return Pose(cx: f.colX / 2, cy: f.top + (f.height * 0.40 - f.top) * ratio, size: 220 * max(ratio, 0.6))
         }
         let top = f.floor - winH
         let room = top - 14 - (f.top + 18)
@@ -255,9 +264,11 @@ struct LandingView: View {
 
     @ViewBuilder
     private func bubble(_ f: LandingFrame, mascot p: Pose, winTop: CGFloat) -> some View {
-        let tailUp = bubbleStep == .hello
+        // Two columns: the bubble always hangs under Yoin.
+        let tailUp = bubbleStep == .hello || f.wide
         let line = landingBubble(bubbleStep, noAccounts: accounts.isEmpty)
-        let maxWidth = tailUp ? min(340, f.width - 48) : f.colW - p.size - 6
+        let maxWidth = f.wide && bubbleStep != .hello ? min(360, f.width * 0.40)
+            : tailUp ? min(f.wide ? 420 : 340, f.width - 48) : f.colW - p.size - 6
         let bw = bubbleSize.width, bh = bubbleSize.height
         let ax = tailUp ? p.cx : p.cx + p.size * 0.5 + 2
         let ay = tailUp ? p.cy + p.size * 0.42 + 4 : p.cy - p.size * 0.05
@@ -306,16 +317,18 @@ struct LandingView: View {
         let hello = flow.step == .hello
         let showBack = !hello || session.mode == .rerun
         let primary = flow.primary(hasAccount: !accounts.isEmpty, spotoolfy: spotoolfy.state)
+        let rect = hello ? f.helloPillRect : f.pillRect
         return LandingPill(hello: hello, showBack: showBack, backIsClose: !flow.canGoBack,
                            primary: primary, dotCount: flow.steps.count - 1,
                            dotIndex: max(flow.index - 1, 0), scheme: scheme,
                            onBack: goBack, onPrimary: onPrimary)
             .opacity(handoff ? 0 : 1)
             .animation(Yoin.effects, value: handoff)
-            .frame(width: f.pillRect.width, height: f.pillRect.height)
+            .frame(width: rect.width, height: rect.height)
             .background { Capsule().fill(.clear).glassEffect(.regular, in: .capsule) }
             .opacity(min(1, pillIn * 1.4))
-            .offset(x: f.pillRect.minX, y: f.pillRect.minY + (1 - pillIn) * 120)
+            .offset(x: rect.minX, y: rect.minY + (1 - pillIn) * 120)
+            .animation(Yoin.spatial, value: hello)
             .allowsHitTesting(!finishing)
     }
 
@@ -577,10 +590,16 @@ struct LandingFrame {
     let width: CGFloat
     let height: CGFloat
     let top: CGFloat
+    /// Two columns (Android LandingStage twoColumns: a wide window, or a short landscape one): Yoin on
+    /// the left, the window and its pill in a right-hand column.
+    let wide: Bool
     let colX: CGFloat
     let colW: CGFloat
     let pillTop: CGFloat
+    /// The flow's pill, under the window's column.
     let pillRect: CGRect
+    /// Hello's pill: centred, under the mascot (the same as pillRect in one column).
+    let helloPillRect: CGRect
     /// The shell bar's rect (ShellBar: 14 in, 2 above the home indicator's inset).
     let barRect: CGRect
     /// What the window stands on: the pill, or the keyboard when one is up.
@@ -591,12 +610,25 @@ struct LandingFrame {
         height = size.height
         top = insets.top
         let barW = size.width - 28
-        colW = min(barW, 560)
-        colX = (size.width - colW) / 2
+        wide = Self.isWide(size)
+        if wide {
+            colW = min(520, size.width * 0.44)
+            colX = size.width - colW - max(48, size.width * 0.06)
+        } else {
+            colW = min(barW, 560)
+            colX = (size.width - colW) / 2
+        }
         pillTop = size.height - insets.bottom - 2 - Self.pillHeight
         barRect = CGRect(x: 14, y: pillTop, width: barW, height: Self.pillHeight)
         pillRect = CGRect(x: colX, y: pillTop, width: colW, height: Self.pillHeight)
+        let helloW = wide ? min(380, size.width - 32) : colW
+        helloPillRect = CGRect(x: (size.width - helloW) / 2, y: pillTop, width: helloW, height: Self.pillHeight)
         floor = min(pillTop - 12, size.height - keyboard - 12)
+    }
+
+    /// Android: LayoutMode.Wide (840 and up) or a compact height (under 480, a phone on its side).
+    static func isWide(_ size: CGSize) -> Bool {
+        size.width >= 840 || (size.height < 480 && size.width > size.height)
     }
 }
 
