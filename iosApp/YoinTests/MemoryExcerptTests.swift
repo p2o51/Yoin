@@ -34,4 +34,12 @@ final class MemoryExcerptTests: XCTestCase {
         XCTAssertNil(MemoryExcerptFit.pick([wall], width: 324))
         XCTAssertEqual(MemoryExcerptFit.pick(["Short."], width: 324), "Short.")
     }
+
+    func test_should_sizeTheExcerptInAndroidsThreeSteps() {
+        XCTAssertEqual(MemoryExcerptFit.size("好听。"), 22)
+        XCTAssertEqual(MemoryExcerptFit.size(String(repeating: "a", count: 16)), 22)
+        XCTAssertEqual(MemoryExcerptFit.size(String(repeating: "a", count: 17)), 17)
+        XCTAssertEqual(MemoryExcerptFit.size(String(repeating: "a", count: 60)), 17)
+        XCTAssertEqual(MemoryExcerptFit.size(String(repeating: "a", count: 61)), 16)
+    }
 }

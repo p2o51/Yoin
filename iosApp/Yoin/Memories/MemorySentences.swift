@@ -67,9 +67,14 @@ enum MemoryExcerptFit {
     static let maxLines = 4
     static let maxWidth: CGFloat = 324
 
-    static func isShort(_ text: String) -> Bool { text.count < 60 }
-    static func size(_ text: String) -> CGFloat { isShort(text) ? 22 : 17 }
-    static func lineSpacing(_ text: String) -> CGFloat { isShort(text) ? 22 * 0.4 - 6 : 17 * 0.65 - 5 }
+    /// Android MemoryExcerptSize: short ≤ 16 characters (22, medium), medium ≤ 60 (17), long past it (16).
+    static func isShort(_ text: String) -> Bool { text.count <= 16 }
+    static func isLong(_ text: String) -> Bool { text.count > 60 }
+    static func size(_ text: String) -> CGFloat { isShort(text) ? 22 : isLong(text) ? 16 : 17 }
+    /// The line boxes 1.4 / 1.65 / 1.7, less the face's own leading.
+    static func lineSpacing(_ text: String) -> CGFloat {
+        isShort(text) ? 22 * 0.4 - 6 : isLong(text) ? 16 * 0.7 - 4.7 : 17 * 0.65 - 5
+    }
     static func weight(_ text: String) -> Font.Weight { isShort(text) ? .medium : .regular }
 
     /// The quoted text as the card sets it.
