@@ -106,6 +106,7 @@ class AppleMusicMedia3Player(
     private val stallWatch = MusicKitStallWatch()
     private val endGate = MusicKitEndGate()
     private val startPosition = MusicKitStartPosition()
+    private val startPlay = MusicKitStartPlay()
     private var requestedStartPositionMs = 0L
     private var prepareIssuedEpoch: Long? = null
     private var requestedRepeatMode: Int? = null
@@ -156,6 +157,7 @@ class AppleMusicMedia3Player(
                 playRequest.clear()
                 endGate.interrupt()
                 startPosition.cancel()
+                startPlay.cancel()
                 Log.w(
                     "YoinMusicKitError",
                     musicKitPlaybackErrorDiagnostic(error.type, error.errorCode, error.componentErrorCode)
@@ -178,6 +180,7 @@ class AppleMusicMedia3Player(
             failure = appContext.getString(R.string.player_apple_music_timeout)
             endGate.invalidate(nativeQueueIds())
             startPosition.cancel()
+            startPlay.cancel()
             controller.stop()
             publish()
         }
@@ -295,7 +298,10 @@ class AppleMusicMedia3Player(
                 if (wasPreparing && desiredPlay) {
                     val epoch = endGate.queueEpoch
                     musicKitToken.run {
-                        if (!released && queuePrepared && endGate.queueEpoch == epoch && desiredPlay) controller.play()
+                        if (!released && queuePrepared && endGate.queueEpoch == epoch && desiredPlay) {
+                            controller.play()
+                            startPlay.sent(SystemClock.elapsedRealtime())
+                        }
                     }
                 }
             }
@@ -305,11 +311,27 @@ class AppleMusicMedia3Player(
         val seekExpired = seekingSinceMs?.let { SystemClock.elapsedRealtime() - it >= SEEK_CONFIRM_TIMEOUT_MS } == true
         if (!preparing && seekExpired) {
             startPosition.cancel()
+            startPlay.cancel()
             seekingSinceMs = null
             endGate.interrupt()
         }
         handler.removeCallbacks(startPositionCheck)
         if (startPosition.pending) handler.postDelayed(startPositionCheck, START_POSITION_CHECK_MS)
+        val resendPlay = startPlay.observe(
+            nowMs = SystemClock.elapsedRealtime(),
+            wanted = desiredPlay && queuePrepared && !preparing && failure == null,
+            playing = controller.playbackState == ApplePlaybackState.PLAYING,
+            loading = controller.isBuffering || musicKitToken.holding
+        )
+        if (resendPlay) {
+            Log.i("YoinMusicKitQueue", "start play() not taken; sending it again")
+            val epoch = endGate.queueEpoch
+            musicKitToken.run {
+                if (!released && queuePrepared && endGate.queueEpoch == epoch && desiredPlay && failure == null) {
+                    controller.play()
+                }
+            }
+        }
         endGate.observe(
             MusicKitEndGate.Sample(
                 nowMs = SystemClock.elapsedRealtime(),
@@ -524,6 +546,7 @@ class AppleMusicMedia3Player(
         playRequest.clear()
         endGate.invalidate(nativeQueueIds())
         startPosition.cancel()
+        startPlay.cancel()
         prepareIssuedEpoch = null
         seekingSinceMs = null
         handler.removeCallbacks(startPositionCheck)
@@ -604,6 +627,7 @@ class AppleMusicMedia3Player(
             musicKitToken.dropWaiting()
             endGate.invalidate(nativeQueueIds())
             startPosition.cancel()
+            startPlay.cancel()
             controller.stop()
             requestedItems = emptyList()
             queuePrepared = false
@@ -712,6 +736,7 @@ class AppleMusicMedia3Player(
         musicKitToken.dropWaiting()
         endGate.invalidate(nativeQueueIds())
         startPosition.cancel()
+        startPlay.cancel()
         prepareIssuedEpoch = null
         requestedStartPositionMs = 0
         seekingSinceMs = null
@@ -725,6 +750,7 @@ class AppleMusicMedia3Player(
         released = true
         endGate.invalidate(nativeQueueIds())
         startPosition.cancel()
+        startPlay.cancel()
         musicKitToken.dropWaiting()
         scope.cancel()
         handler.removeCallbacksAndMessages(null)
