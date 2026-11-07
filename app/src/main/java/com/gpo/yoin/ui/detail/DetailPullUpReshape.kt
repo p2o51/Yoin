@@ -15,11 +15,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.unit.Velocity
-import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.experience.RevealState
 import kotlinx.coroutines.CoroutineScope
 
@@ -146,41 +144,4 @@ internal fun rememberDetailPullUpGestures(
             listConnection = connection,
         ).also { gestures = it }
     }
-}
-
-// ---- The hero ⇄ track list handoff --------------------------------------------
-//
-// One shared vertical axis (owner 2026-11-07): as the pull-up runs, the hero's
-// dense flowing titles drift up a short way and are gone by half way, and the
-// track list comes up the same short way into its rows behind them. Before, the
-// two crossfaded over the whole drag nearly in place, so the flowing titles sat
-// on top of the rows. Pulling down plays the same thing backwards.
-
-/** How far each side travels in the handoff. Small on purpose: a nudge, not a slide. */
-internal val PullUpHandoffShift = 28.dp
-
-/** The hero's opacity at [expand] (0 = hero, 1 = list): gone by half way. */
-internal fun pullUpHeroAlpha(expand: Float): Float = 1f - smoothStep(0f, 0.5f, expand)
-
-/** The hero's rise at [expand], as a fraction of [PullUpHandoffShift] (0 → 1, upwards). */
-internal fun pullUpHeroRise(expand: Float): Float = smoothStep(0f, 0.6f, expand)
-
-/** The list's opacity at [expand]: starts as the hero is nearly gone. */
-internal fun pullUpListAlpha(expand: Float): Float = smoothStep(0.35f, 0.9f, expand)
-
-/** How far below its rows the list still sits at [expand], as a fraction of [PullUpHandoffShift]. */
-internal fun pullUpListDrop(expand: Float): Float = 1f - smoothStep(0.25f, 1f, expand)
-
-/** The hero side of the handoff. [alpha] multiplies in the page's own fades. Draw only. */
-internal fun Modifier.pullUpHeroLayer(expand: () -> Float, alpha: () -> Float = { 1f }): Modifier = graphicsLayer {
-    val e = expand().coerceIn(0f, 1f)
-    this.alpha = pullUpHeroAlpha(e) * alpha()
-    translationY = -PullUpHandoffShift.toPx() * pullUpHeroRise(e)
-}
-
-/** The track list side of the handoff. Draw only. */
-internal fun Modifier.pullUpListLayer(expand: () -> Float): Modifier = graphicsLayer {
-    val e = expand().coerceIn(0f, 1f)
-    alpha = pullUpListAlpha(e)
-    translationY = PullUpHandoffShift.toPx() * pullUpListDrop(e)
 }

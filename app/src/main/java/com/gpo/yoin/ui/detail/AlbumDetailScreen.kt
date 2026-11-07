@@ -1279,7 +1279,7 @@ private fun AlbumOverviewPage(
                             listState = listState,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .pullUpListLayer { expand }
+                                .graphicsLayer { alpha = expand.coerceIn(0f, 1f) }
                                 .nestedScroll(gestures.listConnection),
                             footer = {
                                 // 封面 → 封底: the hero is the front cover, the
@@ -1320,7 +1320,10 @@ private fun AlbumOverviewPage(
                             onSongClick = onSongClick,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .pullUpHeroLayer(expand = { expand }, alpha = { albumHeroPageFade(pageFlight) })
+                                .graphicsLayer {
+                                    alpha = (1f - expand).coerceIn(0f, 1f) * albumHeroPageFade(pageFlight)
+                                    translationY = -expand * 40f
+                                }
                                 .stagedBeat(
                                     progress = { stagedReveal.meta },
                                     rise = 14.dp,
@@ -1897,7 +1900,10 @@ private fun AlbumLandscapeOverview(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
-                    .pullUpListLayer { expand }
+                    .graphicsLayer {
+                        alpha = expand.coerceIn(0f, 1f)
+                        translationY = (1f - expand) * 40f
+                    }
                     .nestedScroll(gestures.listConnection),
                 footer = {
                     AlbumHeroMetaBlocks(
@@ -1915,7 +1921,10 @@ private fun AlbumLandscapeOverview(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(gestures.heroDrag(enabled = !expanded))
-                    .pullUpHeroLayer(expand = { expand })
+                    .graphicsLayer {
+                        alpha = (1f - expand).coerceIn(0f, 1f)
+                        translationY = -expand * 40f
+                    }
                     .padding(start = AlbumLandscapeCoverInset, top = 4.dp, end = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(40.dp),
             ) {
@@ -2020,7 +2029,7 @@ private fun AlbumShortOverview(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
-                    .pullUpListLayer { expand }
+                    .graphicsLayer { alpha = expand.coerceIn(0f, 1f) }
                     .nestedScroll(gestures.listConnection),
                 footer = {
                     AlbumHeroMetaBlocks(
@@ -2043,7 +2052,10 @@ private fun AlbumShortOverview(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(gestures.heroDrag(enabled = !expanded))
-                    .pullUpHeroLayer(expand = { expand }, alpha = { albumHeroPageFade(pageFlight) })
+                    .graphicsLayer {
+                        alpha = (1f - expand).coerceIn(0f, 1f) * albumHeroPageFade(pageFlight)
+                        translationY = -expand * 40f
+                    }
                     .stagedBeat(progress = { stagedReveal.meta }, rise = 14.dp)
                     .padding(start = AlbumShortCoverStart, end = 16.dp, top = 4.dp),
             ) {
