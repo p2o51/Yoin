@@ -714,12 +714,13 @@ struct AlbumDetailView: View {
         let count = playlist?.entries.count ?? album.trackCount
         let secs = playlist.map { $0.entries.map(\.track.durationSec).reduce(0, +) } ?? album.totalSec
         let mins = secs / 60
-        var groups: [(String, String)] = [("\(count)", count == 1 ? "track" : "tracks")]
+        // Units through the catalog (a plain String in Text isn't looked up): 首 / 小时 / 分钟.
+        var groups: [(String, String)] = [("\(count)", count == 1 ? String(localized: "track") : String(localized: "tracks"))]
         if mins >= 60 {
-            groups.append(("\(mins / 60)", "h"))
-            if mins % 60 > 0 { groups.append(("\(mins % 60)", "min")) }
+            groups.append(("\(mins / 60)", String(localized: "h")))
+            if mins % 60 > 0 { groups.append(("\(mins % 60)", String(localized: "min"))) }
         } else if mins > 0 {
-            groups.append(("\(mins)", "min"))
+            groups.append(("\(mins)", String(localized: "min")))
         }
         return HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
             ForEach(groups, id: \.1) { value, unit in

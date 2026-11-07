@@ -7459,6 +7459,16 @@
           }
         }
       }
+    },
+    "h": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小时"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
