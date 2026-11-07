@@ -181,6 +181,54 @@ class SpotifyUnreachableTest {
     }
 
     @Test
+    fun should_stopNamingTheOtherDevice_when_spotifyMovedHereWhileYoinWasAway() = playerTest {
+        appRemote.answers = true
+        val player = hostedPlayer()
+        player.warmConnection()
+        runCurrent()
+        web.state = speaker(uri = "spotify:track:t1")
+        tap(player)
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals("Living Room", snapshots.last().playingOn)
+
+        // Away from Yoin, Spotify moves to this phone and carries on with the same song.
+        player.onHostStop()
+        runCurrent()
+        web.state = speaker(uri = "spotify:track:t1").copy(deviceId = "phone", deviceName = "Z Fold8", isThisDevice = true)
+        appRemote.initialState = state(paused = false)
+        player.onHostStart(context)
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        // 51, 2026-11-07: the chip still said the computer.
+        assertNull(snapshots.last().playingOn)
+    }
+
+    @Test
+    fun should_notKeepAStaleDevice_when_spotifyConnectCantBeReadOnReturn() = playerTest {
+        appRemote.answers = true
+        val player = hostedPlayer()
+        player.warmConnection()
+        runCurrent()
+        web.state = speaker(uri = "spotify:track:t1")
+        tap(player)
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals("Living Room", snapshots.last().playingOn)
+
+        player.onHostStop()
+        runCurrent()
+        web.state = null
+        appRemote.initialState = state(paused = false)
+        player.onHostStart(context)
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertNull(snapshots.last().playingOn)
+    }
+
+    @Test
     fun should_hintAfterTheSilentRetry_when_theConnectFailsAtOnce() = playerTest {
         appRemote.failWith = SpotifyDisconnectedException()
         val player = hostedPlayer()
