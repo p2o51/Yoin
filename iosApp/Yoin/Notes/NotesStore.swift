@@ -99,25 +99,36 @@ final class NotesStore {
         persist()
     }
 
-    /// New words for a note; blank words are ignored. Returns the stored note.
+    /// New words for a note; blank words are ignored. Returns the stored note; nil when it couldn't be
+    /// written (nothing changes, so the editor keeps the words; Codex 11-07).
     @discardableResult
     func update(id: String, content: String) -> SongNote? {
         let words = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty, let i = index(id) else { return nil }
-        stored[i].content = words
-        stored[i].updatedAt = nowMs
-        persist()
-        return stored[i]
+        var note = stored[i]
+        note.content = words
+        note.updatedAt = nowMs
+        return commit(note, at: i)
     }
 
-    /// Android "Align to now": the note moves to [positionMs] of its song.
+    /// Android "Align to now": the note moves to [positionMs] of its song. nil when it couldn't be written.
     @discardableResult
     func realign(id: String, positionMs: Int64) -> SongNote? {
         guard let i = index(id) else { return nil }
-        stored[i].positionMs = max(0, positionMs)
-        stored[i].updatedAt = nowMs
-        persist()
-        return stored[i]
+        var note = stored[i]
+        note.positionMs = max(0, positionMs)
+        note.updatedAt = nowMs
+        return commit(note, at: i)
+    }
+
+    /// [note] in place of the one at [i], only once it is on disk.
+    private func commit(_ note: SongNote, at i: Int) -> SongNote? {
+        var next = stored
+        next[i] = note
+        guard write(next) else { return nil }
+        stored = next
+        Self.onLocalChange?()
+        return note
     }
 
     // MARK: Cloud sync (Data/Sync)

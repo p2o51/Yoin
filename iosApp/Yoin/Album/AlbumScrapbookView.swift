@@ -1227,12 +1227,23 @@ struct AlbumRateSheet: View {
         .scrollDismissesKeyboard(.interactively)
         .background(scheme.surfaceContainerLow)
         .onAppear {
-            text = record?.review ?? ""
+            // Words a failed save left behind come back first.
+            text = Self.unsaved.removeValue(forKey: album.id) ?? record?.review ?? ""
             neo.sheetOpened(album)
         }
         .onChange(of: text) { _, _ in neo.edited(album, unsavedWords: normalizedText != record?.review) }
-        .onDisappear {
+        // Saved as they are typed (a second after the last key), not only when the sheet goes: a sheet
+        // that never closes cleanly kept nothing (Codex 11-07).
+        .task(id: text) {
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
             saveReview()
+        }
+        .onDisappear {
+            if !saveReview() {
+                Self.unsaved[album.id] = text
+                PlaylistActions.shared.show(String(localized: "Couldn't save the review. Your draft is kept."))
+            }
             let album = album
             Task { await AlbumNeoDBSync.shared.sheetClosed(album) }
         }
@@ -1293,15 +1304,22 @@ struct AlbumRateSheet: View {
 
     /// Android setAlbumReview: trimmed, blank = none; the written date moves
     /// only when the words do.
-    private func saveReview() {
+    /// false: the words couldn't be written (they are kept for the next open).
+    @discardableResult
+    private func saveReview() -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = trimmed.isEmpty ? nil : trimmed
         let was = record
-        guard normalized != was?.review, was != nil || normalized != nil else { return }
-        memories.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId,
-                                rating: was?.rating ?? 0, review: normalized,
-                                reviewUpdatedAt: normalized == nil ? nil : now, updatedAt: now))
+        guard normalized != was?.review, was != nil || normalized != nil else { return true }
+        guard memories.putAlbum(.init(provider: album.id.provider, albumId: album.id.rawId,
+                                      rating: was?.rating ?? 0, review: normalized,
+                                      reviewUpdatedAt: normalized == nil ? nil : now, updatedAt: now))
+        else { return false }
         NeoDBPendingStore.shared.markReviewChanged(provider: album.id.provider, albumId: album.id.rawId)
         CloudSync.shared.localChanged()
+        return true
     }
+
+    /// Review words a failed save left, per album, until the sheet opens again (this run).
+    @MainActor static var unsaved: [MediaId: String] = [:]
 }

@@ -322,10 +322,8 @@ struct NowPlayingView: View, Equatable {
             }
         }
         #endif
-        .onChange(of: "\(currentNoteKey.provider):\(currentNoteKey.rawId)") {
-            // The song moved on under an edit: the edit is left as it was.
-            if editingNoteId != nil { endEditing() }
-        }
+        // The song moving on never ends an edit of a saved note: the edit is bound to that note (Save writes
+        // to it by id), and ending it here threw the unsaved words away (Codex 11-07). Save or Cancel ends it.
         .onChange(of: stage) { _, s in
             // Android: short focus belongs to the resting player.
             if s != .compact { shortFocus = false }
@@ -2030,7 +2028,11 @@ struct NowPlayingView: View, Equatable {
     private func saveEdit(_ id: String) {
         // Deleted meanwhile: nothing to write back to.
         guard let before = NotesStore.shared.notes.first(where: { $0.id == id }) else { return endEditing() }
-        guard NotesStore.shared.update(id: id, content: draft) != nil else { return }
+        guard NotesStore.shared.update(id: id, content: draft) != nil else {
+            // Not written: the words stay in the field (blank words do nothing).
+            if draft.contains(where: { !$0.isWhitespace }) { PlaylistActions.shared.show(String(localized: "Couldn't save the note")) }
+            return
+        }
         if let ms = draftAnchorMs, ms != before.positionMs { NotesStore.shared.realign(id: id, positionMs: ms) }
         notesSaved += 1
         endEditing()
