@@ -164,7 +164,7 @@ class AppleMusicMedia3Player(
                 )
                 failure = appContext.getString(
                     R.string.player_apple_music_error_code,
-                    appContext.getString(musicKitPlaybackErrorMessage(error.type)),
+                    appContext.getString(musicKitPlaybackErrorMessage(error.type, error.errorCode)),
                     musicKitPlaybackErrorCode(error.type, error.errorCode)
                 )
                 publish()

@@ -84,6 +84,23 @@ class MusicKitPlaybackErrorTest {
     }
 
     @Test
+    fun should_pointAtContentRestrictions_when_appleRefusesWithFailureType3082() {
+        assertEquals(
+            R.string.player_apple_music_content_restricted,
+            musicKitPlaybackErrorMessage(MediaPlayerException.TYPE_UNKNOWN, MUSICKIT_FAILURE_CONTENT_RESTRICTED)
+        )
+        // Only Apple's refusal carries it; other codes and types keep their own message.
+        assertEquals(
+            R.string.player_apple_music_play_failed,
+            musicKitPlaybackErrorMessage(MediaPlayerException.TYPE_UNKNOWN, 3076)
+        )
+        assertEquals(
+            R.string.player_apple_music_io_failed,
+            musicKitPlaybackErrorMessage(MediaPlayerException.TYPE_IO, MUSICKIT_FAILURE_CONTENT_RESTRICTED)
+        )
+    }
+
+    @Test
     fun should_showTypeAndCode_when_sdkGivesACode() {
         assertEquals("0/3076", musicKitPlaybackErrorCode(MediaPlayerException.TYPE_UNKNOWN, 3076))
         assertEquals("3", musicKitPlaybackErrorCode(MediaPlayerException.TYPE_PLAYBACK_QUEUE, MediaPlayerException.ERROR_UNKNOWN))
