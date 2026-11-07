@@ -49,6 +49,8 @@ struct RootView: View {
         .onChange(of: hsc, initial: true) { _, new in model.isPad = new == .regular }
         // Cloud sync (Data/Sync): Google's sign-in redirect, and the start (no network unless sync is on).
         .onOpenURL { url in
+            // A home screen widget's tap (Widgets/WidgetSnapshot.swift: WidgetLink).
+            if let link = WidgetLink(url: url) { return model.handleWidget(link) }
             // The Spotify app hands back here after waking (App Remote's token).
             if SpotifyRemote.shared.handle(url) { return }
             _ = CloudSync.handle(url: url)
@@ -58,6 +60,8 @@ struct RootView: View {
             CloudSync.shared.start { profiles.syncAccounts }
             // Playlist cloud backups follow their playlists on each return to the app (Data/Backup).
             PlaylistBackups.shared.start(library: model.store)
+            // Home screen widgets: a new snapshot whenever what they show changes.
+            WidgetPublisher.shared.start(model)
         }
         .preferredColorScheme(GlassLab.shared.colorScheme)
         .overlay {

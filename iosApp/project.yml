@@ -17,12 +17,16 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    # Simulator builds stay unsigned; device builds sign automatically with
-    # 51's development team (a team ID, not a secret).
-    "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": NO
+    # Simulator builds sign ad hoc ("-", no provisioning): enough for the App Group entitlement the
+    # widgets share data through. Device builds sign automatically with 51's development team (a team ID,
+    # not a secret).
+    "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
     "CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]": NO
     DEVELOPMENT_TEAM: M75T74PTC4
     CODE_SIGN_STYLE: Automatic
+    # One version for the app and its widget extension (they must match); a new build bumps this line only.
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "20"
 targets:
   Yoin:
     type: application
@@ -35,6 +39,9 @@ targets:
     dependencies:
       - framework: ../shared/build/XCFrameworks/current/YoinShared.xcframework
         embed: false
+      - target: YoinWidgets
+        embed: true
+        codeSign: true
       - package: GoogleSignIn
         product: GoogleSignIn
       - package: SpotifyiOS
@@ -60,12 +67,18 @@ targets:
             echo "error: YoinShared.xcframework is older than $NEWER. Build again (the scheme pre-action runs Gradle), or see iosApp/docs/shared-kmp.md."
             exit 1
           fi
+    # The App Group the widget extension reads its snapshot from (Widgets/WidgetSnapshot.swift).
+    entitlements:
+      path: Yoin/Yoin.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.gpo.yoin
     info:
       path: Yoin/Info.plist
       properties:
         CFBundleDisplayName: Yoin
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "20"
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Only HTTPS and Apple's own crypto: no export compliance paperwork per build.
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
@@ -120,8 +133,6 @@ targets:
         # simulator), so generic simulator builds skip x86_64.
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         TARGETED_DEVICE_FAMILY: "1,2"
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "20"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     scheme:
       testTargets:
@@ -144,6 +155,34 @@ targets:
             else FLAVOR=debug; TASK=assembleYoinSharedDebugXCFramework; fi
             cd "$SRCROOT/.." && ./gradlew --quiet ":shared:$TASK" > "$SRCROOT/build/yoin-shared-gradle.log" 2>&1
             ln -sfn "$FLAVOR" "$SRCROOT/../shared/build/XCFrameworks/current"
+  # Home screen widgets (Play, Memory): they only read the app's snapshot in the App Group.
+  YoinWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: YoinWidgets
+      - path: Yoin/Widgets/WidgetSnapshot.swift
+      - path: Yoin/Widgets/WidgetIntents.swift
+      - path: Yoin/Localizable.xcstrings
+    entitlements:
+      path: YoinWidgets/YoinWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.gpo.yoin
+    info:
+      path: YoinWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Yoin
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin.widgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+        SKIP_INSTALL: YES
   YoinTests:
     type: bundle.unit-test
     platform: iOS
