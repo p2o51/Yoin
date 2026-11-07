@@ -161,6 +161,12 @@ struct AlbumDetailView: View {
     /// Playlists have no dots row: 4 + 52 + 6 (PlaylistTopHeader).
     private var headerContent: CGFloat { playlist == nil ? 4 + 52 + 25 + 6 : 4 + 52 + 6 }
 
+    /// Hero ⇄ list: how far each travels on the pull (MD3 shared axis, 30).
+    static let axisTravel: CGFloat = 30
+    /// The hero is gone by this p; the list starts to show at this one (fade through).
+    static let axisOutEnd: CGFloat = 0.4
+    static let axisInStart: CGFloat = 0.3
+
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
@@ -181,12 +187,16 @@ struct AlbumDetailView: View {
                     } else {
                         butterfly(w: w, side: side, band: band)
                     }
+                    // Shared axis Y (51, 2026-11-07): the dense titles rise out
+                    // and are gone before the list rises in after them, one
+                    // short travel each, never a cross-fade in place.
                     hero(w: w, side: side, band: band)
-                        .opacity((1 - e) * heroFade)
-                        .offset(y: -e * 15) // Android: −40 px
+                        .opacity((1 - smooth(p, 0, Self.axisOutEnd)) * heroFade)
+                        .offset(y: -e * Self.axisTravel)
                         .allowsHitTesting(e < 0.5)
                     trackList(w: w)
-                        .opacity(e)
+                        .opacity(smooth(p, Self.axisInStart, 1))
+                        .offset(y: (1 - e) * Self.axisTravel)
                         .allowsHitTesting(e >= 0.5)
                     switch topBar {
                     case 1: glassBar(w: w, top: geo.safeAreaInsets.top)
