@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.offline.OfflineStatus
 import com.gpo.yoin.data.model.isUnplayableAppleImport
@@ -173,6 +175,12 @@ internal fun TrackMenuSheet(
     // Read once as the sheet opens, so it is the song as it is now.
     val track = remember(songId) { host.trackFor(songId) }
     val coverUrl = remember(track) { track?.coverArt?.let { repository.resolveCoverUrl(it) } }
+    // Its album and artist: the song's own, or asked of its service (Apple Music's playlist, library and
+    // search songs come without them) so "Go to album / artist" are there for them too.
+    val links by produceState(track?.let { SongLinks(it.albumId, it.artistId) }, track) {
+        if (track != null && (track.albumId == null || track.artistId == null)) value = repository.songLinks(track)
+    }
+    val albumId = links?.albumId
     val link = rememberDetailWebLink(host.container, WebLinkKind.Track, songId)
     val menu = rememberDetailMenu(
         container = host.container,
@@ -305,7 +313,7 @@ internal fun TrackMenuSheet(
     )
     val goRows = listOfNotNull(
         host.onGoToAlbum?.let { go ->
-            track?.albumId?.let { id ->
+            albumId?.let { id ->
                 TrackMenuRow(stringResource(R.string.track_menu_go_to_album), YoinSymbols.Album) { go(id.toString()) }
             }
         },
@@ -316,16 +324,19 @@ internal fun TrackMenuSheet(
                 stringResource(R.string.track_menu_view_in_scrapbook),
                 YoinSymbols.Note,
             ) { host.onViewInScrapbook(songId) }
-            host.onGoToAlbum != null && track?.albumId != null -> TrackMenuRow(
-                stringResource(R.string.track_menu_view_in_scrapbook),
-                YoinSymbols.Note,
-            ) {
-                ScrapbookFocusRequest.request(songId)
-                host.onGoToAlbum(track.albumId.toString())
+            host.onGoToAlbum != null && albumId != null -> {
+                val id = albumId.toString()
+                TrackMenuRow(stringResource(R.string.track_menu_view_in_scrapbook), YoinSymbols.Note) {
+                    ScrapbookFocusRequest.request(songId)
+                    host.onGoToAlbum(id)
+                }
             }
             else -> null
         },
-        *goToArtistRows(track, host.onGoToArtist).toTypedArray(),
+        *goToArtistRows(
+            track?.let { song -> if (song.artistId == null) song.copy(artistId = links?.artistId) else song },
+            host.onGoToArtist,
+        ).toTypedArray(),
         menu.onOpenIn?.let { open -> menu.openInLabel?.let { TrackMenuRow(it, YoinSymbols.Launch, open) } },
     )
 

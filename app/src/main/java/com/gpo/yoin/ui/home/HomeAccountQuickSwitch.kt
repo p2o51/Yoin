@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -94,6 +95,12 @@ private val FanFirstGap = 12.dp
 // How far sideways the finger may stray (from the avatar's centre) and still be on an item: the labels too.
 private val FanReach = 200.dp
 private val FanWidth = 260.dp
+
+/**
+ * Room round the column for the items' and names' shadows: the popup's window is as big as what it holds, and
+ * a shadow past its edge is cut off (the items sit at its end edge), flickering as the lift grows it.
+ */
+private val FanShadowRoom = 12.dp
 
 // Each item starts this much (of the column's entrance) after the one before it.
 private const val FAN_STAGGER = 0.12f
@@ -212,14 +219,19 @@ internal fun HomeAccountFan(state: HomeAccountFanState, inline: Boolean = false)
                 // As big as the avatar's box, so it is placed from the box's corner.
                 layout(constraints.maxWidth, constraints.maxHeight) {
                     // Its top-end at the avatar box's top-end, whichever way the page reads.
-                    val x = if (layoutDirection == LayoutDirection.Rtl) 0 else constraints.maxWidth - p.width
-                    p.place(x, 0)
+                    // The shadow room hangs past the corner.
+                    val room = FanShadowRoom.roundToPx()
+                    val x = if (layoutDirection == LayoutDirection.Rtl) -room else constraints.maxWidth - p.width + room
+                    p.place(x, -room)
                 }
             },
         ) { HomeAccountFanColumn(state, shown) }
     } else {
+        val room = with(LocalDensity.current) { FanShadowRoom.roundToPx() }
         Popup(
             alignment = Alignment.TopEnd,
+            // The shadow room hangs past the corner (the offset's x follows the reading direction).
+            offset = IntOffset(room, -room),
             properties = PopupProperties(focusable = false, clippingEnabled = false),
         ) { HomeAccountFanColumn(state, shown) }
     }
@@ -235,7 +247,7 @@ private fun HomeAccountFanColumn(state: HomeAccountFanState, shown: Float) {
     val height = with(density) {
         (state.anchorHeight + FanFirstGap.toPx() + count * FanStep.toPx() + 16.dp.toPx()).toDp()
     }
-    Box(Modifier.size(FanWidth, height)) {
+    Box(Modifier.padding(FanShadowRoom).size(FanWidth, height)) {
         accounts.forEachIndexed { i, card ->
             // One after another: each starts a little after the one before.
             val local = if (count <= 1) {
@@ -280,7 +292,10 @@ private fun HomeAccountFanItem(card: ProfileCard, lift: Float, shown: Float) {
                 val scale = (0.4f + 0.6f * shown) * (1f + 0.22f * lift)
                 scaleX = scale
                 scaleY = scale
-                alpha = shown
+                // Alpha on each drawing, no offscreen buffer: a buffer is cut at the item's bounds, so its
+                // shadow would vanish while it fades and pop back at full alpha (the spring crosses 1 and back).
+                alpha = shown.coerceIn(0f, 1f)
+                compositingStrategy = CompositingStrategy.ModulateAlpha
             }
             .shadow(3.dp + 5.dp * lift.coerceIn(0f, 1f), CircleShape)
             .clip(CircleShape)
@@ -319,7 +334,9 @@ private fun HomeAccountFanLabel(card: ProfileCard, lift: Float, hovered: Boolean
             .padding(end = 8.dp)
             .widthIn(max = FanWidth - FanItem - 16.dp)
             .graphicsLayer {
-                alpha = shown * (0.72f + 0.28f * lift)
+                // As the item's: no buffer to cut the shadow off while the name is not fully opaque.
+                alpha = (shown * (0.72f + 0.28f * lift)).coerceIn(0f, 1f)
+                compositingStrategy = CompositingStrategy.ModulateAlpha
                 // Toward the page (start), a little further while under the finger.
                 val out = 4.dp.toPx() + lift * 6.dp.toPx() + (1f - shown) * 8.dp.toPx()
                 translationX = if (rtl) out else -out
