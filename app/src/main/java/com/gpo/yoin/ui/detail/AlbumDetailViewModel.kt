@@ -21,6 +21,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
+import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
 import com.gpo.yoin.data.repository.AlbumSavedState
 import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
@@ -935,6 +936,7 @@ private fun Track.toAlbumSong(albumArtist: String?): AlbumSong = AlbumSong(
     duration = durationSec,
     isStarred = isStarred,
     isUnavailable = isUnplayableAppleImport,
+    isNotStreamed = extras[AppleMusicSong.EXTRA_CATALOG_UNAVAILABLE] == "true",
     featArtist = artist?.takeIf {
         it.isNotBlank() && !it.equals(albumArtist, ignoreCase = true)
     },

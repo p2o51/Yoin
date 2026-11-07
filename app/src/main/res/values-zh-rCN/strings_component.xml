@@ -109,6 +109,7 @@
     <string name="cmp_lyrics_empty">暂无歌词</string>
     <string name="cmp_wave_note">笔记</string>
     <string name="cmp_unavailable_cd">无法播放的原因</string>
+    <string name="cmp_unavailable_apple_not_streamed">Apple Music 暂未在你所在的地区提供这首歌的播放。</string>
     <string name="cmp_unavailable_apple_import">这首歌是你自行导入的曲目，不在 Apple Music 目录中，请前往 Apple Music 应用播放。</string>
     <string name="cmp_library_cd_added">已在 Apple Music 资料库中</string>
     <string name="cmp_library_cd_pending">检查是否已加入资料库</string>
