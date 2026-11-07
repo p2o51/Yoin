@@ -27,6 +27,21 @@ final class SpotifyPlayerHTTPTests: XCTestCase {
         XCTAssertEqual(body["position_ms"] as? Int, 5000)
     }
 
+    func test_should_neverResendAStart_when_aNewerOneLandedDuringTheRateLimitWait() async throws {
+        // Album A gets 429; while it waits, the listener starts album B. A's retry must not go out and
+        // play over B (Codex 11-07).
+        PlayerStub.route = { _ in PlayerStub.requests.count <= 1 ? .init(status: 429, body: "") : .init(status: 204, body: "") }
+        let wanted = Flag(true)
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [PlayerStub.self]
+        let api = SpotifyWebAPI(token: { "tok" }, session: URLSession(configuration: cfg), sleep: { _ in wanted.set(false) })
+        do {
+            try await SpotifySource(api: api).startPlayback(uris: ["spotify:track:a"], while: { wanted.get() })
+            XCTFail("the replaced start went out")
+        } catch is SpotifyCommandDropped {}
+        XCTAssertEqual(PlayerStub.requests.count, 1)
+    }
+
     func test_should_saveAndRemoveTheAlbumThroughTheLibrary_when_toggled() async throws {
         PlayerStub.route = { _ in .init(status: 200, body: "") }
         try await source().setAlbumSaved(true, album: "al1")
@@ -70,6 +85,14 @@ final class SpotifyPlayerHTTPTests: XCTestCase {
         XCTAssertEqual(now?.isPlaying, false)
         XCTAssertNil(now?.trackURI)
     }
+}
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Bool
+    init(_ v: Bool) { value = v }
+    func get() -> Bool { lock.withLock { value } }
+    func set(_ v: Bool) { lock.withLock { value = v } }
 }
 
 /// Answers each request from [route] and records it with its headers and body.

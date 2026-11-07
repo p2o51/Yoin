@@ -863,7 +863,11 @@ final class SpotifyAudioOutput: AudioOutput {
                 guard gen == generation else { return }
             }
             let device = target
-            try await control.startPlayback(uris: uris, positionMs: at, deviceId: device)
+            // Asked before the request and before every retry: a newer start or another account wins.
+            let still: SpotifyWebAPI.StillWanted = { [weak self, weak control] in
+                await self?.startStillWanted(gen: gen, control: control) ?? false
+            }
+            try await control.startPlayback(uris: uris, positionMs: at, deviceId: device, while: still)
             PlayTrace.log("SP send done gen=\(gen == generation)")
             guard gen == generation else {
                 // Stopped while the start was on its way: it mustn't keep playing there (stop() sends
@@ -896,6 +900,12 @@ final class SpotifyAudioOutput: AudioOutput {
             events?.outputDidFail(SpotifySource.message(for: error),
                                   network: error is SpotifyPlaybackError || PlaybackFailureKind.isNetwork(error))
         }
+    }
+
+    /// A start may still go out: same session, same account.
+    private func startStillWanted(gen: Int, control asked: SpotifySource?) -> Bool {
+        guard let asked else { return false }
+        return Self.watchStillValid(asked: asked, current: control, askedGen: gen, generation: generation)
     }
 
     /// The device a start is sent to as a remote: one that is playing Spotify right now and isn't

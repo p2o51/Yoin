@@ -105,7 +105,10 @@ final class SpotifyWebAPI: Sendable {
             if let still, await !still() { throw SpotifyCommandDropped() }
             var req = URLRequest(url: url)
             req.httpMethod = method
-            req.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
+            let bearer = try await token()
+            // The token may have waited on a refresh: asked again right before the request goes out.
+            if let still, await !still() { throw SpotifyCommandDropped() }
+            req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
             if let json {
                 req.httpBody = json
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
