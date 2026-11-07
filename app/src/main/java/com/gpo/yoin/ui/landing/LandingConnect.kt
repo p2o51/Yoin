@@ -77,7 +77,7 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
-import com.gpo.yoin.ui.component.MorphPolygonShape
+import com.gpo.yoin.ui.component.MorphProgressShape
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.landing.guide.AppleMusicSignInWithGuide
@@ -131,7 +131,7 @@ private fun ServiceHeader(service: SetupService) {
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier.padding(bottom = 16.dp),
     ) {
-        val shape = remember { MorphPolygonShape(Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Cookie9Sided), 0f) }
+        val shape = remember { MorphProgressShape(Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Cookie9Sided), 0f) }
         Box(
             modifier = Modifier
                 .size(48.dp)

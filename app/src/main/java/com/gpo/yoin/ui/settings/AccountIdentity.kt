@@ -43,7 +43,7 @@ import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
-import com.gpo.yoin.ui.component.MorphPolygonShape
+import com.gpo.yoin.ui.component.MorphProgressShape
 import com.gpo.yoin.ui.settings.service.SetupService
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -198,8 +198,7 @@ private fun rememberAvatarShape(index: Int): Shape {
         progress.animateTo(1f, spec)
     }
     val morph = remember(from, to) { Morph(from, to) }
-    val value = progress.value
-    return if (value >= 1f) remember(morph) { MorphPolygonShape(morph, 1f) } else MorphPolygonShape(morph, value)
+    return remember(morph) { MorphProgressShape(morph) { progress.value } }
 }
 
 /**
