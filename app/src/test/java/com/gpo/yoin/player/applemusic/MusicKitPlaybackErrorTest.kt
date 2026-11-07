@@ -82,4 +82,10 @@ class MusicKitPlaybackErrorTest {
             assertEquals(expected, queueMessage)
         }
     }
+
+    @Test
+    fun should_showTypeAndCode_when_sdkGivesACode() {
+        assertEquals("0/3076", musicKitPlaybackErrorCode(MediaPlayerException.TYPE_UNKNOWN, 3076))
+        assertEquals("3", musicKitPlaybackErrorCode(MediaPlayerException.TYPE_PLAYBACK_QUEUE, MediaPlayerException.ERROR_UNKNOWN))
+    }
 }

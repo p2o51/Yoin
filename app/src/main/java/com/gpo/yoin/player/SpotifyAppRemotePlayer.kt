@@ -327,7 +327,21 @@ internal class SpotifyAppRemotePlayer(
             connectIfPossible()
             if (pendingOperations.isNotEmpty()) armUnreachableWatch()
         }
-        if (webDevice != null) startWebPolling(immediately = true)
+        if (webDevice != null) {
+            startWebPolling(immediately = true)
+        } else if (wantsConnection || lastSnapshot.playingOn != null) {
+            // Spotify may have moved while Yoin was away (back to this phone, say): the device
+            // Now Playing names is read again now, not left as it was when Yoin went (51, 11-07).
+            refreshPlayingOn()
+        }
+    }
+
+    /**
+     * Where Spotify plays, read again after [afterMs] (a device switch from the device sheet;
+     * Spotify Connect takes a moment to report it).
+     */
+    fun refreshDevice(afterMs: Long = 0L) {
+        if (webDevice != null) startWebPolling(immediately = afterMs == 0L) else refreshPlayingOn(afterMs)
     }
 
     /**
@@ -1125,9 +1139,13 @@ internal class SpotifyAppRemotePlayer(
                         start?.heard?.complete(Unit)
                         pendingStart = null
                         val before = lastSnapshot.currentTrack?.id
+                        val wasPlaying = lastSnapshot.isPlaying
                         publish(fromPlayerState(playerState))
-                        // A new song may be playing on another device: Now Playing names it.
-                        if (lastSnapshot.currentTrack?.id != before) refreshPlayingOn()
+                        // A new song, or a play or pause, may be on another device (or back on
+                        // this one): Now Playing names the device it is on.
+                        if (lastSnapshot.currentTrack?.id != before || lastSnapshot.isPlaying != wasPlaying) {
+                            refreshPlayingOn()
+                        }
                         followSpotifyQueue()
                     }
                 }
@@ -1719,15 +1737,32 @@ internal class SpotifyAppRemotePlayer(
         }
     }
 
-    /** With App Remote connected: the other device Spotify plays on, for Now Playing (it doesn't say). */
-    private fun refreshPlayingOn() {
-        if (connectWeb == null) return
+    /**
+     * The other device Spotify plays on, for Now Playing (App Remote doesn't say), read after
+     * [afterMs]. A read that fails is tried again a few times; when it still can't be read, no
+     * device is named: a stale one (the computer it played on before) is worse than none, and
+     * App Remote's controls reach Spotify wherever it plays (51, 2026-11-07).
+     */
+    private fun refreshPlayingOn(afterMs: Long = 0L) {
+        if (connectWeb == null || webDevice != null) return
         deviceNameJob?.cancel()
         deviceNameJob = scope.launch {
-            val state = readConnectState() ?: return@launch
+            if (afterMs > 0L) delay(afterMs)
+            var state = readConnectState()
+            var reads = 1
+            while (state == null && reads < PLAYING_ON_READS) {
+                delay(PLAYING_ON_RETRY_MS)
+                state = readConnectState()
+                reads++
+            }
+            // Web mode started meanwhile: it names the device itself.
+            if (webDevice != null) return@launch
             // Only a device that plays: a speaker paused since the start isn't where the song is.
-            val name = state.deviceName.takeIf { state.playsElsewhere }
-            if (name != lastSnapshot.playingOn) publish(lastSnapshot.copy(playingOn = name))
+            val name = state?.takeIf { it.playsElsewhere }?.deviceName
+            if (name != lastSnapshot.playingOn) {
+                Log.d(tag, "refreshPlayingOn: ${lastSnapshot.playingOn} -> $name")
+                publish(lastSnapshot.copy(playingOn = name))
+            }
         }
     }
 
@@ -1777,6 +1812,12 @@ internal class SpotifyAppRemotePlayer(
 
         /** The Web API's word on where Spotify plays; past this it counts as unknown. */
         const val CONNECT_STATE_TIMEOUT_MS = 2_500L
+
+        /** Reads [refreshPlayingOn] makes before it stops naming a device it can't confirm. */
+        const val PLAYING_ON_READS = 3
+
+        /** Gap between those reads (the network is often still waking when Yoin comes back). */
+        const val PLAYING_ON_RETRY_MS = 1_500L
 
         /** How often Yoin reads the other device's state while it drives it. */
         const val WEB_POLL_MS = 2_000L

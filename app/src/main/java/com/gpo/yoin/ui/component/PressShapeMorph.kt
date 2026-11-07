@@ -28,9 +28,12 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
  * [RoundedPolygon]s, so any pair morphs cleanly — [Morph] matches their
  * curves and the spatial spring drives one progress float.
  *
- * The returned Shape is a fresh value each progress frame (the official shape
- * -morph pattern): the clip/background invalidates via recomposition of the
- * small host composable, which only runs while the press animation is live.
+ * The returned Shape is one remembered instance that reads the spring's
+ * progress in createOutline, so the press only re-resolves the outline (draw
+ * phase): background and graphicsLayer clip observe those reads. Nothing
+ * recomposes per frame — the same approach as Compose 1.13's
+ * MorphPolygonShape, which takes a PolygonShape and so can't take
+ * MaterialShapes directly.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -40,25 +43,29 @@ fun rememberPressMorphShape(
     pressed: RoundedPolygon = MaterialShapes.Triangle,
 ): Shape {
     val isPressed by interactionSource.collectIsPressedAsState()
-    val progress by animateFloatAsState(
+    val progress = animateFloatAsState(
         targetValue = if (isPressed) 1f else 0f,
         animationSpec = YoinMotion.fastSpatialSpec(role = YoinMotionRole.Expressive),
         label = "pressShapeMorph",
     )
     val morph = remember(base, pressed) { Morph(base, pressed) }
-    return if (progress <= 0.001f) {
-        // Resting: hand back a stable cached shape so nothing re-clips.
-        remember(base) { MorphPolygonShape(morph, 0f) }
-    } else {
-        MorphPolygonShape(morph, progress)
-    }
+    return remember(morph, progress) { MorphProgressShape(morph) { progress.value } }
 }
 
-/** A [Morph] at [progress], scaled from the unit square to the layout bounds. */
-internal class MorphPolygonShape(
+/**
+ * A [Morph] at [progress], scaled from the unit square to the layout bounds.
+ *
+ * [progress] is read when the outline is resolved, not in composition: hand it
+ * a lambda over animation state and the shape follows the animation with draw
+ * / layer invalidations only. Keep one remembered instance per element.
+ */
+internal class MorphProgressShape(
     private val morph: Morph,
-    private val progress: Float,
+    private val progress: () -> Float,
 ) : Shape {
+    /** A morph frozen at [progress]. */
+    constructor(morph: Morph, progress: Float) : this(morph, { progress })
+
     override fun createOutline(
         size: Size,
         layoutDirection: LayoutDirection,
@@ -68,7 +75,7 @@ internal class MorphPolygonShape(
         // the morphed path up to the composable's bounds.
         val matrix = Matrix()
         matrix.scale(size.width, size.height, 1f)
-        val path = morph.toPath(progress).asComposePath()
+        val path = morph.toPath(progress().coerceIn(0f, 1f)).asComposePath()
         path.transform(matrix)
         return Outline.Generic(path)
     }

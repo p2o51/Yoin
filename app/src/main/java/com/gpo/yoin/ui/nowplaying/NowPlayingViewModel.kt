@@ -23,6 +23,7 @@ import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.player.CastManager
@@ -55,6 +56,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -603,8 +605,41 @@ class NowPlayingViewModel(
         }
     }
 
+    /**
+     * Song id → its album and artist, for a playing song that came without them (Apple Music's playlist,
+     * library and search songs): asked of its service once it plays, so the title and artist still open them.
+     */
+    private val resolvedLinks = MutableStateFlow<Map<String, SongLinks>>(emptyMap())
+
+    init {
+        viewModelScope.launch {
+            playbackManager.playbackState
+                .map { it.currentTrack }
+                .distinctUntilChangedBy { it?.id }
+                .collectLatest { track ->
+                    if (track == null || (track.albumId != null && track.artistId != null)) return@collectLatest
+                    val key = track.id.toString()
+                    if (key in resolvedLinks.value) return@collectLatest
+                    val links = repository.songLinks(track)
+                    resolvedLinks.update { it + (key to links) }
+                }
+        }
+    }
+
+    private val baseWithAlbum = combine(baseUiState, resolvedLinks) { base, resolved ->
+        val links = (base as? NowPlayingUiState.Playing)?.let { resolved[it.songId] }
+        if (base is NowPlayingUiState.Playing && links != null) {
+            base.copy(
+                albumId = base.albumId ?: links.albumId?.toString(),
+                artistId = base.artistId ?: links.artistId?.toString(),
+            )
+        } else {
+            base
+        }
+    }
+
     val uiState: StateFlow<NowPlayingUiState> = combine(
-        baseUiState,
+        baseWithAlbum,
         playbackAndContext,
         PlaybackService.playingFormat,
         PlaybackService.usingDlna,
@@ -1242,7 +1277,12 @@ class NowPlayingViewModel(
                         }
                     },
                 )
-                if (device is YoinDevice.SpotifyConnect) delay(1_200)
+                if (device is YoinDevice.SpotifyConnect) {
+                    // The device chip follows the switch too, not only the sheet; read once
+                    // Spotify Connect has caught up.
+                    playbackManager.refreshSpotifyDevice(afterMs = 1_500L)
+                    delay(1_200)
+                }
             } else {
                 _devicesState.value = _devicesState.value.copy(
                     busyDeviceId = null,

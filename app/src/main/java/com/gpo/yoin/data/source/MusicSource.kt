@@ -207,6 +207,13 @@ interface MusicMetadata {
     suspend fun alternateNames(trackId: MediaId): TrackNames? = null
 
     /**
+     * The album and artist [trackId] belongs to, for a song that came without them: Apple Music names them only
+     * when the request included them, and its playlists, library songs and search rows don't. Null when the
+     * service can't say (the default: everywhere else a song carries both already).
+     */
+    suspend fun songLinks(trackId: MediaId): SongLinks? = null
+
+    /**
      * A public web link to [id] (an album, artist, playlist or track) for
      * Share and "Open in …" — the provider's own app opens it where one is
      * installed. Null where there is none: a self-hosted server, or an item
@@ -402,3 +409,6 @@ class PartialPlaylistImportException(
     val added: Int,
     cause: Throwable,
 ) : Exception("Playlist created with $added tracks before a failure", cause)
+
+/** Where a song leads: its album and its (first) artist, either unknown. */
+data class SongLinks(val albumId: MediaId?, val artistId: MediaId?)

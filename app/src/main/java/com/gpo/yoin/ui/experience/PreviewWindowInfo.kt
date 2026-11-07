@@ -10,29 +10,12 @@ import androidx.compose.ui.unit.dp
  * pure rules as [rememberYoinWindowInfo], for previews and UI tests that pin
  * a breakpoint (`@Preview(widthDp, heightDp)` doesn't feed the adaptive info).
  */
-fun previewYoinWindowInfo(widthDp: Int, heightDp: Int): YoinWindowInfo {
-    val widthAtLeastMedium = widthDp >= 600
-    val heightAtLeastMedium = heightDp >= 480
-    val layoutMode = when {
-        widthDp >= 840 -> LayoutMode.Wide
-        widthAtLeastMedium -> LayoutMode.Medium
-        else -> LayoutMode.Compact
-    }
-    val chromeForm = resolveShellChromeForm(
-        isTabletop = false,
-        widthAtLeastMedium = widthAtLeastMedium,
-        heightAtLeastMedium = heightAtLeastMedium,
-    )
-    return YoinWindowInfo(
-        layoutMode = layoutMode,
-        isWidthAtLeastMedium = widthAtLeastMedium,
-        isHeightAtLeastMedium = heightAtLeastMedium,
-        hingeBounds = null,
-        chromeForm = chromeForm,
-        feedUnits = feedUnitsForContainer(widthDp.dp, layoutMode, chromeForm),
-        feedCoverColumns = feedCoverColumnsForContainer(widthDp.dp, layoutMode, chromeForm),
-    )
-}
+fun previewYoinWindowInfo(widthDp: Int, heightDp: Int): YoinWindowInfo = resolveYoinWindowInfo(
+    width = widthDp.dp,
+    height = heightDp.dp,
+    isTabletop = false,
+    hingeBounds = null,
+)
 
 /** Wraps a preview in [previewYoinWindowInfo] (and the edge band for a short window). */
 @Composable

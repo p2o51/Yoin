@@ -70,6 +70,7 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicSource
+import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.spotify.SpotifyActivityArtistArtwork
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
@@ -1158,6 +1159,25 @@ class YoinRepository(
         } catch (_: Exception) {
             null
         }
+
+    /**
+     * [track]'s album and artist: its own, or the ones its service names when asked (Apple Music's playlist,
+     * library and search songs come without them; see MusicMetadata.songLinks). Either is null when there is
+     * none to open.
+     */
+    suspend fun songLinks(track: Track): SongLinks {
+        val own = SongLinks(track.albumId, track.artistId)
+        if (own.albumId != null && own.artistId != null) return own
+        val asked = try {
+            val source = requireSource()
+            if (source.id != track.id.provider) null else source.metadata().songLinks(track.id)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+        return SongLinks(own.albumId ?: asked?.albumId, own.artistId ?: asked?.artistId)
+    }
 
     // ── Playlists ──────────────────────────────────────────────────────
 
