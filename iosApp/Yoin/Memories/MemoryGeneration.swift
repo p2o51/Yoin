@@ -101,8 +101,14 @@ final class MemoryGeneration {
             }
             return text
         }
+        // A title is written in the listener's language, whatever Gemini answers in (its key has no language):
+        // one this writing already has is kept when another language is chosen, and not asked for again.
+        guard row.generatedByLanguage == nil else {
+            guard row.titlePromptHash == input.titleHash,
+                  let t = row.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return .init() }
+            return .init(titleAttempted: true, title: t, titlePromptHash: row.titlePromptHash)
+        }
         // An Android cloud row has no local language map. Validate narration against Android's v2 key.
-        guard row.generatedByLanguage == nil else { return .init() }
         let title = row.title.flatMap { value -> String? in
             let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? nil : text

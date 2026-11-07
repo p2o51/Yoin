@@ -91,6 +91,18 @@ final class MemoryGenerationTests: XCTestCase {
         XCTAssertNil(card.paragraph)
     }
 
+    func test_should_keepTheTitle_when_anotherLanguageIsChosen() async {
+        let s = store(), x = inputs(review: "Cold water, warm light.")
+        await MemoryGeneration().generate(input(x), account: "p1", client: client, store: s,
+                                          settings: settings(key: "k"), onSaved: {}, isCurrent: { true })
+        let zh = MemoryVoice.Input(card: MemoryDeck.cards(x)[0], notes: [], now: now, targetLanguage: "Simplified Chinese")
+        await MemoryGeneration().generate(zh, account: "p1", client: client, store: s,
+                                          settings: settings(key: "k"), onSaved: {}, isCurrent: { true })
+        XCTAssertEqual(GeminiStubProtocol.requests.count, 1, "the title isn't asked for again")
+        let card = MemoryGeneration.voiced(MemoryDeck.cards(x)[0], x, language: "Simplified Chinese", now: now, store: s)
+        XCTAssertEqual(card.title, "Night Swim")
+    }
+
     func test_should_askNothing_when_noKeyIsSet() async {
         let s = store()
         await MemoryGeneration().generate(input(inputs()), account: "p1", client: client, store: s,
