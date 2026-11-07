@@ -690,6 +690,13 @@ extension PlayerEngine: AudioOutputEvents {
         reachEnd()
     }
 
+    func outputCurrentDidFinish() {
+        guard currentIndex != nil, !ended, externalTrack == nil else { return }
+        guard let i = autoAdvanceIndex, queue.indices.contains(i) else { return reachEnd() }
+        currentIndex = i
+        loadCurrent(play: true)
+    }
+
     func outputDidFail(_ message: String, network: Bool) {
         PlayTrace.log("engine failure network=\(network): \(message)")
         if network { holdAfterFailure(message) } else { skipAfterFailure(message) }

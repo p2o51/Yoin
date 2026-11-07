@@ -110,6 +110,21 @@ final class PlayerEngineTests: XCTestCase {
 
     // MARK: Start & transport
 
+    func test_should_startTheNextSong_when_theOutputFinishesTheCurrentWithNothingHanded() {
+        // Spotify refused the next song (enqueue failed): the song's end is not the queue's end.
+        engine.play(queue: tracks(3), startAt: 0)
+        engine.outputCurrentDidFinish()
+        XCTAssertEqual(engine.currentIndex, 1)
+        XCTAssertEqual(output.loads, 2)
+        XCTAssertTrue(output.playing)
+        XCTAssertTrue(engine.isPlaying)
+        // Repeat all (the default): the last song finishing goes round to the first.
+        engine.outputCurrentDidFinish()
+        engine.outputCurrentDidFinish()
+        XCTAssertEqual(engine.currentIndex, 0)
+        XCTAssertTrue(engine.isPlaying)
+    }
+
     func test_should_load_start_and_preload_next_when_playing_a_queue() {
         engine.play(queue: tracks(3), startAt: 1)
         XCTAssertEqual(engine.currentTrack?.id, "t2")

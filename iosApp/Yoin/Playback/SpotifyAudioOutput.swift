@@ -356,6 +356,8 @@ final class SpotifyAudioOutput: AudioOutput {
         staleHandoff = false
         failedHere = false
         retriedHere = false
+        wokeHere = false
+        nextUnhanded = false
         wakeWait = nil
         awaitingWake = false
         externalURI = nil
@@ -531,11 +533,15 @@ final class SpotifyAudioOutput: AudioOutput {
 
     /// A start here that didn't land (51, 2026-11-07: after the first song, another album said "Open
     /// Spotify on this iPhone" while Spotify was right there). Once, a fresh connection and the song
-    /// again; failing that, Spotify woken on the song as the first start does. Never a message asking
-    /// the listener to open Spotify by hand.
+    /// again; failing that, Spotify woken on the song as the first start does; failing that too, the
+    /// failure, held until the listener taps Play (never a loop of trips to Spotify).
     private func recoverHere(_ item: Item, gen: Int) {
         guard gen == generation else { return }
-        guard Self.recovery(retried: retriedHere) == .reconnect else { return wakeHere(item, gen: gen) }
+        switch Self.recovery(retried: retriedHere, woke: wokeHere) {
+        case .fail: return failStart(gen: gen)
+        case .wake: return wakeHere(item, gen: gen)
+        case .reconnect: break
+        }
         retriedHere = true
         PlayTrace.log("SP start didn't land: a fresh connection, once")
         remote.dropStale()
@@ -554,17 +560,36 @@ final class SpotifyAudioOutput: AudioOutput {
     private func wakeHere(_ item: Item, gen: Int) {
         guard gen == generation else { return }
         PlayTrace.log("SP start: Spotify woken on the song")
+        wokeHere = true
         awaitingWake = true
         remote.wake(playing: item.trackURI)
     }
 
-    /// One fresh connection per song before Spotify is woken.
+    /// The last resort: the failure, held; Spotify playing the song after all still clears it (apply).
+    private func failStart(gen: Int) {
+        guard gen == generation else { return }
+        PlayTrace.log("SP start didn't land after a reconnect and a wake: held as a failure")
+        starting = false
+        failedHere = true
+        // The engine answers a failure with a pause: a command is never error handling (51's log, 23:02:06.989).
+        quietPause = true
+        events?.outputDidFail(String(localized: "Open Spotify on this iPhone, then tap Play"), network: true)
+    }
+
+    /// Spotify refused the engine's next song: at this song's end the engine starts it itself.
+    private var nextUnhanded = false
+
+    /// One fresh connection per song before Spotify is woken; one wake before the failure.
     private var retriedHere = false
+    private var wokeHere = false
 
-    enum Recovery: Equatable { case reconnect, wake }
+    enum Recovery: Equatable { case reconnect, wake, fail }
 
-    /// What a start here that didn't land does next: a fresh connection the first time, then the wake.
-    nonisolated static func recovery(retried: Bool) -> Recovery { retried ? .wake : .reconnect }
+    /// What a start here that didn't land does next: a fresh connection the first time, then the wake,
+    /// then the failure (a new song or the listener's Play starts over: load resets both).
+    nonisolated static func recovery(retried: Bool, woke: Bool) -> Recovery {
+        woke ? .fail : retried ? .wake : .reconnect
+    }
     nonisolated static let reconnectGapMs = 300
 
     /// A failure was reported for the queue's song; Spotify playing it clears it (see apply).
@@ -630,6 +655,7 @@ final class SpotifyAudioOutput: AudioOutput {
         guard isHere, !contextActive, !onSpotifysOwnSong, handedNext == nil || retried, let next, let player = remote.player else { return }
         enqueueWhenPlaying = false
         handedNext = next
+        nextUnhanded = false
         let gen = generation, song = current
         player.enqueueTrackUri(next.trackURI) { [weak self] _, error in
             guard let error else { return }
@@ -638,8 +664,10 @@ final class SpotifyAudioOutput: AudioOutput {
                 PlayTrace.log("SP enqueue failed \(error.localizedDescription)")
                 guard gen == self.generation, self.current == song, self.next == next else { return }
                 guard Self.retriesEnqueue(errorCode: (error as NSError).code, alreadyRetried: retried) else {
-                    // Spotify is left alone: at the song's end the engine starts its next itself.
+                    // Spotify is left alone: at the song's end the engine starts its next itself
+                    // (outputCurrentDidFinish, not the queue's end).
                     self.handedNext = nil
+                    self.nextUnhanded = true
                     return
                 }
                 Task { [weak self] in
@@ -1453,6 +1481,11 @@ final class SpotifyAudioOutput: AudioOutput {
             let atEnd = lastTime >= d - Self.endSlackSec || (lastTime < 1 && before >= d - Self.endSlackSec - 1.5)
             if s.isPaused, wantsPlay, d > 0, atEnd {
                 sawCurrent = false
+                // Spotify never got the next song: the engine carries on with it; else the list ran out.
+                if nextUnhanded {
+                    nextUnhanded = false
+                    return events?.outputCurrentDidFinish() ?? ()
+                }
                 return events?.outputDidReachEnd() ?? ()
             }
             // Paused or played from the Spotify app or its lock screen card.
@@ -1490,7 +1523,7 @@ final class SpotifyAudioOutput: AudioOutput {
                 // The song ran out and Spotify carried on by itself to something else (the list was
                 // stale, or its autoplay): the engine starts its next, back in Yoin's queue.
                 sawCurrent = false
-                return events?.outputDidReachEnd() ?? ()
+                return events?.outputCurrentDidFinish() ?? ()
             }
         }
         // Picked in Spotify, here or on the device Yoin drives (or a start that never took): the

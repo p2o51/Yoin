@@ -297,6 +297,9 @@ final class RoutingAudioOutput: AudioOutput {
     func seek(to sec: Double) { active.seek(to: sec) }
     func stop() { active.stop() }
     func skipExternal(forward: Bool) { active.skipExternal(forward: forward) }
+    func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode) {
+        active.playModesDidChange(shuffle: shuffle, repeatMode: repeatMode)
+    }
 
     /// [o] drives the player without a load (Spotify found playing something Yoin didn't start).
     func adopt(_ o: AudioOutput) {
@@ -336,5 +339,12 @@ final class RoutingAudioOutput: AudioOutput {
         func outputExternalTrackDidChange(_ track: PlayableTrack?, positionSec: Double, playing: Bool) {
             target?.outputExternalTrackDidChange(track, positionSec: positionSec, playing: playing)
         }
+        // Every member of AudioOutputEvents, defaulted ones too: one left out here falls to the protocol's
+        // empty default and the engine never hears it (Spotify's hand-off and recovery did).
+        func outputUpcoming(limit: Int) -> [URL] { target?.outputUpcoming(limit: limit) ?? [] }
+        func outputDidJump(to url: URL) -> Bool { target?.outputDidJump(to: url) ?? false }
+        func outputQueueSnapshot() -> OutputQueueSnapshot { target?.outputQueueSnapshot() ?? OutputQueueSnapshot() }
+        func outputDidRecover(playing: Bool) { target?.outputDidRecover(playing: playing) }
+        func outputCurrentDidFinish() { target?.outputCurrentDidFinish() }
     }
 }
