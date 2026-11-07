@@ -182,6 +182,21 @@ final class HomeMemoriesTests: XCTestCase {
         XCTAssertEqual(MemoryDeck.startIndex(cards, focus: "gone"), 0)
     }
 
+    func test_should_dealSixWithTheFocusFirst_when_openingTheDeck() {
+        let ms = (0..<10).map { memory("m\($0)", written: Int64($0 + 1), albumRating: 8) }
+        var rng = SystemRandomNumberGenerator()
+        for _ in 0..<20 {
+            let deck = MemoryDeck.deck(.init(memories: ms), focus: "m3", using: &rng)
+            XCTAssertEqual(deck.count, MemoryDeck.limit)
+            XCTAssertEqual(MemoryDeck.limit, 6)
+            XCTAssertEqual(deck.first?.id, "m3")
+            XCTAssertEqual(Set(deck.map(\.id)).count, 6)
+        }
+        // No focus (or one gone): six from the pool all the same.
+        XCTAssertEqual(MemoryDeck.deck(.init(memories: ms), focus: "gone").count, 6)
+        XCTAssertEqual(MemoryDeck.deck(.init(memories: Array(ms.prefix(2))), focus: nil).count, 2)
+    }
+
     func test_should_turnOnFlickOrPastHalf_when_pagerReleased() {
         XCTAssertEqual(MemoryDeck.settlePage(position: 1.4, velocity: 0, count: 5), 1)
         XCTAssertEqual(MemoryDeck.settlePage(position: 1.6, velocity: 0, count: 5), 2)

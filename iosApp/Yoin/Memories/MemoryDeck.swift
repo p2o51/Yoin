@@ -63,8 +63,8 @@ struct MemoryCard: Identifiable, Hashable {
 }
 
 enum MemoryDeck {
-    /// The deck's size (Android MEMORY_CANDIDATE_LIMIT-ish: a deck, not the library).
-    static let limit = 12
+    /// The deck's size (Android MEMORY_DECK_SIZE): a deck, not the library; the dots count this deck.
+    static let limit = 6
 
     struct Inputs {
         var memories: [AlbumMemory]
@@ -82,19 +82,35 @@ enum MemoryDeck {
         var copy: (String) -> String? = { _ in nil }
     }
 
-    /// The deck: the Memory pool (eligible memories; every memory with
-    /// something kept when none is), written ones first, newest write first.
-    static func cards(_ x: Inputs) -> [MemoryCard] {
+    /// One open's deck (Android ensureDeckFocused + sampleDeckCandidates): the focus first, then
+    /// the rest of the pool shuffled, [limit] cards in all.
+    static func deck(_ x: Inputs, focus albumId: String?) -> [MemoryCard] {
+        var rng = SystemRandomNumberGenerator()
+        return deck(x, focus: albumId, using: &rng)
+    }
+
+    static func deck(_ x: Inputs, focus albumId: String?, using rng: inout some RandomNumberGenerator) -> [MemoryCard] {
+        let all = pool(x)
+        let focus = all.filter { $0.albumId == albumId }
+        let rest = all.filter { $0.albumId != albumId }.shuffled(using: &rng)
+        return (focus + rest).prefix(limit).map { card($0, x) }
+    }
+
+    /// Every card of the pool, in its order (the deck samples from these).
+    static func cards(_ x: Inputs) -> [MemoryCard] { pool(x).map { card($0, x) } }
+
+    /// The Memory pool (eligible memories; every memory with something kept
+    /// when none is), written ones first, newest write first.
+    static func pool(_ x: Inputs) -> [AlbumMemory] {
         var pool = x.memories.filter(\.isMemoryEligible)
         if pool.isEmpty { pool = x.memories.filter(HomeHistory.hasMemory) }
-        let ordered = pool.enumerated().sorted { a, b in
+        return pool.enumerated().sorted { a, b in
             let wa = a.element.lastWrittenAt, wb = b.element.lastWrittenAt
             if (wa != nil) != (wb != nil) { return wa != nil }
             let ka = wa ?? a.element.lastPlayedAt ?? 0, kb = wb ?? b.element.lastPlayedAt ?? 0
             if ka != kb { return ka > kb }
             return a.offset < b.offset
         }.map(\.element)
-        return ordered.prefix(limit).map { card($0, x) }
     }
 
     static func card(_ m: AlbumMemory, _ x: Inputs) -> MemoryCard {

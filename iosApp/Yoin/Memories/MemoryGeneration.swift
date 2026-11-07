@@ -158,10 +158,10 @@ extension AppModel {
                                        now: HistoryStore.shared.nowMs)
     }
 
-    /// Called only by the Memories surface (MacModel.generateMemoryText): every card of this account
-    /// not yet tried in this language, one after another; stops when the account, its data or the
+    /// Called only by the Memories surface (MacModel.generateMemoryText): every card of the open deck
+    /// ([deck], read as it goes) not yet tried in this language, one after another; stops when the account, its data or the
     /// language moves on. No key: nothing.
-    func generateMemoryText(onCard: () -> Void = {}) async {
+    func generateMemoryText(in deck: () -> [String], onCard: () -> Void = {}) async {
         guard store.isReal, GeminiSettings.shared.hasKey, let account = profiles.activeId else { return }
         let gen = store.generation, provider = store.provider
         let language = GeminiSettings.shared.targetLanguage
@@ -170,7 +170,7 @@ extension AppModel {
                 && language == GeminiSettings.shared.targetLanguage
         }
         let inputs = store.memoryDeckInputs()
-        for card in MemoryDeck.cards(inputs) where card.album.id.provider == provider {
+        for card in MemoryDeck.cards(inputs) where card.album.id.provider == provider && deck().contains(card.id) {
             guard live(), !Task.isCancelled else { return }
             let input = MemoryVoice.Input(card: card, notes: inputs.notes[card.id] ?? [],
                                           now: HistoryStore.shared.nowMs, targetLanguage: language)

@@ -125,7 +125,7 @@ struct MemoriesView: View {
         .task(id: [String(presentation.openCount), GeminiSettings.shared.targetLanguage,
                    GeminiSettings.shared.hasKey ? "key" : ""]) {
             let open = presentation.openCount
-            await model.generateMemoryText {
+            await model.generateMemoryText(in: { cards.map(\.id) }) {
                 guard open == presentation.openCount else { return }
                 withAnimation(Yoin.effects) { refreshInPlace() }
             }
@@ -191,7 +191,7 @@ struct MemoriesView: View {
     private func rebuild() {
         builtFor = presentation.openCount
         let inputs = model.store.memoryDeckInputs()
-        cards = model.voicedMemoryCards(MemoryDeck.cards(inputs), inputs)
+        cards = model.voicedMemoryCards(MemoryDeck.deck(inputs, focus: presentation.focusAlbumId), inputs)
         pager.stop()
         position = CGFloat(MemoryDeck.startIndex(cards, focus: presentation.focusAlbumId))
         deck.diary.snap(to: 0)
@@ -210,7 +210,7 @@ struct MemoriesView: View {
         let latest = Dictionary(inputs.memories.map { ($0.albumId, $0) }, uniquingKeysWith: { a, _ in a })
         var next = cards.map { MemoryDeck.card(latest[$0.id] ?? $0.memory, inputs) }
         let have = Set(next.map(\.id))
-        next += MemoryDeck.cards(inputs).filter { !have.contains($0.id) }.prefix(max(0, MemoryDeck.limit - next.count))
+        next += MemoryDeck.deck(inputs, focus: nil).filter { !have.contains($0.id) }.prefix(max(0, MemoryDeck.limit - next.count))
         next = model.voicedMemoryCards(next, inputs)
         guard next != cards else { return }
         cards = next
