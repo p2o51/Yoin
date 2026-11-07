@@ -823,7 +823,14 @@ private struct LyricsList: View {
                     proxy.scrollTo(i, anchor: UnitPoint(x: 0, y: total > 0 ? anchor / total : 0.2))
                 }
             }
-            .onChange(of: lines.first?.id) { _, _ in following = true }
+            // The next song follows again, cached lyrics or not (the lines' ids are only their places, so they
+            // can't tell one song from another; the song can).
+            .onChange(of: model.player.currentTrack?.id) { _, _ in
+                withAnimation(Yoin.effects) { following = true }
+                let i = synced ? MacLyrics.index(in: lines, at: model.player.progress.positionSec) : -1
+                guard i >= 0 else { return }
+                proxy.scrollTo(i, anchor: UnitPoint(x: 0, y: total > 0 ? anchor / total : 0.2))
+            }
             // A floating control: back to the line playing, and following again.
             if !following, current >= 0 {
                 Button {
