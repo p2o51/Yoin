@@ -762,6 +762,10 @@ private fun AlbumDetailContent(
                 Rect(-headerLeftPx - pageShift(), 0f, widthPx - headerLeftPx - pageShift(), headerHeight.toFloat())
             }
             val textProgress: () -> Float = { if (barLayout == null) 0f else albumBarTextProgress(progress()) }
+            // The title rises into the bar with it, and back down as page 0 (and its bar) slides away.
+            val titleLift: () -> Float = {
+                if (barLayout == null) 0f else albumBarTitleLift(progress()) * (1f - pageFraction())
+            }
             val pageCount = if (hasScrapbook) 2 else 1
             Box {
                 AlbumTopHeader(
@@ -783,6 +787,7 @@ private fun AlbumDetailContent(
                     titleEndProgress = {
                         if (barLayout == null) 0f else smoothStep(0f, 1f, progress()) * (1f - pageFraction())
                     },
+                    lift = titleLift,
                     // Inside the header's padding: the status bar and 4dp sit above it.
                     onTitleRowPlaced = { row ->
                         titleRowTop = statusBarTopPx + headerTopPaddingPx + row.positionInParent().y.roundToInt()
@@ -807,6 +812,7 @@ private fun AlbumDetailContent(
                             dotsInTitleRow = shortPortrait,
                             titleEndRoom = stampSize + AlbumBarTitleGap,
                             titleEndProgress = { smoothStep(0f, 1f, progress()) * (1f - pageFraction()) },
+                            lift = titleLift,
                             modifier = Modifier
                                 .graphicsLayer { alpha = textProgress() }
                                 .drawWithContent {
@@ -1004,6 +1010,8 @@ private fun AlbumTopHeader(
     // The bar's stamp: the title gives up this much room at its end as the bar forms.
     titleEndRoom: Dp = 0.dp,
     titleEndProgress: () -> Float = { 0f },
+    // 0…1: the title cluster rising into the bar as it forms (albumBarTitleLift).
+    lift: () -> Float = { 0f },
     onTitleRowPlaced: (androidx.compose.ui.layout.LayoutCoordinates) -> Unit = {},
     // The bar's white twin: drawn only, never touched (the real header sits below it).
     visualOnly: Boolean = false,
@@ -1013,11 +1021,15 @@ private fun AlbumTopHeader(
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
     }
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Column(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 8.dp, end = 16.dp, top = AlbumHeaderTopPadding, bottom = 6.dp),
+            .padding(start = 8.dp, end = 16.dp, top = AlbumHeaderTopPadding, bottom = 6.dp)
+            // Inside the caller's bar clip and the row's placement: the stamp is
+            // measured off the resting row and lifted by the same amount.
+            .albumBarHeaderLift(lift),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1034,7 +1046,7 @@ private fun AlbumTopHeader(
             // Air between the button's touch halo and the title cluster —
             // flush against the arrow it read as one crowded blob.
             Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).albumBarTitleSettle(lift, rtl)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         // The version is its own tag here, not repeated in the title.
@@ -1124,6 +1136,7 @@ internal fun AlbumBarHeaderTwin(
     titleEndProgress: () -> Float,
     modifier: Modifier = Modifier,
     dotsInTitleRow: Boolean = false,
+    lift: () -> Float = { 0f },
 ) {
     val onBar = Color.White
     MaterialTheme(
@@ -1150,6 +1163,7 @@ internal fun AlbumBarHeaderTwin(
             dotsInTitleRow = dotsInTitleRow,
             titleEndRoom = titleEndRoom,
             titleEndProgress = titleEndProgress,
+            lift = lift,
             visualOnly = true,
             modifier = modifier.clearAndSetSemantics {},
         )

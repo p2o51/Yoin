@@ -479,6 +479,8 @@ fun PlaylistDetailScreen(
                         ) {
                             val textProgress: () -> Float = { if (useBar) albumBarTextProgress(progress()) else 0f }
                             val titleEndProgress: () -> Float = { if (useBar) smoothStep(0f, 1f, progress()) else 0f }
+                            // The title rises into the bar as it forms (Album parity).
+                            val titleLift: () -> Float = { if (useBar) albumBarTitleLift(progress()) else 0f }
                             // The bar's rect in the header's own coordinates (portrait
                             // only, so the header spans the page).
                             val barInHeader: () -> Rect = { Rect(0f, 0f, widthPx, headerHeight.toFloat()) }
@@ -498,6 +500,7 @@ fun PlaylistDetailScreen(
                                     offline = if (content != null) offline else null,
                                     titleEndRoom = if (useBar) titleEndRoom else 0.dp,
                                     titleEndProgress = titleEndProgress,
+                                    lift = titleLift,
                                     modifier = Modifier
                                         .onSizeChanged { headerHeight = it.height }
                                         .albumBarHeaderFade(textProgress, barInHeader),
@@ -513,6 +516,7 @@ fun PlaylistDetailScreen(
                                             hasOverflow = hasOverflow,
                                             titleEndRoom = titleEndRoom,
                                             titleEndProgress = titleEndProgress,
+                                            lift = titleLift,
                                             modifier = Modifier
                                                 .graphicsLayer { alpha = textProgress() }
                                                 .drawWithContent {
@@ -695,10 +699,13 @@ private fun PlaylistTopHeader(
     // The bar's stamp: the title gives up this much room at its end as the bar forms.
     titleEndRoom: Dp = 0.dp,
     titleEndProgress: () -> Float = { 0f },
+    // 0…1: the title cluster rising into the bar as it forms (albumBarTitleLift).
+    lift: () -> Float = { 0f },
     // The bar's white twin: drawn only, never touched (the real header sits below it).
     visualOnly: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     var showOverflow by remember { mutableStateOf(false) }
     Row(
         modifier = modifier
@@ -709,7 +716,10 @@ private fun PlaylistTopHeader(
                 end = 4.dp,
                 top = PlaylistHeaderTopPadding,
                 bottom = PlaylistHeaderBottomPadding,
-            ),
+            )
+            // Inside the caller's bar clip: the stamp is placed off the resting
+            // row and lifted by the same amount.
+            .albumBarHeaderLift(lift),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (visualOnly) {
@@ -722,7 +732,7 @@ private fun PlaylistTopHeader(
         }
         // Air between the button's touch halo and the title cluster (Album parity).
         Spacer(modifier = Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).albumBarTitleSettle(lift, rtl)) {
             Text(
                 text = playlistName,
                 style = MaterialTheme.typography.headlineSmall,
@@ -832,6 +842,7 @@ private fun PlaylistBarHeaderTwin(
     titleEndRoom: Dp,
     titleEndProgress: () -> Float,
     modifier: Modifier = Modifier,
+    lift: () -> Float = { 0f },
 ) {
     val onBar = Color.White
     MaterialTheme(
@@ -854,6 +865,7 @@ private fun PlaylistBarHeaderTwin(
             onDelete = {},
             titleEndRoom = titleEndRoom,
             titleEndProgress = titleEndProgress,
+            lift = lift,
             visualOnly = true,
             modifier = modifier.clearAndSetSemantics {},
         )
