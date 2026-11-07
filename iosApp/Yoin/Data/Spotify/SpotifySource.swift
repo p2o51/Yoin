@@ -232,12 +232,14 @@ final class SpotifySource {
     /// the truth: an album context let Spotify carry on through the album while Yoin played a playlist
     /// (Codex N02). No [deviceId]: Spotify's active device; with none active the call fails with
     /// `isNoActiveDevice` and the output picks this iPhone itself.
-    func startPlayback(uris: [String], positionMs: Int = 0, deviceId: String? = nil) async throws {
+    /// [still]: asked before the start goes out and before each retry (a newer start drops this one).
+    func startPlayback(uris: [String], positionMs: Int = 0, deviceId: String? = nil,
+                       while still: SpotifyWebAPI.StillWanted? = nil) async throws {
         var body: [String: Any] = ["uris": uris]
         if positionMs > 0 { body["position_ms"] = positionMs }
         let json = try JSONSerialization.data(withJSONObject: body)
         PlayTrace.log("API PUT play body \(String(data: json, encoding: .utf8) ?? "-")")
-        try await api.send("PUT", "me/player/play", deviceId.map { ["device_id": $0] } ?? [:], json: json)
+        try await api.send("PUT", "me/player/play", deviceId.map { ["device_id": $0] } ?? [:], json: json, while: still)
     }
 
     /// Where Spotify plays now (Android getPlaybackState, a read only): nil when nothing is active.
