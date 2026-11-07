@@ -33,6 +33,8 @@ struct ServiceSetupView: View {
     @State private var confirmRemove = false
     /// Spotify's Client ID (Settings › Spotify on Android), kept as typed until it is saved.
     @State private var clientId = SpotifyConfig.clientId ?? ""
+    /// Android SpotifyDeveloperGroup: a one-time developer chore, open by itself only while it blocks.
+    @State private var clientIdOpen = (SpotifyConfig.clientId ?? "").isEmpty
     @FocusState private var focus: Field?
 
     private enum TestResult: Equatable { case testing, reachable, failed(String) }
@@ -448,12 +450,7 @@ struct ServiceSetupView: View {
                                             ink: needsSpotifySignIn ? app.error : app.primary))]
                 }
             }
-            group(String(localized: "Client ID")) {
-                [AnyView(field(String(localized: "Client ID"), placeholder: String(localized: "From your app on developer.spotify.com"), text: $clientId,
-                               field: .clientId)),
-                 AnyView(infoRow(String(localized: "Redirect URIs to add to that app"),
-                                 "\(SpotifyConfig.redirectURI)\n\(SpotifyConfig.appRemoteRedirectURI)"))]
-            }
+            group(String(localized: "Developer setup")) { [AnyView(clientIdRow)] }
         }
         .onChange(of: clientId) { _, v in
             error = nil
@@ -579,6 +576,47 @@ struct ServiceSetupView: View {
         .padding(.vertical, 14)
         .contentShape(.rect)
         .onTapGesture { focus = field }
+    }
+
+    /// Android SpotifyDeveloperGroup: Client ID and its state; open, the dashboard's redirect URIs (each
+    /// copied with a tap, as on the landing page) and the field.
+    private var clientIdRow: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { withAnimation(Yoin.spatial) { clientIdOpen.toggle() } } label: {
+                HStack(spacing: 12) {
+                    infoRow(String(localized: "Client ID"),
+                            clientId.trimmingCharacters(in: .whitespaces).isEmpty ? String(localized: "Not set") : String(localized: "Set"))
+                        .padding(.trailing, -16)
+                    Spacer(minLength: 0)
+                    YoinIcon("chevron_down", size: 22)
+                        .foregroundStyle(app.onSurfaceVariant)
+                        .rotationEffect(.degrees(clientIdOpen ? 180 : 0))
+                        .padding(.trailing, 16)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(clientIdOpen ? String(localized: "Expanded") : String(localized: "Collapsed"))
+            if clientIdOpen {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Create an app at developer.spotify.com and register these redirect URIs:")
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurfaceVariant)
+                        .fixedSize(horizontal: false, vertical: true)
+                    CopyRow(value: SpotifyConfig.redirectURI, scheme: app)
+                    CopyRow(value: SpotifyConfig.appRemoteRedirectURI, scheme: app)
+                    field(String(localized: "Client ID"), placeholder: String(localized: "From your app on developer.spotify.com"),
+                          text: $clientId, field: .clientId)
+                        // The field brings a row's own inset; here it lines up with the copy rows.
+                        .padding(.horizontal, -16)
+                        .padding(.top, 2)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+            }
+        }
+        .clipped()
     }
 
     private func infoRow(_ label: String, _ value: String?, ink: Color? = nil) -> some View {

@@ -681,7 +681,8 @@ private struct GuideStep<Content: View>: View {
 }
 
 /// A value to copy: tap, and it says "Copied" for a moment.
-private struct CopyRow: View {
+/// A value to paste elsewhere (a redirect URI, the bundle ID): one line, tap to copy. Also Settings' Spotify setup.
+struct CopyRow: View {
     var value: String
     var scheme: CoverScheme
     @State private var copied = false
