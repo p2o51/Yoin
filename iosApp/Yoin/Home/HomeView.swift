@@ -192,17 +192,7 @@ struct HomeView: View {
 
     // MARK: Sections (the account's layout, Android HomeSection catalog)
 
-    private func hasContent(_ s: HomeSection, _ feed: HomeFeed) -> Bool {
-        switch s {
-        case .activities: !feed.activities.isEmpty
-        case .jumpBackIn: !feed.jumpBackIn.isEmpty
-        case .recentlyAdded: !feed.recentTracks.isEmpty || !feed.recentAlbums.isEmpty
-        case .rediscover: !feed.rediscover.isEmpty
-        case .recentlyPlayed: !feed.recentlyPlayed.isEmpty
-        case .yourPlaylists: !feed.playlists.isEmpty
-        case .otherProfiles: false
-        }
-    }
+    private func hasContent(_ s: HomeSection, _ feed: HomeFeed) -> Bool { feed.hasContent(s) }
 
     @ViewBuilder
     private func sectionView(_ s: HomeSection, _ feed: HomeFeed) -> some View {
@@ -1255,4 +1245,21 @@ extension View {
         .contentShape(shape)
     }
 
+}
+
+extension HomeFeed {
+    /// Whether [s] has anything to show (an empty section is left out unless Home is being edited).
+    /// Jump Back In: its memory / note signal cards count on their own (Android HomeViewModel: the
+    /// signals or the grid, parity A-F2).
+    func hasContent(_ s: HomeSection) -> Bool {
+        switch s {
+        case .activities: !activities.isEmpty
+        case .jumpBackIn: !jumpBackIn.isEmpty || !signals.isEmpty
+        case .recentlyAdded: !recentTracks.isEmpty || !recentAlbums.isEmpty
+        case .rediscover: !rediscover.isEmpty
+        case .recentlyPlayed: !recentlyPlayed.isEmpty
+        case .yourPlaylists: !playlists.isEmpty
+        case .otherProfiles: false
+        }
+    }
 }
