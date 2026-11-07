@@ -681,7 +681,11 @@ private struct MacScrapTrack: View {
 
     private func commitEdit(_ n: SongNote) {
         // Only an edit made here is written (a note synced in meanwhile isn't overwritten by the untouched draft).
-        if editDraft != editOpened, NotesStore.shared.update(id: n.id, content: editDraft) != nil {
+        if editDraft != editOpened, !editDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard NotesStore.shared.update(id: n.id, content: editDraft) != nil else {
+                model.showNotice("Couldn't save the note. Try again")
+                return
+            }
             CloudSync.shared.localChanged()
         }
         editing = nil
@@ -689,10 +693,14 @@ private struct MacScrapTrack: View {
 
     /// A note written here has no moment in the song (Android: a note from the scrapbook carries none).
     private func add() {
-        if NotesStore.shared.add(provider: track.id.provider, trackId: track.id.rawId, content: draft, positionMs: nil,
-                                 title: track.title, artist: track.artist ?? album.artist) != nil {
-            CloudSync.shared.localChanged()
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // Not written: the words stay in the field and the listener is told.
+        guard NotesStore.shared.add(provider: track.id.provider, trackId: track.id.rawId, content: draft, positionMs: nil,
+                                    title: track.title, artist: track.artist ?? album.artist) != nil else {
+            model.showNotice("Couldn't save the note. Try again")
+            return
         }
+        CloudSync.shared.localChanged()
         draft = ""
     }
 }

@@ -1641,7 +1641,10 @@ private struct NotesPopover: View {
         let ms = Int64((at ?? model.player.progress.positionSec) * 1000)
         // A note that couldn't be written keeps its words in the editor.
         guard NotesStore.shared.add(provider: t.provider, trackId: t.rawId, content: draft, positionMs: ms,
-                                    title: t.title, artist: t.artist) != nil else { return }
+                                    title: t.title, artist: t.artist) != nil else {
+            if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { model.showNotice("Couldn't save the note. Try again") }
+            return
+        }
         CloudSync.shared.localChanged()
         draft = ""
         at = nil

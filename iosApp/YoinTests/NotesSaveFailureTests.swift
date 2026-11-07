@@ -14,4 +14,22 @@ final class NotesSaveFailureTests: XCTestCase {
                                positionMs: 1000, title: "T", artist: "A"))
         XCTAssertTrue(notes.notes(provider: "applemusic", trackId: "t1").isEmpty)
     }
+
+    func test_should_keepTheOldWords_when_anEditCantBeWritten() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("notes-edit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("notes.json")
+        let notes = NotesStore(fileURL: file, scopes: AccountScope())
+        let note = try XCTUnwrap(notes.add(provider: "applemusic", trackId: "t1", content: "First words",
+                                           positionMs: 1000, title: "T", artist: "A"))
+        // The folder becomes a file: the next write fails.
+        try FileManager.default.removeItem(at: dir)
+        try Data().write(to: dir)
+        XCTAssertNil(notes.update(id: note.id, content: "New words"))
+        XCTAssertNil(notes.realign(id: note.id, positionMs: 5000))
+        XCTAssertNil(notes.delete(id: note.id))
+        let kept = try XCTUnwrap(notes.note(id: note.id))
+        XCTAssertEqual(kept.content, "First words")
+        XCTAssertEqual(kept.positionMs, 1000)
+    }
 }
