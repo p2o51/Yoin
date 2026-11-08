@@ -7,4 +7,6 @@
     <string name="screen_corners_hint">Slide until the line around the edge sits on your screen\'s corners. Now Playing, Memories and back gestures take this corner.</string>
     <string name="screen_corners_slider_cd">Screen corner radius</string>
     <string name="landing_corners_title">How round are your screen\'s corners?</string>
+    <string name="home_tip_screen_corners_title">TODO_TITLE</string>
+    <string name="home_tip_screen_corners">TODO_LINE</string>
 </resources>

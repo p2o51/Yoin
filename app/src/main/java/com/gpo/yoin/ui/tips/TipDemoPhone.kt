@@ -361,7 +361,9 @@ private const val TallAspect = 9f / 20f
 
 /** The layout width of a `tall` [DemoPhone]'s screen: a 20:9 phone's. */
 private val TallScreenWidth: Dp = 412.dp
-private val PhoneShape = RoundedCornerShape(24.dp)
+/** The demo phone's own corner, on the page (not scaled with its screen). */
+internal val DemoPhoneCorner: Dp = 24.dp
+private val PhoneShape = RoundedCornerShape(DemoPhoneCorner)
 
 /** How much of the window's height the phone may take before it stops growing, and its largest size. */
 private const val PhoneHeightShare = 0.36f

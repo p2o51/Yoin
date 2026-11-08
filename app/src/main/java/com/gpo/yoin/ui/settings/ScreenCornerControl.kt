@@ -75,14 +75,65 @@ internal fun ScreenCornerControl(modifier: Modifier = Modifier) {
     }
     var lastWhole by remember { mutableFloatStateOf(radius.value.roundToInt().toFloat()) }
 
+    ScreenCornerSlider(
+        value = radius.value,
+        following = following,
+        onValueChange = { raw ->
+            val whole = raw.roundToInt().toFloat()
+            if (whole != lastWhole) {
+                val crossedReported = reported != null &&
+                    (lastWhole - reported.value) * (whole - reported.value) <= 0f &&
+                    whole.roundToInt() == reported.value.roundToInt()
+                when {
+                    crossedReported -> haptics.performContextClick()
+                    whole.roundToInt() % 4 == 0 -> haptics.performTick()
+                }
+                lastWhole = whole
+            }
+            if (!dragging) {
+                dragging = true
+                showToken++
+            }
+            ScreenCorners.select(context, whole.dp, persist = false)
+        },
+        onValueChangeFinished = {
+            dragging = false
+            ScreenCorners.select(context, ScreenCorners.radius, persist = true)
+            showToken++
+        },
+        onFollow = {
+            haptics.performClick()
+            ScreenCorners.select(context, null)
+            lastWhole = ScreenCorners.radius.value.roundToInt().toFloat()
+            showToken++
+        },
+        modifier = modifier,
+    )
+    ScreenCornerTrace(visible = traceShown)
+}
+
+/**
+ * What [ScreenCornerControl] shows, without its state: the value (or "Match screen · N dp"), the
+ * "Match screen" reset, the 0–64dp slider and its hint. The Tips demo drives it with a value of its own.
+ */
+@Composable
+internal fun ScreenCornerSlider(
+    value: Float,
+    following: Boolean,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    onFollow: () -> Unit,
+    modifier: Modifier = Modifier,
+    sliderModifier: Modifier = Modifier,
+) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().height(48.dp)) {
             // Fixed height: "Match screen" (a 48dp target) appearing mid-drag must not move the slider.
             Text(
                 text = if (following) {
-                    stringResource(R.string.screen_corners_summary_follow, radius.value.roundToInt())
+                    stringResource(R.string.screen_corners_summary_follow, value.roundToInt())
                 } else {
-                    stringResource(R.string.screen_corners_value, radius.value.roundToInt())
+                    stringResource(R.string.screen_corners_value, value.roundToInt())
                 },
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -93,44 +144,16 @@ internal fun ScreenCornerControl(modifier: Modifier = Modifier) {
                 enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
                 exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
             ) {
-                TextButton(
-                    onClick = {
-                        haptics.performClick()
-                        ScreenCorners.select(context, null)
-                        lastWhole = ScreenCorners.radius.value.roundToInt().toFloat()
-                        showToken++
-                    },
-                ) { Text(stringResource(R.string.screen_corners_follow)) }
+                TextButton(onClick = onFollow) { Text(stringResource(R.string.screen_corners_follow)) }
             }
         }
         val label = stringResource(R.string.screen_corners_slider_cd)
         Slider(
-            value = radius.value,
-            onValueChange = { raw ->
-                val whole = raw.roundToInt().toFloat()
-                if (whole != lastWhole) {
-                    val crossedReported = reported != null &&
-                        (lastWhole - reported.value) * (whole - reported.value) <= 0f &&
-                        whole.roundToInt() == reported.value.roundToInt()
-                    when {
-                        crossedReported -> haptics.performContextClick()
-                        whole.roundToInt() % 4 == 0 -> haptics.performTick()
-                    }
-                    lastWhole = whole
-                }
-                if (!dragging) {
-                    dragging = true
-                    showToken++
-                }
-                ScreenCorners.select(context, whole.dp, persist = false)
-            },
-            onValueChangeFinished = {
-                dragging = false
-                ScreenCorners.select(context, ScreenCorners.radius, persist = true)
-                showToken++
-            },
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = ScreenCorners.Min.value..ScreenCorners.Max.value,
-            modifier = Modifier
+            modifier = sliderModifier
                 .fillMaxWidth()
                 .semantics { contentDescription = label },
         )
@@ -140,7 +163,6 @@ internal fun ScreenCornerControl(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    ScreenCornerTrace(visible = traceShown)
 }
 
 /**
