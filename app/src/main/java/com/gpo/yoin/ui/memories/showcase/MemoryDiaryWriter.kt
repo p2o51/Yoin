@@ -105,6 +105,8 @@ internal fun MemoryDiaryEntry(
     onSave: (String) -> Unit,
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Another account's review: labelled "Review", not "Your review". */
+    fromOtherProfile: Boolean = false,
 ) {
     // A review that appears here (a save) keeps the body size it was typed at; only a review that was
     // already there when the page composed takes the large short-review size.
@@ -152,7 +154,7 @@ internal fun MemoryDiaryEntry(
     val saveDescription = stringResource(R.string.mem_cd_review_save)
     val save = stringResource(R.string.mem_review_save)
     val todayLabel = stringResource(R.string.mem_review_today)
-    val yoursLabel = stringResource(R.string.mem_review_yours)
+    val yoursLabel = stringResource(writingLabel(review = true, fromOtherProfile = fromOtherProfile))
     val headerLabel = if (blank) todayLabel else yoursLabel
     val open = {
         if (enabled && blank) {

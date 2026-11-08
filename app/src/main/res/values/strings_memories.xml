@@ -23,6 +23,8 @@
     <string name="mem_review_today">Today</string>
     <string name="mem_review_yours">Your review</string>
     <string name="mem_note_yours">Your note</string>
+    <string name="mem_review_theirs">Review</string>
+    <string name="mem_note_theirs">Note</string>
     <string name="mem_cd_review_field">Your review</string>
     <string name="mem_cd_write_review">Write a review</string>
     <string name="mem_cd_write_review_action">Write a review</string>
