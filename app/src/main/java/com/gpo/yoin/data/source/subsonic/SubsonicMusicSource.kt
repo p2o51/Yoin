@@ -29,8 +29,7 @@ import com.gpo.yoin.data.source.PlayReport
 import com.gpo.yoin.data.source.PlayReportRejectedException
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.WebLinkKind
-import java.io.IOException
-import kotlinx.coroutines.CancellationException
+import retrofit2.HttpException
 import kotlin.math.roundToInt
 
 /**
@@ -98,25 +97,37 @@ class SubsonicMusicSource(
             unwrap(api.getLyricsBySongId(trackId.requireSubsonic()))
                 .lyricsList?.toLyrics()
 
-        // createShare takes song, album and playlist ids (Navidrome turns
-        // sharing on by default). A server that refused once — sharing off,
-        // no share permission, or no createShare at all (gonic) — isn't asked
-        // again this session: Share then sends the name alone, without the
-        // notice each time. A network failure doesn't count.
+        // createShare takes song and album ids; a playlist id only on some
+        // servers (Navidrome), so a playlist the server won't take is shared
+        // as its songs. A server that refused for good — sharing off, no share
+        // permission, or no createShare at all (gonic) — isn't asked again
+        // this session: Share then sends the name alone, without the notice
+        // each time. A network failure or a server hiccup (5xx) doesn't count.
         override suspend fun createShareLink(kind: WebLinkKind, id: MediaId, description: String?): String? {
             if (sharesRefused || kind == WebLinkKind.Artist || id.provider != MediaId.PROVIDER_SUBSONIC) return null
             try {
-                val share = unwrap(api.createShare(id = listOf(id.rawId), description = description))
-                    .shares?.share?.firstOrNull()
-                return share?.url?.takeIf { it.isNotBlank() }
+                val body = try {
+                    unwrap(api.createShare(id = listOf(id.rawId), description = description))
+                } catch (refused: SubsonicException) {
+                    if (kind != WebLinkKind.Playlist) throw refused
+                    val songIds = library.getPlaylist(id)?.tracks.orEmpty().map { it.id.rawId }
+                    if (songIds.isEmpty()) throw refused
+                    unwrap(api.createShare(id = songIds, description = description))
+                }
+                return body.shares?.share?.firstOrNull()?.url?.takeIf { it.isNotBlank() }
                     ?: throw SubsonicException(code = -1, message = "createShare.view returned no share")
-            } catch (error: IOException) {
-                throw error
             } catch (error: Exception) {
-                if (error !is CancellationException) sharesRefused = true
+                if (isPermanentShareRefusal(error)) sharesRefused = true
                 throw error
             }
         }
+    }
+
+    /** A refusal that won't change by asking again: a Subsonic error, or no such endpoint. */
+    private fun isPermanentShareRefusal(error: Exception): Boolean = when (error) {
+        is SubsonicException -> true
+        is HttpException -> error.code() in setOf(400, 404, 405, 501)
+        else -> false
     }
 
     @Volatile

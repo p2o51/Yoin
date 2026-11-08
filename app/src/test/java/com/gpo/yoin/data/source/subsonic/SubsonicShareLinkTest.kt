@@ -21,6 +21,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import okhttp3.ResponseBody.Companion.toResponseBody
+import retrofit2.HttpException
+import retrofit2.Response
 
 class SubsonicShareLinkTest {
 
@@ -109,5 +112,21 @@ class SubsonicShareLinkTest {
         fake.answer = { ok("https://music.example/share/def") }
 
         assertEquals("https://music.example/share/def", metadata.createShareLink(WebLinkKind.Track, song, null))
+    }
+
+    @Test
+    fun should_askAgain_when_serverHiccuped() = runTest {
+        val fake = FakeApi { throw HttpException(Response.error<Any>(503, "".toResponseBody())) }
+        val metadata = source(fake).metadata()
+        val song = MediaId(MediaId.PROVIDER_SUBSONIC, "so-1")
+
+        try {
+            metadata.createShareLink(WebLinkKind.Track, song, null)
+            fail("a 503 should throw")
+        } catch (_: HttpException) {
+        }
+        fake.answer = { ok("https://music.example/share/ghi") }
+
+        assertEquals("https://music.example/share/ghi", metadata.createShareLink(WebLinkKind.Track, song, null))
     }
 }
