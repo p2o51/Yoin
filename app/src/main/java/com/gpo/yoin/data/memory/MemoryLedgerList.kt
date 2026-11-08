@@ -66,7 +66,8 @@ fun memoryLedgerRows(
     }
     var month = newest
     while (month >= oldest) {
-        val inMonth = byMonth[month].orEmpty().sortedWith(compareByDescending<MemoryLedgerEntry> { it.at }.thenBy { it.id })
+        val inMonth = byMonth[month].orEmpty()
+            .sortedWith(compareByDescending<MemoryLedgerEntry> { it.at }.thenBy { it.id })
         if (inMonth.isEmpty()) {
             if (quietFrom == null) quietFrom = month
             quietTo = month

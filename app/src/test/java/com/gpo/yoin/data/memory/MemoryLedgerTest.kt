@@ -110,7 +110,10 @@ class MemoryLedgerTest {
         val unscored = rating.copy(albumId = "y", rating = 0f, review = null)
 
         val entries = buildMemoryLedger(
-            MemoryLedgerRows(albumRatings = listOf(rating, unscored), albumFacts = listOf(fact("a", "x"), fact("a", "y"))),
+            MemoryLedgerRows(
+                albumRatings = listOf(rating, unscored),
+                albumFacts = listOf(fact("a", "x"), fact("a", "y")),
+            ),
             profileIds = null,
         )
 

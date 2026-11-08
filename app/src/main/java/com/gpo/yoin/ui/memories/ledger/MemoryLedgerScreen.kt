@@ -195,7 +195,11 @@ internal fun MemoryLedgerScreen(
                             onCellClick = { index -> selectedCell = if (selectedCell == index) null else index },
                             monthCaption = { monthCell ->
                                 if (monthCell.writings > 0) {
-                                    pluralStringResource(R.plurals.memory_ledger_month_caption, monthCell.writings, monthCell.writings)
+                                    pluralStringResource(
+                                        R.plurals.memory_ledger_month_caption,
+                                        monthCell.writings,
+                                        monthCell.writings,
+                                    )
                                 } else {
                                     "—"
                                 }
@@ -401,7 +405,10 @@ private fun MonthHeader(row: MemoryLedgerRow.Month, today: LocalDate) {
     ) {
         Text(
             text = monthName(row.month, today),
-            style = MaterialTheme.typography.titleMedium.copy(fontFamily = GoogleSansFlex, fontWeight = FontWeight.SemiBold),
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontFamily = GoogleSansFlex,
+                fontWeight = FontWeight.SemiBold,
+            ),
             modifier = Modifier.weight(1f),
         )
         val count = row.writings + row.scores
@@ -488,7 +495,10 @@ private fun LedgerEntryRow(entry: MemoryLedgerEntry, state: MemoryLedgerState, o
             when {
                 entry.score != null -> Text(
                     text = ratingLabel(entry.score).orEmpty(),
-                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = GoogleSansFlex, fontWeight = FontWeight.SemiBold),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontFamily = GoogleSansFlex,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
                 )
                 !entry.text.isNullOrBlank() -> Text(
                     text = entry.text,
@@ -508,7 +518,10 @@ private fun LedgerEntryRow(entry: MemoryLedgerEntry, state: MemoryLedgerState, o
             // Another account's memory says whose it is (with its mark), as the deck's "From …" line does.
             val owner = state.profile(entry.profileId)
             if (owner != null && state.profiles.size > 1 && !owner.isActive) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     AccountMark(shapeIndex = owner.shape, identity = owner.kind.serviceIdentity, size = 14.dp)
                     Text(
                         text = stringResource(R.string.memory_ledger_from, owner.name),
@@ -540,7 +553,9 @@ private fun entryMeta(entry: MemoryLedgerEntry, state: MemoryLedgerState): Strin
     val day = DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "MMMd"), locale)
         .format(entry.localDate(state.zone))
     val song = entry.trackTitle?.let { title ->
-        entry.positionMs?.takeIf { it > 0 }?.let { ms -> "$title ${ms / 60_000}:${"%02d".format((ms / 1000) % 60)}" } ?: title
+        entry.positionMs?.takeIf { it > 0 }
+            ?.let { ms -> "$title ${ms / 60_000}:${"%02d".format((ms / 1000) % 60)}" }
+            ?: title
     }
     return listOfNotNull(kind, day, song).joinToString(" · ")
 }

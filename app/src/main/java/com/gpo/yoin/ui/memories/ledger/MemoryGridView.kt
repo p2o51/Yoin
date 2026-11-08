@@ -315,7 +315,13 @@ private fun MonthQuads(
                             ),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        MonthQuad(cell, paint, outlined = selected == offset + index, outline = outline, modifier = Modifier.fillMaxWidth())
+                        MonthQuad(
+                            cell,
+                            paint,
+                            outlined = selected == offset + index,
+                            outline = outline,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                         Text(
                             text = name,
                             style = MaterialTheme.typography.labelSmall,

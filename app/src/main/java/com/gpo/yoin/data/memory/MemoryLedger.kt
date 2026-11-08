@@ -78,7 +78,11 @@ data class MemoryLedgerStats(
 )
 
 fun memoryLedgerStats(entries: List<MemoryLedgerEntry>): MemoryLedgerStats {
-    val writings = entries.filter { it.kind == MemoryLedgerKind.AlbumNote || it.kind == MemoryLedgerKind.SongNote || it.kind == MemoryLedgerKind.Review }
+    val writings = entries.filter {
+        it.kind == MemoryLedgerKind.AlbumNote ||
+            it.kind == MemoryLedgerKind.SongNote ||
+            it.kind == MemoryLedgerKind.Review
+    }
     return MemoryLedgerStats(
         albums = entries.mapNotNullTo(HashSet()) { it.album?.key }.size,
         writings = writings.size,
@@ -131,7 +135,14 @@ suspend fun buildMemoryLedger(
         val id = MediaId.storedRawId(note.provider, note.albumId)
         val key = ledgerAlbumKey(note.profileId, note.provider, id)
         if (albums[key] == null && note.albumName.isNotBlank()) {
-            albums[key] = MemoryLedgerAlbum(note.profileId, note.provider, id, note.albumName, note.artist, coverKey = null)
+            albums[key] = MemoryLedgerAlbum(
+                note.profileId,
+                note.provider,
+                id,
+                note.albumName,
+                note.artist,
+                coverKey = null,
+            )
         }
     }
     val asked = HashSet<String>()
