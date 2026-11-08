@@ -589,6 +589,11 @@ class AppContainer(private val context: Context) {
         ExperienceSessionStore()
     }
 
+    /** The mini player's progress between position ticks, shared by every window's pill. */
+    val playbackProgressSmoother: com.gpo.yoin.ui.component.PlaybackProgressSmoother by lazy {
+        com.gpo.yoin.ui.component.PlaybackProgressSmoother { playbackManager.playbackState.value.duration }
+    }
+
     val motionCapabilityProvider: MotionCapabilityProvider by lazy {
         MotionCapabilityProvider(context.applicationContext)
     }
