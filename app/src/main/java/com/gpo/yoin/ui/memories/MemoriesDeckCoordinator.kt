@@ -308,7 +308,8 @@ class MemoriesDeckCoordinator(
         val albumId = MediaId(memory.entityProvider, memory.entityId)
         val userTitle = try {
             // another account's memory wears that account's title
-            memory.otherProfile?.let { owner -> store.getTitleFor(owner.id, albumId) } ?: store.getTitle(albumId)
+            val owner = memory.otherProfile
+            if (owner != null) store.getTitleFor(owner.id, albumId) else store.getTitle(albumId)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
