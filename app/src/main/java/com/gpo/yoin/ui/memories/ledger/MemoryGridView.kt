@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -43,7 +44,6 @@ import com.gpo.yoin.data.memory.MemoryLedgerAlbum
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
-import java.util.Locale
 import kotlin.math.abs
 
 /*
@@ -294,7 +294,7 @@ private fun MonthQuads(
     caption: (@Composable (MemoryGridCell) -> String)?,
     modifier: Modifier,
 ) {
-    val locale = Locale.getDefault()
+    val locale = LocalConfiguration.current.locales[0]
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         cells.withIndex().chunked(columns).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(if (columns > 4) 8.dp else 12.dp)) {
