@@ -32,6 +32,7 @@ import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.PLAYLIST_ADD_BATCH
 import com.gpo.yoin.data.source.PartialPlaylistImportException
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.source.TrackNames
 import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.ConcurrentHashMap
@@ -75,6 +76,12 @@ class AppleMusicSource(
     /** Catalog id → its English names (null: the same as shown, or none); see [alternateNames]. */
     private val alternateNamesByCatalogId = object : LinkedHashMap<String, TrackNames?>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TrackNames?>?) =
+            size > ALTERNATE_NAMES_MEMORY
+    }
+
+    /** Song id → its album and artist; see [songLinks]. */
+    private val linksBySong = object : LinkedHashMap<String, SongLinks>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SongLinks>?) =
             size > ALTERNATE_NAMES_MEMORY
     }
 
@@ -734,6 +741,24 @@ class AppleMusicSource(
         val names = TrackNames(title, artist).takeIf { title.isNotEmpty() && artist.isNotEmpty() }
         synchronized(alternateNamesByCatalogId) { alternateNamesByCatalogId[catalogId] = names }
         return names
+    }
+
+    /**
+     * The song's album and artist, read once and kept: its own `albums` and `artists` relationships, in the
+     * catalog for a catalog song and in the library (a library album / artist) for one added from elsewhere.
+     */
+    override suspend fun songLinks(trackId: MediaId): SongLinks? {
+        if (trackId.provider != id || trackId.rawId.removePrefix("library:").isBlank()) return null
+        val key = trackId.rawId
+        synchronized(linksBySong) {
+            linksBySong[key]?.let { return it }
+        }
+        val song = page(path("songs", trackId), mapOf("include" to "albums,artists")).resources().firstOrNull()
+        fun first(relation: String) =
+            song?.related(relation)?.firstOrNull()?.takeIf { it.text("id") != null }?.mediaId()
+        val links = SongLinks(albumId = first("albums"), artistId = first("artists"))
+        synchronized(linksBySong) { linksBySong[key] = links }
+        return links
     }
 
     // Catalog ids only (digits; "pl." for curated playlists): a library id

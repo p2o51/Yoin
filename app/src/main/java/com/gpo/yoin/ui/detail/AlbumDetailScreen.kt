@@ -679,6 +679,10 @@ private fun AlbumDetailContent(
                 progress = progress,
                 coverNow = coverNow,
                 pageShift = pageShift,
+                // Short screens (Fold outer, 16:9) set the cover beside the meta on the
+                // 16dp line: the mark could only hug it there, the old look the redo
+                // left behind, so they go without it (owner 2026-11-07).
+                butterfly = barLayout != AlbumBarLayout.Short,
                 // The blocks sit behind the cover on their own layer: cubed, so
                 // they fade out ahead of it (and in after it) and never show
                 // through the half-faded cover as loose shapes.

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import android.os.SystemClock
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.component.YoinMarkHub
 import com.gpo.yoin.ui.component.YoinMarkViewBox
 import com.gpo.yoin.ui.component.YoinPageWidths
@@ -356,6 +358,27 @@ internal fun AlbumSpectrumLayer(
     // (PlaylistSleeves.kt); only the spectrum and the cover fly.
     butterfly: Boolean = true,
 ) {
+    // A small tick as each band lands in the bar on the way up (owner 2026-11-07, as iOS: one per band).
+    if (!reduced) {
+        val haptics = rememberYoinHaptics()
+        val currentProgress by rememberUpdatedState(progress)
+        val currentGeometry by rememberUpdatedState(geometry)
+        LaunchedEffect(source, haptics) {
+            var landed = albumSpectrumLanded(source.spectrum, currentProgress())
+            var lastTick = 0L
+            snapshotFlow { albumSpectrumLanded(source.spectrum, currentProgress()) }.collect { now ->
+                if (now > landed && currentGeometry() != null) {
+                    val at = SystemClock.uptimeMillis()
+                    // The bands can land a frame apart: one tick per frame or so, never a buzz.
+                    if (at - lastTick >= SpectrumTickGapMillis) {
+                        haptics.performFrequentTick()
+                        lastTick = at
+                    }
+                }
+                landed = now
+            }
+        }
+    }
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val pageWidth = constraints.maxWidth.toFloat()
         if (butterfly) {
@@ -401,6 +424,18 @@ internal fun AlbumSpectrumLayer(
                 },
         )
     }
+}
+
+private const val SpectrumTickGapMillis = 22L
+
+/** How many of [spectrum]'s bands sit in the bar at [progress] (each lands as its flight in [drawSpectrum] ends). */
+internal fun albumSpectrumLanded(spectrum: AlbumSpectrum, progress: Float): Int {
+    val p = progress.coerceIn(0f, 1f)
+    val n = spectrum.columns
+    if (n == 0 || p <= 0.001f) return 0
+    var landed = 0
+    for (x in 0 until n) if (p >= 0.6f + 0.22f * spectrum.target[x] / n) landed++
+    return landed
 }
 
 /**
