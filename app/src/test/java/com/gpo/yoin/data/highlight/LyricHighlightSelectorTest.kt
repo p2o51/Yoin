@@ -138,4 +138,17 @@ class LyricHighlightSelectorTest {
         assertEquals(0.3, counts.getValue("r") / 10_000.0, 0.03)
         assertEquals(0.2, counts.getValue("f") / 10_000.0, 0.03)
     }
+
+    @Test
+    fun should_giveUserPicksTheirShare_whenDrawing() {
+        val shown = listOf(Shown("h", null), Shown("u", null))
+        val kinds = mapOf("h" to Bucket.HEAVY, "u" to Bucket.USER)
+        val random = Random(11)
+        var user = 0
+        repeat(10_000) {
+            if (LyricHighlightSelector.nextToShow(shown, { kinds[it] }, now, random = random)!!.songId == "u") user++
+        }
+        // USER 3 against HEAVY 5.
+        assertEquals(3.0 / 8.0, user / 10_000.0, 0.03)
+    }
 }

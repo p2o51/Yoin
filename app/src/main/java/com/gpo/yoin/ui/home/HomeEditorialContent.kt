@@ -299,12 +299,11 @@ internal fun HomeEditorialContent(
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
     // 「歌词一句」 (HomeLyricHighlight.kt): the line on show, whether this device has Gemini Nano at all
     // (without it the section is left out of the feed, edit mode and the tray), playing it, drawing another.
-    lyricHighlight: HomeLyricHighlight? = null,
+    lyricHighlights: List<HomeLyricHighlight> = emptyList(),
     lyricHighlightAvailable: Boolean = false,
     // The Gemini Nano test copy's step log (BuildConfig.NANO_TEST), shown under the card; empty otherwise.
     nanoTestLog: List<String> = emptyList(),
     onLyricHighlightPlay: (HomeLyricHighlight) -> Unit = {},
-    onLyricHighlightNext: () -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
@@ -714,7 +713,7 @@ internal fun HomeEditorialContent(
         recentlyPlayed,
         playlists,
         otherProfileItems,
-        lyricHighlight,
+        lyricHighlights,
         lyricHighlightAvailable,
         nanoTestLog.isNotEmpty()
     ) {
@@ -735,7 +734,7 @@ internal fun HomeEditorialContent(
                         HomeSection.RecentlyPlayed -> recentlyPlayed.isNotEmpty()
                         HomeSection.YourPlaylists -> playlists.isNotEmpty()
                         HomeSection.OtherProfiles -> otherProfileItems.isNotEmpty()
-                        HomeSection.LyricHighlight -> lyricHighlight != null || nanoTestLog.isNotEmpty()
+                        HomeSection.LyricHighlight -> lyricHighlights.isNotEmpty() || nanoTestLog.isNotEmpty()
                     }
                 },
                 available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
@@ -907,7 +906,7 @@ internal fun HomeEditorialContent(
         playlists,
         recentlyPlayed,
         otherProfileItems,
-        lyricHighlight,
+        lyricHighlights,
         buildCoverArtUrl,
         stripShapes,
     ) {
@@ -922,7 +921,7 @@ internal fun HomeEditorialContent(
                 playlists = playlists,
                 recentlyPlayed = recentlyPlayed,
                 otherProfileItems = otherProfileItems,
-                lyricHighlight = lyricHighlight,
+                lyricHighlights = lyricHighlights,
                 buildCoverArtUrl = buildCoverArtUrl,
                 shapes = stripShapes,
             )
@@ -1252,17 +1251,19 @@ internal fun HomeEditorialContent(
                                     },
                                 )
 
-                                // One lyric line Gemini Nano picked; a tap plays from it.
-                                HomeSection.LyricHighlight -> if (lyricHighlight == null) {
+                                // Lyric lines Gemini Nano (or the user) picked, one to four cards; a tap plays from one.
+                                HomeSection.LyricHighlight -> if (lyricHighlights.isEmpty()) {
                                     NanoTestLog(lines = nanoTestLog, withTitle = true, modifier = Modifier.fillMaxWidth())
                                 } else {
                                     LyricHighlightSection(
-                                        card = lyricHighlight,
+                                        cards = lyricHighlights,
+                                        count = layout.rowsOf(HomeSection.LyricHighlight).lyricCards,
+                                        frame = feedFrame,
+                                        shelfScrollEnabled = !editing,
                                         testLog = nanoTestLog,
                                         buildCoverArtUrl = buildCoverArtUrl,
                                         extractBackdropColors = shouldExtractBackdropColors,
                                         onPlay = onLyricHighlightPlay,
-                                        onNext = onLyricHighlightNext,
                                         modifier = remember(firstReveal) {
                                             Modifier
                                                 .fillMaxWidth()
@@ -1543,7 +1544,7 @@ private fun homeStripCovers(
     playlists: List<LibraryPlaylist>,
     recentlyPlayed: List<Album>,
     otherProfileItems: List<OtherProfileItem>,
-    lyricHighlight: HomeLyricHighlight?,
+    lyricHighlights: List<HomeLyricHighlight>,
     buildCoverArtUrl: (String) -> String,
     shapes: HomeStripShapes,
 ): List<StripCover> {
@@ -1583,7 +1584,7 @@ private fun homeStripCovers(
                 if (item.kind == OtherProfileItem.Kind.Playlist) shapes.playlist else shapes.album,
             )
         }
-        HomeSection.LyricHighlight -> listOfNotNull(lyricHighlight).map { card ->
+        HomeSection.LyricHighlight -> lyricHighlights.take(count).map { card ->
             stripCover(resolveHomeCoverArtUrl(CoverRef.fromStorageKey(card.coverKey), buildCoverArtUrl), shapes.song)
         }
     }

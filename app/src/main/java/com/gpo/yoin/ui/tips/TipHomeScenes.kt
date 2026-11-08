@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +31,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -284,8 +284,9 @@ internal fun AccountQuickSwitchDemo(playing: Boolean) {
 }
 
 /**
- * 「歌词一句」: the real Home card under the header. The refresh button turns it to the next
- * song's line; the lines here are made up for the demo (a real card shows the song's own).
+ * 「歌词一句」: the real Home shelf under the header. The finger swipes on to the next song's line
+ * and back, then taps a card to play from it; the lines here are made up for the demo (a real card
+ * shows the song's own).
  */
 @Composable
 internal fun LyricHighlightDemo(playing: Boolean) {
@@ -307,17 +308,23 @@ internal fun LyricHighlightDemo(playing: Boolean) {
             )
         }
     }
-    var index by remember { mutableIntStateOf(0) }
+    val listState = rememberLazyListState()
     DemoPhone(playing = playing, script = {
-        index = 0
+        listState.scrollToItem(0)
         delay(900)
-        repeat(2) {
-            // The refresh button sits in the card's top end corner.
-            moveTo("lyric", fx = 0.92f, fy = 0.28f)
-            delay(250)
-            tap { index = (index + 1) % cards.size }
-            delay(1_600)
+        for (target in listOf(1, 2, 1)) {
+            moveTo("lyric", fx = 0.8f, fy = 0.6f)
+            delay(200)
+            coroutineScope {
+                launch { listState.animateScrollToItem(target) }
+                drag(fx = at("lyric", fx = 0.3f, fy = 0.6f).x, fy = at("lyric", fy = 0.6f).y, ms = 420) {}
+            }
+            delay(900)
         }
+        moveTo("lyric", fx = 0.4f, fy = 0.5f)
+        delay(250)
+        tap {}
+        delay(900)
         lift()
         delay(600)
     }) {
@@ -329,11 +336,14 @@ internal fun LyricHighlightDemo(playing: Boolean) {
             cardScope = null,
             body = {
                 LyricHighlightSection(
-                    card = cards[index],
+                    cards = cards,
+                    count = 3,
+                    frame = null,
                     buildCoverArtUrl = { it },
                     extractBackdropColors = true,
                     onPlay = {},
-                    onNext = { index = (index + 1) % cards.size },
+                    shelfScrollEnabled = false,
+                    listState = listState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .demoTarget("lyric"),
@@ -346,7 +356,7 @@ internal fun LyricHighlightDemo(playing: Boolean) {
 private val DemoLyricLines = listOf(
     "We left the porch light on all winter,\nso the summer would know the way" to LyricHighlightSelector.Bucket.HEAVY,
     "Some songs wait in a drawer for years,\nthen fit you like a coat" to LyricHighlightSelector.Bucket.REDISCOVER,
-    "I hum the parts I don't know yet" to LyricHighlightSelector.Bucket.FRESH,
+    "I hum the parts I don't know yet" to LyricHighlightSelector.Bucket.USER,
 )
 
 // The header avatar's box (HomeAccountButton), and where the fan's items sit

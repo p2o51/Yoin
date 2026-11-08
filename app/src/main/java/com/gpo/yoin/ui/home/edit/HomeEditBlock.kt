@@ -319,6 +319,10 @@ internal fun HomeEditBlock(
         if (rowsTrack != null && rowsEngine != null && !placeholder && !wholeBlockWiggle) {
             HomeRowsHandleSlot(section, deps, rowsTrack, rowsEngine, itemSpacing)
         }
+        // 「歌词一句」 takes its card count from its own dots, not the row resize.
+        if (section == HomeSection.LyricHighlight && !placeholder && !wholeBlockWiggle) {
+            HomeLyricCountHandleSlot(deps, itemSpacing)
+        }
     }
 }
 

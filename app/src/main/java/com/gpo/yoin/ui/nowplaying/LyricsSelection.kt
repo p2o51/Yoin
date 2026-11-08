@@ -27,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -416,6 +417,7 @@ internal fun LyricsSelectionHost(
     shareSheet: LyricsShareSheetState = remember { LyricsShareSheetState() },
     sheet: @Composable (snapshot: LyricsShareSnapshot, onShared: () -> Unit, onDismiss: () -> Unit) -> Unit =
         { snapshot, onShared, onDismiss ->
+            val context = LocalContext.current
             LyricsShareSheet(
                 lines = snapshot.lines,
                 passageStarts = snapshot.passageStarts,
@@ -426,6 +428,14 @@ internal fun LyricsSelectionHost(
                 onShared = onShared,
                 onDismiss = onDismiss,
                 onMessage = onMessage,
+                onKept = {
+                    val app = context.applicationContext as? YoinApplication
+                    app?.container?.lyricHighlightProcessor?.keepUserPick(
+                        songId = snapshot.songId,
+                        lines = snapshot.lines.map { it.text },
+                        startMs = snapshot.lines.firstOrNull()?.startMs,
+                    )
+                },
             )
         },
 ) {

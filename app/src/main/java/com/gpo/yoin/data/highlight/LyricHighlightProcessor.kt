@@ -258,6 +258,8 @@ class LyricHighlightProcessor(
             return Outcome.UNUSABLE
         }
         val existing = dao.get(entry.profileId, entry.provider, entry.songId)
+        // The user's own pick stands; Nano never second-guesses it.
+        if (existing?.model == USER_PICK) return Outcome.SKIPPED
         if (existing?.text != null && existing.lyricsFingerprint == prepared.fingerprint) return Outcome.SKIPPED
 
         val prompt = LyricHighlightPrompt.SYSTEM_INSTRUCTION + "\n\n" +
@@ -298,8 +300,10 @@ class LyricHighlightProcessor(
 
     private suspend fun save(entry: Entry, pick: LyricHighlightPrompt.Pick?, fingerprint: String?, model: String?) {
         val previous = dao.get(entry.profileId, entry.provider, entry.songId)
-        // A failed try never replaces a line already picked (a lyric source down, an odd answer).
+        // A failed try never replaces a line already picked (a lyric source down, an odd answer), and nothing
+        // replaces one the user picked themselves.
         if (pick == null && previous?.text != null) return
+        if (previous?.model == USER_PICK) return
         dao.upsert(
             LyricHighlight(
                 profileId = entry.profileId,
@@ -319,6 +323,45 @@ class LyricHighlightProcessor(
                 lastShownAt = previous?.lastShownAt,
             ),
         )
+    }
+
+    /**
+     * Lines the user shared or saved from the lyrics page (owner 2026-11-08: they liked them, so they are
+     * candidates too). Kept as this song's highlight, marked [USER_PICK], over whatever Nano picked; the first
+     * [MAX_USER_PICK_LINES] lines, from the first one's time. Only for the song playing now, which is where
+     * the lyrics page's pick comes from.
+     */
+    fun keepUserPick(songId: String, lines: List<String>, startMs: Long?) {
+        val text = lines.map(String::trim).filter(String::isNotEmpty).take(MAX_USER_PICK_LINES).joinToString("\n")
+        if (text.isEmpty()) return
+        scope.launch {
+            val track = currentTrack()?.takeIf { it.id.toString() == songId || it.id.rawId == songId } ?: return@launch
+            val profileId = repository.currentProfileId() ?: return@launch
+            if (repository.currentProviderId() != track.id.provider) return@launch
+            val entry = track.toEntry(profileId)
+            val previous = dao.get(entry.profileId, entry.provider, entry.songId)
+            dao.upsert(
+                LyricHighlight(
+                    profileId = entry.profileId,
+                    provider = entry.provider,
+                    songId = entry.songId,
+                    title = entry.title,
+                    artist = entry.artist,
+                    album = entry.album,
+                    albumId = entry.albumId,
+                    coverArtId = entry.coverArtId ?: previous?.coverArtId,
+                    durationMs = entry.durationMs,
+                    text = text,
+                    startMs = startMs,
+                    lyricsFingerprint = null,
+                    model = USER_PICK,
+                    attemptedAt = clock(),
+                    lastShownAt = previous?.lastShownAt,
+                ),
+            )
+            note("Kept your pick: ${entry.title}")
+            _revision.value = _revision.value + 1
+        }
     }
 
     private fun publishStatus(nano: NanoStatus) {
@@ -400,6 +443,9 @@ class LyricHighlightProcessor(
         private const val KEY_QUOTA_DAY = "budget_quota_day"
 
         /** After coming to the foreground: launch, Home and the feed go first. */
+        /** [LyricHighlight.model] of a line the user picked themselves. */
+        const val USER_PICK = "user"
+        const val MAX_USER_PICK_LINES = 2
         const val START_DELAY_MS = 10_000L
         private const val TEST_START_DELAY_MS = 2_000L
         private const val TEST_PER_VISIT_LIMIT = 15

@@ -71,7 +71,7 @@ private const val HomeLoadingIndicatorDelayMillis = 180L
 
 private val NoOtherProfileItems = MutableStateFlow(emptyList<OtherProfileItem>())
 private val NoticeAlreadySeen = MutableStateFlow(true)
-private val NoLyricHighlight = MutableStateFlow<HomeLyricHighlight?>(null)
+private val NoLyricHighlights = MutableStateFlow<List<HomeLyricHighlight>>(emptyList())
 private val NoLyricHighlightDevice = MutableStateFlow(false)
 private val NoNanoTestLog = MutableStateFlow<List<String>>(emptyList())
 
@@ -127,7 +127,7 @@ fun HomeScreen(
     val buildCoverArtUrl by viewModel.coverArtUrlBuilder.collectAsState()
     val otherProfileItems by (otherProfiles?.items ?: NoOtherProfileItems).collectAsState()
     val otherProfilesNoticeSeen by (otherProfiles?.noticeSeen ?: NoticeAlreadySeen).collectAsState()
-    val lyricHighlight by (lyricHighlights?.card ?: NoLyricHighlight).collectAsState()
+    val lyricHighlightCards by (lyricHighlights?.cards ?: NoLyricHighlights).collectAsState()
     val lyricHighlightAvailable by (lyricHighlights?.available ?: NoLyricHighlightDevice).collectAsState()
     val nanoTestLog by (lyricHighlights?.testLog ?: NoNanoTestLog).collectAsState()
     // Each return to Home (after a while) brings another line.
@@ -204,11 +204,10 @@ fun HomeScreen(
                     confirmingItem = item
                 }
             },
-            lyricHighlight = lyricHighlight,
+            lyricHighlights = lyricHighlightCards,
             lyricHighlightAvailable = lyricHighlightAvailable,
             nanoTestLog = nanoTestLog,
             onLyricHighlightPlay = { card -> lyricHighlights?.play(card) },
-            onLyricHighlightNext = { lyricHighlights?.next() },
         )
     }
 }
@@ -264,11 +263,10 @@ fun HomeContent(
     // On Your Other Accounts' items, and a tap on one.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
-    lyricHighlight: HomeLyricHighlight? = null,
+    lyricHighlights: List<HomeLyricHighlight> = emptyList(),
     lyricHighlightAvailable: Boolean = false,
     nanoTestLog: List<String> = emptyList(),
     onLyricHighlightPlay: (HomeLyricHighlight) -> Unit = {},
-    onLyricHighlightNext: () -> Unit = {},
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -444,11 +442,10 @@ fun HomeContent(
                                 recentlyPlayed = feed.recentlyPlayed,
                                 otherProfileItems = otherProfileItems,
                                 onOtherProfileItemClick = onOtherProfileItemClick,
-                                lyricHighlight = lyricHighlight,
+                                lyricHighlights = lyricHighlights,
                                 lyricHighlightAvailable = lyricHighlightAvailable,
                                 nanoTestLog = nanoTestLog,
                                 onLyricHighlightPlay = onLyricHighlightPlay,
-                                onLyricHighlightNext = onLyricHighlightNext,
                                 memoryPill = feed.memoryPill,
                                 homeCovered = homeCovered,
                                 sections = sections,

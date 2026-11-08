@@ -21,7 +21,8 @@ import kotlin.random.Random
  */
 object LyricHighlightSelector {
 
-    enum class Bucket { HEAVY, REDISCOVER, FRESH }
+    /** Why a highlight comes up; [USER] is a line the user shared or saved themselves. */
+    enum class Bucket { HEAVY, REDISCOVER, FRESH, USER }
 
     /** One played song, aggregated over its history. */
     data class SongSignal(
@@ -61,7 +62,7 @@ object LyricHighlightSelector {
     const val RESHOW_COOLDOWN_MS: Long = 7L * DAY_MS
 
     /** Target mix, in parts. */
-    val MIX: Map<Bucket, Int> = mapOf(Bucket.HEAVY to 5, Bucket.REDISCOVER to 3, Bucket.FRESH to 2)
+    val MIX: Map<Bucket, Int> = mapOf(Bucket.HEAVY to 5, Bucket.REDISCOVER to 3, Bucket.FRESH to 2, Bucket.USER to 3)
 
     /** One play's contribution to [SongSignal.heat]. Plays stopped early (skips) count for nothing. */
     fun heat(playedAt: Long, completedPercent: Float, now: Long): Double {

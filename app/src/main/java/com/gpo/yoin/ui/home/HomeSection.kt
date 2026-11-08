@@ -115,6 +115,13 @@ enum class HomeSection(
     val supportsRows: Boolean
         get() = this == Activities || this == JumpBackIn
 
+    /**
+     * Stores a [HomeRowPreset]: the [supportsRows] sections, plus 「歌词一句」, whose preset is how many
+     * cards it shows (owner 2026-11-08: one to four) and which picks it with its own dots, not the row resize.
+     */
+    val takesPresets: Boolean
+        get() = supportsRows || this == LyricHighlight
+
     companion object {
         private val byId: Map<String, HomeSection> = entries.associateBy { it.id }
 
@@ -265,7 +272,7 @@ data class HomeLayout(
 
     /** [section] at [rows]. Returns `this` for a section without presets, absent, or already there. */
     fun withRows(section: HomeSection, rows: HomeRowPreset): HomeLayout {
-        if (!section.supportsRows || sections.none { it.section == section && it.rows != rows }) return this
+        if (!section.takesPresets || sections.none { it.section == section && it.rows != rows }) return this
         return copy(
             sections = sections.map { state ->
                 if (state.section == section) state.copy(rows = rows) else state
