@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,7 +60,7 @@ import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
-import com.gpo.yoin.ui.component.MorphPolygonShape
+import com.gpo.yoin.ui.component.MorphProgressShape
 import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.home.HomeBubbleTip
@@ -278,7 +279,11 @@ private fun TipTile(tip: HomeBubbleTip, page: Int, pager: PagerState) {
         }
     }
     val restShape = own.toShape()
-    val shape = if (grown.value >= 1f) restShape else MorphPolygonShape(morph, grown.value)
+    // Only the grown / growing switch recomposes; the growth itself is read
+    // when the outline resolves.
+    val settled by remember(grown) { derivedStateOf { grown.value >= 1f } }
+    val growingShape = remember(morph, grown) { MorphProgressShape(morph) { grown.value } }
+    val shape = if (settled) restShape else growingShape
     Box(
         modifier = Modifier
             .size(TipTileSize)
