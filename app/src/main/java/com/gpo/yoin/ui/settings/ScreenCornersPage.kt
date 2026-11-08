@@ -286,7 +286,7 @@ private fun ExampleScene(example: CornerExample, progress: () -> Float, corner: 
                     clip = true
                 }
                 .background(scheme.tertiary),
-        )
+        ) { PagePlaceholder(scheme.onTertiary) }
         // The back gesture: the page shrinks toward the edge it came from, the one under it shows.
         CornerExample.Back -> Box(
             modifier = Modifier
@@ -302,7 +302,22 @@ private fun ExampleScene(example: CornerExample, progress: () -> Float, corner: 
                     clip = true
                 }
                 .background(scheme.secondary),
-        )
+        ) { PagePlaceholder(scheme.onSecondary) }
+    }
+}
+
+/** A few rows, so a moving page reads as a page and not a block of colour. */
+@Composable
+private fun PagePlaceholder(ink: Color) {
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Spacer(Modifier.height(10.dp))
+        Box(Modifier.width(48.dp).height(9.dp).clip(CircleShape).background(ink.copy(alpha = 0.55f)))
+        repeat(5) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(24.dp).clip(RoundedCornerShape(7.dp)).background(ink.copy(alpha = 0.22f)))
+                Box(Modifier.fillMaxWidth(0.6f).height(7.dp).clip(CircleShape).background(ink.copy(alpha = 0.22f)))
+            }
+        }
     }
 }
 

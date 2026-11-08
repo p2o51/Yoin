@@ -310,8 +310,9 @@ internal fun ScreenCornerBar(
                         } else {
                             scheme.onSurfaceVariant.copy(alpha = 0.6f)
                         },
-                        radius = 3.dp.toPx(),
-                        center = Offset(x, h / 2f),
+                        radius = 2.5.dp.toPx(),
+                        // Low in the bar, under the value's text when the two meet.
+                        center = Offset(x, h - 8.dp.toPx()),
                     )
                 }
             },
