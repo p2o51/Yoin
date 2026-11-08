@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarEditLeftSlot
 import com.gpo.yoin.ui.component.BarEditPose
@@ -75,6 +76,7 @@ import com.gpo.yoin.ui.home.memoryBubbleTitle
 import com.gpo.yoin.ui.home.titleRes
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.MemoryOtherProfile
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptAttribution
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptCandidate
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptKind
@@ -393,14 +395,21 @@ private fun BoxScope.DemoHomePage(
     }
 }
 
-/** The Memories deck's first card on its ambient wash, under the deck's top bar. */
+/**
+ * The Memories deck's first card on its ambient wash, under the deck's top bar. [owner]: the card is another
+ * account's, so it says whose beside Go to album (and drops its quote, to leave the small phone room).
+ */
 @Composable
-private fun DemoMemoriesPage(onHome: () -> Unit, modifier: Modifier = Modifier) {
+private fun DemoMemoriesPage(
+    onHome: () -> Unit,
+    modifier: Modifier = Modifier,
+    owner: MemoryOtherProfile? = null,
+) {
     val dark = isSystemInDarkTheme()
-    val palette = MemoryPaletteSamples.M1
-    val album = DemoAlbums[3]
+    val palette = if (owner == null) MemoryPaletteSamples.M1 else MemoryPaletteSamples.M3
+    val album = DemoAlbums[if (owner == null) 3 else 0]
     val cover = demoCoverUrl(album)
-    val memory = remember(cover) {
+    val memory = remember(cover, owner) {
         MemoryEntry(
             stableId = "tip-memory",
             sourceActivityId = 0L,
@@ -418,14 +427,19 @@ private fun DemoMemoriesPage(onHome: () -> Unit, modifier: Modifier = Modifier) 
             scoreSupportingText = null,
             footerText = null,
             memoryTitle = "Night walks in the rain",
-            excerptCandidates = listOf(
-                MemoryExcerptCandidate(
-                    "The second side is the one I keep coming back to.",
-                    MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Oct 12"),
-                ),
-            ),
+            excerptCandidates = if (owner != null) {
+                emptyList()
+            } else {
+                listOf(
+                    MemoryExcerptCandidate(
+                        "The second side is the one I keep coming back to.",
+                        MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Oct 12"),
+                    ),
+                )
+            },
             playbackSongs = emptyList(),
             tracks = emptyList(),
+            otherProfile = owner,
         )
     }
     val metrics = remember { memoryCardMetrics(ScreenWidth, DemoScreenHeight) }
@@ -486,6 +500,57 @@ private fun DemoMemoriesPage(onHome: () -> Unit, modifier: Modifier = Modifier) 
         )
     }
 }
+
+/**
+ * Memories deals every account's memories: swipe to the next card, and one from another account says whose it
+ * is beside Go to album (the real card face and its「来自 …」line).
+ */
+@Composable
+internal fun MemoriesAllAccountsDemo(playing: Boolean) {
+    // 0 = this account's card, 1 = the next one, from another account.
+    val shift = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val spatial = YoinMotion.spatialSpring<Float>()
+    val widthPx = with(LocalDensity.current) { ScreenWidth.toPx() }
+    val settle: () -> Unit = { scope.launch { shift.animateTo(if (shift.value > 0.5f) 1f else 0f, spatial) } }
+    DemoPhone(playing = playing, script = {
+        shift.snapTo(0f)
+        delay(900)
+        moveTo(0.8f, 0.45f)
+        drag(0.25f, 0.45f, ms = 600) { p -> scope.launch { shift.snapTo(p * SwipeTravel) } }
+        shift.animateTo(1f, spatial)
+        lift()
+        delay(2_800)
+    }) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .draggable(
+                    orientation = Orientation.Horizontal,
+                    state = rememberDraggableState { delta ->
+                        scope.launch { shift.snapTo((shift.value - delta / widthPx).coerceIn(0f, 1f)) }
+                    },
+                    onDragStopped = { settle() },
+                ),
+        ) {
+            DemoMemoriesPage(
+                onHome = {},
+                modifier = Modifier.graphicsLayer { translationX = -size.width * shift.value },
+            )
+            DemoMemoriesPage(
+                onHome = {},
+                owner = DemoOtherAccount,
+                modifier = Modifier.graphicsLayer { translationX = size.width * (1f - shift.value) },
+            )
+        }
+    }
+}
+
+/** The account the demo's second memory is from (one of the switcher demo's accounts). */
+private val DemoOtherAccount = MemoryOtherProfile(id = "demo-b", name = "Okto", shape = 1, kind = ProviderKind.SPOTIFY)
+
+/** How far the demo's swipe carries the deck before it lets go (the rest is the settle). */
+private const val SwipeTravel = 0.6f
 
 /** How far the demo's pull takes Memories before it lets go (the rest is the settle). */
 private const val PullTravel = 0.45f
