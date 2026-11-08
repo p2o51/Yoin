@@ -743,6 +743,15 @@ class NowPlayingViewModel(
         playbackManager.openSpotify()
     }
 
+    /** Spotify's own device picker reaches speakers the Web API can't (Sonos, Cast). */
+    private fun openSpotifyPicker() {
+        if (!playbackManager.openSpotify()) {
+            _devicesState.value = _devicesState.value.copy(
+                errorMessage = UiText.Res(R.string.np_msg_spotify_open_failed),
+            )
+        }
+    }
+
     fun togglePlayPause() {
         val state = playbackManager.playbackState.value
         // What the button shows: PAUSE through a buffering dip pauses.
@@ -1258,6 +1267,11 @@ class NowPlayingViewModel(
 
     fun selectDevice(device: YoinDevice) {
         if (!device.isSelectable || _devicesState.value.busyDeviceId != null) return
+        if (device is YoinDevice.SpotifyConnect && device.spotifyOnly) {
+            // Sonos and the like: the Web API can't move playback there; Spotify's picker can.
+            if (!device.isActive) openSpotifyPicker()
+            return
+        }
         viewModelScope.launch {
             _devicesState.value = _devicesState.value.copy(busyDeviceId = device.id, errorMessage = null)
             val result = runCatching {
@@ -1308,6 +1322,7 @@ class NowPlayingViewModel(
                     busyDeviceId = null,
                     errorMessage = if (remembered) {
                         // Asleep: Spotify only wakes a local speaker from its own picker.
+                        openSpotifyPicker()
                         UiText.Res(R.string.np_msg_spotify_device_asleep)
                     } else {
                         dlnaManager?.error?.value

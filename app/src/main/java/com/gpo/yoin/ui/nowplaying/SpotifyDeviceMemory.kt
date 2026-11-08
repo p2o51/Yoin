@@ -39,6 +39,8 @@ data class RememberedSpotifyDevice(
     val name: String,
     val type: String,
     val lastSeenMs: Long,
+    /** Spotify won't take a Web API transfer to it (Sonos): a tap opens Spotify's picker. */
+    val spotifyOnly: Boolean = false,
 )
 
 class SharedPrefsSpotifyDeviceMemory(context: Context) : SpotifyDeviceMemory {
@@ -77,9 +79,18 @@ internal fun mergeRememberedSpotifyDevices(
     listed: List<YoinDevice.SpotifyConnect>,
     nowMs: Long,
 ): List<RememberedSpotifyDevice> {
+    // Sonos included: Spotify lists it only while it plays, so remembering it is the point.
     val fresh = listed
-        .filter { it.isSelectable }
-        .map { RememberedSpotifyDevice(id = it.id, name = it.name, type = it.spotifyType, lastSeenMs = nowMs) }
+        .filter { it.statusText != NpDeviceStatusRemembered }
+        .map {
+            RememberedSpotifyDevice(
+                id = it.id,
+                name = it.name,
+                type = it.spotifyType,
+                lastSeenMs = nowMs,
+                spotifyOnly = it.spotifyOnly,
+            )
+        }
     val freshIds = fresh.mapTo(HashSet()) { it.id }
     val kept = remembered.filter { it.id !in freshIds && nowMs - it.lastSeenMs in 0..SPOTIFY_DEVICE_MEMORY_TTL_MS }
     return (fresh + kept).sortedByDescending { it.lastSeenMs }.take(SPOTIFY_DEVICE_MEMORY_MAX)
@@ -102,6 +113,7 @@ internal fun withRememberedSpotifyDevices(
                 isActive = false,
                 spotifyType = it.type,
                 statusText = NpDeviceStatusRemembered,
+                spotifyOnly = it.spotifyOnly,
             )
         }
 }

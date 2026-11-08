@@ -234,6 +234,7 @@
     <string name="np_device_connected_cast">Casting</string>
     <string name="np_device_use_cast_pill">Not casting</string>
     <string name="np_device_spotify_remembered">Recently used · may need waking in Spotify</string>
+    <string name="np_device_spotify_only">Switch to it in Spotify</string>
     <string name="np_msg_spotify_device_asleep">That speaker is asleep. Pick it once in Spotify (More devices), then Yoin can control it.</string>
     <string name="np_msg_spotify_open_failed">Couldn\'t open Spotify.</string>
     <string name="np_device_dlna_error_discovery">Unable to find speakers. Connect to the same Wi-Fi network and try again.</string>

@@ -2495,12 +2495,8 @@ class YoinRepository(
                     name = device.name,
                     isActive = device.isActive,
                     spotifyType = device.type,
-                    isSelectable = id != null && !device.isRestricted,
-                    statusText = when {
-                        device.isRestricted -> "Unavailable from Spotify"
-                        device.isPrivateSession -> "Private session"
-                        else -> null
-                    },
+                    statusText = if (device.isPrivateSession) "Private session" else null,
+                    spotifyOnly = id == null || device.isRestricted,
                 )
             }
             .sortedByDescending(YoinDevice.SpotifyConnect::isActive)

@@ -14,6 +14,11 @@ sealed interface YoinDevice {
         val spotifyType: String,
         override val isSelectable: Boolean = true,
         override val statusText: String? = null,
+        /**
+         * Spotify won't move playback here through the Web API (no id, or restricted: Sonos).
+         * A tap opens Spotify's own picker instead.
+         */
+        val spotifyOnly: Boolean = false,
     ) : YoinDevice {
         companion object {
             /** Row key for a device Spotify names without an id (a Sonos it plays on). */

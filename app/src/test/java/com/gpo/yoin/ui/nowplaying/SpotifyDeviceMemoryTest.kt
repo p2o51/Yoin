@@ -7,12 +7,11 @@ import org.junit.Test
 class SpotifyDeviceMemoryTest {
     private val day = 24L * 60 * 60 * 1000
 
-    private fun listed(id: String, name: String = id, selectable: Boolean = true) = YoinDevice.SpotifyConnect(
+    private fun listed(id: String, name: String = id) = YoinDevice.SpotifyConnect(
         id = id,
         name = name,
         isActive = false,
         spotifyType = "Speaker",
-        isSelectable = selectable,
     )
 
     private fun remembered(id: String, seen: Long, name: String = id) =
@@ -39,10 +38,16 @@ class SpotifyDeviceMemoryTest {
     }
 
     @Test
-    fun should_notRemember_when_deviceIsRestricted() {
-        val merged = mergeRememberedSpotifyDevices(emptyList(), listOf(listed("ps5", selectable = false)), nowMs = day)
+    fun should_rememberSonosAsSpotifyOnly_when_itHasNoId() {
+        val sonos = listed(YoinDevice.SpotifyConnect.noIdKey("Living Room Back"), name = "Living Room Back")
+            .copy(isActive = true, spotifyOnly = true)
+        val merged = mergeRememberedSpotifyDevices(emptyList(), listOf(sonos), nowMs = day)
 
-        assertEquals(emptyList<RememberedSpotifyDevice>(), merged)
+        val rows = withRememberedSpotifyDevices(listOf(listed("fold")), merged)
+
+        assertEquals(listOf("fold", "spotify-no-id:Living Room Back"), rows.map { it.id })
+        assertEquals(true, rows[1].spotifyOnly)
+        assertEquals(false, rows[1].isActive)
     }
 
     @Test
