@@ -47,9 +47,9 @@ object LyricHighlightPrompt {
 
     /**
      * Part of every fingerprint: a song picked under an older question is picked again (v2: two to four
-     * lines, owner 2026-11-08).
+     * lines, owner 2026-11-08; v3: an echoed line ends the passage).
      */
-    const val PROMPT_VERSION = "v2:"
+    const val PROMPT_VERSION = "v3:"
 
     /** Output budget: the JSON answer is ~15 tokens. */
     const val MAX_OUTPUT_TOKENS = 24
@@ -129,6 +129,9 @@ object LyricHighlightPrompt {
         for (number in start + 1..minOf(asked, start + MAX_PICK_LINES - 1)) {
             val line = prepared.line(number) ?: break
             if (line.source != picked.last().source + 1) break
+            // An echo of a line already picked ("盛开着花" after "我在升华 盛开着花") ends the passage.
+            val words = normalize(line.text)
+            if (words.isEmpty() || picked.any { normalize(it.text).contains(words) }) break
             picked += line
         }
         // Too long for a card: drop lines from the end, but never below one.

@@ -106,6 +106,14 @@ class LyricHighlightPromptTest {
     }
 
     @Test
+    fun should_endThePassage_when_aLineEchoesOnePicked() {
+        val prepared = LyricHighlightPrompt.prepare(synced("我在升华 盛开着花", "盛开着花", "风吹过来", "four"))!!
+
+        val pick = LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 3}", prepared)!!
+        assertEquals("我在升华 盛开着花", pick.text)
+    }
+
+    @Test
     fun should_changeFingerprint_when_promptVersionChanges() {
         assertTrue(LyricHighlightPrompt.prepare(song)!!.fingerprint.startsWith(LyricHighlightPrompt.PROMPT_VERSION))
     }

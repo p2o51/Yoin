@@ -367,8 +367,9 @@ internal fun LyricHighlightSection(
                     },
                     extractBackdropColors = extractBackdropColors,
                     onPlay = { onPlay(card) },
+                    // No animateItem: a card swapped out while it peeked at the edge kept fading out over its
+                    // replacement, two songs' words on one card (Pixel 11, 11-08).
                     modifier = Modifier
-                        .animateItem()
                         .lyricCardWidth({ columnWidth.intValue }, single)
                         .height(LyricCardHeight)
                         .homeEditCard(index),
