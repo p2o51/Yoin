@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -308,15 +308,15 @@ internal fun LyricHighlightDemo(playing: Boolean) {
             )
         }
     }
-    val listState = rememberLazyListState()
+    val pagerState = rememberPagerState(pageCount = { 3 })
     DemoPhone(playing = playing, script = {
-        listState.scrollToItem(0)
+        pagerState.scrollToPage(0)
         delay(900)
         for (target in listOf(1, 2, 1)) {
             moveTo("lyric", fx = 0.8f, fy = 0.6f)
             delay(200)
             coroutineScope {
-                launch { listState.animateScrollToItem(target) }
+                launch { pagerState.animateScrollToPage(target) }
                 drag(fx = at("lyric", fx = 0.3f, fy = 0.6f).x, fy = at("lyric", fy = 0.6f).y, ms = 420) {}
             }
             delay(900)
@@ -343,7 +343,7 @@ internal fun LyricHighlightDemo(playing: Boolean) {
                     extractBackdropColors = true,
                     onPlay = {},
                     shelfScrollEnabled = false,
-                    listState = listState,
+                    pagerState = pagerState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .demoTarget("lyric"),

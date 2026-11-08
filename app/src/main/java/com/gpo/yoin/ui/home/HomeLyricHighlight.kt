@@ -3,7 +3,6 @@ package com.gpo.yoin.ui.home
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,10 +14,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -31,14 +30,15 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -318,7 +318,8 @@ internal fun LyricHighlightSection(
     onPlay: (HomeLyricHighlight) -> Unit,
     modifier: Modifier = Modifier,
     shelfScrollEnabled: Boolean = true,
-    listState: LazyListState = rememberLazyListState(),
+    // The Tips demo drives the shelf itself; Home leaves it null.
+    pagerState: PagerState? = null,
     testLog: List<String> = emptyList(),
 ) {
     val editCardScope = LocalHomeEditCardScope.current
@@ -332,8 +333,12 @@ internal fun LyricHighlightSection(
     ) {
         HomeSectionTitle(text = stringResource(HomeSection.LyricHighlight.titleRes))
         val sidePadding = remember(frame) { frame?.let(::FeedFrameSidePadding) ?: PaddingValues() }
-        LazyRow(
-            state = listState,
+        val latestCount by rememberUpdatedState(shown.size)
+        val state = pagerState ?: rememberPagerState(pageCount = { latestCount })
+        // A pager that keeps every card composed (four at most): a lazy shelf reused a card that scrolled off
+        // for the one scrolling in, and the old card's words stayed drawn over the new one (Pixel 11, 11-08).
+        HorizontalPager(
+            state = state,
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
@@ -350,43 +355,36 @@ internal fun LyricHighlightSection(
                     },
                 ),
             contentPadding = sidePadding,
-            horizontalArrangement = Arrangement.spacedBy(LyricCardGap),
+            pageSize = remember(single) { LyricPageSize({ columnWidth.intValue }, single) },
+            beyondViewportPageCount = 3,
+            pageSpacing = LyricCardGap,
             verticalAlignment = Alignment.Top,
             userScrollEnabled = shelfScrollEnabled && !single,
-            flingBehavior = rememberSnapFlingBehavior(listState),
-        ) {
-            itemsIndexed(items = shown, key = { _, card -> card.songId.rawId }) { index, card ->
-                LyricHighlightCard(
-                    card = card,
-                    coverArtUrl = remember(card.coverKey, buildCoverArtUrl) {
-                        when (val ref = CoverRef.fromStorageKey(card.coverKey)) {
-                            null -> null
-                            is CoverRef.Url -> ref.url
-                            is CoverRef.SourceRelative -> buildCoverArtUrl(ref.coverArtId)
-                        }
-                    },
-                    extractBackdropColors = extractBackdropColors,
-                    onPlay = { onPlay(card) },
-                    // No animateItem: a card swapped out while it peeked at the edge kept fading out over its
-                    // replacement, two songs' words on one card (Pixel 11, 11-08).
-                    modifier = Modifier
-                        .lyricCardWidth({ columnWidth.intValue }, single)
-                        .height(LyricCardHeight)
-                        .homeEditCard(index),
-                )
-            }
+            key = { index -> shown.getOrNull(index)?.songId?.rawId ?: index },
+        ) { index ->
+            val card = shown.getOrNull(index) ?: return@HorizontalPager
+            LyricHighlightCard(
+                card = card,
+                coverArtUrl = remember(card.coverKey, buildCoverArtUrl) {
+                    when (val ref = CoverRef.fromStorageKey(card.coverKey)) {
+                        null -> null
+                        is CoverRef.Url -> ref.url
+                        is CoverRef.SourceRelative -> buildCoverArtUrl(ref.coverArtId)
+                    }
+                },
+                extractBackdropColors = extractBackdropColors,
+                onPlay = { onPlay(card) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(LyricCardHeight)
+                    .homeEditCard(index),
+            )
         }
         if (!single) {
-            val current by remember(listState) {
+            val current by remember(state) {
                 derivedStateOf {
-                    val info = listState.layoutInfo
                     // The last card counts once the shelf has run out of room to scroll.
-                    if (!listState.canScrollForward && info.totalItemsCount > 0) {
-                        info.totalItemsCount - 1
-                    } else {
-                        listState.firstVisibleItemIndex +
-                            if (listState.firstVisibleItemScrollOffset > LyricDotSwitchPx) 1 else 0
-                    }
+                    if (!state.canScrollForward && state.pageCount > 0) state.pageCount - 1 else state.currentPage
                 }
             }
             LyricPageDots(
@@ -399,19 +397,13 @@ internal fun LyricHighlightSection(
     }
 }
 
-// Scroll past which the dots move on to the next card (about a third of a card).
-private const val LyricDotSwitchPx = 280
-
 /** A card's width: the whole content column for one card, else [LyricCardWidth] leaving the next one peeking. */
-private fun Modifier.lyricCardWidth(contentPx: () -> Int, single: Boolean): Modifier = layout { measurable, constraints ->
-    val content = contentPx()
-    val px = if (single) {
-        content
-    } else {
-        minOf(LyricCardWidth.roundToPx(), content - LyricCardPeek.roundToPx())
-    }.coerceAtLeast(0)
-    val placeable = measurable.measure(constraints.copy(minWidth = px, maxWidth = px))
-    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+private class LyricPageSize(private val contentPx: () -> Int, private val single: Boolean) : PageSize {
+    override fun Density.calculateMainAxisPageSize(availableSpace: Int, pageSpacing: Int): Int {
+        val content = contentPx().takeIf { it > 0 } ?: availableSpace
+        val px = if (single) content else minOf(LyricCardWidth.roundToPx(), content - LyricCardPeek.roundToPx())
+        return px.coerceAtLeast(1)
+    }
 }
 
 /** The page dots: the current card a short pill, the others dots, moving on a spring. */

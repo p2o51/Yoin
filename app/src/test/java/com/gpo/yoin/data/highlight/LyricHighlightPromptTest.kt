@@ -73,10 +73,13 @@ class LyricHighlightPromptTest {
     fun should_acceptNearMisses_when_parsing() {
         val prepared = LyricHighlightPrompt.prepare(song)!!
 
-        assertEquals("灯塔还亮着", LyricHighlightPrompt.parse("```json\n{\"start\":4,\"end\":4}\n```", prepared)!!.text)
+        // One line asked for: the next line joins it, or for the song's last line the one before (2-4 lines).
+        assertEquals("灯塔还亮着\n你在哪里", LyricHighlightPrompt.parse("```json\n{\"start\":4,\"end\":4}\n```", prepared)!!.text)
         assertEquals("潮水退了又涨\n灯塔还亮着", LyricHighlightPrompt.parse("3-4", prepared)!!.text)
-        assertEquals("你在哪里", LyricHighlightPrompt.parse("5", prepared)!!.text)
-        assertEquals("你在哪里", LyricHighlightPrompt.parse("{\"start\": 5}", prepared)!!.text)
+        assertEquals("灯塔还亮着\n你在哪里", LyricHighlightPrompt.parse("5", prepared)!!.text)
+        assertEquals("灯塔还亮着\n你在哪里", LyricHighlightPrompt.parse("{\"start\": 5}", prepared)!!.text)
+        // Running one past the song's end keeps what is there.
+        assertEquals("灯塔还亮着\n你在哪里", LyricHighlightPrompt.parse("{\"start\": 5, \"end\": 6}", prepared)!!.text)
     }
 
     @Test
@@ -86,7 +89,6 @@ class LyricHighlightPromptTest {
         assertNull(LyricHighlightPrompt.parse(null, prepared))
         assertNull(LyricHighlightPrompt.parse("The best line is about the lighthouse.", prepared))
         assertNull(LyricHighlightPrompt.parse("{\"start\": 0, \"end\": 1}", prepared))
-        assertNull(LyricHighlightPrompt.parse("{\"start\": 5, \"end\": 6}", prepared))
         assertNull(LyricHighlightPrompt.parse("{\"start\": 3, \"end\": 2}", prepared))
         // Far more lines than a card holds: the model drifted.
         assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 9}", prepared))
@@ -110,7 +112,7 @@ class LyricHighlightPromptTest {
         val prepared = LyricHighlightPrompt.prepare(synced("我在升华 盛开着花", "盛开着花", "风吹过来", "four"))!!
 
         val pick = LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 3}", prepared)!!
-        assertEquals("我在升华 盛开着花", pick.text)
+        assertEquals("我在升华 盛开着花\n风吹过来", pick.text)
     }
 
     @Test

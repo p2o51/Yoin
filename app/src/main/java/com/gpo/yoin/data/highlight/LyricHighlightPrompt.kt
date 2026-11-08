@@ -47,9 +47,9 @@ object LyricHighlightPrompt {
 
     /**
      * Part of every fingerprint: a song picked under an older question is picked again (v2: two to four
-     * lines, owner 2026-11-08; v3: an echoed line ends the passage).
+     * lines, owner 2026-11-08; v3: echoes left out; v4: never one line when the song has a neighbour).
      */
-    const val PROMPT_VERSION = "v3:"
+    const val PROMPT_VERSION = "v4:"
 
     /** Output budget: the JSON answer is ~15 tokens. */
     const val MAX_OUTPUT_TOKENS = 24
@@ -126,17 +126,29 @@ object LyricHighlightPrompt {
         // Lines that follow each other in the song only: the numbered list leaves repeats out, so the next
         // number can be a different part of the song, which would read as two thoughts glued together.
         val picked = mutableListOf(first)
-        for (number in start + 1..minOf(asked, start + MAX_PICK_LINES - 1)) {
-            val line = prepared.line(number) ?: break
-            if (line.source != picked.last().source + 1) break
-            // An echo of a line already picked ("盛开着花" after "我在升华 盛开着花") ends the passage.
+        fun echoes(line: Line): Boolean {
+            // An echo of a line already picked ("盛开着花" after "我在升华 盛开着花") adds nothing to the passage.
             val words = normalize(line.text)
-            if (words.isEmpty() || picked.any { normalize(it.text).contains(words) }) break
-            picked += line
+            return words.isEmpty() || picked.any { normalize(it.text).contains(words) }
+        }
+        var lastSource = first.source
+        var number = start + 1
+        // The asked range, and past it while the passage is still one line (two to four, owner 2026-11-08).
+        while (picked.size < MAX_PICK_LINES && (number <= asked || picked.size < MIN_PICK_LINES)) {
+            val line = prepared.line(number++) ?: break
+            if (line.source != lastSource + 1) break
+            lastSource = line.source
+            if (!echoes(line)) picked += line
+        }
+        // Still one line (the song's last, or only echoes after it): take the line before it instead.
+        if (picked.size < MIN_PICK_LINES) {
+            prepared.line(start - 1)
+                ?.takeIf { it.source == first.source - 1 && !echoes(it) }
+                ?.let { picked.add(0, it) }
         }
         // Too long for a card: drop lines from the end, but never below one.
         while (picked.size > 1 && picked.sumOf { it.text.length } > MAX_PICK_CHARS) picked.removeAt(picked.lastIndex)
-        if (picked.size == 1 && first.text.length > MAX_PICK_CHARS) return null
+        if (picked.size == 1 && picked.first().text.length > MAX_PICK_CHARS) return null
         return Pick(picked.first(), picked.last(), picked.joinToString("\n") { it.text })
     }
 
