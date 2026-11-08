@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,7 +56,10 @@ import androidx.compose.ui.geometry.toRect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -77,6 +81,7 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 
 /**
@@ -450,13 +455,42 @@ private fun LyricsFullscreenList(
     val windowCovered = LocalWindowCovered.current
     val edgeFadePx = with(LocalDensity.current) { LyricsEdgeFade.roundToPx() }
     val seatSettleSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
-    LaunchedEffect(lyrics, listState, autoScrollEnabled, recenterRequestKey, focusItem) {
+    // The seat is set by the SCREEN, not by this window: the row's centre at
+    // LyricsScreenSeat of the window's height (owner 2026-11-08), whichever
+    // layout holds the page — the tablet's tall right column (more so in
+    // focus, where the tools step away) put it well below the middle.
+    // Read from the window as laid out once it holds still: a stage morph, a
+    // dismiss drag or the back preview moves it every frame, and the line
+    // must not chase that.
+    var windowGeometry by remember { mutableStateOf(LyricsWindowGeometry.Unknown) }
+    var seatFraction by remember { mutableFloatStateOf(Float.NaN) }
+    LaunchedEffect(edgeFadePx) {
+        snapshotFlow { windowGeometry }
+            .filter { it != LyricsWindowGeometry.Unknown }
+            .collectLatest { geometry ->
+                // The first report seats at once; later ones wait to settle.
+                if (!seatFraction.isNaN()) delay(LyricsSeatSettleMs)
+                seatFraction = lyricsScreenSeatFraction(
+                    windowTopPx = geometry.topPx,
+                    windowPx = geometry.heightPx,
+                    screenPx = geometry.screenPx,
+                    fadePx = edgeFadePx,
+                )
+            }
+    }
+    val seat = if (seatFraction.isNaN()) LyricsFocusFraction else seatFraction
+    LaunchedEffect(lyrics, listState, autoScrollEnabled, recenterRequestKey, focusItem, seatFraction) {
         if (!autoScrollEnabled || focusItem < 0) return@LaunchedEffect
+        // Wait for the first read of the screen (the first layout) so the
+        // song's instant first centring lands on the seat, not on the middle.
+        if (seatFraction.isNaN()) return@LaunchedEffect
         val target = focusItem.coerceIn(0, lastIndex)
         // The next song's title goes where its own list will open it (item 0,
         // at rest), not to the focus seat.
         val handOver = target == upNextHeaderIndex
-        val offsetPx = { if (handOver) 0 else listState.layoutInfo.lyricsFocusScrollOffsetPx(target, edgeFadePx) }
+        val offsetPx = {
+            if (handOver) 0 else listState.layoutInfo.lyricsFocusScrollOffsetPx(target, edgeFadePx, seat)
+        }
 
         // scrollToItem remeasures the list at once, so a row first laid out by
         // the jump (opened mid-song, its size only estimated) is seated on its
@@ -488,7 +522,7 @@ private fun LyricsFullscreenList(
                         val rest = if (handOver) {
                             null
                         } else {
-                            listState.layoutInfo.lyricsFocusSeatRemainderPx(target, edgeFadePx)
+                            listState.layoutInfo.lyricsFocusSeatRemainderPx(target, edgeFadePx, seat)
                         }
                         if (rest != null && rest != 0 &&
                             (if (rest > 0) listState.canScrollForward else listState.canScrollBackward)
@@ -531,7 +565,7 @@ private fun LyricsFullscreenList(
                         pinnedOffset = if (focus == upNextHeaderIndex) {
                             0
                         } else {
-                            info.lyricsFocusScrollOffsetPx(focus, edgeFadePx)
+                            info.lyricsFocusScrollOffsetPx(focus, edgeFadePx, seat)
                         }
                     }
                     listState.requestScrollToItem(focus, pinnedOffset)
@@ -555,7 +589,22 @@ private fun LyricsFullscreenList(
     // Scroll-aware: the fades release at the list's ends, so the first and
     // last lyric lines read crisp instead of sitting permanently half-faded
     // above the tab group / Ask Gemini bar.
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coordinates ->
+                // Mid-reshape the list is already measured at its expanded
+                // height (viewportGrowthPx) and the window grows up into it:
+                // read the seat for the window it is becoming, so opening the
+                // page does not end in a second glide.
+                val growth = viewportGrowthPx.coerceAtLeast(0)
+                windowGeometry = LyricsWindowGeometry(
+                    topPx = coordinates.positionInRoot().y - growth,
+                    heightPx = coordinates.size.height + growth,
+                    screenPx = coordinates.findRootCoordinates().size.height,
+                )
+            },
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -575,7 +624,7 @@ private fun LyricsFullscreenList(
                 Modifier.fillMaxSize().lyricsViewport(
                     growthPx = viewportGrowthPx,
                     // Untimed lyrics / user-scrolled content keep their top anchor.
-                    focusFraction = if (autoScrollEnabled && currentIndex >= 0) LyricsFocusFraction else 0f,
+                    focusFraction = if (autoScrollEnabled && currentIndex >= 0) seat else 0f,
                 ),
             ) {
                 LazyColumn(
@@ -1049,3 +1098,13 @@ private fun findCurrentLyricIndex(lyrics: List<LyricLine>, positionMs: Long): In
     }
     return result
 }
+
+/** The lyric window as laid out: its top and height, and the screen's height (px). */
+private data class LyricsWindowGeometry(val topPx: Float, val heightPx: Int, val screenPx: Int) {
+    companion object {
+        val Unknown = LyricsWindowGeometry(0f, 0, 0)
+    }
+}
+
+/** How long the lyric window must hold still before the screen seat is re-read. */
+private const val LyricsSeatSettleMs = 250L

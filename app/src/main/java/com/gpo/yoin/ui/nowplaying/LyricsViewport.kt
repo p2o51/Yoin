@@ -65,7 +65,11 @@ internal fun lyricsFocusScrollOffsetPx(
  * rows that are (their mean), so the caller seats it again once it is
  * ([lyricsFocusSeatRemainderPx]).
  */
-internal fun LazyListLayoutInfo.lyricsFocusScrollOffsetPx(target: Int, fadePx: Int): Int {
+internal fun LazyListLayoutInfo.lyricsFocusScrollOffsetPx(
+    target: Int,
+    fadePx: Int,
+    focusFraction: Float = LyricsFocusFraction,
+): Int {
     val viewport = viewportSize.height
     val fade = lyricsEdgeFadePx(viewport, fadePx)
     val rowPx = visibleItemsInfo.firstOrNull { it.index == target }?.size
@@ -78,7 +82,8 @@ internal fun LazyListLayoutInfo.lyricsFocusScrollOffsetPx(target: Int, fadePx: I
         contentPaddingTopPx = -viewportStartOffset,
         rowPx = rowPx,
         fadeTopPx = fade,
-        fadeBottomPx = fade
+        fadeBottomPx = fade,
+        focusFraction = focusFraction,
     )
 }
 
@@ -86,10 +91,47 @@ internal fun LazyListLayoutInfo.lyricsFocusScrollOffsetPx(target: Int, fadePx: I
  * How far item [target] still has to scroll (px, + = forward) to sit on its
  * focus seat, by its laid-out size; null while it isn't laid out.
  */
-internal fun LazyListLayoutInfo.lyricsFocusSeatRemainderPx(target: Int, fadePx: Int): Int? {
+internal fun LazyListLayoutInfo.lyricsFocusSeatRemainderPx(
+    target: Int,
+    fadePx: Int,
+    focusFraction: Float = LyricsFocusFraction,
+): Int? {
     val row = visibleItemsInfo.firstOrNull { it.index == target } ?: return null
     // A scroll offset of s leaves the row's offset at -s.
-    return lyricsFocusScrollOffsetPx(target, fadePx) + row.offset
+    return lyricsFocusScrollOffsetPx(target, fadePx, focusFraction) + row.offset
+}
+
+/**
+ * Where on the SCREEN the line being sung sits, wherever the lyric page is
+ * laid out (owner 2026-11-08 「不管在什么地方播放，歌词高亮都应该在屏幕中间靠上的
+ * 位置」): its centre at this share of the window's height.
+ */
+internal const val LyricsScreenSeat = 0.4f
+
+/** The seat never climbs above this share of the clean band, so sung lines still show above it. */
+internal const val LyricsSeatMinFraction = 0.2f
+
+/**
+ * The [LyricsFocusFraction]-style share of the clean band that puts the focus
+ * row's centre at [LyricsScreenSeat] of a [screenPx]-tall window, for a lyric
+ * window [windowPx] tall whose top sits [windowTopPx] below the screen's top.
+ * Held between [LyricsSeatMinFraction] and the band's middle: a window that
+ * starts below the seat keeps a few lines above the row, and one that ends
+ * above it (the top half of a hinge) never sinks it past the middle.
+ * Stepped to 2% so a pixel of drift never re-seats the list.
+ */
+internal fun lyricsScreenSeatFraction(
+    windowTopPx: Float,
+    windowPx: Int,
+    screenPx: Int,
+    fadePx: Int,
+): Float {
+    val fade = lyricsEdgeFadePx(windowPx, fadePx)
+    val band = windowPx - fade * 2
+    if (band <= 0 || screenPx <= 0) return LyricsFocusFraction
+    val raw = (screenPx * LyricsScreenSeat - windowTopPx - fade) / band
+    val held = raw.coerceIn(LyricsSeatMinFraction, LyricsFocusFraction)
+    return (held * 50f).roundToInt() / 50f
 }
 
 /**
