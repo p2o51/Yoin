@@ -52,7 +52,8 @@ struct MemoriesSpreadPage: View {
         let size = album ? 26.0 : 30.0
         let font: Font = album ? .gsf(size, .semibold) : .system(size: size, weight: .semibold, design: .serif)
         let spacing = size * 0.3 - 6
-        let onCover = CoverMarks.onCover(provider: card.album.id.provider)
+        // Memories: the seal sits on every cover's lower-right corner, Spotify's too (51, 11-07, like Android).
+        let onCover = true
         return VStack(spacing: 0) {
             Spacer(minLength: 24)
             CoverArt(palette: card.album.palette, cornerRadius: Tokens.shape.HERO.cg, seed: card.album.seed)
@@ -61,7 +62,6 @@ struct MemoriesSpreadPage: View {
                     ScoreEmblem(score: card.score ?? 0, kind: card.emblemKind, rated: card.rated,
                                 palette: card.album.palette, size: seal, award: deck.cardAward(card),
                                 neutrals: scheme, onCover: onCover)
-                        // A Spotify cover: the stamp under its right edge, clear of it (CoverMarks).
                         .padding(.leading, onCover ? cover - seal * 0.7 : cover - seal)
                         .padding(.top, onCover ? cover - seal * 0.76 : cover + CoverMarks.gap)
                 }

@@ -182,6 +182,20 @@ final class HomeMemoriesTests: XCTestCase {
         XCTAssertEqual(MemoryDeck.startIndex(cards, focus: "gone"), 0)
     }
 
+    func test_should_dealTheUnseenFirst_when_pullingPastTheDecksEnd() {
+        let ms = (0..<9).map { memory("m\($0)", written: Int64($0 + 1), albumRating: 8) }
+        let current: Set<String> = ["m0", "m1", "m2", "m3", "m4", "m5"]
+        let next = MemoryDeck.next(.init(memories: ms), excluding: current)
+        XCTAssertEqual(next.count, MemoryDeck.limit)
+        XCTAssertEqual(Set(next.prefix(3).map(\.id)), ["m6", "m7", "m8"])
+        XCTAssertTrue(next.dropFirst(3).allSatisfy { current.contains($0.id) })
+        // A swipe on past the end turns the deck; a short, slow drag just springs back.
+        XCTAssertTrue(MemoryDeck.turnsDeck(overshoot: 80, outwardVelocity: 0))
+        XCTAssertTrue(MemoryDeck.turnsDeck(overshoot: 10, outwardVelocity: 700))
+        XCTAssertFalse(MemoryDeck.turnsDeck(overshoot: 30, outwardVelocity: 100))
+        XCTAssertFalse(MemoryDeck.turnsDeck(overshoot: 0, outwardVelocity: 900))
+    }
+
     func test_should_dealSixWithTheFocusFirst_when_openingTheDeck() {
         let ms = (0..<10).map { memory("m\($0)", written: Int64($0 + 1), albumRating: 8) }
         var rng = SystemRandomNumberGenerator()

@@ -37,6 +37,11 @@ struct MemoriesView: View {
     /// hides Memories without closing it; coming back finds the same open,
     /// so the deck, its position, the diary and the drafts stay as they were.
     @State private var builtFor: Int?
+    /// Bumped each time the deck is dealt again past an end (the generation task follows it).
+    @State private var dealt = 0
+    /// The new deck's entry from the pulled edge (Android MemoriesDeckEnterOffset 44 dp + fade).
+    @State private var deckShift: CGFloat = 0
+    @State private var deckAlpha: Double = 1
 
     init(presentation: MemoriesPresentation) {
         self.presentation = presentation
@@ -63,7 +68,8 @@ struct MemoriesView: View {
                         page(i, size: geo.size)
                             .frame(width: w)
                             // Neighbours slide past at the deck's pace; only ±1 is drawn.
-                            .offset(x: (CGFloat(i) - position) * w)
+                            .offset(x: (CGFloat(i) - position) * w + deckShift)
+                            .opacity(deckAlpha)
                             .accessibilityHidden(i != currentIndex)
                     }
                 }
@@ -122,7 +128,7 @@ struct MemoriesView: View {
         }
         // Titles and narration for the cards not yet tried in this language (MemoryGeneration: once per
         // album and language, never again on the next open); each answer lands on its card in place.
-        .task(id: [String(presentation.openCount), GeminiSettings.shared.targetLanguage,
+        .task(id: [String(presentation.openCount), String(dealt), GeminiSettings.shared.targetLanguage,
                    GeminiSettings.shared.hasKey ? "key" : ""]) {
             let open = presentation.openCount
             await model.generateMemoryText(in: { cards.map(\.id) }) {
@@ -222,6 +228,34 @@ struct MemoriesView: View {
         guard next != cards else { return }
         cards = next
         for c in next { deck.refresh(c) }
+    }
+
+    /// A new group past an end (Android advanceDeck): the memories not just shown first; forward lands
+    /// on its first card, backward on its last; it slides in from the pulled edge with a tick.
+    private func advanceDeck(forward: Bool) {
+        let inputs = model.store.memoryDeckInputs()
+        let next = model.voicedMemoryCards(MemoryDeck.next(inputs, excluding: Set(cards.map(\.id))), inputs)
+        guard !next.isEmpty else {
+            return turn(to: forward ? cards.count - 1 : 0, velocity: 0)
+        }
+        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        pager.stop()
+        deck.diary.snap(to: 0)
+        deck.editor.end()
+        cards = next
+        position = forward ? 0 : CGFloat(next.count - 1)
+        deck.router.cardPresent = true
+        deck.rebuild(next, seal: seal(for: layout))
+        dealt += 1
+        if reduceMotion {
+            deckShift = 0; deckAlpha = 0
+            withAnimation(Yoin.effects) { deckAlpha = 1 }
+        } else {
+            deckShift = (forward ? 1 : -1) * 44; deckAlpha = 0
+            withAnimation(Yoin.spatial) { deckShift = 0 }
+            withAnimation(Yoin.effects) { deckAlpha = 1 }
+        }
+        deck.awards.onPagerSettled(next[Int(position)].id)
     }
 
     /// One card again after a write, in place (the deck's order holds while it is open).
@@ -354,6 +388,18 @@ struct MemoriesView: View {
 
     private func settlePaging(_ v: DragGesture.Value) {
         let velocity = -v.velocity.width / max(size.width, 1)
+        // Past the last (or first) card: a swipe or flick on outward deals the next group (Android edge advance).
+        let raw = dragStartPosition - v.translation.width / max(size.width, 1)
+        let last = CGFloat(max(cards.count - 1, 0))
+        if !cards.isEmpty {
+            let w = max(size.width, 1)
+            if MemoryDeck.turnsDeck(overshoot: (raw - last) * w, outwardVelocity: -v.velocity.width) {
+                return advanceDeck(forward: true)
+            }
+            if MemoryDeck.turnsDeck(overshoot: -raw * w, outwardVelocity: v.velocity.width) {
+                return advanceDeck(forward: false)
+            }
+        }
         turn(to: MemoryDeck.settlePage(position: position, velocity: velocity, count: cards.count), velocity: velocity)
     }
 

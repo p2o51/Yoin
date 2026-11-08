@@ -222,7 +222,8 @@ struct MemoryCardFace: View {
 
     private func exhibit(_ tones: MemoryTones) -> some View {
         let cover = metrics.cover, seal = metrics.seal
-        let onCover = CoverMarks.onCover(provider: card.album.id.provider)
+        // Memories: the seal sits on every cover's lower-right corner, Spotify's too (51, 11-07, like Android).
+        let onCover = true
         return VStack(spacing: 0) {
             CoverArt(palette: card.album.palette, cornerRadius: 0, seed: card.album.seed)
                 .frame(width: cover, height: cover)
@@ -235,7 +236,6 @@ struct MemoryCardFace: View {
                                 neutrals: scheme, onCover: onCover)
                         .morphLayer(diary) { p in sealPose(p) }
                         .pageFrame { r in if abs(diary.fraction) < 0.001 { morph.seal = r } }
-                        // A Spotify cover: the stamp under its right edge, clear of it (CoverMarks).
                         .padding(.leading, onCover ? cover - seal * 0.7 : cover - seal)
                         .padding(.top, onCover ? cover - seal * 0.76 : cover + CoverMarks.gap)
                 }

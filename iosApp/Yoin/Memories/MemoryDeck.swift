@@ -96,6 +96,21 @@ enum MemoryDeck {
         return (focus + rest).prefix(limit).map { card($0, x) }
     }
 
+    /// The next deck past either end (Android advanceDeck + sampleDeckCandidates): the memories
+    /// not in [current] first, shuffled, then the current ones shuffled to fill a small pool.
+    static func next(_ x: Inputs, excluding current: Set<String>) -> [MemoryCard] {
+        var rng = SystemRandomNumberGenerator()
+        return next(x, excluding: current, using: &rng)
+    }
+
+    static func next(_ x: Inputs, excluding current: Set<String>,
+                     using rng: inout some RandomNumberGenerator) -> [MemoryCard] {
+        let all = pool(x)
+        let fresh = all.filter { !current.contains($0.albumId) }.shuffled(using: &rng)
+        let seen = all.filter { current.contains($0.albumId) }.shuffled(using: &rng)
+        return (fresh + seen).prefix(limit).map { card($0, x) }
+    }
+
     /// Every card of the pool, in its order (the deck samples from these).
     static func cards(_ x: Inputs) -> [MemoryCard] { pool(x).map { card($0, x) } }
 
@@ -189,6 +204,20 @@ enum MemoryDeck {
     /// The pager's resting page for a release at [position] (pages, fractional)
     /// moving at [velocity] (pages / s): the next page past half way, or one
     /// page on a flick (Android pager snap), clamped to the deck.
+    /// Past an end, the release that turns the deck (Android MemoriesScreen edge advance): the
+    /// pull (finger travel past the end × the 0.52 resistance) reached half its 72 pt trigger,
+    /// or any pull let go still moving outward at 600 pt/s or faster.
+    static let edgePullTrigger: CGFloat = 72
+    static let edgePullResistance: CGFloat = 0.52
+    static let edgeReleaseFraction: CGFloat = 0.5
+    static let edgeFlingVelocity: CGFloat = 600
+
+    static func turnsDeck(overshoot: CGFloat, outwardVelocity: CGFloat) -> Bool {
+        guard overshoot > 0 else { return false }
+        let progress = min(overshoot * edgePullResistance / edgePullTrigger, 1)
+        return progress >= edgeReleaseFraction || outwardVelocity >= edgeFlingVelocity
+    }
+
     static func settlePage(position: CGFloat, velocity: CGFloat, count: Int) -> Int {
         guard count > 0 else { return 0 }
         let page: CGFloat = if velocity > flickPagesPerSecond {
