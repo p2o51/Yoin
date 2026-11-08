@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
@@ -93,6 +94,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
+                val sharePlaylist = rememberDetailShare(app.container, WebLinkKind.Playlist, playlistId, webLink = null)
                 val backingUp by viewModel.backingUp.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
@@ -251,14 +253,10 @@ class PlaylistDetailActivity : ComponentActivity() {
                                 onMessage = nowPlayingViewModel::postMessage,
                             ),
                             onShare = {
-                                val text = (uiState as? PlaylistDetailUiState.Content)
-                                    ?.playlistName
-                                    ?: context.getString(R.string.detail_share_playlist)
-                                val send = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, text)
-                                }
-                                context.startActivity(Intent.createChooser(send, null))
+                                sharePlaylist(
+                                    (uiState as? PlaylistDetailUiState.Content)?.playlistName
+                                        ?: context.getString(R.string.detail_share_playlist),
+                                )
                             },
                             isPlaying = isPlaying,
                             onOpenNowPlaying = { nowPlayingOpen = true },

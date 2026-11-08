@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.detail
 import android.content.Intent
 import android.content.res.Resources
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -18,6 +19,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
@@ -28,6 +31,7 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.PlayMenuItem
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 
 /**
@@ -117,6 +121,57 @@ internal fun openInLabel(link: String?, resources: Resources? = null): String? =
 
 /** What Share sends: the page's [title], with its [link] on the next line when it has one. */
 internal fun detailShareText(title: String, link: String?): String = if (link == null) title else "$title\n$link"
+
+/**
+ * Share for a page or a song: `share(title)` sends [title] with [webLink]
+ * when the service has one (Spotify, Apple Music). Without one it first asks
+ * the service to make a share link for [id] (a Subsonic server's
+ * `createShare`, owner 2026-11-08: share links only), then sends that. When
+ * the server refuses, the name goes alone with a short notice. A second tap
+ * while a link is being made is ignored.
+ */
+@Composable
+internal fun rememberDetailShare(
+    container: AppContainer,
+    kind: WebLinkKind,
+    id: String?,
+    webLink: String?,
+): (title: String) -> Unit {
+    val context = LocalContext.current
+    // The page's scope, not the menu's: the menu closes before the link is back.
+    val scope = LocalLifecycleOwner.current.lifecycleScope
+    val currentLink by rememberUpdatedState(webLink)
+    val making = remember { AtomicBoolean(false) }
+    return remember(container, kind, id, context, scope) {
+        share@{ title ->
+            val send = { link: String? ->
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, detailShareText(title, link))
+                }
+                runCatching { context.startActivity(Intent.createChooser(intent, null)) }
+            }
+            val mediaId = id?.let(MediaId::parseOrNull)
+            if (currentLink != null || mediaId == null) {
+                send(currentLink)
+                return@share
+            }
+            if (!making.compareAndSet(false, true)) return@share
+            scope.launch {
+                try {
+                    container.repository.createShareLink(kind, mediaId, description = title)
+                        .onSuccess { link -> send(link) }
+                        .onFailure {
+                            Toast.makeText(context, R.string.detail_share_link_failed, Toast.LENGTH_SHORT).show()
+                            send(null)
+                        }
+                } finally {
+                    making.set(false)
+                }
+            }
+        }
+    }
+}
 
 /** The snackbar line after a page's songs were queued. */
 internal fun queuedMessage(count: Int, next: Boolean, resources: Resources? = null): String {

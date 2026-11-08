@@ -2,7 +2,6 @@ package com.gpo.yoin.ui.detail
 
 import com.gpo.yoin.ui.component.audioFormatTags
 import com.gpo.yoin.ui.component.AudioFormatTagRow
-import android.content.Intent
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -55,7 +54,6 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -167,7 +165,6 @@ internal fun TrackMenuSheet(
     nowPlaying: Boolean = false,
     playerSection: (@Composable () -> Unit)? = null,
 ) {
-    val context = LocalContext.current
     val haptics = rememberYoinHaptics()
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -196,15 +193,9 @@ internal fun TrackMenuSheet(
             if (!sheetState.isVisible) onDismissRequest()
         }
     }
+    val shareTrack = rememberDetailShare(host.container, WebLinkKind.Track, songId, link)
     val share: (() -> Unit)? = track?.let { song ->
-        {
-            val title = listOfNotNull(song.title, song.artist).joinToString(" — ")
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, detailShareText(title, link))
-            }
-            runCatching { context.startActivity(Intent.createChooser(send, null)) }
-        }
+        { shareTrack(listOfNotNull(song.title, song.artist).joinToString(" — ")) }
     }
     // Download this song alone. A song kept as part of a downloaded album or
     // playlist has no row: that page's own Download says it, and removes it.

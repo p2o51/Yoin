@@ -185,6 +185,7 @@ class AlbumDetailActivity : ComponentActivity() {
                 // ▾: Play next, Add to queue, Add to playlist, Save to / Remove from
                 // library (Spotify), Open in …; Share carries the link.
                 val webLink = rememberDetailWebLink(app.container, WebLinkKind.Album, albumId)
+                val shareAlbum = rememberDetailShare(app.container, WebLinkKind.Album, albumId, webLink)
                 val menu = rememberDetailMenu(
                     container = app.container,
                     link = webLink,
@@ -276,12 +277,7 @@ class AlbumDetailActivity : ComponentActivity() {
                         } else {
                             context.getString(R.string.detail_share_album)
                         }
-                        val text = detailShareText(title, webLink)
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, text)
-                        }
-                        context.startActivity(Intent.createChooser(send, null))
+                        shareAlbum(title)
                     },
                     menu = menu,
                     onOpenArtist = (uiState as? AlbumDetailUiState.Content)?.artistId?.let { artistId ->

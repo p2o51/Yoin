@@ -25,6 +25,7 @@
     <string name="detail_share_album_title">%1$s – %2$s</string>
     <string name="detail_share_artist">Share artist</string>
     <string name="detail_share_playlist">Share playlist</string>
+    <string name="detail_share_link_failed">Couldn\'t make a share link on your server, so only the name was shared</string>
 
     <!-- Load and sync errors -->
     <string name="detail_album_error_not_found">Album not found</string>
