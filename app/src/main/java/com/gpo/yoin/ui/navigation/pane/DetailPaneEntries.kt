@@ -179,9 +179,9 @@ internal fun AlbumPaneEntry(
             onGoToArtist = { id -> currentOnOpenArtist(id) },
         )
     }
-    val shareAlbum = rememberDetailShare(app.container, WebLinkKind.Album, route.albumId, webLink)
+    val shareAlbumLink = rememberDetailShare(app.container, WebLinkKind.Album, route.albumId, webLink)
     val share = {
-        shareAlbum(
+        shareAlbumLink(
             content?.let {
                 context.getString(R.string.shell_share_album_title, it.albumName, it.artistName)
             } ?: context.getString(R.string.shell_share_album_fallback),
@@ -396,9 +396,9 @@ internal fun PlaylistPaneEntry(
             )
         }
     }
-    val sharePlaylist = rememberDetailShare(app.container, WebLinkKind.Playlist, route.playlistId, webLink = null)
+    val sharePlaylistLink = rememberDetailShare(app.container, WebLinkKind.Playlist, route.playlistId, webLink = null)
     val share = {
-        sharePlaylist(content?.playlistName ?: context.getString(R.string.shell_share_playlist_fallback))
+        sharePlaylistLink(content?.playlistName ?: context.getString(R.string.shell_share_playlist_fallback))
     }
 
     val scheme = rememberCoverColorScheme(content?.coverArtUrl) ?: MaterialTheme.colorScheme
