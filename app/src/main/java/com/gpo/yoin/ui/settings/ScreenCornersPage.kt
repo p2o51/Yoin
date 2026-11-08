@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -153,6 +154,7 @@ private enum class CornerExample(val label: Int) {
  * example at a time and moving on by itself; a tap moves on too. Each moving page wears the corner while
  * it moves, as the real one does. Reduced motion: each example holds mid-way.
  */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 private fun CornerExamples(radius: Float, playing: Boolean) {
     val haptics = rememberYoinHaptics()
