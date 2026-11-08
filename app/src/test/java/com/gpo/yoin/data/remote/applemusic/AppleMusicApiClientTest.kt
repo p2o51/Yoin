@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.remote.applemusic
 
+import com.gpo.yoin.data.model.isUnplayableAppleImport
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -421,6 +422,37 @@ class AppleMusicApiClientTest {
         server.enqueue(MockResponse().setResponseCode(403))
         val failure = runCatching { client.createLibraryPlaylist("Mix", null, emptyList()) }.exceptionOrNull()
         assertEquals(AppleMusicApiFailure.AccessDenied, (failure as AppleMusicApiException).failure)
+    }
+
+    @Test
+    fun should_markUnreleasedCatalogSongUnavailable_when_appleSendsNoPlayParams() {
+        // Apple's answer for a pre-release track (jp 6823080125, 2026-11-07): full attributes, no playParams.
+        val unreleased = song(
+            """{"id":"6823080125","type":"songs","attributes":{"name":"逃避行船","previews":[],""" +
+                """"url":"https://music.apple.com/jp/album/x/6823080117?i=6823080125"}}"""
+        )
+        val released = song(
+            """{"id":"6823080124","type":"songs","attributes":{"name":"Juliet","durationInMillis":200000,""" +
+                """"url":"https://music.apple.com/jp/album/x/6823080117?i=6823080124",""" +
+                """"playParams":{"id":"6823080124","kind":"song"}}}"""
+        )
+        val bare = song("""{"id":"123","type":"songs","attributes":{"name":"One"}}""")
+
+        assertTrue(unreleased.catalogUnavailable)
+        assertTrue(unreleased.toTrack().isUnplayableAppleImport)
+        assertEquals("6823080125", unreleased.catalogId)
+        assertFalse(released.catalogUnavailable)
+        assertFalse(bare.catalogUnavailable)
+    }
+
+    @Test
+    fun should_markLibrarySongUnavailable_when_itsCatalogSongIsUnreleased() {
+        val librarySong = song(
+            """{"id":"i.x","type":"library-songs","attributes":{"name":"S","playParams":{"catalogId":"9"}},""" +
+                """"relationships":{"catalog":{"data":[{"id":"9","type":"songs",""" +
+                """"attributes":{"name":"S","url":"https://music.apple.com/cn/song/9"}}]}}}"""
+        )
+        assertTrue(librarySong.catalogUnavailable)
     }
 
     private fun song(json: String) = AppleMusicSong.fromJson(Json.parseToJsonElement(json).jsonObject)

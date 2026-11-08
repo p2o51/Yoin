@@ -30,7 +30,8 @@ data class AppleMusicSong(
      * play parameters still name a catalog id: the storefront has none for it (a song since
      * pulled, or one from another storefront). MusicKit drops such an id from a queue without a
      * word, so a start index past it lands that many songs further on. An import, which names no
-     * catalog id, is never this.
+     * catalog id, is never this. A catalog song Apple lists but doesn't stream yet ([isUnreleased])
+     * is this too.
      */
     val catalogUnavailable: Boolean = false,
     /**
@@ -116,7 +117,8 @@ data class AppleMusicSong(
                 artistId = relatedId(resource, "artists") ?: catalog?.let { relatedId(it, "artists") },
                 // An import answers the relationship empty as well, but names no catalog id: it stays an import.
                 catalogUnavailable = type == "library-songs" && catalogRelationship?.isEmpty() == true &&
-                    catalogId != null,
+                    catalogId != null ||
+                    (if (type == "songs") resource else catalog)?.let(::isUnreleased) == true,
                 libraryChecked = type == "songs" && libraryRelationship != null,
                 isrc = (attributes?.string("isrc") ?: catalog?.get("attributes")?.jsonObject?.string("isrc"))
                     ?.trim()?.uppercase()?.takeIf(String::isNotEmpty),
@@ -125,6 +127,17 @@ data class AppleMusicSong(
                         ?: catalog?.get("attributes")?.jsonObject?.get("genreNames") as? JsonArray
                     )?.firstOrNull()?.let { (it as? JsonPrimitive)?.contentOrNull }?.takeIf(String::isNotBlank)
             )
+        }
+
+        /**
+         * A catalog song Apple lists but won't stream yet: an album's pre-release tracks, or one the storefront
+         * holds back. Apple sends its full attributes (`url`, the page it would open) with no `playParams` (and no
+         * length). MusicKit leaves such an id out of a queue without a word and starts that many songs further on,
+         * so it is treated like a pulled song. A resource without its attributes says nothing either way.
+         */
+        private fun isUnreleased(song: JsonObject): Boolean {
+            val attributes = song["attributes"] as? JsonObject ?: return false
+            return attributes.string("url") != null && attributes["playParams"] == null
         }
 
         private fun relatedId(resource: JsonObject, relation: String): MediaId? {
