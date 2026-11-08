@@ -524,6 +524,8 @@ internal class SpotifyAppRemotePlayer(
                     }.getOrNull()
                 }
                 if (pendingStart !== start) return@enqueueOperation
+                bringSpotifyHereIfIdleElsewhere(connected)
+                if (pendingStart !== start) return@enqueueOperation
                 val answered = withTimeoutOrNull(SPOTIFY_START_HEARD_TIMEOUT_MS) {
                     if (remoteContext != null) {
                         Log.d(tag, "App Remote start: ${remoteContext.contextUri} at ${remoteContext.index}")
@@ -553,6 +555,27 @@ internal class SpotifyAppRemotePlayer(
                 // Written, failed or given up: Spotify's own word stands from here.
                 if (playModeWrite === modeWrite) playModeWrite = null
             }
+        }
+    }
+
+    /**
+     * App Remote plays where the Spotify app here plays. When Spotify's active device is another
+     * one that is NOT sounding (a paused iPhone), the song would start there: on the 2026-11-08
+     * tablet test a tap in Yoin played on 51's iPhone. Only a device that is playing keeps the
+     * start (51, 2026-11-06), so bring Spotify back to this device first.
+     */
+    private suspend fun bringSpotifyHereIfIdleElsewhere(connected: SpotifyAppRemote) {
+        val state = readConnectState() ?: return
+        if (state.isThisDevice || state.playsElsewhere) return
+        Log.d(tag, "start: Spotify is idle on ${state.deviceName}; switching to this device")
+        try {
+            withTimeoutOrNull(CONNECT_STATE_TIMEOUT_MS) {
+                connected.connectApi.connectSwitchToLocalDevice().awaitUnit()
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            Log.w(tag, "connectSwitchToLocalDevice failed", error)
         }
     }
 
