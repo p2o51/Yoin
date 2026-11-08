@@ -873,11 +873,13 @@ internal fun List<YoinDevice>.localizedForSheet(): List<YoinDevice> {
     val switchBack = stringResource(R.string.np_device_switch_back_cast)
     val connected = stringResource(R.string.np_device_connected_cast)
     val usePill = stringResource(R.string.np_device_use_cast_pill)
+    val remembered = stringResource(R.string.np_device_spotify_remembered)
     return map { device ->
         val status = when (device.statusText) {
             NpDeviceStatusSwitchBack -> switchBack
             NpDeviceStatusConnected -> connected
             NpDeviceStatusUsePill -> usePill
+            NpDeviceStatusRemembered -> remembered
             else -> return@map device
         }
         when (device) {

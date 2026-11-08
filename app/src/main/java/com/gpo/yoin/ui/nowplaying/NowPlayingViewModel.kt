@@ -102,6 +102,8 @@ class NowPlayingViewModel(
     private val lyricHintStore: LyricHintStore = LyricHintStore.InMemory(),
     private val dlnaManager: DlnaManager? = null,
     private val spatialAudio: StateFlow<SpatialAudioState> = MutableStateFlow(SpatialAudioState()),
+    private val spotifyDeviceMemory: SpotifyDeviceMemory = SpotifyDeviceMemory.InMemory(),
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
@@ -1196,7 +1198,20 @@ class NowPlayingViewModel(
             )
             runCatching {
                 when (providerId) {
-                    MediaId.PROVIDER_SPOTIFY -> repository.listSpotifyDevices()
+                    MediaId.PROVIDER_SPOTIFY -> {
+                        val listed = repository.listSpotifyDevices()
+                        if (profileId == null) {
+                            listed
+                        } else {
+                            val remembered = mergeRememberedSpotifyDevices(
+                                remembered = spotifyDeviceMemory.recall(profileId),
+                                listed = listed,
+                                nowMs = clock(),
+                            )
+                            spotifyDeviceMemory.remember(profileId, remembered)
+                            withRememberedSpotifyDevices(listed, remembered)
+                        }
+                    }
                     MediaId.PROVIDER_SUBSONIC -> {
                         if (showLoading) dlnaManager?.discover()
                         emptyList()
@@ -1284,14 +1299,24 @@ class NowPlayingViewModel(
                     delay(1_200)
                 }
             } else {
+                // The sheet hands back its localized copy; the marker is on the VM's row.
+                val remembered = device is YoinDevice.SpotifyConnect &&
+                    _devicesState.value.devices.any { row ->
+                        row.id == device.id && row.statusText == NpDeviceStatusRemembered
+                    }
                 _devicesState.value = _devicesState.value.copy(
                     busyDeviceId = null,
-                    errorMessage = dlnaManager?.error?.value
-                        ?.takeIf { device is YoinDevice.Dlna || device is YoinDevice.LocalPlayback }
-                        ?.asUiText() ?: userMessage(
-                        result.exceptionOrNull()?.message,
-                        R.string.np_msg_couldnt_switch_devices,
-                    ),
+                    errorMessage = if (remembered) {
+                        // Asleep: Spotify only wakes a local speaker from its own picker.
+                        UiText.Res(R.string.np_msg_spotify_device_asleep)
+                    } else {
+                        dlnaManager?.error?.value
+                            ?.takeIf { device is YoinDevice.Dlna || device is YoinDevice.LocalPlayback }
+                            ?.asUiText() ?: userMessage(
+                            result.exceptionOrNull()?.message,
+                            R.string.np_msg_couldnt_switch_devices,
+                        )
+                    },
                 )
                 return@launch
             }
@@ -1696,6 +1721,7 @@ class NowPlayingViewModel(
                 lyricHintStore = container.lyricHintStore,
                 dlnaManager = container.dlnaManager,
                 spatialAudio = container.spatialAudio.state,
+                spotifyDeviceMemory = container.spotifyDeviceMemory,
             ) as T
     }
 }

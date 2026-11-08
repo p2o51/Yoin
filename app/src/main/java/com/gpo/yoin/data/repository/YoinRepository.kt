@@ -2480,7 +2480,12 @@ class YoinRepository(
 
     suspend fun listSpotifyDevices(): List<YoinDevice.SpotifyConnect> {
         val source = activeSource.value as? SpotifyMusicSource ?: return emptyList()
-        return source.listDevices()
+        val listed = source.listDevices()
+        // A speaker Spotify plays on (Sonos, Cast) can be missing from /devices while
+        // /me/player names it; add it so the sheet shows where the music is.
+        val playing = runCatching { source.playbackDevice() }.getOrNull()
+            ?.takeIf { device -> device.id != null && listed.none { it.id == device.id } }
+        return (listed + listOfNotNull(playing))
             .mapNotNull { device ->
                 val id = device.id ?: return@mapNotNull null
                 YoinDevice.SpotifyConnect(
