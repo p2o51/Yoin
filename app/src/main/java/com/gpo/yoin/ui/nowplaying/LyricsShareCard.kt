@@ -286,6 +286,8 @@ internal fun LyricsShareSheet(
     onShared: () -> Unit,
     onDismiss: () -> Unit,
     onMessage: (String) -> Unit,
+    // The lines were saved or shared: Home's 「歌词一句」 keeps them as a pick of the user's own.
+    onKept: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
@@ -406,6 +408,7 @@ internal fun LyricsShareSheet(
                             scope.launch {
                                 val saved = layer.exportImage()?.let { saveLyricsImage(context, it, name) } == true
                                 saveStatus = if (saved) SaveStatus.Saved else SaveStatus.Failed
+                                if (saved) onKept()
                                 if (saved) haptics.performConfirm() else haptics.performReject()
                             }
                         },
@@ -460,7 +463,12 @@ internal fun LyricsShareSheet(
                                 shareLyricsImage(context, image, caption = lyricsCredit(songTitle, artist))
                             } == true
                             sharing = false
-                            if (shared) onShared() else onMessage(couldntShare)
+                            if (shared) {
+                                onKept()
+                                onShared()
+                            } else {
+                                onMessage(couldntShare)
+                            }
                         }
                     },
                     enabled = !sharing && lines.isNotEmpty(),

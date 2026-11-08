@@ -124,4 +124,16 @@ class HomeLayoutRowsTest {
         assertNull(HomeRowPreset.fromKey("xxl"))
         assertNull(HomeRowPreset.fromKey(null))
     }
+
+    @Test
+    fun should_keepLyricCardCount_withoutJoiningTheRowResize() {
+        assertFalse(HomeSection.LyricHighlight.supportsRows)
+        assertTrue(HomeSection.LyricHighlight.takesPresets)
+        val layout = HomeLayout.Default.withRows(HomeSection.LyricHighlight, HomeRowPreset.S)
+
+        assertEquals(HomeRowPreset.S, layout.rowsOf(HomeSection.LyricHighlight))
+        assertEquals(2, layout.rowsOf(HomeSection.LyricHighlight).lyricCards)
+        assertEquals(4, HomeLayout.Default.rowsOf(HomeSection.LyricHighlight).lyricCards)
+        assertEquals(listOf(2, 3, 4, 4), HomeRowPreset.entries.map { it.lyricCards })
+    }
 }
