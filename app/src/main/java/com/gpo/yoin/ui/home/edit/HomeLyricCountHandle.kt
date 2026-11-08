@@ -10,12 +10,13 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -199,10 +200,12 @@ private fun BoxScope.HomeLyricCountHandle(deps: HomeEditDeps, itemSpacing: Dp) {
                 ),
             )
             if (drag.held || drag.reveal.value > 0f) {
+                // A tall pill just left of the corner, its top level with the handle's, so it grows down
+                // with the finger and stays off the next section's title row (owner 2026-11-08).
                 val gap = with(density) { LyricPickerGap.roundToPx() }
                 Popup(
                     alignment = Alignment.TopEnd,
-                    offset = IntOffset(0, with(density) { HomeRowsTokens.HandleTouch.roundToPx() } + gap),
+                    offset = IntOffset(-(with(density) { HomeRowsTokens.HandleTouch.roundToPx() } + gap), 0),
                     properties = PopupProperties(focusable = false, clippingEnabled = false),
                 ) {
                     LyricCountPicker(
@@ -215,12 +218,15 @@ private fun BoxScope.HomeLyricCountHandle(deps: HomeEditDeps, itemSpacing: Dp) {
     }
 }
 
-/** The four dots: every dot up to the count filled, the count's own one larger, its label beside them. */
+/**
+ * The dots, top to bottom from two to four cards to match the finger: every dot up to the count filled, the
+ * count's own one larger, its label at the top, in a rounded bar taller than it is wide.
+ */
 @Composable
 private fun LyricCountPicker(count: Int, reveal: () -> Float) {
     val colors = MaterialTheme.colorScheme
     Surface(
-        shape = CircleShape,
+        shape = RoundedCornerShape(LyricPickerRadius),
         color = colors.surfaceContainerHighest,
         shadowElevation = 6.dp,
         modifier = Modifier.graphicsLayer {
@@ -232,12 +238,18 @@ private fun LyricCountPicker(count: Int, reveal: () -> Float) {
             transformOrigin = TransformOrigin(1f, 0f)
         },
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = pluralStringResource(R.plurals.home_edit_lyric_cards, count, count),
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.onSurface,
+                maxLines = 1,
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 repeat(LyricMaxCount - LyricMinCount + 1) { index ->
                     val n = LyricMinCount + index
                     val on = n <= count
@@ -251,7 +263,7 @@ private fun LyricCountPicker(count: Int, reveal: () -> Float) {
                         animationSpec = YoinMotion.effectsSpring(),
                         label = "lyricCountDotColor",
                     )
-                    Box(Modifier.width(LyricDotPitch), contentAlignment = Alignment.Center) {
+                    Box(Modifier.height(LyricDotPitch), contentAlignment = Alignment.Center) {
                         Box(
                             Modifier
                                 .size(size)
@@ -260,11 +272,6 @@ private fun LyricCountPicker(count: Int, reveal: () -> Float) {
                     }
                 }
             }
-            Text(
-                text = pluralStringResource(R.plurals.home_edit_lyric_cards, count, count),
-                style = MaterialTheme.typography.labelLarge,
-                color = colors.onSurface,
-            )
         }
     }
 }
@@ -288,6 +295,7 @@ private val LyricDotPitch = 28.dp
 private val LyricStepDistance = 36.dp
 
 private val LyricPickerGap = 4.dp
+private val LyricPickerRadius = 24.dp
 
 // As the resize handle and the badges (port sheet §2.6).
 private const val LyricBadgeComposeAt = HomeEditTokens.BadgeStart / 2f
