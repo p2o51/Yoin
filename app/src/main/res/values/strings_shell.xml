@@ -48,5 +48,6 @@
     <string name="player_apple_music_session_failed">Apple Music could not start a playback session. Try again.</string>
     <string name="player_apple_music_cast_failed">Apple Music could not play on the connected device. Check its connection and try again.</string>
     <string name="player_apple_music_age_verification">Apple Music requires age verification for this song. Open Apple Music to check your account.</string>
+    <string name="player_apple_music_content_restricted">Your Apple account\'s content restrictions block this song in other apps. Allow explicit content under Parental Controls at music.apple.com, then try again.</string>
     <string name="player_apple_music_timeout">Apple Music playback timed out. Check your connection and try again.</string>
 </resources>
