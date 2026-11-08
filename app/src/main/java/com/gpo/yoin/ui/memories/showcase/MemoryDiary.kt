@@ -90,6 +90,7 @@ import com.gpo.yoin.ui.memories.MemoryDiaryTrack
 import com.gpo.yoin.ui.memories.formatMemoryChromeDate
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.isFromOtherProfile
 import com.gpo.yoin.ui.memories.MemoryTrack
 import com.gpo.yoin.ui.memories.MemoryWriting
 import com.gpo.yoin.ui.memories.copy.MemoryDates
@@ -402,7 +403,8 @@ internal fun DiaryBlocks(
             zone = zone,
             tones = tones,
             draft = draft,
-            enabled = interactive,
+            // another account's memory is read-only here: its blank page takes no review
+            enabled = interactive && !memory.isFromOtherProfile,
             onSave = { text -> host.saveReview(memory, text) },
             onConfirm = { haptics.confirm("review saved") },
             modifier = entryBlock,
@@ -951,29 +953,36 @@ private fun DiaryFoot(
         }
         if (memory.entityType == MemoryEntityType.ALBUM) {
             if (showGo) {
-                Box(
-                    modifier = Modifier
-                        .padding(top = if (history != null) MemoryDiaryTokens.GoTop else 0.dp)
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(percent = 50))
-                        .background(tones.button)
-                        .then(
-                            if (interactive) {
-                                Modifier.clickable(role = Role.Button, onClick = onOpenAlbum)
-                            } else {
-                                Modifier
-                            },
-                        )
-                        .padding(horizontal = 24.dp),
-                    contentAlignment = Alignment.Center,
+                // another account's memory: whose it is, beside Go to album (which switches there)
+                Row(
+                    modifier = Modifier.padding(top = if (history != null) MemoryDiaryTokens.GoTop else 0.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(OtherProfileLineGoGap),
                 ) {
-                    Text(
-                        text = goAlbum,
-                        style = diaryUiText(15.sp, FontWeight.SemiBold, 1f),
-                        color = tones.onButton,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
+                    Box(
+                        modifier = Modifier
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(percent = 50))
+                            .background(tones.button)
+                            .then(
+                                if (interactive) {
+                                    Modifier.clickable(role = Role.Button, onClick = onOpenAlbum)
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .padding(horizontal = 24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = goAlbum,
+                            style = diaryUiText(15.sp, FontWeight.SemiBold, 1f),
+                            color = tones.onButton,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                    memory.otherProfile?.let { owner -> MemoryOtherProfileLine(owner = owner, tones = tones) }
                 }
             }
             if (host.neoDbConfigured) {

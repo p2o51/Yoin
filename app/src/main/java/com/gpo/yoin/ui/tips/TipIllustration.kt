@@ -59,6 +59,7 @@ internal fun TipIllustration(
     ) {
         when (tip) {
             HomeBubbleTip.ScreenCorners -> ScreenCornersDemo(playing)
+            HomeBubbleTip.MemoriesAllAccounts -> MemoriesAllAccountsDemo(playing)
             HomeBubbleTip.SpotifySpeakers -> SpotifySpeakersDemo(playing)
             HomeBubbleTip.AccountQuickSwitch -> AccountQuickSwitchDemo(playing)
             HomeBubbleTip.MiniPlayerMenu -> MiniPlayerMenuDemo(playing)
