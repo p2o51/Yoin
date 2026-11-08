@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.navigation.NowPlayingHeroTextResize
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -276,6 +277,8 @@ fun NowPlayingPill(
                                 ),
                                 animatedVisibilityScope = animatedVisibilityScope,
                                 boundsTransform = { _, _ -> sharedBoundsSpec },
+                                // The hero's twin: both scale, neither reflows (NowPlayingHeroTextResize).
+                                resizeMode = NowPlayingHeroTextResize,
                             )
                         }
                     } else {
@@ -320,6 +323,8 @@ fun NowPlayingPill(
                                 ),
                                 animatedVisibilityScope = animatedVisibilityScope,
                                 boundsTransform = { _, _ -> sharedBoundsSpec },
+                                // The hero's twin: both scale, neither reflows (NowPlayingHeroTextResize).
+                                resizeMode = NowPlayingHeroTextResize,
                             )
                         }
                     } else {

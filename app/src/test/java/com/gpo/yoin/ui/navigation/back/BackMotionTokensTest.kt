@@ -10,6 +10,7 @@ class BackMotionTokensTest {
     fun should_keep_pop_page_motion_tokens_stable() {
         // AOSP CrossActivityBackAnimation MAX_SCALE.
         assertEquals(0.9f, BackMotionTokens.PopPageScaleTarget, 0.0001f)
+        // Nothing stored, no display report: the screen-corner fallback.
         assertEquals(28.dp, BackMotionTokens.PopPageCornerRadius)
     }
 

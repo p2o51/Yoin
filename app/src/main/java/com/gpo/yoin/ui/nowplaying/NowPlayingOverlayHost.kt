@@ -76,6 +76,7 @@ import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.back.OverlayPlayerVisibility
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlinx.coroutines.flow.collectLatest
@@ -720,6 +721,22 @@ fun NowPlayingOverlayHost(
                                         x = 0,
                                         y = (overlayOffsetPx + dismissDragPx).roundToInt(),
                                     )
+                                }
+                            }
+                            // While the full-window player moves — rising, leaving,
+                            // dragged or back-previewed down — it is the screen
+                            // sliding, so it carries the screen's corners
+                            // (ScreenCorners). At rest it clips nothing: its corners
+                            // are the glass's own there. The side panel family
+                            // shapes its container instead (above).
+                            .graphicsLayer {
+                                if (panelFamily) return@graphicsLayer
+                                val transition = npAvScope.transition
+                                val moving = transition.currentState != transition.targetState ||
+                                    overlayOffsetPx + dismissDragPx > 0.5f
+                                if (moving) {
+                                    shape = RoundedCornerShape(ScreenCorners.radius)
+                                    clip = true
                                 }
                             },
                     )

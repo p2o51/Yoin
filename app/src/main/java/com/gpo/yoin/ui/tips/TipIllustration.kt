@@ -58,6 +58,7 @@ internal fun TipIllustration(
         contentAlignment = Alignment.Center,
     ) {
         when (tip) {
+            HomeBubbleTip.ScreenCorners -> ScreenCornersDemo(playing)
             HomeBubbleTip.MemoriesAllAccounts -> MemoriesAllAccountsDemo(playing)
             HomeBubbleTip.SpotifySpeakers -> SpotifySpeakersDemo(playing)
             HomeBubbleTip.AccountQuickSwitch -> AccountQuickSwitchDemo(playing)

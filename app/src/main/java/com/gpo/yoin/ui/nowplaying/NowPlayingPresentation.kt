@@ -31,6 +31,7 @@ import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalWindowChromeInfo
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.forPaneWidth
+import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import java.time.LocalDate
@@ -301,8 +302,12 @@ fun Modifier.besideNowPlayingPanel(panel: NowPlayingPanelInset): Modifier = layo
     layout(placeable.width + inset, placeable.height) { placeable.placeRelative(0, 0) }
 }
 
-/** Left corners of the side panel (FoldNPPanel). */
-internal val NowPlayingPanelCornerRadius = 28.dp
+/**
+ * Left corners of the side panel (FoldNPPanel): the screen's corner
+ * (ScreenCorners, owner 2026-11-08), so the panel's edge echoes the glass it
+ * slides in from. A snapshot read.
+ */
+internal val NowPlayingPanelCornerRadius: Dp get() = ScreenCorners.radius
 
 /**
  * [besideNowPlayingPanel] for the PAGE beside the panel: it also fills what
