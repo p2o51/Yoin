@@ -15,6 +15,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.gpo.yoin.data.local.AlbumRatingDao
 import com.gpo.yoin.data.local.LyricHighlight
 import com.gpo.yoin.data.local.LyricHighlightDao
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -198,6 +199,51 @@ class LyricHighlightProcessor(
                 else -> freshById[candidate.songId] ?: continue
             }
         }
+        // Nothing heard or rated on this phone yet (a new install, or someone who listens elsewhere): start from
+        // what the server knows, so the section isn't empty for days.
+        if (out.isEmpty()) out += serverSeed(profileId, provider, skip = settled)
+        return out
+    }
+
+    /**
+     * Songs from the server's own lists: its most played and recently played albums (plays from every device
+     * count there), a few tracks each, then random songs to fill up. Only when this phone has nothing of its own.
+     */
+    private suspend fun serverSeed(profileId: String, provider: String, skip: Set<String>): List<Entry> {
+        val albums = LinkedHashMap<String, Album>()
+        for (type in listOf("frequent", "recent")) {
+            val list = withTimeoutOrNull(ALBUM_TIMEOUT_MS) {
+                runCatching { repository.getAlbumList(type = type, size = SEED_ALBUMS) }.getOrNull()
+            }.orEmpty()
+            list.filter { it.id.provider == provider }.forEach { albums.putIfAbsent(it.id.rawId, it) }
+        }
+        val out = ArrayList<Entry>()
+        val taken = HashSet(skip)
+        for (summary in albums.values.take(SEED_ALBUMS)) {
+            val album = withTimeoutOrNull(ALBUM_TIMEOUT_MS) {
+                runCatching { repository.getAlbum(summary.id) }.getOrNull()
+            } ?: continue
+            album.tracks
+                .filter { it.id.provider == provider && taken.add(it.id.rawId) }
+                .shuffled()
+                .take(SEED_TRACKS_PER_ALBUM)
+                .forEach { track ->
+                    out += track.toEntry(
+                        profileId,
+                        albumName = album.name,
+                        albumCover = CoverRef.toStorageKey(album.coverArt),
+                    )
+                }
+        }
+        if (out.size < SEED_MIN) {
+            val random = withTimeoutOrNull(ALBUM_TIMEOUT_MS) {
+                runCatching { repository.getRandomSongs(size = SEED_MIN * 2) }.getOrNull()
+            }.orEmpty()
+            random.filter { it.id.provider == provider && taken.add(it.id.rawId) }
+                .take(SEED_MIN - out.size)
+                .forEach { out += it.toEntry(profileId) }
+        }
+        if (out.isNotEmpty()) note("Seeded ${out.size} songs from the server")
         return out
     }
 
@@ -460,6 +506,11 @@ class LyricHighlightProcessor(
         const val FRESH_ALBUMS_PER_VISIT = 3
         const val FRESH_TRACKS_PER_ALBUM = 4
         const val ALBUM_TIMEOUT_MS = 8_000L
+
+        /** A first visit with no local history: albums from the server's lists, tracks from each, and a floor. */
+        const val SEED_ALBUMS = 6
+        const val SEED_TRACKS_PER_ALBUM = 2
+        const val SEED_MIN = 10
         const val LYRICS_TIMEOUT_MS = 10_000L
     }
 }
