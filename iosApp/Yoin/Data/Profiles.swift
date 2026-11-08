@@ -119,6 +119,18 @@ final class ProfileStore {
         for p in profiles where p.service == .subsonic {
             if case .found(let a) = credentials.load(p.id) { signIns[p.id] = a }
         }
+        adoptSpotifyClientId()
+    }
+
+    /// Builds that shipped a Client ID left it unsaved: an account signed in with it keeps it
+    /// (its tokens carry it), so App Remote still has one after the built-in ID went away.
+    private func adoptSpotifyClientId() {
+        guard defaults === UserDefaults.standard,
+              (defaults.string(forKey: SpotifyConfig.clientIdKey) ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        else { return }
+        for p in profiles where p.service == .spotify {
+            if let id = spotify(p.id)?.clientId, !id.isEmpty { SpotifyConfig.setClientId(id); return }
+        }
     }
 
     static var nowMs: Int64 { Int64((Date().timeIntervalSince1970 * 1000).rounded()) }

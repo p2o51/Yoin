@@ -34,13 +34,19 @@ enum SpotifyConfig {
 
     static let clientIdKey = "spotifyClientId"
 
-    /// The Client ID in use: the one set in Settings, else the dev build's seed; nil = none yet.
+    /// The Client ID in use: the one the user set (Landing or Settings); nil = none yet.
+    /// A released build ships none (51, 11-08: a development-mode ID only lets 25 listed
+    /// accounts in, so every public tester brings their own). Debug builds keep the local seed.
     static var clientId: String? {
         let set = UserDefaults.standard.string(forKey: clientIdKey)?.trimmingCharacters(in: .whitespaces) ?? ""
         if !set.isEmpty { return set }
+        #if DEBUG
         let seed = (Bundle.main.object(forInfoDictionaryKey: "YoinSpotifyClientID") as? String)?
             .trimmingCharacters(in: .whitespaces) ?? ""
         return seed.isEmpty ? nil : seed
+        #else
+        return nil
+        #endif
     }
 
     static func setClientId(_ id: String?) {
