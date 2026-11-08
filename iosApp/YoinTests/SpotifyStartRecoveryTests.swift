@@ -2,24 +2,26 @@ import XCTest
 @testable import Yoin
 
 /// A Spotify start on this iPhone that didn't land (SpotifyAudioOutput.recoverHere; 51, 2026-11-07):
-/// a fresh connection once, then Spotify woken on the song once, then the failure held for Retry.
+/// fresh connections (twice), then Spotify woken on the song once, then the failure held for Retry.
 final class SpotifyStartRecoveryTests: XCTestCase {
     func test_should_reconnectFirst_when_aStartFails() {
-        XCTAssertEqual(SpotifyAudioOutput.recovery(retried: false, woke: false), .reconnect)
+        XCTAssertEqual(SpotifyAudioOutput.recovery(reconnects: 0, woke: false), .reconnect)
+        // 51's 11-08 log: a broken connection can take more than one fresh one.
+        XCTAssertEqual(SpotifyAudioOutput.recovery(reconnects: 1, woke: false), .reconnect)
     }
 
-    func test_should_wakeSpotify_when_theFreshConnectionFailedToo() {
-        XCTAssertEqual(SpotifyAudioOutput.recovery(retried: true, woke: false), .wake)
+    func test_should_wakeSpotify_when_theFreshConnectionsFailedToo() {
+        XCTAssertEqual(SpotifyAudioOutput.recovery(reconnects: SpotifyAudioOutput.maxReconnects, woke: false), .wake)
     }
 
     func test_should_holdTheFailure_when_theWakeFailedToo() {
-        // One reconnect, one wake, then a failure and Retry: never a loop of trips to Spotify (Codex 11-07).
-        XCTAssertEqual(SpotifyAudioOutput.recovery(retried: true, woke: true), .fail)
-        XCTAssertEqual(SpotifyAudioOutput.recovery(retried: false, woke: true), .fail)
+        // Two reconnects, one wake, then a failure and Retry: never a loop of trips to Spotify (Codex 11-07).
+        XCTAssertEqual(SpotifyAudioOutput.recovery(reconnects: 2, woke: true), .fail)
+        XCTAssertEqual(SpotifyAudioOutput.recovery(reconnects: 0, woke: true), .fail)
     }
 
     func test_should_waitForTheCloseBeforeReconnecting() {
-        XCTAssertGreaterThan(SpotifyAudioOutput.reconnectGapMs, 0)
+        XCTAssertGreaterThan(SpotifyRemote.reconnectGapMs, 0)
     }
 
     func test_should_endOnlyItsOwnConnect_when_aConnectTimerFires() {

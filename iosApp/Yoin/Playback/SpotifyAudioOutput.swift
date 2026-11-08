@@ -3,213 +3,6 @@ import os
 @preconcurrency import SpotifyiOS
 import UIKit
 
-/// The connection to the Spotify app (Android SpotifyAppRemotePlayer's connection half): App Remote
-/// on the active Spotify account's token, woken with `authorizeAndPlayURI` when the app isn't running
-/// (it opens Spotify, starts the song and comes back to yoin://auth/spotify/app-remote).
-@MainActor
-final class SpotifyRemote: NSObject {
-    static let shared = SpotifyRemote()
-
-    /// The active Spotify account's token (set by the app as accounts switch); nil: no Spotify account.
-    var token: (() async throws -> String)?
-    /// Called with the Spotify app's player state, on every change.
-    var onPlayerState: ((SPTAppRemotePlayerState) -> Void)?
-    /// The connection failed or dropped with this message (a typed failure on Android).
-    var onFailure: ((String) -> Void)?
-    /// The Spotify app woke on a song and handed back to Yoin.
-    var onWoken: (() -> Void)?
-    /// A connection is up (after a wake's handback too).
-    var onConnected: (() -> Void)?
-    /// The connection dropped (the Spotify app was closed or lost the session).
-    var onDisconnected: (() -> Void)?
-
-    private var remote: SPTAppRemote?
-    private var clientId: String?
-    /// Whose remote this is (the account's profile id): another account gets a remote of its own.
-    private var account: String?
-    private var connectWaiters: [CheckedContinuation<Bool, Never>] = []
-    private static let log = Logger(subsystem: "com.gpo.yoin", category: "spotify")
-
-    var isConnected: Bool { remote?.isConnected ?? false }
-
-    /// The account the remote now serves (Codex N06): a different one disconnects the old remote, so
-    /// account B never drives the Spotify app through account A's session.
-    func bind(account id: String?) {
-        guard id != account else { return }
-        disconnect()
-        account = id
-    }
-
-    private func appRemote() -> SPTAppRemote? {
-        guard let id = SpotifyConfig.clientId, let url = URL(string: SpotifyConfig.appRemoteRedirectURI) else { return nil }
-        if let remote, clientId == id { return remote }
-        let r = SPTAppRemote(configuration: SPTConfiguration(clientID: id, redirectURL: url), logLevel: .error)
-        r.delegate = self
-        remote = r
-        clientId = id
-        return r
-    }
-
-    /// Connected to the Spotify app (true), trying once with the account's token. False when the app
-    /// isn't running or won't take the token: the caller wakes it with [wake].
-    func connect(timeout: Double = SpotifyRemote.connectTimeoutSec) async -> Bool {
-        PlayTrace.log("SR connect connected=\(remote?.isConnected ?? false)")
-        // The QA fake (`-spotifyFake`) never reaches the Spotify app.
-        guard !SpotifyFake.isOn, account != nil, let r = appRemote() else { return false }
-        if r.isConnected { return true }
-        if let token, let t = try? await token() { r.connectionParameters.accessToken = t }
-        if r.isConnected { return true }
-        return await withCheckedContinuation { cont in
-            connectWaiters.append(cont)
-            guard connectWaiters.count == 1 else { return }
-            // One attempt per connect the SDK is asked for. With the Spotify app asleep the SDK neither
-            // connects nor fails for a long while (Play looked dead until Spotify was opened by hand):
-            // past [timeout] the caller wakes it. The timeout ends only its own attempt: an earlier
-            // one's timer firing during a later connect failed it (Codex 11-07: after one song, another
-            // album went to Spotify again).
-            attempt += 1
-            let mine = attempt
-            r.connect()
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(timeout))
-                guard let self, Self.timeoutEnds(attempt: mine, current: self.attempt) else { return }
-                PlayTrace.log("SR connect timed out")
-                self.finishConnect(false)
-            }
-        }
-    }
-
-    nonisolated static let connectTimeoutSec: Double = 3
-
-    /// The connect attempt waiting for the SDK; a finished attempt moves it on.
-    private var attempt = 0
-
-    /// A timer ends a connect only while its own attempt is the one waiting.
-    nonisolated static func timeoutEnds(attempt: Int, current: Int) -> Bool { attempt == current }
-
-    /// Yoin is leaving the foreground: iOS would cut the connection silently (it would still read as
-    /// connected); it is closed cleanly instead and reconnected on return. Spotify keeps playing.
-    func dropForBackground() {
-        guard remote?.isConnected == true else { return }
-        remote?.disconnect()
-    }
-
-    /// A connection that reads as connected but no longer answers (a start sent over it failed): closed,
-    /// so the next connect opens a fresh one. Spotify keeps playing; the remote and its token stay.
-    func dropStale() {
-        PlayTrace.log("SR drop stale connected=\(remote?.isConnected ?? false)")
-        if remote?.isConnected == true { remote?.disconnect() }
-    }
-
-    /// Opens the Spotify app on [uri] (it starts playing it) and connects when it hands back.
-    func wake(playing uri: String) {
-        PlayTrace.log("SR wake \(uri)")
-        guard !SpotifyFake.isOn else { return onFailure?("The QA fake doesn't play songs") ?? () }
-        guard let r = appRemote() else { return onFailure?("Add your Spotify Client ID in Settings") ?? () }
-        r.authorizeAndPlayURI(uri) { [weak self] opened in
-            if !opened { MainActor.assumeIsolated { self?.onFailure?("Install the Spotify app to play Spotify songs") } }
-        }
-    }
-
-    /// Spotify came back to yoin://auth/spotify/app-remote: its token, then the connection.
-    func handle(_ url: URL) -> Bool {
-        PlayTrace.log("SR handback")
-        guard url.absoluteString.hasPrefix(SpotifyConfig.appRemoteRedirectURI), let r = appRemote() else { return false }
-        let params = r.authorizationParameters(from: url)
-        if let t = params?[SPTAppRemoteAccessTokenKey] {
-            // The SDK's own flow: the woken app plays the song; connect with its token (never a
-            // second connection over a live one) and drive it through App Remote from here.
-            r.connectionParameters.accessToken = t
-            if !r.isConnected { r.connect() }
-            onWoken?()
-        } else if let e = params?[SPTAppRemoteErrorDescriptionKey] {
-            onFailure?(e)
-        }
-        return true
-    }
-
-    func disconnect() {
-        if remote?.isConnected == true { remote?.disconnect() }
-        remote = nil
-        clientId = nil
-        finishConnect(false)
-    }
-
-    var player: SPTAppRemotePlayerAPI? { remote?.playerAPI }
-    var content: SPTAppRemoteContentAPI? { remote?.contentAPI }
-
-    private func finishConnect(_ ok: Bool) {
-        // Whatever ended this attempt, its timer no longer ends anything.
-        attempt += 1
-        let waiters = connectWaiters
-        connectWaiters = []
-        waiters.forEach { $0.resume(returning: ok) }
-    }
-}
-
-extension SpotifyRemote: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDelegate {
-    nonisolated func appRemoteDidEstablishConnection(_ appRemote: SPTAppRemote) {
-        MainActor.assumeIsolated {
-            guard appRemote === remote else { return }
-            PlayTrace.log("SR established")
-            appRemote.playerAPI?.delegate = self
-            subscribe(appRemote, retried: false)
-            finishConnect(true)
-            onConnected?()
-        }
-    }
-
-    /// Player state pushes (51's log, 23:02:07: none came for 90 s after a wake's connection; the
-    /// subscription's answer was never read). Its failure is logged and tried once more a second later;
-    /// once it's on, the state is read once so a start doesn't wait for the next change.
-    private func subscribe(_ appRemote: SPTAppRemote, retried: Bool) {
-        appRemote.playerAPI?.subscribe(toPlayerState: { [weak self] _, error in
-            MainActor.assumeIsolated {
-                guard let self, appRemote === self.remote else { return }
-                if let error {
-                    PlayTrace.log("SR subscribe failed \(error.localizedDescription)")
-                    guard !retried else { return }
-                    Task { [weak self] in
-                        try? await Task.sleep(for: .seconds(1))
-                        guard let self, appRemote === self.remote, appRemote.isConnected else { return }
-                        self.subscribe(appRemote, retried: true)
-                    }
-                    return
-                }
-                PlayTrace.log("SR subscribed")
-                appRemote.playerAPI?.getPlayerState { [weak self] state, _ in
-                    MainActor.assumeIsolated {
-                        guard let self, appRemote === self.remote, let s = state as? SPTAppRemotePlayerState else { return }
-                        self.onPlayerState?(s)
-                    }
-                }
-            }
-        })
-    }
-
-    nonisolated func appRemote(_ appRemote: SPTAppRemote, didFailConnectionAttemptWithError error: Error?) {
-        MainActor.assumeIsolated {
-            Self.log.info("connect failed: \(error?.localizedDescription ?? "-", privacy: .public)")
-            PlayTrace.log("SR connect failed \(error?.localizedDescription ?? "-")")
-            // A dropped remote's late failure isn't the current connection's.
-            guard appRemote === remote else { return }
-            finishConnect(false)
-        }
-    }
-
-    nonisolated func appRemote(_ appRemote: SPTAppRemote, didDisconnectWithError error: Error?) {
-        MainActor.assumeIsolated {
-            PlayTrace.log("SR disconnected \(error?.localizedDescription ?? "-")")
-            guard appRemote === remote else { return }
-            onDisconnected?()
-        }
-    }
-
-    nonisolated func playerStateDidChange(_ playerState: SPTAppRemotePlayerState) {
-        MainActor.assumeIsolated { onPlayerState?(playerState) }
-    }
-}
-
 /// [AudioOutput] on the Spotify app (Android SpotifyAppRemotePlayer, reduced to what keeps Yoin's queue
 /// the truth). Each song starts through the Web API as a two-song list, [current, next] (Codex N02:
 /// an album context let Spotify carry on through the album while Yoin played a playlist), with
@@ -237,7 +30,7 @@ final class SpotifyAudioOutput: AudioOutput {
     /// while the player plays another source's song (set by the app).
     var adopt: (() -> Bool)?
 
-    private let remote = SpotifyRemote.shared
+    private let remote: SpotifyRemote
     private let silent = UserDefaults.standard.bool(forKey: "silentAudio")
     private var current: Item?
     private var next: Item?
@@ -331,7 +124,8 @@ final class SpotifyAudioOutput: AudioOutput {
 
     nonisolated static func isSpotify(_ url: URL?) -> Bool { url?.scheme == scheme }
 
-    init() {
+    init(remote: SpotifyRemote = .shared) {
+        self.remote = remote
         remote.onPlayerState = { [weak self] s in self?.playerState(s) }
         remote.onFailure = { [weak self] m in
             self?.starting = false
@@ -374,7 +168,8 @@ final class SpotifyAudioOutput: AudioOutput {
         contextActive = false
         staleHandoff = false
         failedHere = false
-        retriedHere = false
+        reconnectsHere = 0
+        relinkedURI = nil
         wokeHere = false
         nextUnhanded = false
         wakeWait = nil
@@ -452,77 +247,59 @@ final class SpotifyAudioOutput: AudioOutput {
     /// from the song (playItem + skipToTrackIndex), with Yoin's shuffle and repeat, and carries on
     /// through it by itself while iOS suspends Yoin. A context that can't be read starts the song alone.
     private func startContextHere(_ item: Item, plan: SpotifyContextPlan, index: Int, gen: Int) {
-        guard let content = remote.content, let player = remote.player else { return startSingleHere(item, gen: gen) }
         PlayTrace.log("SP context start \(plan.uri) at=\(index)")
-        content.fetchContentItem(forURI: plan.uri) { [weak self] result, error in
-            MainActor.assumeIsolated {
-                guard let self, gen == self.generation else { return }
-                guard let contextItem = result as? SPTAppRemoteContentItem, error == nil else {
-                    PlayTrace.log("SP context unreadable \(error?.localizedDescription ?? "-"): the song alone")
-                    return self.startSingleHere(item, gen: gen)
-                }
-                player.play(contextItem, skipToTrackIndex: index) { [weak self] _, error in
-                    MainActor.assumeIsolated {
-                        guard let self, gen == self.generation else { return }
-                        if let error {
-                            PlayTrace.log("SP context play failed \(error.localizedDescription): the song alone")
-                            return self.startSingleHere(item, gen: gen)
-                        }
-                        self.startedHere(item, context: true)
-                    }
-                }
+        remote.playContext(plan.uri, index: index) { [weak self] error in
+            guard let self, gen == self.generation else { return }
+            if let error {
+                PlayTrace.log("SP context play failed \(error.localizedDescription): the song alone")
+                return self.startSingleHere(item, gen: gen)
             }
+            self.startedHere(item, context: true)
         }
     }
 
     /// The song alone through App Remote (the engine's next goes into Spotify's queue).
     private func startSingleHere(_ item: Item, gen: Int) {
-        remote.player?.play(item.trackURI) { [weak self] _, error in
-            MainActor.assumeIsolated {
-                guard let self, gen == self.generation else { return }
-                if let error {
-                    PlayTrace.log("SP AR play failed \(error.localizedDescription)")
-                    self.confirmOrFail(item, gen: gen)
-                } else {
-                    self.startedHere(item)
-                }
+        remote.play(item.trackURI) { [weak self] error in
+            guard let self, gen == self.generation else { return }
+            if let error {
+                PlayTrace.log("SP AR play failed \(error.localizedDescription)")
+                self.playFailed(item, gen: gen)
+            } else {
+                self.startedHere(item)
             }
         }
     }
 
     /// App Remote answered a start with an error: Spotify may be playing the song all the same (51's
-    /// build 11: it played, Yoin held at 0:00 with "Playback unavailable"). Its state decides: the song
-    /// there is a start that landed; only a Spotify without it is a failure. Nothing is sent again.
-    private func confirmOrFail(_ item: Item, gen: Int) {
-        guard let player = remote.player else { return confirmOnWeb(item, gen: gen) { [weak self] in self?.recoverHere(item, gen: gen) } }
-        player.getPlayerState { [weak self] state, _ in
-            MainActor.assumeIsolated {
-                guard let self, gen == self.generation else { return }
-                let s = state as? SPTAppRemotePlayerState
-                if Self.startLanded(playingURI: s?.track.uri, wanted: item.trackURI) {
-                    PlayTrace.log("SP start landed despite the error")
-                    self.startedHere(item)
-                } else {
-                    self.confirmOnWeb(item, gen: gen) { [weak self] in self?.recoverHere(item, gen: gen) }
-                }
-            }
+    /// build 11: it played, Yoin held at 0:00 with "Playback unavailable"). me/player decides: the song
+    /// on this iPhone is a start that landed; otherwise the recovery's next step (recoverHere). One read
+    /// while a fresh connection is still to be tried (a play that failed in 1 ms on a broken connection,
+    /// 51's 11-08 log, didn't start anything), the full checks before a wake or the failure.
+    private func playFailed(_ item: Item, gen: Int) {
+        let next = Self.recovery(reconnects: reconnectsHere, woke: wokeHere)
+        confirmOnWeb(item, gen: gen, reads: next == .reconnect ? 1 : Self.webChecks) { [weak self] in
+            self?.recoverHere(item, gen: gen)
         }
     }
 
     /// App Remote can come up after a wake and say nothing for a minute and more (51's log, 23:02:07 to
     /// 23:03:36, while Spotify played the song): the Web API's me/player (a read) says what this iPhone
-    /// plays. The song there is the start, landed; otherwise [otherwise].
-    private func confirmOnWeb(_ item: Item, gen: Int, otherwise: @escaping () -> Void) {
+    /// plays. The song there (or Spotify's relinked copy of it) is the start, landed; otherwise [otherwise].
+    private func confirmOnWeb(_ item: Item, gen: Int, reads: Int = SpotifyAudioOutput.webChecks,
+                              otherwise: @escaping () -> Void) {
         guard let control else { return otherwise() }
         Task { [weak self] in
             // Right after a wake the Web API may not list this iPhone yet (204 at 23:02:02): a few reads.
-            for attempt in 0..<Self.webChecks {
+            for attempt in 0..<max(1, reads) {
                 if attempt > 0 { try? await Task.sleep(for: .seconds(Self.webCheckGapSec)) }
                 let now = (try? await control.playerNow()) ?? nil
                 guard let self, gen == self.generation else { return }
-                PlayTrace.log("SP web check \(attempt + 1) \(Self.describe(now))")
+                PlayTrace.log("SP web check \(attempt + 1)/\(reads) \(Self.describe(now))")
                 if let now, Self.landedHere(now, wanted: item.trackURI) {
                     PlayTrace.log("SP start landed (me/player)")
+                    if now.trackURI != item.trackURI { self.relinkedURI = now.trackURI }
+                    self.wakeWait = nil
                     self.startedHere(item)
                     // Its clock from me/player, then the local one until App Remote reports.
                     self.lastTime = Double(now.progressMs) / 1000
@@ -541,8 +318,22 @@ final class SpotifyAudioOutput: AudioOutput {
 
     /// me/player shows the song on this iPhone (a start here that App Remote didn't report).
     nonisolated static func landedHere(_ now: SpotifySource.PlayerNow?, wanted: String) -> Bool {
-        guard let now, now.trackURI == wanted, now.isPlaying else { return false }
+        guard let now, now.isPlaying, isSong(now, wanted) else { return false }
         return isThisPhone(now)
+    }
+
+    /// me/player plays [wanted]: its uri, or the copy Spotify relinked it to (linked_from names it).
+    nonisolated static func isSong(_ now: SpotifySource.PlayerNow, _ wanted: String) -> Bool {
+        now.trackURI == wanted || now.linkedFromURI == wanted
+    }
+
+    /// The relinked copy Spotify plays for the current song (App Remote names only the copy): read as it.
+    private var relinkedURI: String?
+
+    /// A state's song as Yoin names it: the relinked copy is the current song.
+    private func ownURI(_ uri: String) -> String {
+        if let relinkedURI, uri == relinkedURI, let current { return current.trackURI }
+        return uri
     }
 
     nonisolated static func startLanded(playingURI: String?, wanted: String) -> Bool { playingURI == wanted }
@@ -551,23 +342,22 @@ final class SpotifyAudioOutput: AudioOutput {
     nonisolated static func recovers(failed: Bool, paused: Bool) -> Bool { failed && !paused }
 
     /// A start here that didn't land (51, 2026-11-07: after the first song, another album said "Open
-    /// Spotify on this iPhone" while Spotify was right there). Once, a fresh connection and the song
-    /// again; failing that, Spotify woken on the song as the first start does; failing that too, the
-    /// failure, held until the listener taps Play (never a loop of trips to Spotify).
+    /// Spotify on this iPhone" while Spotify was right there; 11-08: every album after a wake failed on
+    /// the wake's broken connection). Twice, a fresh connection (no wake) and the song again; failing
+    /// that, Spotify woken on the song as the first start does; failing that too, the failure, held
+    /// until the listener taps Play (never a loop of trips to Spotify).
     private func recoverHere(_ item: Item, gen: Int) {
         guard gen == generation else { return }
-        switch Self.recovery(retried: retriedHere, woke: wokeHere) {
+        switch Self.recovery(reconnects: reconnectsHere, woke: wokeHere) {
         case .fail: return failStart(gen: gen)
         case .wake: return wakeHere(item, gen: gen)
         case .reconnect: break
         }
-        retriedHere = true
-        PlayTrace.log("SP start didn't land: a fresh connection, once")
-        remote.dropStale()
+        reconnectsHere += 1
+        PlayTrace.log("SP start didn't land: a fresh connection (\(reconnectsHere)/\(Self.maxReconnects))")
+        remote.markBroken("the start didn't land")
         Task { [weak self] in
-            // The close lands first, else connect reads the old connection as still up.
-            try? await Task.sleep(for: .milliseconds(Self.reconnectGapMs))
-            guard let self, gen == self.generation else { return }
+            guard let self else { return }
             if await self.remote.connect(timeout: Self.localConnectSec) {
                 guard gen == self.generation else { return }
                 return self.startSingleHere(item, gen: gen)
@@ -598,18 +388,19 @@ final class SpotifyAudioOutput: AudioOutput {
     /// Spotify refused the engine's next song: at this song's end the engine starts it itself.
     private var nextUnhanded = false
 
-    /// One fresh connection per song before Spotify is woken; one wake before the failure.
-    private var retriedHere = false
+    /// Fresh connections per song before Spotify is woken; one wake before the failure.
+    private var reconnectsHere = 0
     private var wokeHere = false
+    nonisolated static let maxReconnects = 2
 
     enum Recovery: Equatable { case reconnect, wake, fail }
 
-    /// What a start here that didn't land does next: a fresh connection the first time, then the wake,
-    /// then the failure (a new song or the listener's Play starts over: load resets both).
-    nonisolated static func recovery(retried: Bool, woke: Bool) -> Recovery {
-        woke ? .fail : retried ? .wake : .reconnect
+    /// What a start here that didn't land does next: a fresh connection the first [maxReconnects]
+    /// times, then the wake, then the failure (a new song or the listener's Play starts over: load
+    /// resets them).
+    nonisolated static func recovery(reconnects: Int, woke: Bool) -> Recovery {
+        woke ? .fail : reconnects < maxReconnects ? .reconnect : .wake
     }
-    nonisolated static let reconnectGapMs = 300
 
     /// A failure was reported for the queue's song; Spotify playing it clears it (see apply).
     private var failedHere = false
@@ -626,11 +417,11 @@ final class SpotifyAudioOutput: AudioOutput {
         let snapshot = events?.outputQueueSnapshot() ?? OutputQueueSnapshot()
         // A context plays with Yoin's modes (Spotify runs it); a lone song with Spotify's off (the engine
         // runs the queue).
-        remote.player?.setShuffle(context && snapshot.shuffle, callback: nil)
-        remote.player?.setRepeatMode(context ? Self.spotifyRepeat(snapshot.repeatMode) : .off, callback: nil)
-        if pendingStart > 1 { remote.player?.seek(toPosition: Int(pendingStart * 1000), callback: nil) }
+        remote.setShuffle(context && snapshot.shuffle)
+        remote.setRepeat(context ? Self.spotifyRepeat(snapshot.repeatMode) : .off)
+        if pendingStart > 1 { remote.seek(toMs: Int(pendingStart * 1000)) }
         lastTime = pendingStart > 1 ? pendingStart : 0
-        if !wantsPlay { remote.player?.pause(nil) }
+        if !wantsPlay { remote.pause() }
         if context {
             // The context carries on by itself: what it plays next is the engine's next while unshuffled.
             handedNext = snapshot.shuffle ? nil : next
@@ -651,10 +442,10 @@ final class SpotifyAudioOutput: AudioOutput {
 
     func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode) {
         // Only a context Spotify runs takes Yoin's modes; a lone song keeps Spotify's off.
-        guard contextActive, isHere, !silent, let player = remote.player else { return }
+        guard contextActive, isHere, !silent, remote.isConnected else { return }
         modesQuietUntil = Date().addingTimeInterval(Self.modesQuietSec)
-        player.setShuffle(shuffle, callback: nil)
-        player.setRepeatMode(Self.spotifyRepeat(repeatMode), callback: nil)
+        remote.setShuffle(shuffle)
+        remote.setRepeat(Self.spotifyRepeat(repeatMode))
     }
 
     private var enqueueWhenPlaying = false
@@ -664,36 +455,37 @@ final class SpotifyAudioOutput: AudioOutput {
         waiting && stateURI == current && !paused && positionMs > 0
     }
 
-    /// App Remote's "try again later" (-3000): worth one more go a second later.
-    nonisolated static func retriesEnqueue(errorCode: Int, alreadyRetried: Bool) -> Bool {
-        errorCode == -3000 && !alreadyRetried
+    /// App Remote's "try again later" (-3000), or a connection that broke (it is replaced first): worth
+    /// one more go a second later.
+    nonisolated static func retriesEnqueue(errorCode: Int, alreadyRetried: Bool, broken: Bool = false) -> Bool {
+        (errorCode == -3000 || broken) && !alreadyRetried
     }
 
     /// The engine's next, queued in Spotify once per song.
     private func enqueueNext(retried: Bool = false) {
-        guard isHere, !contextActive, !onSpotifysOwnSong, handedNext == nil || retried, let next, let player = remote.player else { return }
+        guard isHere, !contextActive, !onSpotifysOwnSong, handedNext == nil || retried, let next, remote.isConnected else { return }
         enqueueWhenPlaying = false
         handedNext = next
         nextUnhanded = false
         let gen = generation, song = current
-        player.enqueueTrackUri(next.trackURI) { [weak self] _, error in
-            guard let error else { return }
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                PlayTrace.log("SP enqueue failed \(error.localizedDescription)")
+        remote.enqueue(next.trackURI) { [weak self] error in
+            guard let error, let self else { return }
+            PlayTrace.log("SP enqueue failed \(error.localizedDescription)")
+            guard gen == self.generation, self.current == song, self.next == next else { return }
+            guard Self.retriesEnqueue(errorCode: (error as NSError).code, alreadyRetried: retried,
+                                      broken: SpotifyRemote.breaksConnection(error)) else {
+                // Spotify is left alone: at the song's end the engine starts its next itself
+                // (outputCurrentDidFinish, not the queue's end).
+                self.handedNext = nil
+                self.nextUnhanded = true
+                return
+            }
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(1))
+                // A broken connection is replaced here (no wake).
+                guard let self, await self.remote.connect(timeout: Self.localConnectSec) else { return }
                 guard gen == self.generation, self.current == song, self.next == next else { return }
-                guard Self.retriesEnqueue(errorCode: (error as NSError).code, alreadyRetried: retried) else {
-                    // Spotify is left alone: at the song's end the engine starts its next itself
-                    // (outputCurrentDidFinish, not the queue's end).
-                    self.handedNext = nil
-                    self.nextUnhanded = true
-                    return
-                }
-                Task { [weak self] in
-                    try? await Task.sleep(for: .seconds(1))
-                    guard let self, gen == self.generation, self.current == song, self.next == next else { return }
-                    self.enqueueNext(retried: true)
-                }
+                self.enqueueNext(retried: true)
             }
         }
     }
@@ -735,14 +527,13 @@ final class SpotifyAudioOutput: AudioOutput {
         // a play sent over the song already playing failed, and Yoin held at 0:00). So the wake waits up
         // to [wakeSettleSec] for a state that has the song; only one that never comes is finished by a
         // resume or a play.
+        // A woken app's first connection may carry nothing (51's 11-08 log): SpotifyRemote replaces it,
+        // and the replacement's first state lands here too.
         let gen = generation
-        guard remote.player != nil else { return startedHere(current) }
         wakeWait = (current, gen)
-        remote.player?.getPlayerState { [weak self] state, _ in
-            MainActor.assumeIsolated {
-                let s = state as? SPTAppRemotePlayerState
-                self?.wakeState(uri: s?.track.uri, paused: s?.isPaused ?? true, final: false)
-            }
+        remote.getPlayerState { [weak self] s in
+            guard let self else { return }
+            self.wakeState(uri: s.map { self.ownURI($0.uri) }, paused: s?.isPaused ?? true, final: false)
         }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.wakeSettleSec))
@@ -779,29 +570,28 @@ final class SpotifyAudioOutput: AudioOutput {
         else { return }
         wakeWait = nil
         lastWakeURI = nil
-        guard finish != .none, let player = remote.player else { return startedHere(current) }
+        guard finish != .none else { return startedHere(current) }
         if final, finish == .play {
-            // No state with the song came over App Remote: me/player may still show it playing here.
-            return confirmOnWeb(current, gen: gen) { [weak self] in self?.finishWake(current, finish, player: player, gen: gen) }
+            // No state with the song came over App Remote: me/player may still show it playing here
+            // (the woken app played it; 51, 11-08). Only a Spotify without it gets the play.
+            return confirmOnWeb(current, gen: gen) { [weak self] in self?.finishWake(current, finish, gen: gen) }
         }
-        finishWake(current, finish, player: player, gen: gen)
+        finishWake(current, finish, gen: gen)
     }
 
-    private func finishWake(_ current: Item, _ finish: WakeFinish, player: SPTAppRemotePlayerAPI, gen: Int) {
+    private func finishWake(_ current: Item, _ finish: WakeFinish, gen: Int) {
         guard gen == generation else { return }
         PlayTrace.log("SP woken \(finish == .resume ? "paused on the song: resume" : "without the song: play it")")
-        let done: SPTAppRemoteCallback = { [weak self] _, error in
-            MainActor.assumeIsolated {
-                guard let self, gen == self.generation else { return }
-                if let error {
-                    PlayTrace.log("SP AR play failed \(error.localizedDescription)")
-                    self.confirmOrFail(current, gen: gen)
-                } else {
-                    self.startedHere(current)
-                }
+        let done: (Error?) -> Void = { [weak self] error in
+            guard let self, gen == self.generation else { return }
+            if let error {
+                PlayTrace.log("SP AR play failed \(error.localizedDescription)")
+                self.playFailed(current, gen: gen)
+            } else {
+                self.startedHere(current)
             }
         }
-        if finish == .resume { player.resume(done) } else { player.play(current.trackURI, callback: done) }
+        if finish == .resume { remote.resume(done) } else { remote.play(current.trackURI, done) }
     }
 
     enum WakeFinish: Equatable { case none, resume, play }
@@ -1179,7 +969,7 @@ final class SpotifyAudioOutput: AudioOutput {
         }
         playing = true
         lastTick = Date()
-        if isHere { return command(aim(song: false)) { $0.resume(nil) } }
+        if isHere { return command(aim(song: false)) { $0.resume() } }
         let resume = { [weak self] in
             guard let self else { return }
             self.transport(report: true, self.aim(song: false)) { try await $0.resumePlayback(deviceId: $1, while: $2) }
@@ -1201,7 +991,7 @@ final class SpotifyAudioOutput: AudioOutput {
         lastTick = Date()
         playing = false
         awaitingPlay = false
-        if isHere { return command(aim(song: true)) { $0.pause(nil) } }
+        if isHere { return command(aim(song: true)) { $0.pause() } }
         if !holdWhileLanding({ [weak self] in self?.sendPause() }) { sendPause() }
     }
 
@@ -1213,7 +1003,7 @@ final class SpotifyAudioOutput: AudioOutput {
         events?.outputTimeDidChange(sec)
         guard !silent, !starting else { return }
         let ms = Int(sec * 1000)
-        if isHere { return command(aim(song: true)) { $0.seek(toPosition: ms, callback: nil) } }
+        if isHere { return command(aim(song: true)) { $0.seek(toMs: ms) } }
         let seek = { [weak self] in
             guard let self else { return }
             self.transport(report: false, self.aim(song: true)) { try await $0.seekPlayback(toMs: ms, deviceId: $1, while: $2) }
@@ -1223,12 +1013,12 @@ final class SpotifyAudioOutput: AudioOutput {
 
     /// A command to this iPhone's Spotify through App Remote, reconnecting first (the connection is
     /// closed while Yoin is in the background). One message when the app can't be reached.
-    private func command(_ aim: Aim, _ act: @escaping (SPTAppRemotePlayerAPI) -> Void) {
+    private func command(_ aim: Aim, _ act: @escaping (SpotifyRemote) -> Void) {
         PlayTrace.log("SP command here connected=\(remote.isConnected)")
-        if remote.isConnected, let p = remote.player { return act(p) }
+        if remote.isConnected, !remote.broken { return act(remote) }
         let gen = generation
         Task {
-            guard await remote.connect(timeout: Self.localConnectSec), let p = remote.player else {
+            guard await remote.connect(timeout: Self.localConnectSec) else {
                 guard gen == generation else { return }
                 playing = false
                 if wantsPlay {
@@ -1238,7 +1028,7 @@ final class SpotifyAudioOutput: AudioOutput {
                 return reportOnce(String(localized: "Open Spotify on this iPhone, then tap Play"))
             }
             guard isStill(aim) else { return PlayTrace.log("SP command dropped (the song changed)") }
-            act(p)
+            act(remote)
         }
     }
 
@@ -1443,16 +1233,15 @@ final class SpotifyAudioOutput: AudioOutput {
         var coverURL: URL? = nil
     }
 
-    private func playerState(_ s: SPTAppRemotePlayerState) {
+    private func playerState(_ s: RemotePlayerState) {
+        let uri = ownURI(s.uri)
         // A wake's handback waits on this first real state (see connected).
-        if wakeWait != nil { wakeState(uri: s.track.uri, paused: s.isPaused, final: false) }
+        if wakeWait != nil { wakeState(uri: uri, paused: s.isPaused, final: false) }
         // App Remote speaks for this iPhone only.
         guard SpotifyPlayingDevice.shared.name == nil else { return }
-        apply(State(uri: s.track.uri, isPaused: s.isPaused, positionMs: s.playbackPosition,
-                    durationMs: Int(s.track.duration), shuffling: s.playbackOptions.isShuffling,
-                    repeatRaw: s.playbackOptions.repeatMode.rawValue, title: s.track.name,
-                    artist: s.track.artist.name, album: s.track.album.name,
-                    coverURL: Self.coverURL(imageIdentifier: s.track.imageIdentifier)))
+        apply(State(uri: uri, isPaused: s.isPaused, positionMs: s.positionMs, durationMs: s.durationMs,
+                    shuffling: s.shuffling, repeatRaw: s.repeatRaw, title: s.title, artist: s.artist,
+                    album: s.album, coverURL: Self.coverURL(imageIdentifier: s.imageIdentifier)))
     }
 
     /// A Web API read: nothing active is Spotify stopped where it was.
@@ -1467,7 +1256,8 @@ final class SpotifyAudioOutput: AudioOutput {
             }
         }
         if landing { land(now?.trackURI == current?.trackURI || now?.trackURI == handedNext?.trackURI) }
-        guard let now, let uri = now.trackURI else {
+        if let now, let copy = now.trackURI, let current, now.linkedFromURI == current.trackURI { relinkedURI = copy }
+        guard let now, let uri = now.trackURI.map(ownURI) else {
             guard playing || wantsPlay else { return }
             lastTime = currentTimeSec
             lastTick = Date()
@@ -1622,7 +1412,7 @@ final class SpotifyAudioOutput: AudioOutput {
     /// Next / previous on Spotify's own song: Spotify skips, here or on the device Yoin drives.
     func skipExternal(forward: Bool) {
         guard !silent else { return }
-        if isHere { return command(aim(song: true)) { forward ? $0.skip(toNext: nil) : $0.skip(toPrevious: nil) } }
+        if isHere { return command(aim(song: true)) { $0.skip(forward: forward) } }
         transport(report: true, aim(song: true)) { try await $0.skipPlayback(forward: forward, deviceId: $1, while: $2) }
     }
 

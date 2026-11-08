@@ -250,6 +250,8 @@ final class SpotifySource {
         var deviceType: String = ""
         var isPlaying: Bool
         var trackURI: String? = nil
+        /// The song asked for when Spotify plays a relinked copy of it (another market's id).
+        var linkedFromURI: String? = nil
         var progressMs: Int = 0
         var durationMs: Int = 0
         var shuffle: Bool = false
@@ -266,8 +268,10 @@ final class SpotifySource {
         struct Named: Decodable { let name: String? }
         struct Image: Decodable { let url: String?; let width: Int? }
         struct Album: Decodable { let name: String?; let images: [Image]? }
+        struct Linked: Decodable { let uri: String? }
         struct I: Decodable {
             let uri: String?
+            let linkedFrom: Linked?
             let durationMs: Int?
             let name: String?
             let artists: [Named]?
@@ -287,7 +291,8 @@ final class SpotifySource {
         let r = try SpotifyWebAPI.decoder.decode(PlayerDTO.self, from: data)
         guard let d = r.device else { return nil }
         return PlayerNow(deviceId: d.id, deviceName: d.name ?? "another device", deviceType: d.type ?? "",
-                         isPlaying: r.isPlaying ?? false, trackURI: r.item?.uri, progressMs: r.progressMs ?? 0,
+                         isPlaying: r.isPlaying ?? false, trackURI: r.item?.uri,
+                         linkedFromURI: r.item?.linkedFrom?.uri, progressMs: r.progressMs ?? 0,
                          durationMs: r.item?.durationMs ?? 0, shuffle: r.shuffleState ?? false,
                          repeatState: r.repeatState ?? "off", trackName: r.item?.name,
                          artistName: r.item?.artists?.compactMap(\.name).joined(separator: ", "),
