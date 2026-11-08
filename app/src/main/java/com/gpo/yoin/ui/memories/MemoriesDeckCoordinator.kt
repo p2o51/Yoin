@@ -59,12 +59,27 @@ class MemoriesDeckCoordinator(
     @Volatile
     internal var narrationSource: MemoryNarrationSource? = narrationSource
 
+    /**
+     * The other accounts whose memories the deck deals too (owner 2026-11-08: Memories shows every account's);
+     * null = the account in use only (tests, previews). Attached by MemoriesViewModel.Factory, as
+     * [narrationSource] is.
+     */
+    @Volatile
+    internal var otherProfiles: OtherMemoryProfiles? = null
+
     private val random = Random(randomSeed)
     private val resolvedMemoryCache = mutableMapOf<Long, MemoryEntry?>()
     // Bumped by invalidate(); a resolve only caches into the generation it
     // started in.
     private var cacheGeneration = 0L
     private var candidateAlbums: List<AlbumMemoryCandidate>? = null
+
+    // The pool in [candidateAlbums] is reused (true) or only looked up and rebuilt next time (false: another
+    // account's memories alone, maybe a cold start's before the account in use has its source).
+    private var candidatesFinal = false
+
+    // The other accounts the pool was built with, by profile id: their names and cover URLs.
+    private var otherSources: Map<String, MemoryProfileSource> = emptyMap()
 
     suspend fun ensureDeck(): List<MemoryEntry> {
         val candidates = ensureCandidates()
@@ -214,6 +229,7 @@ class MemoriesDeckCoordinator(
 
     fun invalidate() {
         candidateAlbums = null
+        candidatesFinal = false
         resolvedMemoryCache.clear()
         cacheGeneration++
     }
@@ -226,9 +242,48 @@ class MemoriesDeckCoordinator(
      */
     private suspend fun ensureCandidates(): List<AlbumMemoryCandidate> {
         val existing = candidateAlbums
-        if (existing != null) return existing
-        return repository.getAlbumMemoryCandidates(limit = 48).also { loaded ->
-            if (loaded.isNotEmpty()) candidateAlbums = loaded
+        if (existing != null && candidatesFinal) return existing
+        val own = repository.getAlbumMemoryCandidates(limit = 48)
+        val others = otherProfileCandidates()
+        val loaded = own + others
+        if (loaded.isNotEmpty()) candidateAlbums = loaded
+        candidatesFinal = own.isNotEmpty() || (others.isNotEmpty() && repository.awaitActiveSource(0L) != null)
+        return loaded
+    }
+
+    /**
+     * Every other account's candidates (local reads only), each account's own ranking kept. An account whose
+     * read fails adds nothing; the deck still deals the rest.
+     */
+    private suspend fun otherProfileCandidates(): List<AlbumMemoryCandidate> {
+        val directory = otherProfiles ?: return emptyList()
+        val sources = try {
+            directory.list()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            emptyList()
+        }
+        otherSources = sources.associateBy { source -> source.profile.id }
+        return coroutineScope {
+            sources
+                .map { source ->
+                    async {
+                        try {
+                            repository.getOtherProfileAlbumMemoryCandidates(
+                                profileId = source.profile.id,
+                                provider = source.provider,
+                                resolveCoverUrl = { ref, size -> source.resolveCoverUrl(ref, size) },
+                            )
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                }
+                .awaitAll()
+                .flatten()
         }
     }
 
@@ -250,8 +305,10 @@ class MemoriesDeckCoordinator(
     private suspend fun withStoredTitle(memory: MemoryEntry): MemoryEntry {
         val store = titleStore ?: return memory
         if (memory.entityType != MemoryEntityType.ALBUM) return memory
+        val albumId = MediaId(memory.entityProvider, memory.entityId)
         val userTitle = try {
-            store.getTitle(MediaId(memory.entityProvider, memory.entityId))
+            // another account's memory wears that account's title
+            memory.otherProfile?.let { owner -> store.getTitleFor(owner.id, albumId) } ?: store.getTitle(albumId)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
@@ -365,9 +422,14 @@ class MemoriesDeckCoordinator(
     private suspend fun resolveAlbumMemory(candidate: AlbumMemoryCandidate): MemoryEntry {
         val albumId = candidate.memoryAlbumId()
         val rawAlbumId = albumId.rawId
+        // Another account's memory: its rows, its cached details and titles, its cover URLs ([otherSources]).
+        val other = otherSources[candidate.profileId]?.takeIf { candidate.profileId != repository.currentProfileId() }
+        val otherId = other?.profile?.id
+        val coverUrl: (CoverRef, Int?) -> String? = other?.resolveCoverUrl
+            ?: { ref, size -> repository.resolveCoverUrl(ref, size) }
         // The album's rows, Yoin's AI title (the deck is the one surface that may generate it) and Yoin's copy:
         // the same steps AlbumMemoryTitleResolver takes for Home and the album page, so the titles agree.
-        val facts = loadAlbumMemoryFacts(repository, albumId)
+        val facts = loadAlbumMemoryFacts(repository, albumId, otherId)
         val album = facts.album
         val songs = facts.songs
         val ratings = facts.ratings
@@ -404,7 +466,7 @@ class MemoriesDeckCoordinator(
         val copy = composeAlbumMemoryCopy(
             facts = facts,
             basis = basis,
-            aiTitle = albumMemoryAiTitle(repository, facts, generate = true),
+            aiTitle = albumMemoryAiTitle(repository, facts, generate = true, profileId = otherId),
             now = clock(),
             zone = zone(),
             appLanguage = appLanguage(),
@@ -415,9 +477,10 @@ class MemoriesDeckCoordinator(
         val copyInput = copy.input
         val voice = copy.voice
         // Yoin's narration (only without a review): Gemini in the prototype's
-        // voice when a key is set, else the local template.
+        // voice when a key is set, else the local template. Another account's
+        // memory keeps the template: Gemini's cache is the account in use's.
         val gemini = MemoryVoice.narrationBrief(copyInput, voice, today)?.let { brief ->
-            narrationSource?.let { source ->
+            narrationSource?.takeIf { other == null }?.let { source ->
                 try {
                     source.narrate(albumId, brief)
                 } catch (cancellation: CancellationException) {
@@ -444,12 +507,12 @@ class MemoriesDeckCoordinator(
             supportingText = artistName ?: if (yearText == null) MemoryAlbumFallback else "",
             supportingYear = yearText,
             metaText = null,
-            coverArtUrl = album?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
+            coverArtUrl = album?.coverArt?.let { coverUrl(it, 480) }
                 ?: candidate.coverArtUrl
                 ?: album?.id?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                    ?.rawId?.let(::sourceRelativeCoverArtUrl),
+                    ?.rawId?.let { raw -> coverUrl(CoverRef.SourceRelative(raw), 480) },
             // the playback theme's own URL for this cover (resolveCoverUrl without a size)
-            paletteCoverUrl = album?.coverArt?.let { cover -> repository.resolveCoverUrl(cover) },
+            paletteCoverUrl = album?.coverArt?.let { cover -> coverUrl(cover, null) },
             timestamp = candidate.lastPlayedAt ?: candidate.firstPlayedAt ?: 0L,
             scoreText = score.formatScore(),
             scoreKind = scoreKind,
@@ -491,6 +554,7 @@ class MemoriesDeckCoordinator(
             excerptCandidatesMedium = MemoryExcerpt.candidates(copyInput, capped = true, today = today),
             diaryAlbumNotes = diaryAlbumNotes(writings),
             diaryTracks = diaryTracks(tracks, writings),
+            otherProfile = other?.profile,
         )
     }
 

@@ -7,6 +7,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -473,32 +475,39 @@ private fun SpreadExhibit(
         }
         if (memory.entityType == MemoryEntityType.ALBUM) {
             Spacer(Modifier.height(spacing.goTop.dp))
-            Box(
-                modifier = Modifier
-                    .height(SpreadGoHeight.dp)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(tones.button)
-                    .then(
-                        if (interactive) {
-                            Modifier.clickable(role = Role.Button) {
-                                haptics.performClick()
-                                onOpenAlbum()
-                            }
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center,
+            // another account's memory: whose it is, beside Go to album (which switches there)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(OtherProfileLineGoGap),
             ) {
-                // no arrow (owner, v4)
-                Text(
-                    text = stringResource(R.string.mem_spread_go_album),
-                    style = cardText(GoogleSansFlex, FontWeight.SemiBold, 15.sp, 1f),
-                    color = tones.onButton,
-                    maxLines = 1,
-                    softWrap = false,
-                )
+                Box(
+                    modifier = Modifier
+                        .height(SpreadGoHeight.dp)
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(tones.button)
+                        .then(
+                            if (interactive) {
+                                Modifier.clickable(role = Role.Button) {
+                                    haptics.performClick()
+                                    onOpenAlbum()
+                                }
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(horizontal = 24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // no arrow (owner, v4)
+                    Text(
+                        text = stringResource(R.string.mem_spread_go_album),
+                        style = cardText(GoogleSansFlex, FontWeight.SemiBold, 15.sp, 1f),
+                        color = tones.onButton,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+                memory.otherProfile?.let { owner -> MemoryOtherProfileLine(owner = owner, tones = tones) }
             }
         }
     }

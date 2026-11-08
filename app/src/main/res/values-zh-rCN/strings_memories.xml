@@ -74,4 +74,7 @@
     <plurals name="mem_footer_days_since">
         <item quantity="other">天，自 %1$s</item>
     </plurals>
+    <!-- Beside Go to album on another account's memory (owner 2026-11-04: just the account). -->
+    <string name="mem_other_profile_from">来自 %1$s</string>
+    <string name="mem_cd_other_profile_from">来自另一个账号：%1$s</string>
 </resources>

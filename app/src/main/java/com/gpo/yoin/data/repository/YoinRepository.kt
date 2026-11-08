@@ -1943,8 +1943,9 @@ class YoinRepository(
         favoriteStateOverlay.recordRemote(key, saved)
     }
 
-    suspend fun getRatings(trackIds: Collection<MediaId>): Map<MediaId, LocalRating> {
-        val profileId = activeProfileId.value ?: return emptyMap()
+    /** [profileId] null = the active profile (Memories reads another account's rows by passing it). */
+    suspend fun getRatings(trackIds: Collection<MediaId>, profileId: String? = null): Map<MediaId, LocalRating> {
+        val profileId = profileId ?: activeProfileId.value ?: return emptyMap()
         if (trackIds.isEmpty()) return emptyMap()
         return trackIds.asSequence()
             .distinct()
@@ -2285,6 +2286,35 @@ class YoinRepository(
         ).build(limit, includeIneligible)
     }
 
+    /**
+     * Another account's Memory candidates ([profileId] on [provider], not the one in use), for the Memories
+     * deck that shows every account's memories. Local only: its rows plus the album details Yoin cached for
+     * that account on disk — that account's source isn't built, so nothing goes to the network. An album
+     * without a cached detail still qualifies by its review / notes. [resolveCoverUrl] is that account's.
+     */
+    suspend fun getOtherProfileAlbumMemoryCandidates(
+        profileId: String,
+        provider: String,
+        resolveCoverUrl: (CoverRef, Int) -> String?,
+        limit: Int = 24,
+    ): List<AlbumMemoryCandidate> = AlbumMemoryCandidateBuilder(
+        profileId = profileId,
+        provider = provider,
+        getAlbum = { id -> getCachedAlbumFor(profileId, id) },
+        playHistoryDao = database.playHistoryDao(),
+        activityEventDao = database.activityEventDao(),
+        localRatingDao = database.localRatingDao(),
+        albumRatingDao = albumRatingDao,
+        albumNoteDao = albumNoteDao,
+        songNoteDao = songNoteDao,
+        songAboutEntryDao = songAboutEntryDao,
+        resolveCoverUrl = resolveCoverUrl,
+    ).build(limit)
+
+    /** [profileId]'s disk copy of album [id]'s detail, never the network; null when Yoin never cached it. */
+    suspend fun getCachedAlbumFor(profileId: String, id: MediaId): Album? =
+        runCatching { detailCacheStore?.readAlbum(profileId, id.toString())?.value() }.getOrNull()
+
     suspend fun getTopAlbumMemoryCandidate(): AlbumMemoryCandidate? =
         getAlbumMemoryCandidates(limit = 1).firstOrNull()
 
@@ -2461,8 +2491,8 @@ class YoinRepository(
     }
 
     /** 只读缓存拟题（首页 Jump Back In 用）—— 不触发生成，miss 返回 null。 */
-    suspend fun getCachedAlbumMemoryTitle(albumId: MediaId): String? {
-        val profileId = activeProfileId.value ?: return null
+    suspend fun getCachedAlbumMemoryTitle(albumId: MediaId, profileId: String? = null): String? {
+        val profileId = profileId ?: activeProfileId.value ?: return null
         return memoryCopyCacheDao.get(
             profileId = profileId,
             provider = albumId.provider,
@@ -2473,18 +2503,20 @@ class YoinRepository(
 
     // ── Memory writings（Memories 卡 resolve 的一次性快照读取） ────────────
 
-    suspend fun getAlbumRatingRow(albumId: MediaId): AlbumRating? {
-        val profileId = activeProfileId.value ?: return null
+    // [profileId] null = the active profile; Memories passes another account's id to show its memories.
+
+    suspend fun getAlbumRatingRow(albumId: MediaId, profileId: String? = null): AlbumRating? {
+        val profileId = profileId ?: activeProfileId.value ?: return null
         return albumRatingDao.get(albumId.rawId, albumId.provider, profileId)
     }
 
-    suspend fun getAlbumNotesOnce(albumId: MediaId): List<AlbumNote> {
-        val profileId = activeProfileId.value ?: return emptyList()
+    suspend fun getAlbumNotesOnce(albumId: MediaId, profileId: String? = null): List<AlbumNote> {
+        val profileId = profileId ?: activeProfileId.value ?: return emptyList()
         return albumNoteDao.getForAlbum(albumId.rawId, albumId.provider, profileId)
     }
 
-    suspend fun getSongNotesOnce(trackIds: List<MediaId>): List<SongNote> {
-        val profileId = activeProfileId.value ?: return emptyList()
+    suspend fun getSongNotesOnce(trackIds: List<MediaId>, profileId: String? = null): List<SongNote> {
+        val profileId = profileId ?: activeProfileId.value ?: return emptyList()
         val provider = trackIds.firstOrNull()?.provider ?: return emptyList()
         val rawIds = trackIds.filter { id -> id.provider == provider }.map(MediaId::rawId)
         if (rawIds.isEmpty()) return emptyList()

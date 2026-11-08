@@ -86,6 +86,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlayableQueue
@@ -202,6 +203,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -1109,7 +1111,11 @@ private fun YoinShell(
                                         // detail 前进推入（隐藏底栏不参与 morph 交接）。
                                         // 不 dismiss —— Memories 留在原地，back
                                         // 从专辑页回来时它还在。
-                                        onOpenAlbum = rememberMemoryAlbumOpen(app.container.repository) { memory ->
+                                        // Another account's memory switches to that account first.
+                                        onOpenAlbum = rememberMemoryAlbumOpen(
+                                            app.container.repository,
+                                            accountSwitcher,
+                                        ) { memory ->
                                             // MemoryEntry.entityId is the RAW id
                                             // (the coordinator strips the provider
                                             // prefix); AlbumDetailViewModel parses a
@@ -1143,30 +1149,24 @@ private fun YoinShell(
                                             navigateToSettingsFromShell("neodb")
                                         },
                                         onPlayMemoryTrack = { memory, trackIndex ->
-                                            val queue = memory.playbackSongs
-                                            if (queue.isNotEmpty()) {
-                                                val startIndex = trackIndex.coerceIn(0, queue.lastIndex)
-                                                val selectedSong = queue[startIndex]
-                                                val activityContext = memory.toPlaybackActivityContext()
-
-                                                if (memory.entityType == MemoryEntityType.SONG || queue.size <= 1) {
-                                                    app.container.profileManager.activeSource.value?.let { source ->
-                                                        app.container.playbackManager.playSingle(
-                                                            track = selectedSong,
-                                                            source = source,
-                                                            activityContext = activityContext,
-                                                        )
-                                                    }
-                                                } else {
-                                                    app.container.profileManager.activeSource.value?.let { source ->
-                                                        app.container.playbackManager.play(
-                                                            tracks = queue,
-                                                            startIndex = startIndex,
-                                                            source = source,
-                                                            activityContext = activityContext,
-                                                        )
-                                                    }
+                                            val owner = memory.otherProfile
+                                            if (owner == null) {
+                                                app.container.profileManager.activeSource.value?.let { source ->
+                                                    playMemoryTrack(app.container, memory, trackIndex, source)
                                                 }
+                                            } else {
+                                                // Another account's track: switch there (as Home's
+                                                // other-accounts shelf does), then play once its source is up.
+                                                accountSwitcher.switchTo(owner.id, onLanded = {
+                                                    shellScope.launch {
+                                                        val source = withTimeoutOrNull(OtherProfileSourceWaitMs) {
+                                                            app.container.profileManager.activeSource.first { source ->
+                                                                source?.id == memory.entityProvider
+                                                            }
+                                                        } ?: return@launch
+                                                        playMemoryTrack(app.container, memory, trackIndex, source)
+                                                    }
+                                                })
                                             }
                                         },
                                         modifier = Modifier.fillMaxSize(),
@@ -1747,13 +1747,48 @@ private fun markDetailClick(route: DetailPaneRoute, via: String) {
  * the same callback instance across recompositions and can still skip them.
  */
 @Composable
-private fun rememberMemoryAlbumOpen(repository: YoinRepository, open: (MemoryEntry) -> Unit): (MemoryEntry) -> Unit =
-    remember(repository, open) {
+private fun rememberMemoryAlbumOpen(
+    repository: YoinRepository,
+    accountSwitcher: AccountSwitcherViewModel,
+    open: (MemoryEntry) -> Unit,
+): (MemoryEntry) -> Unit =
+    remember(repository, accountSwitcher, open) {
         { memory ->
-            repository.prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
-            open(memory)
+            val go = {
+                repository.prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
+                open(memory)
+            }
+            // Another account's memory: its album is that account's, so switch there first (the deck keeps
+            // the card in view across the switch) and open the album once the account is in use.
+            val owner = memory.otherProfile
+            if (owner == null) go() else accountSwitcher.switchTo(owner.id, onLanded = go)
         }
     }
+
+/** How long playing another account's memory track waits for that account's source after the switch. */
+private const val OtherProfileSourceWaitMs = 10_000L
+
+/** Play [memory]'s track at [trackIndex] (its queue, or the one song) on [source]. */
+private fun playMemoryTrack(container: AppContainer, memory: MemoryEntry, trackIndex: Int, source: MusicSource) {
+    val queue = memory.playbackSongs
+    if (queue.isEmpty()) return
+    val startIndex = trackIndex.coerceIn(0, queue.lastIndex)
+    val activityContext = memory.toPlaybackActivityContext()
+    if (memory.entityType == MemoryEntityType.SONG || queue.size <= 1) {
+        container.playbackManager.playSingle(
+            track = queue[startIndex],
+            source = source,
+            activityContext = activityContext,
+        )
+    } else {
+        container.playbackManager.play(
+            tracks = queue,
+            startIndex = startIndex,
+            source = source,
+            activityContext = activityContext,
+        )
+    }
+}
 
 /** Debug-only `detail.click` for a Memories stamp's album (its full MediaId, as the page is opened with). */
 private fun markMemoryAlbumClick(memory: MemoryEntry, via: String) {
