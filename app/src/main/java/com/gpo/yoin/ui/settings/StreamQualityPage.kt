@@ -33,6 +33,7 @@ import com.gpo.yoin.player.StreamQuality
 import com.gpo.yoin.player.StreamQualityPreference
 import com.gpo.yoin.player.spatialPlaybackOf
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -127,7 +128,7 @@ private fun SpatialAudioGroup(
             text = stringResource(R.string.settings_spatial_audio_note),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp),
+            modifier = Modifier.padding(horizontal = 8.dp).seamFade(),
         )
     }
 }
@@ -181,7 +182,7 @@ internal fun QualityRow(label: String, detail: String?, selected: Boolean, onCli
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(horizontal = 8.dp))
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(modifier = Modifier.weight(1f).seamFade(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.titleMedium,
