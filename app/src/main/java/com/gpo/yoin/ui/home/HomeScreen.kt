@@ -71,6 +71,7 @@ private const val HomeLoadingIndicatorDelayMillis = 180L
 
 private val NoOtherProfileItems = MutableStateFlow(emptyList<OtherProfileItem>())
 private val NoticeAlreadySeen = MutableStateFlow(true)
+private val NoLyricIntro = MutableStateFlow<LyricHighlightIntro?>(null)
 private val NoLyricHighlights = MutableStateFlow<List<HomeLyricHighlight>>(emptyList())
 private val NoLyricHighlightDevice = MutableStateFlow(false)
 private val NoNanoTestLog = MutableStateFlow<List<String>>(emptyList())
@@ -130,6 +131,7 @@ fun HomeScreen(
     val lyricHighlightCards by (lyricHighlights?.cards ?: NoLyricHighlights).collectAsState()
     val lyricHighlightAvailable by (lyricHighlights?.available ?: NoLyricHighlightDevice).collectAsState()
     val nanoTestLog by (lyricHighlights?.testLog ?: NoNanoTestLog).collectAsState()
+    val lyricIntro by (lyricHighlights?.intro ?: NoLyricIntro).collectAsState()
     // Each return to Home (after a while) brings another line.
     LifecycleStartEffect(lyricHighlights) {
         lyricHighlights?.onHomeShown()
@@ -208,6 +210,9 @@ fun HomeScreen(
             lyricHighlightAvailable = lyricHighlightAvailable,
             nanoTestLog = nanoTestLog,
             onLyricHighlightPlay = { card -> lyricHighlights?.play(card) },
+            lyricIntro = lyricIntro,
+            onLyricIntroOptIn = { lyricHighlights?.optIn() },
+            onLyricIntroDismiss = { lyricHighlights?.dismissIntro() },
         )
     }
 }
@@ -267,6 +272,9 @@ fun HomeContent(
     lyricHighlightAvailable: Boolean = false,
     nanoTestLog: List<String> = emptyList(),
     onLyricHighlightPlay: (HomeLyricHighlight) -> Unit = {},
+    lyricIntro: LyricHighlightIntro? = null,
+    onLyricIntroOptIn: () -> Unit = {},
+    onLyricIntroDismiss: () -> Unit = {},
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -446,6 +454,9 @@ fun HomeContent(
                                 lyricHighlightAvailable = lyricHighlightAvailable,
                                 nanoTestLog = nanoTestLog,
                                 onLyricHighlightPlay = onLyricHighlightPlay,
+                                lyricIntro = lyricIntro,
+                                onLyricIntroOptIn = onLyricIntroOptIn,
+                                onLyricIntroDismiss = onLyricIntroDismiss,
                                 memoryPill = feed.memoryPill,
                                 homeCovered = homeCovered,
                                 sections = sections,

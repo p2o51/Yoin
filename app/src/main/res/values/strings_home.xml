@@ -159,6 +159,16 @@
     <string name="home_lyric_kind_heavy">On repeat</string>
     <string name="home_lyric_kind_rediscover">Been a while</string>
     <string name="home_lyric_kind_user">Your pick</string>
+    <string name="home_lyric_intro_badge">Beta</string>
+    <string name="home_lyric_intro_title">You found a beta feature</string>
+    <string name="home_lyric_intro_nano">Gemini Nano is an AI model that lives on your phone. It reads lyrics right here, offline, and picks a passage from songs you play a lot, songs you haven\'t played in a while, and songs you haven\'t heard yet. Tap a card to play from that line.</string>
+    <string name="home_lyric_intro_ready">Your phone can run it.</string>
+    <string name="home_lyric_intro_download">Your phone supports it. Once it\'s on, the model downloads the next time you\'re on Wi‑Fi.</string>
+    <string name="home_lyric_intro_unsupported">Your phone can\'t run Gemini Nano yet, so Yoin can\'t pick lines for you here.</string>
+    <string name="home_lyric_intro_picks">Lines you select and share or save on the lyrics page are remembered too, and show up here.</string>
+    <string name="home_lyric_intro_turn_on">Turn on</string>
+    <string name="home_lyric_intro_not_now">Not now</string>
+    <string name="home_lyric_intro_got_it">Got it</string>
     <plurals name="home_edit_lyric_cards">
         <item quantity="one">%1$d card</item>
         <item quantity="other">%1$d cards</item>

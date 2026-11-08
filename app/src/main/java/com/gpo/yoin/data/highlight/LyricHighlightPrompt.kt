@@ -13,15 +13,18 @@ import com.gpo.yoin.data.model.Lyrics
  */
 object LyricHighlightPrompt {
 
-    /** One numbered line as sent to the model; [startMs] is null for unsynced lyrics. */
-    data class Line(val number: Int, val text: String, val startMs: Long?)
+    /**
+     * One numbered line as sent to the model; [startMs] is null for unsynced lyrics. [source] is its place in
+     * the song itself: repeats are left out, so two neighbouring numbers can be far apart in the song.
+     */
+    data class Line(val number: Int, val text: String, val startMs: Long?, val source: Int = number - 1)
 
     /** The lyrics as the model sees them, plus a fingerprint so a changed lyric is picked again. */
     data class Prepared(val lines: List<Line>, val fingerprint: String) {
         fun line(number: Int): Line? = lines.getOrNull(number - 1)?.takeIf { it.number == number }
     }
 
-    /** A validated pick: 1–[MAX_PICK_LINES] consecutive original lines. */
+    /** A validated pick: 1–[MAX_PICK_LINES] lines that follow each other in the song. */
     data class Pick(val first: Line, val last: Line, val text: String) {
         val startMs: Long? get() = first.startMs
     }
@@ -32,13 +35,21 @@ object LyricHighlightPrompt {
     /** Lines sent at most. Long songs are mostly repeats; 90 lines stay well under Nano's 4,000-token window. */
     const val MAX_LINES = 90
 
-    const val MAX_PICK_LINES = 2
+    /** Owner 2026-11-08: a passage of two to four lines that reads as one thought. */
+    const val MIN_PICK_LINES = 2
+    const val MAX_PICK_LINES = 4
 
     /** The longest range taken (cut to [MAX_PICK_LINES]); anything longer is treated as a bad answer. */
-    const val MAX_OVERRUN_LINES = 4
+    const val MAX_OVERRUN_LINES = 6
 
-    /** A highlight longer than this (both lines together) no longer reads as a quote on a card. */
-    const val MAX_PICK_CHARS = 72
+    /** A passage longer than this (all its lines together) no longer fits a card; its last lines are dropped. */
+    const val MAX_PICK_CHARS = 110
+
+    /**
+     * Part of every fingerprint: a song picked under an older question is picked again (v2: two to four
+     * lines, owner 2026-11-08).
+     */
+    const val PROMPT_VERSION = "v2:"
 
     /** Output budget: the JSON answer is ~15 tokens. */
     const val MAX_OUTPUT_TOKENS = 24
@@ -55,25 +66,29 @@ object LyricHighlightPrompt {
         }
         val seen = HashSet<String>()
         val lines = ArrayList<Line>()
+        // Counts every sung line, repeats included, so a pick can tell lines that follow each other in the song.
+        var sung = 0
         for ((text, startMs) in raw) {
             val clean = text.trim()
             if (!isSung(clean)) continue
+            val source = sung++
             if (!seen.add(normalize(clean))) continue
-            lines += Line(number = lines.size + 1, text = clean, startMs = startMs)
+            lines += Line(number = lines.size + 1, text = clean, startMs = startMs, source = source)
             if (lines.size == MAX_LINES) break
         }
         if (lines.size < MIN_LINES) return null
-        return Prepared(lines, fingerprint(lines))
+        return Prepared(lines, PROMPT_VERSION + fingerprint(lines))
     }
 
     /** The system half of the prompt: the rules. Kept short; Nano follows short rules best. */
     const val SYSTEM_INSTRUCTION: String =
-        "You pick the single most memorable moment in a song's lyrics: the line or two a listener would " +
-            "quote, write down, or remember the song by. Prefer vivid images and emotional turns over " +
-            "titles repeated, filler (\"oh\", \"yeah\", \"la la\"), or plain narration. " +
-            "Choose one line or two consecutive lines. " +
+        "You pick the most memorable passage in a song's lyrics: two to four consecutive lines that read " +
+            "as one complete thought, the sentence or image a listener would quote or remember the song by. " +
+            "The lines must belong together: never join the end of one thought to the start of another. " +
+            "Prefer vivid images and emotional turns over titles repeated, filler (\"oh\", \"yeah\", " +
+            "\"la la\"), or plain narration. " +
             "Answer with JSON only, in the form {\"start\": N, \"end\": M}, where N and M are line numbers " +
-            "and M is N or N+1. No other text."
+            "and M is from N+1 to N+3. No other text."
 
     /** The user half: the song and its numbered lines. */
     fun userPrompt(title: String, artist: String, prepared: Prepared): String = buildString {
@@ -105,20 +120,21 @@ object LyricHighlightPrompt {
         }
         start ?: return null
         val asked = end ?: start
-        // A slightly long range (Nano often answers three lines) keeps its opening lines; a wild one is a drift.
+        // A slightly long range keeps its opening lines; a wild one is a drift.
         if (asked < start || asked - start + 1 > MAX_OVERRUN_LINES) return null
-        val last = minOf(asked, start + MAX_PICK_LINES - 1)
         val first = prepared.line(start) ?: return null
-        val second = prepared.line(last) ?: return null
-        val text = if (first === second) first.text else first.text + "\n" + second.text
-        if (text.replace("\n", "").length > MAX_PICK_CHARS) return trimToFit(first, second)
-        return Pick(first, second, text)
-    }
-
-    /** A two-line pick that runs too long keeps its first line when that line fits alone. */
-    private fun trimToFit(first: Line, second: Line): Pick? {
-        if (first === second || first.text.length > MAX_PICK_CHARS) return null
-        return Pick(first, first, first.text)
+        // Lines that follow each other in the song only: the numbered list leaves repeats out, so the next
+        // number can be a different part of the song, which would read as two thoughts glued together.
+        val picked = mutableListOf(first)
+        for (number in start + 1..minOf(asked, start + MAX_PICK_LINES - 1)) {
+            val line = prepared.line(number) ?: break
+            if (line.source != picked.last().source + 1) break
+            picked += line
+        }
+        // Too long for a card: drop lines from the end, but never below one.
+        while (picked.size > 1 && picked.sumOf { it.text.length } > MAX_PICK_CHARS) picked.removeAt(picked.lastIndex)
+        if (picked.size == 1 && first.text.length > MAX_PICK_CHARS) return null
+        return Pick(picked.first(), picked.last(), picked.joinToString("\n") { it.text })
     }
 
     /** Something a person sings: has a letter in it and isn't only a bracketed stage note like "(Instrumental)". */

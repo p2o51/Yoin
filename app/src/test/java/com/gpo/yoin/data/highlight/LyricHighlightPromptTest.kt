@@ -89,27 +89,36 @@ class LyricHighlightPromptTest {
         assertNull(LyricHighlightPrompt.parse("{\"start\": 5, \"end\": 6}", prepared))
         assertNull(LyricHighlightPrompt.parse("{\"start\": 3, \"end\": 2}", prepared))
         // Far more lines than a card holds: the model drifted.
-        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 5}", prepared))
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 9}", prepared))
     }
 
     @Test
-    fun should_keepOpeningTwoLines_when_pickRunsToThreeOrFour() {
+    fun should_stopAtAGapInTheSong_when_neighbouringNumbersAreFarApart() {
         val prepared = LyricHighlightPrompt.prepare(song)!!
 
+        // Line 3 comes after a left-out repeat, so it is another part of the song.
         val pick = LyricHighlightPrompt.parse("```json\n{\"start\": 1, \"end\": 3}\n```", prepared)!!
-
         assertEquals("我把你说过的晚安\n折成纸船放回海里", pick.text)
+
+        // Three lines that follow each other are kept whole.
+        val three = LyricHighlightPrompt.parse("{\"start\": 3, \"end\": 5}", prepared)!!
+        assertEquals("潮水退了又涨\n灯塔还亮着\n你在哪里", three.text)
+    }
+
+    @Test
+    fun should_changeFingerprint_when_promptVersionChanges() {
+        assertTrue(LyricHighlightPrompt.prepare(song)!!.fingerprint.startsWith(LyricHighlightPrompt.PROMPT_VERSION))
     }
 
     @Test
     fun should_keepFirstLine_when_twoLinesRunTooLong() {
-        val long = "x".repeat(70)
+        val long = "x".repeat(105)
         val prepared = LyricHighlightPrompt.prepare(synced("short one", long, "three", "four"))!!
 
         val pick = LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 2}", prepared)!!
         assertEquals("short one", pick.text)
 
-        val tooLong = LyricHighlightPrompt.prepare(synced("y".repeat(80), "two", "three", "four"))!!
+        val tooLong = LyricHighlightPrompt.prepare(synced("y".repeat(120), "two", "three", "four"))!!
         assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 1}", tooLong))
     }
 

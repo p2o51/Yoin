@@ -20,9 +20,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.derivedStateOf
@@ -43,7 +45,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
-import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.R
 import com.gpo.yoin.data.highlight.LyricHighlightProcessor
 import com.gpo.yoin.data.highlight.LyricHighlightSelector
@@ -66,14 +67,13 @@ import com.gpo.yoin.ui.home.edit.homeEditInteractive
 import com.gpo.yoin.ui.home.edit.homeEditShelfClip
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinSerifTitle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -118,6 +118,15 @@ data class HomeLyricHighlight(
     )
 }
 
+/** What the section's first-use intro says: Nano's beta can be turned on here, or this phone can't run it. */
+sealed interface LyricHighlightIntro {
+    /** A phone Gemini Nano supports; [ready] when the model is already on it (otherwise it downloads on Wi-Fi). */
+    data class Supported(val ready: Boolean) : LyricHighlightIntro
+
+    /** No Nano here: the section shows the lines the user keeps. */
+    data object Unsupported : LyricHighlightIntro
+}
+
 /** Home's current highlights, a few songs at a time, and playing one from its line. */
 class LyricHighlightViewModel internal constructor(
     private val dao: LyricHighlightDao,
@@ -127,14 +136,24 @@ class LyricHighlightViewModel internal constructor(
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
-    /** Whether this device has Nano at all; Home leaves the section out entirely when it doesn't. */
-    val available: StateFlow<Boolean> = processor.status
-        .map { it == NanoStatus.AVAILABLE || BuildConfig.NANO_TEST }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.Eagerly,
-            processor.status.value == NanoStatus.AVAILABLE || BuildConfig.NANO_TEST,
-        )
+    /**
+     * The section is on every phone (owner 2026-11-08): Nano's picks where it runs, and everywhere the lines the
+     * user shared or saved from the lyrics page.
+     */
+    val available: StateFlow<Boolean> = MutableStateFlow(true).asStateFlow()
+
+    /** The first-use intro to show in the section, or null once it's been answered (or before Nano was checked). */
+    val intro: StateFlow<LyricHighlightIntro?> = combine(processor.status, processor.introSeen) { status, seen ->
+        when {
+            seen || status == null -> null
+            status == NanoStatus.UNAVAILABLE -> LyricHighlightIntro.Unsupported
+            else -> LyricHighlightIntro.Supported(ready = status == NanoStatus.AVAILABLE)
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun optIn() = processor.optIn()
+
+    fun dismissIntro() = processor.dismissIntro()
 
     /** The Gemini Nano test copy's step log, newest first; always empty in a normal build. */
     val testLog: StateFlow<List<String>> = processor.events
@@ -170,7 +189,6 @@ class LyricHighlightViewModel internal constructor(
 
     /** [keep] plus new songs up to [MAX_CARDS]; null when nothing changed. */
     private suspend fun pick(keep: List<HomeLyricHighlight>): List<HomeLyricHighlight>? {
-        if (processor.status.value != NanoStatus.AVAILABLE && !BuildConfig.NANO_TEST) return emptyList()
         val profileId = profiles.activeProfileId.value ?: return emptyList()
         val source = profiles.activeSource.value ?: withTimeoutOrNull(SOURCE_WAIT_MS) {
             profiles.activeSource.first { it != null }
@@ -287,8 +305,8 @@ internal val HomeRowPreset.lyricCards: Int
 
 /**
  * The section (owner 2026-11-08, design C): its title and a shelf of [count] cards that swipe sideways, page
- * dots under them. Each card wears its song's cover wash; the lines are set in the serif so they read as a
- * quote, under a small eyebrow for why the song came up. One card fills the width and has no dots.
+ * dots under them. Each card wears its song's cover wash: the song beside its cover, the passage, and how the
+ * song has been heard in the bottom corner. One card fills the width and has no dots.
  */
 @Composable
 internal fun LyricHighlightSection(
@@ -426,6 +444,81 @@ private fun LyricPageDots(count: Int, current: Int, modifier: Modifier = Modifie
 }
 
 /**
+ * The section's first-use intro (owner 2026-11-08): a beta found, what Gemini Nano is, whether this phone can
+ * run it, and the way in. Without Nano it says the lines the user shares or saves will show here instead.
+ */
+@Composable
+internal fun LyricHighlightIntroCard(
+    intro: LyricHighlightIntro,
+    onOptIn: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        HomeSectionTitle(text = stringResource(HomeSection.LyricHighlight.titleRes))
+        Surface(
+            shape = YoinContainerShapes.Card,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.home_lyric_intro_badge),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = stringResource(R.string.home_lyric_intro_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                val body = when (intro) {
+                    is LyricHighlightIntro.Supported -> listOf(
+                        stringResource(R.string.home_lyric_intro_nano),
+                        stringResource(
+                            if (intro.ready) R.string.home_lyric_intro_ready else R.string.home_lyric_intro_download,
+                        ),
+                        stringResource(R.string.home_lyric_intro_picks),
+                    )
+                    LyricHighlightIntro.Unsupported -> listOf(
+                        stringResource(R.string.home_lyric_intro_unsupported),
+                        stringResource(R.string.home_lyric_intro_picks),
+                    )
+                }
+                body.forEach { paragraph ->
+                    Text(
+                        text = paragraph,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    when (intro) {
+                        is LyricHighlightIntro.Supported -> {
+                            TextButton(onClick = onDismiss, enabled = homeEditInteractive()) {
+                                Text(stringResource(R.string.home_lyric_intro_not_now))
+                            }
+                            Button(onClick = onOptIn, enabled = homeEditInteractive()) {
+                                Text(stringResource(R.string.home_lyric_intro_turn_on))
+                            }
+                        }
+                        LyricHighlightIntro.Unsupported -> Button(onClick = onDismiss, enabled = homeEditInteractive()) {
+                            Text(stringResource(R.string.home_lyric_intro_got_it))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * The Gemini Nano test copy's log (BuildConfig.NANO_TEST): what Nano is doing, newest first, so a run on a real
  * phone can be read without adb. Never shown in a normal build (its log stays empty).
  */
@@ -526,14 +619,14 @@ private fun LyricHighlightCard(
             }
             Text(
                 text = card.text,
+                // The song's own words, so the app's sans, not the serif (owner 2026-11-08); two to four lines.
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontFamily = YoinSerifTitle,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 20.sp,
-                    lineHeight = 30.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 17.sp,
+                    lineHeight = 24.sp,
                 ),
                 color = colors.content,
-                maxLines = 3,
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
                 // No seamFade on the card's text: inside a swiping shelf the card's print lifted a
                 // recycled neighbour's text and left it ghosting over the peeking card (Pixel 11, 11-08).

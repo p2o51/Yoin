@@ -143,6 +143,16 @@
     <string name="home_lyric_kind_heavy">常听</string>
     <string name="home_lyric_kind_rediscover">久违</string>
     <string name="home_lyric_kind_user">你选的</string>
+    <string name="home_lyric_intro_badge">Beta</string>
+    <string name="home_lyric_intro_title">恭喜你发现了一个 Beta 功能</string>
+    <string name="home_lyric_intro_nano">Gemini Nano 是装在手机里的 AI 模型，不联网，就在你的手机上读歌词。它会从你常听、好久没听和还没听过的歌里，各挑一段歌词放在这里，点卡片就从那句开始播放。</string>
+    <string name="home_lyric_intro_ready">你的手机现在就能用。</string>
+    <string name="home_lyric_intro_download">你的手机支持。开启后，下次连上 Wi‑Fi 时会下载模型。</string>
+    <string name="home_lyric_intro_unsupported">你的手机暂时不支持 Gemini Nano，Yoin 没法在这里替你挑歌词。</string>
+    <string name="home_lyric_intro_picks">你在歌词页选中并分享或保存的歌词，我们也会记住，显示在这里。</string>
+    <string name="home_lyric_intro_turn_on">开启</string>
+    <string name="home_lyric_intro_not_now">暂不</string>
+    <string name="home_lyric_intro_got_it">知道了</string>
     <plurals name="home_edit_lyric_cards">
         <item quantity="other">%1$d 段</item>
     </plurals>

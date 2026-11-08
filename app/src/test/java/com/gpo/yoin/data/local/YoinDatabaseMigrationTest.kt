@@ -2065,13 +2065,15 @@ class YoinDatabaseMigrationTest {
                 durationMs = 200_000L,
                 text = "第一行\n第二行",
                 startMs = 72_000L,
-                lyricsFingerprint = "abc",
+                lyricsFingerprint = "v2:abc",
                 model = "nano-v3",
                 attemptedAt = 10L,
             ),
         )
         assertEquals(1, dao.usableCount("p1", "subsonic"))
-        assertEquals(listOf("s1"), dao.settledSongIds("p1", "subsonic", retryAfter = 0L))
+        assertEquals(listOf("s1"), dao.settledSongIds("p1", "subsonic", retryAfter = 0L, fingerprintPrefix = "v2:"))
+        // Picked under an older question: queued again.
+        assertEquals(emptyList<String>(), dao.settledSongIds("p1", "subsonic", retryAfter = 0L, fingerprintPrefix = "v3:"))
 
         migrated.close()
     }

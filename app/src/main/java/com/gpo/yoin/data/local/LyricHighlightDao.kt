@@ -23,13 +23,21 @@ interface LyricHighlightDao {
     suspend fun get(profileId: String, provider: String, songId: String): LyricHighlight?
 
     /**
-     * Song ids not to queue again: every usable highlight, and unusable tries newer than [retryAfter].
+     * Song ids not to queue again: every usable highlight picked under the current question ([fingerprintPrefix])
+     * or kept by the user, and unusable tries newer than [retryAfter]. A highlight from an older question is
+     * picked again (it keeps showing until then).
      */
     @Query(
         "SELECT songId FROM lyric_highlights WHERE profileId = :profileId AND provider = :provider " +
-            "AND (text IS NOT NULL OR attemptedAt >= :retryAfter)",
+            "AND ((text IS NOT NULL AND (model = 'user' OR lyricsFingerprint LIKE :fingerprintPrefix || '%')) " +
+            "OR (text IS NULL AND attemptedAt >= :retryAfter))",
     )
-    suspend fun settledSongIds(profileId: String, provider: String, retryAfter: Long): List<String>
+    suspend fun settledSongIds(
+        profileId: String,
+        provider: String,
+        retryAfter: Long,
+        fingerprintPrefix: String,
+    ): List<String>
 
     @Query(
         "UPDATE lyric_highlights SET lastShownAt = :shownAt WHERE profileId = :profileId " +

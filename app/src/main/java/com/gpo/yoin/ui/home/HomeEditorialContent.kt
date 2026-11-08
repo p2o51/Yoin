@@ -304,6 +304,9 @@ internal fun HomeEditorialContent(
     // The Gemini Nano test copy's step log (BuildConfig.NANO_TEST), shown under the card; empty otherwise.
     nanoTestLog: List<String> = emptyList(),
     onLyricHighlightPlay: (HomeLyricHighlight) -> Unit = {},
+    lyricIntro: LyricHighlightIntro? = null,
+    onLyricIntroOptIn: () -> Unit = {},
+    onLyricIntroDismiss: () -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
@@ -715,7 +718,8 @@ internal fun HomeEditorialContent(
         otherProfileItems,
         lyricHighlights,
         lyricHighlightAvailable,
-        nanoTestLog.isNotEmpty()
+        nanoTestLog.isNotEmpty(),
+        lyricIntro != null,
     ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
@@ -734,7 +738,8 @@ internal fun HomeEditorialContent(
                         HomeSection.RecentlyPlayed -> recentlyPlayed.isNotEmpty()
                         HomeSection.YourPlaylists -> playlists.isNotEmpty()
                         HomeSection.OtherProfiles -> otherProfileItems.isNotEmpty()
-                        HomeSection.LyricHighlight -> lyricHighlights.isNotEmpty() || nanoTestLog.isNotEmpty()
+                        HomeSection.LyricHighlight ->
+                            lyricIntro != null || lyricHighlights.isNotEmpty() || nanoTestLog.isNotEmpty()
                     }
                 },
                 available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
@@ -1252,7 +1257,14 @@ internal fun HomeEditorialContent(
                                 )
 
                                 // Lyric lines Gemini Nano (or the user) picked, one to four cards; a tap plays from one.
-                                HomeSection.LyricHighlight -> if (lyricHighlights.isEmpty()) {
+                                HomeSection.LyricHighlight -> if (lyricIntro != null) {
+                                    LyricHighlightIntroCard(
+                                        intro = lyricIntro,
+                                        onOptIn = onLyricIntroOptIn,
+                                        onDismiss = onLyricIntroDismiss,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                } else if (lyricHighlights.isEmpty()) {
                                     NanoTestLog(lines = nanoTestLog, withTitle = true, modifier = Modifier.fillMaxWidth())
                                 } else {
                                     LyricHighlightSection(

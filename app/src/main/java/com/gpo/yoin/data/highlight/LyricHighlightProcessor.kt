@@ -92,6 +92,35 @@ class LyricHighlightProcessor(
         _events.value = (listOf(message) + _events.value).take(EVENT_LIMIT)
     }
 
+    private val _optedIn by lazy { MutableStateFlow(prefs.getBoolean(KEY_OPTED_IN, false)) }
+    private val _introSeen by lazy { MutableStateFlow(prefs.getBoolean(KEY_INTRO_SEEN, false)) }
+
+    /**
+     * The user turned the beta on (owner 2026-11-08: Nano only runs after an opt-in from the section's intro).
+     * Lines the user shares or saves are kept either way.
+     */
+    val optedIn: StateFlow<Boolean> by lazy { _optedIn.asStateFlow() }
+
+    /** The section's first-use intro has been answered (turned on, or put away). */
+    val introSeen: StateFlow<Boolean> by lazy { _introSeen.asStateFlow() }
+
+    /** From the intro: turn the beta on and start on this visit. */
+    fun optIn() {
+        prefs.edit {
+            putBoolean(KEY_OPTED_IN, true)
+            putBoolean(KEY_INTRO_SEEN, true)
+        }
+        _optedIn.value = true
+        _introSeen.value = true
+        if (visit?.isActive != true) visit = scope.launch { runVisit() }
+    }
+
+    /** From the intro: not now (or, on a phone without Nano, understood). */
+    fun dismissIntro() {
+        prefs.edit { putBoolean(KEY_INTRO_SEEN, true) }
+        _introSeen.value = true
+    }
+
     /** Bumped after each new highlight, so a display can refresh. */
     private val _revision = MutableStateFlow(0L)
     val revision: StateFlow<Long> = _revision.asStateFlow()
@@ -119,6 +148,10 @@ class LyricHighlightProcessor(
         var nano = model.status()
         publishStatus(nano)
         note("Nano: $nano")
+        if (!_optedIn.value) {
+            note("Waiting for the opt-in")
+            return
+        }
         if (nano == NanoStatus.DOWNLOADABLE && onUnmeteredNetwork()) {
             // A supported phone that hasn't fetched Nano yet: ask AICore for it (Wi-Fi only), then look again.
             note("Downloading the model…")
@@ -172,7 +205,12 @@ class LyricHighlightProcessor(
         val profileId = repository.currentProfileId() ?: return emptyList()
         val provider = repository.currentProviderId() ?: return emptyList()
         val now = clock()
-        val settled = dao.settledSongIds(profileId, provider, retryAfter = now - RETRY_UNUSABLE_AFTER_MS).toHashSet()
+        val settled = dao.settledSongIds(
+            profileId,
+            provider,
+            retryAfter = now - RETRY_UNUSABLE_AFTER_MS,
+            fingerprintPrefix = LyricHighlightPrompt.PROMPT_VERSION,
+        ).toHashSet()
         val out = ArrayList<Entry>()
 
         currentTrack()?.takeIf { it.id.provider == provider && it.id.rawId !in settled }?.let { track ->
@@ -482,6 +520,8 @@ class LyricHighlightProcessor(
         private const val TAG = "LyricHighlights"
         private const val PREFS = "lyric_highlights"
         private const val KEY_STATUS = "nano_status"
+        private const val KEY_OPTED_IN = "opted_in"
+        private const val KEY_INTRO_SEEN = "intro_seen"
         private const val KEY_DAY = "budget_day"
         private const val KEY_USED = "budget_used"
         private const val KEY_PAUSED_UNTIL = "budget_paused_until"
@@ -491,7 +531,7 @@ class LyricHighlightProcessor(
         /** After coming to the foreground: launch, Home and the feed go first. */
         /** [LyricHighlight.model] of a line the user picked themselves. */
         const val USER_PICK = "user"
-        const val MAX_USER_PICK_LINES = 2
+        const val MAX_USER_PICK_LINES = 4
         const val START_DELAY_MS = 10_000L
         private const val TEST_START_DELAY_MS = 2_000L
         private const val TEST_PER_VISIT_LIMIT = 15
