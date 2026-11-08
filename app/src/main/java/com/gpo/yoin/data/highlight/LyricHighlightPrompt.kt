@@ -39,9 +39,6 @@ object LyricHighlightPrompt {
     const val MIN_PICK_LINES = 2
     const val MAX_PICK_LINES = 4
 
-    /** The longest range taken (cut to [MAX_PICK_LINES]); anything longer is treated as a bad answer. */
-    const val MAX_OVERRUN_LINES = 6
-
     /** A passage longer than this (all its lines together) no longer fits a card; its last lines are dropped. */
     const val MAX_PICK_CHARS = 110
 
@@ -120,8 +117,8 @@ object LyricHighlightPrompt {
         }
         start ?: return null
         val asked = end ?: start
-        // A slightly long range keeps its opening lines; a wild one is a drift.
-        if (asked < start || asked - start + 1 > MAX_OVERRUN_LINES) return null
+        // A long range keeps its opening lines (the loop below stops at four); a backwards one is nonsense.
+        if (asked < start) return null
         val first = prepared.line(start) ?: return null
         // Lines that follow each other in the song only: the numbered list leaves repeats out, so the next
         // number can be a different part of the song, which would read as two thoughts glued together.

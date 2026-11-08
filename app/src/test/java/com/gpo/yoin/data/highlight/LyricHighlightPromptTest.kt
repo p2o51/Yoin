@@ -90,8 +90,8 @@ class LyricHighlightPromptTest {
         assertNull(LyricHighlightPrompt.parse("The best line is about the lighthouse.", prepared))
         assertNull(LyricHighlightPrompt.parse("{\"start\": 0, \"end\": 1}", prepared))
         assertNull(LyricHighlightPrompt.parse("{\"start\": 3, \"end\": 2}", prepared))
-        // Far more lines than a card holds: the model drifted.
-        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 9}", prepared))
+        // Far more lines than a card holds: the opening lines are kept (here up to the song's next gap).
+        assertEquals("我把你说过的晚安\n折成纸船放回海里", LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 9}", prepared)!!.text)
     }
 
     @Test
