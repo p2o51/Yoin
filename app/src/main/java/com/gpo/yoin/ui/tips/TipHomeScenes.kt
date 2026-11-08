@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.gpo.yoin.R
+import com.gpo.yoin.data.highlight.LyricHighlightSelector
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarEditLeftSlot
@@ -56,8 +58,10 @@ import com.gpo.yoin.ui.home.HomeAccountFanState
 import com.gpo.yoin.ui.home.HomeAccountQuickSwitch
 import com.gpo.yoin.ui.home.HomeGreetingTitle
 import com.gpo.yoin.ui.home.HomeHeaderTitleBreathing
+import com.gpo.yoin.ui.home.HomeLyricHighlight
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.HomeWidgetGridSection
+import com.gpo.yoin.ui.home.LyricHighlightSection
 import com.gpo.yoin.ui.home.MemoryBubbleController
 import com.gpo.yoin.ui.home.MemoryBubbleOverlay
 import com.gpo.yoin.ui.home.edit.HomeEditCardScope
@@ -75,11 +79,11 @@ import com.gpo.yoin.ui.home.memoryBubbleTitle
 import com.gpo.yoin.ui.home.titleRes
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.MemoryScoreKind
+import com.gpo.yoin.ui.memories.award.MemoriesAwardLifecycle
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptAttribution
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptCandidate
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptKind
-import com.gpo.yoin.ui.memories.MemoryScoreKind
-import com.gpo.yoin.ui.memories.award.MemoriesAwardLifecycle
 import com.gpo.yoin.ui.memories.emblem.rememberGrooveTilt
 import com.gpo.yoin.ui.memories.memoriesAuroraBackground
 import com.gpo.yoin.ui.memories.showcase.CardEmblem
@@ -279,6 +283,72 @@ internal fun AccountQuickSwitchDemo(playing: Boolean) {
     }
 }
 
+/**
+ * 「歌词一句」: the real Home card under the header. The refresh button turns it to the next
+ * song's line; the lines here are made up for the demo (a real card shows the song's own).
+ */
+@Composable
+internal fun LyricHighlightDemo(playing: Boolean) {
+    val covers = demoCoverUrls()
+    val cards = remember(covers) {
+        DemoLyricLines.mapIndexed { i, (text, kind) ->
+            val album = DemoAlbums[i]
+            HomeLyricHighlight(
+                songId = MediaId.subsonic("tip-lyric-$i"),
+                title = DemoTrackTitles[i],
+                artist = album.artist,
+                album = album.name,
+                albumId = null,
+                coverKey = covers[i],
+                durationMs = 200_000L,
+                text = text,
+                startMs = null,
+                kind = kind,
+            )
+        }
+    }
+    var index by remember { mutableIntStateOf(0) }
+    DemoPhone(playing = playing, script = {
+        index = 0
+        delay(900)
+        repeat(2) {
+            // The refresh button sits in the card's top end corner.
+            moveTo("lyric", fx = 0.92f, fy = 0.28f)
+            delay(250)
+            tap { index = (index + 1) % cards.size }
+            delay(1_600)
+        }
+        lift()
+        delay(600)
+    }) {
+        DemoHomePage(
+            editProgress = { 0f },
+            editing = false,
+            onEnterEdit = {},
+            onDone = {},
+            cardScope = null,
+            body = {
+                LyricHighlightSection(
+                    card = cards[index],
+                    buildCoverArtUrl = { it },
+                    extractBackdropColors = true,
+                    onPlay = {},
+                    onNext = { index = (index + 1) % cards.size },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .demoTarget("lyric"),
+                )
+            },
+        )
+    }
+}
+
+private val DemoLyricLines = listOf(
+    "We left the porch light on all winter,\nso the summer would know the way" to LyricHighlightSelector.Bucket.HEAVY,
+    "Some songs wait in a drawer for years,\nthen fit you like a coat" to LyricHighlightSelector.Bucket.REDISCOVER,
+    "I hum the parts I don't know yet" to LyricHighlightSelector.Bucket.FRESH,
+)
+
 // The header avatar's box (HomeAccountButton), and where the fan's items sit
 // under it, as fractions of that box (HomeAccountQuickSwitch's 12dp gap, 48dp items, 60dp steps).
 private val DemoAccountBox = 48.dp
@@ -294,6 +364,8 @@ private fun BoxScope.DemoHomePage(
     hint: () -> Float = { 0f },
     // In place of the Settings gear (the account in use, on Home).
     headerAction: (@Composable () -> Unit)? = null,
+    // In place of Jump Back In (another section's scene).
+    body: (@Composable () -> Unit)? = null,
 ) {
     val cards = demoWidgetCards()
     val bubble = remember { MemoryBubbleController() }
@@ -338,7 +410,9 @@ private fun BoxScope.DemoHomePage(
                     }
                 }
             }
-            CompositionLocalProvider(LocalHomeEditCardScope provides cardScope) {
+            if (body != null) {
+                body()
+            } else CompositionLocalProvider(LocalHomeEditCardScope provides cardScope) {
                 HomeWidgetGridSection(
                     title = stringResource(HomeSection.JumpBackIn.titleRes),
                     cards = cards,
