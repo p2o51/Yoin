@@ -251,7 +251,7 @@ fun DevicesSheet(
 }
 
 @Composable
-private fun MoreDevicesRow(
+internal fun MoreDevicesRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -292,7 +292,7 @@ private fun MoreDevicesRow(
 }
 
 @Composable
-private fun DeviceRow(
+internal fun DeviceRow(
     device: YoinDevice,
     busy: Boolean,
     onClick: () -> Unit,
