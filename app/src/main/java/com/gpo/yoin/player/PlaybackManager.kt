@@ -178,6 +178,9 @@ class PlaybackManager(
      */
     fun openSpotify(): Boolean = spotifyRemotePlayer.openSpotify()
 
+    /** Reads again which device Spotify plays on (after a switch from the device sheet). */
+    fun refreshSpotifyDevice(afterMs: Long = 0L) = spotifyRemotePlayer.refreshDevice(afterMs)
+
     /**
      * The Spotify heart check, made here — once per track change, however
      * many Now Playing hosts are open — and pushed into the repository's

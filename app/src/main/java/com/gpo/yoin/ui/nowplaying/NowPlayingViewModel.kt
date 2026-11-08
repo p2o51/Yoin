@@ -1277,7 +1277,12 @@ class NowPlayingViewModel(
                         }
                     },
                 )
-                if (device is YoinDevice.SpotifyConnect) delay(1_200)
+                if (device is YoinDevice.SpotifyConnect) {
+                    // The device chip follows the switch too, not only the sheet; read once
+                    // Spotify Connect has caught up.
+                    playbackManager.refreshSpotifyDevice(afterMs = 1_500L)
+                    delay(1_200)
+                }
             } else {
                 _devicesState.value = _devicesState.value.copy(
                     busyDeviceId = null,
