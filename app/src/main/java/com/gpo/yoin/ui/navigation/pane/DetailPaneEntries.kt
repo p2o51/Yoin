@@ -43,6 +43,7 @@ import com.gpo.yoin.ui.detail.PlaylistDetailUiState
 import com.gpo.yoin.ui.detail.PlaylistDetailViewModel
 import com.gpo.yoin.ui.detail.TrackMenuHost
 import com.gpo.yoin.ui.detail.detailShareText
+import com.gpo.yoin.ui.detail.rememberDetailShare
 import com.gpo.yoin.ui.detail.hasQueueableSongs
 import com.gpo.yoin.ui.detail.playArtist
 import com.gpo.yoin.ui.detail.rememberDetailMenu
@@ -178,11 +179,13 @@ internal fun AlbumPaneEntry(
             onGoToArtist = { id -> currentOnOpenArtist(id) },
         )
     }
+    val shareAlbum = rememberDetailShare(app.container, WebLinkKind.Album, route.albumId, webLink)
     val share = {
-        val title = content?.let {
-            context.getString(R.string.shell_share_album_title, it.albumName, it.artistName)
-        } ?: context.getString(R.string.shell_share_album_fallback)
-        context.startActivity(Intent.createChooser(shareIntent(detailShareText(title, webLink)), null))
+        shareAlbum(
+            content?.let {
+                context.getString(R.string.shell_share_album_title, it.albumName, it.artistName)
+            } ?: context.getString(R.string.shell_share_album_fallback),
+        )
     }
     val artistId = content?.artistId
 
@@ -393,9 +396,9 @@ internal fun PlaylistPaneEntry(
             )
         }
     }
+    val sharePlaylist = rememberDetailShare(app.container, WebLinkKind.Playlist, route.playlistId, webLink = null)
     val share = {
-        val text = content?.playlistName ?: context.getString(R.string.shell_share_playlist_fallback)
-        context.startActivity(Intent.createChooser(shareIntent(text), null))
+        sharePlaylist(content?.playlistName ?: context.getString(R.string.shell_share_playlist_fallback))
     }
 
     val scheme = rememberCoverColorScheme(content?.coverArtUrl) ?: MaterialTheme.colorScheme

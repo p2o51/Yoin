@@ -23,9 +23,25 @@ data class SubsonicResponseBody(
     val playlists: PlaylistsResponse? = null,
     val playlist: Playlist? = null,
     val lyricsList: LyricsList? = null,
+    val shares: SharesResponse? = null,
     val type: String? = null,
     val openSubsonic: Boolean? = null,
     val openSubsonicExtensions: List<OpenSubsonicExtension> = emptyList(),
+)
+
+/** `createShare` / `getShares`: the server's share links. */
+@Serializable
+data class SharesResponse(
+    val share: List<Share> = emptyList(),
+)
+
+/** One share link: [url] opens it in a browser, no account needed. */
+@Serializable
+data class Share(
+    val id: String,
+    val url: String,
+    val description: String? = null,
+    val expires: String? = null,
 )
 
 /** One entry of OpenSubsonic `getOpenSubsonicExtensions`: an extension and the versions the server speaks. */

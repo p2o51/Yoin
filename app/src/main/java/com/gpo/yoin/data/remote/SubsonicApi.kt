@@ -145,4 +145,14 @@ interface SubsonicApi {
         @Query("state") state: String,
         @Query("ignoreScrobble") ignoreScrobble: Boolean,
     ): SubsonicResponse
+
+    /**
+     * A public share link for [id] (songs, an album or a playlist; repeatable), made by the server.
+     * No `expires`: the server's own default applies (Navidrome: a year).
+     */
+    @GET("rest/createShare.view")
+    suspend fun createShare(
+        @Query("id") id: List<String>,
+        @Query("description") description: String? = null,
+    ): SubsonicResponse
 }

@@ -28,6 +28,9 @@ import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.PlayReport
 import com.gpo.yoin.data.source.PlayReportRejectedException
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.WebLinkKind
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlin.math.roundToInt
 
 /**
@@ -94,7 +97,30 @@ class SubsonicMusicSource(
         override suspend fun getLyrics(trackId: MediaId): Lyrics? =
             unwrap(api.getLyricsBySongId(trackId.requireSubsonic()))
                 .lyricsList?.toLyrics()
+
+        // createShare takes song, album and playlist ids (Navidrome turns
+        // sharing on by default). A server that refused once — sharing off,
+        // no share permission, or no createShare at all (gonic) — isn't asked
+        // again this session: Share then sends the name alone, without the
+        // notice each time. A network failure doesn't count.
+        override suspend fun createShareLink(kind: WebLinkKind, id: MediaId, description: String?): String? {
+            if (sharesRefused || kind == WebLinkKind.Artist || id.provider != MediaId.PROVIDER_SUBSONIC) return null
+            try {
+                val share = unwrap(api.createShare(id = listOf(id.rawId), description = description))
+                    .shares?.share?.firstOrNull()
+                return share?.url?.takeIf { it.isNotBlank() }
+                    ?: throw SubsonicException(code = -1, message = "createShare.view returned no share")
+            } catch (error: IOException) {
+                throw error
+            } catch (error: Exception) {
+                if (error !is CancellationException) sharesRefused = true
+                throw error
+            }
+        }
     }
+
+    @Volatile
+    private var sharesRefused = false
 
     private val writeActions = object : MusicWriteActions {
         override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> =
