@@ -2624,6 +2624,19 @@ private fun WidePlayingContent(
         animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "wideLyricToolsAlpha",
     )
+    // Focus at ease, as in the single column and landscape (owner 2026-11-05;
+    // the tablet kept its buttons, owner 2026-11-08 「聚焦模式 3 秒之后按键还是
+    // 显示的」): FocusIdleMs without a touch while synced lyrics play, the
+    // transport's buttons and times step away and the progress bar stays.
+    val focusIdle = rememberLyricToolsIdleState()
+    val wideFocusIdleEligible = stageMode == NowPlayingStageMode.Immersive &&
+        state.isPlaying && hasSyncedLyrics && !lyricsSelection.active
+    LaunchedEffect(wideFocusIdleEligible) { focusIdle.track(wideFocusIdleEligible, FocusIdleMs) }
+    val focusIdleProgress by animateFloatAsState(
+        targetValue = if (wideFocusIdleEligible && focusIdle.idle) 1f else 0f,
+        animationSpec = YoinMotion.slowSpatialSpec(role = YoinMotionRole.Standard),
+        label = "wideFocusIdle",
+    )
     // Small by default; the Ask Gemini bar grows when focused (matches Compact).
     val bottomAccessoryTargetHeight = when {
         detailPage == NowPlayingDetailPage.About && askState is AskBarState.Focused -> 276.dp
@@ -2659,7 +2672,8 @@ private fun WidePlayingContent(
         // gets its own navigationBarsPadding to stay tappable).
         modifier = modifier
             .fillMaxSize()
-            .lyricToolsTouchTracker(lyricToolsIdle),
+            .lyricToolsTouchTracker(lyricToolsIdle)
+            .lyricToolsTouchTracker(focusIdle),
     ) {
         val layoutDirection = LocalLayoutDirection.current
         val frameInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
@@ -2873,7 +2887,14 @@ private fun WidePlayingContent(
                         playPressed = playPressed,
                         playMode = state.playMode,
                         onSetPlayMode = onSetPlayMode,
-                        modifier = Modifier.width(slotWidth),
+                        // Capped by the focus itself, so leaving focus at
+                        // ease brings the buttons back with the cover.
+                        atEase = minOf(focusIdleProgress, focus),
+                        modifier = Modifier
+                            .width(slotWidth)
+                            // At ease, the first tap on the hidden buttons
+                            // only brings them back.
+                            .lyricToolsInPlaceWakeGuard(focusIdle),
                     )
                     // The title sinks to the bottom (owner 2026-11-06 「文字优先靠下」).
                     Spacer(modifier = Modifier.weight(1f))
