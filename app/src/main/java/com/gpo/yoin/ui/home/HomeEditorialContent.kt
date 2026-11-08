@@ -297,6 +297,12 @@ internal fun HomeEditorialContent(
     // What the other accounts play most (HomeOtherProfiles.kt); a tap switches and plays.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
+    // 「歌词一句」 (HomeLyricHighlight.kt): the line on show, whether this device has Gemini Nano at all
+    // (without it the section is left out of the feed, edit mode and the tray), playing it, drawing another.
+    lyricHighlight: HomeLyricHighlight? = null,
+    lyricHighlightAvailable: Boolean = false,
+    onLyricHighlightPlay: (HomeLyricHighlight) -> Unit = {},
+    onLyricHighlightNext: () -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
@@ -705,11 +711,14 @@ internal fun HomeEditorialContent(
         rediscover,
         recentlyPlayed,
         playlists,
-        otherProfileItems
+        otherProfileItems,
+        lyricHighlight,
+        lyricHighlightAvailable
     ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
                 layout = layout,
+                available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
                 hiding = motion.hiding,
                 editing = editing,
                 held = motion.heldSection,
@@ -724,16 +733,19 @@ internal fun HomeEditorialContent(
                         HomeSection.RecentlyPlayed -> recentlyPlayed.isNotEmpty()
                         HomeSection.YourPlaylists -> playlists.isNotEmpty()
                         HomeSection.OtherProfiles -> otherProfileItems.isNotEmpty()
+                        HomeSection.LyricHighlight -> lyricHighlight != null
                     }
                 },
             )
         }
     }
     val trayMounted = motion.trayMounted
-    val hiddenSections = layout.hiddenSections
-    val allHidden = enabledOrder.isEmpty()
+    // A section this device can't fill (「歌词一句」 without Gemini Nano) isn't offered in the tray either.
+    val hiddenSections = layout.hiddenSections.filter { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
+    val allHidden = enabledOrder.none { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
     val feedKeys = homeFeedKeys(blocks, trayMounted, hiddenSections, allHidden)
     SideEffect {
+        controller.feedUnseen = if (lyricHighlightAvailable) emptySet() else setOf(HomeSection.LyricHighlight)
         val displayed = blocks.map { it.section }
         if (motion.displayed != displayed) motion.displayed = displayed
         feedRefs.keys = feedKeys
@@ -892,6 +904,7 @@ internal fun HomeEditorialContent(
         playlists,
         recentlyPlayed,
         otherProfileItems,
+        lyricHighlight,
         buildCoverArtUrl,
         stripShapes,
     ) {
@@ -906,6 +919,7 @@ internal fun HomeEditorialContent(
                 playlists = playlists,
                 recentlyPlayed = recentlyPlayed,
                 otherProfileItems = otherProfileItems,
+                lyricHighlight = lyricHighlight,
                 buildCoverArtUrl = buildCoverArtUrl,
                 shapes = stripShapes,
             )
@@ -1235,6 +1249,25 @@ internal fun HomeEditorialContent(
                                     },
                                 )
 
+                                // One lyric line Gemini Nano picked; a tap plays from it.
+                                HomeSection.LyricHighlight -> lyricHighlight?.let { card ->
+                                    LyricHighlightSection(
+                                        card = card,
+                                        buildCoverArtUrl = buildCoverArtUrl,
+                                        extractBackdropColors = shouldExtractBackdropColors,
+                                        onPlay = onLyricHighlightPlay,
+                                        onNext = onLyricHighlightNext,
+                                        modifier = remember(firstReveal) {
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .stagedBeat(
+                                                    progress = { firstReveal.payload },
+                                                    rise = 16.dp,
+                                                )
+                                        },
+                                    )
+                                }
+
                                 // What the other accounts play most; a tap switches and plays.
                                 HomeSection.OtherProfiles -> OtherProfilesSection(
                                     items = otherProfileItems,
@@ -1326,6 +1359,8 @@ internal data class HomeFeedBlock(val section: HomeSection, val placeholder: Boo
  */
 internal fun homeFeedBlocks(
     layout: HomeLayout,
+    // False for a section this device can never fill: no block, not even a placeholder while editing.
+    available: (HomeSection) -> Boolean = { true },
     hiding: Set<HomeSection>,
     editing: Boolean,
     held: HomeSection?,
@@ -1336,6 +1371,7 @@ internal fun homeFeedBlocks(
     return layout.sections.mapIndexedNotNull { index, state ->
         val section = state.section
         when {
+            !available(section) -> null
             !state.enabled && section !in hiding -> null
             hasContent(section) -> HomeFeedBlock(section, placeholder = false)
             !editing -> null
@@ -1501,6 +1537,7 @@ private fun homeStripCovers(
     playlists: List<LibraryPlaylist>,
     recentlyPlayed: List<Album>,
     otherProfileItems: List<OtherProfileItem>,
+    lyricHighlight: HomeLyricHighlight?,
     buildCoverArtUrl: (String) -> String,
     shapes: HomeStripShapes,
 ): List<StripCover> {
@@ -1539,6 +1576,9 @@ private fun homeStripCovers(
                 item.coverUrl,
                 if (item.kind == OtherProfileItem.Kind.Playlist) shapes.playlist else shapes.album,
             )
+        }
+        HomeSection.LyricHighlight -> listOfNotNull(lyricHighlight).map { card ->
+            stripCover(resolveHomeCoverArtUrl(CoverRef.fromStorageKey(card.coverKey), buildCoverArtUrl), shapes.song)
         }
     }
 }

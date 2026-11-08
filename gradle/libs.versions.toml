@@ -39,6 +39,9 @@ retrofitKotlinxSerialization = "1.0.0"
 kotlinxSerialization = "1.12.0"
 gson = "2.13.1"
 
+# On-device Gemini Nano (ML Kit GenAI Prompt API, AICore): Home's lyric highlights.
+genaiPrompt = "1.0.0-beta4"
+
 # Image
 coil = "3.4.0"
 
@@ -110,6 +113,7 @@ media3-cast = { group = "androidx.media3", name = "media3-cast", version.ref = "
 media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 
 # Cast
+genai-prompt = { group = "com.google.mlkit", name = "genai-prompt", version.ref = "genaiPrompt" }
 cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "castFramework" }
 
 # Google authorization (cloud sync)

@@ -312,6 +312,7 @@ class HomeEditControllerTest {
                 HomeSectionState(HomeSection.RecentlyPlayed, true),
                 HomeSectionState(HomeSection.YourPlaylists, true),
                 HomeSectionState(HomeSection.OtherProfiles, true),
+                HomeSectionState(HomeSection.LyricHighlight, true),
             ),
             h.controller.draft!!.sections,
         )
@@ -321,7 +322,7 @@ class HomeEditControllerTest {
 
         // Already first / last / not enabled: nothing happens.
         assertFalse(h.controller.move(HomeSection.RecentlyAdded, -1))
-        assertFalse(h.controller.move(HomeSection.OtherProfiles, 1))
+        assertFalse(h.controller.move(HomeSection.LyricHighlight, 1))
         assertFalse(h.controller.move(HomeSection.JumpBackIn, 1))
         assertEquals(1, h.applied.size)
         assertEquals(1, h.controller.undoDepth)
@@ -346,6 +347,7 @@ class HomeEditControllerTest {
             HomeSection.RecentlyPlayed,
             HomeSection.YourPlaylists,
             HomeSection.OtherProfiles,
+            HomeSection.LyricHighlight,
         )
         assertTrue(h.controller.commitOrder(order))
 

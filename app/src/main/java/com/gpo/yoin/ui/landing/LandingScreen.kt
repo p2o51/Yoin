@@ -58,6 +58,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.highlight.NanoStatus
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -65,6 +66,7 @@ import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.ShellChromeForm
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.experience.voteHighFrameRate
+import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.landing.guide.ConnectGuide
 import com.gpo.yoin.ui.navigation.back.LandingPredictiveBack
 import com.gpo.yoin.ui.settings.assignAvatarShapes
@@ -551,7 +553,16 @@ private fun LandingScene(
             imported = spotoolfyWritten,
         )
         LandingStep.AppleMusic -> AppleConnectScene(SetupService.AppleMusic in state.connected, reactions)
-        LandingStep.Home -> HomeSectionsScene(state.layout, vm::setSectionEnabled, vm::moveSection)
+        LandingStep.Home -> {
+            // 「歌词一句」 only where Gemini Nano is known to be there.
+            val nano by container.lyricHighlightProcessor.status.collectAsState()
+            HomeSectionsScene(
+                layout = state.layout,
+                onEnabled = vm::setSectionEnabled,
+                onMove = vm::moveSection,
+                hidden = if (nano == NanoStatus.AVAILABLE) emptySet() else setOf(HomeSection.LyricHighlight),
+            )
+        }
         LandingStep.Edge -> ScrollEdgeScene(selected = state.edge, playing = edgePlaying, onSelect = vm::setEdge)
         LandingStep.Ready -> ReadyScene(accounts)
     }

@@ -33,6 +33,7 @@
     <string name="home_section_recently_played">Recently Played</string>
     <string name="home_section_your_playlists">Your Playlists</string>
     <string name="home_section_other_profiles">On Your Other Accounts</string>
+    <string name="home_section_lyric_highlight">In a Line</string>
 
     <string name="home_section_activities_supporting">Your recent plays and visits</string>
     <string name="home_section_jump_back_in_supporting">Albums, songs and playlists</string>
@@ -41,6 +42,7 @@
     <string name="home_section_recently_played_supporting">Albums you played lately, on any device</string>
     <string name="home_section_your_playlists_supporting">Playlists in your library</string>
     <string name="home_section_other_profiles_supporting">Albums and playlists your other accounts play most</string>
+    <string name="home_section_lyric_highlight_supporting">One line from a song, picked on this phone by Gemini Nano</string>
 
     <string name="home_placeholder_activities">No recent activity</string>
     <string name="home_placeholder_jump_back_in">Nothing to jump back into</string>
@@ -49,6 +51,7 @@
     <string name="home_placeholder_recently_played">Nothing played lately</string>
     <string name="home_placeholder_your_playlists">No playlists in your library</string>
     <string name="home_placeholder_other_profiles">Nothing played on your other accounts lately</string>
+    <string name="home_placeholder_lyric_highlight">Listen a while and Gemini Nano picks the first line</string>
 
     <string name="home_other_profiles_switch_title">Switch to %1$s?</string>
     <string name="home_other_profiles_switch_body">To play %1$s, Yoin switches to that account first. What\'s playing now stops.</string>
@@ -152,6 +155,11 @@
     <string name="home_rediscover_cd_your_rating">Your rating %1$s</string>
     <string name="home_rediscover_cd_track_average">Track average %1$s</string>
     <string name="home_rediscover_play">Play</string>
+    <string name="home_lyric_play_from_line">Play from this line</string>
+    <string name="home_lyric_next">Another line</string>
+    <string name="home_lyric_kind_heavy">On repeat</string>
+    <string name="home_lyric_kind_rediscover">Been a while</string>
+    <string name="home_lyric_kind_fresh">Not heard yet</string>
 
     <string name="home_memories_label">Memories</string>
     <string name="home_memory_bubble_title">Memories</string>

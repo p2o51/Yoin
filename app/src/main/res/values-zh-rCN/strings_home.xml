@@ -33,6 +33,7 @@
     <string name="home_section_recently_played">最近播放</string>
     <string name="home_section_your_playlists">你的播放列表</string>
     <string name="home_section_other_profiles">在你的其他资料里</string>
+    <string name="home_section_lyric_highlight">歌词一句</string>
 
     <string name="home_section_activities_supporting">近期播放与访问记录</string>
     <string name="home_section_jump_back_in_supporting">专辑、歌曲与播放列表</string>
@@ -41,6 +42,7 @@
     <string name="home_section_recently_played_supporting">近期在任意设备上播放过的专辑</string>
     <string name="home_section_your_playlists_supporting">资料库中的播放列表</string>
     <string name="home_section_other_profiles_supporting">你的其他账号常听的专辑和播放列表</string>
+    <string name="home_section_lyric_highlight_supporting">手机上的 Gemini Nano 从歌里挑出的一句歌词</string>
 
     <string name="home_placeholder_activities">近期无动态</string>
     <string name="home_placeholder_jump_back_in">暂无可接着听的内容</string>
@@ -49,6 +51,7 @@
     <string name="home_placeholder_recently_played">近期无播放记录</string>
     <string name="home_placeholder_your_playlists">资料库中无播放列表</string>
     <string name="home_placeholder_other_profiles">其他账号最近没有播放</string>
+    <string name="home_placeholder_lyric_highlight">多听几首歌，Gemini Nano 会挑出第一句</string>
 
     <string name="home_other_profiles_switch_title">切换到「%1$s」？</string>
     <string name="home_other_profiles_switch_body">播放「%1$s」要先切换到这个账号，正在播放的内容会停下。</string>
@@ -136,6 +139,11 @@
     <string name="home_rediscover_cd_your_rating">你的评分 %1$s</string>
     <string name="home_rediscover_cd_track_average">曲目均分 %1$s</string>
     <string name="home_rediscover_play">播放</string>
+    <string name="home_lyric_play_from_line">从这句开始播放</string>
+    <string name="home_lyric_next">换一句</string>
+    <string name="home_lyric_kind_heavy">常听</string>
+    <string name="home_lyric_kind_rediscover">久违</string>
+    <string name="home_lyric_kind_fresh">初遇</string>
 
     <string name="home_memories_label">Memories</string>
     <string name="home_memory_bubble_title">Memories</string>

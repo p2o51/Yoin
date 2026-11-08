@@ -94,6 +94,17 @@ enum class HomeSection(
         defaultEnabled = true,
         appendEnabled = true,
     ),
+
+    // Owner 2026-11-08 (「歌词一句」): one lyric line Gemini Nano picked on this
+    // device (data/highlight/). Only phones with Nano ever have content, so it
+    // is on by default and for customized layouts too; elsewhere it never shows.
+    LyricHighlight(
+        id = "lyric_highlight",
+        title = "In a Line",
+        supportingText = "One line from a song, picked on this phone by Gemini Nano",
+        defaultEnabled = true,
+        appendEnabled = true,
+    ),
     ;
 
     /**
@@ -121,6 +132,7 @@ internal val HomeSection.titleRes: Int
         HomeSection.RecentlyPlayed -> R.string.home_section_recently_played
         HomeSection.YourPlaylists -> R.string.home_section_your_playlists
         HomeSection.OtherProfiles -> R.string.home_section_other_profiles
+        HomeSection.LyricHighlight -> R.string.home_section_lyric_highlight
     }
 
 @get:StringRes
@@ -133,6 +145,7 @@ internal val HomeSection.supportingRes: Int
         HomeSection.RecentlyPlayed -> R.string.home_section_recently_played_supporting
         HomeSection.YourPlaylists -> R.string.home_section_your_playlists_supporting
         HomeSection.OtherProfiles -> R.string.home_section_other_profiles_supporting
+        HomeSection.LyricHighlight -> R.string.home_section_lyric_highlight_supporting
     }
 
 @get:StringRes
@@ -145,6 +158,7 @@ internal val HomeSection.placeholderRes: Int
         HomeSection.RecentlyPlayed -> R.string.home_placeholder_recently_played
         HomeSection.YourPlaylists -> R.string.home_placeholder_your_playlists
         HomeSection.OtherProfiles -> R.string.home_placeholder_other_profiles
+        HomeSection.LyricHighlight -> R.string.home_placeholder_lyric_highlight
     }
 
 /**
@@ -273,13 +287,27 @@ data class HomeLayout(
      * index (proto.js withEnabledOrder). Returns `this` when [order] is the
      * current one or not a permutation of [enabledSections].
      */
-    fun withEnabledOrder(order: List<HomeSection>): HomeLayout {
+    fun withEnabledOrder(order: List<HomeSection>, unseen: Set<HomeSection> = emptySet()): HomeLayout {
         val enabled = enabledSections
-        if (order == enabled) return this
         val distinct = order.toSet()
-        if (order.size != enabled.size || distinct.size != order.size || distinct != enabled.toSet()) {
-            return this
-        }
+        if (distinct.size != order.size || !enabled.containsAll(distinct)) return this
+        // [unseen]: enabled sections the feed never shows on this device (「歌词一句」 without Gemini Nano), so an
+        // edit-mode carry can't include them. They keep their place in the enabled order; the rest fill around.
+        val missing = enabled.filterNot { it in distinct }
+        if (!unseen.containsAll(missing)) return this
+        val full = if (missing.isEmpty()) order else completeEnabledOrder(enabled, order) ?: return this
+        if (full == enabled) return this
+        return withFullEnabledOrder(full)
+    }
+
+    private fun completeEnabledOrder(enabled: List<HomeSection>, order: List<HomeSection>): List<HomeSection>? {
+        val shown = order.toSet()
+        if (shown.isEmpty()) return null
+        val next = order.iterator()
+        return enabled.map { section -> if (section in shown) next.next() else section }
+    }
+
+    private fun withFullEnabledOrder(order: List<HomeSection>): HomeLayout {
         // Each moved section takes its own state (rows, settings) with it.
         val byStateSection = sections.filter { it.enabled }.associateBy { it.section }
         val next = order.iterator()

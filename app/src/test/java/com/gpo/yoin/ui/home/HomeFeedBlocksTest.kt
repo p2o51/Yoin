@@ -44,6 +44,7 @@ class HomeFeedBlocksTest {
                 HomeFeedBlock(HomeSection.RecentlyPlayed, placeholder = true),
                 HomeFeedBlock(HomeSection.YourPlaylists, placeholder = true),
                 HomeFeedBlock(HomeSection.OtherProfiles, placeholder = true),
+                HomeFeedBlock(HomeSection.LyricHighlight, placeholder = true),
             ),
             blocks(editing = true),
         )
@@ -54,7 +55,7 @@ class HomeFeedBlocksTest {
         // Recently Added lifted at entry: the empty Jump Back In above it waits, Rediscover below doesn't.
         val held = blocks(editing = true, held = HomeSection.RecentlyAdded, open = false)
         assertEquals(
-            listOf(HomeSection.Activities, HomeSection.RecentlyAdded, HomeSection.Rediscover, HomeSection.RecentlyPlayed, HomeSection.YourPlaylists, HomeSection.OtherProfiles),
+            listOf(HomeSection.Activities, HomeSection.RecentlyAdded, HomeSection.Rediscover, HomeSection.RecentlyPlayed, HomeSection.YourPlaylists, HomeSection.OtherProfiles, HomeSection.LyricHighlight),
             held.map { it.section },
         )
 

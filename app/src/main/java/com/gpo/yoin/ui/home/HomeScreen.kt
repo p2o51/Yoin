@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -70,6 +71,8 @@ private const val HomeLoadingIndicatorDelayMillis = 180L
 
 private val NoOtherProfileItems = MutableStateFlow(emptyList<OtherProfileItem>())
 private val NoticeAlreadySeen = MutableStateFlow(true)
+private val NoLyricHighlight = MutableStateFlow<HomeLyricHighlight?>(null)
+private val NoLyricHighlightDevice = MutableStateFlow(false)
 
 /** How Home's hold on the header avatar ends ([HomeAccountHold]). */
 private enum class HomeHoldEnd { HandBack, FadeAway, Release }
@@ -111,6 +114,8 @@ fun HomeScreen(
     accountSwitcher: AccountSwitcherViewModel? = null,
     // On Your Other Accounts: its items, and playing one once switched (null = no shelf).
     otherProfiles: OtherProfilesViewModel? = null,
+    // 「歌词一句」: the Gemini Nano lyric line (null = no section).
+    lyricHighlights: LyricHighlightViewModel? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val loadingReportsPressure by viewModel.loadingReportsPressure.collectAsState()
@@ -121,6 +126,13 @@ fun HomeScreen(
     val buildCoverArtUrl by viewModel.coverArtUrlBuilder.collectAsState()
     val otherProfileItems by (otherProfiles?.items ?: NoOtherProfileItems).collectAsState()
     val otherProfilesNoticeSeen by (otherProfiles?.noticeSeen ?: NoticeAlreadySeen).collectAsState()
+    val lyricHighlight by (lyricHighlights?.card ?: NoLyricHighlight).collectAsState()
+    val lyricHighlightAvailable by (lyricHighlights?.available ?: NoLyricHighlightDevice).collectAsState()
+    // Each return to Home (after a while) brings another line.
+    LifecycleStartEffect(lyricHighlights) {
+        lyricHighlights?.onHomeShown()
+        onStopOrDispose { }
+    }
     // The item whose first tap asks before switching (the one-off notice).
     var confirmingItem by remember { mutableStateOf<OtherProfileItem?>(null) }
     val switchAndPlay: (OtherProfileItem) -> Unit = remember(accountSwitcher, otherProfiles) {
@@ -190,6 +202,10 @@ fun HomeScreen(
                     confirmingItem = item
                 }
             },
+            lyricHighlight = lyricHighlight,
+            lyricHighlightAvailable = lyricHighlightAvailable,
+            onLyricHighlightPlay = { card -> lyricHighlights?.play(card) },
+            onLyricHighlightNext = { lyricHighlights?.next() },
         )
     }
 }
@@ -245,6 +261,10 @@ fun HomeContent(
     // On Your Other Accounts' items, and a tap on one.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
+    lyricHighlight: HomeLyricHighlight? = null,
+    lyricHighlightAvailable: Boolean = false,
+    onLyricHighlightPlay: (HomeLyricHighlight) -> Unit = {},
+    onLyricHighlightNext: () -> Unit = {},
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -420,6 +440,10 @@ fun HomeContent(
                                 recentlyPlayed = feed.recentlyPlayed,
                                 otherProfileItems = otherProfileItems,
                                 onOtherProfileItemClick = onOtherProfileItemClick,
+                                lyricHighlight = lyricHighlight,
+                                lyricHighlightAvailable = lyricHighlightAvailable,
+                                onLyricHighlightPlay = onLyricHighlightPlay,
+                                onLyricHighlightNext = onLyricHighlightNext,
                                 memoryPill = feed.memoryPill,
                                 homeCovered = homeCovered,
                                 sections = sections,

@@ -132,6 +132,7 @@ import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.home.LocalMemoryBubbleShell
+import com.gpo.yoin.ui.home.LyricHighlightViewModel
 import com.gpo.yoin.ui.home.OtherProfilesViewModel
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
@@ -884,6 +885,8 @@ private fun YoinShell(
     val accountSwitcher: AccountSwitcherViewModel = viewModel(factory = AccountSwitcherViewModel.Factory(app.container))
     // Home's On Your Other Accounts shelf: a tap switches here, then plays.
     val otherProfiles: OtherProfilesViewModel = viewModel(factory = OtherProfilesViewModel.Factory(app.container, app))
+    // Home's 「歌词一句」: the Gemini Nano lyric line, on devices that have Nano.
+    val lyricHighlights: LyricHighlightViewModel = viewModel(factory = LyricHighlightViewModel.Factory(app.container))
     val switchFailedMessage by rememberUpdatedState(stringResource(R.string.settings_switch_failed))
     LaunchedEffect(accountSwitcher) {
         accountSwitcher.switchFailures.collect {
@@ -1033,6 +1036,7 @@ private fun YoinShell(
                                 viewModel = homeViewModel,
                                 accountSwitcher = accountSwitcher,
                                 otherProfiles = otherProfiles,
+                                lyricHighlights = lyricHighlights,
                                 isPlaying = isPlaying,
                                 activeSongId = currentTrack?.id?.toString(),
                                 // Something above Home owns the screen (Now
