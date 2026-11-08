@@ -41,6 +41,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.currentScreenCornerRadius
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -56,8 +57,8 @@ import kotlin.math.roundToInt
 internal fun ScreenCornerControl(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val haptics = rememberYoinHaptics()
-    remember(context) { ScreenCorners.ensureLoaded(context) }
-    val radius = ScreenCorners.radius
+    // Loads the stored choice before the first read.
+    val radius = currentScreenCornerRadius()
     val following = ScreenCorners.userRadius == null
     val reported = ScreenCorners.deviceRadius
     var dragging by remember { mutableStateOf(false) }
