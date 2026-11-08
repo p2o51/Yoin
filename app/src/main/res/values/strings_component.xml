@@ -64,7 +64,7 @@
     <string name="cmp_devices_empty_other">No devices found.</string>
     <string name="cmp_devices_cd_current">Current device</string>
     <string name="cmp_devices_more_title">More devices…</string>
-    <string name="cmp_devices_more_body">Pick Sonos and other speakers in Spotify. Yoin keeps control when you\'re back.</string>
+    <string name="cmp_devices_more_body">Sonos and other speakers, through Spotify. Yoin keeps control.</string>
 
     <string name="cmp_playlist_sheet_title">Add to playlist</string>
     <string name="cmp_playlist_create_row">Create new playlist…</string>

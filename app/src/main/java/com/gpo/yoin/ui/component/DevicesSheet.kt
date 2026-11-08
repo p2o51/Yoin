@@ -32,17 +32,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.YoinDevice
-import com.gpo.yoin.player.SpotifyAppRemoteCompat
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinContainerShapes
@@ -82,7 +86,32 @@ fun DevicesSheet(
         onPauseOrDispose { }
     }
     val context = LocalContext.current
+    val windowInfo = LocalWindowInfo.current
+    val scope = rememberCoroutineScope()
     var moreDevicesFailed by rememberSaveable { mutableStateOf(false) }
+    // The system output panel takes focus without pausing Yoin: read the devices again
+    // when focus comes back (a speaker may have been picked there).
+    LaunchedEffect(windowInfo) {
+        var hadFocus = windowInfo.isWindowFocused
+        snapshotFlow { windowInfo.isWindowFocused }.collect { focused ->
+            if (focused && !hadFocus) onRefresh()
+            hadFocus = focused
+        }
+    }
+    // Spotify's device picker, inside Yoin when Android's output switcher opens for Spotify;
+    // the Spotify app otherwise.
+    val openSpotifyPicker: () -> Unit = {
+        moreDevicesFailed = false
+        if (SpotifyOutputSwitcher.request(context)) {
+            scope.launch {
+                delay(SpotifyOutputSwitcher.SHOW_WAIT_MS)
+                // Still focused: the system panel didn't come up (another Android, or refused).
+                if (windowInfo.isWindowFocused) moreDevicesFailed = !SpotifyOutputSwitcher.openSpotify(context)
+            }
+        } else {
+            moreDevicesFailed = !SpotifyOutputSwitcher.openSpotify(context)
+        }
+    }
     val openFailedMessage = stringResource(R.string.np_msg_spotify_open_failed)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -190,7 +219,12 @@ fun DevicesSheet(
                             busy = busyDeviceId == device.id,
                             onClick = {
                                 haptics.performContextClick()
-                                onSelect(device)
+                                // Sonos and the like take no Web API transfer: Spotify's picker does it.
+                                if (device is YoinDevice.SpotifyConnect && device.spotifyOnly) {
+                                    if (!device.isActive) openSpotifyPicker()
+                                } else {
+                                    onSelect(device)
+                                }
                             },
                         )
                     }
@@ -202,9 +236,7 @@ fun DevicesSheet(
                             MoreDevicesRow(
                                 onClick = {
                                     haptics.performTick()
-                                    val intent = SpotifyAppRemoteCompat.launchIntent(context)
-                                    moreDevicesFailed = intent == null ||
-                                        runCatching { context.startActivity(intent) }.isFailure
+                                    openSpotifyPicker()
                                 },
                             )
                         }

@@ -212,7 +212,7 @@
     <string name="np_device_connected_cast">正在投播</string>
     <string name="np_device_use_cast_pill">未投播</string>
     <string name="np_device_spotify_remembered">最近用过 · 可能要先在 Spotify 里唤醒</string>
-    <string name="np_device_spotify_only">在 Spotify 里切换到它</string>
+    <string name="np_device_spotify_only">通过 Spotify 切换</string>
     <string name="np_msg_spotify_device_asleep">这台音响睡着了。先在 Spotify 里选它一次（更多设备），Yoin 就能接着控制。</string>
     <string name="np_msg_spotify_open_failed">无法打开 Spotify。</string>
     <string name="np_device_dlna_error_discovery">无法发现音响。请连接同一 Wi-Fi 网络后重试。</string>
