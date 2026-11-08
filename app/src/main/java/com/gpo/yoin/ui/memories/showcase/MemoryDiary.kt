@@ -408,7 +408,6 @@ internal fun DiaryBlocks(
             onSave = { text -> host.saveReview(memory, text) },
             onConfirm = { haptics.confirm("review saved") },
             modifier = entryBlock,
-            fromOtherProfile = memory.isFromOtherProfile,
         )
     }
     if (liner) {

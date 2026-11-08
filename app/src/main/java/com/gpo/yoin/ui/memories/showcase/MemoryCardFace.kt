@@ -376,7 +376,6 @@ internal fun MemoryCardFace(
                     CardExcerpt(
                         candidate = excerpts[index],
                         maxWidth = metrics.excerptMaxWidth,
-                        fromOtherProfile = memory.otherProfile != null,
                         modifier = morph?.let { m -> Modifier.graphicsLayer { with(m) { excerpt() } } } ?: Modifier,
                     )
                 }.first().measure(inner)
@@ -530,12 +529,7 @@ internal fun MemoryExhibitShow(
 }
 
 @Composable
-private fun CardExcerpt(
-    candidate: MemoryExcerptCandidate,
-    maxWidth: Dp,
-    fromOtherProfile: Boolean,
-    modifier: Modifier = Modifier,
-) {
+private fun CardExcerpt(candidate: MemoryExcerptCandidate, maxWidth: Dp, modifier: Modifier = Modifier) {
     Column(
         // the quote and its signature are one reading
         modifier = modifier.widthIn(max = maxWidth).semantics(mergeDescendants = true) { },
@@ -551,7 +545,7 @@ private fun CardExcerpt(
             )
             Spacer(Modifier.height(ExcerptAttributionGap))
         }
-        ExcerptAttribution(candidate.attribution, fromOtherProfile)
+        ExcerptAttribution(candidate.attribution)
     }
 }
 
@@ -696,17 +690,12 @@ internal fun cardArtistStyle(): TextStyle =
 internal fun attributionStyle(): TextStyle =
     cardText(GoogleSansFlex, FontWeight.Medium, 12.sp, 1.3f).copy(letterSpacing = 0.1.sp)
 
-/**
- * Small label, then the date or note detail. No joining glyph, no "in Diary". Another account's words aren't
- * "yours": they read just "Review" / "Note".
- */
+/** Small label, then the date or note detail. No joining glyph, no "in Diary". */
 @Composable
-private fun ExcerptAttribution(
-    attribution: MemoryExcerptAttribution,
-    fromOtherProfile: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val label = stringResource(writingLabel(attribution.kind == MemoryExcerptKind.REVIEW, fromOtherProfile))
+private fun ExcerptAttribution(attribution: MemoryExcerptAttribution, modifier: Modifier = Modifier) {
+    val label = stringResource(
+        if (attribution.kind == MemoryExcerptKind.REVIEW) R.string.mem_review_yours else R.string.mem_note_yours,
+    )
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -855,12 +844,4 @@ private fun MemoryCardFacePreview() {
             )
         }
     }
-}
-
-/** The label over a review or note: "Your …" for the account in use, just "Review" / "Note" for another's. */
-internal fun writingLabel(review: Boolean, fromOtherProfile: Boolean): Int = when {
-    review && fromOtherProfile -> R.string.mem_review_theirs
-    review -> R.string.mem_review_yours
-    fromOtherProfile -> R.string.mem_note_theirs
-    else -> R.string.mem_note_yours
 }
