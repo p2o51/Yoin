@@ -166,9 +166,8 @@
     <string name="home_cd_bubble_latest_by">Memories。最新：%1$s，%2$s</string>
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
-    <!-- Copy by Argon (Gemini) via .argon/agy-yoin, filled in before merge. -->
-    <string name="home_tip_memory_ledger_title">ARGON_TITLE</string>
-    <string name="home_tip_memory_ledger">ARGON_LINE</string>
+    <string name="home_tip_memory_ledger_title">全部回忆</string>
+    <string name="home_tip_memory_ledger">点首页的「全部回忆」按月浏览所有回忆；在日历格上点某一格，就只看那一段时间</string>
     <string name="home_tip_memories_all_accounts_title">各账号的回忆</string>
     <string name="home_tip_memories_all_accounts">Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号</string>
     <string name="home_tip_spotify_speakers_title">连接更多音箱</string>
