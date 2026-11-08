@@ -56,13 +56,22 @@ internal class AlbumMemoryFacts(
 /**
  * Reads [AlbumMemoryFacts] for [albumId]. A failed album, rating-row or notes read degrades to nothing (the
  * deck has always done so); a failed track-ratings read throws, as it did in the deck.
+ *
+ * [profileId] reads another account's rows (the deck shows every account's memories); null = the account in
+ * use. Another account's album detail comes from its disk cache only, never the network.
  */
-internal suspend fun loadAlbumMemoryFacts(repository: YoinRepository, albumId: MediaId): AlbumMemoryFacts {
-    val album = runCatching { repository.getAlbum(albumId) }.getOrNull()
+internal suspend fun loadAlbumMemoryFacts(
+    repository: YoinRepository,
+    albumId: MediaId,
+    profileId: String? = null,
+): AlbumMemoryFacts {
+    val album = runCatching {
+        if (profileId == null) repository.getAlbum(albumId) else repository.getCachedAlbumFor(profileId, albumId)
+    }.getOrNull()
     val songs = album?.tracks.orEmpty()
-    val ratings = repository.getRatings(songs.map(Track::id))
+    val ratings = repository.getRatings(songs.map(Track::id), profileId)
     // 用户的字：乐评行 + album/song 笔记，deck 每卡一次快照读取。
-    val ratingRow = runCatching { repository.getAlbumRatingRow(albumId) }.getOrNull()
+    val ratingRow = runCatching { repository.getAlbumRatingRow(albumId, profileId) }.getOrNull()
     val review = ratingRow?.review?.takeIf(String::isNotBlank)?.let { text ->
         MemoryWriting(
             kind = MemoryWriting.Kind.REVIEW,
@@ -71,7 +80,7 @@ internal suspend fun loadAlbumMemoryFacts(repository: YoinRepository, albumId: M
             writtenAt = ratingRow.reviewUpdatedAt ?: ratingRow.updatedAt,
         )
     }
-    val writings = runCatching { loadAlbumWritings(repository, albumId, songs) }.getOrDefault(emptyList())
+    val writings = runCatching { loadAlbumWritings(repository, albumId, songs, profileId) }.getOrDefault(emptyList())
     return AlbumMemoryFacts(
         albumId = albumId,
         album = album,
@@ -90,8 +99,9 @@ internal suspend fun loadAlbumWritings(
     repository: YoinRepository,
     albumId: MediaId,
     songs: List<Track>,
+    profileId: String? = null,
 ): List<MemoryWriting> {
-    val albumNotes = repository.getAlbumNotesOnce(albumId).map { note ->
+    val albumNotes = repository.getAlbumNotesOnce(albumId, profileId).map { note ->
         MemoryWriting(
             kind = MemoryWriting.Kind.ALBUM_NOTE,
             text = note.content,
@@ -100,7 +110,7 @@ internal suspend fun loadAlbumWritings(
         )
     }
     val titlesByRawId = songs.associate { song -> song.id.rawId to song.title }
-    val songNotes = repository.getSongNotesOnce(songs.map(Track::id)).map { note ->
+    val songNotes = repository.getSongNotesOnce(songs.map(Track::id), profileId).map { note ->
         MemoryWriting(
             kind = MemoryWriting.Kind.SONG_NOTE,
             text = note.content,
@@ -124,14 +134,18 @@ internal suspend fun loadAlbumWritings(
  * [YoinRepository.getOrGenerateAlbumMemoryTitle], which may ask Gemini when the occupant writing changed.
  * Without it (every other surface), or without a loaded album, only the cached row is read — never a request.
  * Null on a miss or a failed read: the album name takes the slot.
+ *
+ * [profileId] reads another account's cached title (never generated: Gemini writes for the account in use);
+ * null = the account in use.
  */
 internal suspend fun albumMemoryAiTitle(
     repository: YoinRepository,
     facts: AlbumMemoryFacts,
     generate: Boolean,
+    profileId: String? = null,
 ): String? {
     val album = facts.album
-    if (generate && album != null) {
+    if (generate && profileId == null && album != null) {
         val occupant = facts.titleOccupant
         return runCatching {
             repository.getOrGenerateAlbumMemoryTitle(
@@ -146,7 +160,7 @@ internal suspend fun albumMemoryAiTitle(
         }.getOrNull()
     }
     return try {
-        repository.getCachedAlbumMemoryTitle(album?.id ?: facts.albumId)
+        repository.getCachedAlbumMemoryTitle(album?.id ?: facts.albumId, profileId)
     } catch (cancellation: CancellationException) {
         throw cancellation
     } catch (_: Exception) {

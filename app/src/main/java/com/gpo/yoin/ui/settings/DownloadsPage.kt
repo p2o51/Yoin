@@ -37,6 +37,7 @@ import com.gpo.yoin.data.offline.OfflineDownloads
 import com.gpo.yoin.data.offline.OfflineEntry
 import com.gpo.yoin.data.offline.OfflineStatus
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.PlaylistDetailActivity
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -84,7 +85,7 @@ internal fun DownloadsPageContent(modifier: Modifier = Modifier) {
             text = stringResource(R.string.settings_downloads_quality_note),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp),
+            modifier = Modifier.padding(horizontal = 8.dp).seamFade(),
         )
         SettingsSegments {
             item {
@@ -124,7 +125,7 @@ internal fun DownloadsPageContent(modifier: Modifier = Modifier) {
                         text = stringResource(R.string.settings_downloads_list_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(16.dp).seamFade(),
                     )
                 }
             }
@@ -211,7 +212,7 @@ private fun ChoiceRow(label: String, detail: String?, selected: Boolean, onClick
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(horizontal = 8.dp))
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(modifier = Modifier.weight(1f).seamFade(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(text = label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             if (detail != null) {
                 Text(

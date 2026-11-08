@@ -102,6 +102,7 @@ import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.SeamTopPreference
 import com.gpo.yoin.ui.component.SeamTopStyle
 import com.gpo.yoin.ui.component.YoinDropdownMenu
@@ -112,6 +113,9 @@ import com.gpo.yoin.ui.component.currentSeamTopStyle
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.nameRes
+import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.detail.DetailBackButton
 import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -123,13 +127,16 @@ import com.gpo.yoin.ui.settings.sync.CloudSyncActivity
 import com.gpo.yoin.ui.settings.sync.CloudSyncSettingsRow
 import com.gpo.yoin.ui.spotoolfy.SpotoolfyRecapActivity
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.animateFloatAsPacedState
+import com.gpo.yoin.ui.theme.currentScreenCornerRadius
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** Deep-link targets for [SettingsActivity]'s `focusSection` extra. */
 object SettingsFocus {
@@ -356,6 +363,8 @@ fun SettingsContent(
                             // Full width on every window (user, 2026-10-04):
                             // a centred reading column under a full-bleed
                             // card row read as two layouts.
+                            // Rows break up and text fades under the bar, as in Library (owner 2026-11-08).
+                            .seamDissolveViewport(top = SeamTop.Chrome) { scrollState.value.toFloat() }
                             .verticalScroll(scrollState)
                             .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                     ) {
@@ -443,6 +452,13 @@ fun SettingsContent(
                                                 listDetail = listDetail,
                                                 selected = openFeature == SettingsFeature.ScrollEdge,
                                                 onOpenPage = { onOpenFeature(SettingsFeature.ScrollEdge) },
+                                            )
+                                        }
+                                        item(key = SettingsFeature.ScreenCorners, paintsOwnSegment = listDetail) {
+                                            ScreenCornersItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.ScreenCorners,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.ScreenCorners) },
                                             )
                                         }
                                     }
@@ -549,6 +565,7 @@ internal fun SettingsHeadline(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = titleModifier
                 .padding(horizontal = 8.dp)
+                .seamFade(MaterialTheme.typography.displaySmall.fontSize)
                 .semantics { heading() },
         )
         Spacer(Modifier.height(36.dp))
@@ -769,7 +786,7 @@ private fun ProfileAccountRow(
                     ringColor = LocalSettingsRowColor.current,
                     size = 40.dp,
                 )
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).seamFade()) {
                     Text(
                         text = card.title,
                         style = MaterialTheme.typography.titleMedium,
@@ -830,7 +847,7 @@ private fun ProfileAccountRow(
 private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
     val haptics = rememberYoinHaptics()
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().seamDissolve(),
         shape = YoinContainerShapes.Panel,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -839,7 +856,11 @@ private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.settings_accounts_empty_title), style = MaterialTheme.typography.titleLarge)
+            Text(
+                stringResource(R.string.settings_accounts_empty_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.seamFade(),
+            )
             Button(
                 onClick = {
                     haptics.performClick()
@@ -906,6 +927,7 @@ private fun ProfileCardTile(
                 scaleY = scale
             }
             .testTag("account_card_${card.id}")
+            .seamDissolve()
             .semantics {
                 selected = card.isActive
                 onClick(label = tapLabel) {
@@ -975,7 +997,7 @@ private fun ProfileCardTile(
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(end = 12.dp),
+                modifier = Modifier.padding(end = 12.dp).seamFade(),
             )
             serviceLineGroups(
                 stringResource(identity.nameRes),
@@ -984,7 +1006,7 @@ private fun ProfileCardTile(
             )?.let { groups ->
                 ServiceLine(
                     groups = groups,
-                    modifier = Modifier.padding(end = 12.dp),
+                    modifier = Modifier.padding(end = 12.dp).seamFade(),
                 )
             }
             AccountStatusPill(card = card, modifier = Modifier.padding(top = 10.dp))
@@ -1063,7 +1085,8 @@ private fun AddAccountTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
         modifier = modifier
             .width(112.dp)
             .fillMaxHeight()
-            .testTag("add_account"),
+            .testTag("add_account")
+            .seamDissolve(),
         shape = YoinContainerShapes.Card,
         color = settingsSurfaces().row,
         contentColor = MaterialTheme.colorScheme.primary,
@@ -1077,7 +1100,11 @@ private fun AddAccountTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
         ) {
             Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.size(28.dp))
-            Text(stringResource(R.string.settings_accounts_add_short), style = MaterialTheme.typography.labelLarge)
+            Text(
+                stringResource(R.string.settings_accounts_add_short),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.seamFade(),
+            )
         }
     }
 }
@@ -1468,7 +1495,7 @@ internal fun SelectableSegment(
         color = container,
         shape = shape,
         // The open row is the selected one for TalkBack, too.
-        modifier = Modifier.semantics { this.selected = selected },
+        modifier = Modifier.seamDissolve().semantics { this.selected = selected },
     ) {
         CompositionLocalProvider(LocalSettingsRowShape provides shape, LocalSettingsRowColor provides container) {
             content()
@@ -1487,7 +1514,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1502,6 +1529,11 @@ internal fun SettingsFeatureScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (feature == SettingsFeature.ScreenCorners) {
+        // A page of its own: the whole window is its preview, no list scaffold.
+        ScreenCornersPage(onBackClick = onBackClick, modifier = modifier)
+        return
+    }
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -1522,6 +1554,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
+        SettingsFeature.ScreenCorners -> stringResource(R.string.settings_motion_screen_corners)
         SettingsFeature.StreamQuality -> stringResource(R.string.settings_stream_quality_title)
         SettingsFeature.VolumeLeveling -> stringResource(R.string.settings_volume_leveling_title)
         SettingsFeature.Downloads -> stringResource(R.string.settings_downloads_title)
@@ -1560,13 +1593,15 @@ internal fun SettingsFeatureScreen(
                 snackbarHost = { YoinSnackbarHost(snackbarHostState) },
             ) { innerPadding ->
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                val scrollState = rememberScrollState()
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .imePadding()
                         .padding(innerPadding)
                         .onGloballyPositioned { viewportTop.floatValue = it.positionInWindow().y }
-                        .verticalScroll(rememberScrollState())
+                        .seamDissolveViewport(top = SeamTop.Chrome) { scrollState.value.toFloat() }
+                        .verticalScroll(scrollState)
                         .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                 ) {
                     SettingsHeadline(
@@ -1617,7 +1652,8 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.ScrollEdge, SettingsFeature.StreamQuality, SettingsFeature.VolumeLeveling,
+                                    SettingsFeature.ScrollEdge, SettingsFeature.ScreenCorners, SettingsFeature.StreamQuality,
+                                    SettingsFeature.VolumeLeveling,
                                     SettingsFeature.Downloads,
                                     SettingsFeature.Tips,
                                     SettingsFeature.PlaylistBackups, SettingsFeature.Licenses,
@@ -1651,6 +1687,27 @@ private fun ScrollEdgeItem(
         FeaturePageRow(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › Motion › Screen corners: opens its page (ScreenCornersPage). Android only. */
+@Composable
+private fun ScreenCornersItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_motion_screen_corners)
+    val radius = currentScreenCornerRadius().value.roundToInt()
+    val summary = if (ScreenCorners.userRadius == null) {
+        stringResource(R.string.screen_corners_summary_follow, radius)
+    } else {
+        stringResource(R.string.screen_corners_value, radius)
+    }
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Smartphone, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Smartphone, title = title, summary = summary, onClick = onOpenPage)
     }
 }
 

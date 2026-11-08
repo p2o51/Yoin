@@ -255,7 +255,13 @@ internal fun rememberCardMetrics(
                     val detailH = detail?.let { h(it, attribution, excerptWidth, maxLines = 1) } ?: 0f
                     quote + maxOf(labelH, detailH)
                 }
-                val slot = avail - teaser - gap - exhibit - clear
+                // another account's memory: its「来自 …」line under the buttons
+                val owner = if (memory.otherProfile != null && memory.entityType == MemoryEntityType.ALBUM) {
+                    (OtherProfileLineCardGap + OtherProfileLineHeight).value
+                } else {
+                    0f
+                }
+                val slot = avail - teaser - owner - gap - exhibit - clear
                 val excerpt = pickExcerpt(candidates, slot.roundToInt()) { block(it).roundToInt() }?.let(::block) ?: 0f
                 avail - exhibit - excerpt - gap - teaser
             }
@@ -627,6 +633,16 @@ private fun CardTeaser(
                     )
                 }
             }
+        }
+        // Another account's memory: whose it is, right by Go to album (which switches there). Under the
+        // row, which already holds two buttons and never wraps.
+        val owner = memory.otherProfile
+        if (owner != null && memory.entityType == MemoryEntityType.ALBUM) {
+            MemoryOtherProfileLine(
+                owner = owner,
+                tones = tones,
+                modifier = Modifier.padding(top = OtherProfileLineCardGap),
+            )
         }
     }
 }

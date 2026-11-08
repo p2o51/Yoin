@@ -1,7 +1,9 @@
 package com.gpo.yoin.ui.navigation.back
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.theme.ScreenCorners
 
 object BackMotionTokens {
     /**
@@ -12,10 +14,12 @@ object BackMotionTokens {
     const val PopPageScaleTarget = 0.9f
 
     /**
-     * Corner radius the popped page clips to while shrinking; stand-in for
-     * the device window corner radius the system animation uses.
+     * Corner radius the popped page clips to while shrinking: the screen's own
+     * corner (ScreenCorners — the user's setting, else what the display
+     * reports, else 28dp), as the system animation uses the window's. A
+     * snapshot read: read it where it is drawn (layer / draw blocks).
      */
-    val PopPageCornerRadius = 28.dp
+    val PopPageCornerRadius: Dp get() = ScreenCorners.radius
 
     /**
      * Memories' retreat to Home from the card body (and from the end of the

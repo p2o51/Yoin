@@ -55,6 +55,72 @@ class MemoriesDeckCoordinatorTest {
     }
 
     @Test
+    fun should_deal_other_accounts_memories_marked_with_their_account() = runTest {
+        val own = buildAlbumCandidates(count = 1)
+        val theirs = buildAlbumCandidates(count = 1).single().copy(profileId = "profile-b", albumId = "album-b")
+        val coordinator = buildCoordinator(own)
+        val bob = MemoryOtherProfile(id = "profile-b", name = "Bob", shape = 2)
+        coordinator.otherProfiles = OtherMemoryProfiles {
+            listOf(MemoryProfileSource(bob, "subsonic") { ref, _ -> "bob:$ref" })
+        }
+        coEvery {
+            repository.getOtherProfileAlbumMemoryCandidates("profile-b", "subsonic", any(), any())
+        } returns listOf(theirs)
+        coEvery { repository.awaitActiveSource(any()) } returns null
+        every { repository.currentProfileId() } returns "profile-a"
+        coEvery { repository.getCachedAlbumFor("profile-b", any()) } returns null
+        coEvery { repository.getAlbumRatingRow(any(), any()) } returns null
+        coEvery { repository.getAlbumNotesOnce(any(), any()) } returns emptyList()
+        coEvery { repository.getSongNotesOnce(any(), any()) } returns emptyList()
+        coEvery { repository.getRatings(any(), any()) } returns emptyMap()
+        coEvery { repository.getCachedAlbumMemoryTitle(any(), any()) } returns null
+        coEvery { repository.getOrGenerateAlbumMemoryTitle(any(), any(), any()) } returns null
+        every { repository.resolveCoverUrl(any(), any()) } returns null
+
+        val deck = coordinator.ensureDeck()
+
+        assertEquals(2, deck.size)
+        val mine = deck.single { it.entityId == "album-1" }
+        val other = deck.single { it.entityId == "album-b" }
+        assertNull(mine.otherProfile)
+        assertFalse(mine.isFromOtherProfile)
+        assertEquals(bob, other.otherProfile)
+        assertTrue(other.isFromOtherProfile)
+        assertEquals("album:profile-b:subsonic:album-b", other.stableId)
+        // another account's album is read from its own disk cache, never through the account in use
+        coVerify(exactly = 0) { repository.getAlbum(MediaId("subsonic", "album-b")) }
+    }
+
+    @Test
+    fun should_keep_rebuilding_pool_while_only_other_accounts_have_memories() = runTest {
+        val coordinator = buildCoordinator(emptyList())
+        val bob = MemoryOtherProfile(id = "profile-b", name = "Bob")
+        coordinator.otherProfiles = OtherMemoryProfiles {
+            listOf(MemoryProfileSource(bob, "subsonic") { _, _ -> null })
+        }
+        val theirs = buildAlbumCandidates(count = 1).single().copy(profileId = "profile-b", albumId = "album-b")
+        coEvery {
+            repository.getOtherProfileAlbumMemoryCandidates("profile-b", "subsonic", any(), any())
+        } returns listOf(theirs)
+        // cold start: the account in use has no source yet
+        coEvery { repository.awaitActiveSource(any()) } returns null
+        every { repository.currentProfileId() } returns "profile-a"
+        coEvery { repository.getCachedAlbumFor(any(), any()) } returns null
+        coEvery { repository.getAlbumRatingRow(any(), any()) } returns null
+        coEvery { repository.getAlbumNotesOnce(any(), any()) } returns emptyList()
+        coEvery { repository.getSongNotesOnce(any(), any()) } returns emptyList()
+        coEvery { repository.getRatings(any(), any()) } returns emptyMap()
+        coEvery { repository.getCachedAlbumMemoryTitle(any(), any()) } returns null
+        every { repository.resolveCoverUrl(any(), any()) } returns null
+
+        assertEquals(1, coordinator.ensureDeck().size)
+        coordinator.advanceDeck(MemoryDeckDirection.Forward)
+
+        // the account in use is asked again: its memories join once its source is up
+        coVerify(exactly = 2) { repository.getAlbumMemoryCandidates(limit = 48) }
+    }
+
+    @Test
     fun should_replace_current_deck_when_advancing() = runTest {
         val candidates = buildAlbumCandidates(count = 8)
         val coordinator = buildCoordinator(candidates)

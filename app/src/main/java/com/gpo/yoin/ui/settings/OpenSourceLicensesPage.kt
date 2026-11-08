@@ -24,6 +24,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /** A license the app ships the full text of, in res/raw. */
@@ -80,7 +81,7 @@ internal fun OpenSourceLicensesPageContent(modifier: Modifier = Modifier) {
             text = stringResource(R.string.settings_licenses_intro),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 16.dp),
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 16.dp).seamFade(),
         )
         SettingsSegments {
             OpenSourceComponents.forEach { component ->
