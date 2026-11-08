@@ -56,11 +56,11 @@ internal object ContinueOnWindows {
     }
 
     /** A hand-off [intent] started the shell: show its card. True when it was one (its extras are then cleared). */
+    @Suppress("DEPRECATION")
     fun receive(activity: ComponentActivity, intent: Intent?): Boolean {
         val extras = intent?.extras ?: return false
         if (!extras.containsKey(ContinueOnCursor.KEY_VERSION)) return false
         val continueOn = (activity.application as YoinApplication).container.continueOn
-        @Suppress("DEPRECATION")
         val received = continueOn.receive { key -> extras.get(key) }
         // Read once: a recreated window must not show the card again.
         ContinueOnCursor.KEY_PREFIXED.forEach(intent::removeExtra)
