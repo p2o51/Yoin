@@ -647,6 +647,7 @@ internal fun AlbumTrackRow(
     }
     UnavailableTrackReason(
         visible = song.isUnavailable && showUnavailableReason,
+        reason = if (song.isNotStreamed) stringResource(R.string.cmp_unavailable_apple_not_streamed) else null,
         contentPadding = PaddingValues(start = 38.dp, end = 14.dp, bottom = 10.dp),
     )
     }

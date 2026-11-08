@@ -38,6 +38,7 @@
     <string name="player_cast_device_initial">投播设备</string>
     <string name="player_apple_music_preparing">正在准备播放…</string>
     <string name="player_apple_music_connecting">正在连接 Apple Music…</string>
+    <string name="player_apple_music_error_code">%1$s（错误 %2$s）</string>
     <string name="player_apple_music_play_failed">Apple Music 无法播放此歌曲。请重试或换一首歌曲。</string>
     <string name="player_apple_music_io_failed">Apple Music 无法加载此歌曲。请检查网络后重试。</string>
     <string name="player_apple_music_drm_failed">Apple Music 无法解锁此歌曲的播放权限。请在 Apple Music 应用中尝试播放。</string>

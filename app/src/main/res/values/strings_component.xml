@@ -124,6 +124,7 @@
     <string name="cmp_lyrics_empty">No lyrics available</string>
     <string name="cmp_wave_note">Note</string>
     <string name="cmp_unavailable_cd">Why can\'t this play</string>
+    <string name="cmp_unavailable_apple_not_streamed">Apple Music doesn\'t stream this song in your region yet.</string>
     <string name="cmp_unavailable_apple_import">This song was imported to your library and isn\'t in the Apple Music catalog. Play it in the Apple Music app.</string>
     <string name="cmp_library_cd_added">In Apple Music library</string>
     <string name="cmp_library_cd_pending">Check library addition</string>
