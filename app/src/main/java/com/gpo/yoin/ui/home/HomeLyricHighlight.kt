@@ -492,6 +492,7 @@ private fun LyricHighlightCard(
                 .padding(LyricCardPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // The song beside its cover, title over artist (owner 2026-11-08).
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -504,13 +505,23 @@ private fun LyricHighlightCard(
                     interactionSource = interactionSource,
                     modifier = Modifier.size(LyricCardArtSize),
                 )
-                card.kind?.let { kind ->
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = stringResource(kind.labelRes),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = colors.ink,
+                        text = card.title,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.content,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    if (card.artist.isNotBlank()) {
+                        Text(
+                            text = card.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.contentMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
             Text(
@@ -528,21 +539,23 @@ private fun LyricHighlightCard(
                 // recycled neighbour's text and left it ghosting over the peeking card (Pixel 11, 11-08).
                 modifier = Modifier.weight(1f),
             )
-            Text(
-                text = listOf(card.title, card.artist).filter(String::isNotBlank).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.contentMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // How the song has been heard, bottom left; nothing for a song not heard yet.
+            card.kind?.labelRes?.let { label ->
+                Text(
+                    text = stringResource(label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.ink,
+                    maxLines = 1,
+                )
+            }
         }
     }
 }
 
-private val LyricHighlightSelector.Bucket.labelRes: Int
+private val LyricHighlightSelector.Bucket.labelRes: Int?
     get() = when (this) {
         LyricHighlightSelector.Bucket.HEAVY -> R.string.home_lyric_kind_heavy
         LyricHighlightSelector.Bucket.REDISCOVER -> R.string.home_lyric_kind_rediscover
-        LyricHighlightSelector.Bucket.FRESH -> R.string.home_lyric_kind_fresh
+        LyricHighlightSelector.Bucket.FRESH -> null
         LyricHighlightSelector.Bucket.USER -> R.string.home_lyric_kind_user
     }

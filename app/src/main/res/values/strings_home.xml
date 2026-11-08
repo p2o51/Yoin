@@ -158,7 +158,6 @@
     <string name="home_lyric_play_from_line">Play from this line</string>
     <string name="home_lyric_kind_heavy">On repeat</string>
     <string name="home_lyric_kind_rediscover">Been a while</string>
-    <string name="home_lyric_kind_fresh">Not heard yet</string>
     <string name="home_lyric_kind_user">Your pick</string>
     <plurals name="home_edit_lyric_cards">
         <item quantity="one">%1$d card</item>
