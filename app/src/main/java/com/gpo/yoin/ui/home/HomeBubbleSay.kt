@@ -40,6 +40,7 @@ internal enum class HomeBubbleTip(
     val updated: LocalDate,
     private val symbol: () -> ImageVector,
 ) {
+    MemoriesAllAccounts(R.string.home_tip_memories_all_accounts_title, R.string.home_tip_memories_all_accounts, day(2026, 11, 8), { YoinSymbols.Memory }),
     SpotifySpeakers(R.string.home_tip_spotify_speakers_title, R.string.home_tip_spotify_speakers, day(2026, 11, 8), { YoinSymbols.Speaker }),
     AccountQuickSwitch(R.string.home_tip_account_quick_switch_title, R.string.home_tip_account_quick_switch, day(2026, 11, 6), { YoinSymbols.Person }),
     MiniPlayerMenu(R.string.home_tip_mini_player_menu_title, R.string.home_tip_mini_player_menu, day(2026, 11, 4), { YoinSymbols.PlayCircle }),
