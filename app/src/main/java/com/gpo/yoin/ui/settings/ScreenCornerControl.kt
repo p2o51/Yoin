@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -76,7 +76,8 @@ internal fun ScreenCornerControl(modifier: Modifier = Modifier) {
     var lastWhole by remember { mutableFloatStateOf(radius.value.roundToInt().toFloat()) }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+            // Fixed height: "Match screen" (a 48dp target) appearing mid-drag must not move the slider.
             Text(
                 text = if (following) {
                     stringResource(R.string.screen_corners_summary_follow, radius.value.roundToInt())
