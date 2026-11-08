@@ -87,6 +87,8 @@ abstract class YoinDatabase : RoomDatabase() {
 
     abstract fun trackAlbumLinkDao(): TrackAlbumLinkDao
 
+    abstract fun memoryLedgerDao(): MemoryLedgerDao
+
     abstract fun importBatchDao(): ImportBatchDao
 
     abstract fun playlistBackupDao(): PlaylistBackupDao

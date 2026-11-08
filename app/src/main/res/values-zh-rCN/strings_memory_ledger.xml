@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="memory_ledger_title">全部回忆</string>
+    <string name="memory_ledger_scale_month">一格一个月</string>
+    <string name="memory_ledger_scale_week">一格一周</string>
+    <string name="memory_ledger_scale_day">一格一天</string>
+    <string name="memory_ledger_scale_hint">%1$s · 写得越多格子越细</string>
+    <plurals name="memory_ledger_writings_label">
+        <item quantity="other">笔回忆</item>
+    </plurals>
+    <plurals name="memory_ledger_scores_label">
+        <item quantity="other">个评分</item>
+    </plurals>
+    <string name="memory_ledger_open">打开全部回忆</string>
+
+    <string name="memory_ledger_stat_albums">张专辑</string>
+    <string name="memory_ledger_stat_writings">条笔记和短评</string>
+    <string name="memory_ledger_stat_characters">个字</string>
+    <string name="memory_ledger_stat_rated">首歌打了分</string>
+
+    <string name="memory_ledger_filter_all">全部</string>
+    <string name="memory_ledger_filter_writing">文字</string>
+    <string name="memory_ledger_filter_scores">评分</string>
+    <string name="memory_ledger_filter_all_profiles">全部资料</string>
+    <string name="memory_ledger_range_clear">看全部</string>
+
+    <plurals name="memory_ledger_month_count">
+        <item quantity="other">%d 条</item>
+    </plurals>
+    <plurals name="memory_ledger_month_caption">
+        <item quantity="other">%d 笔</item>
+    </plurals>
+    <plurals name="memory_ledger_scores_folded">
+        <item quantity="other">还打了 %d 次分</item>
+    </plurals>
+    <string name="memory_ledger_quiet_one">%1$s没有写</string>
+    <string name="memory_ledger_quiet_range">%1$s到%2$s没有写</string>
+    <string name="memory_ledger_range_empty">这段时间没有留下什么。</string>
+
+    <string name="memory_ledger_kind_album_note">专辑笔记</string>
+    <string name="memory_ledger_kind_song_note">歌曲笔记</string>
+    <string name="memory_ledger_kind_review">短评</string>
+    <string name="memory_ledger_kind_title">标题</string>
+    <string name="memory_ledger_kind_album_rating">专辑评分</string>
+    <string name="memory_ledger_kind_track_rating">歌曲评分</string>
+    <string name="memory_ledger_unknown_album">不知道是哪张专辑</string>
+    <string name="memory_ledger_from">来自 %1$s</string>
+
+    <string name="memory_ledger_since">从 %1$s 开始记。所有资料算同一个人。</string>
+    <string name="memory_ledger_empty_title">还没有回忆</string>
+    <string name="memory_ledger_empty_body">听歌时写下一笔，或者给专辑打个分，就会出现在这里。</string>
+</resources>

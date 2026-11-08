@@ -33,6 +33,7 @@
     <string name="home_section_recently_played">最近播放</string>
     <string name="home_section_your_playlists">你的播放列表</string>
     <string name="home_section_other_profiles">在你的其他资料里</string>
+    <string name="home_section_memory_grid">全部回忆</string>
 
     <string name="home_section_activities_supporting">近期播放与访问记录</string>
     <string name="home_section_jump_back_in_supporting">专辑、歌曲与播放列表</string>
@@ -41,6 +42,7 @@
     <string name="home_section_recently_played_supporting">近期在任意设备上播放过的专辑</string>
     <string name="home_section_your_playlists_supporting">资料库中的播放列表</string>
     <string name="home_section_other_profiles_supporting">你的其他账号常听的专辑和播放列表</string>
+    <string name="home_section_memory_grid_supporting">所有笔记和评分，格子跟着你写的多少变</string>
 
     <string name="home_placeholder_activities">近期无动态</string>
     <string name="home_placeholder_jump_back_in">暂无可接着听的内容</string>
@@ -49,6 +51,7 @@
     <string name="home_placeholder_recently_played">近期无播放记录</string>
     <string name="home_placeholder_your_playlists">资料库中无播放列表</string>
     <string name="home_placeholder_other_profiles">其他账号最近没有播放</string>
+    <string name="home_placeholder_memory_grid">还没有回忆</string>
 
     <string name="home_other_profiles_switch_title">切换到「%1$s」？</string>
     <string name="home_other_profiles_switch_body">播放「%1$s」要先切换到这个账号，正在播放的内容会停下。</string>

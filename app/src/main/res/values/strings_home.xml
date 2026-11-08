@@ -33,6 +33,7 @@
     <string name="home_section_recently_played">Recently Played</string>
     <string name="home_section_your_playlists">Your Playlists</string>
     <string name="home_section_other_profiles">On Your Other Accounts</string>
+    <string name="home_section_memory_grid">All Memories</string>
 
     <string name="home_section_activities_supporting">Your recent plays and visits</string>
     <string name="home_section_jump_back_in_supporting">Albums, songs and playlists</string>
@@ -41,6 +42,7 @@
     <string name="home_section_recently_played_supporting">Albums you played lately, on any device</string>
     <string name="home_section_your_playlists_supporting">Playlists in your library</string>
     <string name="home_section_other_profiles_supporting">Albums and playlists your other accounts play most</string>
+    <string name="home_section_memory_grid_supporting">Every note and score, on a grid that grows with you</string>
 
     <string name="home_placeholder_activities">No recent activity</string>
     <string name="home_placeholder_jump_back_in">Nothing to jump back into</string>
@@ -49,6 +51,7 @@
     <string name="home_placeholder_recently_played">Nothing played lately</string>
     <string name="home_placeholder_your_playlists">No playlists in your library</string>
     <string name="home_placeholder_other_profiles">Nothing played on your other accounts lately</string>
+    <string name="home_placeholder_memory_grid">No memories yet</string>
 
     <string name="home_other_profiles_switch_title">Switch to %1$s?</string>
     <string name="home_other_profiles_switch_body">To play %1$s, Yoin switches to that account first. What\'s playing now stops.</string>

@@ -157,6 +157,7 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
 import com.gpo.yoin.ui.home.edit.AllHiddenKey
 import com.gpo.yoin.ui.home.edit.FooterEntryKey
 import com.gpo.yoin.ui.home.edit.GatedPlacementSpec
@@ -297,6 +298,9 @@ internal fun HomeEditorialContent(
     // What the other accounts play most (HomeOtherProfiles.kt); a tap switches and plays.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
+    // The Memories grid (HomeMemoryLedger.kt; null = not loaded) and opening All Memories.
+    memoryLedger: MemoryLedgerState? = null,
+    onOpenMemoryLedger: () -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
@@ -705,7 +709,8 @@ internal fun HomeEditorialContent(
         rediscover,
         recentlyPlayed,
         playlists,
-        otherProfileItems
+        otherProfileItems,
+        memoryLedger
     ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
@@ -724,6 +729,7 @@ internal fun HomeEditorialContent(
                         HomeSection.RecentlyPlayed -> recentlyPlayed.isNotEmpty()
                         HomeSection.YourPlaylists -> playlists.isNotEmpty()
                         HomeSection.OtherProfiles -> otherProfileItems.isNotEmpty()
+                        HomeSection.MemoryGrid -> memoryLedger?.isEmpty == false
                     }
                 },
             )
@@ -892,6 +898,7 @@ internal fun HomeEditorialContent(
         playlists,
         recentlyPlayed,
         otherProfileItems,
+        memoryLedger,
         buildCoverArtUrl,
         stripShapes,
     ) {
@@ -906,6 +913,7 @@ internal fun HomeEditorialContent(
                 playlists = playlists,
                 recentlyPlayed = recentlyPlayed,
                 otherProfileItems = otherProfileItems,
+                memoryLedger = memoryLedger,
                 buildCoverArtUrl = buildCoverArtUrl,
                 shapes = stripShapes,
             )
@@ -1251,6 +1259,23 @@ internal fun HomeEditorialContent(
                                             )
                                     },
                                 )
+
+                                // Every memory on a grid; a tap opens All Memories.
+                                HomeSection.MemoryGrid -> memoryLedger?.let { ledger ->
+                                    MemoryLedgerSection(
+                                        state = ledger,
+                                        extractBackdropColors = shouldExtractBackdropColors,
+                                        onOpen = onOpenMemoryLedger,
+                                        modifier = remember(firstReveal) {
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .stagedBeat(
+                                                    progress = { firstReveal.payload },
+                                                    rise = 16.dp,
+                                                )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -1501,6 +1526,7 @@ private fun homeStripCovers(
     playlists: List<LibraryPlaylist>,
     recentlyPlayed: List<Album>,
     otherProfileItems: List<OtherProfileItem>,
+    memoryLedger: MemoryLedgerState?,
     buildCoverArtUrl: (String) -> String,
     shapes: HomeStripShapes,
 ): List<StripCover> {
@@ -1540,6 +1566,12 @@ private fun homeStripCovers(
                 if (item.kind == OtherProfileItem.Kind.Playlist) shapes.playlist else shapes.album,
             )
         }
+        // The albums the latest memories are about, newest first.
+        HomeSection.MemoryGrid -> memoryLedger?.entries.orEmpty()
+            .mapNotNull { entry -> entry.album?.let { memoryLedger?.coverUrls?.get(it.key) } }
+            .distinct()
+            .take(count)
+            .map { url -> stripCover(url, shapes.album) }
     }
 }
 

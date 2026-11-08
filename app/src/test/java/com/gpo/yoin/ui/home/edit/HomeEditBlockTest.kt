@@ -205,6 +205,7 @@ class HomeEditBlockTest {
                 HomeSection.RecentlyPlayed,
                 HomeSection.YourPlaylists,
                 HomeSection.OtherProfiles,
+                HomeSection.MemoryGrid,
             ),
             deps.controller.draft!!.enabledSections,
         )

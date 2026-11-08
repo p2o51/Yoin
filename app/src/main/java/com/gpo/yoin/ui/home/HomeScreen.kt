@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -53,6 +54,9 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.home.edit.HomeEditController
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerActivity
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerViewModel
 import com.gpo.yoin.ui.settings.ProfileCard
 import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -70,6 +74,7 @@ private const val HomeLoadingIndicatorDelayMillis = 180L
 
 private val NoOtherProfileItems = MutableStateFlow(emptyList<OtherProfileItem>())
 private val NoticeAlreadySeen = MutableStateFlow(true)
+private val NoMemoryLedger = MutableStateFlow<MemoryLedgerState?>(null)
 
 /** How Home's hold on the header avatar ends ([HomeAccountHold]). */
 private enum class HomeHoldEnd { HandBack, FadeAway, Release }
@@ -111,8 +116,12 @@ fun HomeScreen(
     accountSwitcher: AccountSwitcherViewModel? = null,
     // On Your Other Accounts: its items, and playing one once switched (null = no shelf).
     otherProfiles: OtherProfilesViewModel? = null,
+    // The Memories grid's ledger (null = no grid).
+    memoryLedger: MemoryLedgerViewModel? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val memoryLedgerState by (memoryLedger?.state ?: NoMemoryLedger).collectAsState()
+    val context = LocalContext.current
     val loadingReportsPressure by viewModel.loadingReportsPressure.collectAsState()
     val homeLayout by viewModel.homeLayout.collectAsState()
     // A section new since the last edit session waits in the tray (Q6a).
@@ -190,6 +199,8 @@ fun HomeScreen(
                     confirmingItem = item
                 }
             },
+            memoryLedger = memoryLedgerState,
+            onOpenMemoryLedger = { context.startActivity(MemoryLedgerActivity.intent(context)) },
         )
     }
 }
@@ -245,6 +256,9 @@ fun HomeContent(
     // On Your Other Accounts' items, and a tap on one.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
+    // The Memories grid, and opening All Memories.
+    memoryLedger: MemoryLedgerState? = null,
+    onOpenMemoryLedger: () -> Unit = {},
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -420,6 +434,8 @@ fun HomeContent(
                                 recentlyPlayed = feed.recentlyPlayed,
                                 otherProfileItems = otherProfileItems,
                                 onOtherProfileItemClick = onOtherProfileItemClick,
+                                memoryLedger = memoryLedger,
+                                onOpenMemoryLedger = onOpenMemoryLedger,
                                 memoryPill = feed.memoryPill,
                                 homeCovered = homeCovered,
                                 sections = sections,

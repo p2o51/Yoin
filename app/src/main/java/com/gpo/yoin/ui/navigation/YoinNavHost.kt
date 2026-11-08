@@ -134,6 +134,7 @@ import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.home.LocalMemoryBubbleShell
 import com.gpo.yoin.ui.home.OtherProfilesViewModel
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerViewModel
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
 import com.gpo.yoin.ui.home.rememberMemoryBubbleShell
@@ -889,6 +890,8 @@ private fun YoinShell(
     val accountSwitcher: AccountSwitcherViewModel = viewModel(factory = AccountSwitcherViewModel.Factory(app.container))
     // Home's On Your Other Accounts shelf: a tap switches here, then plays.
     val otherProfiles: OtherProfilesViewModel = viewModel(factory = OtherProfilesViewModel.Factory(app.container, app))
+    // Home's Memories grid: every account's memories, kept fresh as they're written.
+    val memoryLedger: MemoryLedgerViewModel = viewModel(factory = MemoryLedgerViewModel.Factory(app.container))
     val switchFailedMessage by rememberUpdatedState(stringResource(R.string.settings_switch_failed))
     LaunchedEffect(accountSwitcher) {
         accountSwitcher.switchFailures.collect {
@@ -1038,6 +1041,7 @@ private fun YoinShell(
                                 viewModel = homeViewModel,
                                 accountSwitcher = accountSwitcher,
                                 otherProfiles = otherProfiles,
+                                memoryLedger = memoryLedger,
                                 isPlaying = isPlaying,
                                 activeSongId = currentTrack?.id?.toString(),
                                 // Something above Home owns the screen (Now
