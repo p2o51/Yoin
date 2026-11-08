@@ -14,7 +14,12 @@ sealed interface YoinDevice {
         val spotifyType: String,
         override val isSelectable: Boolean = true,
         override val statusText: String? = null,
-    ) : YoinDevice
+    ) : YoinDevice {
+        companion object {
+            /** Row key for a device Spotify names without an id (a Sonos it plays on). */
+            fun noIdKey(name: String): String = "spotify-no-id:${name.trim()}"
+        }
+    }
 
     data class LocalPlayback(
         override val isActive: Boolean,
