@@ -268,21 +268,24 @@ class ContinueOn internal constructor(
             startPositionMs = position,
         )
         playback.setPlayMode(PlayMode.of(cursor.repeatMode, cursor.shuffle))
-        if (!cursor.playing) playback.pause()
         requestNowPlaying()
-        // Spotify starts from the top: move it to the spot once it plays the song.
-        if (spotify && position > 0L) seekWhenStarted(track.id, position)
+        // Spotify starts from the top: it moves to the spot once it plays the song. A song paused on the
+        // other device is held here too, once it is loaded (a start always plays).
+        val seek = position.takeIf { spotify && it > 0L }
+        if (seek != null || !cursor.playing) afterStart(track.id, spotify, seek, pause = !cursor.playing)
         return if (answer == ContinueOnPauseClient.Answer.Unreachable) TakeOver.OtherStillPlaying else TakeOver.Paused
     }
 
-    private fun seekWhenStarted(trackId: MediaId, positionMs: Long) {
+    private fun afterStart(trackId: MediaId, spotify: Boolean, seekMs: Long?, pause: Boolean) {
         scope.launch {
-            withTimeoutOrNull(SPOTIFY_START_WAIT_MS) {
-                playback.playbackState.first {
-                    it.connectionPhase == ConnectionPhase.Ready && it.currentTrack?.id == trackId
+            withTimeoutOrNull(START_WAIT_MS) {
+                playback.playbackState.first { state ->
+                    state.currentTrack?.id == trackId &&
+                        (!spotify || state.connectionPhase == ConnectionPhase.Ready)
                 }
             } ?: return@launch
-            playback.seekTo(positionMs)
+            seekMs?.let(playback::seekTo)
+            if (pause) playback.pause()
         }
     }
 
@@ -356,7 +359,7 @@ class ContinueOn internal constructor(
         private const val MAX_SONG_READS = 30
         private const val PARALLEL_READS = 6
         private const val SOURCE_WAIT_MS = 10_000L
-        private const val SPOTIFY_START_WAIT_MS = 15_000L
+        private const val START_WAIT_MS = 15_000L
         private const val STILL_PLAYING_NOTE_MS = 6_000L
     }
 }

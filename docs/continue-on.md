@@ -53,5 +53,6 @@ five wrong tokens, or two minutes. When it can't be reached (a router that
 isolates its devices), this device plays anyway and the card says the other
 one may still be playing.
 
-Yoin targets API 36. Targeting 37 brings Android 17's local network
-permission, which this channel (and DLNA) will then need.
+Yoin targets API 36. Android 17 restricts local network access for apps that
+target it; moving to target 37 will need that permission for this channel
+(and for DLNA).
