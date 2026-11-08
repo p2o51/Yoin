@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +102,10 @@ internal fun MemoryLedgerScreen(
     onBackClick: () -> Unit,
     onOpenAlbum: (MemoryLedgerEntry) -> Unit,
     modifier: Modifier = Modifier,
+    // The cell picked on the grid (its index); hoisted so the Tips demo can pick one.
+    selectedCellState: MutableState<Int?> = rememberSaveable { mutableStateOf(null) },
+    // Names the grid for the Tips demo's touch.
+    gridModifier: Modifier = Modifier,
 ) {
     val title = stringResource(R.string.memory_ledger_title)
     val viewportTop = remember { mutableFloatStateOf(0f) }
@@ -108,7 +113,7 @@ internal fun MemoryLedgerScreen(
     val headlineHeight = remember { mutableFloatStateOf(1f) }
     var filter by rememberSaveable { mutableStateOf(MemoryLedgerFilter.All) }
     var profileFilter by rememberSaveable { mutableStateOf<String?>(null) }
-    var selectedCell by rememberSaveable { mutableStateOf<Int?>(null) }
+    var selectedCell by selectedCellState
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         SettingsPageBackground(modifier = modifier) {
             Scaffold(
@@ -219,7 +224,7 @@ internal fun MemoryLedgerScreen(
                                     "—"
                                 }
                             },
-                            modifier = Modifier.widthIn(max = 640.dp),
+                            modifier = Modifier.widthIn(max = 640.dp).then(gridModifier),
                         )
                     }
                     item("filters") {

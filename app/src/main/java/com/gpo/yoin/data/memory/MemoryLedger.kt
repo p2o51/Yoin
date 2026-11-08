@@ -56,7 +56,7 @@ data class MemoryLedgerEntry(
     val album: MemoryLedgerAlbum?,
     /** A note's or review's text, or the title itself. */
     val text: String? = null,
-    /** The song a song note or track score is about. */
+    /** The song a song note or track score is about, when known. */
     val trackTitle: String? = null,
     /** Where in the song a note was written (ms). */
     val positionMs: Long? = null,
@@ -117,6 +117,8 @@ suspend fun buildMemoryLedger(
     rows: MemoryLedgerRows,
     profileIds: Set<String>?,
     lookup: LedgerAlbumLookup = LedgerAlbumLookup { _, _, _ -> null },
+    // A scored song's name Yoin never saw played or noted: from its album's cached tracks.
+    trackTitle: suspend (album: MemoryLedgerAlbum, songId: String) -> String? = { _, _ -> null },
 ): List<MemoryLedgerEntry> {
     fun counts(profileId: String) = profileIds == null || profileId in profileIds
     val albums = HashMap<String, MemoryLedgerAlbum?>()
@@ -221,12 +223,25 @@ suspend fun buildMemoryLedger(
     }
     rows.trackRatings.filter { counts(it.profileId) }.forEach { row ->
         val score = row.rating ?: return@forEach
+        val album = album(row.profileId, row.provider, row.linkedAlbumId)
+        // Which song was scored: two scores on one album must read apart.
+        val title = row.title?.takeIf { it.isNotBlank() }
+            ?: album?.let { known ->
+                try {
+                    trackTitle(known, MediaId.storedRawId(row.provider, row.songId))
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    null
+                }
+            }?.takeIf { it.isNotBlank() }
         out += MemoryLedgerEntry(
             id = "track-rating:${row.profileId}|${row.provider}|${row.songId}",
             kind = MemoryLedgerKind.TrackRating,
             at = row.updatedAt,
             profileId = row.profileId,
-            album = album(row.profileId, row.provider, row.linkedAlbumId),
+            album = album,
+            trackTitle = title,
             score = score,
         )
     }

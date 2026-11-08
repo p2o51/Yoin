@@ -15,6 +15,7 @@ import com.gpo.yoin.data.memory.MemoryLedgerStats
 import com.gpo.yoin.data.memory.buildMemoryGrid
 import com.gpo.yoin.data.memory.buildMemoryLedger
 import com.gpo.yoin.data.memory.memoryLedgerStats
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.ProfileCredentials
@@ -35,6 +36,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
@@ -84,7 +86,9 @@ class MemoryLedgerViewModel internal constructor(
 ) : ViewModel() {
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val state: StateFlow<MemoryLedgerState?> = combine(dao.changes(), profileCards) { _, cards -> cards }
+    val state: StateFlow<MemoryLedgerState?> = combine(dao.changes().distinctUntilChanged(), profileCards) { _, cards ->
+        cards
+    }
         .mapLatest(::load)
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -98,12 +102,25 @@ class MemoryLedgerViewModel internal constructor(
             titles = dao.titles(),
             albumFacts = dao.albumFacts(),
         )
+        // Each album's cached detail, read once a pass: names, covers and a scored song's title.
+        val cached = HashMap<String, Album?>()
+        suspend fun cachedAlbum(profileId: String, provider: String, albumId: String): Album? {
+            val key = "$profileId|$provider|$albumId"
+            if (key !in cached) cached[key] = repository.getCachedAlbumFor(profileId, MediaId(provider, albumId))
+            return cached[key]
+        }
         // Only accounts that still exist: a removed account's rows aren't anyone's memories now.
         val entries = buildMemoryLedger(
             rows = rows,
             profileIds = cards.mapTo(HashSet()) { it.id },
+            trackTitle = { album, songId ->
+                cachedAlbum(album.profileId, album.provider, album.albumId)
+                    ?.tracks
+                    ?.firstOrNull { it.id.rawId == songId }
+                    ?.title
+            },
             lookup = LedgerAlbumLookup { profileId, provider, albumId ->
-                repository.getCachedAlbumFor(profileId, MediaId(provider, albumId))?.let { album ->
+                cachedAlbum(profileId, provider, albumId)?.let { album ->
                     MemoryLedgerAlbum(
                         profileId = profileId,
                         provider = provider,

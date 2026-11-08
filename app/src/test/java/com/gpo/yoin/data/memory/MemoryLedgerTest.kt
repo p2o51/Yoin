@@ -144,6 +144,27 @@ class MemoryLedgerTest {
         assertEquals(at(today.minusDays(40)), stats.firstAt)
     }
 
+    @Test
+    fun should_nameScoredSong_fromRow_elseFromAlbumTracks() = runTest {
+        val rows = MemoryLedgerRows(
+            trackRatings = listOf(
+                trackScore("a", "t1", "x", today).copy(title = "Played"),
+                trackScore("a", "t2", "x", today),
+                trackScore("a", "t3", null, today),
+            ),
+            albumFacts = listOf(fact("a", "x")),
+        )
+
+        val entries = buildMemoryLedger(rows, profileIds = null, trackTitle = { _, songId ->
+            if (songId == "t2") "From the album" else null
+        })
+
+        val titles = entries.associate { it.id.substringAfterLast('|') to it.trackTitle }
+        assertEquals("Played", titles["t1"])
+        assertEquals("From the album", titles["t2"])
+        assertNull(titles["t3"])
+    }
+
     // ── buildMemoryGrid ────────────────────────────────────────────────
 
     private fun album(id: String) = MemoryLedgerAlbum("a", "subsonic", id, id, "", null)

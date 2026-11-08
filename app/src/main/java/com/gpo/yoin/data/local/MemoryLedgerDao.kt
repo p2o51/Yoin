@@ -35,7 +35,12 @@ interface MemoryLedgerDao {
         "SELECT r.profileId AS profileId, r.provider AS provider, r.songId AS songId, r.rating AS rating, " +
             "r.updatedAt AS updatedAt, COALESCE(l.albumId, (" +
             "SELECT ph.albumId FROM play_history ph WHERE ph.profileId = r.profileId AND ph.provider = r.provider " +
-            "AND ph.songId = r.songId AND ph.albumId != '' LIMIT 1)) AS linkedAlbumId " +
+            "AND ph.songId = r.songId AND ph.albumId != '' LIMIT 1)) AS linkedAlbumId, " +
+            // The song's name: from a Yoin play of it, else from a note on it.
+            "COALESCE((SELECT ph.title FROM play_history ph WHERE ph.profileId = r.profileId " +
+            "AND ph.provider = r.provider AND ph.songId = r.songId AND ph.title != '' LIMIT 1), " +
+            "(SELECT n.title FROM song_notes n WHERE n.profileId = r.profileId AND n.provider = r.provider " +
+            "AND n.trackId = r.songId AND n.title != '' LIMIT 1)) AS title " +
             "FROM local_ratings r LEFT JOIN track_album_links l " +
             "ON l.profileId = r.profileId AND l.provider = r.provider AND l.trackId = r.songId " +
             "WHERE r.rating IS NOT NULL",
@@ -53,15 +58,18 @@ interface MemoryLedgerDao {
     suspend fun albumFacts(): List<LedgerAlbumFactRow>
 
     /**
-     * Changes whenever any of the ledger's tables does (Room re-runs it on each write to them), so the
-     * ledger can reload. The value itself means nothing.
+     * Changes whenever any table the ledger reads does (Room re-runs it on each write to them), so the
+     * ledger can reload: the memories themselves, and what names their albums (a track's album link, a
+     * play). The value itself means nothing.
      */
     @Query(
         "SELECT (SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM album_notes) + " +
             "(SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM song_notes) + " +
             "(SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM album_ratings) + " +
             "(SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM local_ratings) + " +
-            "(SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM album_memory_titles)",
+            "(SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM album_memory_titles) + " +
+            "(SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM track_album_links) + " +
+            "(SELECT COUNT(*) + IFNULL(MAX(playedAt), 0) FROM play_history)",
     )
     fun changes(): Flow<Long>
 }
@@ -78,6 +86,8 @@ data class LedgerTrackRatingRow(
     val rating: Float?,
     val updatedAt: Long,
     val linkedAlbumId: String?,
+    /** The song's name, when Yoin played it or a note names it. */
+    val title: String? = null,
 )
 
 data class LedgerAlbumFactRow(
