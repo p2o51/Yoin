@@ -60,7 +60,6 @@ import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.seamDissolve
-import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.home.edit.LocalHomeEditCardScope
 import com.gpo.yoin.ui.home.edit.homeEditCard
 import com.gpo.yoin.ui.home.edit.homeEditInteractive
@@ -511,7 +510,6 @@ private fun LyricHighlightCard(
                         style = MaterialTheme.typography.labelMedium,
                         color = colors.ink,
                         maxLines = 1,
-                        modifier = Modifier.seamFade(),
                     )
                 }
             }
@@ -526,9 +524,9 @@ private fun LyricHighlightCard(
                 color = colors.content,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .weight(1f)
-                    .seamFade(),
+                // No seamFade on the card's text: inside a swiping shelf the card's print lifted a
+                // recycled neighbour's text and left it ghosting over the peeking card (Pixel 11, 11-08).
+                modifier = Modifier.weight(1f),
             )
             Text(
                 text = listOf(card.title, card.artist).filter(String::isNotBlank).joinToString(" · "),
@@ -536,7 +534,6 @@ private fun LyricHighlightCard(
                 color = colors.contentMuted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.seamFade(),
             )
         }
     }

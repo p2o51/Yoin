@@ -57,7 +57,6 @@ import com.gpo.yoin.ui.home.HomeRowPreset
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.lyricCards
 import com.gpo.yoin.ui.theme.YoinMotion
-import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 /** Test tag of 「歌词一句」's count handle. */
@@ -160,7 +159,8 @@ private fun BoxScope.HomeLyricCountHandle(deps: HomeEditDeps, itemSpacing: Dp) {
                                 scope.launch { drag.reveal.snapTo(maxOf(drag.reveal.value, open)) }
                                 if (drag.reveal.value >= 1f || open >= 1f) {
                                     val from = anchorY ?: dy.also { anchorY = it }
-                                    val next = (start + ((dy - from) / pitchPx).roundToInt())
+                                    // Whole steps only (toward zero), so the pull that opens the dots never counts.
+                                    val next = (start + ((dy - from) / pitchPx).toInt())
                                         .coerceIn(LyricMinCount, LyricMaxCount)
                                     if (next != drag.count) {
                                         drag.count = next
