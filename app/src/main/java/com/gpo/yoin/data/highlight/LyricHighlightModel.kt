@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.highlight
 
 import android.util.Log
+import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.Generation
@@ -11,6 +12,7 @@ import com.google.mlkit.genai.prompt.generateContentRequest
 import com.google.mlkit.genai.prompt.generationConfig
 import com.google.mlkit.genai.prompt.modelConfig
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -39,6 +41,9 @@ interface LyricHighlightModel {
     suspend fun status(): NanoStatus
 
     suspend fun baseModelName(): String?
+
+    /** Fetches the model when [status] says DOWNLOADABLE; true once it is on the device. */
+    suspend fun download(): Boolean
 
     suspend fun answer(prompt: String): NanoAnswer
 }
@@ -75,6 +80,20 @@ class GeminiNanoLyricModel : LyricHighlightModel {
             // No AICore at all (most devices) throws rather than answering UNAVAILABLE.
             Log.i(TAG, "Gemini Nano unavailable: ${e.javaClass.simpleName} ${e.message}")
             NanoStatus.UNAVAILABLE
+        }
+    }
+
+    override suspend fun download(): Boolean = lock.withLock {
+        try {
+            // AICore keeps the download going on its side; this only waits for the outcome.
+            val end = client().download().first { it is DownloadStatus.DownloadCompleted || it is DownloadStatus.DownloadFailed }
+            if (end is DownloadStatus.DownloadFailed) Log.i(TAG, "Gemini Nano download failed: ${end.e.errorCode}")
+            end is DownloadStatus.DownloadCompleted
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.i(TAG, "Gemini Nano download failed: ${e.javaClass.simpleName} ${e.message}")
+            false
         }
     }
 

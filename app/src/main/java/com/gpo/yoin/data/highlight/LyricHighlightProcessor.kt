@@ -2,6 +2,8 @@ package com.gpo.yoin.data.highlight
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
@@ -97,10 +99,13 @@ class LyricHighlightProcessor(
 
     private suspend fun runVisit() {
         profileStartupDone.first { it }
-        val nano = model.status()
-        if (_status.value != nano) {
-            _status.value = nano
-            prefs.edit { putString(KEY_STATUS, nano.name) }
+        var nano = model.status()
+        publishStatus(nano)
+        if (nano == NanoStatus.DOWNLOADABLE && onUnmeteredNetwork()) {
+            // A supported phone that hasn't fetched Nano yet: ask AICore for it (Wi-Fi only), then look again.
+            model.download()
+            nano = model.status()
+            publishStatus(nano)
         }
         if (nano != NanoStatus.AVAILABLE) return
         delay(START_DELAY_MS)
@@ -111,6 +116,8 @@ class LyricHighlightProcessor(
             if (!deviceIsRelaxed()) break
             val now = clock()
             if (!budget().allows(now, today(now))) break
+            // Switched accounts mid-visit: the rest of the queue belongs to the old one.
+            if (!stillActive(entry)) break
             val outcome = process(entry)
             if (outcome == Outcome.STOP) break
             if (outcome == Outcome.PICKED || outcome == Outcome.UNUSABLE) done++
@@ -198,7 +205,8 @@ class LyricHighlightProcessor(
     }
 
     private suspend fun process(entry: Entry): Outcome {
-        val lyrics = withTimeoutOrNull(LYRICS_TIMEOUT_MS) {
+        // Outer null: timed out or threw (server down, offline). Not the song's fault, so nothing is recorded.
+        val fetched = withTimeoutOrNull(LYRICS_TIMEOUT_MS) {
             runCatching {
                 repository.getLoadedLyrics(
                     MediaId(entry.provider, entry.songId),
@@ -206,10 +214,18 @@ class LyricHighlightProcessor(
                     artist = entry.artist,
                     durationMs = entry.durationMs.takeIf { it > 0 },
                 )
-            }.getOrNull()
+            }
         }
+        // A timeout most likely means the server is unreachable: end the visit rather than wait on each song.
+        if (fetched == null) return Outcome.STOP
+        if (fetched.isFailure) return Outcome.SKIPPED
+        // The lyrics came from the account active now; drop them if that isn't the entry's.
+        if (!stillActive(entry)) return Outcome.STOP
+        val lyrics = fetched.getOrNull()
         val prepared = lyrics?.lyrics?.let(LyricHighlightPrompt::prepare)
         if (prepared == null) {
+            // Lyric providers swallow their own network errors into "none": only offline is told apart.
+            if (lyrics == null && !online()) return Outcome.STOP
             // No lyrics found or too little sung: remember it, retry in a month.
             save(entry, pick = null, fingerprint = null, model = null)
             return Outcome.UNUSABLE
@@ -223,6 +239,7 @@ class LyricHighlightProcessor(
         return when (val answer = model.answer(prompt)) {
             is NanoAnswer.Text -> {
                 writeBudget(budget().afterSuccess(today(now)))
+                if (!stillActive(entry)) return Outcome.STOP
                 val pick = LyricHighlightPrompt.parse(answer.text, prepared)
                 save(entry, pick, prepared.fingerprint, model.baseModelName())
                 if (pick != null) {
@@ -270,6 +287,25 @@ class LyricHighlightProcessor(
             ),
         )
     }
+
+    private fun publishStatus(nano: NanoStatus) {
+        if (_status.value == nano) return
+        _status.value = nano
+        prefs.edit { putString(KEY_STATUS, nano.name) }
+    }
+
+    private fun stillActive(entry: Entry): Boolean =
+        repository.currentProfileId() == entry.profileId && repository.currentProviderId() == entry.provider
+
+    private fun network(): NetworkCapabilities? {
+        val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return null
+        return connectivity.getNetworkCapabilities(connectivity.activeNetwork)
+    }
+
+    private fun online(): Boolean = network()?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+
+    private fun onUnmeteredNetwork(): Boolean =
+        network()?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true
 
     /** No inference on a warm phone, on battery saver, or on a low battery that isn't charging. */
     private fun deviceIsRelaxed(): Boolean {
