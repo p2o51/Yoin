@@ -67,6 +67,7 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.landing.guide.ConnectGuide
 import com.gpo.yoin.ui.navigation.back.LandingPredictiveBack
+import com.gpo.yoin.ui.settings.ScreenCornerControl
 import com.gpo.yoin.ui.settings.assignAvatarShapes
 import com.gpo.yoin.ui.settings.service.SetupService
 import com.gpo.yoin.ui.spotoolfy.SpotoolfyRecapActivity
@@ -553,6 +554,7 @@ private fun LandingScene(
         LandingStep.AppleMusic -> AppleConnectScene(SetupService.AppleMusic in state.connected, reactions)
         LandingStep.Home -> HomeSectionsScene(state.layout, vm::setSectionEnabled, vm::moveSection)
         LandingStep.Edge -> ScrollEdgeScene(selected = state.edge, playing = edgePlaying, onSelect = vm::setEdge)
+        LandingStep.Corners -> LandingSceneColumn { ScreenCornerControl() }
         LandingStep.Ready -> ReadyScene(accounts)
     }
 }
@@ -590,6 +592,7 @@ private fun bubbleLines(step: LandingStep, noAccounts: Boolean): Pair<Int, Int?>
     LandingStep.AppleMusic -> R.string.landing_apple_title to R.string.landing_apple_body
     LandingStep.Home -> R.string.landing_home_title to null
     LandingStep.Edge -> R.string.landing_edge_title to null
+    LandingStep.Corners -> R.string.landing_corners_title to null
     LandingStep.Ready -> if (noAccounts) R.string.landing_ready_none_title to R.string.landing_ready_none_body else R.string.landing_ready_title to null
 }
 

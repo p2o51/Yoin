@@ -445,6 +445,7 @@ fun SettingsContent(
                                                 onOpenPage = { onOpenFeature(SettingsFeature.ScrollEdge) },
                                             )
                                         }
+                                        item(key = "screen-corners") { ScreenCornersItem() }
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_storage)) {
                                         cloudSyncRow?.let { row ->
@@ -1651,6 +1652,23 @@ private fun ScrollEdgeItem(
         FeaturePageRow(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/**
+ * Settings › Motion › Screen corners: the slider in place (no page — the line it draws around the window is
+ * the preview). Android only.
+ */
+@Composable
+private fun ScreenCornersItem() {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        SettingsItem(
+            icon = YoinSymbols.Smartphone,
+            title = stringResource(R.string.settings_motion_screen_corners),
+        )
+        ScreenCornerControl(
+            modifier = Modifier.padding(start = SettingsRowTextInset - 8.dp, end = 16.dp, bottom = 16.dp),
+        )
     }
 }
 

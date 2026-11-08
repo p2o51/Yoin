@@ -189,6 +189,7 @@ import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.experience.voteHighFrameRate
+import com.gpo.yoin.ui.navigation.NowPlayingHeroTextResize
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.nowplaying.compact.NoteCompactPane
@@ -5350,6 +5351,7 @@ internal fun CompactBottomHero(
                             ),
                             animatedVisibilityScope = animatedVisibilityScope,
                             boundsTransform = { _, _ -> heroBoundsSpec },
+                            resizeMode = NowPlayingHeroTextResize,
                         )
                 }
             } else {
@@ -5383,6 +5385,7 @@ internal fun CompactBottomHero(
                             ),
                             animatedVisibilityScope = animatedVisibilityScope,
                             boundsTransform = { _, _ -> heroBoundsSpec },
+                            resizeMode = NowPlayingHeroTextResize,
                         )
                 }
             } else {

@@ -23,6 +23,9 @@ enum class LandingStep {
     AppleMusic,
     Home,
     Edge,
+
+    /** The screen's corner radius (ScreenCorners): Android only, right after the edge. */
+    Corners,
     Ready,
     ;
 
@@ -62,6 +65,7 @@ internal fun landingSteps(picked: Set<SetupService>, hasAccount: Boolean): List<
     }
     if (hasAccount) add(LandingStep.Home)
     add(LandingStep.Edge)
+    add(LandingStep.Corners)
     add(LandingStep.Ready)
 }
 
