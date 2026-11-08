@@ -207,12 +207,13 @@ internal fun MemoryLedgerScreen(
                             placement = MemoryGridPlacement.Page,
                             selected = selectedCell,
                             onCellClick = { index -> selectedCell = if (selectedCell == index) null else index },
+                            // Every mark the month holds, as the list's month header counts them.
                             monthCaption = { monthCell ->
-                                if (monthCell.writings > 0) {
+                                if (monthCell.entries > 0) {
                                     pluralStringResource(
-                                        R.plurals.memory_ledger_month_caption,
-                                        monthCell.writings,
-                                        monthCell.writings,
+                                        R.plurals.memory_ledger_month_count,
+                                        monthCell.entries,
+                                        monthCell.entries,
                                     )
                                 } else {
                                     "—"

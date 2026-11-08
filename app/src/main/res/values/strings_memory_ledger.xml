@@ -31,10 +31,6 @@
         <item quantity="one">%d entry</item>
         <item quantity="other">%d entries</item>
     </plurals>
-    <plurals name="memory_ledger_month_caption">
-        <item quantity="one">%d written</item>
-        <item quantity="other">%d written</item>
-    </plurals>
     <plurals name="memory_ledger_scores_folded">
         <item quantity="one">Also scored once</item>
         <item quantity="other">Also scored %d times</item>

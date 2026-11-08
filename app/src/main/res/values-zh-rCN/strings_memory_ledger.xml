@@ -27,9 +27,6 @@
     <plurals name="memory_ledger_month_count">
         <item quantity="other">%d 条</item>
     </plurals>
-    <plurals name="memory_ledger_month_caption">
-        <item quantity="other">%d 笔</item>
-    </plurals>
     <plurals name="memory_ledger_scores_folded">
         <item quantity="other">还打了 %d 次分</item>
     </plurals>
