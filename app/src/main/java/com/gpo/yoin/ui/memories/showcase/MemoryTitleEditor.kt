@@ -74,6 +74,7 @@ import com.gpo.yoin.ui.component.JournalSavePill
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.isFromOtherProfile
 import com.gpo.yoin.ui.memories.canRestoreGeneratedTitle
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import com.gpo.yoin.ui.memories.memoryTitleRestoreLabel
@@ -326,7 +327,8 @@ internal fun MemoryTitleSlot(
     fieldModifier: Modifier = Modifier,
     display: @Composable (text: String, kind: MemoryTitleKind, modifier: Modifier) -> Unit,
 ) {
-    val editable = editing != null && editing.host.titlesEditable && memory.entityType == MemoryEntityType.ALBUM
+    val editable = editing != null && editing.host.titlesEditable &&
+        memory.entityType == MemoryEntityType.ALBUM && !memory.isFromOtherProfile
     val editor = editing?.editor
     val key = surface.keyFor(memory)
     val open = editable && editor?.isEditing(key) == true

@@ -23,6 +23,8 @@
     <string name="mem_review_today">Today</string>
     <string name="mem_review_yours">Your review</string>
     <string name="mem_note_yours">Your note</string>
+    <string name="mem_switch_body_album">To open %1$s, Yoin switches to that account first. What\'s playing now stops.</string>
+    <string name="mem_switch_confirm_album">Switch and open</string>
     <string name="mem_cd_review_field">Your review</string>
     <string name="mem_cd_write_review">Write a review</string>
     <string name="mem_cd_write_review_action">Write a review</string>
@@ -76,4 +78,7 @@
         <item quantity="one">day since %1$s</item>
         <item quantity="other">days since %1$s</item>
     </plurals>
+    <!-- Beside Go to album on another account's memory (owner 2026-11-04: just the account). -->
+    <string name="mem_other_profile_from">From %1$s</string>
+    <string name="mem_cd_other_profile_from">From another account, %1$s</string>
 </resources>

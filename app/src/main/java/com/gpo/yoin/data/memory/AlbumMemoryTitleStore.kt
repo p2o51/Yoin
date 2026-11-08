@@ -49,6 +49,10 @@ class AlbumMemoryTitleStore(
         return dao.get(profileId, albumId.provider, rawIdOf(albumId))?.title
     }
 
+    /** [profileId]'s title for [albumId] (Memories shows other accounts' memories with their own titles). */
+    suspend fun getTitleFor(profileId: String, albumId: MediaId): String? =
+        dao.get(profileId, albumId.provider, rawIdOf(albumId))?.title
+
     /**
      * Every title of the active profile by album, live (Memories patches its open deck from it, so an edit
      * made on the album page or pulled by sync shows up there too). Empty without an active profile.

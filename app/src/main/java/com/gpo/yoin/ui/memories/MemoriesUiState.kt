@@ -156,7 +156,15 @@ data class MemoryEntry(
     val diaryAlbumNotes: List<MemoryWriting> = emptyList(),
     /** Track rows, option A: only rated or noted tracks, album order, each with its notes. */
     val diaryTracks: List<MemoryDiaryTrack> = emptyList(),
+    /**
+     * The account this memory belongs to when it isn't the one in use ([MemoryOtherProfile]); null = the
+     * account in use. Such a memory is read-only here, and Go to album switches to its account first.
+     */
+    val otherProfile: MemoryOtherProfile? = null,
 )
+
+/** This memory belongs to another account than the one in use. */
+val MemoryEntry.isFromOtherProfile: Boolean get() = otherProfile != null
 
 data class MemoryTrack(
     val stableId: String,
