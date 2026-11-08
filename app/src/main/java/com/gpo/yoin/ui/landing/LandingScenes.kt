@@ -48,7 +48,7 @@ import androidx.graphics.shapes.Morph
 import com.gpo.yoin.R
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
-import com.gpo.yoin.ui.component.MorphPolygonShape
+import com.gpo.yoin.ui.component.MorphProgressShape
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.AccountAvatar
 import com.gpo.yoin.ui.settings.monogramOf
@@ -128,8 +128,9 @@ private fun ServiceTile(
     val contentColor by animateColorAsState(if (selected) tone.onContainer else scheme.onSurface, YoinMotion.defaultEffectsSpec(), label = "tileFg")
     val corner by animateDpAsState(if (selected) 32.dp else 24.dp, YoinMotion.defaultSpatialSpec(), label = "tileCorner")
     // Circle → nine-lobed cookie, with an eighth of a turn, when picked.
-    val morphProgress by animateFloatAsState(if (selected) 1f else 0f, YoinMotion.fastSpatialSpec(), label = "tileMorph")
+    val morphProgress = animateFloatAsState(if (selected) 1f else 0f, YoinMotion.fastSpatialSpec(), label = "tileMorph")
     val morph = remember { Morph(MaterialShapes.Circle, MaterialShapes.Cookie9Sided) }
+    val avatarShape = remember(morph) { MorphProgressShape(morph) { morphProgress.value } }
     val avatarFill by animateColorAsState(if (selected) tone.accent else tone.iconContainer, YoinMotion.defaultEffectsSpec(), label = "avatarFill")
     val avatarGlyph by animateColorAsState(if (selected) tone.onAccent else tone.iconContent, YoinMotion.defaultEffectsSpec(), label = "avatarGlyph")
     val checkFill by animateColorAsState(if (selected) tone.accent else scheme.surfaceBright.copy(alpha = 0f), YoinMotion.defaultEffectsSpec(), label = "checkFill")
@@ -155,8 +156,8 @@ private fun ServiceTile(
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .graphicsLayer { rotationZ = morphProgress * 22.5f }
-                .background(avatarFill, MorphPolygonShape(morph, morphProgress)),
+                .graphicsLayer { rotationZ = morphProgress.value * 22.5f }
+                .background(avatarFill, avatarShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -165,7 +166,7 @@ private fun ServiceTile(
                 tint = avatarGlyph,
                 modifier = Modifier
                     .size(24.dp)
-                    .graphicsLayer { rotationZ = -morphProgress * 22.5f },
+                    .graphicsLayer { rotationZ = -morphProgress.value * 22.5f },
             )
         }
         Column(modifier = Modifier.weight(1f)) {
@@ -293,7 +294,7 @@ private fun ServiceRow(service: SetupService, @StringRes text: Int) {
         Box(
             modifier = Modifier
                 .size(24.dp)
-                .background(tone.accent, MorphPolygonShape(remember { Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Cookie9Sided) }, 0f)),
+                .background(tone.accent, remember { MorphProgressShape(Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Cookie9Sided), 0f) }),
             contentAlignment = Alignment.Center,
         ) {
             Icon(identity.glyph, contentDescription = null, tint = tone.onAccent, modifier = Modifier.size(15.dp))
