@@ -1910,8 +1910,8 @@ internal class SpotifyAppRemotePlayer(
 /** Grace for the subscription to report the requested track after a start command answers. */
 internal const val SPOTIFY_START_HEARD_TIMEOUT_MS = 4_000L
 
-/** How long a start waits on a Spotify app that doesn't answer before the hint ([SpotifyAppRemotePlayer.openSpotify]). */
-internal const val SPOTIFY_UNREACHABLE_AFTER_MS = 5_000L
+/** How long a start waits on a Spotify app that doesn't answer before Yoin opens it ([SpotifyAppRemotePlayer.openSpotify]): at most 2 s (51, 11-08), since an asleep Spotify is the common case. */
+internal const val SPOTIFY_UNREACHABLE_AFTER_MS = 1_500L
 
 /** Wait before reading Spotify's queue after a start or an Add to queue: the Web API lags the app a little. */
 internal const val SPOTIFY_QUEUE_READ_DELAY_MS = 800L
