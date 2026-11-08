@@ -138,7 +138,8 @@ class LyricsFocusSeatLayoutTest {
             screenPx = h.toInt(),
             fadePx = LyricsEdgeFade.value.toInt(),
         )
-        val half = (bottom - top).value / 2f
+        // The seat holds the whole row (the text block plus its 6dp pads) inside the band.
+        val half = (bottom - top).value / 2f + RowPadV
         return (fade + (h - fade * 2) * fraction).coerceIn(fade + half, h - fade - half)
     }
 
@@ -187,3 +188,6 @@ class LyricsFocusSeatLayoutTest {
         assertEquals("row centre on the screen seat", expectedCentre(window, top, bottom), (top + bottom).value / 2f, 1.5f)
     }
 }
+
+/** LyricRow's vertical pad around its text block (see rowBounds). */
+private const val RowPadV = 6f
