@@ -255,6 +255,8 @@ class ContinueOn internal constructor(
         } ?: return null
         // 3. The songs, read again from this device's copy of the account.
         val queue = restoreQueue(source, cursor) ?: return null
+        // The account may have changed while the songs were read: this hand-off belongs to the one it chose.
+        if (profiles.activeProfileId.value != profileId || profiles.activeSource.value !== source) return null
         val track = queue.tracks[queue.index]
         val durationMs = (track.durationSec ?: 0) * 1_000L
         val position = pausedAt ?: cursor.positionAt(System.currentTimeMillis(), durationMs)
@@ -266,25 +268,31 @@ class ContinueOn internal constructor(
             activityContext = queue.activityContext,
             explicitStart = true,
             startPositionMs = position,
+            startPaused = !cursor.playing,
         )
         playback.setPlayMode(PlayMode.of(cursor.repeatMode, cursor.shuffle))
         requestNowPlaying()
-        // Spotify starts from the top: it moves to the spot once it plays the song. A song paused on the
-        // other device is held here too, once it is loaded (a start always plays).
-        val seek = position.takeIf { spotify && it > 0L }
-        if (seek != null || !cursor.playing) afterStart(track.id, spotify, seek, pause = !cursor.playing)
+        // Spotify starts from the top and always plays: it moves to the spot, and a song paused on the
+        // other device pauses, once it plays the song.
+        if (spotify && (position > 0L || !cursor.playing)) {
+            afterSpotifyStart(track.id, position, pause = !cursor.playing)
+        }
         return if (answer == ContinueOnPauseClient.Answer.Unreachable) TakeOver.OtherStillPlaying else TakeOver.Paused
     }
 
-    private fun afterStart(trackId: MediaId, spotify: Boolean, seekMs: Long?, pause: Boolean) {
-        scope.launch {
+    private fun afterSpotifyStart(trackId: MediaId, positionMs: Long, pause: Boolean) {
+        // Dispatched (not immediate), so it looks only after the start play() posted to the main thread.
+        scope.launch(Dispatchers.Main) {
             withTimeoutOrNull(START_WAIT_MS) {
+                // This start, not a state from before it: the song near its top, as a fresh start reports it
+                // (the same song already playing here at another spot must not take the seek).
                 playback.playbackState.first { state ->
                     state.currentTrack?.id == trackId &&
-                        (!spotify || state.connectionPhase == ConnectionPhase.Ready)
+                        state.connectionPhase == ConnectionPhase.Ready &&
+                        state.position < FRESH_START_MS
                 }
             } ?: return@launch
-            seekMs?.let(playback::seekTo)
+            if (positionMs > 0L) playback.seekTo(positionMs)
             if (pause) playback.pause()
         }
     }
@@ -360,6 +368,7 @@ class ContinueOn internal constructor(
         private const val PARALLEL_READS = 6
         private const val SOURCE_WAIT_MS = 10_000L
         private const val START_WAIT_MS = 15_000L
+        private const val FRESH_START_MS = 3_000L
         private const val STILL_PLAYING_NOTE_MS = 6_000L
     }
 }

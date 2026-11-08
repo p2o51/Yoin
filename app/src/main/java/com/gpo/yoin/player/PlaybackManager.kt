@@ -412,11 +412,13 @@ class PlaybackManager(
         explicitStart: Boolean = true,
         /** Where the started track begins (a Continue On hand-off picks up mid-song); local players only. */
         startPositionMs: Long = 0L,
+        /** Load it without playing (a hand-off of a song paused on the other device); local players only. */
+        startPaused: Boolean = false,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
         // The user chose this: a queue still being read must not take over when it lands.
         cancelLoadingStart()
-        startPlayable(tracks, startIndex, source, activityContext, shuffled, explicitStart, startPositionMs)
+        startPlayable(tracks, startIndex, source, activityContext, shuffled, explicitStart, startPositionMs, startPaused)
     }
 
     /**
@@ -493,6 +495,7 @@ class PlaybackManager(
         shuffled: Boolean,
         explicitStart: Boolean,
         startPositionMs: Long = 0L,
+        startPaused: Boolean = false,
     ) {
         val queue = playableStartQueue(
             tracks,
@@ -502,7 +505,7 @@ class PlaybackManager(
         )
         // The position belongs to the asked-for track: none when another one starts in its place.
         val position = startPositionMs.takeIf { queue.tracks[queue.startIndex].id == tracks[startIndex].id } ?: 0L
-        startQueue(queue.tracks, queue.startIndex, source, activityContext, shuffled, position)
+        startQueue(queue.tracks, queue.startIndex, source, activityContext, shuffled, position, startPaused)
     }
 
     private fun startQueue(
@@ -512,6 +515,7 @@ class PlaybackManager(
         activityContext: ActivityContext,
         shuffled: Boolean,
         startPositionMs: Long = 0L,
+        startPaused: Boolean = false,
     ) {
         val generation = ++playbackGeneration
         val profileId = repository.currentProfileId()
@@ -555,7 +559,7 @@ class PlaybackManager(
                             executeOrQueue { player ->
                                 player.setMediaItems(items, startIndex, startPositionMs.coerceAtLeast(0L))
                                 player.prepare()
-                                player.play()
+                                if (!startPaused) player.play()
                                 player.applyPlayMode(playMode)
                             }
                         }
@@ -572,7 +576,7 @@ class PlaybackManager(
                                 val playMode = preferredPlayMode
                                 executeOrQueue { player ->
                                     player.setMediaItems(items, startIndex, startPositionMs.coerceAtLeast(0L))
-                                    player.playWhenReady = true
+                                    player.playWhenReady = !startPaused
                                     player.prepare()
                                     player.applyPlayMode(playMode)
                                 }
