@@ -275,13 +275,15 @@ private val LyricCardGap = 8.dp
 /** How much of the next card shows past a card's edge when there are several. */
 private val LyricCardPeek = 40.dp
 
-/** The section's setting as a number of lines (owner 2026-11-08: one to four, three by default). */
+/**
+ * The section's setting as a number of cards (owner 2026-11-08: two to four, four by default; each card's lines
+ * stay as they are). XL is never written; a stored one reads as four.
+ */
 internal val HomeRowPreset.lyricCards: Int
     get() = when (this) {
-        HomeRowPreset.S -> 1
-        HomeRowPreset.M -> 2
-        HomeRowPreset.L -> 3
-        HomeRowPreset.XL -> 4
+        HomeRowPreset.S -> 2
+        HomeRowPreset.M -> 3
+        HomeRowPreset.L, HomeRowPreset.XL -> 4
     }
 
 /**

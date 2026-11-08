@@ -76,9 +76,9 @@ private class LyricCountDrag {
 
 /**
  * 「歌词一句」's count handle (owner 2026-11-08): the same ⌟ as the row resize, on the plate's bottom-right
- * corner, but held and pulled down it opens a row of four dots under the corner, like a thinking-effort
- * picker. Sliding sideways picks one to four lines (a tick at each), letting go keeps it as one Undo step.
- * ← / → step it for a keyboard. Composed with the block's badges, like the resize handle.
+ * corner, but held and pulled down it opens a row of dots under the corner, like a thinking-effort picker.
+ * Still held, sliding down adds a card and up takes one away, two to four (a tick at each, owner 2026-11-08);
+ * letting go keeps it as one Undo step. ↑ / ↓ step it for a keyboard. Composed with the block's badges, like the resize handle.
  */
 @Composable
 internal fun BoxScope.HomeLyricCountHandleSlot(deps: HomeEditDeps, itemSpacing: Dp) {
@@ -131,7 +131,7 @@ private fun BoxScope.HomeLyricCountHandle(deps: HomeEditDeps, itemSpacing: Dp) {
                 .seamDissolve()
                 .pointerInput(controller) {
                     val revealPx = LyricRevealDistance.toPx()
-                    val pitchPx = LyricDotPitch.toPx()
+                    val pitchPx = LyricStepDistance.toPx()
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         if (!motion.inputEditing) return@awaitEachGesture
@@ -140,10 +140,9 @@ private fun BoxScope.HomeLyricCountHandle(deps: HomeEditDeps, itemSpacing: Dp) {
                         val start = saved()
                         drag.count = start
                         drag.held = true
-                        var dx = 0f
                         var dy = 0f
-                        // Sideways travel counts from where the dots finished opening.
-                        var anchorX: Float? = null
+                        // Further travel up or down counts from where the dots finished opening.
+                        var anchorY: Float? = null
                         var released = false
                         try {
                             while (true) {
@@ -155,15 +154,14 @@ private fun BoxScope.HomeLyricCountHandle(deps: HomeEditDeps, itemSpacing: Dp) {
                                     released = true
                                     break
                                 }
-                                val delta = change.positionChange()
-                                dx += delta.x
-                                dy += delta.y
+                                dy += change.positionChange().y
                                 change.consume()
                                 val open = (dy / revealPx).coerceIn(0f, 1f)
                                 scope.launch { drag.reveal.snapTo(maxOf(drag.reveal.value, open)) }
                                 if (drag.reveal.value >= 1f || open >= 1f) {
-                                    val from = anchorX ?: dx.also { anchorX = it }
-                                    val next = (start + ((dx - from) / pitchPx).roundToInt()).coerceIn(1, LyricMaxCount)
+                                    val from = anchorY ?: dy.also { anchorY = it }
+                                    val next = (start + ((dy - from) / pitchPx).roundToInt())
+                                        .coerceIn(LyricMinCount, LyricMaxCount)
                                     if (next != drag.count) {
                                         drag.count = next
                                         controller.lyricCountTick()
@@ -183,11 +181,11 @@ private fun BoxScope.HomeLyricCountHandle(deps: HomeEditDeps, itemSpacing: Dp) {
                 .onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                     val step = when (event.key) {
-                        Key.DirectionLeft -> -1
-                        Key.DirectionRight -> 1
+                        Key.DirectionUp -> -1
+                        Key.DirectionDown -> 1
                         else -> return@onKeyEvent false
                     }
-                    controller.setLyricCount(presetFor((saved() + step).coerceIn(1, LyricMaxCount)))
+                    controller.setLyricCount(presetFor((saved() + step).coerceIn(LyricMinCount, LyricMaxCount)))
                 }
                 .focusable(enabled = motion.inputEditing)
                 .clearAndSetSemantics { },
@@ -240,8 +238,8 @@ private fun LyricCountPicker(count: Int, reveal: () -> Float) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                repeat(LyricMaxCount) { index ->
-                    val n = index + 1
+                repeat(LyricMaxCount - LyricMinCount + 1) { index ->
+                    val n = LyricMinCount + index
                     val on = n <= count
                     val size by animateDpAsState(
                         targetValue = if (n == count) 12.dp else 8.dp,
@@ -263,7 +261,7 @@ private fun LyricCountPicker(count: Int, reveal: () -> Float) {
                 }
             }
             Text(
-                text = pluralStringResource(R.plurals.home_edit_lyric_lines, count, count),
+                text = pluralStringResource(R.plurals.home_edit_lyric_cards, count, count),
                 style = MaterialTheme.typography.labelLarge,
                 color = colors.onSurface,
             )
@@ -271,16 +269,23 @@ private fun LyricCountPicker(count: Int, reveal: () -> Float) {
     }
 }
 
-private fun presetFor(count: Int): HomeRowPreset =
-    HomeRowPreset.entries.firstOrNull { it.lyricCards == count } ?: HomeRowPreset.Default
+private fun presetFor(count: Int): HomeRowPreset = when (count) {
+    LyricMinCount -> HomeRowPreset.S
+    LyricMinCount + 1 -> HomeRowPreset.M
+    else -> HomeRowPreset.L
+}
 
+private const val LyricMinCount = 2
 private const val LyricMaxCount = 4
 
-/** Pulled this far down, the dots are fully open and start following the finger sideways. */
+/** Pulled this far down, the dots are fully open; from there, up or down steps the count. */
 private val LyricRevealDistance = 40.dp
 
-/** One dot's slot, and the sideways travel from one count to the next. */
+/** One dot's slot in the picker. */
 private val LyricDotPitch = 28.dp
+
+/** The finger's travel up or down from one count to the next. */
+private val LyricStepDistance = 36.dp
 
 private val LyricPickerGap = 4.dp
 

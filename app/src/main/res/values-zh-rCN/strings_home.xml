@@ -144,8 +144,8 @@
     <string name="home_lyric_kind_rediscover">久违</string>
     <string name="home_lyric_kind_fresh">初遇</string>
     <string name="home_lyric_kind_user">你选的</string>
-    <plurals name="home_edit_lyric_lines">
-        <item quantity="other">%1$d 句</item>
+    <plurals name="home_edit_lyric_cards">
+        <item quantity="other">%1$d 段</item>
     </plurals>
 
     <string name="home_memories_label">Memories</string>

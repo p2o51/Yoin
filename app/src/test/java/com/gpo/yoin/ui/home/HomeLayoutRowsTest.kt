@@ -132,8 +132,8 @@ class HomeLayoutRowsTest {
         val layout = HomeLayout.Default.withRows(HomeSection.LyricHighlight, HomeRowPreset.S)
 
         assertEquals(HomeRowPreset.S, layout.rowsOf(HomeSection.LyricHighlight))
-        assertEquals(1, layout.rowsOf(HomeSection.LyricHighlight).lyricCards)
-        assertEquals(3, HomeLayout.Default.rowsOf(HomeSection.LyricHighlight).lyricCards)
-        assertEquals(listOf(1, 2, 3, 4), HomeRowPreset.entries.map { it.lyricCards })
+        assertEquals(2, layout.rowsOf(HomeSection.LyricHighlight).lyricCards)
+        assertEquals(4, HomeLayout.Default.rowsOf(HomeSection.LyricHighlight).lyricCards)
+        assertEquals(listOf(2, 3, 4, 4), HomeRowPreset.entries.map { it.lyricCards })
     }
 }

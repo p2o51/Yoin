@@ -160,9 +160,9 @@
     <string name="home_lyric_kind_rediscover">Been a while</string>
     <string name="home_lyric_kind_fresh">Not heard yet</string>
     <string name="home_lyric_kind_user">Your pick</string>
-    <plurals name="home_edit_lyric_lines">
-        <item quantity="one">%1$d line</item>
-        <item quantity="other">%1$d lines</item>
+    <plurals name="home_edit_lyric_cards">
+        <item quantity="one">%1$d card</item>
+        <item quantity="other">%1$d cards</item>
     </plurals>
 
     <string name="home_memories_label">Memories</string>
