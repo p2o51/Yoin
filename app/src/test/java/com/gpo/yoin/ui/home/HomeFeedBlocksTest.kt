@@ -51,6 +51,21 @@ class HomeFeedBlocksTest {
     }
 
     @Test
+    fun should_dropUnavailableSection_even_when_editing() {
+        val blocks = homeFeedBlocks(
+            layout = HomeLayout.Default,
+            hiding = emptySet(),
+            editing = true,
+            held = null,
+            placeholdersAboveOpen = true,
+            hasContent = hasContent,
+            available = { it != HomeSection.LyricHighlight },
+        )
+        assertEquals(false, blocks.any { it.section == HomeSection.LyricHighlight })
+        assertEquals(true, blocks.any { it.section == HomeSection.Rediscover })
+    }
+
+    @Test
     fun should_holdPlaceholdersAboveLiftedBlock_when_placeholdersNotOpen() {
         // Recently Added lifted at entry: the empty Jump Back In above it waits, Rediscover below doesn't.
         val held = blocks(editing = true, held = HomeSection.RecentlyAdded, open = false)

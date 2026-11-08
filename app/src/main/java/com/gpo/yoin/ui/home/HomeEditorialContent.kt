@@ -718,7 +718,6 @@ internal fun HomeEditorialContent(
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
                 layout = layout,
-                available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
                 hiding = motion.hiding,
                 editing = editing,
                 held = motion.heldSection,
@@ -736,6 +735,7 @@ internal fun HomeEditorialContent(
                         HomeSection.LyricHighlight -> lyricHighlight != null
                     }
                 },
+                available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
             )
         }
     }
@@ -1359,13 +1359,13 @@ internal data class HomeFeedBlock(val section: HomeSection, val placeholder: Boo
  */
 internal fun homeFeedBlocks(
     layout: HomeLayout,
-    // False for a section this device can never fill: no block, not even a placeholder while editing.
-    available: (HomeSection) -> Boolean = { true },
     hiding: Set<HomeSection>,
     editing: Boolean,
     held: HomeSection?,
     placeholdersAboveOpen: Boolean,
     hasContent: (HomeSection) -> Boolean,
+    // False for a section this device can never fill: no block, not even a placeholder while editing.
+    available: (HomeSection) -> Boolean = { true },
 ): List<HomeFeedBlock> {
     val heldIndex = layout.sections.indexOfFirst { it.section == held }
     return layout.sections.mapIndexedNotNull { index, state ->
