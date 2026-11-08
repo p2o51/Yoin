@@ -196,7 +196,7 @@
     <!-- Home bubble tips (owner 2026-10-17): one gesture or detail each, said between Memories. -->
     <!-- Tip page (ui/tips/TipScreen): "3 / 10" -->
     <string name="home_tip_lyric_highlight_title">In a Line</string>
-    <string name="home_tip_lyric_highlight">On phones with Gemini Nano, tap a lyric card on Home to play from that line, or refresh in the top right.</string>
+    <string name="home_tip_lyric_highlight">On phones with Gemini Nano, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up</string>
     <string name="home_tip_spotify_speakers_title">Connect more speakers</string>
     <string name="home_tip_spotify_speakers">Tap More devices… in Now Playing &gt; Devices to switch Spotify to Sonos, PS5, and more; recently used speakers stay in the list</string>
     <string name="home_tip_account_quick_switch_title">Switch accounts</string>

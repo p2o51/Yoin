@@ -175,7 +175,7 @@
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
     <string name="home_tip_lyric_highlight_title">歌词一句</string>
-    <string name="home_tip_lyric_highlight">支持 Gemini Nano 的机型会在首页精选歌词，点卡片从那句开播，点右上角换一句</string>
+    <string name="home_tip_lyric_highlight">支持 Gemini Nano 的机型上，点首页歌词卡片从那句开播，左右滑动翻看；歌词里分享或保存的句子也会加入</string>
     <string name="home_tip_spotify_speakers_title">连接更多音箱</string>
     <string name="home_tip_spotify_speakers">正在播放 &gt; 设备里点「更多设备…」，将 Spotify 切到 Sonos、PS5 等音箱；用过的会留在列表里</string>
     <string name="home_tip_account_quick_switch_title">切换账号</string>
