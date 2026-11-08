@@ -116,9 +116,9 @@ fun interface LedgerAlbumLookup {
 suspend fun buildMemoryLedger(
     rows: MemoryLedgerRows,
     profileIds: Set<String>?,
-    lookup: LedgerAlbumLookup = LedgerAlbumLookup { _, _, _ -> null },
     // A scored song's name Yoin never saw played or noted: from its album's cached tracks.
     trackTitle: suspend (album: MemoryLedgerAlbum, songId: String) -> String? = { _, _ -> null },
+    lookup: LedgerAlbumLookup = LedgerAlbumLookup { _, _, _ -> null },
 ): List<MemoryLedgerEntry> {
     fun counts(profileId: String) = profileIds == null || profileId in profileIds
     val albums = HashMap<String, MemoryLedgerAlbum?>()
