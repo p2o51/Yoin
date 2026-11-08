@@ -73,6 +73,7 @@ import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.spotify.SpotifyActivityArtistArtwork
+import com.gpo.yoin.data.source.spotify.SpotifyDevice
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
@@ -2494,24 +2495,29 @@ class YoinRepository(
 
     suspend fun listSpotifyDevices(): List<YoinDevice.SpotifyConnect> {
         val source = activeSource.value as? SpotifyMusicSource ?: return emptyList()
-        return source.listDevices()
-            .mapNotNull { device ->
-                val id = device.id ?: return@mapNotNull null
+        val listed = source.listDevices()
+        // A speaker Spotify plays on (Sonos, Cast) can be missing from /devices while
+        // /me/player names it, often with no id; add it so the sheet shows where the music is.
+        val playing = runCatching { source.playbackDevice() }.getOrNull()
+            ?.takeIf { device -> listed.none { it.sameDevice(device) } }
+        return (listed + listOfNotNull(playing?.copy(isActive = true)))
+            .map { device ->
+                // No id: Spotify won't take a transfer to it, but it is still where the music is.
+                val id = device.id
                 YoinDevice.SpotifyConnect(
-                    id = id,
+                    id = id ?: YoinDevice.SpotifyConnect.noIdKey(device.name),
                     name = device.name,
                     isActive = device.isActive,
                     spotifyType = device.type,
-                    isSelectable = !device.isRestricted,
-                    statusText = when {
-                        device.isRestricted -> "Unavailable from Spotify"
-                        device.isPrivateSession -> "Private session"
-                        else -> null
-                    },
+                    statusText = if (device.isPrivateSession) "Private session" else null,
+                    spotifyOnly = id == null || device.isRestricted,
                 )
             }
             .sortedByDescending(YoinDevice.SpotifyConnect::isActive)
     }
+
+    private fun SpotifyDevice.sameDevice(other: SpotifyDevice): Boolean =
+        if (id != null && other.id != null) id == other.id else name.trim().equals(other.name.trim(), ignoreCase = true)
 
     suspend fun transferSpotifyPlayback(deviceId: String, play: Boolean = true) {
         val source = activeSource.value as? SpotifyMusicSource ?: return

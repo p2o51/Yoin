@@ -49,6 +49,8 @@
     <string name="cmp_devices_empty_subsonic">当前仅可在本机播放。</string>
     <string name="cmp_devices_empty_other">未找到设备。</string>
     <string name="cmp_devices_cd_current">当前设备</string>
+    <string name="cmp_devices_more_title">更多设备…</string>
+    <string name="cmp_devices_more_body">通过 Spotify 选 Sonos 等音响，选完 Yoin 接着控制。</string>
 
     <string name="cmp_playlist_sheet_title">添加到播放列表</string>
     <string name="cmp_playlist_create_row">新建播放列表…</string>

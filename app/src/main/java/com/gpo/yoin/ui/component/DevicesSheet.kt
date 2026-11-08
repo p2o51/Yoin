@@ -32,10 +32,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
@@ -72,6 +81,41 @@ fun DevicesSheet(
     LaunchedEffect(Unit) {
         onRefresh()
     }
+    // Back from Spotify's own picker ("More devices"): read where it plays now.
+    var resumedOnce by rememberSaveable { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) {
+        if (resumedOnce) onRefresh() else resumedOnce = true
+        onPauseOrDispose { }
+    }
+    val context = LocalContext.current
+    val windowInfo = LocalWindowInfo.current
+    val scope = rememberCoroutineScope()
+    var moreDevicesFailed by rememberSaveable { mutableStateOf(false) }
+    // Spotify's device picker, inside Yoin when Android's output switcher opens for Spotify;
+    // the Spotify app otherwise.
+    val openSpotifyPicker: () -> Unit = {
+        moreDevicesFailed = false
+        if (SpotifyOutputSwitcher.request(context)) {
+            scope.launch {
+                delay(SpotifyOutputSwitcher.SHOW_WAIT_MS)
+                // Still focused: the system panel didn't come up (another Android, or refused).
+                if (windowInfo.isWindowFocused) {
+                    moreDevicesFailed = !SpotifyOutputSwitcher.openSpotify(context)
+                    return@launch
+                }
+                // The panel is a System UI window: Yoin stays resumed, so wait for focus to come
+                // back, then read the devices once Spotify has moved (a speaker may be picked).
+                withTimeoutOrNull(SpotifyOutputSwitcher.PANEL_MAX_MS) {
+                    snapshotFlow { windowInfo.isWindowFocused }.first { it }
+                }
+                delay(SpotifyOutputSwitcher.SETTLE_MS)
+                onRefresh()
+            }
+        } else {
+            moreDevicesFailed = !SpotifyOutputSwitcher.openSpotify(context)
+        }
+    }
+    val openFailedMessage = stringResource(R.string.np_msg_spotify_open_failed)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -145,10 +189,11 @@ fun DevicesSheet(
                     ),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (errorMessage != null) {
+                    val shownError = errorMessage ?: openFailedMessage.takeIf { moreDevicesFailed }
+                    if (shownError != null) {
                         item {
                             Text(
-                                text = errorMessage,
+                                text = shownError,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
@@ -177,9 +222,27 @@ fun DevicesSheet(
                             busy = busyDeviceId == device.id,
                             onClick = {
                                 haptics.performContextClick()
-                                onSelect(device)
+                                // Sonos and the like take no Web API transfer: Spotify's picker does it.
+                                if (device is YoinDevice.SpotifyConnect && device.spotifyOnly) {
+                                    if (!device.isActive) openSpotifyPicker()
+                                } else {
+                                    onSelect(device)
+                                }
                             },
                         )
+                    }
+
+                    // The Web API lists only devices online in Spotify's cloud; Sonos and
+                    // Cast speakers wake only from Spotify's own picker (owner 2026-11-08).
+                    if (providerId == MediaId.PROVIDER_SPOTIFY) {
+                        item(key = "more-devices") {
+                            MoreDevicesRow(
+                                onClick = {
+                                    haptics.performTick()
+                                    openSpotifyPicker()
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -188,7 +251,48 @@ fun DevicesSheet(
 }
 
 @Composable
-private fun DeviceRow(
+internal fun MoreDevicesRow(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    androidx.compose.material3.Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = YoinContainerShapes.ListRow,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = YoinSymbols.Speaker,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.cmp_devices_more_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = stringResource(R.string.cmp_devices_more_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun DeviceRow(
     device: YoinDevice,
     busy: Boolean,
     onClick: () -> Unit,

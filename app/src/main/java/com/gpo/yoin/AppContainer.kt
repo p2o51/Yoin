@@ -552,6 +552,11 @@ class AppContainer(private val context: Context) {
         com.gpo.yoin.ui.nowplaying.SharedPrefsLyricHintStore(context)
     }
 
+    /** Spotify Connect devices seen per account (the Devices sheet's "recently used" rows). */
+    val spotifyDeviceMemory: com.gpo.yoin.ui.nowplaying.SpotifyDeviceMemory by lazy {
+        com.gpo.yoin.ui.nowplaying.SharedPrefsSpotifyDeviceMemory(context)
+    }
+
     /** Home edit-mode hints (session count, sections seen), per device. */
     val homeEditHintStore: com.gpo.yoin.ui.home.HomeEditHintStore by lazy {
         com.gpo.yoin.ui.home.SharedPrefsHomeEditHintStore(context)
