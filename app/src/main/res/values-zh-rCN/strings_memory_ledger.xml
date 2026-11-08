@@ -4,7 +4,7 @@
     <string name="memory_ledger_scale_month">一格一个月</string>
     <string name="memory_ledger_scale_week">一格一周</string>
     <string name="memory_ledger_scale_day">一格一天</string>
-    <string name="memory_ledger_scale_hint">%1$s · 写得越多格子越细</string>
+    <string name="memory_ledger_scale_hint">写得越多格子越细</string>
     <plurals name="memory_ledger_writings_label">
         <item quantity="other">笔回忆</item>
     </plurals>
@@ -14,7 +14,7 @@
     <string name="memory_ledger_open">打开全部回忆</string>
 
     <string name="memory_ledger_stat_albums">张专辑</string>
-    <string name="memory_ledger_stat_writings">条笔记和短评</string>
+    <string name="memory_ledger_stat_writings">篇文字</string>
     <string name="memory_ledger_stat_characters">个字</string>
     <string name="memory_ledger_stat_rated">首歌打了分</string>
 
@@ -40,7 +40,7 @@
     <string name="memory_ledger_kind_album_note">专辑笔记</string>
     <string name="memory_ledger_kind_song_note">歌曲笔记</string>
     <string name="memory_ledger_kind_review">短评</string>
-    <string name="memory_ledger_kind_title">标题</string>
+    <string name="memory_ledger_kind_title">回忆标题</string>
     <string name="memory_ledger_kind_album_rating">专辑评分</string>
     <string name="memory_ledger_kind_track_rating">歌曲评分</string>
     <string name="memory_ledger_unknown_album">不知道是哪张专辑</string>

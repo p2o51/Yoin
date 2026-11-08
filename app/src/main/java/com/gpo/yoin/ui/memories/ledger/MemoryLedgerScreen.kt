@@ -178,13 +178,27 @@ internal fun MemoryLedgerScreen(
                         return@LazyColumn
                     }
                     item("stats") { LedgerStats(state, Modifier.padding(top = 8.dp)) }
+                    // The scale sits on the right, as on Home's card; why it changes on the left.
                     item("scale") {
-                        Text(
-                            text = stringResource(R.string.memory_ledger_scale_hint, scaleLabel(state.grid.scale)),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 24.dp, bottom = 10.dp),
-                        )
+                        Row(
+                            modifier = Modifier
+                                .widthIn(max = 640.dp)
+                                .fillMaxWidth()
+                                .padding(top = 24.dp, bottom = 10.dp),
+                            verticalAlignment = Alignment.Bottom,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.memory_ledger_scale_hint),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = scaleLabel(state.grid.scale),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     item("grid") {
                         MemoryGridView(
@@ -485,13 +499,32 @@ private fun LedgerEntryRow(entry: MemoryLedgerEntry, state: MemoryLedgerState, o
     ) {
         LedgerThumb(entry, state)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                text = entryMeta(entry, state),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // The kind on the left, the day on the right: no run of fields joined by dots.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = kindLabel(entry.kind),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = entryDay(entry, state),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                )
+            }
+            // A song note: the song, and where in it (lighter).
+            entry.trackTitle?.let { song ->
+                LedgerPair(
+                    first = song,
+                    second = entry.positionMs?.takeIf { it > 0 }
+                        ?.let { ms -> "${ms / 60_000}:${"%02d".format((ms / 1000) % 60)}" },
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
             when {
                 entry.score != null -> Text(
                     text = ratingLabel(entry.score).orEmpty(),
@@ -507,13 +540,11 @@ private fun LedgerEntryRow(entry: MemoryLedgerEntry, state: MemoryLedgerState, o
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(
-                text = album?.let { listOf(it.name, it.artist).filter(String::isNotBlank).joinToString(" · ") }
-                    ?: stringResource(R.string.memory_ledger_unknown_album),
+            // The album, then its artist in a lighter tone.
+            LedgerPair(
+                first = album?.name ?: stringResource(R.string.memory_ledger_unknown_album),
+                second = album?.artist?.takeIf(String::isNotBlank),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             // Another account's memory says whose it is (with its mark), as the deck's "From …" line does.
             val owner = state.profile(entry.profileId)
@@ -536,28 +567,46 @@ private fun LedgerEntryRow(entry: MemoryLedgerEntry, state: MemoryLedgerState, o
     }
 }
 
-/** The kind, the day, and for a song note its song and where in it. */
 @Composable
-private fun entryMeta(entry: MemoryLedgerEntry, state: MemoryLedgerState): String {
-    val kind = stringResource(
-        when (entry.kind) {
-            MemoryLedgerKind.AlbumNote -> R.string.memory_ledger_kind_album_note
-            MemoryLedgerKind.SongNote -> R.string.memory_ledger_kind_song_note
-            MemoryLedgerKind.Review -> R.string.memory_ledger_kind_review
-            MemoryLedgerKind.Title -> R.string.memory_ledger_kind_title
-            MemoryLedgerKind.AlbumRating -> R.string.memory_ledger_kind_album_rating
-            MemoryLedgerKind.TrackRating -> R.string.memory_ledger_kind_track_rating
-        },
-    )
+private fun kindLabel(kind: MemoryLedgerKind): String = stringResource(
+    when (kind) {
+        MemoryLedgerKind.AlbumNote -> R.string.memory_ledger_kind_album_note
+        MemoryLedgerKind.SongNote -> R.string.memory_ledger_kind_song_note
+        MemoryLedgerKind.Review -> R.string.memory_ledger_kind_review
+        MemoryLedgerKind.Title -> R.string.memory_ledger_kind_title
+        MemoryLedgerKind.AlbumRating -> R.string.memory_ledger_kind_album_rating
+        MemoryLedgerKind.TrackRating -> R.string.memory_ledger_kind_track_rating
+    },
+)
+
+private fun entryDay(entry: MemoryLedgerEntry, state: MemoryLedgerState): String {
     val locale = Locale.getDefault()
-    val day = DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "MMMd"), locale)
+    return DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "MMMd"), locale)
         .format(entry.localDate(state.zone))
-    val song = entry.trackTitle?.let { title ->
-        entry.positionMs?.takeIf { it > 0 }
-            ?.let { ms -> "$title ${ms / 60_000}:${"%02d".format((ms / 1000) % 60)}" }
-            ?: title
+}
+
+/** Two pieces of one line told apart by tone and a gap, not by a dot: [first] strong, [second] lighter. */
+@Composable
+private fun LedgerPair(first: String, second: String?, style: androidx.compose.ui.text.TextStyle) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = first,
+            style = style,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (second != null) {
+            Text(
+                text = second,
+                style = style,
+                color = MaterialTheme.colorScheme.outline,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
-    return listOfNotNull(kind, day, song).joinToString(" · ")
 }
 
 /** The album's cover, whole (nothing on it, never cut), or its colours when there's no cover. */

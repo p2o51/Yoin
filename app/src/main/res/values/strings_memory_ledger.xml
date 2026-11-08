@@ -5,7 +5,7 @@
     <string name="memory_ledger_scale_month">A cell a month</string>
     <string name="memory_ledger_scale_week">A cell a week</string>
     <string name="memory_ledger_scale_day">A cell a day</string>
-    <string name="memory_ledger_scale_hint">%1$s · cells get finer as you write more</string>
+    <string name="memory_ledger_scale_hint">Cells get finer as you write more</string>
     <plurals name="memory_ledger_writings_label">
         <item quantity="one">memory written</item>
         <item quantity="other">memories written</item>
@@ -17,7 +17,7 @@
     <string name="memory_ledger_open">Open All Memories</string>
 
     <string name="memory_ledger_stat_albums">Albums</string>
-    <string name="memory_ledger_stat_writings">Notes and reviews</string>
+    <string name="memory_ledger_stat_writings">Written</string>
     <string name="memory_ledger_stat_characters">Characters</string>
     <string name="memory_ledger_stat_rated">Songs scored</string>
 
@@ -46,7 +46,7 @@
     <string name="memory_ledger_kind_album_note">Album note</string>
     <string name="memory_ledger_kind_song_note">Song note</string>
     <string name="memory_ledger_kind_review">Review</string>
-    <string name="memory_ledger_kind_title">Title</string>
+    <string name="memory_ledger_kind_title">Memory title</string>
     <string name="memory_ledger_kind_album_rating">Album score</string>
     <string name="memory_ledger_kind_track_rating">Song score</string>
     <string name="memory_ledger_unknown_album">Album unknown</string>
