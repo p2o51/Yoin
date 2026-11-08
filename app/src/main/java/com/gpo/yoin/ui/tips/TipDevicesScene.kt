@@ -1,10 +1,6 @@
 package com.gpo.yoin.ui.tips
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +25,8 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.ui.component.DeviceRow
 import com.gpo.yoin.ui.component.MoreDevicesRow
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlinx.coroutines.delay
 
 /**
@@ -109,8 +107,10 @@ internal fun SpotifySpeakersDemo(playing: Boolean) {
             // Android's output panel for Spotify's session, over Yoin.
             AnimatedVisibility(
                 visible = panelOpen,
-                enter = fadeIn() + slideInVertically { it / 4 },
-                exit = fadeOut() + slideOutVertically { it / 4 },
+                enter = YoinMotion.fadeIn(YoinMotionRole.Standard) +
+                    YoinMotion.scaleIn(YoinMotionRole.Expressive, initialScale = 0.94f),
+                exit = YoinMotion.fadeOut(YoinMotionRole.Standard) +
+                    YoinMotion.scaleOut(YoinMotionRole.Standard, targetScale = 0.94f),
                 modifier = Modifier.align(Alignment.Center),
             ) {
                 Column(
