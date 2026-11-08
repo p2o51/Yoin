@@ -145,8 +145,11 @@ import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.MemorySwitchGate
+import com.gpo.yoin.ui.memories.MemorySwitchNotice
 import com.gpo.yoin.ui.memories.rememberMemoriesHomeBehind
 import com.gpo.yoin.ui.memories.rememberMemoriesHostPose
+import com.gpo.yoin.ui.memories.rememberMemorySwitchGate
 import com.gpo.yoin.ui.memories.toPlaybackActivityContext
 import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
@@ -1086,6 +1089,8 @@ private fun YoinShell(
                             )
 
                             if (memoriesMounted) {
+                                // Switching accounts from a memory asks once first (it stops playback).
+                                val memorySwitchGate = rememberMemorySwitchGate()
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -1115,6 +1120,7 @@ private fun YoinShell(
                                         onOpenAlbum = rememberMemoryAlbumOpen(
                                             app.container.repository,
                                             accountSwitcher,
+                                            memorySwitchGate,
                                         ) { memory ->
                                             // MemoryEntry.entityId is the RAW id
                                             // (the coordinator strips the provider
@@ -1157,20 +1163,25 @@ private fun YoinShell(
                                             } else {
                                                 // Another account's track: switch there (as Home's
                                                 // other-accounts shelf does), then play once its source is up.
-                                                accountSwitcher.switchTo(owner.id, onLanded = {
-                                                    shellScope.launch {
-                                                        val source = withTimeoutOrNull(OtherProfileSourceWaitMs) {
-                                                            app.container.profileManager.activeSource.first { source ->
-                                                                source?.id == memory.entityProvider
-                                                            }
-                                                        } ?: return@launch
-                                                        playMemoryTrack(app.container, memory, trackIndex, source)
-                                                    }
-                                                })
+                                                val subject = memory.playbackSongs.getOrNull(trackIndex)?.title
+                                                    ?: memory.title
+                                                memorySwitchGate.request(owner, subject, opensAlbum = false) {
+                                                    accountSwitcher.switchTo(owner.id, onLanded = {
+                                                        shellScope.launch {
+                                                            val source = withTimeoutOrNull(OtherProfileSourceWaitMs) {
+                                                                app.container.profileManager.activeSource.first {
+                                                                    it?.id == memory.entityProvider
+                                                                }
+                                                            } ?: return@launch
+                                                            playMemoryTrack(app.container, memory, trackIndex, source)
+                                                        }
+                                                    })
+                                                }
                                             }
                                         },
                                         modifier = Modifier.fillMaxSize(),
                                     )
+                                    MemorySwitchNotice(memorySwitchGate)
                                 }
                             }
                         }
@@ -1750,18 +1761,26 @@ private fun markDetailClick(route: DetailPaneRoute, via: String) {
 private fun rememberMemoryAlbumOpen(
     repository: YoinRepository,
     accountSwitcher: AccountSwitcherViewModel,
+    switchGate: MemorySwitchGate,
     open: (MemoryEntry) -> Unit,
 ): (MemoryEntry) -> Unit =
-    remember(repository, accountSwitcher, open) {
+    remember(repository, accountSwitcher, switchGate, open) {
         { memory ->
             val go = {
                 repository.prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
                 open(memory)
             }
             // Another account's memory: its album is that account's, so switch there first (the deck keeps
-            // the card in view across the switch) and open the album once the account is in use.
+            // the card in view across the switch) and open the album once the account is in use. The first
+            // time, the one-off notice asks before switching.
             val owner = memory.otherProfile
-            if (owner == null) go() else accountSwitcher.switchTo(owner.id, onLanded = go)
+            if (owner == null) {
+                go()
+            } else {
+                switchGate.request(owner, memory.title, opensAlbum = true) {
+                    accountSwitcher.switchTo(owner.id, onLanded = go)
+                }
+            }
         }
     }
 

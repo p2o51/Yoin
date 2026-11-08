@@ -284,10 +284,31 @@ internal class OtherProfilesNoticeStore(context: Context) {
  * The one-off notice on the shelf's first tap: playing it switches to
  * [OtherProfileItem.profileName], which stops what is playing now.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun OtherProfileSwitchSheet(
     item: OtherProfileItem,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AccountSwitchNoticeSheet(
+        title = stringResource(R.string.home_other_profiles_switch_title, item.profileName),
+        body = stringResource(R.string.home_other_profiles_switch_body, item.title),
+        confirm = stringResource(R.string.home_other_profiles_switch_confirm),
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    )
+}
+
+/**
+ * The one-off "this switches accounts" notice, shared by Home's other-accounts shelf and Memories (one
+ * [OtherProfilesNoticeStore] flag for both): switching stops what is playing now.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AccountSwitchNoticeSheet(
+    title: String,
+    body: String,
+    confirm: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -300,12 +321,12 @@ internal fun OtherProfileSwitchSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = stringResource(R.string.home_other_profiles_switch_title, item.profileName),
+                text = title,
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = stringResource(R.string.home_other_profiles_switch_body, item.title),
+                text = body,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -317,7 +338,7 @@ internal fun OtherProfileSwitchSheet(
                     Text(stringResource(R.string.home_other_profiles_switch_cancel))
                 }
                 Button(onClick = onConfirm) {
-                    Text(stringResource(R.string.home_other_profiles_switch_confirm))
+                    Text(confirm)
                 }
             }
         }

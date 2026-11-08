@@ -23,6 +23,8 @@
     <string name="mem_review_today">今天</string>
     <string name="mem_review_yours">你的评论</string>
     <string name="mem_note_yours">你的笔记</string>
+    <string name="mem_switch_body_album">打开「%1$s」要先切换到这个账号，正在播放的内容会停下。</string>
+    <string name="mem_switch_confirm_album">切换并打开</string>
     <string name="mem_cd_review_field">你的评论</string>
     <string name="mem_cd_write_review">写评论</string>
     <string name="mem_cd_write_review_action">写评论</string>
