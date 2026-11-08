@@ -26,8 +26,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * The expanded lyric list seats the line being sung in the middle of what
- * reads crisp, laid out for real (ticket 2, 2026-10-12: a Pixel 10 Pro in
+ * The expanded lyric list seats the line being sung on the screen seat
+ * (LyricsScreenSeat, owner 2026-11-08), inside what reads crisp, laid out for real (ticket 2, 2026-10-12: a Pixel 10 Pro in
  * landscape showed the active line 59% down a ~227dp window, its wrap and
  * translation in the bottom fade).
  */
@@ -121,7 +121,25 @@ class LyricsFocusSeatLayoutTest {
         show(window, positionMs = lineMs(8))
 
         val (top, bottom) = rowBounds("Line 8", "Translation 8")
-        assertEquals("row centre at the window's middle", window.height.value / 2f, (top + bottom).value / 2f, 1.5f)
+        assertEquals("row centre on the screen seat", expectedCentre(window, top, bottom), (top + bottom).value / 2f, 1.5f)
+    }
+
+    /**
+     * Where the seat puts a row spanning [top]..[bottom]: its centre at
+     * LyricsScreenSeat of the screen (here the test's root, which is the
+     * window itself), held inside the clean band (lyricsFocusScrollOffsetPx).
+     */
+    private fun expectedCentre(window: DpSize, top: Dp, bottom: Dp): Float {
+        val h = window.height.value
+        val fade = min(LyricsEdgeFade, window.height * LyricsEdgeFadeMaxFraction).value
+        val fraction = lyricsScreenSeatFraction(
+            windowTopPx = 0f,
+            windowPx = h.toInt(),
+            screenPx = h.toInt(),
+            fadePx = LyricsEdgeFade.value.toInt(),
+        )
+        val half = (bottom - top).value / 2f
+        return (fade + (h - fade * 2) * fraction).coerceIn(fade + half, h - fade - half)
     }
 
     private fun show(window: DpSize, positionMs: Long) = show(window) { positionMs }
@@ -166,6 +184,6 @@ class LyricsFocusSeatLayoutTest {
             "row ends above the bottom fade (bottom $bottom, fade from ${window.height - fade})",
             bottom <= window.height - fade + 0.5.dp
         )
-        assertEquals("row centre at the window's middle", window.height.value / 2f, (top + bottom).value / 2f, 1.5f)
+        assertEquals("row centre on the screen seat", expectedCentre(window, top, bottom), (top + bottom).value / 2f, 1.5f)
     }
 }
