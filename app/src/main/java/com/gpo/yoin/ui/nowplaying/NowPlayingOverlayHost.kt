@@ -876,7 +876,10 @@ internal fun List<YoinDevice>.localizedForSheet(): List<YoinDevice> {
     val remembered = stringResource(R.string.np_device_spotify_remembered)
     val spotifyOnly = stringResource(R.string.np_device_spotify_only)
     return map { device ->
-        if (device is YoinDevice.SpotifyConnect && device.spotifyOnly && device.statusText == null) {
+        if (
+            device is YoinDevice.SpotifyConnect && device.spotifyOnly &&
+            (device.statusText == null || device.statusText == NpDeviceStatusRemembered)
+        ) {
             return@map device.copy(statusText = spotifyOnly)
         }
         val status = when (device.statusText) {

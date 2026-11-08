@@ -35,6 +35,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,15 +91,6 @@ fun DevicesSheet(
     val windowInfo = LocalWindowInfo.current
     val scope = rememberCoroutineScope()
     var moreDevicesFailed by rememberSaveable { mutableStateOf(false) }
-    // The system output panel takes focus without pausing Yoin: read the devices again
-    // when focus comes back (a speaker may have been picked there).
-    LaunchedEffect(windowInfo) {
-        var hadFocus = windowInfo.isWindowFocused
-        snapshotFlow { windowInfo.isWindowFocused }.collect { focused ->
-            if (focused && !hadFocus) onRefresh()
-            hadFocus = focused
-        }
-    }
     // Spotify's device picker, inside Yoin when Android's output switcher opens for Spotify;
     // the Spotify app otherwise.
     val openSpotifyPicker: () -> Unit = {
@@ -106,7 +99,17 @@ fun DevicesSheet(
             scope.launch {
                 delay(SpotifyOutputSwitcher.SHOW_WAIT_MS)
                 // Still focused: the system panel didn't come up (another Android, or refused).
-                if (windowInfo.isWindowFocused) moreDevicesFailed = !SpotifyOutputSwitcher.openSpotify(context)
+                if (windowInfo.isWindowFocused) {
+                    moreDevicesFailed = !SpotifyOutputSwitcher.openSpotify(context)
+                    return@launch
+                }
+                // The panel is a System UI window: Yoin stays resumed, so wait for focus to come
+                // back, then read the devices once Spotify has moved (a speaker may be picked).
+                withTimeoutOrNull(SpotifyOutputSwitcher.PANEL_MAX_MS) {
+                    snapshotFlow { windowInfo.isWindowFocused }.first { it }
+                }
+                delay(SpotifyOutputSwitcher.SETTLE_MS)
+                onRefresh()
             }
         } else {
             moreDevicesFailed = !SpotifyOutputSwitcher.openSpotify(context)

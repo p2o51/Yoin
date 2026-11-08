@@ -24,6 +24,12 @@ internal object SpotifyOutputSwitcher {
     /** How long the panel may take to take focus before Yoin opens Spotify instead. */
     const val SHOW_WAIT_MS = 900L
 
+    /** The longest Yoin waits on the open panel before reading the devices anyway. */
+    const val PANEL_MAX_MS = 120_000L
+
+    /** Spotify Connect lags a switch by a second or so before /me/player shows it. */
+    const val SETTLE_MS = 1_200L
+
     /** Sends the request; false when it can't even be sent. */
     fun request(context: Context): Boolean = runCatching {
         context.sendBroadcast(
