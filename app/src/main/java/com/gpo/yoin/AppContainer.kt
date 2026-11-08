@@ -532,6 +532,7 @@ class AppContainer(private val context: Context) {
             model = com.gpo.yoin.data.highlight.GeminiNanoLyricModel(),
             currentTrack = { playbackManager.playbackState.value.currentTrack },
             profileStartupDone = profileStartupDone,
+            testMode = BuildConfig.NANO_TEST,
         )
     }
 

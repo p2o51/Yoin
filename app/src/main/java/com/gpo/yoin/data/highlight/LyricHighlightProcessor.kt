@@ -55,6 +55,11 @@ class LyricHighlightProcessor(
     private val currentTrack: () -> Track?,
     private val profileStartupDone: StateFlow<Boolean>,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * The Gemini Nano test copy (BuildConfig.NANO_TEST): a short start delay, more songs per visit, no daily
+     * cap (AICore's own BUSY and quota still apply), and every step written to [events] for Home to show.
+     */
+    private val testMode: Boolean = false,
 ) {
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, error ->
@@ -74,6 +79,17 @@ class LyricHighlightProcessor(
 
     private fun cachedStatus(): NanoStatus? =
         prefs.getString(KEY_STATUS, null)?.let { name -> NanoStatus.entries.firstOrNull { it.name == name } }
+
+    private val _events = MutableStateFlow<List<String>>(emptyList())
+
+    /** The latest steps, newest first (test mode only; always empty otherwise). */
+    val events: StateFlow<List<String>> = _events.asStateFlow()
+
+    private fun note(message: String) {
+        if (!testMode) return
+        Log.i(TAG, message)
+        _events.value = (listOf(message) + _events.value).take(EVENT_LIMIT)
+    }
 
     /** Bumped after each new highlight, so a display can refresh. */
     private val _revision = MutableStateFlow(0L)
@@ -101,28 +117,39 @@ class LyricHighlightProcessor(
         profileStartupDone.first { it }
         var nano = model.status()
         publishStatus(nano)
+        note("Nano: $nano")
         if (nano == NanoStatus.DOWNLOADABLE && onUnmeteredNetwork()) {
             // A supported phone that hasn't fetched Nano yet: ask AICore for it (Wi-Fi only), then look again.
+            note("Downloading the model…")
             model.download()
             nano = model.status()
             publishStatus(nano)
+            note("Nano after download: $nano")
         }
         if (nano != NanoStatus.AVAILABLE) return
-        delay(START_DELAY_MS)
+        delay(if (testMode) TEST_START_DELAY_MS else START_DELAY_MS)
         var done = 0
         val queue = buildQueue()
+        note("Queue: ${queue.size} songs")
+        val perVisit = if (testMode) TEST_PER_VISIT_LIMIT else NanoBudget.PER_VISIT_LIMIT
         for (entry in queue) {
-            if (done >= NanoBudget.PER_VISIT_LIMIT) break
-            if (!deviceIsRelaxed()) break
+            if (done >= perVisit) break
+            if (!deviceIsRelaxed()) {
+                note("Paused: phone warm, battery saver or low battery")
+                break
+            }
             val now = clock()
-            if (!budget().allows(now, today(now))) break
+            if (!testMode && !budget().allows(now, today(now))) break
             // Switched accounts mid-visit: the rest of the queue belongs to the old one.
             if (!stillActive(entry)) break
+            val started = clock()
             val outcome = process(entry)
+            note("${entry.title}: ${outcome.name.lowercase()} (${clock() - started} ms)")
             if (outcome == Outcome.STOP) break
             if (outcome == Outcome.PICKED || outcome == Outcome.UNUSABLE) done++
-            delay(NanoBudget.GAP_MS)
+            delay(if (testMode) TEST_GAP_MS else NanoBudget.GAP_MS)
         }
+        note("Visit done: $done")
     }
 
     /** A song to work on, with what's needed to show it later without the network. */
@@ -247,19 +274,25 @@ class LyricHighlightProcessor(
                     Outcome.PICKED
                 } else {
                     Log.i(TAG, "Unusable answer for ${entry.songId}: ${answer.text.take(80)}")
+                    note("Odd answer: ${answer.text.take(40)}")
                     Outcome.UNUSABLE
                 }
             }
             NanoAnswer.Busy -> {
+                note("AICore busy: backing off")
                 writeBudget(budget().afterBusy(now, today(now)))
                 Outcome.STOP
             }
             NanoAnswer.QuotaExhausted -> {
+                note("Battery quota used up for today")
                 writeBudget(budget().afterQuotaExhausted(today(now)))
                 Outcome.STOP
             }
             NanoAnswer.NotForeground -> Outcome.STOP
-            is NanoAnswer.Failed -> Outcome.SKIPPED
+            is NanoAnswer.Failed -> {
+                note("Nano failed: code ${answer.code}")
+                Outcome.SKIPPED
+            }
         }
     }
 
@@ -368,6 +401,10 @@ class LyricHighlightProcessor(
 
         /** After coming to the foreground: launch, Home and the feed go first. */
         const val START_DELAY_MS = 10_000L
+        private const val TEST_START_DELAY_MS = 2_000L
+        private const val TEST_PER_VISIT_LIMIT = 15
+        private const val TEST_GAP_MS = 2_000L
+        private const val EVENT_LIMIT = 8
         const val MIN_BATTERY_PERCENT = 30
 
         /** A song that gave nothing usable is tried again after this (lyrics sources add songs). */

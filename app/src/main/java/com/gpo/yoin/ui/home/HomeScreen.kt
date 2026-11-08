@@ -73,6 +73,7 @@ private val NoOtherProfileItems = MutableStateFlow(emptyList<OtherProfileItem>()
 private val NoticeAlreadySeen = MutableStateFlow(true)
 private val NoLyricHighlight = MutableStateFlow<HomeLyricHighlight?>(null)
 private val NoLyricHighlightDevice = MutableStateFlow(false)
+private val NoNanoTestLog = MutableStateFlow<List<String>>(emptyList())
 
 /** How Home's hold on the header avatar ends ([HomeAccountHold]). */
 private enum class HomeHoldEnd { HandBack, FadeAway, Release }
@@ -128,6 +129,7 @@ fun HomeScreen(
     val otherProfilesNoticeSeen by (otherProfiles?.noticeSeen ?: NoticeAlreadySeen).collectAsState()
     val lyricHighlight by (lyricHighlights?.card ?: NoLyricHighlight).collectAsState()
     val lyricHighlightAvailable by (lyricHighlights?.available ?: NoLyricHighlightDevice).collectAsState()
+    val nanoTestLog by (lyricHighlights?.testLog ?: NoNanoTestLog).collectAsState()
     // Each return to Home (after a while) brings another line.
     LifecycleStartEffect(lyricHighlights) {
         lyricHighlights?.onHomeShown()
@@ -204,6 +206,7 @@ fun HomeScreen(
             },
             lyricHighlight = lyricHighlight,
             lyricHighlightAvailable = lyricHighlightAvailable,
+            nanoTestLog = nanoTestLog,
             onLyricHighlightPlay = { card -> lyricHighlights?.play(card) },
             onLyricHighlightNext = { lyricHighlights?.next() },
         )
@@ -263,6 +266,7 @@ fun HomeContent(
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
     lyricHighlight: HomeLyricHighlight? = null,
     lyricHighlightAvailable: Boolean = false,
+    nanoTestLog: List<String> = emptyList(),
     onLyricHighlightPlay: (HomeLyricHighlight) -> Unit = {},
     onLyricHighlightNext: () -> Unit = {},
 ) {
@@ -442,6 +446,7 @@ fun HomeContent(
                                 onOtherProfileItemClick = onOtherProfileItemClick,
                                 lyricHighlight = lyricHighlight,
                                 lyricHighlightAvailable = lyricHighlightAvailable,
+                                nanoTestLog = nanoTestLog,
                                 onLyricHighlightPlay = onLyricHighlightPlay,
                                 onLyricHighlightNext = onLyricHighlightNext,
                                 memoryPill = feed.memoryPill,

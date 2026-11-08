@@ -301,6 +301,8 @@ internal fun HomeEditorialContent(
     // (without it the section is left out of the feed, edit mode and the tray), playing it, drawing another.
     lyricHighlight: HomeLyricHighlight? = null,
     lyricHighlightAvailable: Boolean = false,
+    // The Gemini Nano test copy's step log (BuildConfig.NANO_TEST), shown under the card; empty otherwise.
+    nanoTestLog: List<String> = emptyList(),
     onLyricHighlightPlay: (HomeLyricHighlight) -> Unit = {},
     onLyricHighlightNext: () -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
@@ -713,7 +715,8 @@ internal fun HomeEditorialContent(
         playlists,
         otherProfileItems,
         lyricHighlight,
-        lyricHighlightAvailable
+        lyricHighlightAvailable,
+        nanoTestLog.isNotEmpty()
     ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
@@ -732,7 +735,7 @@ internal fun HomeEditorialContent(
                         HomeSection.RecentlyPlayed -> recentlyPlayed.isNotEmpty()
                         HomeSection.YourPlaylists -> playlists.isNotEmpty()
                         HomeSection.OtherProfiles -> otherProfileItems.isNotEmpty()
-                        HomeSection.LyricHighlight -> lyricHighlight != null
+                        HomeSection.LyricHighlight -> lyricHighlight != null || nanoTestLog.isNotEmpty()
                     }
                 },
                 available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
@@ -1250,9 +1253,12 @@ internal fun HomeEditorialContent(
                                 )
 
                                 // One lyric line Gemini Nano picked; a tap plays from it.
-                                HomeSection.LyricHighlight -> lyricHighlight?.let { card ->
+                                HomeSection.LyricHighlight -> if (lyricHighlight == null) {
+                                    NanoTestLog(lines = nanoTestLog, withTitle = true, modifier = Modifier.fillMaxWidth())
+                                } else {
                                     LyricHighlightSection(
-                                        card = card,
+                                        card = lyricHighlight,
+                                        testLog = nanoTestLog,
                                         buildCoverArtUrl = buildCoverArtUrl,
                                         extractBackdropColors = shouldExtractBackdropColors,
                                         onPlay = onLyricHighlightPlay,

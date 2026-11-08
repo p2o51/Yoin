@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -27,6 +28,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.R
 import com.gpo.yoin.data.highlight.LyricHighlightProcessor
 import com.gpo.yoin.data.highlight.LyricHighlightSelector
@@ -109,8 +111,15 @@ class LyricHighlightViewModel internal constructor(
 
     /** Whether this device has Nano at all; Home leaves the section out entirely when it doesn't. */
     val available: StateFlow<Boolean> = processor.status
-        .map { it == NanoStatus.AVAILABLE }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, processor.status.value == NanoStatus.AVAILABLE)
+        .map { it == NanoStatus.AVAILABLE || BuildConfig.NANO_TEST }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            processor.status.value == NanoStatus.AVAILABLE || BuildConfig.NANO_TEST,
+        )
+
+    /** The Gemini Nano test copy's step log, newest first; always empty in a normal build. */
+    val testLog: StateFlow<List<String>> = processor.events
 
     private val _card = MutableStateFlow<HomeLyricHighlight?>(null)
     val card: StateFlow<HomeLyricHighlight?> = _card.asStateFlow()
@@ -241,6 +250,7 @@ internal fun LyricHighlightSection(
     onPlay: (HomeLyricHighlight) -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
+    testLog: List<String> = emptyList(),
 ) {
     Column(
         modifier = modifier,
@@ -261,6 +271,43 @@ internal fun LyricHighlightSection(
             onNext = onNext,
             modifier = Modifier.fillMaxWidth(),
         )
+        if (testLog.isNotEmpty()) NanoTestLog(lines = testLog, withTitle = false, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/**
+ * The Gemini Nano test copy's log (BuildConfig.NANO_TEST): what Nano is doing, newest first, so a run on a real
+ * phone can be read without adb. Never shown in a normal build (its log stays empty).
+ */
+@Composable
+internal fun NanoTestLog(lines: List<String>, withTitle: Boolean, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (withTitle) HomeSectionTitle(text = stringResource(HomeSection.LyricHighlight.titleRes))
+        Surface(
+            shape = YoinContainerShapes.Card,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(LyricCardPadding),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "Nano test",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                lines.forEach { line ->
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }
 
