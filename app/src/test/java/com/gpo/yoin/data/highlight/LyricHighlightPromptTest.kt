@@ -88,8 +88,17 @@ class LyricHighlightPromptTest {
         assertNull(LyricHighlightPrompt.parse("{\"start\": 0, \"end\": 1}", prepared))
         assertNull(LyricHighlightPrompt.parse("{\"start\": 5, \"end\": 6}", prepared))
         assertNull(LyricHighlightPrompt.parse("{\"start\": 3, \"end\": 2}", prepared))
-        // Three lines is more than a card holds.
-        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 3}", prepared))
+        // Far more lines than a card holds: the model drifted.
+        assertNull(LyricHighlightPrompt.parse("{\"start\": 1, \"end\": 5}", prepared))
+    }
+
+    @Test
+    fun should_keepOpeningTwoLines_when_pickRunsToThreeOrFour() {
+        val prepared = LyricHighlightPrompt.prepare(song)!!
+
+        val pick = LyricHighlightPrompt.parse("```json\n{\"start\": 1, \"end\": 3}\n```", prepared)!!
+
+        assertEquals("我把你说过的晚安\n折成纸船放回海里", pick.text)
     }
 
     @Test

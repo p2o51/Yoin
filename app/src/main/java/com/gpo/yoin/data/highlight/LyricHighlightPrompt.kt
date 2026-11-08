@@ -34,6 +34,9 @@ object LyricHighlightPrompt {
 
     const val MAX_PICK_LINES = 2
 
+    /** The longest range taken (cut to [MAX_PICK_LINES]); anything longer is treated as a bad answer. */
+    const val MAX_OVERRUN_LINES = 4
+
     /** A highlight longer than this (both lines together) no longer reads as a quote on a card. */
     const val MAX_PICK_CHARS = 72
 
@@ -101,8 +104,10 @@ object LyricHighlightPrompt {
             end = bare.groupValues[2].toIntOrNull()
         }
         start ?: return null
-        val last = end ?: start
-        if (last < start || last - start + 1 > MAX_PICK_LINES) return null
+        val asked = end ?: start
+        // A slightly long range (Nano often answers three lines) keeps its opening lines; a wild one is a drift.
+        if (asked < start || asked - start + 1 > MAX_OVERRUN_LINES) return null
+        val last = minOf(asked, start + MAX_PICK_LINES - 1)
         val first = prepared.line(start) ?: return null
         val second = prepared.line(last) ?: return null
         val text = if (first === second) first.text else first.text + "\n" + second.text
