@@ -183,8 +183,8 @@
     <string name="home_cd_bubble_memories">Memories</string>
     <!-- Home bubble tips (owner 2026-10-17): one gesture or detail each, said between Memories. -->
     <!-- Tip page (ui/tips/TipScreen): "3 / 10" -->
-    <string name="home_tip_continue_on_title">ARGON_TITLE_EN</string>
-    <string name="home_tip_continue_on">ARGON_LINE_EN</string>
+    <string name="home_tip_continue_on_title">Continue on tablet</string>
+    <string name="home_tip_continue_on">Tap Yoin in your tablet\'s taskbar and choose Continue here to pick up from your phone</string>
     <string name="home_tip_account_quick_switch_title">Switch accounts</string>
     <string name="home_tip_account_quick_switch">Long-press the avatar and slide to switch accounts</string>
     <string name="home_tip_mini_player_menu_title">Mini player options</string>

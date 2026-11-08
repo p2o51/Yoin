@@ -163,8 +163,8 @@
     <string name="home_cd_bubble_latest_by">Memories。最新：%1$s，%2$s</string>
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
-    <string name="home_tip_continue_on_title">ARGON_TITLE_ZH</string>
-    <string name="home_tip_continue_on">ARGON_LINE_ZH</string>
+    <string name="home_tip_continue_on_title">在平板上接着听</string>
+    <string name="home_tip_continue_on">手机播歌时，点平板任务栏里的 Yoin，选「在这里继续」接着播</string>
     <string name="home_tip_account_quick_switch_title">切换账号</string>
     <string name="home_tip_account_quick_switch">长按头像并滑动以切换账号</string>
     <string name="home_tip_mini_player_menu_title">迷你播放器菜单</string>
