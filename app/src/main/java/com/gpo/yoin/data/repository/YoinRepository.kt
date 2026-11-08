@@ -1162,6 +1162,20 @@ class YoinRepository(
         }
 
     /**
+     * A share link made now for [id] (see MusicMetadata.createShareLink):
+     * success(null) where the service makes none, failure when the server
+     * refused or couldn't be reached.
+     */
+    suspend fun createShareLink(kind: WebLinkKind, id: MediaId, description: String?): Result<String?> =
+        try {
+            Result.success(requireSource().metadata().createShareLink(kind, id, description))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+
+    /**
      * [track]'s album and artist: its own, or the ones its service names when asked (Apple Music's playlist,
      * library and search songs come without them; see MusicMetadata.songLinks). Either is null when there is
      * none to open.
