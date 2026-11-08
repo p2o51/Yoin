@@ -23,6 +23,8 @@ data class SubsonicResponseBody(
     val playlists: PlaylistsResponse? = null,
     val playlist: Playlist? = null,
     val lyricsList: LyricsList? = null,
+    /** getSong's one song. */
+    val song: Song? = null,
     val type: String? = null,
     val openSubsonic: Boolean? = null,
     val openSubsonicExtensions: List<OpenSubsonicExtension> = emptyList(),

@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import com.gpo.yoin.player.continueon.ContinueOnWindows
+import com.gpo.yoin.ui.continueon.ContinueOnCard
 import com.gpo.yoin.ui.experience.CoveredWindowAnimationGate
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.landing.LandingGate
@@ -55,6 +57,12 @@ class MainActivity : ComponentActivity() {
     private var pendingWidgetDetail by mutableStateOf<WidgetDetailRequest?>(null)
     private var shellWindowFocused by mutableStateOf(false)
 
+    // Continue On (Android 17): what another device gets when it takes this window's playback over.
+    @androidx.annotation.RequiresApi(ContinueOnWindows.API)
+    override fun onHandoffActivityDataRequested(
+        handoffRequestInfo: android.app.HandoffActivityDataRequestInfo,
+    ): android.app.HandoffActivityData = ContinueOnWindows.handoffData(this, handoffRequestInfo)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must be called before super.onCreate(); also applies postSplashScreenTheme.
         val splash = installSplashScreen()
@@ -91,6 +99,10 @@ class MainActivity : ComponentActivity() {
         // A fresh install holds the shell back until the landing check (a cheap prefs read).
         if (savedInstanceState == null && !SharedPrefsLandingStore(this).isDone()) landingGate.holdShell = true
         handleLandingIntent(intent, fresh = savedInstanceState == null)
+        // Offer this window's playback to another device (Continue On, Android 17), and show the card of a
+        // hand-off that started it.
+        ContinueOnWindows.install(this)
+        if (savedInstanceState == null) ContinueOnWindows.receive(this, intent)
         setContent {
             YoinActivityRoot {
                 Box(Modifier.fillMaxSize()) {
@@ -118,6 +130,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     LandingHost(gate = landingGate)
+                    ContinueOnCard(continueOn = (application as YoinApplication).container.continueOn)
                 }
             }
         }
@@ -169,6 +182,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         handleLandingIntent(intent, fresh = true)
         handleWidgetIntent(intent)
+        ContinueOnWindows.receive(this, intent)
     }
 
     private fun handleWidgetIntent(intent: Intent?) {

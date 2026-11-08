@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Continue On (Android 17 cross-device handoff): the card a hand-off shows before it plays here. -->
+    <string name="continue_on_from">From %1$s</string>
+    <string name="continue_on_other_device">your other device</string>
+    <string name="continue_on_unknown_song">Unknown song</string>
+    <string name="continue_on_playing_at">Playing · %1$s</string>
+    <string name="continue_on_paused_at">Paused · %1$s</string>
+    <string name="continue_on_continue_here">Continue here</string>
+    <string name="continue_on_not_now">Not now</string>
+    <string name="continue_on_ok">OK</string>
+    <string name="continue_on_no_account">This account isn\'t on this device yet. Add it in Settings to continue here.</string>
+    <string name="continue_on_failed">Couldn\'t load this song here.</string>
+    <string name="continue_on_other_still_playing">Playing here. Your other device didn\'t answer, so it may still be playing.</string>
+</resources>

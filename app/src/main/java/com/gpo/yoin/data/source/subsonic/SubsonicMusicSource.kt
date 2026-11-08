@@ -66,6 +66,10 @@ class SubsonicMusicSource(
         override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> =
             getAlbumList(type = "recent", size = size, offset = 0)
 
+        // One song by id: what a Continue On hand-off reads its queue back with.
+        override suspend fun getTrack(id: MediaId): Track? =
+            unwrap(api.getSong(id.requireSubsonic())).song?.toTrack()
+
         override suspend fun getArtists(): List<ArtistIndex> =
             unwrap(api.getArtists()).artists?.index.orEmpty().map { it.toArtistIndex() }
 

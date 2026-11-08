@@ -32,6 +32,7 @@ import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.perf.YoinPerf
+import com.gpo.yoin.player.continueon.ContinueOnWindows
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
@@ -73,8 +74,15 @@ class PlaylistDetailActivity : ComponentActivity() {
         }
     }
 
+    // Continue On (Android 17): what another device gets when it takes this window's playback over.
+    @androidx.annotation.RequiresApi(ContinueOnWindows.API)
+    override fun onHandoffActivityDataRequested(
+        handoffRequestInfo: android.app.HandoffActivityDataRequestInfo,
+    ): android.app.HandoffActivityData = ContinueOnWindows.handoffData(this, handoffRequestInfo)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ContinueOnWindows.install(this)
         enableYoinEdgeToEdge()
         // A detail opened from this one covers it but keeps it alive (translucent): freeze its animations.
         installCoveredWindowAnimationGate(intent.detailWindowKey())
