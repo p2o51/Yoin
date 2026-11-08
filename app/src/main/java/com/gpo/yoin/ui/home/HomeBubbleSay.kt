@@ -47,7 +47,7 @@ internal enum class HomeBubbleTip(
     EditHome(R.string.home_tip_edit_home_title, R.string.home_tip_edit_home, day(2026, 10, 17), { YoinSymbols.DragHandle }),
     PullForMemories(R.string.home_tip_pull_memories_title, R.string.home_tip_pull_memories, day(2026, 10, 17), { YoinSymbols.Memory }),
     CoverMenu(R.string.home_tip_cover_menu_title, R.string.home_tip_cover_menu, day(2026, 11, 4), { YoinSymbols.Album }),
-    SongMenu(R.string.home_tip_song_menu_title, R.string.home_tip_song_menu, day(2026, 11, 4), { YoinSymbols.Queue }),
+    SongMenu(R.string.home_tip_song_menu_title, R.string.home_tip_song_menu, day(2026, 11, 7), { YoinSymbols.Queue }),
     PlayModes(R.string.home_tip_play_modes_title, R.string.home_tip_play_modes, day(2026, 10, 21), { YoinSymbols.Shuffle }),
     NoteMoments(R.string.home_tip_note_moments_title, R.string.home_tip_note_moments, day(2026, 10, 17), { YoinSymbols.EditNote }),
     LibrarySearch(R.string.home_tip_library_search_title, R.string.home_tip_library_search, day(2026, 10, 17), { YoinSymbols.Search }),

@@ -198,7 +198,7 @@
     <string name="home_tip_cover_menu_title">Song options</string>
     <string name="home_tip_cover_menu">Long-press the cover in Now Playing for Song options and quick actions</string>
     <string name="home_tip_song_menu_title">Song quick actions</string>
-    <string name="home_tip_song_menu">Long-press a song in an album or playlist to play next, queue, favorite, or share</string>
+    <string name="home_tip_song_menu">Long-press a song in an album, playlist, or Library to play next, queue, favorite, or share</string>
     <string name="home_tip_play_modes_title">Shuffle and repeat</string>
     <string name="home_tip_play_modes">Tap to switch shuffle and repeat; long-press to split them and toggle repeat off</string>
     <string name="home_tip_note_moments_title">Notes pin the second</string>

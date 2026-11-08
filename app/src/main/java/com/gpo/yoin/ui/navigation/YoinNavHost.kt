@@ -462,6 +462,9 @@ private fun YoinShell(
     // The mini player's song menu: the song it was opened on, null while closed.
     var miniMenuSongIdState by rememberSaveable { mutableStateOf<String?>(null) }
     val miniMenuSongId = miniMenuSongIdState
+    // A Library song's menu (its row's long-press): the song as the row had it, null while closed.
+    // With what to do before the menu opens a page (Wide search collapses first).
+    var librarySongMenu by remember { mutableStateOf<Pair<Track, () -> Unit>?>(null) }
     val homeSongTap = remember(shellScope) {
         HomeSongTap(
             scope = shellScope,
@@ -1213,9 +1216,7 @@ private fun YoinShell(
                             },
                             onSongsListClick = { _, queue, index -> app.container.playSongsList(queue, index) },
                             onSearchSongClick = { _, queue, index -> app.container.playSearchResults(queue, index) },
-                            onAddSongToPlaylist = { song ->
-                                nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
-                            },
+                            onSongLongClick = { song, leave -> librarySongMenu = song to leave },
                             accountSwitcher = accountSwitcher,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1358,6 +1359,35 @@ private fun YoinShell(
                 onDismissRequest = { miniMenuSongIdState = null },
                 host = miniMenuHost,
                 nowPlaying = true,
+            )
+        }
+
+        // ── A Library song's long-press: the same song sheet as an album row's ──
+        // (owner 2026-11-07: Library rows had no long-press where the account can't
+        // write playlists; the sheet carries Add to Playlist where it can.)
+        librarySongMenu?.let { (song, leave) ->
+            val librarySongHost = remember(app.container, nowPlayingViewModel, song, leave) {
+                TrackMenuHost(
+                    container = app.container,
+                    trackFor = { id -> song.takeIf { it.id.toString() == id } },
+                    onMessage = { message ->
+                        shellScope.launch { snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short) }
+                    },
+                    onAddToPlaylist = nowPlayingViewModel::requestAddTracksToPlaylist,
+                    onGoToAlbum = { albumId ->
+                        leave()
+                        navigateToAlbumFromShell(albumId, null)
+                    },
+                    onGoToArtist = { artistId ->
+                        leave()
+                        navigateToArtistFromShell(artistId, null)
+                    },
+                )
+            }
+            TrackMenuSheet(
+                songId = song.id.toString(),
+                onDismissRequest = { librarySongMenu = null },
+                host = librarySongHost,
             )
         }
 
