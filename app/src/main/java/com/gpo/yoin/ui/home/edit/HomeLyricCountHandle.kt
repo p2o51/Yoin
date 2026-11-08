@@ -200,11 +200,11 @@ private fun BoxScope.HomeLyricCountHandle(deps: HomeEditDeps, itemSpacing: Dp) {
                 ),
             )
             if (drag.held || drag.reveal.value > 0f) {
-                // A tall pill just left of the corner, its top level with the handle's, so it grows down
-                // with the finger and stays off the next section's title row (owner 2026-11-08).
+                // A tall pill just left of the corner, its bottom level with the handle's, so it stands over
+                // this section's own cards and never covers the next section's title row and hide button.
                 val gap = with(density) { LyricPickerGap.roundToPx() }
                 Popup(
-                    alignment = Alignment.TopEnd,
+                    alignment = Alignment.BottomEnd,
                     offset = IntOffset(-(with(density) { HomeRowsTokens.HandleTouch.roundToPx() } + gap), 0),
                     properties = PopupProperties(focusable = false, clippingEnabled = false),
                 ) {
@@ -235,7 +235,7 @@ private fun LyricCountPicker(count: Int, reveal: () -> Float) {
             val scale = .8f + .2f * r
             scaleX = scale
             scaleY = scale
-            transformOrigin = TransformOrigin(1f, 0f)
+            transformOrigin = TransformOrigin(1f, 1f)
         },
     ) {
         Column(

@@ -60,7 +60,6 @@ import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.noRippleClickable
-import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.home.edit.LocalHomeEditCardScope
 import com.gpo.yoin.ui.home.edit.homeEditCard
 import com.gpo.yoin.ui.home.edit.homeEditInteractive
@@ -565,9 +564,9 @@ private fun LyricHighlightCard(
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier
-            .elasticPress(interactionSource)
-            .seamDissolve(),
+        // No seam print on these cards: in a swiping shelf it kept a recycled neighbour's text over the
+        // peeking card (Pixel 11, 11-08).
+        modifier = modifier.elasticPress(interactionSource),
         shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
