@@ -319,6 +319,10 @@ internal fun HomeEditBlock(
         if (rowsTrack != null && rowsEngine != null && !placeholder && !wholeBlockWiggle) {
             HomeRowsHandleSlot(section, deps, rowsTrack, rowsEngine, itemSpacing)
         }
+        // 「歌词一句」 takes its card count from its own dots, not the row resize.
+        if (section == HomeSection.LyricHighlight && !placeholder && !wholeBlockWiggle) {
+            HomeLyricCountHandleSlot(deps, itemSpacing)
+        }
     }
 }
 
@@ -499,6 +503,7 @@ internal fun homeEditPlaceholderText(section: HomeSection, resources: Resources?
             HomeSection.RecentlyPlayed -> "Nothing played lately" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.YourPlaylists -> "No playlists in your library" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.OtherProfiles -> "Nothing played on your other accounts lately" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.LyricHighlight -> "Listen a while and Gemini Nano picks the first line" // i18n-allow: matches the English resource
         }
     }
     return resources.getString(section.placeholderRes)

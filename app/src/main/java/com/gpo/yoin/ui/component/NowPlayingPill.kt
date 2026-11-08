@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.experience.LocalWindowCovered
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.NowPlayingHeroTextResize
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
@@ -119,6 +120,8 @@ fun NowPlayingPill(
     val progressFillColor = colors.primary.copy(alpha = 0.25f)
     val wave = rememberPlaybackWave(isPlaying)
     val waveHold = rememberCoveredWaveHold(wave)
+    val windowCovered = LocalWindowCovered.current
+    val progressSmoother = LocalPlaybackProgressSmoother.current
     val sharedBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
         role = YoinMotionRole.Standard,
         expressiveScheme = MaterialTheme.motionScheme,
@@ -203,7 +206,8 @@ fun NowPlayingPill(
                             drawContent()
                             val width = size.width
                             val height = size.height
-                            val progressX = width * clampedProgress
+                            val front = progressSmoother.frontAt(windowCovered.value, clampedProgress, isPlaying)
+                            val progressX = width * front
                             val phase = waveHold.phase()
                             val amplitude = 4.dp.toPx() * waveHold.amplitude()
                             val waveSteps = 20
@@ -402,6 +406,8 @@ fun NowPlayingPillVertical(
     val progressFillColor = colors.primary.copy(alpha = 0.25f)
     val wave = rememberPlaybackWave(isPlaying)
     val waveHold = rememberCoveredWaveHold(wave)
+    val windowCovered = LocalWindowCovered.current
+    val progressSmoother = LocalPlaybackProgressSmoother.current
     val clampedProgress = playbackProgress.coerceIn(0f, 1f)
     val shape = RoundedCornerShape(VerticalPillCornerRadius)
 
@@ -461,7 +467,8 @@ fun NowPlayingPillVertical(
                             drawContent()
                             val width = size.width
                             val height = size.height
-                            val progressY = height * (1f - clampedProgress)
+                            val front = progressSmoother.frontAt(windowCovered.value, clampedProgress, isPlaying)
+                            val progressY = height * (1f - front)
                             val phase = waveHold.phase()
                             val amplitude = 4.dp.toPx() * waveHold.amplitude()
                             val waveSteps = 12
@@ -704,3 +711,11 @@ private fun Modifier.pillLongPress(enabled: Boolean, label: String, action: () -
             }
         }
 }
+
+/**
+ * The front to draw this frame: between ticks it keeps moving at the song's rate (see
+ * [PlaybackProgressSmoother]). Read in draw only; the wave already redraws while playing.
+ * A covered window draws its held tick and must not re-anchor the shared front.
+ */
+private fun PlaybackProgressSmoother?.frontAt(covered: Boolean, progress: Float, isPlaying: Boolean): Float =
+    if (this == null || covered) progress else displayed(progress, isPlaying, System.nanoTime())

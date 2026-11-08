@@ -152,6 +152,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_32_33,
                 MIGRATION_33_34,
                 MIGRATION_34_35,
+                MIGRATION_35_36,
             )
             .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
@@ -519,6 +520,23 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * Gemini Nano lyric highlights for Home's 「歌词一句」 (data/highlight/): picked a few at a time while Yoin is
+     * in the foreground, on devices with Nano only.
+     */
+    val lyricHighlightProcessor: com.gpo.yoin.data.highlight.LyricHighlightProcessor by lazy {
+        com.gpo.yoin.data.highlight.LyricHighlightProcessor(
+            context = context,
+            repository = repository,
+            dao = database.lyricHighlightDao(),
+            albumRatingDao = database.albumRatingDao(),
+            model = com.gpo.yoin.data.highlight.GeminiNanoLyricModel(),
+            currentTrack = { playbackManager.playbackState.value.currentTrack },
+            profileStartupDone = profileStartupDone,
+            testMode = BuildConfig.NANO_TEST,
+        )
+    }
+
+    /**
      * Reports Subsonic plays to the server (scrobble), queueing those it can't send
      * yet in noBackupFilesDir: the queue is this device's, never restored elsewhere.
      */
@@ -569,6 +587,11 @@ class AppContainer(private val context: Context) {
 
     val experienceSessionStore: ExperienceSessionStore by lazy {
         ExperienceSessionStore()
+    }
+
+    /** The mini player's progress between position ticks, shared by every window's pill. */
+    val playbackProgressSmoother: com.gpo.yoin.ui.component.PlaybackProgressSmoother by lazy {
+        com.gpo.yoin.ui.component.PlaybackProgressSmoother { playbackManager.playbackState.value.duration }
     }
 
     val motionCapabilityProvider: MotionCapabilityProvider by lazy {
@@ -925,6 +948,38 @@ class AppContainer(private val context: Context) {
         val MIGRATION_34_35 = object : Migration(34, 35) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `home_grid_pool_cache` ADD COLUMN `version` TEXT")
+            }
+        }
+
+        // Gemini Nano lyric highlights (data/highlight/).
+        val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `lyric_highlights` (
+                        `profileId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `songId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `artist` TEXT NOT NULL,
+                        `album` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `coverArtId` TEXT,
+                        `durationMs` INTEGER NOT NULL,
+                        `text` TEXT,
+                        `startMs` INTEGER,
+                        `lyricsFingerprint` TEXT,
+                        `model` TEXT,
+                        `attemptedAt` INTEGER NOT NULL,
+                        `lastShownAt` INTEGER,
+                        PRIMARY KEY(`profileId`, `provider`, `songId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_lyric_highlights_shown` " +
+                        "ON `lyric_highlights` (`profileId`, `provider`, `lastShownAt`)",
+                )
             }
         }
 

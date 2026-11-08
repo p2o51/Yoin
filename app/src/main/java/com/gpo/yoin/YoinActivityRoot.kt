@@ -23,6 +23,7 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.size.Size
 import coil3.toBitmap
+import com.gpo.yoin.ui.component.LocalPlaybackProgressSmoother
 import com.gpo.yoin.ui.component.LocalPlaybackWaveState
 import com.gpo.yoin.ui.component.ProvideSeamBarField
 import com.gpo.yoin.ui.detail.findActivityOrNull
@@ -167,6 +168,7 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         LocalCoverDarkScheme provides app?.container?.playbackThemeState?.colorScheme(darkTheme = true),
         LocalCoverNeighbours provides (app?.container?.playbackThemeState?.neighbours ?: CoverNeighbours()),
         LocalPlaybackWaveState provides app?.container?.experienceSessionStore?.playbackWave,
+        LocalPlaybackProgressSmoother provides app?.container?.playbackProgressSmoother,
         LocalMotionCapabilityProvider provides motionCapabilityProvider,
         // The motion tier, and Yoin Symbols' animated icons following it.
         *motionProfileValues(motionProfile),
