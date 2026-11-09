@@ -23,11 +23,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -38,14 +40,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import com.gpo.yoin.R
+import com.gpo.yoin.ui.detail.findActivityOrNull
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -57,14 +64,15 @@ import kotlinx.coroutines.delay
 
 /**
  * Settings › Motion › Screen corners (owner 2026-11-08). The whole page is one flat rounded rectangle at
- * the chosen corner over black, so where it meets the glass is the preview itself: slide until no black
- * shows in the corners. In the middle a phone plays, in turn, the places that take this corner (Now
+ * the chosen corner over black (a light primary page in both themes, [screenCornersPageScheme]), so
+ * where it meets the glass is the preview itself: slide until no black shows in the corners. In the middle a phone plays, in turn, the places that take this corner (Now
  * Playing rising, Memories retreating, the back gesture); at the bottom, the corner bar.
  */
 @Composable
 internal fun ScreenCornersPage(onBackClick: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val radius = currentScreenCornerRadius()
+    ScreenCornersSystemBarsEffect()
     ScreenCornersPageContent(
         value = radius.value,
         following = ScreenCorners.userRadius == null,
@@ -77,6 +85,27 @@ internal fun ScreenCornersPage(onBackClick: () -> Unit, modifier: Modifier = Mod
         onBackClick = onBackClick,
         modifier = modifier,
     )
+}
+
+/**
+ * The page is light in both themes, so the window's bar icons go dark while it shows and back to what
+ * they were when it leaves (else dark theme leaves white icons on the light page).
+ */
+@Composable
+private fun ScreenCornersSystemBarsEffect() {
+    val view = LocalView.current
+    val window = view.context.findActivityOrNull()?.window ?: return
+    DisposableEffect(window, view) {
+        val controller = WindowCompat.getInsetsController(window, view)
+        val status = controller.isAppearanceLightStatusBars
+        val navigation = controller.isAppearanceLightNavigationBars
+        controller.isAppearanceLightStatusBars = true
+        controller.isAppearanceLightNavigationBars = true
+        onDispose {
+            controller.isAppearanceLightStatusBars = status
+            controller.isAppearanceLightNavigationBars = navigation
+        }
+    }
 }
 
 /** [ScreenCornersPage] without its state: the Tips demo plays it with a value of its own. */
@@ -93,53 +122,81 @@ internal fun ScreenCornersPageContent(
     examplesPlaying: Boolean = true,
     barModifier: Modifier = Modifier,
 ) {
-    val scheme = MaterialTheme.colorScheme
+    val scheme = screenCornersPageScheme(MaterialTheme.colorScheme)
     Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(value.dp))
-                .background(scheme.secondaryContainer),
-        ) {
-            Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(64.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SettingsBackButton(onClick = onBackClick)
+        MaterialTheme(colorScheme = scheme) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(value.dp))
+                    .background(scheme.primaryContainer),
+            ) {
+                Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(64.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SettingsBackButton(onClick = onBackClick)
+                        Text(
+                            text = stringResource(R.string.settings_motion_screen_corners),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = scheme.onSecondaryContainer,
+                            modifier = Modifier.semantics { heading() },
+                        )
+                    }
                     Text(
-                        text = stringResource(R.string.settings_motion_screen_corners),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = scheme.onSecondaryContainer,
-                        modifier = Modifier.semantics { heading() },
+                        text = stringResource(R.string.screen_corners_page_hint),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = scheme.onSecondaryContainer.copy(alpha = 0.8f),
+                        modifier = Modifier.padding(horizontal = 28.dp, vertical = 4.dp),
                     )
-                }
-                Text(
-                    text = stringResource(R.string.screen_corners_page_hint),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = scheme.onSecondaryContainer.copy(alpha = 0.8f),
-                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 4.dp),
-                )
-                Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 16.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CornerExamples(radius = value, playing = examplesPlaying)
-                }
-                Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
-                    ScreenCornerValueRow(value = value, following = following, onFollow = onFollow)
-                    Spacer(Modifier.height(4.dp))
-                    ScreenCornerBar(
-                        value = value,
-                        reported = reported,
-                        onValueChange = onValueChange,
-                        onInteractionChange = onInteractionChange,
-                        modifier = barModifier,
-                    )
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CornerExamples(radius = value, playing = examplesPlaying)
+                    }
+                    Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
+                        ScreenCornerValueRow(value = value, following = following, onFollow = onFollow)
+                        Spacer(Modifier.height(4.dp))
+                        ScreenCornerBar(
+                            value = value,
+                            reported = reported,
+                            onValueChange = onValueChange,
+                            onInteractionChange = onInteractionChange,
+                            modifier = barModifier,
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * The page's colours: one light, clearly coloured page in both themes (owner 2026-11-09: in dark theme
+ * the old secondaryContainer page read as plain black on an OLED screen, so the black corners had
+ * nothing to stand against). Light theme keeps primaryContainer; dark theme takes the same tone-90
+ * primary (its onPrimaryContainer) and re-inks what sits on it, so the bar, its fill and "Match screen"
+ * stay one colour family and readable.
+ */
+internal fun screenCornersPageScheme(base: ColorScheme): ColorScheme {
+    if (base.surface.luminance() >= 0.5f) {
+        return base.copy(onSecondaryContainer = base.onPrimaryContainer)
+    }
+    val page = base.onPrimaryContainer
+    val ink = base.primaryContainer
+    return base.copy(
+        primaryContainer = page,
+        onPrimaryContainer = ink,
+        onSecondaryContainer = ink,
+        onSurface = ink,
+        onSurfaceVariant = ink.copy(alpha = 0.75f),
+        surfaceVariant = ink.copy(alpha = 0.12f).compositeOver(page),
+        surfaceContainerHighest = ink.copy(alpha = 0.10f).compositeOver(page),
+        primary = base.inversePrimary,
+        onPrimary = page,
+    )
 }
 
 /** The places that take the screen corner, as the middle phone plays them. */
