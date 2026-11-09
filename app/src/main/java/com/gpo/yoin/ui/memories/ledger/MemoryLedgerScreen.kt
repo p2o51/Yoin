@@ -95,8 +95,8 @@ import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.ratingLabel
+import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
 import com.gpo.yoin.ui.detail.AlbumBarStatusBarEffect
-import com.gpo.yoin.ui.detail.smoothStep
 import com.gpo.yoin.ui.settings.AccountMark
 import com.gpo.yoin.ui.settings.SettingsBackButton
 import com.gpo.yoin.ui.settings.SettingsHeadline
@@ -212,7 +212,8 @@ internal fun MemoryLedgerScreen(
                         listState = listState,
                         lift = lift,
                         albumColors = albumColors,
-                        gridAlpha = { 1f - smoothStep(0f, 0.1f, liftProgress(screen[0], barBottomPx)) },
+                        // The real grid steps aside the moment its copies take off, so no square shows twice.
+                        gridAlpha = { if (liftProgress(screen[0], barBottomPx) > 0.001f) 0f else 1f },
                         onOpenAlbum = { album -> if (album.profileId == state.activeProfileId) onOpenAlbum(album) },
                         gridModifier = gridModifier,
                         headlineModifier = Modifier.onGloballyPositioned {
@@ -222,6 +223,7 @@ internal fun MemoryLedgerScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = barHeight)
+                            .verticalEdgeFadeOnScroll(listState, top = 24.dp)
                             .onGloballyPositioned { viewportTop.floatValue = it.positionInWindow().y },
                         contentPadding = PaddingValues(
                             start = 16.dp,

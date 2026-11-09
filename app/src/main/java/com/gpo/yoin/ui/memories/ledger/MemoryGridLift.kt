@@ -134,8 +134,8 @@ internal fun MemoryGridLiftLayer(
                 drawLiftPixel(pixel, target, 0f, paint, alpha = p)
                 return@forEachIndexed
             }
-            // Oldest first, as the cover's strips go: each leaves a little after the one before.
-            val lag = 0.25f * i / n
+            // Oldest first, as the cover's strips go, but close together so they rise as one flock.
+            val lag = 0.1f * i / n
             val q = smoothStep(0.02f + lag, 0.6f + lag, p)
             val from = lift.rectOf(pixel, into, quadGap)
             val rect = if (from == null || q >= 1f) target else lerp(from, target, q)
@@ -143,7 +143,7 @@ internal fun MemoryGridLiftLayer(
             drawLiftPixel(pixel, rect, radius, paint, alpha = 1f)
         }
         // A light veil under the title once the bar has formed, so white reads on pale covers too.
-        val veil = 0.16f * smoothStep(0.6f, 1f, p)
+        val veil = 0.24f * smoothStep(0.6f, 1f, p)
         if (veil > 0f) drawRect(Color.Black, Offset.Zero, Size(size.width, barBottom), alpha = veil)
     }
 }
