@@ -115,6 +115,70 @@ class LyricHighlightProcessor(
         if (visit?.isActive != true) visit = scope.launch { runVisit() }
     }
 
+    /** Yoin Labs' switch: on starts a visit now (as [optIn]); off stops Nano at once. Kept lines stay. */
+    fun setOptedIn(on: Boolean) {
+        if (on) {
+            optIn()
+            return
+        }
+        prefs.edit {
+            putBoolean(KEY_OPTED_IN, false)
+            putBoolean(KEY_INTRO_SEEN, true)
+        }
+        _optedIn.value = false
+        _introSeen.value = true
+        visit?.cancel()
+        visit = null
+    }
+
+    private val _unavailableReason = MutableStateFlow<String?>(null)
+
+    /** AICore's reason for the last UNAVAILABLE, if it gave one (Yoin Labs shows it small, for bug reports). */
+    val unavailableReason: StateFlow<String?> = _unavailableReason.asStateFlow()
+
+    private val _downloading = MutableStateFlow(false)
+
+    /** A download started from Yoin Labs is running. */
+    val downloading: StateFlow<Boolean> = _downloading.asStateFlow()
+
+    private var check: Job? = null
+
+    /** Ask AICore again now (Yoin Labs opening, or its "Check again"); a check already running is left to finish. */
+    fun checkNow() {
+        if (check?.isActive == true || _downloading.value) return
+        check = scope.launch { checkStatus() }
+    }
+
+    /**
+     * Yoin Labs' download button: fetch Nano now on any network (the user asked; the automatic fetch waits for
+     * Wi-Fi). AICore keeps going on its side if Yoin closes.
+     */
+    fun downloadNow() {
+        if (_downloading.value) return
+        _downloading.value = true
+        scope.launch {
+            try {
+                publishStatus(NanoStatus.DOWNLOADING)
+                note("Downloading the model (from Labs)…")
+                model.download()
+            } finally {
+                _downloading.value = false
+            }
+            val nano = checkStatus()
+            note("Nano after download: $nano")
+            if (nano == NanoStatus.AVAILABLE && _optedIn.value && visit?.isActive != true) {
+                visit = scope.launch { runVisit() }
+            }
+        }
+    }
+
+    private suspend fun checkStatus(): NanoStatus {
+        val nano = model.status()
+        _unavailableReason.value = if (nano == NanoStatus.UNAVAILABLE) model.unavailableReason else null
+        publishStatus(nano)
+        return nano
+    }
+
     /** From the intro: not now (or, on a phone without Nano, understood). */
     fun dismissIntro() {
         prefs.edit { putBoolean(KEY_INTRO_SEEN, true) }
@@ -144,10 +208,11 @@ class LyricHighlightProcessor(
     }
 
     private suspend fun runVisit() {
-        profileStartupDone.first { it }
-        var nano = model.status()
-        publishStatus(nano)
+        // Nano's status first, before waiting on the account: Home and Yoin Labs need it even when no account is
+        // ready yet, and it costs no inference (a Pixel 11 Pro never showed the section, 11-09).
+        var nano = checkStatus()
         note("Nano: $nano")
+        profileStartupDone.first { it }
         if (!_optedIn.value) {
             note("Waiting for the opt-in")
             return
@@ -156,8 +221,7 @@ class LyricHighlightProcessor(
             // A supported phone that hasn't fetched Nano yet: ask AICore for it (Wi-Fi only), then look again.
             note("Downloading the model…")
             model.download()
-            nano = model.status()
-            publishStatus(nano)
+            nano = checkStatus()
             note("Nano after download: $nano")
         }
         if (nano != NanoStatus.AVAILABLE) return

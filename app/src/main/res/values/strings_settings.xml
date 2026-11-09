@@ -405,4 +405,21 @@
         <item quantity="one">It was removed on this device from %1$s. Restore it here, or delete it on all your devices.</item>
         <item quantity="other">They were removed on this device from %1$s. Restore them here, or delete them on all your devices.</item>
     </plurals>
+    <!-- Yoin Labs (LabsPage.kt). Copy: Argon (Gemini), 2026-11-09. -->
+    <string name="settings_labs_title" translatable="false">Yoin Labs</string>
+    <string name="settings_labs_summary">@@B_SUMMARY_EN@@</string>
+    <string name="labs_intro">@@C1_EN@@</string>
+    <string name="labs_nano_section">@@C2_EN@@</string>
+    <string name="labs_nano_name" translatable="false">Gemini Nano</string>
+    <string name="labs_nano_ready">@@C3A_EN@@</string>
+    <string name="labs_nano_downloadable">@@C3B_EN@@</string>
+    <string name="labs_nano_downloading">@@C3C_EN@@</string>
+    <string name="labs_nano_unsupported">@@C3D_EN@@</string>
+    <string name="labs_nano_checking">@@C3E_EN@@</string>
+    <string name="labs_nano_download">@@C4A_EN@@</string>
+    <string name="labs_nano_check_again">@@C4B_EN@@</string>
+    <string name="labs_nano_download_note">@@C5_EN@@</string>
+    <string name="labs_features_section">@@CF_EN@@</string>
+    <string name="labs_lyrics_detail">@@C6_EN@@</string>
+    <string name="labs_lyrics_no_nano">@@C7_EN@@</string>
 </resources>

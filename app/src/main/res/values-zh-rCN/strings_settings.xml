@@ -373,4 +373,19 @@
     <plurals name="settings_sync_review_dialog_body">
         <item quantity="other">已在当前设备上从 %1$s 中移除。可在此处恢复，或在所有设备上删除。</item>
     </plurals>
+    <!-- Yoin Labs (LabsPage.kt). Copy: Argon (Gemini), 2026-11-09. -->
+    <string name="settings_labs_summary">@@B_SUMMARY_ZH@@</string>
+    <string name="labs_intro">@@C1_ZH@@</string>
+    <string name="labs_nano_section">@@C2_ZH@@</string>
+    <string name="labs_nano_ready">@@C3A_ZH@@</string>
+    <string name="labs_nano_downloadable">@@C3B_ZH@@</string>
+    <string name="labs_nano_downloading">@@C3C_ZH@@</string>
+    <string name="labs_nano_unsupported">@@C3D_ZH@@</string>
+    <string name="labs_nano_checking">@@C3E_ZH@@</string>
+    <string name="labs_nano_download">@@C4A_ZH@@</string>
+    <string name="labs_nano_check_again">@@C4B_ZH@@</string>
+    <string name="labs_nano_download_note">@@C5_ZH@@</string>
+    <string name="labs_features_section">@@CF_ZH@@</string>
+    <string name="labs_lyrics_detail">@@C6_ZH@@</string>
+    <string name="labs_lyrics_no_nano">@@C7_ZH@@</string>
 </resources>

@@ -445,6 +445,13 @@ fun SettingsContent(
                                                 selected = openFeature == SettingsFeature.NeoDb,
                                             )
                                         }
+                                        item(key = SettingsFeature.Labs, paintsOwnSegment = listDetail) {
+                                            LabsItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.Labs,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.Labs) },
+                                            )
+                                        }
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_motion)) {
                                         item(key = SettingsFeature.ScrollEdge, paintsOwnSegment = listDetail) {
@@ -1514,7 +1521,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses }
+enum class SettingsFeature { Gemini, NeoDb, Labs, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1553,6 +1560,7 @@ internal fun SettingsFeatureScreen(
     val featureTitle = when (feature) {
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
+        SettingsFeature.Labs -> stringResource(R.string.settings_labs_title)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
         SettingsFeature.ScreenCorners -> stringResource(R.string.settings_motion_screen_corners)
         SettingsFeature.StreamQuality -> stringResource(R.string.settings_stream_quality_title)
@@ -1621,6 +1629,8 @@ internal fun SettingsFeatureScreen(
                         VolumeLevelingPageContent()
                     } else if (feature == SettingsFeature.Downloads) {
                         DownloadsPageContent()
+                    } else if (feature == SettingsFeature.Labs) {
+                        LabsPageContent()
                     } else if (feature == SettingsFeature.Tips) {
                         TipsPageContent()
                     } else if (feature == SettingsFeature.Licenses) {
@@ -1652,6 +1662,7 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
+                                    SettingsFeature.Labs,
                                     SettingsFeature.ScrollEdge, SettingsFeature.ScreenCorners, SettingsFeature.StreamQuality,
                                     SettingsFeature.VolumeLeveling,
                                     SettingsFeature.Downloads,
@@ -1708,6 +1719,22 @@ private fun ScreenCornersItem(
         FeaturePageRow(icon = YoinSymbols.Smartphone, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.Smartphone, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › Features › Yoin Labs: the beta features and Gemini Nano on this phone (LabsPage). */
+@Composable
+private fun LabsItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_labs_title)
+    val summary = stringResource(R.string.settings_labs_summary)
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Insights, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Insights, title = title, summary = summary, onClick = onOpenPage)
     }
 }
 
