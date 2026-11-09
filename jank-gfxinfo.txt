@@ -1,0 +1,36 @@
+branch-run1: Total frames rendered: 322
+branch-run1: Janky frames: 291 (90.37%)
+branch-run1: 50th percentile: 44ms
+branch-run1: 90th percentile: 105ms
+branch-run1: 95th percentile: 150ms
+branch-run1: 99th percentile: 250ms
+branch-run2: Total frames rendered: 312
+branch-run2: Janky frames: 288 (92.31%)
+branch-run2: 50th percentile: 36ms
+branch-run2: 90th percentile: 109ms
+branch-run2: 95th percentile: 121ms
+branch-run2: 99th percentile: 150ms
+branch-run3: Total frames rendered: 321
+branch-run3: Janky frames: 287 (89.41%)
+branch-run3: 50th percentile: 42ms
+branch-run3: 90th percentile: 109ms
+branch-run3: 95th percentile: 121ms
+branch-run3: 99th percentile: 150ms
+branch-run4: Total frames rendered: 325
+branch-run4: Janky frames: 291 (89.54%)
+branch-run4: 50th percentile: 38ms
+branch-run4: 90th percentile: 93ms
+branch-run4: 95th percentile: 109ms
+branch-run4: 99th percentile: 150ms
+main-run1: Total frames rendered: 334
+main-run1: Janky frames: 283 (84.73%)
+main-run1: 50th percentile: 42ms
+main-run1: 90th percentile: 105ms
+main-run1: 95th percentile: 125ms
+main-run1: 99th percentile: 150ms
+main-run2: Total frames rendered: 328
+main-run2: Janky frames: 291 (88.72%)
+main-run2: 50th percentile: 38ms
+main-run2: 90th percentile: 101ms
+main-run2: 95th percentile: 117ms
+main-run2: 99th percentile: 150ms
