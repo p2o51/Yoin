@@ -332,13 +332,23 @@ internal fun SettingsExpandableItem(
     onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     iconTone: SettingsTone? = null,
-    // False on a feature's own page (list-detail right pane): always open,
-    // no chevron, the header row is just the heading.
+    // False on a feature's own page: always open and no header row — the
+    // page's headline already names it (owner 2026-11-09: no repeated title).
     collapsible: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val open = expanded || !collapsible
     val segment = LocalSettingsRowShape.current
+    if (!collapsible) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, top = 18.dp, end = 16.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            content = content,
+        )
+        return
+    }
     Column(modifier = modifier.fillMaxWidth()) {
         // Open, the header is only the top of the segment: its press ripple
         // keeps the segment's top corners and runs square into the fields.
