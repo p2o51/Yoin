@@ -12,5 +12,5 @@
     <string name="screen_corners_example_memories">收起回忆</string>
     <string name="screen_corners_example_back">返回手势</string>
     <string name="home_tip_screen_corners_title">屏幕圆角</string>
-    <string name="home_tip_screen_corners">设置 &gt; 动效 &gt; 屏幕圆角，把页面与返回手势的圆角对上手机屏幕</string>
+    <string name="home_tip_screen_corners">设置 &gt; 外观 &gt; 屏幕圆角，把页面与返回手势的圆角对上手机屏幕</string>
 </resources>
