@@ -120,6 +120,10 @@
             android:theme="@style/Theme.Yoin.DetailTranslucent"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <!-- 别人怎么说 (NeoDB listeners on an album). Plain Activity: native cross-Activity back. -->
+        <activity
+            android:name=".ui.detail.NeoDbVoicesActivity"
+            android:exported="false" />
         <activity
             android:name=".ui.settings.SettingsActivity"
             android:exported="false"

@@ -242,7 +242,8 @@ class NeoDBSyncService internal constructor(
      *
      * 走两级缓存：
      *  1. **反查当前 Yoin 实体** —— `findForYoinEntity` 命中就直接复用。
-     *  2. **搜 NeoDB** —— name + artist 模糊搜索第一条结果；命中后落
+     *  2. **搜 NeoDB** —— name + artist 模糊搜索，标题对得上的结果里取评分人数
+     *     最多的一条；命中后落
      *     `external_mappings`。
      *
      * 跨源模糊匹配（例如 Subsonic 版已映射后把 Spotify 版也自动绑到同一
@@ -266,7 +267,8 @@ class NeoDBSyncService internal constructor(
         }.trim()
         if (query.isEmpty()) return null
 
-        val hit = api.searchAlbum(session.instance, session.token, query).firstOrNull()
+        // The edition most people rated, not merely the first hit (NeoDbVoicesParsing.pickAlbumItem).
+        val hit = NeoDbVoicesParsing.pickAlbumItem(album.name, api.searchAlbum(session.instance, session.token, query))
         val uuid = hit?.uuid ?: return null
 
         mappingDao.upsert(

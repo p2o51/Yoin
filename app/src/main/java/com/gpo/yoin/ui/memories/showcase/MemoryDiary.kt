@@ -177,6 +177,12 @@ internal interface MemoriesDiaryHost {
 
     /** Push [memory]'s album now: the line's retry (a saved review syncs on its own). */
     fun pushNeoDb(memory: MemoryEntry) = Unit
+
+    /** "What others say" can open here (the app; previews and the harness can't). */
+    val neoDbVoicesAvailable: Boolean get() = false
+
+    /** Open what other listeners on NeoDB wrote about [memory]'s album. */
+    fun openNeoDbVoices(memory: MemoryEntry) = Unit
 }
 
 /** The diary's own haptics: TICK at a scale (the composition path honours it) and CONFIRM. */
@@ -985,13 +991,24 @@ private fun DiaryFoot(
                     memory.otherProfile?.let { owner -> MemoryOtherProfileLine(owner = owner, tones = tones) }
                 }
             }
-            if (host.neoDbConfigured) {
-                DiaryNeoDbLine(
-                    memory = memory,
-                    host = host,
-                    interactive = interactive,
+            // NeoDB's state, and beside it "What others say" (owner, 2026-11-09: a test entry, signed in or not).
+            if (host.neoDbConfigured || host.neoDbVoicesAvailable) {
+                Row(
                     modifier = Modifier.padding(top = if (showGo || history == null) 8.dp else MemoryDiaryTokens.GoTop),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (host.neoDbConfigured) {
+                        DiaryNeoDbLine(memory = memory, host = host, interactive = interactive)
+                    }
+                    if (host.neoDbVoicesAvailable) {
+                        TextButton(onClick = { host.openNeoDbVoices(memory) }, enabled = interactive) {
+                            Text(
+                                text = stringResource(R.string.neodb_voices_peek),
+                                style = diaryUiText(13.sp, FontWeight.Medium, 1.3f),
+                            )
+                        }
+                    }
+                }
             }
         }
     }

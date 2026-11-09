@@ -283,4 +283,28 @@
     </plurals>
     <string name="detail_playlist_backup_failed">Couldn\'t back up the playlist</string>
     <string name="detail_playlist_backup_view">View</string>
+    <!-- 别人怎么说: what listeners on NeoDB wrote about an album (NeoDbVoicesActivity). -->
+    <string name="neodb_voices_peek">What others say</string>
+    <string name="neodb_voices_title">What others say on NeoDB</string>
+    <plurals name="neodb_voices_rated">
+        <item quantity="one">%1$d rating</item>
+        <item quantity="other">%1$d ratings</item>
+    </plurals>
+    <plurals name="neodb_voices_count">
+        <item quantity="one">%1$d comment in all</item>
+        <item quantity="other">%1$d comments in all</item>
+    </plurals>
+    <string name="neodb_voices_spread_cd">%1$d moons: %2$d%%</string>
+    <string name="neodb_voices_percent">%1$d%%</string>
+    <string name="neodb_voices_scale" translatable="false">\u0020/%1$d</string>
+    <string name="neodb_voices_review">Review</string>
+    <string name="neodb_voices_folded">Folded by the writer. Tap to read</string>
+    <string name="neodb_voices_empty">No one on NeoDB has written about this album yet.</string>
+    <string name="neodb_voices_not_found">NeoDB doesn\'t have this album.</string>
+    <string name="neodb_voices_search">Search NeoDB</string>
+    <string name="neodb_voices_failed">Couldn\'t reach NeoDB.</string>
+    <string name="neodb_voices_open_neodb">See all on NeoDB</string>
+    <string name="neodb_voices_douban">Douban</string>
+    <string name="neodb_voices_rym" translatable="false">RYM</string>
+    <string name="neodb_voices_aoty" translatable="false">AOTY</string>
 </resources>

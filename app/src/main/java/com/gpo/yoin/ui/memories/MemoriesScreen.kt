@@ -55,6 +55,7 @@ import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.detail.AlbumNeoDbSync
+import com.gpo.yoin.ui.detail.NeoDbVoicesActivity
 import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
 import com.gpo.yoin.ui.experience.MemoriesSessionState
 import com.gpo.yoin.ui.experience.RevealState
@@ -185,7 +186,8 @@ fun MemoriesScreen(
     val reviewDrafts = viewModel.reviewDrafts.collectAsStateWithLifecycle()
     val neoDbConfigured = viewModel.neoDbConfigured.collectAsStateWithLifecycle()
     val playMemoryTrack by rememberUpdatedState(onPlayMemoryTrack)
-    val diaryHost = remember(viewModel) {
+    val hostContext = LocalContext.current
+    val diaryHost = remember(viewModel, hostContext) {
         object : MemoriesDiaryHost {
             override val litNoteId: String? get() = litNoteId.value
             override val playingTrackId: String? get() = playingTrackId.value
@@ -220,6 +222,20 @@ fun MemoriesScreen(
             override fun neoDbSync(memory: MemoryEntry): Flow<AlbumNeoDbSync> = viewModel.neoDbSync(memory)
 
             override fun pushNeoDb(memory: MemoryEntry) = viewModel.pushToNeoDb(memory)
+
+            override val neoDbVoicesAvailable: Boolean get() = true
+
+            override fun openNeoDbVoices(memory: MemoryEntry) {
+                hostContext.startActivity(
+                    NeoDbVoicesActivity.intent(
+                        hostContext,
+                        albumName = memory.title,
+                        // Album memories put the artist here, or the "Album" stand-in when there is none.
+                        artistName = memory.supportingText.takeUnless { it == MemoryAlbumFallback },
+                        coverArtUrl = memory.coverArtUrl,
+                    ),
+                )
+            }
         }
     }
 

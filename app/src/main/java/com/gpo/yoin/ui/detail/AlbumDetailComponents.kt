@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -845,11 +846,24 @@ internal fun AlbumRateSheet(
                 )
             }
             AlbumReviewField(text = content.userReview, onTextChange = onReviewDraftChange)
-            if (neoDb != AlbumNeoDbSync.Unknown &&
-                neoDb != AlbumNeoDbSync.Idle &&
-                neoDb != AlbumNeoDbSync.Pending
-            ) {
-                AlbumNeoDbLine(state = neoDb, onSignIn = onNeoDbSignIn, onRetry = onNeoDbRetry)
+            // The line stays for "What others say" (owner, 2026-11-09: a test entry), even with no state to say.
+            if (neoDb != AlbumNeoDbSync.Unknown) {
+                val context = LocalContext.current
+                AlbumNeoDbLine(
+                    state = neoDb,
+                    onSignIn = onNeoDbSignIn,
+                    onRetry = onNeoDbRetry,
+                    onVoices = {
+                        context.startActivity(
+                            NeoDbVoicesActivity.intent(
+                                context,
+                                albumName = content.albumName,
+                                artistName = content.artistName,
+                                coverArtUrl = content.coverArtUrl,
+                            ),
+                        )
+                    },
+                )
             }
         }
     }
@@ -1008,9 +1022,17 @@ private val ReviewCaretClearanceAbove = 24.dp
 /** Room kept under the caret: the field's bottom padding and its counter line. */
 private val ReviewCaretClearanceBelow = 48.dp
 
-/** NeoDB's state for this album. Signed out, the line is the action; a failure gets a Retry button. */
+/**
+ * NeoDB's state for this album. Signed out, the line is the action; a failure gets a Retry button. At its end,
+ * "What others say" opens what other listeners wrote ([NeoDbVoicesActivity]), signed in or not.
+ */
 @Composable
-private fun AlbumNeoDbLine(state: AlbumNeoDbSync, onSignIn: () -> Unit, onRetry: () -> Unit) {
+private fun AlbumNeoDbLine(
+    state: AlbumNeoDbSync,
+    onSignIn: () -> Unit,
+    onRetry: () -> Unit,
+    onVoices: () -> Unit,
+) {
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
@@ -1065,6 +1087,10 @@ private fun AlbumNeoDbLine(state: AlbumNeoDbSync, onSignIn: () -> Unit, onRetry:
                     )
                 }
             }
+        }
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick = onVoices) {
+            Text(stringResource(R.string.neodb_voices_peek))
         }
     }
 }
