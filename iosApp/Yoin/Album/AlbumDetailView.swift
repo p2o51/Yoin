@@ -1490,11 +1490,12 @@ struct AlbumDetailView: View {
 
     /// The spectrum's bands land one after another (each strip at
     /// p = 0.6 + its slot's lag, see `spectrum`): a faint tick as each band of
-    /// one color lands, only while the band is forming (p rising), so the
-    /// beats run with the band coming in (51, 2026-11-06).
+    /// one color lands while the band forms (p rising, 51, 2026-11-06), and
+    /// again as each one leaves while it folds back down (p falling,
+    /// 51, 2026-11-09): one beat per band each way.
     private func bandTicks(from was: CGFloat, to now: CGFloat) {
-        guard topBar != 1 && topBar != 2, now > was, page <= 0.001 else { return }
-        for t in bandLandings where was < t && now >= t {
+        guard topBar != 1 && topBar != 2, now != was, page <= 0.001 else { return }
+        for t in bandLandings where (was < t) != (now < t) {
             AlbumPullHaptics.band()
         }
     }
@@ -1619,7 +1620,8 @@ struct AlbumBandBlur: ViewModifier {
 /// The album page's pull-up beats (51, 2026-11-06): a firm one when the drag
 /// passes the point where a release forms the spectrum band, a lighter one
 /// when it passes back (a release folds the band), and a soft one when the
-/// band lands at the top. Folding back down lands silently.
+/// band lands at the top. Folding back down lands silently (the bands still
+/// tick as they leave, see `bandTicks`).
 @MainActor
 enum AlbumPullHaptics {
     private static let form = UIImpactFeedbackGenerator(style: .medium)
