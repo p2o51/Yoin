@@ -66,23 +66,50 @@ internal object NeoDbVoicesParsing {
     private const val REVIEW_OPENING_CHARS = 180
 
     /**
-     * Which NeoDB item stands for the album. The same release often has several items (OK Computer: 510 ratings
-     * on one, 4 on the Apple Music edition), so among the first search results whose title is the album's, the
-     * one most people rated wins. No title match: the first result, as before.
+     * Which NeoDB item stands for the album, or null when NeoDB doesn't seem to have it. NeoDB's search is
+     * loose: for "Museum" by OWIS, which it doesn't hold, it answers with a jazz "Museum" and a dozen other
+     * museums (owner, 2026-11-09). So a hit must carry the album's title, and the artist must agree whenever
+     * both sides name one; a title that only contains the other's (an edition's longer name) needs the artist
+     * to agree outright. The same release often has several items (OK Computer: 510 ratings on one, 4 on the
+     * Apple Music edition), so among the hits the one most people rated wins.
      */
-    fun pickAlbumItem(albumName: String, items: List<ShelfItem.Item>): ShelfItem.Item? {
-        val candidates = items.take(SEARCH_WINDOW).filter { !it.uuid.isNullOrBlank() }
-        if (candidates.isEmpty()) return null
+    fun pickAlbumItem(albumName: String, artistName: String?, items: List<ShelfItem.Item>): ShelfItem.Item? {
         val key = normalizeTitle(albumName)
-        val matching = if (key.isEmpty()) {
-            emptyList()
-        } else {
-            candidates.filter { normalizeTitle(it.title ?: it.displayTitle.orEmpty()) == key }
+        if (key.isEmpty()) return null
+        val artistKeys = artistKeys(artistName)
+        val candidates = items.take(SEARCH_WINDOW).filter { !it.uuid.isNullOrBlank() }
+        val exact = mutableListOf<ShelfItem.Item>()
+        val loose = mutableListOf<ShelfItem.Item>()
+        candidates.forEach { item ->
+            val title = normalizeTitle(item.title ?: item.displayTitle.orEmpty())
+            if (title.isEmpty()) return@forEach
+            val artist = artistAgreement(artistKeys, item.artist)
+            when {
+                title == key && artist != ArtistAgreement.Differs -> exact += item
+                (title.contains(key) || key.contains(title)) && artist == ArtistAgreement.Same -> loose += item
+            }
         }
-        if (matching.isEmpty()) return candidates.first()
         // maxByOrNull keeps the first of equal counts: search order breaks ties.
-        return matching.maxByOrNull { it.ratingCount ?: 0 }
+        return exact.maxByOrNull { it.ratingCount ?: 0 } ?: loose.maxByOrNull { it.ratingCount ?: 0 }
     }
+
+    private enum class ArtistAgreement { Same, Differs, Unknown }
+
+    /** "A, B & C feat. D" → each name, normalized like a title. */
+    private fun artistKeys(artistName: String?): List<String> =
+        artistName.orEmpty()
+            .split(Regex("""\s*(?:,|&|/|、|;|＆|，|\bfeat\.?|\bft\.|\bwith\b|\bx\b)\s*""", RegexOption.IGNORE_CASE))
+            .map { normalizeName(it) }
+            .filter { it.isNotEmpty() }
+
+    private fun artistAgreement(keys: List<String>, itemArtists: List<String>): ArtistAgreement {
+        val names = itemArtists.map { normalizeName(it) }.filter { it.isNotEmpty() }
+        if (keys.isEmpty() || names.isEmpty()) return ArtistAgreement.Unknown
+        val same = keys.any { key -> names.any { name -> name == key || name.contains(key) || key.contains(name) } }
+        return if (same) ArtistAgreement.Same else ArtistAgreement.Differs
+    }
+
+    private fun normalizeName(name: String): String = name.lowercase().filter { it.isLetterOrDigit() }
 
     /** Case, punctuation, spaces and a trailing "(Remastered)" / "[Deluxe]" don't make a different album. */
     fun normalizeTitle(title: String): String {

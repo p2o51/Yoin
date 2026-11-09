@@ -15,34 +15,66 @@ class NeoDbVoicesParsingTest {
         isLenient = true
     }
 
-    private fun item(uuid: String, title: String, ratingCount: Int?) =
-        ShelfItem.Item(uuid = uuid, title = title, ratingCount = ratingCount)
+    private fun item(uuid: String, title: String, ratingCount: Int?, artist: List<String> = emptyList()) =
+        ShelfItem.Item(uuid = uuid, title = title, ratingCount = ratingCount, artist = artist)
 
     @Test
     fun should_pickMostRatedEdition_when_severalItemsShareTheTitle() {
         val items = listOf(
-            item("apple", "OK Computer", 4),
-            item("main", "OK Computer", 510),
-            item("other", "OK Computer OKNOTOK 1997 2017", 80),
+            item("apple", "OK Computer", 4, listOf("Radiohead")),
+            item("main", "OK Computer", 510, listOf("Radiohead")),
+            item("other", "OK Computer OKNOTOK 1997 2017", 80, listOf("Radiohead")),
         )
-        assertEquals("main", NeoDbVoicesParsing.pickAlbumItem("OK Computer", items)?.uuid)
+        assertEquals("main", NeoDbVoicesParsing.pickAlbumItem("OK Computer", "Radiohead", items)?.uuid)
     }
 
     @Test
-    fun should_keepFirstHit_when_noTitleMatches() {
-        val items = listOf(item("first", "醜奴兒", 577), item("second", "Something else", 900))
-        assertEquals("first", NeoDbVoicesParsing.pickAlbumItem("丑奴儿", items)?.uuid)
+    fun should_findNothing_when_onlyAnotherArtistsAlbumSharesTheTitle() {
+        // neodb.social, 2026-11-09: OWIS's "Museum" isn't there; the search answers with other museums.
+        val items = listOf(
+            item("dean", "하루살이 (feat. 설리, Rad Museum)", 15, listOf("DEAN", "딘")),
+            item("towa", "Sound Museum", 9, listOf("Towa Tei")),
+            item("jazz", "Museum", 10, listOf("ElyonBeats")),
+        )
+        assertNull(NeoDbVoicesParsing.pickAlbumItem("Museum", "OWIS", items))
+    }
+
+    @Test
+    fun should_findNothing_when_noTitleMatches() {
+        val items = listOf(item("first", "Something else", 577), item("second", "Another", 900))
+        assertNull(NeoDbVoicesParsing.pickAlbumItem("Blonde", "Frank Ocean", items))
+    }
+
+    @Test
+    fun should_matchOneOfSeveralArtists_when_yoinListsFeaturedNames() {
+        val items = listOf(item("x", "Museum", 3, listOf("OWIS", "오위스")))
+        assertEquals("x", NeoDbVoicesParsing.pickAlbumItem("Museum", "Someone, OWIS feat. Guest", items)?.uuid)
+    }
+
+    @Test
+    fun should_takeLongerEditionTitle_only_when_artistAgrees() {
+        val items = listOf(
+            item("deluxe", "Blonde Deluxe Edition", 40, listOf("Frank Ocean")),
+            item("cover", "Blonde Covers", 90, listOf("Tribute Band")),
+        )
+        assertEquals("deluxe", NeoDbVoicesParsing.pickAlbumItem("Blonde", "Frank Ocean", items)?.uuid)
+    }
+
+    @Test
+    fun should_acceptExactTitle_when_artistIsUnknown() {
+        val items = listOf(item("a", "Blonde", 7))
+        assertEquals("a", NeoDbVoicesParsing.pickAlbumItem("Blonde", null, items)?.uuid)
     }
 
     @Test
     fun should_keepSearchOrder_when_countsTie() {
         val items = listOf(item("a", "Blonde", null), item("b", "Blonde", null))
-        assertEquals("a", NeoDbVoicesParsing.pickAlbumItem("Blonde", items)?.uuid)
+        assertEquals("a", NeoDbVoicesParsing.pickAlbumItem("Blonde", null, items)?.uuid)
     }
 
     @Test
     fun should_returnNull_when_noResults() {
-        assertNull(NeoDbVoicesParsing.pickAlbumItem("Blonde", emptyList()))
+        assertNull(NeoDbVoicesParsing.pickAlbumItem("Blonde", null, emptyList()))
     }
 
     @Test

@@ -46,7 +46,7 @@ class NeoDbVoicesService internal constructor(
         val query = NeoDbVoicesParsing.query(albumName, artist)
         if (query.isBlank()) return@runCatching null
         val items = api.searchAlbumPublic(access.instance, access.token, query)
-        NeoDbVoicesParsing.pickAlbumItem(albumName, items)
+        NeoDbVoicesParsing.pickAlbumItem(albumName, artist, items)
             ?.let { NeoDbVoicesParsing.albumVoices(access.instance, it) }
     }
 

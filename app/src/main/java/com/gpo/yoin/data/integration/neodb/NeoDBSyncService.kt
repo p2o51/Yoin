@@ -268,7 +268,11 @@ class NeoDBSyncService internal constructor(
         if (query.isEmpty()) return null
 
         // The edition most people rated, not merely the first hit (NeoDbVoicesParsing.pickAlbumItem).
-        val hit = NeoDbVoicesParsing.pickAlbumItem(album.name, api.searchAlbum(session.instance, session.token, query))
+        val hit = NeoDbVoicesParsing.pickAlbumItem(
+            album.name,
+            album.artist,
+            api.searchAlbum(session.instance, session.token, query),
+        )
         val uuid = hit?.uuid ?: return null
 
         mappingDao.upsert(
