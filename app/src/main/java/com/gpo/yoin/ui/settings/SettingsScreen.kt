@@ -183,6 +183,8 @@ fun SettingsScreen(
     }
     val featureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         featureMark.answered()
+        // The page has its own ViewModel; a NeoDB sign-in there shows on the row now.
+        viewModel.refreshNeoDbToken()
     }
     val context = LocalContext.current
     val openFeaturePage: (SettingsFeature) -> Unit = { feature ->
