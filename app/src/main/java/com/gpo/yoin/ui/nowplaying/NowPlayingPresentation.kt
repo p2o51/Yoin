@@ -88,17 +88,46 @@ enum class NowPlayingPresentation {
  */
 fun nowPlayingCoversHome(presentation: NowPlayingPresentation): Boolean = presentation != NowPlayingPresentation.Panel
 
+/** What of the bar's pill grows into Now Playing as it opens (and shrinks back as it closes). */
+enum class PillMorph {
+    /** Nothing: the player opens beside the bar, or has no shared cover. */
+    None,
+
+    /** The cover alone: the player sets its title where no pill text can travel to. */
+    Cover,
+
+    /** Cover, title and artist. */
+    CoverAndText,
+}
+
 /**
- * Whether the pill grows into the player's cover, title and artist when Now
- * Playing opens in [presentation] (and shrinks back into it on close). Only
- * where the phone column fills the window: the side panel, the enlarged phone
- * and the two-column player fold the pill away instead, and the landscape
- * player's cover sits where no pill ever was. Both ends of the morph read
- * this — a shared element left on one side only has no peer, and the
+ * The pill → player morph for a player shown in this presentation. Both ends
+ * read this — a shared element left on one side only has no peer, and the
  * shared-transition lookahead measures a lone one with degenerate constraints.
+ *
+ * - [NowPlayingPresentation.Phone], [NowPlayingPresentation.Enlarged]: the
+ *   phone column (the enlarged phone is the Medium window's full state, met
+ *   by opening where no panel fits or by closing from it).
+ * - [NowPlayingPresentation.DualPane]: the Wide window's full state; its title
+ *   sits at the foot of the right column, so only the cover travels.
+ * - [NowPlayingPresentation.Landscape]: the edge capsule's upright pill turns
+ *   its text sideways, so only the cover travels.
+ * - [NowPlayingPresentation.Panel]: the panel opens beside the bar, which keeps
+ *   its place and folds the pill away. [NowPlayingPresentation.Tabletop]: the
+ *   hinge layout keeps no shared cover (posture swaps resize mid-measure).
  */
-val NowPlayingPresentation.morphsFromPill: Boolean
-    get() = this == NowPlayingPresentation.Phone || this == NowPlayingPresentation.Tabletop
+val NowPlayingPresentation.pillMorph: PillMorph
+    get() = when (this) {
+        NowPlayingPresentation.Phone,
+        NowPlayingPresentation.Enlarged,
+        -> PillMorph.CoverAndText
+        NowPlayingPresentation.DualPane,
+        NowPlayingPresentation.Landscape,
+        -> PillMorph.Cover
+        NowPlayingPresentation.Panel,
+        NowPlayingPresentation.Tabletop,
+        -> PillMorph.None
+    }
 
 /** Panel width: half the window, clamped to phone widths (fold 690 → 360, tablet 800 → 400). */
 fun nowPlayingPanelWidth(windowWidth: Dp): Dp = (windowWidth * 0.5f).coerceIn(PanelMinWidth, PanelMaxWidth)

@@ -138,9 +138,17 @@ class NowPlayingPresentationTest {
     }
 
     @Test
-    fun should_morphFromThePill_only_when_thePhoneColumnFillsTheWindow() {
-        val morphing = NowPlayingPresentation.entries.filter { it.morphsFromPill }
-        assertEquals(listOf(NowPlayingPresentation.Phone, NowPlayingPresentation.Tabletop), morphing)
+    fun should_morphFromThePill_when_thePlayerCoversTheBar() {
+        assertEquals(PillMorph.CoverAndText, NowPlayingPresentation.Phone.pillMorph)
+        assertEquals(PillMorph.CoverAndText, NowPlayingPresentation.Enlarged.pillMorph)
+        assertEquals(PillMorph.Cover, NowPlayingPresentation.DualPane.pillMorph)
+        assertEquals(PillMorph.Cover, NowPlayingPresentation.Landscape.pillMorph)
+    }
+
+    @Test
+    fun should_notMorph_when_thePanelOpensBesideTheBar_or_onTheHinge() {
+        assertEquals(PillMorph.None, NowPlayingPresentation.Panel.pillMorph)
+        assertEquals(PillMorph.None, NowPlayingPresentation.Tabletop.pillMorph)
     }
 
     @Test

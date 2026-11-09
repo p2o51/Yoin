@@ -97,6 +97,9 @@ fun NowPlayingPill(
     modifier: Modifier = Modifier,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    // False where the player has no title to meet (PillMorph.Cover): only the
+    // cover travels, so the text keeps no shared element without a peer.
+    shareText: Boolean = true,
     interactionSource: MutableInteractionSource? = null,
     enabled: Boolean = true,
     onLongClick: (() -> Unit)? = null,
@@ -266,6 +269,7 @@ fun NowPlayingPill(
                     val artistText = shown.artist ?: connectionErrorMessage
 
                     val titleModifier = if (
+                        shareText &&
                         sharedTransitionScope != null &&
                         animatedVisibilityScope != null &&
                         shown.title != null
@@ -312,6 +316,7 @@ fun NowPlayingPill(
                     )
 
                     val artistModifier = if (
+                        shareText &&
                         sharedTransitionScope != null &&
                         animatedVisibilityScope != null &&
                         shown.artist != null

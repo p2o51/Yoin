@@ -186,8 +186,9 @@ fun DetailBottomBar(
             // Engaged only while this bar's own visibility runs (NP opening or
             // closing over the page) — never during the shell hand-off or the
             // predictive-back scrub, which move the bar by other means.
-            sharedTransitionScope = nowPlayingMorph,
+            sharedTransitionScope = nowPlayingMorph?.scope,
             animatedVisibilityScope = if (nowPlayingMorph != null) this else null,
+            morphPillText = nowPlayingMorph?.text ?: false,
         )
     }
 }

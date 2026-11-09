@@ -178,14 +178,15 @@ import com.gpo.yoin.ui.nowplaying.LocalNowPlayingPanelBeside
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingPanelMinContentWidth
 import com.gpo.yoin.ui.nowplaying.NowPlayingPresentation
+import com.gpo.yoin.ui.nowplaying.PillMorph
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.canOpenNowPlayingPanel
-import com.gpo.yoin.ui.nowplaying.morphsFromPill
 import com.gpo.yoin.ui.nowplaying.nowPlayingCoversHome
 import com.gpo.yoin.ui.nowplaying.pageBesideNowPlayingPanel
+import com.gpo.yoin.ui.nowplaying.pillMorph
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
@@ -456,7 +457,8 @@ private fun YoinShell(
     val npFrame = rememberNowPlayingFrame(nowPlayingViewModel, npPanelMinContent)
     val npPanelMotion = rememberNowPlayingPanelMotion()
     val npPanel = rememberNowPlayingPanelInset(npFrame, showNowPlaying, npPanelMotion)
-    val npSharesCover = npFrame.presentation.morphsFromPill
+    val npPillMorph = npFrame.presentation.pillMorph
+    val npSharesCover = npPillMorph != PillMorph.None
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
     )
@@ -1598,13 +1600,14 @@ private fun YoinShell(
                             experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
                             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                         },
-                        // Only the full-window phone column (and Tabletop) takes the
-                        // mini-player → cover morph; the side panel, the enlarged
-                        // phone and the two-column player drop it. Leaving the mini
-                        // cover's shared element here would make it a no-peer
-                        // shared element, which the SharedTransitionLayout
-                        // lookahead measures with degenerate constraints — so the
-                        // shell's side is disabled exactly where NP's is.
+                        // The mini-player → player morph wherever the player covers
+                        // the bar (PillMorph): the phone column, the enlarged phone and
+                        // the two columns (opened where no panel fits, or closed from
+                        // their full state), and landscape; the side panel drops it.
+                        // Leaving the mini cover's shared element where NP has none
+                        // would make it a no-peer shared element, which the
+                        // SharedTransitionLayout lookahead measures with degenerate
+                        // constraints — so the shell's side follows NP's exactly.
                         sharedTransitionScope = if (npSharesCover) {
                             sharedTransitionScope
                         } else {
@@ -1615,6 +1618,7 @@ private fun YoinShell(
                         } else {
                             null
                         },
+                        morphPillText = npPillMorph == PillMorph.CoverAndText,
                     )
                 }
             }

@@ -8,20 +8,30 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.gpo.yoin.ui.nowplaying.NowPlayingFrame
-import com.gpo.yoin.ui.nowplaying.morphsFromPill
+import com.gpo.yoin.ui.nowplaying.PillMorph
+import com.gpo.yoin.ui.nowplaying.pillMorph
 
 /**
- * The shared-transition scope a detail window's bar hands its pill to, so the
- * pill grows into Now Playing's cover, title and artist exactly as the shell's
- * does (and shrinks back on close). Null where this window's player does not
- * take the morph ([morphsFromPill]) and outside a detail window — a page in
- * the shell's detail column draws no bar of its own.
+ * What a detail window's bar hands its pill so the pill grows into Now
+ * Playing as the shell's does (and shrinks back on close): the window's
+ * shared-transition [scope], and whether the title and artist travel with the
+ * cover ([text], PillMorph.CoverAndText) or the cover alone.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
-internal val LocalDetailNowPlayingMorph = compositionLocalOf<SharedTransitionScope?> { null }
+@Immutable
+internal class DetailPillMorph(val scope: SharedTransitionScope, val text: Boolean)
+
+/**
+ * The pill morph for this window's bar. Null where this window's player takes
+ * none ([pillMorph]) and outside a detail window — a page in the shell's
+ * detail column draws no bar of its own.
+ */
+internal val LocalDetailNowPlayingMorph = compositionLocalOf<DetailPillMorph?> { null }
 
 /**
  * A detail Activity's root: its page and the Now Playing it hosts in one
@@ -43,9 +53,11 @@ internal fun DetailNowPlayingWindow(
 ) {
     SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
         val scope = this
-        CompositionLocalProvider(
-            LocalDetailNowPlayingMorph provides scope.takeIf { frame.presentation.morphsFromPill },
-        ) {
+        val morph = frame.presentation.pillMorph
+        val barMorph = remember(scope, morph) {
+            if (morph == PillMorph.None) null else DetailPillMorph(scope, text = morph == PillMorph.CoverAndText)
+        }
+        CompositionLocalProvider(LocalDetailNowPlayingMorph provides barMorph) {
             Box(modifier = Modifier.fillMaxSize()) {
                 content(scope)
             }

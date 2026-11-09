@@ -141,6 +141,8 @@ fun YoinButtonGroup(
     onNowPlayingLongClick: (() -> Unit)? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    // The pill's title and artist travel too (PillMorph.CoverAndText).
+    morphPillText: Boolean = true,
     // ShellChromeForm.CenteredBar: centred, capped at 600, and the detail pose
     // pulls the page's promotable actions out of ▾ into round buttons with a
     // fixed 200dp pill (断点交接 §2.3). False = the portrait bar, unchanged.
@@ -523,6 +525,7 @@ fun YoinButtonGroup(
                     onLongClick = onNowPlayingLongClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
+                    shareText = morphPillText,
                     interactionSource = centerInteraction,
                     // Fading out but still composed on the way into edit:
                     // no press, click or haptic.

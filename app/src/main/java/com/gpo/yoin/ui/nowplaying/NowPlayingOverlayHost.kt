@@ -674,10 +674,11 @@ fun NowPlayingOverlayHost(
                         onSelectDevice = viewModel::selectDevice,
                         castState = castState,
                         onCastClick = { showCastDevicesSheet = true },
-                        // The pill → cover morph only where the phone column fills
-                        // the window; panel / enlarged / two-column bodies drop it
-                        // (bounded, lookahead-safe, and the pill folds away there).
-                        sharedTransitionScope = sharedTransitionScope.takeIf { presentation.morphsFromPill },
+                        // The pill → cover morph wherever the player covers the bar
+                        // (PillMorph); the side panel opens beside it and drops it.
+                        sharedTransitionScope = sharedTransitionScope.takeIf {
+                            presentation.pillMorph != PillMorph.None
+                        },
                         animatedVisibilityScope = npAvScope,
                         // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
                         // over the full-screen aurora) — NOT the whole overlay, which
