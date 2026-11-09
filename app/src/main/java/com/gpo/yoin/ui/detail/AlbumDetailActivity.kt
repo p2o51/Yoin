@@ -219,7 +219,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     )
                 }
 
-                DetailNowPlayingWindow(nowPlayingFrame) { nowPlayingMorph ->
+                DetailNowPlayingWindow(nowPlayingFrame, nowPlayingOpen) { nowPlayingMorph ->
                 ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                 AlbumDetailScreen(
                     uiState = uiState,

@@ -186,11 +186,12 @@ import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.canOpenNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.nowPlayingCoversHome
 import com.gpo.yoin.ui.nowplaying.pageBesideNowPlayingPanel
-import com.gpo.yoin.ui.nowplaying.pillMorph
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingStageProgress
+import com.gpo.yoin.ui.nowplaying.rememberPillMorph
+import com.gpo.yoin.ui.nowplaying.rememberShownNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberWindowWidthDp
 import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -457,7 +458,10 @@ private fun YoinShell(
     val npFrame = rememberNowPlayingFrame(nowPlayingViewModel, npPanelMinContent)
     val npPanelMotion = rememberNowPlayingPanelMotion()
     val npPanel = rememberNowPlayingPanelInset(npFrame, showNowPlaying, npPanelMotion)
-    val npPillMorph = npFrame.presentation.pillMorph
+    // The bar's end of the pill morph: the same shown frame and open/close
+    // latch as NowPlayingOverlayHost, so the two ends never disagree.
+    val npShownFrame = rememberShownNowPlayingFrame(showNowPlaying, npFrame)
+    val npPillMorph = rememberPillMorph(showNowPlaying, npShownFrame.presentation)
     val npSharesCover = npPillMorph != PillMorph.None
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
@@ -1603,7 +1607,8 @@ private fun YoinShell(
                         // The mini-player → player morph wherever the player covers
                         // the bar (PillMorph): the phone column, the enlarged phone and
                         // the two columns (opened where no panel fits, or closed from
-                        // their full state), and landscape; the side panel drops it.
+                        // their full state), and landscape; the side panel drops it, and
+                        // so does the bar moving for the corner toggle (rememberPillMorph).
                         // Leaving the mini cover's shared element where NP has none
                         // would make it a no-peer shared element, which the
                         // SharedTransitionLayout lookahead measures with degenerate

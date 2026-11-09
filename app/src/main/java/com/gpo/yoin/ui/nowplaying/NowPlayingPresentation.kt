@@ -129,6 +129,53 @@ val NowPlayingPresentation.pillMorph: PillMorph
         -> PillMorph.None
     }
 
+/**
+ * Holds the presentation Now Playing last opened or closed in, so the pill
+ * morphs only when the player itself enters or leaves — never when the
+ * panel's corner toggle (or a resize) moves the bar while the player stays
+ * open. The player's shared elements are live only during its own enter/exit
+ * (active-only config), so a bar hiding for panel → Full, or returning for
+ * Full → panel, would otherwise carry a shared pill with no peer.
+ *
+ * Both ends keep one, fed the same open flag and the same SHOWN presentation
+ * ([rememberShownNowPlayingFrame]), so they agree frame by frame: a
+ * presentation change after the open or close turns the morph off on both.
+ */
+internal class PillMorphLatch(expanded: Boolean, presentation: NowPlayingPresentation) {
+    private var lastExpanded = expanded
+    private var latched = presentation
+
+    fun morphFor(expanded: Boolean, presentation: NowPlayingPresentation): PillMorph {
+        if (expanded != lastExpanded) {
+            lastExpanded = expanded
+            latched = presentation
+        }
+        return if (presentation == latched) presentation.pillMorph else PillMorph.None
+    }
+}
+
+/** The pill morph for Now Playing's current open or close; see [PillMorphLatch]. */
+@Composable
+internal fun rememberPillMorph(expanded: Boolean, presentation: NowPlayingPresentation): PillMorph {
+    val latch = remember { PillMorphLatch(expanded, presentation) }
+    return latch.morphFor(expanded, presentation)
+}
+
+/**
+ * The frame Now Playing is SHOWN in: [liveFrame] while open; while closing
+ * (and closed), the frame it was last shown in. The shell can raise the panel
+ * floor (a detail column opening) in the same event that closes the player,
+ * and a resize can land mid-exit — re-resolving would turn the closing panel
+ * into the full-window player. The host lays out with this, and the bar's
+ * morph gate reads it too, so both ends of the morph follow one presentation.
+ */
+@Composable
+internal fun rememberShownNowPlayingFrame(expanded: Boolean, liveFrame: NowPlayingFrame): NowPlayingFrame {
+    val shown = remember { arrayOfNulls<NowPlayingFrame>(1) }
+    if (expanded) shown[0] = liveFrame
+    return if (expanded) liveFrame else shown[0] ?: liveFrame
+}
+
 /** Panel width: half the window, clamped to phone widths (fold 690 → 360, tablet 800 → 400). */
 fun nowPlayingPanelWidth(windowWidth: Dp): Dp = (windowWidth * 0.5f).coerceIn(PanelMinWidth, PanelMaxWidth)
 

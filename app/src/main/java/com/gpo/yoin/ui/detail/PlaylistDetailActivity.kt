@@ -206,7 +206,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                     )
                 }
 
-                DetailNowPlayingWindow(nowPlayingFrame) { nowPlayingMorph ->
+                DetailNowPlayingWindow(nowPlayingFrame, nowPlayingOpen) { nowPlayingMorph ->
                     ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                         PlaylistDetailScreen(
                             uiState = uiState,

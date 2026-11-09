@@ -170,14 +170,12 @@ fun NowPlayingOverlayHost(
     // The frame this window gives Now Playing (断点交接 §3.4 / §14.1) — the
     // same resolution the host content beside a side panel reads.
     val liveFrame = rememberNowPlayingFrame(viewModel, panelMinContentWidth)
-    // The player leaves in the frame it was last SHOWN in: the shell can raise
-    // the panel floor (a detail column opening) in the same event that closes
-    // it, which would otherwise re-resolve the closing panel into the
-    // full-window two-column player for its whole exit.
-    val shownFrame = remember { arrayOfNulls<NowPlayingFrame>(1) }
-    if (expanded) shownFrame[0] = liveFrame
-    val frame = if (expanded) liveFrame else shownFrame[0] ?: liveFrame
+    // The player leaves in the frame it was last SHOWN in (see
+    // rememberShownNowPlayingFrame); the bar's morph gate reads the same.
+    val frame = rememberShownNowPlayingFrame(expanded, liveFrame)
     val presentation = frame.presentation
+    // The pill → cover morph for this open or close, as the bar computes it.
+    val pillMorph = rememberPillMorph(expanded, presentation)
     val dualPaneNowPlaying = presentation == NowPlayingPresentation.DualPane
     val panelMode = presentation == NowPlayingPresentation.Panel
     // Medium or Wide full window: panel ⇄ Full (enlarged phone / two columns)
@@ -677,7 +675,7 @@ fun NowPlayingOverlayHost(
                         // The pill → cover morph wherever the player covers the bar
                         // (PillMorph); the side panel opens beside it and drops it.
                         sharedTransitionScope = sharedTransitionScope.takeIf {
-                            presentation.pillMorph != PillMorph.None
+                            pillMorph != PillMorph.None
                         },
                         animatedVisibilityScope = npAvScope,
                         // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,

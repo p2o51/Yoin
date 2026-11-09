@@ -148,7 +148,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     onAddToPlaylist = null,
                 )
 
-                DetailNowPlayingWindow(nowPlayingFrame) { nowPlayingMorph ->
+                DetailNowPlayingWindow(nowPlayingFrame, nowPlayingOpen) { nowPlayingMorph ->
                 ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                 ArtistDetailScreen(
                     uiState = uiState,
