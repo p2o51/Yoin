@@ -175,6 +175,7 @@ fun NowPlayingOverlayHost(
     val frame = rememberShownNowPlayingFrame(expanded, liveFrame)
     val presentation = frame.presentation
     // The pill → cover morph for this open or close, as the bar computes it.
+    // Read only while the player enters or leaves — see coverMorph below.
     val pillMorph = rememberPillMorph(expanded, presentation)
     val dualPaneNowPlaying = presentation == NowPlayingPresentation.DualPane
     val panelMode = presentation == NowPlayingPresentation.Panel
@@ -465,6 +466,18 @@ fun NowPlayingOverlayHost(
         modifier = Modifier.fillMaxSize(),
     ) {
         val npAvScope = this
+        // The cover's end of the pill morph. At rest it follows the shown
+        // presentation, so a cover toggled into a full state already carries
+        // its shared element (idle at rest) when a close starts — enabling it
+        // only in the close's first frame left the shared bounds nothing to
+        // animate from, and the cover jumped into the pill. While the player
+        // enters or leaves it takes the bar's latch, so a presentation change
+        // mid-transition drops the morph on both ends together.
+        val coverMorph = if (npAvScope.transition.currentState != npAvScope.transition.targetState) {
+            pillMorph
+        } else {
+            presentation.pillMorph
+        }
         // The player is gone (its exit finished): clear the dismiss pose and
         // the Full flag, so the next open starts as the panel from frame one.
         DisposableEffect(Unit) {
@@ -675,7 +688,7 @@ fun NowPlayingOverlayHost(
                         // The pill → cover morph wherever the player covers the bar
                         // (PillMorph); the side panel opens beside it and drops it.
                         sharedTransitionScope = sharedTransitionScope.takeIf {
-                            pillMorph != PillMorph.None
+                            coverMorph != PillMorph.None
                         },
                         animatedVisibilityScope = npAvScope,
                         // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,

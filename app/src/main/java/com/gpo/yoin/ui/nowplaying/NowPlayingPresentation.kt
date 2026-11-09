@@ -138,8 +138,13 @@ val NowPlayingPresentation.pillMorph: PillMorph
  * Full → panel, would otherwise carry a shared pill with no peer.
  *
  * Both ends keep one, fed the same open flag and the same SHOWN presentation
- * ([rememberShownNowPlayingFrame]), so they agree frame by frame: a
- * presentation change after the open or close turns the morph off on both.
+ * ([rememberShownNowPlayingFrame]), so they agree through every open and
+ * close: a presentation change after the flip turns the morph off on both.
+ * The bar reads it always (its pill only exists while the bar shows); the
+ * player reads it only while it enters or leaves, and at rest keeps the
+ * shown presentation's morph, so its cover's shared element is already in
+ * place (idle) when a close from a toggled full state begins — added in the
+ * close's first frame, it would have no bounds to animate from.
  */
 internal class PillMorphLatch(expanded: Boolean, presentation: NowPlayingPresentation) {
     private var lastExpanded = expanded
