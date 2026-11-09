@@ -76,6 +76,7 @@ internal fun MemoryLedgerDemo(playing: Boolean) {
                     onBackClick = { open = false },
                     onOpenAlbum = {},
                     selectedCellState = selected,
+                    drivesStatusBar = false,
                     gridModifier = Modifier.demoTarget("ledgerGrid"),
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -120,12 +121,13 @@ private fun demoLedgerState(covers: List<String>): MemoryLedgerState {
             add(
                 MemoryLedgerEntry(
                     id = "demo-note-$i",
-                    kind = if (i % 3 == 0) MemoryLedgerKind.AlbumNote else MemoryLedgerKind.SongNote,
+                    kind = if (i % 3 == 0) MemoryLedgerKind.Review else MemoryLedgerKind.SongNote,
                     at = at,
                     profileId = "demo",
                     album = album,
                     text = title,
                     trackTitle = if (i % 3 == 0) null else title,
+                    songId = if (i % 3 == 0) null else "demo-song-$i",
                 ),
             )
             if (i % 2 == 0) {
@@ -137,6 +139,7 @@ private fun demoLedgerState(covers: List<String>): MemoryLedgerState {
                         profileId = "demo",
                         album = albums[(i + 1) % albums.size],
                         trackTitle = DemoTrackTitles[(i + 3) % DemoTrackTitles.size],
+                        songId = "demo-scored-$i",
                         score = 7f + (i % 4) * 0.5f,
                     ),
                 )

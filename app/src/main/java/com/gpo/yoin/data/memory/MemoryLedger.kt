@@ -58,6 +58,8 @@ data class MemoryLedgerEntry(
     val text: String? = null,
     /** The song a song note or track score is about, when known. */
     val trackTitle: String? = null,
+    /** That song's raw id (song notes and track scores): what tells two songs of one name apart. */
+    val songId: String? = null,
     /** Where in the song a note was written (ms). */
     val positionMs: Long? = null,
     /** An album's or track's score, 0–10. */
@@ -193,6 +195,7 @@ suspend fun buildMemoryLedger(
             album = album(note.profileId, note.provider, row.linkedAlbumId),
             text = note.content,
             trackTitle = note.title.takeIf { it.isNotBlank() },
+            songId = MediaId.storedRawId(note.provider, note.trackId),
             positionMs = note.positionMs,
         )
     }
@@ -242,6 +245,7 @@ suspend fun buildMemoryLedger(
             profileId = row.profileId,
             album = album,
             trackTitle = title,
+            songId = MediaId.storedRawId(row.provider, row.songId),
             score = score,
         )
     }

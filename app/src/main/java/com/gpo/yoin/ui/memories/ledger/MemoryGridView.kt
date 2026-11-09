@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -114,13 +115,17 @@ internal fun MemoryGridView(
     extractColors: Boolean = true,
     onCellClick: ((Int) -> Unit)? = null,
     monthCaption: (@Composable (MemoryGridCell) -> String)? = null,
+    // The page reads the albums' colours once for the grid and its lift into the top bar.
+    albumColors: Map<String, LedgerAlbumColors>? = null,
+    // Where the grid's squares are, for the page's lift into the top bar.
+    lift: MemoryGridLift? = null,
 ) {
     val cells = when {
         grid.scale == MemoryGridScale.Month && placement == MemoryGridPlacement.Home -> grid.cells.takeLast(6)
         else -> grid.cells
     }
     val offset = grid.cells.size - cells.size
-    val colors = rememberLedgerAlbumColors(albumsIn(cells), coverUrls, extractColors)
+    val colors = albumColors ?: rememberLedgerAlbumColors(albumsIn(cells), coverUrls, extractColors)
     val faint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
     val outline = MaterialTheme.colorScheme.primary
     val paint = remember(colors, faint) { CellPaint(colors, faint) }
@@ -134,6 +139,7 @@ internal fun MemoryGridView(
             selected = selected,
             onCellClick = onCellClick,
             caption = monthCaption,
+            lift = lift,
             modifier = modifier,
         )
         MemoryGridScale.Week, MemoryGridScale.Day -> {
@@ -148,6 +154,7 @@ internal fun MemoryGridView(
                 outline = outline,
                 selected = selected,
                 onCellClick = onCellClick,
+                lift = lift,
                 modifier = modifier,
             )
         }
@@ -176,7 +183,7 @@ internal fun DrawScope.drawLedgerCell(
     }
 }
 
-private fun DrawScope.drawMark(mark: MemoryGridMark, topLeft: Offset, size: Size, radius: Float, paint: CellPaint) {
+internal fun DrawScope.drawMark(mark: MemoryGridMark, topLeft: Offset, size: Size, radius: Float, paint: CellPaint) {
     val colors = paint.of(mark.album)
     if (mark.wrote) {
         drawSplit(colors.base, colors.accent, topLeft, size, radius)
@@ -211,6 +218,7 @@ private fun CellWall(
     outline: Color,
     selected: Int?,
     onCellClick: ((Int) -> Unit)?,
+    lift: MemoryGridLift?,
     modifier: Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
@@ -223,6 +231,15 @@ private fun CellWall(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
+                .then(
+                    if (lift == null) {
+                        Modifier
+                    } else {
+                        Modifier.onGloballyPositioned {
+                            lift.wall = MemoryGridLift.Wall(it, columns, rows, columnMajor, gapPx)
+                        }
+                    },
+                )
                 .then(
                     if (onCellClick == null) {
                         Modifier
@@ -264,7 +281,7 @@ private fun CellWall(
 @Composable
 private fun MonthQuad(cell: MemoryGridCell, paint: CellPaint, outlined: Boolean, outline: Color, modifier: Modifier) {
     Canvas(modifier = modifier.aspectRatio(1f)) {
-        val gap = 2.dp.toPx()
+        val gap = MonthQuadGap.toPx()
         val quad = (size.width - gap) / 2
         val radius = quad * 0.16f
         repeat(4) { index ->
@@ -292,6 +309,7 @@ private fun MonthQuads(
     selected: Int?,
     onCellClick: ((Int) -> Unit)?,
     caption: (@Composable (MemoryGridCell) -> String)?,
+    lift: MemoryGridLift?,
     modifier: Modifier,
 ) {
     val locale = LocalConfiguration.current.locales[0]
@@ -320,7 +338,15 @@ private fun MonthQuads(
                             paint,
                             outlined = selected == offset + index,
                             outline = outline,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (lift == null) {
+                                        Modifier
+                                    } else {
+                                        Modifier.onGloballyPositioned { lift.quads[offset + index] = it }
+                                    },
+                                ),
                         )
                         Text(
                             text = name,
@@ -348,3 +374,6 @@ private fun MonthQuads(
 }
 
 private val MonthDescription: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy MMMM")
+
+/** The gap between a month's four quads. */
+internal val MonthQuadGap = 2.dp

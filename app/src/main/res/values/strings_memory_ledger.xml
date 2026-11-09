@@ -17,19 +17,18 @@
     <string name="memory_ledger_stat_characters">Characters</string>
     <string name="memory_ledger_stat_rated">Songs scored</string>
 
-    <string name="memory_ledger_filter_all">All</string>
-    <string name="memory_ledger_filter_writing">Writing</string>
-    <string name="memory_ledger_filter_scores">Scores</string>
-    <string name="memory_ledger_filter_all_profiles">All accounts</string>
-    <string name="memory_ledger_range_clear">Show all</string>
+    <string name="memory_ledger_view_timeline">Timeline</string>
+    <string name="memory_ledger_view_cards">Cards</string>
+    <string name="memory_ledger_view_list">List</string>
+    <string name="memory_ledger_sort_recent">Recent</string>
+    <string name="memory_ledger_sort_score">Highest score</string>
+    <string name="memory_ledger_sort_name">Name</string>
+    <string name="memory_ledger_album_score">Album score</string>
+    <string name="memory_ledger_unknown_song">Song unknown</string>
 
     <plurals name="memory_ledger_month_count">
         <item quantity="one">%d entry</item>
         <item quantity="other">%d entries</item>
-    </plurals>
-    <plurals name="memory_ledger_scores_folded">
-        <item quantity="one">Also scored once</item>
-        <item quantity="other">Also scored %d times</item>
     </plurals>
     <string name="memory_ledger_quiet_one">Nothing written in %1$s</string>
     <string name="memory_ledger_quiet_range">Nothing written from %1$s to %2$s</string>

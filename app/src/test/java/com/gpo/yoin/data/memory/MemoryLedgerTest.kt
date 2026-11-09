@@ -265,46 +265,115 @@ class MemoryLedgerTest {
         assertEquals(2, grid.cells.last().marks.size)
     }
 
-    // ── memoryLedgerRows ───────────────────────────────────────────────
+    // ── memoryTimelineRows ─────────────────────────────────────────────
+
+    private fun mark(
+        id: String,
+        date: LocalDate,
+        album: String?,
+        kind: MemoryLedgerKind,
+        song: String? = null,
+        score: Float? = null,
+        text: String? = null,
+    ) = MemoryLedgerEntry(
+        id = id,
+        kind = kind,
+        at = at(date),
+        profileId = "a",
+        album = album?.let(::album),
+        text = text,
+        trackTitle = song,
+        songId = song,
+        score = score,
+    )
 
     @Test
-    fun should_foldQuietMonths_and_scores() {
+    fun should_gatherAnAlbumsMonth_intoOneCard_between_songNotes() {
         val entries = listOf(
-            entry("n", today),
-            entry("s1", today, "x", MemoryLedgerKind.TrackRating),
-            entry("s2", today, "y", MemoryLedgerKind.AlbumRating),
-            entry("old", LocalDate.of(2026, 6, 20)),
+            mark("t", today, "x", MemoryLedgerKind.Title, text = "Rain"),
+            mark("n", today.minusDays(1), "x", MemoryLedgerKind.SongNote, song = "s1", text = "note"),
+            mark("r", today.minusDays(2), "x", MemoryLedgerKind.AlbumRating, score = 8.5f),
+            mark("s1", today.minusDays(3), "x", MemoryLedgerKind.TrackRating, song = "s1", score = 9f),
+            mark("s2", today.minusDays(3), "x", MemoryLedgerKind.TrackRating, song = "s2", score = 7f),
+            mark("y", today.minusDays(4), "y", MemoryLedgerKind.AlbumRating, score = 6f),
+            mark("old", LocalDate.of(2026, 6, 20), "z", MemoryLedgerKind.Review, text = "old"),
         ).sortedByDescending { it.at }
 
-        val rows = memoryLedgerRows(entries, today, zone)
+        val rows = memoryTimelineRows(entries, today, zone)
 
         assertEquals(
-            listOf(
-                MemoryLedgerRow.Month(YearMonth.of(2026, 11), writings = 1, scores = 2),
-                MemoryLedgerRow.Entry(entries.first { it.id == "n" }),
-                MemoryLedgerRow.Scores(YearMonth.of(2026, 11), scores = 2, albums = 2),
-                MemoryLedgerRow.Quiet(from = YearMonth.of(2026, 10), to = YearMonth.of(2026, 7)),
-                MemoryLedgerRow.Month(YearMonth.of(2026, 6), writings = 1, scores = 0),
-                MemoryLedgerRow.Entry(entries.first { it.id == "old" }),
-            ),
-            rows,
+            listOf("month:2026-11", "album:x", "note:n", "album:y", "quiet", "month:2026-06", "album:z"),
+            rows.map {
+                when (it) {
+                    is MemoryTimelineRow.Album -> "album:${it.item.album.albumId}"
+                    is MemoryTimelineRow.Quiet -> "quiet"
+                    else -> it.key
+                }
+            },
         )
+        val card = (rows[1] as MemoryTimelineRow.Album).item
+        assertEquals("Rain", card.title)
+        assertEquals(8.5f, card.score)
+        assertEquals(listOf(9f, 7f), card.songs.map { it.score })
+        // Cards alternate sides, across months.
+        assertEquals(listOf(false, true, false), rows.filterIsInstance<MemoryTimelineRow.Album>().map { it.end })
+        assertEquals(MemoryTimelineRow.Quiet(YearMonth.of(2026, 10), YearMonth.of(2026, 7)), rows[4])
     }
 
     @Test
-    fun should_listScoresOneByOne_when_monthHasOnlyScores() {
-        val entries = listOf(entry("s1", today, "x", MemoryLedgerKind.TrackRating))
+    fun should_keepAScoreWithoutAlbum_asASmallCard() {
+        val rows = memoryTimelineRows(
+            listOf(mark("s", today, null, MemoryLedgerKind.TrackRating, song = "s", score = 8f)),
+            today,
+            zone,
+        )
 
-        val rows = memoryLedgerRows(entries, today, zone)
-
-        assertEquals(2, rows.size)
-        assertTrue(rows[1] is MemoryLedgerRow.Entry)
+        assertTrue(rows[1] is MemoryTimelineRow.Note)
     }
 
     @Test
     fun should_startAtThisMonth_evenWhenItIsQuiet() {
-        val rows = memoryLedgerRows(listOf(entry("old", LocalDate.of(2026, 9, 1))), today, zone)
+        val rows = memoryTimelineRows(listOf(entry("old", LocalDate.of(2026, 9, 1))), today, zone)
 
-        assertEquals(MemoryLedgerRow.Quiet(YearMonth.of(2026, 11), YearMonth.of(2026, 10)), rows.first())
+        assertEquals(MemoryTimelineRow.Quiet(YearMonth.of(2026, 11), YearMonth.of(2026, 10)), rows.first())
+    }
+
+    // ── memoryLedgerItems ──────────────────────────────────────────────
+
+    @Test
+    fun should_makeAnItem_perAlbum_and_perNotedSong() {
+        val entries = listOf(
+            mark("n1", today, "x", MemoryLedgerKind.SongNote, song = "s1", text = "new"),
+            mark("n0", today.minusDays(5), "x", MemoryLedgerKind.SongNote, song = "s1", text = "old"),
+            mark("s1", today.minusDays(1), "x", MemoryLedgerKind.TrackRating, song = "s1", score = 9f),
+            mark("r", today.minusDays(2), "y", MemoryLedgerKind.AlbumRating, score = 7f),
+            mark("lost", today.minusDays(3), null, MemoryLedgerKind.TrackRating, song = "s9", score = 6f),
+        )
+
+        val items = memoryLedgerItems(entries)
+
+        assertEquals(
+            listOf("song:a|s1", "album:a|subsonic|x", "album:a|subsonic|y", "song:a|s9"),
+            items.map { it.key },
+        )
+        val song = items[0] as MemoryLedgerItem.Song
+        assertEquals("new", song.note?.text)
+        assertEquals(2, song.notes)
+        assertEquals(9f, song.score)
+        // The scored song makes album x an item too, listing it.
+        assertEquals(listOf(9f), (items[1] as MemoryLedgerItem.Album).songs.map { it.score })
+    }
+
+    @Test
+    fun should_sortItems_byScore_unscoredLast_and_byName() {
+        val entries = listOf(
+            mark("a", today, "b", MemoryLedgerKind.Title, text = "t"),
+            mark("b", today.minusDays(1), "a", MemoryLedgerKind.AlbumRating, score = 6f),
+            mark("c", today.minusDays(2), "c", MemoryLedgerKind.AlbumRating, score = 9f),
+        )
+        val items = memoryLedgerItems(entries)
+
+        assertEquals(listOf("c", "a", "b"), items.sortedFor(MemoryLedgerSort.Score, naturalOrder()).map { it.name })
+        assertEquals(listOf("a", "b", "c"), items.sortedFor(MemoryLedgerSort.Name, naturalOrder()).map { it.name })
     }
 }

@@ -14,17 +14,17 @@
     <string name="memory_ledger_stat_characters">个字</string>
     <string name="memory_ledger_stat_rated">首歌打了分</string>
 
-    <string name="memory_ledger_filter_all">全部</string>
-    <string name="memory_ledger_filter_writing">文字</string>
-    <string name="memory_ledger_filter_scores">评分</string>
-    <string name="memory_ledger_filter_all_profiles">全部资料</string>
-    <string name="memory_ledger_range_clear">看全部</string>
+    <string name="memory_ledger_view_timeline">时间线</string>
+    <string name="memory_ledger_view_cards">卡片</string>
+    <string name="memory_ledger_view_list">列表</string>
+    <string name="memory_ledger_sort_recent">最近</string>
+    <string name="memory_ledger_sort_score">评分最高</string>
+    <string name="memory_ledger_sort_name">名称</string>
+    <string name="memory_ledger_album_score">专辑评分</string>
+    <string name="memory_ledger_unknown_song">未知歌曲</string>
 
     <plurals name="memory_ledger_month_count">
         <item quantity="other">%d 条</item>
-    </plurals>
-    <plurals name="memory_ledger_scores_folded">
-        <item quantity="other">还打了 %d 次分</item>
     </plurals>
     <string name="memory_ledger_quiet_one">%1$s没有写</string>
     <string name="memory_ledger_quiet_range">%1$s到%2$s没有写</string>
