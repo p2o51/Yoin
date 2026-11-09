@@ -1,0 +1,20 @@
+--- a/app/src/main/java/com/gpo/yoin/ui/nowplaying/NowPlayingOverlayHost.kt
++++ b/app/src/main/java/com/gpo/yoin/ui/nowplaying/NowPlayingOverlayHost.kt
+@@ -174,8 +174,15 @@
+     // rememberShownNowPlayingFrame); the bar's morph gate reads the same.
+     val frame = rememberShownNowPlayingFrame(expanded, liveFrame)
+     val presentation = frame.presentation
+-    // The pill → cover morph for this open or close, as the bar computes it.
+-    val pillMorph = rememberPillMorph(expanded, presentation)
++    // The player's end of the pill → cover morph follows the SHOWN
++    // presentation, so its cover carries the shared element from the moment
++    // it is shown in a morphing state — not only from the frame a close
++    // starts, which leaves the shared bounds no start to animate from (the
++    // cover jumped into the pill). Whether a given open or close morphs is
++    // the bar's call (rememberPillMorph): a panel ⇄ Full toggle never
++    // gives the bar's mini cover a shared element, so this end has no peer
++    // and nothing moves.
++    val pillMorph = presentation.pillMorph
+     val dualPaneNowPlaying = presentation == NowPlayingPresentation.DualPane
+     val panelMode = presentation == NowPlayingPresentation.Panel
+     // Medium or Wide full window: panel ⇄ Full (enlarged phone / two columns)
