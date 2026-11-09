@@ -407,19 +407,19 @@
     </plurals>
     <!-- Yoin Labs (LabsPage.kt). Copy: Argon (Gemini), 2026-11-09. -->
     <string name="settings_labs_title" translatable="false">Yoin Labs</string>
-    <string name="settings_labs_summary">@@B_SUMMARY_EN@@</string>
-    <string name="labs_intro">@@C1_EN@@</string>
-    <string name="labs_nano_section">@@C2_EN@@</string>
+    <string name="settings_labs_summary">Experimental features and Gemini Nano</string>
+    <string name="labs_intro">Experimental features we\'re trying out. They may change or be removed.</string>
+    <string name="labs_nano_section">On-device model</string>
     <string name="labs_nano_name" translatable="false">Gemini Nano</string>
-    <string name="labs_nano_ready">@@C3A_EN@@</string>
-    <string name="labs_nano_downloadable">@@C3B_EN@@</string>
-    <string name="labs_nano_downloading">@@C3C_EN@@</string>
-    <string name="labs_nano_unsupported">@@C3D_EN@@</string>
-    <string name="labs_nano_checking">@@C3E_EN@@</string>
-    <string name="labs_nano_download">@@C4A_EN@@</string>
-    <string name="labs_nano_check_again">@@C4B_EN@@</string>
-    <string name="labs_nano_download_note">@@C5_EN@@</string>
-    <string name="labs_features_section">@@CF_EN@@</string>
-    <string name="labs_lyrics_detail">@@C6_EN@@</string>
-    <string name="labs_lyrics_no_nano">@@C7_EN@@</string>
+    <string name="labs_nano_ready">Ready on this device</string>
+    <string name="labs_nano_downloadable">Supported, model not downloaded yet</string>
+    <string name="labs_nano_downloading">Downloading model…</string>
+    <string name="labs_nano_unsupported">Not supported on this phone</string>
+    <string name="labs_nano_checking">Checking…</string>
+    <string name="labs_nano_download">Download model</string>
+    <string name="labs_nano_check_again">Check again</string>
+    <string name="labs_nano_download_note">Downloaded by Android (AICore). It\'s a few GB, so Wi‑Fi is recommended.</string>
+    <string name="labs_features_section">Experimental features</string>
+    <string name="labs_lyrics_detail">Show lyrics picked on this phone on Home, and tap to play from that line</string>
+    <string name="labs_lyrics_no_nano">Lines you share or save on the lyrics page still show up on Home.</string>
 </resources>
