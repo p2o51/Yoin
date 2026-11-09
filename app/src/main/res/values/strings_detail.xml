@@ -294,7 +294,7 @@
         <item quantity="one">%1$d comment in all</item>
         <item quantity="other">%1$d comments in all</item>
     </plurals>
-    <string name="neodb_voices_spread_cd">%1$d moons: %2$d%%</string>
+    <string name="neodb_voices_spread_cd">%1$d stars: %2$d%%</string>
     <string name="neodb_voices_percent">%1$d%%</string>
     <string name="neodb_voices_scale" translatable="false">\u0020/%1$d</string>
     <string name="neodb_voices_review">Review</string>

@@ -9,7 +9,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +39,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,10 +54,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -76,6 +73,7 @@ import com.gpo.yoin.data.integration.neodb.NeoDbAlbumVoices
 import com.gpo.yoin.data.integration.neodb.NeoDbReferenceScore
 import com.gpo.yoin.data.integration.neodb.NeoDbVoice
 import com.gpo.yoin.data.integration.neodb.NeoDbVoicesParsing
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.seamDissolveViewport
@@ -350,7 +348,7 @@ private fun Spread(album: NeoDbAlbumVoices) {
                                 .clip(SpreadBarShape)
                                 .background(if (percent == top) scheme.primary else scheme.secondaryContainer),
                         )
-                        Moons(rating = (i + 1) * 2, color = scheme.tertiary, size = 6.dp, showEmpty = false)
+                        Grade(rating = (i + 1) * 2, color = scheme.tertiary, size = 10.dp)
                         Text(
                             text = stringResource(R.string.neodb_voices_percent, percent),
                             style = MaterialTheme.typography.labelSmall,
@@ -487,7 +485,7 @@ private fun VoiceCard(
                     color = scheme.onSurfaceVariant,
                 )
             }
-            voice.rating?.let { Moons(rating = it, color = scheme.tertiary, size = 7.dp) }
+            voice.rating?.let { Grade(rating = it, color = scheme.tertiary, size = 10.dp) }
         }
     }
 }
@@ -498,27 +496,21 @@ private fun NeoDbVoice.byline(): String {
     return if (host.isEmpty() || host == "neodb.social") author else "$author · $host"
 }
 
-/** NeoDB's moons: a 1–10 grade as five moons, an odd grade ending in a half moon. */
+/** A NeoDB grade (1–10) as stars out of five, a filled star from Yoin Symbols beside the number. */
 @Composable
-private fun Moons(rating: Int, color: Color, size: Dp, showEmpty: Boolean = true) {
-    val full = rating / 2
-    val half = rating % 2 == 1
-    val count = if (showEmpty) 5 else full + if (half) 1 else 0
-    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        repeat(count) { i ->
-            Canvas(Modifier.size(size)) {
-                val r = this.size.minDimension / 2f
-                val c = Offset(r, r)
-                when {
-                    i < full -> drawCircle(color, r, c)
-                    i == full && half -> {
-                        drawCircle(color, r - 0.5.dp.toPx(), c, style = Stroke(1.dp.toPx()))
-                        clipRect(right = r) { drawCircle(color, r, c) }
-                    }
-                    else -> drawCircle(color.copy(alpha = 0.35f), r - 0.5.dp.toPx(), c, style = Stroke(1.dp.toPx()))
-                }
-            }
-        }
+private fun Grade(rating: Int, color: Color, size: Dp) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Icon(
+            imageVector = YoinSymbols.StarFilled,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(size),
+        )
+        Text(
+            text = if (rating % 2 == 0) "${rating / 2}" else String.format(Locale.ROOT, "%.1f", rating / 2f),
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+        )
     }
 }
 

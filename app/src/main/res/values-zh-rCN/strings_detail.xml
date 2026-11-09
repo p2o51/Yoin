@@ -247,7 +247,7 @@
     <plurals name="neodb_voices_count">
         <item quantity="other">共 %1$d 条</item>
     </plurals>
-    <string name="neodb_voices_spread_cd">%1$d 个月亮：%2$d%%</string>
+    <string name="neodb_voices_spread_cd">%1$d 星：%2$d%%</string>
     <string name="neodb_voices_percent">%1$d%%</string>
     <string name="neodb_voices_review">长评</string>
     <string name="neodb_voices_folded">作者折叠了这条，点开看</string>
