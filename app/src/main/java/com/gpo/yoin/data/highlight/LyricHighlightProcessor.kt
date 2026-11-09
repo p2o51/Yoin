@@ -10,6 +10,7 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.edit
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.gpo.yoin.data.local.AlbumRatingDao
@@ -166,11 +167,15 @@ class LyricHighlightProcessor(
             }
             val nano = checkStatus()
             note("Nano after download: $nano")
-            if (nano == NanoStatus.AVAILABLE && _optedIn.value && visit?.isActive != true) {
+            // Only while Yoin is still in front; otherwise the next onStart picks it up.
+            if (nano == NanoStatus.AVAILABLE && _optedIn.value && visit?.isActive != true && inForeground()) {
                 visit = scope.launch { runVisit() }
             }
         }
     }
+
+    private fun inForeground(): Boolean =
+        ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
 
     private suspend fun checkStatus(): NanoStatus {
         val nano = model.status()
