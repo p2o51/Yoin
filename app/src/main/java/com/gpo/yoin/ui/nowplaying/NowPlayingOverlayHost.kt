@@ -677,10 +677,7 @@ fun NowPlayingOverlayHost(
                         // The pill → cover morph only where the phone column fills
                         // the window; panel / enlarged / two-column bodies drop it
                         // (bounded, lookahead-safe, and the pill folds away there).
-                        sharedTransitionScope = sharedTransitionScope.takeIf {
-                            presentation == NowPlayingPresentation.Phone ||
-                                presentation == NowPlayingPresentation.Tabletop
-                        },
+                        sharedTransitionScope = sharedTransitionScope.takeIf { presentation.morphsFromPill },
                         animatedVisibilityScope = npAvScope,
                         // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
                         // over the full-screen aurora) — NOT the whole overlay, which

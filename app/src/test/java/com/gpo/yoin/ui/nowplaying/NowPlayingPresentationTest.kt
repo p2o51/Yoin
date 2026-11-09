@@ -138,6 +138,12 @@ class NowPlayingPresentationTest {
     }
 
     @Test
+    fun should_morphFromThePill_only_when_thePhoneColumnFillsTheWindow() {
+        val morphing = NowPlayingPresentation.entries.filter { it.morphsFromPill }
+        assertEquals(listOf(NowPlayingPresentation.Phone, NowPlayingPresentation.Tabletop), morphing)
+    }
+
+    @Test
     fun should_showTheLyricHint_atMostOnceADay() {
         val today = LocalDate.of(2026, 9, 30)
         assertTrue(lyricIdleHintAllowed(null, today))

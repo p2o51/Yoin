@@ -183,6 +183,7 @@ import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.canOpenNowPlayingPanel
+import com.gpo.yoin.ui.nowplaying.morphsFromPill
 import com.gpo.yoin.ui.nowplaying.nowPlayingCoversHome
 import com.gpo.yoin.ui.nowplaying.pageBesideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
@@ -455,8 +456,7 @@ private fun YoinShell(
     val npFrame = rememberNowPlayingFrame(nowPlayingViewModel, npPanelMinContent)
     val npPanelMotion = rememberNowPlayingPanelMotion()
     val npPanel = rememberNowPlayingPanelInset(npFrame, showNowPlaying, npPanelMotion)
-    val npSharesCover = npFrame.presentation == NowPlayingPresentation.Phone ||
-        npFrame.presentation == NowPlayingPresentation.Tabletop
+    val npSharesCover = npFrame.presentation.morphsFromPill
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
     )

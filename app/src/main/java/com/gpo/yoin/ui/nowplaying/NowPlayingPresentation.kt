@@ -88,6 +88,18 @@ enum class NowPlayingPresentation {
  */
 fun nowPlayingCoversHome(presentation: NowPlayingPresentation): Boolean = presentation != NowPlayingPresentation.Panel
 
+/**
+ * Whether the pill grows into the player's cover, title and artist when Now
+ * Playing opens in [presentation] (and shrinks back into it on close). Only
+ * where the phone column fills the window: the side panel, the enlarged phone
+ * and the two-column player fold the pill away instead, and the landscape
+ * player's cover sits where no pill ever was. Both ends of the morph read
+ * this — a shared element left on one side only has no peer, and the
+ * shared-transition lookahead measures a lone one with degenerate constraints.
+ */
+val NowPlayingPresentation.morphsFromPill: Boolean
+    get() = this == NowPlayingPresentation.Phone || this == NowPlayingPresentation.Tabletop
+
 /** Panel width: half the window, clamped to phone widths (fold 690 → 360, tablet 800 → 400). */
 fun nowPlayingPanelWidth(windowWidth: Dp): Dp = (windowWidth * 0.5f).coerceIn(PanelMinWidth, PanelMaxWidth)
 

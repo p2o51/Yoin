@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Build
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
@@ -52,10 +53,13 @@ import java.util.UUID
  *
  * Pill tap opens Now Playing in place over this window (the Activity hosts
  * NowPlayingOverlayHost — the same Closed → Panel → Full chain as the
- * shell); back collapses it onto this page. A page hosted in the shell's
+ * shell, and the same pill → cover morph where the phone column fills the
+ * window, through [LocalDetailNowPlayingMorph]); back collapses it onto this
+ * page. A page hosted in the shell's
  * detail column ([DetailHostMode.Pane]) draws no bar: the shell's one bar
  * carries its Play split.
  */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun DetailBottomBar(
     playContainer: Color,
@@ -106,6 +110,9 @@ fun DetailBottomBar(
     val edge = form == ShellChromeForm.EdgeSplit
     // The capsules slide over their own edge — the cutout's.
     val edgeOut = if (rememberEdgeSplitSide() == EdgeSplitSide.Right) 1 else -1
+    // The window's Now Playing takes the pill → cover morph here (the shell's,
+    // gated the same way): its cover, title and artist grow out of this pill.
+    val nowPlayingMorph = LocalDetailNowPlayingMorph.current
     OverlayChromeVisibility(
         expanded = nowPlayingOpen,
 
@@ -176,6 +183,11 @@ fun DetailBottomBar(
             onHomeClick = {},
             onNowPlayingClick = if (interactionsEnabled) onOpenNowPlaying else ({}),
             onLibraryClick = {},
+            // Engaged only while this bar's own visibility runs (NP opening or
+            // closing over the page) — never during the shell hand-off or the
+            // predictive-back scrub, which move the bar by other means.
+            sharedTransitionScope = nowPlayingMorph,
+            animatedVisibilityScope = if (nowPlayingMorph != null) this else null,
         )
     }
 }
