@@ -1779,10 +1779,10 @@ internal fun AboutYoinPageContent(snackbarHostState: SnackbarHostState, spotoolf
     Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
         SettingsSegments {
             item {
+                // The headline already says Yoin: the row is just the version.
                 SettingsItem(
                     icon = YoinSymbols.Info,
-                    title = stringResource(R.string.settings_about_name),
-                    summary = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME),
+                    title = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME),
                 )
             }
             item { WebsiteItem(snackbarHostState) }
