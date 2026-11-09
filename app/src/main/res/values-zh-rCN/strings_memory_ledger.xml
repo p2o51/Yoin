@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="memory_ledger_title">全部回忆</string>
-    <string name="memory_ledger_scale_month">一格一个月</string>
-    <string name="memory_ledger_scale_week">一格一周</string>
-    <string name="memory_ledger_scale_day">一格一天</string>
-    <string name="memory_ledger_scale_hint">写得越多格子越细</string>
     <plurals name="memory_ledger_writings_label">
         <item quantity="other">笔回忆</item>
     </plurals>

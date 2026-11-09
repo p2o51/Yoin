@@ -183,28 +183,6 @@ internal fun MemoryLedgerScreen(
                         return@LazyColumn
                     }
                     item("stats") { LedgerStats(state, Modifier.padding(top = 8.dp)) }
-                    // The scale sits on the right, as on Home's card; why it changes on the left.
-                    item("scale") {
-                        Row(
-                            modifier = Modifier
-                                .widthIn(max = 640.dp)
-                                .fillMaxWidth()
-                                .padding(top = 24.dp, bottom = 10.dp),
-                            verticalAlignment = Alignment.Bottom,
-                        ) {
-                            Text(
-                                text = stringResource(R.string.memory_ledger_scale_hint),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = scaleLabel(state.grid.scale),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
                     item("grid") {
                         MemoryGridView(
                             grid = state.grid,
@@ -224,7 +202,7 @@ internal fun MemoryLedgerScreen(
                                     "—"
                                 }
                             },
-                            modifier = Modifier.widthIn(max = 640.dp).then(gridModifier),
+                            modifier = Modifier.widthIn(max = 640.dp).padding(top = 24.dp).then(gridModifier),
                         )
                     }
                     item("filters") {
@@ -277,15 +255,6 @@ internal fun MemoryLedgerScreen(
         }
     }
 }
-
-@Composable
-internal fun scaleLabel(scale: MemoryGridScale): String = stringResource(
-    when (scale) {
-        MemoryGridScale.Month -> R.string.memory_ledger_scale_month
-        MemoryGridScale.Week -> R.string.memory_ledger_scale_week
-        MemoryGridScale.Day -> R.string.memory_ledger_scale_day
-    },
-)
 
 @Composable
 private fun LedgerEmpty() {

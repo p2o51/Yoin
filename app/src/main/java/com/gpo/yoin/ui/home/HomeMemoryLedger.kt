@@ -33,7 +33,6 @@ import com.gpo.yoin.ui.home.edit.homeEditInteractive
 import com.gpo.yoin.ui.memories.ledger.MemoryGridPlacement
 import com.gpo.yoin.ui.memories.ledger.MemoryGridView
 import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
-import com.gpo.yoin.ui.memories.ledger.scaleLabel
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 
 /**
@@ -88,12 +87,6 @@ internal fun MemoryLedgerSection(
                         count,
                     ),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 3.dp).weight(1f),
-                )
-                Text(
-                    text = scaleLabel(state.grid.scale),
-                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 3.dp),
                 )

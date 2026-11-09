@@ -2,10 +2,6 @@
 <resources>
     <!-- The memory ledger: Home's Memories grid and the All Memories page (owner 2026-11-08). -->
     <string name="memory_ledger_title">All Memories</string>
-    <string name="memory_ledger_scale_month">A cell a month</string>
-    <string name="memory_ledger_scale_week">A cell a week</string>
-    <string name="memory_ledger_scale_day">A cell a day</string>
-    <string name="memory_ledger_scale_hint">Cells get finer as you write more</string>
     <plurals name="memory_ledger_writings_label">
         <item quantity="one">memory written</item>
         <item quantity="other">memories written</item>
