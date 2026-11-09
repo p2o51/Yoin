@@ -58,6 +58,7 @@ internal fun TipIllustration(
         contentAlignment = Alignment.Center,
     ) {
         when (tip) {
+            HomeBubbleTip.SettingsRegrouped -> SettingsGroupsDemo(playing)
             HomeBubbleTip.LyricHighlight -> LyricHighlightDemo(playing)
             HomeBubbleTip.ScreenCorners -> ScreenCornersDemo(playing)
             HomeBubbleTip.MemoriesAllAccounts -> MemoriesAllAccountsDemo(playing)

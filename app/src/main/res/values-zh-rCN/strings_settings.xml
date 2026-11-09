@@ -15,9 +15,12 @@
 
     <string name="settings_title">设置</string>
     <string name="settings_section_features">功能</string>
-    <string name="settings_section_motion">动效</string>
     <string name="settings_section_storage">存储</string>
-    <string name="settings_section_about">关于</string>
+    <string name="settings_section_appearance">外观</string>
+    <string name="settings_section_sync_storage">同步与存储</string>
+    <string name="settings_section_help_about">帮助与关于</string>
+    <string name="home_tip_settings_regrouped_title">设置重新整理</string>
+    <string name="home_tip_settings_regrouped">PLACEHOLDER</string>
     <string name="settings_about_version">版本 %1$s</string>
     <string name="settings_about_website">官网</string>
     <string name="settings_about_website_open_failed">无法打开官网</string>

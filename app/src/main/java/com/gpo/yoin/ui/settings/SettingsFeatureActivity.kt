@@ -14,9 +14,9 @@ import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.enableYoinEdgeToEdge
 
 /**
- * One Settings feature (AI features / NeoDB) as a page — opened only from the
- * Settings list-detail, where the tag="settings-setup" rule puts it in the
- * right pane (断点交接 §7). Pattern A: native cross-Activity back, no back code.
+ * One Settings feature as a whole page. Every Settings row opens its page
+ * (owner 2026-11-09: no row expands in the list); in the Settings list-detail
+ * the tag="settings-setup" rule puts it in the right pane (断点交接 §7). Pattern A: native cross-Activity back, no back code.
  */
 class SettingsFeatureActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

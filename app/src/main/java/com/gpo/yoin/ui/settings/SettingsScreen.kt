@@ -58,7 +58,6 @@ import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,8 +72,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -143,7 +140,7 @@ object SettingsFocus {
     /** Opens the Spotify setup page with its Client ID field focused. */
     const val SPOTIFY = "spotify"
 
-    /** Scrolls to and expands the NeoDB row. */
+    /** Opens the NeoDB page, Settings underneath. */
     const val NEODB = "neodb"
 }
 
@@ -158,7 +155,6 @@ fun SettingsScreen(
     val switchingState by viewModel.switchingState.collectAsState()
     val providerPicker by viewModel.providerPickerState.collectAsState()
     val deleteConfirm by viewModel.deleteConfirmState.collectAsState()
-    val spotoolfyRecapBatchId by viewModel.spotoolfyRecapBatchId.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -209,6 +205,14 @@ fun SettingsScreen(
         }
     }
 
+    // NeoDB sign-in links (album pages) land on the NeoDB page; Settings stays underneath.
+    var neoDbDeepLinkHandled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(focusSection) {
+        if (focusSection != SettingsFocus.NEODB || neoDbDeepLinkHandled) return@LaunchedEffect
+        neoDbDeepLinkHandled = true
+        openFeaturePage(SettingsFeature.NeoDb)
+    }
+
     // "No Client ID" deep link lands on the Spotify page itself; Settings
     // stays underneath so back reads Spotify → Settings → origin.
     var spotifyDeepLinkHandled by rememberSaveable { mutableStateOf(false) }
@@ -235,7 +239,6 @@ fun SettingsScreen(
         providerPickerVisible = providerPicker.visible,
         deleteConfirmState = deleteConfirm,
         snackbarHostState = snackbarHostState,
-        focusSection = focusSection,
         onBackClick = onBackClick,
         onSwitchToProfile = viewModel::switchToProfile,
         onOpenService = openService,
@@ -267,7 +270,6 @@ fun SettingsScreen(
             )
         },
         cloudSyncSelected = cloudSyncMark.open == true,
-        spotoolfyRecapBatchId = spotoolfyRecapBatchId,
         modifier = modifier,
     )
 }
@@ -291,7 +293,6 @@ fun SettingsContent(
     onClearCache: () -> Unit,
     modifier: Modifier = Modifier,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
-    focusSection: String? = null,
     onSaveGeminiApiKey: (String) -> Unit = {},
     onSaveGeminiTargetLanguage: (String) -> Unit = {},
     onOpenNeoDbSignIn: (String) -> Unit = {},
@@ -306,7 +307,6 @@ fun SettingsContent(
     cloudSyncRow: (@Composable () -> Unit)? = null,
     cloudSyncSelected: Boolean = false,
     // Settings › About › Spotoolfy recap: the account in use's newest import, null when it has none (D15).
-    spotoolfyRecapBatchId: String? = null,
 ) {
     // Large title → app-bar title handoff (Pixel's collapsing header): the
     // positions land in plain float state and are read only in the bar
@@ -314,7 +314,6 @@ fun SettingsContent(
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
     val headlineHeight = remember { mutableFloatStateOf(1f) }
-    var headerHeightPx by remember { mutableIntStateOf(0) }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         SettingsPageBackground(listPane = listDetail, modifier = modifier) {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -346,12 +345,6 @@ fun SettingsContent(
                 ) { innerPadding ->
                     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val scrollState = rememberScrollState()
-                    var neoDbTopPx by remember { mutableIntStateOf(-1) }
-                    LaunchedEffect(focusSection, neoDbTopPx) {
-                        if (focusSection == SettingsFocus.NEODB && neoDbTopPx >= 0) {
-                            scrollState.animateScrollTo(headerHeightPx + neoDbTopPx)
-                        }
-                    }
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -370,7 +363,6 @@ fun SettingsContent(
                     ) {
                         SettingsHeadline(
                             title = stringResource(R.string.settings_title),
-                            modifier = Modifier.onSizeChanged { headerHeightPx = it.height },
                             titleModifier = Modifier.onGloballyPositioned {
                                 headlineTop.floatValue = it.positionInWindow().y
                                 headlineHeight.floatValue = it.size.height.toFloat().coerceAtLeast(1f)
@@ -408,45 +400,21 @@ fun SettingsContent(
                                         asRows = listDetail,
                                         openAccountId = openAccountId,
                                     )
-                                    SettingsGroup(
-                                        title = stringResource(R.string.settings_section_features),
-                                        modifier = Modifier.onGloballyPositioned { coords ->
-                                            neoDbTopPx = coords.positionInParent().y.toInt().coerceAtLeast(0)
-                                        },
-                                    ) {
+                                    SettingsGroup(title = stringResource(R.string.settings_section_features)) {
                                         item(key = SettingsFeature.Gemini, paintsOwnSegment = listDetail) {
                                             GeminiItem(
                                                 apiKey = state.geminiApiKey,
                                                 targetLanguage = state.geminiTargetLanguage,
                                                 onSaveApiKey = onSaveGeminiApiKey,
                                                 onSaveTargetLanguage = onSaveGeminiTargetLanguage,
-                                                // List-detail: the feature opens on the right (§7).
-                                                onOpenPage = if (listDetail) {
-                                                    { onOpenFeature(SettingsFeature.Gemini) }
-                                                } else {
-                                                    null
-                                                },
+                                                // Every row opens a whole page (owner 2026-11-09); list-detail puts it on the right (§7).
+                                                onOpenPage = { onOpenFeature(SettingsFeature.Gemini) },
+                                                listDetail = listDetail,
                                                 selected = openFeature == SettingsFeature.Gemini,
                                             )
                                         }
-                                        item(key = SettingsFeature.NeoDb, paintsOwnSegment = listDetail) {
-                                            NeoDbItem(
-                                                instance = state.neoDbInstance,
-                                                accessToken = state.neoDbAccessToken,
-                                                initiallyExpanded = focusSection == SettingsFocus.NEODB,
-                                                onOpenSignIn = onOpenNeoDbSignIn,
-                                                onSaveConfig = onSaveNeoDbConfig,
-                                                onClearToken = onClearNeoDbToken,
-                                                onOpenPage = if (listDetail) {
-                                                    { onOpenFeature(SettingsFeature.NeoDb) }
-                                                } else {
-                                                    null
-                                                },
-                                                selected = openFeature == SettingsFeature.NeoDb,
-                                            )
-                                        }
                                     }
-                                    SettingsGroup(title = stringResource(R.string.settings_section_motion)) {
+                                    SettingsGroup(title = stringResource(R.string.settings_section_appearance)) {
                                         item(key = SettingsFeature.ScrollEdge, paintsOwnSegment = listDetail) {
                                             ScrollEdgeItem(
                                                 listDetail = listDetail,
@@ -462,11 +430,25 @@ fun SettingsContent(
                                             )
                                         }
                                     }
-                                    SettingsGroup(title = stringResource(R.string.settings_section_storage)) {
+                                    // Where your data goes (owner 2026-11-09, plan A): sync, NeoDB, backups, cache.
+                                    SettingsGroup(title = stringResource(R.string.settings_section_sync_storage)) {
                                         cloudSyncRow?.let { row ->
                                             item(key = "cloud-sync", paintsOwnSegment = listDetail) {
                                                 if (listDetail) SelectableSegment(selected = cloudSyncSelected) { row() } else row()
                                             }
+                                        }
+                                        item(key = SettingsFeature.NeoDb, paintsOwnSegment = listDetail) {
+                                            NeoDbItem(
+                                                instance = state.neoDbInstance,
+                                                accessToken = state.neoDbAccessToken,
+                                                initiallyExpanded = false,
+                                                onOpenSignIn = onOpenNeoDbSignIn,
+                                                onSaveConfig = onSaveNeoDbConfig,
+                                                onClearToken = onClearNeoDbToken,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.NeoDb) },
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.NeoDb,
+                                            )
                                         }
                                         item(key = SettingsFeature.PlaylistBackups, paintsOwnSegment = listDetail) {
                                             PlaylistBackupsItem(
@@ -477,8 +459,8 @@ fun SettingsContent(
                                         }
                                         item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
-                                    SettingsGroup(title = stringResource(R.string.settings_section_about)) {
-                                        item { WelcomeGuideItem() }
+                                    // Owner 2026-11-09: tips, docs & feedback, Yoin (version; website and privacy inside), open source licenses.
+                                    SettingsGroup(title = stringResource(R.string.settings_section_help_about)) {
                                         item(key = SettingsFeature.Tips, paintsOwnSegment = listDetail) {
                                             TipsItem(
                                                 listDetail = listDetail,
@@ -486,28 +468,21 @@ fun SettingsContent(
                                                 onOpenPage = { onOpenFeature(SettingsFeature.Tips) },
                                             )
                                         }
-                                        item { WebsiteItem(snackbarHostState) }
+                                        item { WelcomeGuideItem() }
                                         item { DocsItem(snackbarHostState) }
                                         item { FeedbackItem(snackbarHostState) }
-                                        item { PrivacyPolicyItem(snackbarHostState) }
+                                        item(key = SettingsFeature.About, paintsOwnSegment = listDetail) {
+                                            AboutYoinItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.About,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.About) },
+                                            )
+                                        }
                                         item(key = SettingsFeature.Licenses, paintsOwnSegment = listDetail) {
                                             LicensesItem(
                                                 listDetail = listDetail,
                                                 selected = openFeature == SettingsFeature.Licenses,
                                                 onOpenPage = { onOpenFeature(SettingsFeature.Licenses) },
-                                            )
-                                        }
-                                        spotoolfyRecapBatchId?.let { batchId ->
-                                            item(key = "spotoolfy-recap") { SpotoolfyRecapItem(batchId) }
-                                        }
-                                        item {
-                                            SettingsItem(
-                                                icon = YoinSymbols.Info,
-                                                title = stringResource(R.string.settings_about_name),
-                                                summary = stringResource(
-                                                    R.string.settings_about_version,
-                                                    BuildConfig.VERSION_NAME,
-                                                ),
                                             )
                                         }
                                     }
@@ -1261,8 +1236,9 @@ private fun GeminiItem(
     targetLanguage: String,
     onSaveApiKey: (String) -> Unit,
     onSaveTargetLanguage: (String) -> Unit,
-    // List-detail: the row opens the feature's page on the right instead.
+    // The list's row: opens the feature's page (on the right in list-detail).
     onOpenPage: (() -> Unit)? = null,
+    listDetail: Boolean = true,
     selected: Boolean = false,
     // The feature's own page: always open.
     asPage: Boolean = false,
@@ -1282,6 +1258,7 @@ private fun GeminiItem(
             summary = summaryText,
             selected = selected,
             onClick = onOpenPage,
+            listDetail = listDetail,
         )
         return
     }
@@ -1345,6 +1322,7 @@ private fun NeoDbItem(
     onSaveConfig: (String, String) -> Unit,
     onClearToken: () -> Unit,
     onOpenPage: (() -> Unit)? = null,
+    listDetail: Boolean = true,
     selected: Boolean = false,
     asPage: Boolean = false,
 ) {
@@ -1361,6 +1339,7 @@ private fun NeoDbItem(
             ),
             selected = selected,
             onClick = onOpenPage,
+            listDetail = listDetail,
         )
         return
     }
@@ -1445,7 +1424,12 @@ private fun FeaturePageRow(
     summary: String?,
     selected: Boolean,
     onClick: () -> Unit,
+    listDetail: Boolean = true,
 ) {
+    if (!listDetail) {
+        SettingsItem(icon = icon, title = title, summary = summary, onClick = onClick)
+        return
+    }
     SelectableSegment(selected = selected) {
         SettingsItem(
             icon = icon,
@@ -1514,7 +1498,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses, About }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1561,6 +1545,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
         SettingsFeature.PlaylistBackups -> stringResource(R.string.settings_playlist_backups_title)
         SettingsFeature.Licenses -> stringResource(R.string.settings_about_licenses)
+        SettingsFeature.About -> stringResource(R.string.settings_about_name)
     }
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
@@ -1625,6 +1610,9 @@ internal fun SettingsFeatureScreen(
                         TipsPageContent()
                     } else if (feature == SettingsFeature.Licenses) {
                         OpenSourceLicensesPageContent()
+                    } else if (feature == SettingsFeature.About) {
+                        val recapBatchId by viewModel.spotoolfyRecapBatchId.collectAsState()
+                        AboutYoinPageContent(snackbarHostState = snackbarHostState, spotoolfyRecapBatchId = recapBatchId)
                     } else if (feature == SettingsFeature.PlaylistBackups) {
                         // Its own ViewModel over the backups table: no need to wait for the Settings state.
                         PlaylistBackupsPageContent()
@@ -1657,6 +1645,7 @@ internal fun SettingsFeatureScreen(
                                     SettingsFeature.Downloads,
                                     SettingsFeature.Tips,
                                     SettingsFeature.PlaylistBackups, SettingsFeature.Licenses,
+                                    SettingsFeature.About,
                                     -> Unit
                                 }
                             }
@@ -1760,6 +1749,48 @@ private fun PlaylistBackupsItem(
         )
     } else {
         SettingsItem(icon = YoinSymbols.Playlist, title = title, onClick = onOpenPage)
+    }
+}
+
+/**
+ * Settings › Help & about › About Yoin (owner 2026-11-09, plan A): one row with the version, opening a page
+ * that holds what used to stretch the About group — website, privacy policy, the Spotoolfy recap.
+ */
+@Composable
+private fun AboutYoinItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_about_name)
+    val summary = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME)
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Info, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Info, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** The Yoin page: the app and its version, its links, and the Spotoolfy recap when there is one. */
+@Composable
+internal fun AboutYoinPageContent(snackbarHostState: SnackbarHostState, spotoolfyRecapBatchId: String?) {
+    Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        SettingsSegments {
+            item {
+                SettingsItem(
+                    icon = YoinSymbols.Info,
+                    title = stringResource(R.string.settings_about_name),
+                    summary = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME),
+                )
+            }
+            item { WebsiteItem(snackbarHostState) }
+            item { PrivacyPolicyItem(snackbarHostState) }
+        }
+        spotoolfyRecapBatchId?.let { batchId ->
+            SettingsSegments {
+                item(key = "spotoolfy-recap") { SpotoolfyRecapItem(batchId) }
+            }
+        }
     }
 }
 
