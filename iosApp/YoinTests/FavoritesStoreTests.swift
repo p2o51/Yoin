@@ -43,23 +43,24 @@ final class FavoritesStoreTests: XCTestCase {
     }
 
     /// Codex C10 + 2026-11-10 review #18: one write per song at a time, the
-    /// newest intent last; a failure goes back to what the source confirmed,
-    /// and nothing lands after a reset.
+    /// newest intent last; a failure goes back to what the source confirmed.
     func test_should_sendNewestIntentInOrder_andRollBackToConfirmed() async {
         let hearts = FavoritesStore()
         var release: [CheckedContinuation<Void, Error>] = []
         func send() async throws { try await withCheckedThrowingContinuation { release.append($0) } }
-        // off → on (A), on → off (B), off → on (C): only A goes out, C waits, B is superseded.
+        // off → on (A) goes out; then on → off (B), off → on (C) while it's in flight: C waits, B is superseded.
         hearts.write(provider: "subsonic", songId: "s1", target: true, was: false, send: send)
+        await until { release.count == 1 }
+        guard release.count == 1 else { return XCTFail("the first write never went out") }
         hearts.write(provider: "subsonic", songId: "s1", target: false, was: true, send: send)
         hearts.write(provider: "subsonic", songId: "s1", target: true, was: false, send: send)
-        while release.count < 1 { await Task.yield() }
         for _ in 0..<5 { await Task.yield() }
         XCTAssertEqual(release.count, 1, "one write in flight per song")
         XCTAssertTrue(hearts.isFavorite(provider: "subsonic", songId: "s1"))
         // A fails: C is queued, so the heart stays on and C goes out.
         release[0].resume(throwing: URLError(.timedOut))
-        while release.count < 2 { await Task.yield() }
+        await until { release.count == 2 }
+        guard release.count == 2 else { return XCTFail("the queued write never went out") }
         XCTAssertTrue(hearts.isFavorite(provider: "subsonic", songId: "s1"))
         // C fails too: back to what the source holds (off).
         release[1].resume(throwing: URLError(.timedOut))
@@ -67,18 +68,36 @@ final class FavoritesStoreTests: XCTestCase {
         XCTAssertFalse(hearts.isFavorite(provider: "subsonic", songId: "s1"))
     }
 
-    /// Codex review #18's case: off, quick on → off, both would fail: ends off, not a fake heart.
+    /// Codex review #18's case: off, on goes out, off while it's in flight, the on fails: ends off, not a fake heart.
     func test_should_endOff_when_quickOnOffAndFirstFails() async {
         let hearts = FavoritesStore()
         var release: [CheckedContinuation<Void, Error>] = []
         func send() async throws { try await withCheckedThrowingContinuation { release.append($0) } }
         hearts.write(provider: "subsonic", songId: "s2", target: true, was: false, send: send)
+        await until { release.count == 1 }
+        guard release.count == 1 else { return XCTFail("the first write never went out") }
         hearts.write(provider: "subsonic", songId: "s2", target: false, was: true, send: send)
-        while release.count < 1 { await Task.yield() }
         release[0].resume(throwing: URLError(.timedOut))
         for _ in 0..<5 { await Task.yield() }
         XCTAssertEqual(release.count, 1, "off is what the source already holds: nothing to send")
         XCTAssertFalse(hearts.isFavorite(provider: "subsonic", songId: "s2"))
+    }
+
+    /// On then off before the first write even went out: nothing to tell the source.
+    func test_should_sendNothing_when_tapsCancelOutBeforeSending() async {
+        let hearts = FavoritesStore()
+        var sent = 0
+        func send() async throws { sent += 1 }
+        hearts.write(provider: "subsonic", songId: "s4", target: true, was: false, send: send)
+        hearts.write(provider: "subsonic", songId: "s4", target: false, was: true, send: send)
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(sent, 0)
+        XCTAssertFalse(hearts.isFavorite(provider: "subsonic", songId: "s4"))
+    }
+
+    /// Yields until [done], at most 200 turns (a hang fails the test instead of the run).
+    private func until(_ done: () -> Bool) async {
+        for _ in 0..<200 where !done() { await Task.yield() }
     }
 
     func test_should_reportNothing_when_successLandsAfterReset() async {
@@ -86,7 +105,8 @@ final class FavoritesStoreTests: XCTestCase {
         var release: [CheckedContinuation<Void, Error>] = []
         func send() async throws { try await withCheckedThrowingContinuation { release.append($0) } }
         hearts.write(provider: "subsonic", songId: "s3", target: true, was: false, send: send)
-        while release.count < 1 { await Task.yield() }
+        await until { release.count == 1 }
+        guard release.count == 1 else { return XCTFail("the write never went out") }
         hearts.reset()
         release[0].resume()
         for _ in 0..<5 { await Task.yield() }
