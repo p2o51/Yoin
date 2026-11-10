@@ -396,7 +396,8 @@ internal fun PlaylistPaneEntry(
             )
         }
     }
-    val sharePlaylistLink = rememberDetailShare(app.container, WebLinkKind.Playlist, route.playlistId, webLink = null)
+    val playlistWebLink = rememberDetailWebLink(app.container, WebLinkKind.Playlist, route.playlistId)
+    val sharePlaylistLink = rememberDetailShare(app.container, WebLinkKind.Playlist, route.playlistId, playlistWebLink)
     val share = {
         sharePlaylistLink(content?.playlistName ?: context.getString(R.string.shell_share_playlist_fallback))
     }
