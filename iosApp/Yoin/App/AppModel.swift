@@ -32,6 +32,8 @@ final class AppModel {
         didSet { if section != .home { memories.snapClosed() } }
     }
     var path: [Route] = []
+    /// A Settings page to open on arrival (the scrapbook's "Sign in to sync" → NeoDB); taken once.
+    var settingsDestination: SettingsDestination?
     var padSelection: Album?
     var isPad = false
     var npExpanded = false
@@ -465,7 +467,9 @@ final class AppModel {
         }
     }
 
-    func openSettings() {
+    func openSettings(_ destination: SettingsDestination? = nil) {
+        settingsDestination = destination
+        if path.last == .settings { return }
         path.append(.settings)
     }
 

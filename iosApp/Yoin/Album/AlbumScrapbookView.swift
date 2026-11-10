@@ -1257,7 +1257,7 @@ struct AlbumRateSheet: View {
     /// "Sign in to sync": Settings, where NeoDB signs in (Android opens Settings › NeoDB).
     private func openNeoDBSettings() {
         dismiss()
-        model?.openSettings()
+        model?.openSettings(.neodb)
     }
 
     /// AlbumReviewField: a borderless field on surfaceContainerHigh, 28

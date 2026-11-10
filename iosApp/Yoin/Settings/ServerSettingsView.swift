@@ -17,6 +17,8 @@ struct ServerSettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
     /// The service setup page, when pushed (Add account, or an account's page).
     @State private var setup: ServiceSetupRequest?
+    /// Settings › Sync and storage › NeoDB, open (also straight from the scrapbook's "Sign in to sync").
+    @State private var neodbOpen = false
 
     private var apple: AppleMusicSource { model.appleMusic }
     private var active: ActiveSource { model.sources.active }
@@ -39,9 +41,9 @@ struct ServerSettingsView: View {
                 AccountsSection(app: app, row: row,
                                 onAdd: { setup = ServiceSetupRequest() },
                                 onManage: { setup = ServiceSetupRequest(profileId: $0.id) })
-                GeminiSettingsSection(app: app, row: row)
-                NeoDBSettingsSection(app: app, row: row)
-                StorageSettingsSection(app: app, row: row)
+                // 51 2026-11-09 (Android #191): Features / Sync and storage / Help and about, every row a page.
+                featuresGroup
+                StorageSettingsSection(app: app, row: row, neodbOpen: $neodbOpen)
                 aboutGroup
             }
             .padding(.horizontal, 16)
@@ -53,7 +55,12 @@ struct ServerSettingsView: View {
         .background(page.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $setup) { ServiceSetupView(request: $0) }
-        .onAppear { apple.refreshAuthorization() }
+        .navigationDestination(isPresented: $neodbOpen) { NeoDBSettingsPage() }
+        .onAppear {
+            apple.refreshAuthorization()
+            takeDestination()
+        }
+        .onChange(of: model.settingsDestination) { takeDestination() }
         #if DEBUG
         // `-settingsOpenSetup add|active` (QA screenshots): Add account, or the account in use's page.
         .task {
@@ -116,75 +123,57 @@ struct ServerSettingsView: View {
                                       bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular)
     }
 
-    // MARK: About
+    /// Another screen asked for one of the pages (AppModel.openSettings(_:)): opened once.
+    private func takeDestination() {
+        guard let d = model.settingsDestination else { return }
+        model.settingsDestination = nil
+        switch d {
+        case .neodb: neodbOpen = true
+        }
+    }
 
-    /// Android Settings › About › Welcome guide: the landing again, over everything.
-    private var aboutGroup: some View {
-        group(String(localized: "About")) {
-            [AnyView(Button { model.openWelcomeGuide() } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Welcome guide")
-                        .yoinRole(Tokens.type.bodyLarge)
-                        .foregroundStyle(app.onSurface)
-                    Text("Accounts")
-                        .yoinRole(Tokens.type.bodyMedium)
-                        .foregroundStyle(app.onSurfaceVariant)
+    // MARK: Features
+
+    /// Features: AI features (Yoin Labs joins it when there is one on iOS).
+    private var featuresGroup: some View {
+        group(String(localized: "Features")) {
+            [AnyView(SettingsNavRow(title: String(localized: "AI features"), summary: geminiSummary, app: app) {
+                SettingsPage(title: String(localized: "AI features")) { app, row in
+                    GeminiSettingsSection(app: app, row: row, page: true)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)),
-             // Android Settings › About › Tips.
-             AnyView(TipsEntryRow(app: app)),
-             AnyView(aboutLink(String(localized: "Website"), AboutLinks.website(language: AboutLinks.currentLanguage))),
+            })]
+        }
+    }
+
+    private var geminiSummary: String {
+        let g = GeminiSettings.shared
+        return g.apiKey.isEmpty ? String(localized: "Song info, Ask Gemini, translation and Memory titles") : g.targetLanguage
+    }
+
+    // MARK: Help and about
+
+    /// Android #191's last group, in its order: Tips, Welcome guide, Docs, Send feedback, Yoin (the
+    /// version; the website and privacy policy inside), Open source licenses; and iOS's Export log.
+    private var aboutGroup: some View {
+        group(String(localized: "Help and about")) {
+            [AnyView(TipsEntryRow(app: app)),
+             AnyView(Button { model.openWelcomeGuide() } label: {
+                SettingsRowLabel(title: String(localized: "Welcome guide"), summary: String(localized: "Accounts"), app: app)
+             }
+             .buttonStyle(.plain)),
              AnyView(aboutLink(String(localized: "Docs"), AboutLinks.docs(language: AboutLinks.currentLanguage))),
              AnyView(aboutLink(String(localized: "Send feedback"), AboutLinks.feedback)),
-             AnyView(aboutLink(String(localized: "Privacy policy"), AboutLinks.privacyPolicy)),
-             AnyView(NavigationLink { OpenSourceLicensesView() } label: {
-                HStack {
-                    Text("Open source licenses")
-                        .yoinRole(Tokens.type.bodyLarge)
-                        .foregroundStyle(app.onSurface)
-                    Spacer(minLength: 16)
-                    YoinIcon("chevron_right", size: 20).foregroundStyle(app.onSurfaceVariant)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)),
              // Playback diagnostics, shared from the phone (Spotify issues away from the Mac).
              AnyView(ShareLink(item: PlayTraceExport(), preview: SharePreview("Yoin log")) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Export log")
-                        .yoinRole(Tokens.type.bodyLarge)
-                        .foregroundStyle(app.onSurface)
-                    Text("Playback diagnostics")
-                        .yoinRole(Tokens.type.bodyMedium)
-                        .foregroundStyle(app.onSurfaceVariant)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)),
-             // Android's last About row: the app's name and version.
-             AnyView(VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: "Yoin")
-                    .yoinRole(Tokens.type.bodyLarge)
-                    .foregroundStyle(app.onSurface)
-                Text(String(localized: "Version \(AboutLinks.versionName())"))
-                    .yoinRole(Tokens.type.bodyMedium)
-                    .foregroundStyle(app.onSurfaceVariant)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .accessibilityElement(children: .combine))]
+                SettingsRowLabel(title: String(localized: "Export log"), summary: String(localized: "Playback diagnostics"), app: app)
+             }
+             .buttonStyle(.plain)),
+             AnyView(SettingsNavRow(title: "Yoin", summary: String(localized: "Version \(AboutLinks.versionName())"), app: app) {
+                AboutYoinView()
+             }),
+             AnyView(SettingsNavRow(title: String(localized: "Open source licenses"), app: app) {
+                OpenSourceLicensesView()
+             })]
         }
     }
 

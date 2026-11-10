@@ -2,6 +2,26 @@
   "sourceLanguage": "en",
   "strings": {
     "": {},
+    "Help and about": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帮助与关于"
+          }
+        }
+      }
+    },
+    "Sync and storage": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步与存储"
+          }
+        }
+      }
+    },
     "— %@": {},
     ", %lld of them rated": {
       "localizations": {
