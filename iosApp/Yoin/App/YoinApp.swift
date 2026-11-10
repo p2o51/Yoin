@@ -57,6 +57,8 @@ struct RootView: View {
             if let link = WidgetLink(url: url) { return model.handleWidget(link) }
             // The Spotify app hands back here after waking (App Remote's token).
             if SpotifyRemote.shared.handle(url) { return }
+            // A Spotoolfy export opened into Yoin: the welcome guide takes it (Android's share receiver).
+            if url.isFileURL { SpotoolfyInbox.shared.receive(url, landingOpen: model.landing != nil); return }
             _ = CloudSync.handle(url: url)
         }
         .task {

@@ -111,8 +111,34 @@ struct SettingsRowLabel: View {
 /// Settings › Help and about › Yoin (Android AboutYoinPage, #191): the version first, then the website
 /// and the privacy policy.
 struct AboutYoinView: View {
+    @Environment(AppModel.self) private var model
+    @State private var recapOpen = false
+
+    /// The Spotify account in use's newest Spotoolfy recap (Android D15), nil without one.
+    private var recap: SpotoolfyRecap? {
+        guard let p = model.profiles.active, p.service == .spotify, let user = p.spotifyUserId else { return nil }
+        return SpotoolfyRecapStore.load(scope: AccountScope.spotifyScope(userId: user))
+    }
+
     var body: some View {
         SettingsPage(title: "Yoin") { app, row in
+            about(app, row)
+            if let recap {
+                Button { recapOpen = true } label: {
+                    SettingsRowLabel(title: String(localized: "Spotoolfy recap"),
+                                     summary: String(localized: "The notes and ratings that came over from Spotoolfy"),
+                                     app: app, trailing: "chevron_right")
+                }
+                .buttonStyle(.plain)
+                .background(row, in: CloudSyncView.segment(0, 1))
+                .sheet(isPresented: $recapOpen) {
+                    SpotoolfyRecapView(recap: recap, scheme: app) { recapOpen = false }
+                }
+            }
+        }
+    }
+
+    private func about(_ app: CoverScheme, _ row: Color) -> some View {
             VStack(spacing: 2) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "Version \(AboutLinks.versionName())"))
@@ -135,7 +161,6 @@ struct AboutYoinView: View {
                 .buttonStyle(.plain)
                 .background(row, in: CloudSyncView.segment(2, 3))
             }
-        }
     }
 }
 

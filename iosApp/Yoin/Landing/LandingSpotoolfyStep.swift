@@ -93,7 +93,10 @@ final class SpotoolfyStepModel {
 
     private func dropFile() {
         generation += 1
-        if let receipt { importer.discard(receipt) }
+        if let receipt {
+            importer.discard(receipt)
+            SpotoolfyRecapStore.remove(scope: receipt.scope)
+        }
         receipt = nil
         staged = nil
         recap = nil
@@ -160,6 +163,7 @@ final class SpotoolfyStepModel {
         switch importer.commit(staged, scope: scope, unknownTitle: String(localized: "Unknown track")) {
         case .committed(let notes, let ratings, let receipt):
             self.receipt = receipt
+            if let recap { SpotoolfyRecapStore.save(recap, scope: scope) }
             state.file = .written(noteCount: notes, ratingCount: ratings, accountName: profile.title)
         case .notEligible: state.file = .notWritten
         case .alreadyInYoin: state.file = .failed(.alreadyImported)

@@ -8471,6 +8471,26 @@
           }
         }
       }
+    },
+    "The notes and ratings that came over from Spotoolfy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 Spotoolfy 带来的笔记和评分"
+          }
+        }
+      }
+    },
+    "Spotoolfy data can only be imported in the welcome guide.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotoolfy 数据只能在引导中导入。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

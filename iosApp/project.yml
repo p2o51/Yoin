@@ -76,6 +76,13 @@ targets:
     info:
       path: Yoin/Info.plist
       properties:
+        # "Open in Yoin" for a Spotoolfy export (JSON): the welcome guide's Spotoolfy step takes it.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Spotoolfy export
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.json]
+        LSSupportsOpeningDocumentsInPlace: false
         CFBundleDisplayName: Yoin
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
