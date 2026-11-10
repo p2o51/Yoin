@@ -373,4 +373,19 @@
     <plurals name="settings_sync_review_dialog_body">
         <item quantity="other">已在当前设备上从 %1$s 中移除。可在此处恢复，或在所有设备上删除。</item>
     </plurals>
+    <!-- Yoin Labs (LabsPage.kt). Copy: Argon (Gemini), 2026-11-09. -->
+    <string name="settings_labs_summary">实验功能与 Gemini Nano</string>
+    <string name="labs_intro">还在尝试中的实验功能，之后可能会改动或移除。</string>
+    <string name="labs_nano_section">本机模型</string>
+    <string name="labs_nano_ready">本机已就绪</string>
+    <string name="labs_nano_downloadable">此设备支持，尚未下载模型</string>
+    <string name="labs_nano_downloading">正在下载模型…</string>
+    <string name="labs_nano_unsupported">这台手机不支持 Gemini Nano</string>
+    <string name="labs_nano_checking">正在检查…</string>
+    <string name="labs_nano_download">下载模型</string>
+    <string name="labs_nano_check_again">重新检查</string>
+    <string name="labs_nano_download_note">模型由 Android 系统（AICore）下载，大约几 GB，建议连 Wi‑Fi 下载。</string>
+    <string name="labs_features_section">实验功能</string>
+    <string name="labs_lyrics_detail">在首页显示本机挑出的歌词，点按从那句开始播放</string>
+    <string name="labs_lyrics_no_nano">你在歌词页分享或保存的句子，仍会出现在首页。</string>
 </resources>

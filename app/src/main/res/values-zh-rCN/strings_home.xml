@@ -33,7 +33,7 @@
     <string name="home_section_recently_played">最近播放</string>
     <string name="home_section_your_playlists">你的播放列表</string>
     <string name="home_section_other_profiles">在你的其他资料里</string>
-    <string name="home_section_lyric_highlight">歌词一句</string>
+    <string name="home_section_lyric_highlight">歌词卡片</string>
 
     <string name="home_section_activities_supporting">近期播放与访问记录</string>
     <string name="home_section_jump_back_in_supporting">专辑、歌曲与播放列表</string>
@@ -42,7 +42,7 @@
     <string name="home_section_recently_played_supporting">近期在任意设备上播放过的专辑</string>
     <string name="home_section_your_playlists_supporting">资料库中的播放列表</string>
     <string name="home_section_other_profiles_supporting">你的其他账号常听的专辑和播放列表</string>
-    <string name="home_section_lyric_highlight_supporting">手机上的 Gemini Nano 从歌里挑出的一句歌词</string>
+    <string name="home_section_lyric_highlight_supporting">从你的歌里挑出的歌词，点按从那句开播</string>
 
     <string name="home_placeholder_activities">近期无动态</string>
     <string name="home_placeholder_jump_back_in">暂无可接着听的内容</string>
@@ -183,7 +183,9 @@
     <string name="home_cd_bubble_latest_by">Memories。最新：%1$s，%2$s</string>
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
-    <string name="home_tip_lyric_highlight_title">歌词一句</string>
+    <string name="home_tip_labs_title">Yoin Labs</string>
+    <string name="home_tip_labs">实验功能与 Gemini Nano 模型下载，现在都在 设置 &gt; Yoin Labs</string>
+    <string name="home_tip_lyric_highlight_title">歌词卡片</string>
     <string name="home_tip_lyric_highlight">支持 Gemini Nano 的机型上，点首页歌词卡片从那句开播，左右滑动翻看；歌词里分享或保存的句子也会加入</string>
     <string name="home_tip_memories_all_accounts_title">各账号的回忆</string>
     <string name="home_tip_memories_all_accounts">Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号</string>

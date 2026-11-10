@@ -331,7 +331,7 @@ internal fun LyricHighlightSection(
         modifier = modifier.onSizeChanged { columnWidth.intValue = it.width },
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        HomeSectionTitle(text = stringResource(HomeSection.LyricHighlight.titleRes))
+        // No title on Home (owner 2026-11-09): the cards say what they are. The name stays for Edit Home and Labs.
         val sidePadding = remember(frame) { frame?.let(::FeedFrameSidePadding) ?: PaddingValues() }
         val latestCount by rememberUpdatedState(shown.size)
         val state = pagerState ?: rememberPagerState(pageCount = { latestCount })
@@ -447,7 +447,6 @@ internal fun LyricHighlightIntroCard(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HomeSectionTitle(text = stringResource(HomeSection.LyricHighlight.titleRes))
         Surface(
             shape = YoinContainerShapes.Card,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,

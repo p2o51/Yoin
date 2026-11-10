@@ -100,8 +100,8 @@ enum class HomeSection(
     // is on by default and for customized layouts too; elsewhere it never shows.
     LyricHighlight(
         id = "lyric_highlight",
-        title = "In a Line",
-        supportingText = "One line from a song, picked on this phone by Gemini Nano",
+        title = "Lyric Cards",
+        supportingText = "Lyrics picked from your songs, tap to play from that line",
         defaultEnabled = true,
         appendEnabled = true,
     ),
