@@ -39,7 +39,7 @@ class HomeLayoutTest {
             layout.sections.map { it.section },
         )
         // Your Playlists appends shown (asked for by name), not hidden-and-new.
-        assertEquals(listOf(false, true, false, false, true, true, true, true), layout.sections.map { it.enabled })
+        assertEquals(listOf(false, true, false, false, true, true, true, true, true), layout.sections.map { it.enabled })
         assertEquals(setOf(HomeSection.Rediscover), layout.newSections)
     }
 
@@ -69,7 +69,7 @@ class HomeLayoutTest {
             ),
             layout.sections.map { it.section },
         )
-        assertEquals(listOf(false, true, true, false, true, true, true, true), layout.sections.map { it.enabled })
+        assertEquals(listOf(false, true, true, false, true, true, true, true, true), layout.sections.map { it.enabled })
         assertTrue(layout.retained.isEmpty())
         assertEquals(setOf(HomeSection.Rediscover), layout.newSections)
     }
