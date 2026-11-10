@@ -7781,6 +7781,26 @@
           }
         }
       }
+    },
+    "Playing on Spotify: %@, %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify 正在播放：%@，%@"
+          }
+        }
+      }
+    },
+    "Switches to Spotify": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到 Spotify"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

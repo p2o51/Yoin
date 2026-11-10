@@ -30,6 +30,13 @@ enum Tips {
     /// The tips, in the order the bubble goes through them. Left out (iOS has no such thing): Android's
     /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line).
     static let all: [Tip] = [
+        // Home's Spotify pill (HomeSpotifyElsewhere.swift; Android PR #197, owner 2026-11-10); Argon's wording.
+        // No swap symbol in YoinSymbols yet: the music note.
+        Tip(id: "SpotifyElsewhere", icon: "music_note", updated: "2026-11-10",
+            title: "Switch to Spotify",
+            text: "While in another account, if Spotify is playing or paused on a song, tap the pill at the top of Home to switch to it",
+            titleZhHans: "切换到 Spotify",
+            textZhHans: "在其他账号下，已登录的 Spotify 有歌正在播放或暂停时，点首页顶部的胶囊即可切换过去"),
         // Home screen widgets (Widgets/, parity A-F10); Argon's wording (.argon/ios-widgets-tip), the widget
         // names as the gallery shows them.
         Tip(id: "HomeScreenWidgets", icon: "library", updated: "2026-11-07",

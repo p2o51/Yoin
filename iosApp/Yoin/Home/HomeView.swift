@@ -13,6 +13,9 @@ struct HomeView: View {
     @State private var edit = HomeEditController()
     /// The Memories bubble's motion and turns (HomeMemoryBubble.swift).
     @State private var bubble = MemoryBubbleController()
+    /// Another Spotify account's playback, shown 5 s in the header (HomeSpotifyElsewhere.swift).
+    @State private var spotifyElsewhere = SpotifyElsewhereWatch()
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var intro: HomeIntro { .shared }
     @State private var scroll = HomeScrollState()
@@ -65,8 +68,9 @@ struct HomeView: View {
             feedScroll
                 .modifier(IslandPush(bubble: bubble))
                 .modifier(MemoriesHomeBehind(presentation: memories))
+            // Spotify's pill has the header for its 5 s: the bubble keeps quiet.
             MemoryBubbleOverlay(bubble: bubble, memories: memories, pill: pill, scheme: scheme, scroll: scroll,
-                                covered: covered, edit: edit)
+                                covered: covered || spotifyElsewhereUp, edit: edit)
             if memories.mounted {
                 MemoriesView(presentation: memories)
                     // The whole window: under the status bar and the bottom bar too
@@ -98,6 +102,14 @@ struct HomeView: View {
             await model.store.hydrateMemoryAlbums()
         }
         .onAppear { edit.load(scope: model.store.homeScope) }
+        // One look each time the app opens or comes back; none outlives leaving or a switch.
+        .task { spotifyElsewhere.look(model) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { spotifyElsewhere.look(model) } else if phase == .background { spotifyElsewhere.reset() }
+        }
+        .onChange(of: model.profiles.activeId) { spotifyElsewhere.reset() }
+        // Yoin starts playing: the pill has nothing to offer.
+        .onChange(of: model.playback.isPlaying) { _, playing in if playing { spotifyElsewhere.dismiss() } }
         .onChange(of: model.store.homeScope) { _, scope in edit.load(scope: scope) }
         // Another device's layout landed (cloud sync): reread it unless a draft is open.
         .onChange(of: HomeLayoutStore.shared.remoteRevision) { edit.load(scope: model.store.homeScope) }
@@ -258,6 +270,10 @@ struct HomeView: View {
         }
     }
 
+    private var spotifyElsewhereUp: Bool {
+        SpotifyElsewhere.visible(spotifyElsewhere.shown, yoinPlaying: model.playback.isPlaying)
+    }
+
     private var header: some View {
         HStack(alignment: .center, spacing: 2) {
             VStack(alignment: .leading, spacing: 0) {
@@ -288,6 +304,16 @@ struct HomeView: View {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.titleFrame = $0 }
             .padding(.trailing, Tokens.home.HEADER_TITLE_BREATHING.cg)
             Spacer(minLength: 0)
+            if spotifyElsewhereUp, let e = spotifyElsewhere.shown {
+                SpotifyElsewherePill(elsewhere: e, scheme: scheme) {
+                    spotifyElsewhere.dismiss()
+                    // Nothing plays in Yoin while it is up: the switch stops nothing. The Spotify
+                    // account picks up its own playback once in use (its watch, Web API first).
+                    if let p = model.profiles.profile(e.profileId) { model.quickSwitch(to: p) }
+                }
+                .opacity(Double(1 - smoothstep(0, 0.5, min(max(edit.progress, 0), 1))))
+                .allowsHitTesting(edit.progress < 0.5)
+            }
             HeaderActions(edit: edit, scheme: scheme) {
                 Button { if !AccountFan.shared.swallowsTap { model.openSettings() } } label: {
                     // 32 dp avatar in a 48 dp target: the account in use (its shape, service colour and
