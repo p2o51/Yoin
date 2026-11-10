@@ -18,3 +18,16 @@ final class SpotifyAvatarTests: XCTestCase {
         XCTAssertNil(try JSONDecoder().decode(Profile.self, from: Data(profile.utf8)).spotifyAvatar)
     }
 }
+
+/// The failure banner's action follows the failure (Android's typed Spotify connect failures).
+final class PlaybackFailureActionTests: XCTestCase {
+    func test_should_offerTheRightAction_when_aFailureIsShown() {
+        XCTAssertEqual(PlaybackFailure.action(for: SpotifyFailureCopy.premium), .none)
+        XCTAssertEqual(PlaybackFailure.action(for: SpotifyFailureCopy.openSpotify), .openSpotify)
+        XCTAssertEqual(PlaybackFailure.action(for: String(localized: "Reconnect Spotify in Settings")), .settings)
+        XCTAssertEqual(PlaybackFailure.action(for: String(localized: "Reconnect Spotify in Settings to let Yoin control playback")), .settings)
+        XCTAssertEqual(PlaybackFailure.action(for: "The server didn't answer"), .retry)
+        XCTAssertEqual(SpotifySource.message(for: SpotifyAPIError.http(status: 403, message: "Player command failed: Premium required")),
+                       SpotifyFailureCopy.premium)
+    }
+}

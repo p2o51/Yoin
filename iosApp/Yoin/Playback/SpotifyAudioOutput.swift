@@ -382,7 +382,7 @@ final class SpotifyAudioOutput: AudioOutput {
         failedHere = true
         // The engine answers a failure with a pause: a command is never error handling (51's log, 23:02:06.989).
         quietPause = true
-        events?.outputDidFail(String(localized: "Open Spotify on this iPhone, then tap Play"), network: true)
+        events?.outputDidFail(SpotifyFailureCopy.openSpotify, network: true)
     }
 
     /// Spotify refused the engine's next song: at this song's end the engine starts it itself.

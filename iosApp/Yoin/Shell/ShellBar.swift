@@ -108,7 +108,13 @@ struct ShellBar: View {
         // say so over the bar, with Retry (the pill's play does the same).
         .overlay(alignment: .bottom) {
             if let failure = model.player.failure {
-                PlaybackFailureBanner(failure: failure, scheme: scheme) { model.player.retry() }
+                PlaybackFailureBanner(failure: failure, scheme: scheme) {
+                    switch failure.action {
+                    case .settings: model.openSettings()
+                    case .openSpotify: if let u = URL(string: "spotify:") { UIApplication.shared.open(u) }
+                    case .retry, .none: model.player.retry()
+                    }
+                }
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, height + 8)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -514,8 +520,9 @@ struct PlaybackFailureBanner: View {
             }
             .foregroundStyle(scheme.onErrorContainer)
             .frame(maxWidth: .infinity, alignment: .leading)
+            if failure.action != .none {
             Button(action: retry) {
-                Text("Retry")
+                Text(actionLabel)
                     .yoinRole(Tokens.type.labelLarge)
                     .foregroundStyle(scheme.onError)
                     .padding(.horizontal, 16)
@@ -524,12 +531,21 @@ struct PlaybackFailureBanner: View {
                     .contentShape(.capsule)
             }
             .buttonStyle(PressScale())
+            }
         }
         .padding(.leading, 16)
         .padding(.trailing, 8)
         .padding(.vertical, 8)
         .background(scheme.errorContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityAction(named: "Retry", retry)
+        .accessibilityAction(named: Text(actionLabel), retry)
+    }
+
+    private var actionLabel: LocalizedStringKey {
+        switch failure.action {
+        case .settings: "Settings"
+        case .openSpotify: "Open Spotify"
+        case .retry, .none: "Retry"
+        }
     }
 }

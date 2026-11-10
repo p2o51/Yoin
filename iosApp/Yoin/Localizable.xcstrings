@@ -8451,6 +8451,26 @@
           }
         }
       }
+    },
+    "Spotify Premium is required for in-app playback.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用内播放需要 Spotify Premium。"
+          }
+        }
+      }
+    },
+    "Open Spotify": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 Spotify"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

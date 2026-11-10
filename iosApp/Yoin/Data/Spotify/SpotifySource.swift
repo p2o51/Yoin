@@ -33,6 +33,9 @@ final class SpotifySource {
                 return String(localized: "Reconnect Spotify in Settings")
             case .http(403, let m) where (m ?? "").localizedCaseInsensitiveContains("scope"):
                 return String(localized: "Reconnect Spotify in Settings to let Yoin control playback")
+            // Spotify's player refuses a free account ("PREMIUM_REQUIRED" / "Premium required").
+            case .http(403, let m) where (m ?? "").localizedCaseInsensitiveContains("premium"):
+                return SpotifyFailureCopy.premium
             default:
                 return e.errorDescription ?? error.localizedDescription
             }
