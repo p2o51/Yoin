@@ -1056,6 +1056,12 @@ struct NowPlayingView: View, Equatable {
     /// Android openShare: the pick frozen into the share card.
     private func shareSelectedLyrics(_ t: PlayableTrack) {
         guard let p = pickedLyrics(t) else { return }
+        // A line the listener shares is one they like: it becomes the song's Lyric Card (Android keepUserPick).
+        if let loaded = loadedLyrics, let first = lyricsSelected.filter({ $0 >= 0 && $0 < loaded.lines.count }).min() {
+            let ms = loaded.synced ? loaded.lyrics.lines[first].timeMs : nil
+            LyricHighlightProcessor.shared.keepUserPick(p.lines, startMs: ms, track: t,
+                                                        account: model.profiles.active.flatMap(MemoryLedgerSource.account(of:)))
+        }
         lyricsShare = LyricsShareSnapshot(lines: p.lines, translations: p.translations, passageStarts: p.starts,
                                           title: t.title, artist: t.artist)
     }

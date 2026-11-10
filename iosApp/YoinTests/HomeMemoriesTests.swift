@@ -371,7 +371,7 @@ final class HomeMemoriesReviewTests: XCTestCase {
         XCTAssertEqual(feed.playlists.count, LibraryStore.homePlaylistLimit)
         XCTAssertTrue(HomeSection.recentlyPlayed.supportedOnIOS)
         XCTAssertTrue(HomeSection.yourPlaylists.supportedOnIOS)
-        XCTAssertFalse(HomeSection.otherProfiles.supportedOnIOS)
+        XCTAssertTrue(HomeSection.otherProfiles.supportedOnIOS)
     }
 
     // MARK: #15 Apple Music's held seek

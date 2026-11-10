@@ -26,6 +26,21 @@ data class MediaRef(
     }
 }
 
+/**
+ * A song's audio facts as OpenSubsonic lists them (Android Track.replayGain / audio format, #121 #139). Gains
+ * in dB against the tags' −18 LUFS reference; peaks as linear full scale (1.0 = 0 dBFS).
+ */
+@Serializable
+data class SongAudio(
+    val trackGainDb: Double?,
+    val albumGainDb: Double?,
+    val trackPeak: Double?,
+    val albumPeak: Double?,
+    val samplingRate: Int?,
+    val bitDepth: Int?,
+    val channelCount: Int?,
+)
+
 @Serializable
 data class SongInfo(
     val ref: MediaRef,
@@ -58,7 +73,25 @@ data class SongInfo(
     val played: String?,
     /** Every credited artist when the server names more than one (OpenSubsonic `artists`); else empty. */
     val artists: List<SongArtist>,
+    /**
+     * OpenSubsonic audio facts (#121 #139): ReplayGain, sample rate, bit depth and channels; null when the
+     * server sent none of them.
+     */
+    val audio: SongAudio?,
 ) {
+    /** The constructor from before [audio] existed (Swift: the init with `artists:` and no `audio:`). */
+    constructor(
+        ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,
+        albumId: String?, track: Int?, disc: Int?, durationSec: Int?, coverArtId: String?, year: Int?,
+        genre: String?, starred: Boolean, starredAt: String?, userRating: Int?, suffix: String?,
+        contentType: String?, bitRate: Int?, size: Long?, path: String?, playCount: Int?, played: String?,
+        artists: List<SongArtist>,
+    ) : this(
+        ref, id, title, artist, artistId, album, albumId, track, disc, durationSec, coverArtId, year,
+        genre, starred, starredAt, userRating, suffix, contentType, bitRate, size, path, playCount, played,
+        artists, null,
+    )
+
     /** The constructor from before [artists] existed (Swift: the init with `played:` and no `artists:`). */
     constructor(
         ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,
@@ -68,7 +101,7 @@ data class SongInfo(
     ) : this(
         ref, id, title, artist, artistId, album, albumId, track, disc, durationSec, coverArtId, year,
         genre, starred, starredAt, userRating, suffix, contentType, bitRate, size, path, playCount, played,
-        emptyList(),
+        emptyList(), null,
     )
 
     /** The constructor from before [played] existed (Swift: the init without `played:`). */

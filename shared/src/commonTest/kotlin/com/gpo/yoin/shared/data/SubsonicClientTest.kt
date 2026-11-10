@@ -187,6 +187,29 @@ class SubsonicClientTest {
     // --------------------------------------------------------------- library
 
     @Test
+    fun should_readReplayGainAndFormat_when_theServerIsOpenSubsonic() = runTest {
+        val body = SubsonicFixtures.ok(
+            """"album": {"id": "al-rg", "name": "Loud", "song": [
+                {"id": "s1", "title": "Tagged", "samplingRate": 96000, "bitDepth": 24, "channelCount": 2,
+                 "replayGain": {"trackGain": -8.5, "albumGain": -7.25, "trackPeak": 0.98, "albumPeak": 1.0}},
+                {"id": "s2", "title": "Plain", "samplingRate": 0, "bitDepth": 0},
+                {"id": "s3", "title": "Track only", "replayGain": {"trackGain": 2.0}}
+            ]}""",
+        )
+        val songs = assertNotNull(client(routes = mapOf("getAlbum" to body)).getAlbum("al-rg")).songs
+        val tagged = assertNotNull(songs[0].audio)
+        assertEquals(-8.5, tagged.trackGainDb)
+        assertEquals(-7.25, tagged.albumGainDb)
+        assertEquals(0.98, tagged.trackPeak)
+        assertEquals(96000, tagged.samplingRate)
+        assertEquals(24, tagged.bitDepth)
+        assertEquals(2, tagged.channelCount)
+        assertNull(songs[1].audio, "zeros are a server that doesn't know")
+        assertEquals(2.0, songs[2].audio?.trackGainDb)
+        assertNull(songs[2].audio?.albumGainDb)
+    }
+
+    @Test
     fun should_mapAlbumWithSongs_when_getAlbum() = runTest {
         val album = assertNotNull(client(routes = mapOf("getAlbum" to SubsonicFixtures.album)).getAlbum("al-1"))
         assertEquals("al-1", lastUrl.parameters["id"])

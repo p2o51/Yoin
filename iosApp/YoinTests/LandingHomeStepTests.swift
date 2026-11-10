@@ -52,21 +52,22 @@ final class LandingHomeStepTests: XCTestCase {
     func test_should_moveAmongListedRows_when_reordering() {
         let layout = LandingHomeLayout.move(.default, from: 0, to: 2)
         XCTAssertEqual(LandingHomeLayout.rows(layout).map(\.section),
-                       [.jumpBackIn, .recentlyAdded, .activities, .rediscover, .recentlyPlayed, .yourPlaylists])
+                       [.jumpBackIn, .recentlyAdded, .activities, .rediscover, .recentlyPlayed, .yourPlaylists,
+                        .otherProfiles, .lyricHighlight, .memoryGrid])
         XCTAssertEqual(LandingHomeLayout.move(.default, from: 0, to: 0), .default)
         XCTAssertEqual(LandingHomeLayout.move(.default, from: 0, to: 9), .default)
     }
 
     func test_should_keepUnlistedSectionsInTheirSlots_when_reordering() {
-        // Other accounts' most played is carried but not drawn by iOS: it keeps its place (the last one).
+        // Every section is listed on iOS now: the rest keep their order around the moved one.
         let layout = LandingHomeLayout.move(.default, from: 5, to: 0)
-        XCTAssertEqual(layout.sections.last?.section, .otherProfiles)
+        XCTAssertEqual(layout.sections.last?.section, .memoryGrid)
         XCTAssertEqual(layout.sections.first?.section, .yourPlaylists)
     }
 
     func test_should_keepHiddenRowsListed_when_sectionIsSwitchedOff() {
         let layout = HomeLayout.default.withEnabled(.rediscover, false)
-        XCTAssertEqual(LandingHomeLayout.rows(layout).count, 6)
+        XCTAssertEqual(LandingHomeLayout.rows(layout).count, HomeSection.allCases.count)
         XCTAssertEqual(LandingHomeLayout.rows(layout).first { $0.section == .rediscover }?.enabled, false)
         XCTAssertEqual(layout.hiddenSections, [.rediscover])
     }

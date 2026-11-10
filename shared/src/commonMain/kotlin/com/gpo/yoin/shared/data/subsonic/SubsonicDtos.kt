@@ -148,6 +148,21 @@ internal data class SongDto(
     val played: String? = null,
     /** OpenSubsonic `artists`: every credited artist of the song, one by one. */
     val artists: List<SongArtistDto> = emptyList(),
+    /** OpenSubsonic `replayGain` (#139). */
+    val replayGain: ReplayGainDto? = null,
+    /** OpenSubsonic audio format (#121). */
+    val samplingRate: Int? = null,
+    val bitDepth: Int? = null,
+    val channelCount: Int? = null,
+)
+
+/** OpenSubsonic `ReplayGain`: gains in dB, peaks linear. */
+@Serializable
+internal data class ReplayGainDto(
+    val trackGain: Double? = null,
+    val albumGain: Double? = null,
+    val trackPeak: Double? = null,
+    val albumPeak: Double? = null,
 )
 
 /** OpenSubsonic `ArtistID3` as a song's `artists` entry. */

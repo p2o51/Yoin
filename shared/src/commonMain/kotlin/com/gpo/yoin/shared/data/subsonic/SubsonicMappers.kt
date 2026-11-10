@@ -11,6 +11,7 @@ import com.gpo.yoin.shared.data.model.PlaylistDetail
 import com.gpo.yoin.shared.data.model.PlaylistSummary
 import com.gpo.yoin.shared.data.model.SearchResult
 import com.gpo.yoin.shared.data.model.SongArtist
+import com.gpo.yoin.shared.data.model.SongAudio
 import com.gpo.yoin.shared.data.model.SongInfo
 import com.gpo.yoin.shared.data.model.Starred
 
@@ -51,7 +52,27 @@ internal fun SongDto.toSongInfo(): SongInfo = SongInfo(
     // Carried only when there is more than the one in `artist` (Android SubsonicMappers.toTrack).
     artists = artists.filter { it.name.isNotBlank() }.takeIf { it.size > 1 }
         ?.map { SongArtist(it.name.trim(), it.id?.takeIf(String::isNotEmpty)) }.orEmpty(),
+    audio = songAudio(),
 )
+
+/** The audio facts, null when the server sent none (a Subsonic that isn't OpenSubsonic). */
+internal fun SongDto.songAudio(): SongAudio? {
+    val g = replayGain
+    // A zero sample rate or depth is a server that doesn't know, not a value.
+    val rate = samplingRate?.takeIf { it > 0 }
+    val depth = bitDepth?.takeIf { it > 0 }
+    val channels = channelCount?.takeIf { it > 0 }
+    if (g?.trackGain == null && g?.albumGain == null && rate == null && depth == null && channels == null) return null
+    return SongAudio(
+        trackGainDb = g?.trackGain,
+        albumGainDb = g?.albumGain,
+        trackPeak = g?.trackPeak?.takeIf { it > 0 },
+        albumPeak = g?.albumPeak?.takeIf { it > 0 },
+        samplingRate = rate,
+        bitDepth = depth,
+        channelCount = channels,
+    )
+}
 
 internal fun AlbumDto.toAlbumInfo(): AlbumInfo = AlbumInfo(
     ref = ref(id),
