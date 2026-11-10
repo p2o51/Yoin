@@ -41,5 +41,7 @@ struct HomeMemoryLedgerSection: View {
             .buttonStyle(PressScale())
             .accessibilityLabel(Text("Open All Memories"))
         }
+        // The card stays phone-wide; the section keeps to the feed's leading edge like the others.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

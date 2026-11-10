@@ -227,7 +227,7 @@ struct HomeView: View {
         switch s {
         case .memoryGrid: !(MemoryLedgerSource.shared.state?.isEmpty ?? true)
         // The intro shows until it's answered, on a device that could run the model.
-        case .lyricHighlight: !lyricCards.isEmpty || !LyricHighlightStore.shared.introSeen
+        case .lyricHighlight: !lyricCards.isEmpty || (!LyricHighlightStore.shared.introSeen && !LyricHighlightStore.shared.optedIn)
         case .otherProfiles: !otherAccounts.isEmpty
         default: feed.hasContent(s)
         }

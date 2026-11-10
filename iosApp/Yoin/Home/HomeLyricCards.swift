@@ -20,7 +20,7 @@ struct HomeLyricCardsSection: View {
     var body: some View {
         let s = scheme ?? .brand(dark: false)
         VStack(alignment: .leading, spacing: 12) {
-            if !store.introSeen { intro(s) }
+            if !store.introSeen && !store.optedIn { intro(s) }
             if !cards.isEmpty {
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 12) {
