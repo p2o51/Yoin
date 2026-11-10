@@ -33,6 +33,8 @@ struct SubsonicAccountSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
             qualityGroup
+            levelingGroup
+            spatialGroup
             if showsDownloads {
                 VStack(alignment: .leading, spacing: 8) {
                     label(String(localized: "Downloads"))
@@ -54,6 +56,57 @@ struct SubsonicAccountSettings: View {
                 }
             }
             return rows
+        }
+    }
+
+    /// Android Settings › Playback › Volume leveling (#139): one choice, applied at once, to the song playing
+    /// too. Only songs the server tagged with ReplayGain change.
+    private var levelingGroup: some View {
+        let leveling = ReplayGainSettings.shared
+        return group(String(localized: "Volume leveling")) {
+            ReplayGainMode.allCases.map { mode in
+                AnyView(Button {
+                    withAnimation(Yoin.effects) { leveling.mode = mode }
+                } label: {
+                    HStack(spacing: 16) {
+                        ZStack {
+                            Circle().strokeBorder(leveling.mode == mode ? app.primary : app.onSurfaceVariant, lineWidth: 2)
+                            Circle().fill(app.primary).padding(5).scaleEffect(leveling.mode == mode ? 1 : 0.01)
+                                .opacity(leveling.mode == mode ? 1 : 0)
+                        }
+                        .frame(width: 20, height: 20)
+                        .padding(.horizontal, 2)
+                        Text(mode.label).yoinRole(Tokens.type.titleMedium).foregroundStyle(app.onSurface)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(leveling.mode == mode ? [.isButton, .isSelected] : .isButton))
+            }
+        }
+    }
+
+    /// Android Settings › Spatial audio: 5.1 / 7.1 files spatialized on headphones that support it.
+    private var spatialGroup: some View {
+        let s = ReplayGainSettings.shared
+        return group(String(localized: "Spatial audio")) {
+            [AnyView(Toggle(isOn: Binding(get: { s.spatializeMultichannel },
+                                          set: { on in withAnimation(Yoin.effects) { s.spatializeMultichannel = on } })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Spatialize 5.1 and 7.1 songs").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                    Text(s.spatializeMultichannel
+                         ? String(localized: "Only for songs that are 5.1 or 7.1 files, played as the original. Stereo songs aren't changed.")
+                         : String(localized: "Off. Multichannel songs play folded down to stereo."))
+                        .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                        .contentTransition(.opacity)
+                }
+            }
+            .tint(app.primary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14))]
         }
     }
 

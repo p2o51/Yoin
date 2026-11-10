@@ -63,6 +63,13 @@ struct Track: Identifiable, Hashable, Sendable {
     /// Every credited artist with the page each opens, when the service names more than one (Android
     /// Track.artistCredits); empty = just [artist].
     var credits: [ArtistCredit] = []
+    /// The file's format (Subsonic `suffix`: "flac", "mp3") and audio facts (OpenSubsonic), for the quality
+    /// tag and volume leveling.
+    var suffix: String? = nil
+    var audio: TrackAudio? = nil
+
+    /// "FLAC 24/96", "MP3 320", "5.1"; nil when the server says nothing.
+    var qualityTag: String? { QualityTag.label(suffix: suffix, bitRateKbps: bitRateKbps, audio: audio) }
 }
 
 enum ReleaseKind: String, Hashable, Sendable {

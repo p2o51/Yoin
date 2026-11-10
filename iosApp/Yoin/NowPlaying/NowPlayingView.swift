@@ -1831,15 +1831,33 @@ struct NowPlayingView: View, Equatable {
             .frame(height: Tokens.type.displaySmall.lineHeight.cg)
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                routeLink(artistRoute(p), label: String(localized: "Go to artist")) {
-                    Text(p.album.artist)
-                        .font(.gsf(14.4, .medium))
-                        .foregroundStyle(scheme.onSurfaceVariant)
-                        .frame(height: 24, alignment: .leading)
-                        .animation(Self.heroStretchSpring) {
-                            $0.scaleEffect(x: artistStretch(p), y: 1, anchor: .leading)
-                        }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    routeLink(artistRoute(p), label: String(localized: "Go to artist")) {
+                        Text(p.album.artist)
+                            .font(.gsf(14.4, .medium))
+                            .foregroundStyle(scheme.onSurfaceVariant)
+                            .frame(height: 24, alignment: .leading)
+                            .animation(Self.heroStretchSpring) {
+                                $0.scaleEffect(x: artistStretch(p), y: 1, anchor: .leading)
+                            }
+                    }
+                    .layoutPriority(1)
+                    // The song's format after the artist ("FLAC 24/96", "5.1"; Android #121 #139).
+                    if let tag = model.player.currentTrack?.qualityTag {
+                        Text(tag)
+                            .font(.gsf(11, .semibold))
+                            .foregroundStyle(scheme.onSurfaceVariant.opacity(0.85))
+                            .padding(.horizontal, 6)
+                            .frame(height: 18)
+                            .background(scheme.onSurfaceVariant.opacity(0.12), in: .capsule)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .transition(.opacity)
+                            .accessibilityLabel(Text("Format \(tag)"))
+                    }
                 }
+                .lineLimit(1)
+                .animation(Yoin.effects, value: model.player.currentTrack?.qualityTag)
                 .npFade(open, contentFade)
                 routeLink(albumRoute(p), label: String(localized: "Go to album")) { heroTitle(p) }
                     .frame(height: 44, alignment: .leading)

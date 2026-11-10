@@ -20,6 +20,8 @@ struct PlayableTrack: Identifiable, Hashable, Sendable {
     /// The file's own bit rate as the server lists it (Subsonic), for
     /// [StreamDelivery.plan]; nil = unknown or not a stream.
     var sourceKbps: Int? = nil
+    /// The quality tag Now Playing shows after the artist ("FLAC 24/96"); nil when unknown.
+    var qualityTag: String? = nil
 }
 
 /// A queue slot. The same track can sit in the queue twice, so lists and

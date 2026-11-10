@@ -1370,6 +1370,8 @@ final class LibraryStore {
         t.starred = isStarred(e.track)
         t.userRating = e.track.rating.map { SubsonicMapping.serverRating($0) }
         t.sourceKbps = e.track.bitRateKbps
+        t.qualityTag = e.track.qualityTag
+        ReplayGainSettings.shared.remember(e.track.audio, songId: e.track.id.rawId)
         return t
     }
 

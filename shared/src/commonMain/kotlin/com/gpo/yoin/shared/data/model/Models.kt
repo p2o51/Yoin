@@ -75,9 +75,9 @@ data class SongInfo(
     val artists: List<SongArtist>,
     /**
      * OpenSubsonic audio facts (#121 #139): ReplayGain, sample rate, bit depth and channels; null when the
-     * server sent none of them.
+     * server sent none of them. Defaults to null so a cached page from before it decodes.
      */
-    val audio: SongAudio?,
+    val audio: SongAudio? = null,
 ) {
     /** The constructor from before [audio] existed (Swift: the init with `artists:` and no `audio:`). */
     constructor(
