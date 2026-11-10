@@ -294,6 +294,7 @@ final class AppModel {
             MainActor.assumeIsolated { store?.flushScrobbles() }
         }
         watchPlaybackReports()
+        Task { await profiles.fillSpotifyAvatars() }
         player.onScrobble = { track, submission, listenedSec in
             store.scrobble(track, submission: submission)
             // Local play history (Data/History): a row when the song starts, marked once it counts with

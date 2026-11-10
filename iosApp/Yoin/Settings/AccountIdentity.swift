@@ -123,7 +123,15 @@ struct AccountAvatar: View {
                 .offset(x: monogram.isEmpty ? 0 : -size * 0.07, y: monogram.isEmpty ? 0 : -size * 0.07)
                 .frame(width: size, height: size)
                 .background(tone.accent, in: AvatarShape(index: shape))
-            if !monogram.isEmpty {
+                // A Spotify account's own picture fills its shape (Android photoUrl); the letter stays off.
+                .overlay {
+                    if let photo = profile.spotifyAvatar.flatMap(URL.init(string:)) {
+                        RemoteCover(ref: CoverRef(url: photo), placeholder: tone.accent)
+                            .clipShape(AvatarShape(index: shape))
+                            .transition(.opacity)
+                    }
+                }
+            if !monogram.isEmpty, profile.spotifyAvatar == nil {
                 Text(monogram)
                     .font(.gsf(badge * 0.5, .semibold))
                     .foregroundStyle(tone.iconContent)

@@ -44,6 +44,8 @@ struct Profile: Codable, Equatable, Identifiable, Sendable {
     var spotifyName: String? = nil
     /// Epoch ms of its last sign-in: a new sign-in (after a revoke) rebuilds the account's source.
     var spotifySignedInAt: Int64? = nil
+    /// Spotify only: the account's profile picture, shown in its avatar.
+    var spotifyAvatar: String? = nil
 
     /// `AccountScope`'s key for this account's rows ("baseUrl|username" as first saved); nil for Apple Music.
     var subsonicScope: String? {
@@ -232,10 +234,18 @@ final class ProfileStore {
         guard status == errSecSuccess || status == errSecMissingEntitlement else { return .failure(.keychain(status)) }
         spotifyTokens[profileId] = tokens
         let updated = Profile(id: profileId, service: .spotify, createdAt: existing?.createdAt ?? now,
-                              spotifyUserId: tokens.userId, spotifyName: tokens.displayName, spotifySignedInAt: now)
+                              spotifyUserId: tokens.userId, spotifyName: tokens.displayName, spotifySignedInAt: now,
+                              spotifyAvatar: tokens.avatarURL ?? existing?.spotifyAvatar)
         if let i = profiles.firstIndex(where: { $0.id == profileId }) { profiles[i] = updated } else { profiles.append(updated) }
         persist()
         return .success(updated)
+    }
+
+    /// A Spotify account's profile picture, read from `/me` after it was added.
+    func setSpotifyAvatar(_ url: String?, for id: String) {
+        guard let i = profiles.firstIndex(where: { $0.id == id }), profiles[i].spotifyAvatar != url else { return }
+        profiles[i].spotifyAvatar = url
+        persist()
     }
 
     /// The tokens a refresh wrote to the Keychain, here too (the in-memory copy a switch reuses).
@@ -440,6 +450,17 @@ final class ProfileManager {
                 return
             }
             commit(target, probe: nil, account: nil)
+        }
+    }
+
+    /// Spotify accounts added before their picture was kept: read once a launch from `/me` with a token
+    /// still good (an expired one waits for the account's own refresh).
+    func fillSpotifyAvatars() async {
+        for p in profiles where p.service == .spotify && p.spotifyAvatar == nil {
+            guard let t = store.spotify(p.id), !t.expiresSoon,
+                  let me = try? await SpotifyAuth.fetchMe(t.accessToken), let url = me.avatar else { continue }
+            store.setSpotifyAvatar(url, for: p.id)
+            refresh()
         }
     }
 
