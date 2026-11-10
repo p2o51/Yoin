@@ -143,7 +143,8 @@ struct ArtistDetailView: View {
     private var yearSpan: String? {
         let years = releases.map(\.year).filter { $0 > 0 }
         guard let lo = years.min(), let hi = years.max() else { return nil }
-        return lo == hi ? "\(lo)" : String(localized: "\(lo) – \(hi)")
+        // Plain digits: an Int in a localized string comes out grouped ("2,021").
+        return lo == hi ? String(lo) : "\(String(lo)) – \(String(hi))"
     }
 
     private var header: some View {

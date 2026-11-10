@@ -158,14 +158,15 @@ struct ServerSettingsView: View {
         group(String(localized: "Help and about")) {
             [AnyView(TipsEntryRow(app: app)),
              AnyView(Button { model.openWelcomeGuide() } label: {
-                SettingsRowLabel(title: String(localized: "Welcome guide"), summary: String(localized: "Accounts"), app: app)
+                SettingsRowLabel(title: String(localized: "Welcome guide"), app: app)
              }
              .buttonStyle(.plain)),
              AnyView(aboutLink(String(localized: "Docs"), AboutLinks.docs(language: AboutLinks.currentLanguage))),
              AnyView(aboutLink(String(localized: "Send feedback"), AboutLinks.feedback)),
              // Playback diagnostics, shared from the phone (Spotify issues away from the Mac).
              AnyView(ShareLink(item: PlayTraceExport(), preview: SharePreview("Yoin log")) {
-                SettingsRowLabel(title: String(localized: "Export log"), summary: String(localized: "Playback diagnostics"), app: app)
+                SettingsRowLabel(title: String(localized: "Export log"), summary: String(localized: "Playback diagnostics"),
+                                 app: app, trailing: "share")
              }
              .buttonStyle(.plain)),
              AnyView(SettingsNavRow(title: "Yoin", summary: String(localized: "Version \(AboutLinks.versionName())"), app: app) {

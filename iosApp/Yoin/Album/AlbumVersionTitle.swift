@@ -15,10 +15,14 @@ struct AlbumVersionTitle<Title: View>: View {
 
     var body: some View {
         if let tag = album.versionTag {
-            HStack(spacing: spacing) {
-                // The name comes first: a long version is cut short before the name is.
-                title(album.titleWithoutVersion).layoutPriority(1)
-                AlbumVersionTag(version: tag, scheme: scheme, onBar: onBar)
+            // The tag only where the name and the whole tag fit; on a narrow card the name alone
+            // (a squeezed "H…" tag says nothing).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: spacing) {
+                    title(album.titleWithoutVersion).fixedSize(horizontal: true, vertical: false)
+                    AlbumVersionTag(version: tag, scheme: scheme, onBar: onBar).fixedSize()
+                }
+                title(album.titleWithoutVersion)
             }
         } else {
             title(album.title)
