@@ -311,6 +311,14 @@ class SettingsViewModel(
         }
     }
 
+    /**
+     * Reads the NeoDB token again: the NeoDB page runs in its own Activity with its own
+     * ViewModel, so Settings' row picks up a sign-in or sign-out made there when the page closes.
+     */
+    fun refreshNeoDbToken() {
+        _neoDbTokenCache.value = container.neoDbTokenStore.readToken().orEmpty()
+    }
+
     /** Empties the stream cache. Downloads stay: Settings › Downloads removes them. */
     fun clearCache() {
         container.offlineDownloads.clearStreamCache()

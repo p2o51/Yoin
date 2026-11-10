@@ -41,6 +41,7 @@ internal enum class HomeBubbleTip(
     private val symbol: () -> ImageVector,
 ) {
     Labs(R.string.home_tip_labs_title, R.string.home_tip_labs, day(2026, 11, 9), { YoinSymbols.Insights }),
+    SettingsRegrouped(R.string.home_tip_settings_regrouped_title, R.string.home_tip_settings_regrouped, day(2026, 11, 9), { YoinSymbols.Settings }),
     LyricHighlight(R.string.home_tip_lyric_highlight_title, R.string.home_tip_lyric_highlight, day(2026, 11, 8), { YoinSymbols.MusicNote }),
     ScreenCorners(R.string.home_tip_screen_corners_title, R.string.home_tip_screen_corners, day(2026, 11, 8), { YoinSymbols.Smartphone }),
     MemoriesAllAccounts(R.string.home_tip_memories_all_accounts_title, R.string.home_tip_memories_all_accounts, day(2026, 11, 8), { YoinSymbols.Memory }),
