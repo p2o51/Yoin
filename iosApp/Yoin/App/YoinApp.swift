@@ -2,6 +2,9 @@ import SwiftUI
 
 @main
 struct YoinApp: App {
+    /// Background download events (Data/Cache/BackgroundTransfers.swift).
+    @UIApplicationDelegateAdaptor(YoinAppDelegate.self) private var appDelegate
+
     init() {
         YoinFont.selfCheck()
         PlayTrace.observeApp()

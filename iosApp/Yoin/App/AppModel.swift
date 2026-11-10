@@ -283,6 +283,8 @@ final class AppModel {
             return URL(string: client.streamUrl(id: id, maxBitRate: kbps,
                                                 format: kbps == nil ? nil : SubsonicStreamURLs.transcodeFormat))
         }
+        // Downloads the system finished or held while Yoin was away arrive before the queue moves on.
+        BackgroundTransfers.shared.reconnect(overMobileData: OfflineDownloads.shared.overMobileData)
         OfflineDownloads.shared.pump()
         // Waiting plays go out when the network comes back or the app comes to the front.
         store.scrobbles.onReachable = { [weak store] in store?.flushScrobbles() }

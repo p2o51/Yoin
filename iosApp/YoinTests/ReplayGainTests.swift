@@ -21,10 +21,10 @@ final class ReplayGainTests: XCTestCase {
     }
 
     func test_should_stayUnderThePeak_when_thePreampWouldClip() {
-        let quiet = TrackAudio(trackGainDb: 2, albumGainDb: nil, trackPeak: 0.5, albumPeak: nil)
+        let quiet = TrackAudio(trackGainDb: 2, albumGainDb: nil, trackPeak: 0.6, albumPeak: nil)
         let g = AppliedReplayGain.of(quiet, mode: .track)
         XCTAssertTrue(g.peakLimited)
-        XCTAssertEqual(g.db, -20 * log10(0.5), accuracy: 1e-9)
+        XCTAssertEqual(g.db, -20 * log10(0.6), accuracy: 1e-9)
         // iOS can only turn a song down.
         XCTAssertEqual(g.linear, 1)
         XCTAssertEqual(AppliedReplayGain.of(tagged, mode: .album).linear, pow(10, -3.0 / 20), accuracy: 1e-9)
