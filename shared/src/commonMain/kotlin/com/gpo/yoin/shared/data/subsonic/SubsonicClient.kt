@@ -306,6 +306,23 @@ class SubsonicClient private constructor(
         call("deletePlaylist", "id" to id)
     }
 
+    // ----------------------------------------------------------------- shares
+
+    /**
+     * `createShare`: a public link to [ids] (songs, an album; a playlist id only on some servers,
+     * e.g. Navidrome), named [description]. Returns the link; a server that answers without one
+     * throws (Android SubsonicMusicSource.createShareLink).
+     */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun createShare(ids: List<String>, description: String?): String {
+        val params = buildList {
+            ids.forEach { add("id" to it) }
+            description?.takeIf { it.isNotBlank() }?.let { add("description" to it) }
+        }
+        return call("createShare", *params.toTypedArray()).shares?.share?.firstOrNull()?.url?.takeIf { it.isNotBlank() }
+            ?: throw SubsonicException(SubsonicErrorKind.GENERIC, SubsonicErrorKind.GENERIC.code, "createShare returned no share")
+    }
+
     // ----------------------------------------------------------------- lyrics
 
     /** OpenSubsonic `getLyricsBySongId` (structured, usually synced). Null when the server has none. */

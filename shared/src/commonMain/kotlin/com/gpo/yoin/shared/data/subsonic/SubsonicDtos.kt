@@ -37,6 +37,18 @@ internal data class SubsonicBody(
     val lyricsList: LyricsListDto? = null,
     val lyrics: PlainLyricsDto? = null,
     val openSubsonicExtensions: List<OpenSubsonicExtensionDto>? = null,
+    val shares: SharesDto? = null,
+)
+
+@Serializable
+internal data class SharesDto(
+    val share: List<ShareDto> = emptyList(),
+)
+
+@Serializable
+internal data class ShareDto(
+    val id: String? = null,
+    val url: String? = null,
 )
 
 @Serializable

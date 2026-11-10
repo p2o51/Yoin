@@ -199,6 +199,7 @@ final class LibraryStore {
         searchPhase = .idle
         starredOverride = [:]
         hearts.reset()
+        SubsonicShareLinks.shared.reset()
         // Old-source loads stop here (Codex C01); one that answers anyway fails `ensureLive`.
         for task in inFlight.values { task.cancel() }
         inFlight = [:]

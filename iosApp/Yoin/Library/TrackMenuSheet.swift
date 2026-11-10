@@ -202,7 +202,15 @@ struct TrackMenuSheet: View {
     }
 
     private var quick: [Quick] {
-        let share = Quick(id: "share", label: String(localized: "Share"), icon: "share", share: shareText)
+        var share = Quick(id: "share", label: String(localized: "Share"), icon: "share", share: shareText)
+        // A server's song has no public page: Share asks the server for a share link (Android #175).
+        if link == nil, SubsonicShareLinks.canShare(.track, track.track.id), let client = store.client {
+            let target = DetailLinkTarget(kind: .track, id: track.track.id,
+                                          title: [track.track.title, artist].filter { !$0.isEmpty }.joined(separator: " — "))
+            share = Quick(id: "share", label: String(localized: "Share"), icon: "share", closes: true) {
+                SubsonicShareLinks.shared.share(target, client: client)
+            }
+        }
         if context.kind == .nowPlaying {
             var row = [favoriteQuick].compactMap { $0 }
             if actions.canAddToPlaylist(store) {

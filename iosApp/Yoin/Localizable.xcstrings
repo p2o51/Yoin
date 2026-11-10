@@ -1966,6 +1966,16 @@
         }
       }
     },
+    "Couldn't make a share link on your server, so only the name was shared": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器没能生成分享链接，只分享了名字"
+          }
+        }
+      }
+    },
     "Couldn't remove track": {
       "localizations": {
         "zh-Hans": {
