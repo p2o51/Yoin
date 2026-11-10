@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.highlight.NanoStatus
@@ -45,7 +46,9 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
     LabsPageBody(
         state = LabsState(
             nano = if (downloading) NanoStatus.DOWNLOADING else status,
-            reason = reason,
+            // AICore's raw words only in debug and the Nano test copy (owner 2026-11-10): on the Play build most
+            // phones have no AICore at all, and "NullPointerException" under "not supported" reads as a crash.
+            reason = reason.takeIf { BuildConfig.DEBUG || BuildConfig.NANO_TEST },
             lyricsOn = optedIn,
         ),
         onDownload = processor::downloadNow,
