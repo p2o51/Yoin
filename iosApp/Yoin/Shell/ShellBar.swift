@@ -331,7 +331,11 @@ struct ShellBar: View {
     }
 
     private func enqueueDetail(next: Bool) {
-        Task { model.enqueue(await model.detailEntries(), next: next) }
+        Task {
+            model.enqueue(await model.detailEntries(), next: next) { ok in
+                if !ok { PlaylistActions.shared.show(String(localized: "Couldn't add to queue")) }
+            }
+        }
     }
 
     private func addDetailToPlaylist() {

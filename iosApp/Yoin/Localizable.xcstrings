@@ -1956,6 +1956,16 @@
         }
       }
     },
+    "Couldn't add to queue": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加入队列"
+          }
+        }
+      }
+    },
     "Couldn't remove track": {
       "localizations": {
         "zh-Hans": {

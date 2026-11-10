@@ -193,9 +193,11 @@ struct TrackMenuSheet: View {
         let id = next ? "next" : "queue"
         return Quick(id: id, label: next ? String(localized: "Play next") : String(localized: "Add to queue"),
                      icon: doneQuick.contains(id) ? "check" : (next ? "skip_next" : "queue")) { [model, track] in
-            model.enqueue([track], next: next)
-            PlaylistActions.shared.show(next ? String(localized: "1 song will play next") : String(localized: "Added 1 song to the queue"))
-            flash(id)
+            model.enqueue([track], next: next) { ok in
+                guard ok else { return PlaylistActions.shared.show(String(localized: "Couldn't add to queue")) }
+                PlaylistActions.shared.show(next ? String(localized: "1 song will play next") : String(localized: "Added 1 song to the queue"))
+                flash(id)
+            }
         }
     }
 
@@ -210,7 +212,10 @@ struct TrackMenuSheet: View {
             }
             return row + [share]
         }
-        return [queueQuick(next: true), queueQuick(next: false)] + [favoriteQuick].compactMap { $0 } + [share]
+        // Spotify plays its own song: only its queue takes songs, and only at the end (no Play next).
+        let queue = model.player.externalTrack != nil ? [queueQuick(next: false)]
+                                                       : [queueQuick(next: true), queueQuick(next: false)]
+        return queue + [favoriteQuick].compactMap { $0 } + [share]
     }
 
     /// The song's public link: Spotify's is its id, Apple Music's needs the storefront.

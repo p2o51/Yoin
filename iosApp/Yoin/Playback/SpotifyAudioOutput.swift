@@ -492,6 +492,24 @@ final class SpotifyAudioOutput: AudioOutput {
 
     private var isHere: Bool { SpotifyPlayingDevice.shared.name == nil }
 
+    /// Add to queue while Spotify plays a song of its own (no Yoin queue under it): straight into
+    /// Spotify's queue, in order (Android SpotifyAppRemotePlayer.playerApi.queue). Only on this phone,
+    /// over App Remote; [done] says whether every song went in (Codex review 2026-11-10 #16).
+    func enqueueOnSpotify(_ trackIds: [String], _ done: @escaping @MainActor (Bool) -> Void) {
+        guard isHere, remote.isConnected, let first = trackIds.first else { return done(false) }
+        remote.enqueue("spotify:track:\(first)") { [weak self] error in
+            Task { @MainActor in
+                if let error {
+                    PlayTrace.log("SP queue add failed \(error.localizedDescription)")
+                    return done(false)
+                }
+                guard let self, trackIds.count > 1 else { return done(true) }
+                self.enqueueOnSpotify(Array(trackIds.dropFirst()), done)
+            }
+        }
+    }
+
+
     /// Spotify plays a song that isn't the queue's (picked there, or found playing on open).
     private var onSpotifysOwnSong: Bool { externalURI != nil || adopted }
 

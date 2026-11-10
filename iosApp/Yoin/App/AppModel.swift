@@ -602,12 +602,21 @@ final class AppModel {
     }
 
     /// Play next (stacked so the list keeps its order) or Add to queue.
-    func enqueue(_ entries: [PlaylistEntry], next: Bool) {
+    /// [done] says whether the songs really went in (the sheet only says so then).
+    func enqueue(_ entries: [PlaylistEntry], next: Bool, done: (@MainActor (Bool) -> Void)? = nil) {
         let tracks = entries.compactMap(store.playable)
-        guard !tracks.isEmpty else { return }
+        guard !tracks.isEmpty else { done?(false); return }
+        // Spotify plays its own song: Yoin's queue isn't what plays next, Spotify's is. Add to queue
+        // goes into Spotify's queue; Play next (Android hides it on Spotify) and other services' songs
+        // can't, and never replace what plays (Codex review 2026-11-10 #16).
+        if player.externalTrack != nil {
+            guard !next, tracks.allSatisfy({ $0.provider == SpotifyMapping.provider }),
+                  let spotify = playbackSystem.spotifyOutput else { done?(false); return }
+            spotify.enqueueOnSpotify(tracks.map(\.id)) { ok in done?(ok) }
+            return
+        }
+        defer { done?(true) }
         guard player.currentItem != nil else {
-            // Spotify's own song (no queue under it) isn't something to queue after.
-            if player.externalTrack != nil { return play(entries) }
             // An empty player takes them in order and waits for Play (Android addMediaItems).
             playingFrom = nil
             playbackSystem.spotifyOutput?.contextPlan = nil
