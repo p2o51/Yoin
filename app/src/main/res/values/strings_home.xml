@@ -34,6 +34,7 @@
     <string name="home_section_your_playlists">Your Playlists</string>
     <string name="home_section_other_profiles">On Your Other Accounts</string>
     <string name="home_section_lyric_highlight">Lyric Cards</string>
+    <string name="home_section_memory_grid">All Memories</string>
 
     <string name="home_section_activities_supporting">Your recent plays and visits</string>
     <string name="home_section_jump_back_in_supporting">Albums, songs and playlists</string>
@@ -43,6 +44,7 @@
     <string name="home_section_your_playlists_supporting">Playlists in your library</string>
     <string name="home_section_other_profiles_supporting">Albums and playlists your other accounts play most</string>
     <string name="home_section_lyric_highlight_supporting">Lyrics picked from your songs, tap to play from that line</string>
+    <string name="home_section_memory_grid_supporting">Every note and score, on a grid that grows with you</string>
 
     <string name="home_placeholder_activities">No recent activity</string>
     <string name="home_placeholder_jump_back_in">Nothing to jump back into</string>
@@ -52,6 +54,7 @@
     <string name="home_placeholder_your_playlists">No playlists in your library</string>
     <string name="home_placeholder_other_profiles">Nothing played on your other accounts lately</string>
     <string name="home_placeholder_lyric_highlight">Listen a while and Gemini Nano picks the first line</string>
+    <string name="home_placeholder_memory_grid">No memories yet</string>
 
     <string name="home_other_profiles_switch_title">Switch to %1$s?</string>
     <string name="home_other_profiles_switch_body">To play %1$s, Yoin switches to that account first. What\'s playing now stops.</string>
@@ -208,6 +211,8 @@
     <string name="home_tip_labs">Experimental features and the Gemini Nano model download are now in Settings &gt; Yoin Labs</string>
     <string name="home_tip_lyric_highlight_title">Lyric Cards</string>
     <string name="home_tip_lyric_highlight">On phones with Gemini Nano, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up</string>
+    <string name="home_tip_memory_ledger_title">All Memories</string>
+    <string name="home_tip_memory_ledger">Tap All Memories on Home and tap a square on the grid to see just that time; switch between Timeline, Cards, and List below the grid on the right, with sorting in List</string>
     <string name="home_tip_memories_all_accounts_title">Memories across accounts</string>
     <string name="home_tip_memories_all_accounts">Memories includes all your accounts, and switches to that account first when you play or go to the album</string>
     <string name="home_tip_spotify_speakers_title">Connect more speakers</string>

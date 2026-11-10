@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The memory ledger: Home's Memories grid and the All Memories page (owner 2026-11-08). -->
+    <string name="memory_ledger_title">All Memories</string>
+    <plurals name="memory_ledger_writings_label">
+        <item quantity="one">memory written</item>
+        <item quantity="other">memories written</item>
+    </plurals>
+    <plurals name="memory_ledger_scores_label">
+        <item quantity="one">score</item>
+        <item quantity="other">scores</item>
+    </plurals>
+    <string name="memory_ledger_open">Open All Memories</string>
+
+    <string name="memory_ledger_stat_albums">Albums</string>
+    <string name="memory_ledger_stat_writings">Written</string>
+    <string name="memory_ledger_stat_characters">Characters</string>
+    <string name="memory_ledger_stat_rated">Songs scored</string>
+
+    <string name="memory_ledger_view_timeline">Timeline</string>
+    <string name="memory_ledger_view_cards">Cards</string>
+    <string name="memory_ledger_view_list">List</string>
+    <string name="memory_ledger_sort_recent">Recent</string>
+    <string name="memory_ledger_sort_score">Highest score</string>
+    <string name="memory_ledger_sort_name">Name</string>
+    <string name="memory_ledger_album_score">Album score</string>
+    <string name="memory_ledger_unknown_song">Song unknown</string>
+
+    <plurals name="memory_ledger_month_count">
+        <item quantity="one">%d entry</item>
+        <item quantity="other">%d entries</item>
+    </plurals>
+    <string name="memory_ledger_quiet_one">Nothing written in %1$s</string>
+    <string name="memory_ledger_quiet_range">Nothing written from %1$s to %2$s</string>
+    <string name="memory_ledger_range_empty">Nothing kept in this stretch.</string>
+
+    <string name="memory_ledger_kind_album_note">Album note</string>
+    <string name="memory_ledger_kind_song_note">Song note</string>
+    <string name="memory_ledger_kind_review">Review</string>
+    <string name="memory_ledger_kind_title">Memory title</string>
+    <string name="memory_ledger_kind_album_rating">Album score</string>
+    <string name="memory_ledger_kind_track_rating">Song score</string>
+    <string name="memory_ledger_unknown_album">Album unknown</string>
+    <string name="memory_ledger_from">From %1$s</string>
+
+    <string name="memory_ledger_since">Kept since %1$s. Every account counts as you.</string>
+    <string name="memory_ledger_empty_title">No memories yet</string>
+    <string name="memory_ledger_empty_body">Write a note while a song plays, or score an album, and it shows up here.</string>
+</resources>

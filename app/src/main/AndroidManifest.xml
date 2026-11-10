@@ -151,6 +151,10 @@
         <activity
             android:name=".ui.settings.backup.PlaylistBackupActivity"
             android:exported="false" />
+        <!-- 全部回忆（Home 回忆格子点进来的二级页）。 -->
+        <activity
+            android:name=".ui.memories.ledger.MemoryLedgerActivity"
+            android:exported="false" />
         <!-- Settings list-detail 右栏占位面（tag="settings-placeholder" 的 SplitPlaceholderRule）。 -->
         <activity
             android:name=".ui.settings.SettingsPlaceholderActivity"
