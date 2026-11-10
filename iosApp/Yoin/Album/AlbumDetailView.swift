@@ -1291,7 +1291,6 @@ struct AlbumDetailView: View {
         // The blur comes in with the strips, not after they've landed (51,
         // 2026-11-10: it popped in only at the very end).
         let blurR = stripBar ? stripBlur * smooth(p, 0.3, 0.85) : 0
-        let fade = top + stripExtend + stripFeather
         return ZStack(alignment: .topLeading) {
             ForEach(0..<n, id: \.self) { i in
                 let lag = 0.22 * CGFloat(strips[i].slot) / CGFloat(n)
@@ -1321,12 +1320,9 @@ struct AlbumDetailView: View {
                 }
                 .frame(width: sw, height: sh, alignment: .topLeading)
                 .clipped()
-                // The Strip's feather rides on each strip as it flies: its
-                // soft lower edge starts at the strip's own bottom and closes
-                // in on the screen's top as it lands, so no strip ever shows
-                // a hard bottom edge (51, 2026-11-10).
+                // The Strip's strips end on a soft tail, never a hard line.
                 .mask(alignment: .topLeading) {
-                    if stripBar { stripFeatherMask(width: sw, height: sh, y: y, fade: fade, q: q) }
+                    if stripBar { stripTailMask(width: sw, height: sh, q: q) }
                     else { Rectangle() }
                 }
                 .offset(x: x, y: y)
@@ -1352,8 +1348,28 @@ struct AlbumDetailView: View {
     @ViewBuilder
     private func bandMask(w: CGFloat, top: CGFloat, shift: CGFloat = 0) -> some View {
         if stripBar {
-            // The Strip's feather is per strip (`stripFeatherMask`).
-            Rectangle().frame(width: w + 40, height: 8000).offset(x: -20, y: -4000)
+            // A feather from the screen's top edge (51, 2026-11-06 13:22)
+            // through the safe area, `stripExtend` and `stripFeather`, down
+            // over the header's blur; the strips also blur progressively
+            // (`albumStripBlur`). It comes in with the strips (51,
+            // 2026-11-10): while they fly the fade is stretched down past
+            // the hero, so it never leaves a flat translucent slab under the
+            // header, and it closes in to the feather as they land.
+            let fade = top + stripExtend + stripFeather
+            let k = smooth(p, 0.3, 0.95)
+            let far = top + headerContent + 28 + (Tokens.detail.ALBUM_COVER_MAX.cg) + 40
+            let end = lerp(far, fade, k)
+            VStack(spacing: 0) {
+                LinearGradient(stops: (0...12).map { i in
+                    let t = CGFloat(i) / 12
+                    let ease = t * t * (3 - 2 * t)
+                    return .init(color: .black.opacity(1 - ease * k), location: t)
+                }, startPoint: .top, endPoint: .bottom)
+                .frame(height: end)
+                Rectangle().opacity(1 - k).frame(height: 4000)
+            }
+            .frame(width: w + 40)
+            .offset(x: -20, y: shift - top)
         } else if bandFade > 0 {
             let k = bandSoft
             VStack(spacing: 0) {
@@ -1373,32 +1389,23 @@ struct AlbumDetailView: View {
         }
     }
 
-    /// One flying strip's feather, in its own frame (screen top at `-y`).
-    /// Opaque down to where the fade starts, then a smoothstep to clear.
-    /// In flight (k = 0) the fade sits on the strip's own bottom, so the
-    /// strip still reads as the cover's slice; landed (k = 1) it runs from
-    /// the screen's top edge through the safe area, `stripExtend` and
-    /// `stripFeather` (51, 2026-11-06 13:22). The soft edge never drops below
-    /// a few points, so there's no hard bottom at any point of the pull.
+    /// One flying strip's soft tail, in its own frame: its bottom fades over
+    /// a few dozen points instead of ending on a hard line (51, 2026-11-10:
+    /// mid-pull the strips' bottoms read as a hard-edged slab). Crisp while
+    /// it's still the cover's slice leaving the hero; past the screen's
+    /// feather at rest, so the landed strip is the band mask's alone (a
+    /// per-strip feather there would stack in the overlaps as a comb).
     @ViewBuilder
-    private func stripFeatherMask(width: CGFloat, height: CGFloat, y: CGFloat,
-                                  fade: CGFloat, q: CGFloat) -> some View {
-        let k = smooth(q, 0.2, 1)
-        // Crisp while still the cover's slice in the hero, soft once it lifts.
-        let soft = min(24, height * 0.25) * smooth(q, 0, 0.15)
-        let start = lerp(height - soft, -y, k)
-        let end = lerp(height, fade - y, k)
+    private func stripTailMask(width: CGFloat, height: CGFloat, q: CGFloat) -> some View {
+        let soft = max(1, min(48, height * 0.3) * smooth(q, 0.35, 0.75))
         VStack(spacing: 0) {
-            Rectangle().frame(height: 4000)
-            LinearGradient(stops: (0...12).map { i in
-                let t = CGFloat(i) / 12
+            Rectangle().frame(height: max(0, height - soft))
+            LinearGradient(stops: (0...8).map { i in
+                let t = CGFloat(i) / 8
                 return .init(color: .black.opacity(1 - t * t * (3 - 2 * t)), location: t)
             }, startPoint: .top, endPoint: .bottom)
-            .frame(height: max(1, end - start))
-            Color.clear.frame(height: 4000)
+            .frame(height: soft)
         }
-        .frame(width: width)
-        .offset(y: start - 4000)
         .frame(width: width, height: height, alignment: .topLeading)
     }
 
