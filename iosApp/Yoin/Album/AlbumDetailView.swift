@@ -1325,7 +1325,9 @@ struct AlbumDetailView: View {
                     if stripBar { stripTailMask(width: sw, height: sh, q: q) }
                     else { Rectangle() }
                 }
-                .offset(x: x, y: y)
+                // The Strip's overlap runs both ways (3 pt each side): in flight
+                // a neighbour can sit just left of a strip and leave a light seam.
+                .offset(x: x - (stripBar ? 3 : 0), y: y)
             }
         }
         .frame(width: w, height: stripBar ? top + heroY + side + 8 : nil, alignment: .topLeading)

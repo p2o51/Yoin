@@ -142,7 +142,9 @@ final class NowPlayingData {
     /// QQ → NetEase → LRCLIB by title, artist and length; the hit is kept 30 days.
     private func loadProviderLyrics(_ t: PlayableTrack, _ k: String) async {
         guard lyrics[k] == nil || lyricsRetry.contains(k) else { return }
-        lyricsRetry.remove(k)
+        // A retry after a failure starts from `.none`: back to loading, or
+        // its answer would be thrown away below (Codex review #17).
+        if lyricsRetry.remove(k) != nil, lyrics[k] == LyricsState.none { lyrics[k] = .loading }
         if let a = LyricsUserStore.shared.auto(k) {
             let parsed = LrcParser.shared.parse(raw: a.lrc)
             if !parsed.lines.isEmpty {
@@ -174,7 +176,9 @@ final class NowPlayingData {
 
     private func loadLyrics(_ t: PlayableTrack, _ k: String, _ client: SubsonicClient) async {
         guard lyrics[k] == nil || lyricsRetry.contains(k) else { return }
-        lyricsRetry.remove(k)
+        // A retry after a failure starts from `.none`: back to loading, or
+        // its answer would be thrown away below (Codex review #17).
+        if lyricsRetry.remove(k) != nil, lyrics[k] == LyricsState.none { lyrics[k] = .loading }
         if lyrics[k] == nil { lyrics[k] = .loading }
         let gen = accountGeneration
         do {
@@ -358,17 +362,31 @@ final class NowPlayingData {
         ratings.set(value, provider: t.provider, songId: t.id)
         let stars = RatingScale.serverRating(local: value)
         guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
+        // One push at a time per song, always the latest value: a quick
+        // 2★ then 5★ can't land out of order and leave 2★ on the server
+        // (Android YoinRepository skips superseded pushes; Codex review #19).
+        ratingPending[k] = stars
+        guard ratingPushing.insert(k).inserted else { return }
         let gen = accountGeneration
         Task {
-            do {
-                try await client.setRating(id: t.id, rating: stars)
+            defer { ratingPushing.remove(k) }
+            while let next = ratingPending.removeValue(forKey: k) {
                 guard gen == accountGeneration else { return }
-                serverRating[k] = Int(stars)
-            } catch {
-                // The local rating stands; the server catches up on the next rating.
+                do {
+                    try await client.setRating(id: t.id, rating: next)
+                    guard gen == accountGeneration else { return }
+                    serverRating[k] = Int(next)
+                } catch {
+                    // The local rating stands; the server catches up on the next rating.
+                }
             }
         }
     }
+
+    /// The newest rating waiting to go to the server, per song.
+    private var ratingPending: [String: Int32] = [:]
+    /// Songs whose rating push is in flight.
+    private var ratingPushing: Set<String> = []
 }
 
 /// The song a note is written FOR (Android NoteTarget), captured with its

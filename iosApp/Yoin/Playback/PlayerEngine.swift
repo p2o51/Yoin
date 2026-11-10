@@ -44,6 +44,11 @@ final class PlayerEngine {
     /// The user wants sound: true from play until pause, even while buffering.
     private(set) var isPlaying = false
     private(set) var isBuffering = false
+    /// The output itself said it is waiting for data (AVPlayer's
+    /// waitingToPlay): the lock screen's clock stops until it plays again
+    /// (Codex review 2026-11-10 #22). Outputs that never report it (Spotify)
+    /// leave it false.
+    private(set) var outputStalled = false
     private(set) var shuffle = false
     private(set) var repeatMode: RepeatMode = .all
     /// Ticks live here; see [PlaybackProgress].
@@ -114,6 +119,8 @@ final class PlayerEngine {
         var submitted = false
         var listenedSec: Double = 0
         var lastTickSec: Double?
+        /// When the last tick came, on the monotonic clock.
+        var lastTickAt: Double = ProcessInfo.processInfo.systemUptime
     }
 
     init(output: any AudioOutput, shuffler: @escaping ([QueueItem]) -> [QueueItem] = { $0.shuffled() }) {
@@ -163,6 +170,7 @@ final class PlayerEngine {
         failure = nil
         isPlaying = false
         isBuffering = false
+        outputStalled = false
         progress.positionSec = 0
         progress.durationSec = items[0].track.durationSec
         onStateChange?()
@@ -186,6 +194,7 @@ final class PlayerEngine {
         consecutiveFailures = 0
         isPlaying = false
         isBuffering = false
+        outputStalled = false
         ended = false
         preloadedID = nil
         preloadedURL = nil
@@ -224,6 +233,7 @@ final class PlayerEngine {
         // The output's own clock is the truth at the moment of the pause.
         progress.positionSec = output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0)
         scrobble.lastTickSec = progress.positionSec
+        scrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
         onStateChange?()
     }
 
@@ -281,6 +291,7 @@ final class PlayerEngine {
         progress.positionSec = target
         // A seek is a jump, not listening time.
         scrobble.lastTickSec = target
+        scrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
         onStateChange?()
     }
 
@@ -514,6 +525,7 @@ final class PlayerEngine {
         progress.positionSec = Double(offset)
         // A seek is a jump, not listening time.
         scrobble.lastTickSec = Double(offset)
+        scrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
         onStateChange?()
     }
 
@@ -534,11 +546,15 @@ final class PlayerEngine {
     }
 
     private func countListening(to sec: Double) {
-        defer { scrobble.lastTickSec = sec }
+        let now = ProcessInfo.processInfo.systemUptime
+        let wall = now - scrobble.lastTickAt
+        defer { scrobble.lastTickSec = sec; scrobble.lastTickAt = now }
         guard isPlaying, externalTrack == nil, let last = scrobble.lastTickSec, let track = currentItem?.track else { return }
         let delta = sec - last
-        // Ticks come every 0.25 s; anything wider is a seek or a stall, not listening.
-        guard delta > 0, delta < 2 else { return }
+        // Ticks come every 0.25 s, but a busy main thread can hold them back:
+        // the playhead moving no faster than real time is listening, however
+        // late the tick (Codex review 2026-11-10 #23); faster is a seek.
+        guard delta > 0, delta < 2 || delta <= wall + 0.5 else { return }
         // Announced (now playing, a history row) once the output really plays it: a start that
         // failed, or was retried, isn't a play.
         announceIfNeeded()
@@ -563,6 +579,7 @@ final class PlayerEngine {
         output.pause()
         isPlaying = false
         isBuffering = false
+        outputStalled = false
         failure = PlaybackFailure(track: track, message: message, network: true)
         onEvent?(.failed(track: track, message: message))
         onStateChange?()
@@ -576,6 +593,7 @@ final class PlayerEngine {
             output.stop()
             isPlaying = false
             isBuffering = false
+            outputStalled = false
             ended = true
             failure = PlaybackFailure(track: track, message: message, network: false)
             onEvent?(.queueFailed)
@@ -597,6 +615,7 @@ final class PlayerEngine {
     private func reachEnd() {
         isPlaying = false
         isBuffering = false
+        outputStalled = false
         ended = true
         preloadedID = nil
         preloadedURL = nil
@@ -670,6 +689,9 @@ extension PlayerEngine: AudioOutputEvents {
 
     func outputIsBufferingDidChange(_ buffering: Bool) {
         if isBuffering != buffering { isBuffering = buffering }
+        guard outputStalled != buffering else { return }
+        outputStalled = buffering
+        onStateChange?()
     }
 
     func outputDidAdvanceToPreloaded() {
@@ -734,6 +756,7 @@ extension PlayerEngine: AudioOutputEvents {
         failure = nil
         consecutiveFailures = 0
         isBuffering = false
+        outputStalled = false
         isPlaying = playing
         onStateChange?()
     }
@@ -744,6 +767,7 @@ extension PlayerEngine: AudioOutputEvents {
         if !playing {
             progress.positionSec = output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0)
             scrobble.lastTickSec = progress.positionSec
+            scrobble.lastTickAt = ProcessInfo.processInfo.systemUptime
         }
         onStateChange?()
     }

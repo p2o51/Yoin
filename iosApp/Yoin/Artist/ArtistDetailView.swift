@@ -473,7 +473,7 @@ struct ArtistDetailView: View {
                         if latest {
                             Text("Latest").yoinRole(Tokens.type.bodySmall, weight: .medium).foregroundStyle(app.primary)
                         }
-                        Text(r.kind.rawValue).yoinRole(Tokens.type.bodySmall, weight: .medium)
+                        Text(r.kind.label).yoinRole(Tokens.type.bodySmall, weight: .medium)
                             .foregroundStyle(app.onSurfaceVariant)
                         HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
                             Text("\(r.trackCount)").monospacedDigit()

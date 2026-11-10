@@ -50,8 +50,6 @@ final class FavoritesStore {
     /// Bumps on every reset (sign-in / sign-out / another source): a write that answers after it touches
     /// nothing (Codex C10).
     @ObservationIgnored private var generation = 0
-    /// Per song, the newest tap's number: only that tap's failure may roll the heart back.
-    @ObservationIgnored private var revisions: [String: Int] = [:]
 
     /// Flips the heart. Subsonic stars / unstars; Apple Music only adds to
     /// the library (an added song stays added). Without a client (mock) the
@@ -88,35 +86,59 @@ final class FavoritesStore {
         }
     }
 
-    /// The heart flips at once; [send] tells the source. Success records the source's new answer, failure
-    /// rolls back, each only for the same account generation and the newest tap on the song.
+    /// The heart flips at once; [send] tells the source. Writes for one song
+    /// go out one at a time, newest intent last (Android serializes them with
+    /// a mutex): a quick on→off can't land out of order, and a failure rolls
+    /// the heart back to what the source last confirmed, never to a stale
+    /// `was` that no write ever reached (Codex review #18). All only for the
+    /// same account generation.
     func write(provider: String, songId: String, target: Bool, was: Bool,
                send: (@MainActor () async throws -> Void)?) {
         let k = Self.key(provider: provider, songId: songId)
         let gen = generation
-        let rev = (revisions[k] ?? 0) + 1
-        revisions[k] = rev
+        if confirmed[k] == nil { confirmed[k] = was }
         chosen[k] = target
         onWrite?(provider, songId)
         guard let send else { return }
+        pending[k] = (target, send)
+        guard sending.insert(k).inserted else { return }
         Task {
-            do {
-                try await send()
-                guard gen == generation else { return }
-                reported[k] = target
-            } catch {
-                log.error("heart write failed: \(ServerSession.message(for: error), privacy: .public)")
-                guard gen == generation, revisions[k] == rev else { return }
-                withAnimation(Yoin.effects) { chosen[k] = was }
+            defer { if gen == generation { sending.remove(k) } }
+            while gen == generation, let next = pending.removeValue(forKey: k) {
+                let (want, push) = next
+                // Already what the source holds (on→off→on before the first went out).
+                if want == confirmed[k] { continue }
+                do {
+                    try await push()
+                    guard gen == generation else { return }
+                    confirmed[k] = want
+                    reported[k] = want
+                } catch {
+                    log.error("heart write failed: \(ServerSession.message(for: error), privacy: .public)")
+                    guard gen == generation else { return }
+                    // A newer tap is queued: it decides. Otherwise back to the source's value.
+                    if pending[k] == nil, let c = confirmed[k] {
+                        withAnimation(Yoin.effects) { chosen[k] = c }
+                    }
+                }
             }
         }
     }
+
+    /// Per song, the value the source last confirmed (or held before the first tap).
+    @ObservationIgnored private var confirmed: [String: Bool] = [:]
+    /// Per song, the newest write not yet sent.
+    @ObservationIgnored private var pending: [String: (Bool, @MainActor () async throws -> Void)] = [:]
+    /// Songs with a write loop running.
+    @ObservationIgnored private var sending: Set<String> = []
 
     /// Sign-in / sign-out / another source: the user's taps and the source's answers belong to the old one.
     func reset() {
         generation += 1
         chosen = [:]
         reported = [:]
-        revisions = [:]
+        confirmed = [:]
+        pending = [:]
+        sending = []
     }
 }

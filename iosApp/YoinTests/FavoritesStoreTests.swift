@@ -42,31 +42,55 @@ final class FavoritesStoreTests: XCTestCase {
         XCTAssertFalse(hearts.isFavorite(provider: "subsonic", songId: "s3", known: false))
     }
 
-    /// Codex C10: an older write's failure never undoes a newer tap, and nothing lands after a reset.
-    func test_should_rollBackOnlyTheNewestTap_when_writesFailOutOfOrder() async {
+    /// Codex C10 + 2026-11-10 review #18: one write per song at a time, the
+    /// newest intent last; a failure goes back to what the source confirmed,
+    /// and nothing lands after a reset.
+    func test_should_sendNewestIntentInOrder_andRollBackToConfirmed() async {
         let hearts = FavoritesStore()
         var release: [CheckedContinuation<Void, Error>] = []
         func send() async throws { try await withCheckedThrowingContinuation { release.append($0) } }
-        // off → on (A), on → off (B), off → on (C): three requests in flight.
+        // off → on (A), on → off (B), off → on (C): only A goes out, C waits, B is superseded.
         hearts.write(provider: "subsonic", songId: "s1", target: true, was: false, send: send)
         hearts.write(provider: "subsonic", songId: "s1", target: false, was: true, send: send)
         hearts.write(provider: "subsonic", songId: "s1", target: true, was: false, send: send)
-        while release.count < 3 { await Task.yield() }
-        XCTAssertTrue(hearts.isFavorite(provider: "subsonic", songId: "s1"))
-        // A (an older true) fails: the newest tap (C, also true) stands.
-        release[0].resume(throwing: URLError(.timedOut))
+        while release.count < 1 { await Task.yield() }
         for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(release.count, 1, "one write in flight per song")
         XCTAssertTrue(hearts.isFavorite(provider: "subsonic", songId: "s1"))
-        // C fails: back to what C replaced.
-        release[2].resume(throwing: URLError(.timedOut))
+        // A fails: C is queued, so the heart stays on and C goes out.
+        release[0].resume(throwing: URLError(.timedOut))
+        while release.count < 2 { await Task.yield() }
+        XCTAssertTrue(hearts.isFavorite(provider: "subsonic", songId: "s1"))
+        // C fails too: back to what the source holds (off).
+        release[1].resume(throwing: URLError(.timedOut))
         for _ in 0..<5 { await Task.yield() }
         XCTAssertFalse(hearts.isFavorite(provider: "subsonic", songId: "s1"))
+    }
 
-        // After a reset (another account) a late success reports nothing.
-        hearts.reset()
-        release[1].resume()
+    /// Codex review #18's case: off, quick on → off, both would fail: ends off, not a fake heart.
+    func test_should_endOff_when_quickOnOffAndFirstFails() async {
+        let hearts = FavoritesStore()
+        var release: [CheckedContinuation<Void, Error>] = []
+        func send() async throws { try await withCheckedThrowingContinuation { release.append($0) } }
+        hearts.write(provider: "subsonic", songId: "s2", target: true, was: false, send: send)
+        hearts.write(provider: "subsonic", songId: "s2", target: false, was: true, send: send)
+        while release.count < 1 { await Task.yield() }
+        release[0].resume(throwing: URLError(.timedOut))
         for _ in 0..<5 { await Task.yield() }
-        XCTAssertFalse(hearts.hasReport(provider: "subsonic", songId: "s1"))
+        XCTAssertEqual(release.count, 1, "off is what the source already holds: nothing to send")
+        XCTAssertFalse(hearts.isFavorite(provider: "subsonic", songId: "s2"))
+    }
+
+    func test_should_reportNothing_when_successLandsAfterReset() async {
+        let hearts = FavoritesStore()
+        var release: [CheckedContinuation<Void, Error>] = []
+        func send() async throws { try await withCheckedThrowingContinuation { release.append($0) } }
+        hearts.write(provider: "subsonic", songId: "s3", target: true, was: false, send: send)
+        while release.count < 1 { await Task.yield() }
+        hearts.reset()
+        release[0].resume()
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertFalse(hearts.hasReport(provider: "subsonic", songId: "s3"))
     }
 
     func test_should_forgetReports_when_reset() {

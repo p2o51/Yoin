@@ -288,8 +288,8 @@ struct TrackMenuSheet: View {
         var edit: [Row] = []
         if context.kind == .playlist, let id = context.playlistId, let index = context.index,
            actions.canEditSongs(model.playlistInfo(id), store: store) {
-            edit.append(Row(label: String(localized: "Remove from playlist"), icon: "delete") { [store] in
-                PlaylistActions.shared.remove(at: index, from: id, store: store)
+            edit.append(Row(label: String(localized: "Remove from playlist"), icon: "delete") { [store, track] in
+                PlaylistActions.shared.remove(at: index, from: id, store: store, expecting: track)
             })
         }
         return [queue, go, edit].filter { !$0.isEmpty }
