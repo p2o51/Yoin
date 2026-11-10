@@ -15,7 +15,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -221,6 +223,9 @@ private fun CellWall(
     lift: MemoryGridLift?,
     modifier: Modifier,
 ) {
+    // The tap handlers outlive recomposition (their keys don't change), so read the latest callback: it
+    // captures the current selection, which a second tap on the same cell clears.
+    val currentOnCellClick by rememberUpdatedState(onCellClick)
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val gapPx = with(LocalDensity.current) { gap.toPx() }
         val cellDp = (maxWidth - gap * (columns - 1)) / columns
@@ -250,7 +255,7 @@ private fun CellWall(
                                 val column = (tap.x / (cell + gapPx)).toInt().coerceIn(0, columns - 1)
                                 val row = (tap.y / (cell + gapPx)).toInt().coerceIn(0, rows - 1)
                                 val index = if (columnMajor) column * rows + row else row * columns + column
-                                if (index in cells.indices && !cells[index].isEmpty) onCellClick(index)
+                                if (index in cells.indices && !cells[index].isEmpty) currentOnCellClick?.invoke(index)
                             }
                         }
                     },
@@ -313,6 +318,9 @@ private fun MonthQuads(
     modifier: Modifier,
 ) {
     val locale = LocalConfiguration.current.locales[0]
+    // The tap handlers outlive recomposition (their keys don't change), so read the latest callback: it
+    // captures the current selection, which a second tap on the same cell clears.
+    val currentOnCellClick by rememberUpdatedState(onCellClick)
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         cells.withIndex().chunked(columns).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(if (columns > 4) 8.dp else 12.dp)) {
@@ -326,7 +334,9 @@ private fun MonthQuads(
                             .semantics { contentDescription = MonthDescription.format(cell.start) }
                             .then(
                                 if (onCellClick != null && !cell.isEmpty) {
-                                    Modifier.pointerInput(index) { detectTapGestures { onCellClick(offset + index) } }
+                                    Modifier.pointerInput(index) {
+                                        detectTapGestures { currentOnCellClick?.invoke(offset + index) }
+                                    }
                                 } else {
                                     Modifier
                                 },
