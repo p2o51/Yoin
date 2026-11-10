@@ -38,6 +38,8 @@ enum DetailCacheDTO {
         var songCount: Int?
         var durationSec: Int?
         var genre: String?
+        /// The release's version tag (Album.version); absent in pages stored before it.
+        var version: String? = nil
     }
 
     struct Entry: Codable, Sendable, Equatable {
@@ -132,7 +134,7 @@ struct DetailCacheCodec {
         .init(provider: a.id.provider, id: a.id.rawId, title: a.title, artist: a.artist, year: a.year,
               cover: coverKey(a.palette), tracks: a.tracks.map(dto), rating: a.rating, kind: a.kind.rawValue,
               artistId: a.artistId, starred: a.starred, playCount: a.playCount, created: a.created,
-              songCount: a.songCount, durationSec: a.durationSec, genre: a.genre)
+              songCount: a.songCount, durationSec: a.durationSec, genre: a.genre, version: a.version)
     }
 
     func dtoAlbums(_ a: [Album]) -> [DetailCacheDTO.Album] { a.map(dto) }
@@ -176,7 +178,7 @@ struct DetailCacheCodec {
               palette: palette(a.cover, a.id), tracks: a.tracks.map(track), rating: a.rating,
               kind: ReleaseKind(rawValue: a.kind) ?? .album, artistId: a.artistId, starred: a.starred,
               playCount: a.playCount, created: a.created, songCount: a.songCount, durationSec: a.durationSec,
-              genre: a.genre)
+              genre: a.genre, version: a.version)
     }
 
     func entry(_ e: DetailCacheDTO.Entry) -> PlaylistEntry { PlaylistEntry(album: album(e.album), track: track(e.track)) }

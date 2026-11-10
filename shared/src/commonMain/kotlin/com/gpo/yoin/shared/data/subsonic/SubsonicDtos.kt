@@ -100,6 +100,8 @@ internal data class AlbumDto(
     val played: String? = null,
     val song: List<SongDto> = emptyList(),
     val releaseTypes: List<String> = emptyList(),
+    /** OpenSubsonic: the release's version ("Deluxe", "全景声"), from the files' ALBUMVERSION tag. */
+    val version: String? = null,
 )
 
 @Serializable

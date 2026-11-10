@@ -148,4 +148,14 @@ final class SubsonicMappingTests: XCTestCase {
         XCTAssertEqual(LibraryStore.yearMonth("2024-03-17T10:00:00Z"), "2024.03")
         XCTAssertEqual(LibraryStore.yearMonth(nil), "")
     }
+
+    /// #154: the version shows as a tag, so the " (version)" the server appended to the name goes.
+    func test_should_dropTheAppendedVersion_onlyWhenTheNameEndsWithIt() {
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights (Deluxe)", "Deluxe"), "Midnights")
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights (Deluxe)", " Deluxe "), "Midnights")
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights", "Deluxe"), "Midnights")
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights (Deluxe) Live", "Deluxe"), "Midnights (Deluxe) Live")
+        XCTAssertEqual(Album.nameWithoutVersion("(全景声)", "全景声"), "(全景声)")
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights (Deluxe)", nil), "Midnights (Deluxe)")
+    }
 }

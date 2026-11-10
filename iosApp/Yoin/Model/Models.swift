@@ -114,6 +114,28 @@ struct Album: Identifiable, Hashable, Sendable {
     var songCount: Int? = nil
     var durationSec: Int? = nil
     var genre: String? = nil
+    /// Which version of the release this is, as the server names it ("Deluxe", "全景声"; OpenSubsonic
+    /// `version`), shown as a tag after the name, never translated (Android Album.version, #154).
+    var version: String? = nil
+
+    /// The name without the " (version)" the server appended, where the version shows as a tag.
+    var titleWithoutVersion: String { Self.nameWithoutVersion(title, version) }
+
+    /// [name] without a trailing " ([version])"; unchanged unless it ends exactly so (shared
+    /// `albumNameWithoutVersion`, Android Album.kt).
+    static func nameWithoutVersion(_ name: String, _ version: String?) -> String {
+        guard let v = version?.trimmingCharacters(in: .whitespaces), !v.isEmpty else { return name }
+        let suffix = " (\(v))"
+        guard name.hasSuffix(suffix) else { return name }
+        let rest = String(name.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? name : rest
+    }
+
+    /// The version to show as a tag, if any.
+    var versionTag: String? {
+        guard let v = version?.trimmingCharacters(in: .whitespaces), !v.isEmpty else { return nil }
+        return v
+    }
 
     var coverURL: URL? { palette.cover?.url }
     /// Tracks loaded, else the server's count.

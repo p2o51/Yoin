@@ -899,10 +899,12 @@ struct AlbumItem<Mark: View>: View {
                 .overlay(alignment: .topTrailing) { if onCover { mark() } }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 2) {
-                    Text(album.title)
-                        .font(YoinFont.font(size: titleSize, YoinFont.Axes(weight: 600, round: 100)))
-                        .homeLine(titleSize, titleLineHeight)
-                        .foregroundStyle(s.onSurface)
+                    AlbumVersionTitle(album: album, scheme: s) { name in
+                        Text(name)
+                            .font(YoinFont.font(size: titleSize, YoinFont.Axes(weight: 600, round: 100)))
+                            .homeLine(titleSize, titleLineHeight)
+                            .foregroundStyle(s.onSurface)
+                    }
                     // A Spotify cover: the mark at the title's end instead (CoverMarks).
                     if !onCover {
                         Spacer(minLength: 0)

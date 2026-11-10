@@ -393,10 +393,19 @@ struct LibraryView: View {
                     .zoomSource(item.id, zoomNS, tile: "library")
                 Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
                 // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
-                Text(item.title)
-                    .lineLimit(1)
-                    .yoinRole(Tokens.type.titleSmall)
-                    .foregroundStyle(scheme.onSurface)
+                if let album = item.album, !isArtist {
+                    AlbumVersionTitle(album: album, scheme: scheme) { name in
+                        Text(name)
+                            .lineLimit(1)
+                            .yoinRole(Tokens.type.titleSmall)
+                            .foregroundStyle(scheme.onSurface)
+                    }
+                } else {
+                    Text(item.title)
+                        .lineLimit(1)
+                        .yoinRole(Tokens.type.titleSmall)
+                        .foregroundStyle(scheme.onSurface)
+                }
                 Text(gridSubtitle(item))
                     .lineLimit(1)
                     .yoinRole(Tokens.type.bodySmall)

@@ -432,14 +432,17 @@ struct AlbumDetailView: View {
                 // The ← itself is drawn once above both twins (backButton).
                 Color.clear.frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(album.title)
-                        .lineLimit(1)
-                        .yoinRole(Tokens.type.headlineSmall)
-                        // Light Strip: over the feathered spectrum the cover's
-                        // primary is the strip's own hue, so it turns to body ink.
-                        .foregroundStyle(white ? .white : stripBar && !dark
-                                         ? s.primary.mix(with: app.onSurface, by: smooth(p, 0.4, 0.8), in: .perceptual)
-                                         : s.primary)
+                    // The version as a tag after the name (Android AlbumHeader, #154).
+                    AlbumVersionTitle(album: album, scheme: s, onBar: white) { name in
+                        Text(name)
+                            .lineLimit(1)
+                            .yoinRole(Tokens.type.headlineSmall)
+                            // Light Strip: over the feathered spectrum the cover's
+                            // primary is the strip's own hue, so it turns to body ink.
+                            .foregroundStyle(white ? .white : stripBar && !dark
+                                             ? s.primary.mix(with: app.onSurface, by: smooth(p, 0.4, 0.8), in: .perceptual)
+                                             : s.primary)
+                    }
                     // DetailMetaLine in bodyMedium, groups 12 apart, no separators:
                     // album [artist] [Album] [year]; playlist [owner] [Playlist].
                     // The kind is Medium in primary. The white twin over the bar:

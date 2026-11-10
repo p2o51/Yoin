@@ -463,9 +463,11 @@ struct ArtistDetailView: View {
                 EntityBackdrop(entity: .album, palette: r.palette, seed: r.seed, size: 56, stroke: app.primary)
                 Spacer().frame(width: 12)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(r.title).lineLimit(1)
-                        .yoinRole(Tokens.type.titleMedium)
-                        .foregroundStyle(app.onSurface)
+                    AlbumVersionTitle(album: r, scheme: app) { name in
+                        Text(name).lineLimit(1)
+                            .yoinRole(Tokens.type.titleMedium)
+                            .foregroundStyle(app.onSurface)
+                    }
                     // MetaLine (bodySmall): Kind groups in Medium (Latest in
                     // primary, the kind in onSurfaceVariant), then a Stat:
                     // the count Medium tabular onSurface, the unit at 60 %.

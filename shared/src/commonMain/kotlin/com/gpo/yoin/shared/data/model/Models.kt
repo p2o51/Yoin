@@ -116,7 +116,16 @@ data class AlbumInfo(
     val songs: List<SongInfo>,
     /** OpenSubsonic (Navidrome) `played`: ISO-8601 time of the user's last play of the album; null when absent. */
     val played: String?,
+    /**
+     * Which version of the release this is, as the server names it (OpenSubsonic `version`: "Deluxe",
+     * "全景声"); shown as it comes, never translated. Null when the server doesn't say (Android Album.version).
+     */
+    val version: String? = null,
 ) {
+    /** [name] without the " (version)" a server appends to it (Android `albumNameWithoutVersion`). */
+    val nameWithoutVersion: String
+        get() = albumNameWithoutVersion(name, version)
+
     /** The constructor from before [played] existed (Swift: the init without `played:`). */
     constructor(
         ref: MediaRef, id: String, name: String, artist: String?, artistId: String?, year: Int?,
@@ -125,8 +134,27 @@ data class AlbumInfo(
         songs: List<SongInfo>,
     ) : this(
         ref, id, name, artist, artistId, year, songCount, durationSec, coverArtId, starred, starredAt,
-        userRating, playCount, created, genre, releaseType, songs, null,
+        userRating, playCount, created, genre, releaseType, songs, null, null,
     )
+
+    /** The constructor from before [version] existed (Swift: the init with `played:` and no `version:`). */
+    constructor(
+        ref: MediaRef, id: String, name: String, artist: String?, artistId: String?, year: Int?,
+        songCount: Int?, durationSec: Int?, coverArtId: String, starred: Boolean, starredAt: String?,
+        userRating: Int?, playCount: Int?, created: String?, genre: String?, releaseType: String?,
+        songs: List<SongInfo>, played: String?,
+    ) : this(
+        ref, id, name, artist, artistId, year, songCount, durationSec, coverArtId, starred, starredAt,
+        userRating, playCount, created, genre, releaseType, songs, played, null,
+    )
+}
+
+/** [name] without a trailing " ([version])"; [name] unchanged unless it ends exactly so (Android Album.kt). */
+fun albumNameWithoutVersion(name: String, version: String?): String {
+    val v = version?.trim()?.takeIf(String::isNotEmpty) ?: return name
+    val suffix = " ($v)"
+    if (!name.endsWith(suffix)) return name
+    return name.removeSuffix(suffix).trimEnd().ifEmpty { name }
 }
 
 @Serializable
