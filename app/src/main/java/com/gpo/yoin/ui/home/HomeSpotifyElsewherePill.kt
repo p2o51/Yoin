@@ -1,10 +1,6 @@
 package com.gpo.yoin.ui.home
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +38,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.ServiceMarks
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.delay
 
@@ -96,10 +93,10 @@ internal fun HomeSpotifyElsewherePill(
     AnimatedVisibility(
         visible = visible && elsewhere != null,
         modifier = modifier,
-        enter = fadeIn(YoinMotion.effectsSpring()) +
-            scaleIn(YoinMotion.spatialSpring(), initialScale = 0.85f, transformOrigin = PillOrigin),
-        exit = fadeOut(YoinMotion.effectsSpring()) +
-            scaleOut(YoinMotion.spatialSpring(), targetScale = 0.85f, transformOrigin = PillOrigin),
+        enter = YoinMotion.fadeIn(YoinMotionRole.Expressive) +
+            YoinMotion.scaleIn(YoinMotionRole.Expressive, initialScale = 0.85f, transformOrigin = PillOrigin),
+        exit = YoinMotion.fadeOut(YoinMotionRole.Expressive) +
+            YoinMotion.scaleOut(YoinMotionRole.Expressive, targetScale = 0.85f, transformOrigin = PillOrigin),
     ) {
         val item = shown.value ?: return@AnimatedVisibility
         val description = stringResource(R.string.home_spotify_elsewhere_cd, item.trackTitle, item.artistName)
