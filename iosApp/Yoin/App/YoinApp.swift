@@ -14,6 +14,7 @@ struct YoinApp: App {
         WindowGroup {
             RootView()
         }
+        .commands { YoinCommands(model: AppModel.shared) }
     }
 }
 

@@ -10,12 +10,13 @@ struct SectionTitle: View {
     }
 }
 
-/// Spring press feedback for solid content.
+/// Spring press feedback for solid content; under an iPad pointer (and on a Mac) the card lifts toward it.
 struct PressScale: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(Yoin.spatialFast, value: configuration.isPressed)
+            .hoverEffect(.lift)
     }
 }
 
