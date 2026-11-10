@@ -1288,7 +1288,10 @@ struct AlbumDetailView: View {
         // The Strip draws in a frame that starts at the screen's top (`shift`
         // down by the safe area), so its progressive blur sees every strip.
         let shift: CGFloat = stripBar ? top : 0
-        let blurR = stripBar ? stripBlur * smooth(p, 0.55, 0.95) : 0
+        // The blur comes in with the strips, not after they've landed (51,
+        // 2026-11-10: it popped in only at the very end).
+        let blurR = stripBar ? stripBlur * smooth(p, 0.3, 0.85) : 0
+        let fade = top + stripExtend + stripFeather
         return ZStack(alignment: .topLeading) {
             ForEach(0..<n, id: \.self) { i in
                 let lag = 0.22 * CGFloat(strips[i].slot) / CGFloat(n)
@@ -1318,6 +1321,14 @@ struct AlbumDetailView: View {
                 }
                 .frame(width: sw, height: sh, alignment: .topLeading)
                 .clipped()
+                // The Strip's feather rides on each strip as it flies: its
+                // soft lower edge starts at the strip's own bottom and closes
+                // in on the screen's top as it lands, so no strip ever shows
+                // a hard bottom edge (51, 2026-11-10).
+                .mask(alignment: .topLeading) {
+                    if stripBar { stripFeatherMask(width: sw, height: sh, y: y, fade: fade, q: q) }
+                    else { Rectangle() }
+                }
                 .offset(x: x, y: y)
             }
         }
@@ -1341,24 +1352,8 @@ struct AlbumDetailView: View {
     @ViewBuilder
     private func bandMask(w: CGFloat, top: CGFloat, shift: CGFloat = 0) -> some View {
         if stripBar {
-            // A feather from the screen's top edge (51, 2026-11-06 13:22)
-            // through the safe area, `stripExtend` and `stripFeather`, down
-            // over the header's blur; the strips also blur progressively
-            // (`albumStripBlur`). The strips in flight are taller; only past
-            // the strip it fades.
-            let fade = top + stripExtend + stripFeather
-            let k = smooth(p, 0.55, 0.95)
-            VStack(spacing: 0) {
-                LinearGradient(stops: (0...12).map { i in
-                    let t = CGFloat(i) / 12
-                    let ease = t * t * (3 - 2 * t)
-                    return .init(color: .black.opacity(1 - ease * k), location: t)
-                }, startPoint: .top, endPoint: .bottom)
-                .frame(height: fade)
-                Rectangle().opacity(1 - k).frame(height: 4000)
-            }
-            .frame(width: w + 40)
-            .offset(x: -20, y: shift - top)
+            // The Strip's feather is per strip (`stripFeatherMask`).
+            Rectangle().frame(width: w + 40, height: 8000).offset(x: -20, y: -4000)
         } else if bandFade > 0 {
             let k = bandSoft
             VStack(spacing: 0) {
@@ -1376,6 +1371,35 @@ struct AlbumDetailView: View {
         } else {
             Rectangle().frame(width: w + 40, height: 8000).offset(x: -20, y: -4000)
         }
+    }
+
+    /// One flying strip's feather, in its own frame (screen top at `-y`).
+    /// Opaque down to where the fade starts, then a smoothstep to clear.
+    /// In flight (k = 0) the fade sits on the strip's own bottom, so the
+    /// strip still reads as the cover's slice; landed (k = 1) it runs from
+    /// the screen's top edge through the safe area, `stripExtend` and
+    /// `stripFeather` (51, 2026-11-06 13:22). The soft edge never drops below
+    /// a few points, so there's no hard bottom at any point of the pull.
+    @ViewBuilder
+    private func stripFeatherMask(width: CGFloat, height: CGFloat, y: CGFloat,
+                                  fade: CGFloat, q: CGFloat) -> some View {
+        let k = smooth(q, 0.2, 1)
+        // Crisp while still the cover's slice in the hero, soft once it lifts.
+        let soft = min(24, height * 0.25) * smooth(q, 0, 0.15)
+        let start = lerp(height - soft, -y, k)
+        let end = lerp(height, fade - y, k)
+        VStack(spacing: 0) {
+            Rectangle().frame(height: 4000)
+            LinearGradient(stops: (0...12).map { i in
+                let t = CGFloat(i) / 12
+                return .init(color: .black.opacity(1 - t * t * (3 - 2 * t)), location: t)
+            }, startPoint: .top, endPoint: .bottom)
+            .frame(height: max(1, end - start))
+            Color.clear.frame(height: 4000)
+        }
+        .frame(width: width)
+        .offset(y: start - 4000)
+        .frame(width: width, height: height, alignment: .topLeading)
     }
 
     /// The soft edge's blur on one piece of the list: only a piece under the
