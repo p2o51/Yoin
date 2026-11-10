@@ -1074,6 +1074,8 @@ private fun PlayingContent(
             onCastClick = onCastClick,
             backPreview = backPreview,
             onStageBack = onStageBack,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
             modifier = modifier.voteHighFrameRate(posturing),
         )
         NowPlayingPresentation.Tabletop -> TabletopPlayingContent(
@@ -2792,13 +2794,15 @@ private fun WidePlayingContent(
                             songId = state.songId,
                             coverArtUrl = state.coverArtUrl,
                             revealDirection = skipDirection,
-                            // NO shared element in Wide. A fillMaxWidth shared cover
-                            // resolves to an UNBOUNDED width in the shared-transition
-                            // lookahead and propagates Constraints.Infinity into the
-                            // shell bar's measurement — which crashes. Drop the
-                            // mini→cover morph here; the cover simply appears.
-                            sharedTransitionScope = null,
-                            animatedVisibilityScope = null,
+                            // The pill's cover grows into this one (PillMorph.Cover)
+                            // when the two columns open or close over the bar. It must
+                            // stay BOUNDED: a fillMaxWidth shared cover resolved to an
+                            // unbounded width in the shared-transition lookahead and
+                            // propagated Constraints.Infinity into the shell bar's
+                            // measurement, which crashed. The explicit size(coverSize)
+                            // below is that bound — keep it.
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
                             interactionSource = coverInteraction,
                             menu = coverMenu,
                             modifier = Modifier
@@ -3272,6 +3276,9 @@ private fun LandscapePlayingContent(
     backPreview: StageBackPreview = StageBackPreview.Rest,
     // The header arrow in Expanded steps the stage back, like system back.
     onStageBack: () -> Boolean = { false },
+    // The edge capsule's upright pill grows into the cover (PillMorph.Cover).
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val lyricsSearchBarState = rememberSearchBarState()
@@ -3439,9 +3446,11 @@ private fun LandscapePlayingContent(
                 songId = state.songId,
                 coverArtUrl = state.coverArtUrl,
                 revealDirection = skipDirection,
-                // Lookahead-safe: no shared element outside the phone column.
-                sharedTransitionScope = null,
-                animatedVisibilityScope = null,
+                // The pill's cover grows into this one. Bounded: the Box above
+                // sizes it, so the shared-transition lookahead never meets an
+                // unbounded constraint.
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
                 interactionSource = coverInteraction,
                 menu = coverMenu,
                 modifier = Modifier

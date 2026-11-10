@@ -77,7 +77,8 @@ import kotlin.math.sin
  * be pixel twins for the shell⇄detail hand-off to read as one persistent bar.
  *
  * The shared-element hooks (cover / np_title / np_artist) only engage when the
- * caller passes both scopes — the shell does, detail Activities don't.
+ * caller passes both scopes — the shell's bar and the detail windows' bars
+ * do, wherever their Now Playing takes the morph.
  *
  * [enabled] false (the pill fading out of the bar's Home edit pose) takes no
  * press, click or haptic, and looks exactly the same.
@@ -96,6 +97,9 @@ fun NowPlayingPill(
     modifier: Modifier = Modifier,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    // False where the player has no title to meet (PillMorph.Cover): only the
+    // cover travels, so the text keeps no shared element without a peer.
+    shareText: Boolean = true,
     interactionSource: MutableInteractionSource? = null,
     enabled: Boolean = true,
     onLongClick: (() -> Unit)? = null,
@@ -265,6 +269,7 @@ fun NowPlayingPill(
                     val artistText = shown.artist ?: connectionErrorMessage
 
                     val titleModifier = if (
+                        shareText &&
                         sharedTransitionScope != null &&
                         animatedVisibilityScope != null &&
                         shown.title != null
@@ -311,6 +316,7 @@ fun NowPlayingPill(
                     )
 
                     val artistModifier = if (
+                        shareText &&
                         sharedTransitionScope != null &&
                         animatedVisibilityScope != null &&
                         shown.artist != null
