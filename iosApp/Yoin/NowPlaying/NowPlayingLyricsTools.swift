@@ -148,6 +148,8 @@ struct ExpandedLyricsList: View {
         var viewport: CGFloat = 0
         var contentHeight: CGFloat = 0
         var rows: [Int: CGRect] = [:]
+        /// The window's top on the screen (global), for the screen seat.
+        var windowTop: CGFloat = 0
         /// The seat waiting out its frame: cancelled by the reader's scroll and by any newer seat.
         var seating: Task<Void, Never>?
     }
@@ -186,6 +188,7 @@ struct ExpandedLyricsList: View {
                     .coordinateSpace(.named(Self.contentSpace))
                 }
                 .scrollPosition($position)
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { offset.windowTop = $0 }
                 .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, g in
                     offset.y = g.contentOffset.y
                     offset.viewport = g.containerSize.height
@@ -239,14 +242,41 @@ struct ExpandedLyricsList: View {
         }
     }
 
+    /// Where on the SCREEN the sung line sits, wherever the lyric page is laid out (51 2026-11-08:
+    /// 「不管在什么地方播放，歌词高亮都应该在屏幕中间靠上的位置」; Android LyricsScreenSeat, #185).
+    static let screenSeat: CGFloat = 0.4
+    /// The seat never climbs above this share of the clean band, so sung lines still show above it.
+    static let seatMinFraction: CGFloat = 0.2
+
+    /// The share of the clean band (between the fades) that puts the row's centre at [screenSeat]
+    /// of a [screen]-tall window, for a lyric window [window] tall whose top is [windowTop] below the
+    /// screen's top. Held between [seatMinFraction] and the band's middle; stepped to 2 % so a point
+    /// of drift never re-seats the list (Android lyricsScreenSeatFraction).
+    static func screenSeatFraction(windowTop: CGFloat, window: CGFloat, screen: CGFloat) -> CGFloat {
+        let band = window - fadeTop - fadeBottom
+        guard band > 0, screen > 0 else { return 0.5 }
+        let raw = (screen * screenSeat - windowTop - fadeTop) / band
+        let held = min(max(raw, seatMinFraction), 0.5)
+        return (held * 50).rounded() / 50
+    }
+
+    /// The height of the window the app is drawn in (a split iPad window, not the whole screen).
+    static var screenHeight: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap(\.windows).first { $0.isKeyWindow } ?? scenes.first?.windows.first
+        return window?.bounds.height ?? 0
+    }
+
     /// The content offset that seats row [i]; nil before it has been laid out.
     private func seatY(_ i: Int) -> CGFloat? {
         guard let row = offset.rows[i], offset.viewport > 0 else { return nil }
         let bandTop = Self.fadeTop
         let bandBottom = max(bandTop, offset.viewport - Self.fadeBottom)
+        let share = Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
+                                            screen: Self.screenHeight)
         let rowTop = row.height >= bandBottom - bandTop
             ? bandTop
-            : min(max(bandTop + (bandBottom - bandTop) * 0.5 - row.height / 2, bandTop), bandBottom - row.height)
+            : min(max(bandTop + (bandBottom - bandTop) * share - row.height / 2, bandTop), bandBottom - row.height)
         let maxY = max(0, offset.contentHeight - offset.viewport)
         return min(max(row.minY - rowTop, 0), maxY)
     }
