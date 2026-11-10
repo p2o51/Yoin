@@ -50,3 +50,20 @@ final class ReplayGainTests: XCTestCase {
         XCTAssertEqual(AVAudioOutput.songId(url), "song-9")
     }
 }
+
+/// The server's now-playing view (Playback/PlaybackReport.swift, Android #130).
+final class PlaybackReportTrackerTests: XCTestCase {
+    func test_should_reportStartPauseResumeAndStop_when_thePlayerMoves() {
+        var t = PlaybackReportTracker()
+        XCTAssertEqual(t.update(songId: "a", isPlaying: true, positionMs: 0).map(\.state), [.starting])
+        XCTAssertEqual(t.update(songId: "a", isPlaying: true, positionMs: 500), [])
+        XCTAssertEqual(t.update(songId: "a", isPlaying: false, positionMs: 9_000).map(\.state), [.paused])
+        XCTAssertEqual(t.update(songId: "a", isPlaying: true, positionMs: 9_000).map(\.state), [.playing])
+        let next = t.update(songId: "b", isPlaying: true, positionMs: 0)
+        XCTAssertEqual(next.map(\.songId), ["a", "b"])
+        XCTAssertEqual(next.map(\.state), [.stopped, .starting])
+        XCTAssertEqual(next[0].positionMs, 9_000)
+        XCTAssertEqual(t.update(songId: nil, isPlaying: false, positionMs: 0).map(\.state), [.stopped])
+        XCTAssertEqual(t.update(songId: nil, isPlaying: false, positionMs: 0), [])
+    }
+}

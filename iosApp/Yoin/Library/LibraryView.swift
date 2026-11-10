@@ -242,6 +242,8 @@ struct LibraryView: View {
             }
         }
         .onChange(of: model.store.generation) { _, _ in memory.offsets = [:] }
+        // The sorts are the account's own, kept across launches.
+        .onChange(of: model.store.homeScope, initial: true) { _, scope in memory.scope = scope }
         .background(
             LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
                            startPoint: .top, endPoint: .bottom)
@@ -917,6 +919,29 @@ final class LibraryMemory {
     enum Tab: Hashable {
         case all, albums, artists, playlists, songs, favorites
 
+        var key: String {
+            switch self {
+            case .all: "all"
+            case .albums: "albums"
+            case .artists: "artists"
+            case .playlists: "playlists"
+            case .songs: "songs"
+            case .favorites: "favorites"
+            }
+        }
+
+        init?(key: String) {
+            switch key {
+            case "all": self = .all
+            case "albums": self = .albums
+            case "artists": self = .artists
+            case "playlists": self = .playlists
+            case "songs": self = .songs
+            case "favorites": self = .favorites
+            default: return nil
+            }
+        }
+
         init(_ kind: LibraryKind?) {
             switch kind {
             case nil: self = .all
@@ -937,8 +962,29 @@ final class LibraryMemory {
     case "library-favorites": .favorites
     default: nil
     }
-    var sorts: [Tab: LibrarySortOrder] = [:]
+    /// Each view's chosen order, kept per account across launches (Android LibrarySortStore).
+    var sorts: [Tab: LibrarySortOrder] = [:] {
+        didSet { if sorts != oldValue { Self.save(sorts, scope: scope, defaults: defaults) } }
+    }
     var byYou = false
+    /// The account the sorts belong to (`LibraryStore.homeScope`); a switch reads that account's.
+    var scope = "" {
+        didSet { if scope != oldValue { sorts = Self.load(scope: scope, defaults: defaults) } }
+    }
+    @ObservationIgnored var defaults: UserDefaults = .standard
+
+    nonisolated static func key(_ scope: String) -> String { "librarySorts.\(scope)" }
+
+    nonisolated static func load(scope: String, defaults: UserDefaults) -> [Tab: LibrarySortOrder] {
+        guard let raw = defaults.dictionary(forKey: key(scope)) as? [String: String] else { return [:] }
+        var out: [Tab: LibrarySortOrder] = [:]
+        for (k, v) in raw { if let t = Tab(key: k), let o = LibrarySortOrder(rawValue: v) { out[t] = o } }
+        return out
+    }
+
+    nonisolated static func save(_ sorts: [Tab: LibrarySortOrder], scope: String, defaults: UserDefaults) {
+        defaults.set(Dictionary(uniqueKeysWithValues: sorts.map { ($0.key.key, $0.value.rawValue) }), forKey: key(scope))
+    }
     @ObservationIgnored var offsets: [Tab: CGFloat] = [:]
 
     /// The tab's chosen order while still offered, else the default (Recents).

@@ -291,6 +291,7 @@ final class AppModel {
                                                queue: .main) { [weak store] _ in
             MainActor.assumeIsolated { store?.flushScrobbles() }
         }
+        watchPlaybackReports()
         player.onScrobble = { track, submission, listenedSec in
             store.scrobble(track, submission: submission)
             // Local play history (Data/History): a row when the song starts, marked once it counts with
@@ -667,6 +668,22 @@ final class AppModel {
         playback.album = album
         playback.track = track
         playback.positionSec = Int(fraction * Double(track.durationSec))
+    }
+
+    /// Play, pause and song changes go to the server's now-playing view (OpenSubsonic `playbackReport`, #130).
+    private func watchPlaybackReports() {
+        let player = player
+        withObservationTracking {
+            _ = player.isPlaying
+            _ = player.currentTrack?.id
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.store.reportPlayback(track: player.currentTrack, isPlaying: player.isPlaying,
+                                          positionSec: player.progress.positionSec)
+                self.watchPlaybackReports()
+            }
+        }
     }
 
     func select(_ s: ShellSection) {

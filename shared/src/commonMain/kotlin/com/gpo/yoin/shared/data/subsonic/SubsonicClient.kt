@@ -247,6 +247,23 @@ class SubsonicClient private constructor(
         call("scrobble", *params.toTypedArray())
     }
 
+    /**
+     * OpenSubsonic `playbackReport` (#130): the player's state for the server's now-playing view. [state] is
+     * starting / playing / paused / stopped. Never counts a play (`ignoreScrobble`): plays go through
+     * [scrobble] only, so online and offline plays count once.
+     */
+    @Throws(SubsonicException::class, CancellationException::class)
+    suspend fun reportPlayback(mediaId: String, state: String, positionMs: Long) {
+        call(
+            "reportPlayback",
+            "mediaId" to mediaId,
+            "mediaType" to "song",
+            "positionMs" to positionMs.coerceAtLeast(0L).toString(),
+            "state" to state,
+            "ignoreScrobble" to "true",
+        )
+    }
+
     // -------------------------------------------------------- playlist writes
 
     /**

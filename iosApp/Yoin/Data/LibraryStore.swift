@@ -57,6 +57,8 @@ final class LibraryStore {
     /// Subsonic plays waiting for the server, and when each song started (its submission's time).
     @ObservationIgnored let scrobbles: ScrobbleOutbox = .shared
     @ObservationIgnored private var scrobbleStarts: [String: Int64] = [:]
+    /// What the server's now-playing view was last told (Playback/PlaybackReport.swift).
+    @ObservationIgnored var playbackReports = PlaybackReportTracker()
     @ObservationIgnored private var flushingScrobbles = false
 
     /// Bumps on every sign-in / sign-out; views key their load tasks on it.
