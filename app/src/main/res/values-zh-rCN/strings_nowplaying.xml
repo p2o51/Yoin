@@ -47,10 +47,6 @@
     <string name="np_lyrics_none">暂无歌词</string>
     <string name="np_lyric_up_next">下一首 · %1$s</string>
 
-    <string name="np_dock_playing_from_album">播放自专辑</string>
-    <string name="np_dock_playing_from_playlist">播放自播放列表</string>
-    <string name="np_dock_playing_from_artist">播放自艺术家</string>
-    <string name="np_dock_now_playing">正在播放</string>
     <string name="np_from_album">播放自专辑</string>
     <string name="np_from_playlist">播放自播放列表</string>
     <string name="np_from_artist">播放自艺术家</string>
