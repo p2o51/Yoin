@@ -443,6 +443,7 @@ final class AppModel {
 
     func open(_ album: Album, tile: String? = nil) {
         zoomTiles[album.id] = tile
+        prefetch(.album(album.id.rawId))
         if isPad {
             withAnimation(Yoin.spatial) { padSelection = album }
         } else {
@@ -451,11 +452,30 @@ final class AppModel {
     }
 
     func openPlaylist(_ id: String) {
+        prefetch(.playlist(id))
         path.append(.playlist(id))
     }
 
     func openArtist(_ name: String, id: String? = nil) {
+        if let id { prefetch(.artist(id)) }
         path.append(.artist(ArtistRef(name, id: id)))
+    }
+
+    enum Prefetch { case album(String), artist(String), playlist(String) }
+
+    /// Tap-time prefetch (Android ui/detail/DetailPrefetch.kt): the page's load starts as the tap lands,
+    /// ahead of the push; the page then joins the load in flight (the store's single flight) or reads it.
+    func prefetch(_ target: Prefetch) {
+        guard store.isReal else { return }
+        let store = store
+        Task(priority: .userInitiated) {
+            switch target {
+            case .album(let id) where !id.hasPrefix("song:"): await store.loadAlbum(id)
+            case .artist(let id): await store.loadArtist(id)
+            case .playlist(let id): await store.loadPlaylist(id)
+            default: break
+            }
+        }
     }
 
     /// An Activities card's real target (Android `HomeEntryTarget`): its album, artist or playlist page.

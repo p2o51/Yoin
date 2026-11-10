@@ -19,6 +19,15 @@ enum DetailCacheDTO {
         var playCount: Int?
         var disc: Int?
         var bitRateKbps: Int?
+        /// The format and audio facts (quality tag, volume leveling); absent in pages cached before them.
+        var suffix: String? = nil
+        var trackGainDb: Double? = nil
+        var albumGainDb: Double? = nil
+        var trackPeak: Double? = nil
+        var albumPeak: Double? = nil
+        var samplingRate: Int? = nil
+        var bitDepth: Int? = nil
+        var channelCount: Int? = nil
     }
 
     struct Album: Codable, Sendable, Equatable {
@@ -127,7 +136,9 @@ struct DetailCacheCodec {
     func dto(_ t: Track) -> DetailCacheDTO.Track {
         .init(provider: t.id.provider, id: t.id.rawId, number: t.number, title: t.title, durationSec: t.durationSec,
               rating: t.rating, artist: t.artist, starred: t.starred, playCount: t.playCount, disc: t.disc,
-              bitRateKbps: t.bitRateKbps)
+              bitRateKbps: t.bitRateKbps, suffix: t.suffix, trackGainDb: t.audio?.trackGainDb,
+              albumGainDb: t.audio?.albumGainDb, trackPeak: t.audio?.trackPeak, albumPeak: t.audio?.albumPeak,
+              samplingRate: t.audio?.samplingRate, bitDepth: t.audio?.bitDepth, channelCount: t.audio?.channelCount)
     }
 
     func dto(_ a: Album) -> DetailCacheDTO.Album {
@@ -170,7 +181,15 @@ struct DetailCacheCodec {
     func track(_ t: DetailCacheDTO.Track) -> Track {
         Track(id: MediaId(provider: t.provider, rawId: t.id), number: t.number, title: t.title,
               durationSec: t.durationSec, rating: t.rating, artist: t.artist, starred: t.starred,
-              playCount: t.playCount, disc: t.disc, bitRateKbps: t.bitRateKbps)
+              playCount: t.playCount, disc: t.disc, bitRateKbps: t.bitRateKbps, suffix: t.suffix,
+              audio: Self.audio(t))
+    }
+
+    static func audio(_ t: DetailCacheDTO.Track) -> TrackAudio? {
+        let a = TrackAudio(trackGainDb: t.trackGainDb, albumGainDb: t.albumGainDb, trackPeak: t.trackPeak,
+                           albumPeak: t.albumPeak, samplingRate: t.samplingRate, bitDepth: t.bitDepth,
+                           channelCount: t.channelCount)
+        return a == TrackAudio() ? nil : a
     }
 
     func album(_ a: DetailCacheDTO.Album) -> Album {
