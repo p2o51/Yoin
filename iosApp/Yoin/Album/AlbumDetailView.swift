@@ -53,6 +53,8 @@ struct AlbumDetailView: View {
     private var album: Album { playlist?.asAlbum ?? model.resolved(routeAlbum) }
     private var isMock: Bool { routeAlbum.id.provider == "mock" }
 
+    /// Shown in iPad's detail column (any page there, the column's root or pushed on it).
+    @Environment(\.inPadColumn) private var inPadColumn
     @State private var p: CGFloat = ["album-list", "playlist-list"].contains(LaunchConfig.screen) ? 1
         : LaunchConfig.screen == "album-mid" ? 0.42 : 0
     /// Pull-up drag: `p` when the drag was claimed.
@@ -160,6 +162,9 @@ struct AlbumDetailView: View {
     /// 32 + bodyMedium 20) + the page dots (5 + 20) + 6 bottom (AlbumTopHeader).
     /// Playlists have no dots row: 4 + 52 + 6 (PlaylistTopHeader).
     private var headerContent: CGFloat { playlist == nil ? 4 + 52 + 25 + 6 : 4 + 52 + 6 }
+
+    /// Android's Medium threshold for a page's own width.
+    static func opensOnList(width: CGFloat) -> Bool { width >= 600 }
 
     /// Hero ⇄ list: how far each travels on the pull (MD3 shared axis, 30).
     static let axisTravel: CGFloat = 30
@@ -269,6 +274,10 @@ struct AlbumDetailView: View {
             .gesture(axisPan(width: w, travel: pullTravel))
             .onAppear {
                 pageWidth = w
+                // A tablet column, or a page at least 600 wide, opens on the track list: on an Android tablet
+                // every album page shows its songs (Medium page / Wide column: AlbumMediumOverview,
+                // AlbumWideOverview), never the flowing titles alone. A pull down still shows the hero.
+                if Self.opensOnList(width: w) || padColumn || inPadColumn, playlist == nil, p == 0 { p = 1 }
                 // Screenshots: `-pageHold "1,0.75"` = a drag from page 2 held at 0.75
                 // (the same state a real drag leaves: pageBase set, page moved 1:1).
                 if let hold = Self.pageHold {
@@ -1681,4 +1690,9 @@ enum AlbumPullHaptics {
     /// One band of the spectrum landing: faint, several in a row.
     static func band() { tick.impactOccurred(intensity: 0.35) }
     private static let tick = UIImpactFeedbackGenerator(style: .rigid)
+}
+
+extension EnvironmentValues {
+    /// The page sits in iPad's detail column (PadShell).
+    @Entry var inPadColumn = false
 }

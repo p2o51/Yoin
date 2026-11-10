@@ -131,6 +131,7 @@ private struct PadColumns: View {
                         .frame(maxHeight: .infinity)
                         .background(Yoin.surface)
                     detailColumn
+                        .environment(\.inPadColumn, true)
                         .clipShape(.rect(cornerRadius: 28))
                         .padding(.vertical, 8)
                         .padding(.trailing, 8)
