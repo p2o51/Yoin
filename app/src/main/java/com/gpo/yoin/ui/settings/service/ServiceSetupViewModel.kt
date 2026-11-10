@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * Owns every "connect an account" flow: Subsonic create/edit, Spotify
@@ -220,6 +221,9 @@ class ServiceSetupViewModel(
         val normalizedUsername = username.trim()
         val error = when {
             normalizedUrl.isBlank() -> UiText.Res(R.string.settings_setup_address_required)
+            // Not an http(s) address ("music.home:4533"): Retrofit would throw while the source is
+            // built, after Save had already written the account.
+            normalizedUrl.toHttpUrlOrNull() == null -> UiText.Res(R.string.settings_setup_check_address)
             normalizedUsername.isBlank() -> UiText.Res(R.string.settings_setup_username_required)
             password.isBlank() -> UiText.Res(R.string.settings_setup_password_required)
             else -> null

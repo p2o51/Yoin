@@ -910,11 +910,13 @@ class NowPlayingViewModel(
         )
         _lyricsActionInFlight.value = LyricsAction.Search
         viewModelScope.launch {
-            repository.applyLyricsSearchResult(
+            val applied = repository.applyLyricsSearchResult(
                 trackId = songId,
                 providerName = candidate.providerName,
                 songId = candidate.songId,
             )
+            if (!stillPlaying(songId)) return@launch
+            applied
                 .onSuccess { result ->
                     applyLyricsResult(result.lyrics, result.providerName, result.providerSongId)
                     _lyricsSearchState.value = LyricsSearchState()
@@ -950,7 +952,9 @@ class NowPlayingViewModel(
         if (_lyricsActionInFlight.value != null) return
         _lyricsActionInFlight.value = LyricsAction.Apply
         viewModelScope.launch {
-            repository.applyLyrics(trackId = songId, rawLrc = rawLrc)
+            val applied = repository.applyLyrics(trackId = songId, rawLrc = rawLrc)
+            if (!stillPlaying(songId)) return@launch
+            applied
                 .onSuccess { result ->
                     applyLyricsResult(result.lyrics, result.providerName, result.providerSongId)
                     _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_msg_lyrics_applied))
@@ -974,16 +978,16 @@ class NowPlayingViewModel(
 
         _lyricsActionInFlight.value = LyricsAction.Translate
         viewModelScope.launch {
-            when (
-                val result = repository.translateLyrics(
-                    trackId = song.id,
-                    title = song.title,
-                    artist = song.artist,
-                    lines = currentLyrics.map { it.text },
-                    currentLyricsProviderName = _currentLyricsProviderName.value,
-                    currentLyricsProviderSongId = _currentLyricsProviderSongId.value,
-                )
-            ) {
+            val result = repository.translateLyrics(
+                trackId = song.id,
+                title = song.title,
+                artist = song.artist,
+                lines = currentLyrics.map { it.text },
+                currentLyricsProviderName = _currentLyricsProviderName.value,
+                currentLyricsProviderSongId = _currentLyricsProviderSongId.value,
+            )
+            if (!stillPlaying(song.id)) return@launch
+            when (result) {
                 is YoinRepository.LyricsTranslationResult.ProviderSwitchAvailable -> {
                     pendingLyricsTranslationSwitchOffer = result.offer
                     _lyricsTranslationSwitchOffers.tryEmit(
@@ -1027,6 +1031,7 @@ class NowPlayingViewModel(
         _lyricsActionInFlight.value = LyricsAction.Translate
         viewModelScope.launch {
             repository.applyLyricsTranslationProviderSwitch(song.id, offer)
+            if (!stillPlaying(song.id)) return@launch
             _lyrics.value = offer.lyrics.toUiLyrics().mapIndexed { index, line ->
                 line.copy(translation = offer.translations[index])
             }
@@ -1710,6 +1715,15 @@ class NowPlayingViewModel(
             _currentLyricsProviderSongId.value = null
         }
     }
+
+    /**
+     * A lyric action (translate, apply, a searched pick) answers for the song it was started on.
+     * Whatever the repository keeps of it, it has kept under that song by the time it returns;
+     * what is left is this page's state, and after a skip that state is the next song's — the
+     * song change already reset it, in-flight marker included, so a late answer writes nothing.
+     */
+    private fun stillPlaying(songId: MediaId): Boolean =
+        playbackManager.playbackState.value.currentTrack?.id == songId
 
     private fun applyLyricsResult(
         lyrics: SourceLyrics,

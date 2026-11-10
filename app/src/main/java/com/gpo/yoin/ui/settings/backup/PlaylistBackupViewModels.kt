@@ -326,7 +326,10 @@ class PlaylistBackupViewModel(
 
     /** Reads the playlist again now (the page's Back up now). */
     fun backUpAgain() {
-        val backup = backup ?: return
+        // The record as stored, never the restore's view of it: with an earlier version last
+        // picked for a restore, that view carries the old songs, and backing it up would file
+        // them as what the backup held until now.
+        val backup = (uiState.value as? PlaylistBackupUiState.Content)?.backup ?: return
         if (_backingUp.value) return
         _backingUp.value = true
         viewModelScope.launch {

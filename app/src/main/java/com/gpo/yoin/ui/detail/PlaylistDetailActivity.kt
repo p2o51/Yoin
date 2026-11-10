@@ -95,7 +95,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
-                val sharePlaylist = rememberDetailShare(app.container, WebLinkKind.Playlist, playlistId, webLink = null)
+                // As on the album and artist pages: Spotify and Apple Music have a public page to send.
+                val webLink = rememberDetailWebLink(app.container, WebLinkKind.Playlist, playlistId)
+                val sharePlaylist = rememberDetailShare(app.container, WebLinkKind.Playlist, playlistId, webLink)
                 val backingUp by viewModel.backingUp.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
