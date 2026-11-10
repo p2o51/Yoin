@@ -2,11 +2,16 @@ package com.gpo.yoin.ui.settings.service
 
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.profile.ProfileCredentials
+import com.gpo.yoin.data.profile.ProfileLimitReachedException
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.testutil.MainDispatcherRule
+import com.gpo.yoin.ui.common.UiText
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -105,5 +110,32 @@ class ServiceSetupViewModelTest {
         assertTrue(form.loaded)
         assertEquals("", form.initialUrl)
         assertEquals("", form.initialUsername)
+    }
+
+    // "music.home:4533" used to pass Save: the account was written, then building its source
+    // threw on the address, leaving a saved account that could not connect.
+    @Test
+    fun should_refuseToSaveAndWriteNoAccount_when_theAddressIsNotAnHttpUrl() = runTest {
+        val viewModel = viewModel(ServiceSetupRequest(SetupService.Subsonic))
+
+        viewModel.saveSubsonicProfile("music.home:4533", "qa", "pw")
+
+        val status = viewModel.uiState.first { it.subsonic.status is SubsonicStatus.Failed }.subsonic.status
+        assertEquals(SubsonicStatus.Failed(UiText.Res(R.string.settings_setup_check_address)), status)
+        coVerify(exactly = 0) { profileManager.create(any(), any()) }
+    }
+
+    @Test
+    fun should_passTheAddressOnToSave_when_itIsAnHttpUrlWithAPort() = runTest {
+        // Where Save ends is not this test's subject: stop it at the account limit.
+        coEvery { profileManager.create(any(), any()) } throws ProfileLimitReachedException(1)
+        val viewModel = viewModel(ServiceSetupRequest(SetupService.Subsonic))
+
+        viewModel.saveSubsonicProfile("http://music.home:4533/", "qa", "pw")
+        viewModel.uiState.first { it.subsonic.status is SubsonicStatus.Failed }
+
+        coVerify(exactly = 1) {
+            profileManager.create(any(), ProfileCredentials.Subsonic("http://music.home:4533", "qa", "pw"))
+        }
     }
 }
