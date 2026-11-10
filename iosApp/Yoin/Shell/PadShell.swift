@@ -229,6 +229,10 @@ private struct PadColumns: View {
             ServerSettingsView()
         case .tips(let focus):
             TipsView(focus: focus)
+        case .allMemories:
+            AllMemoriesView()
+        case .labs:
+            LabsView()
         }
     }
 }
@@ -251,7 +255,7 @@ private struct PadDetailPlay: View {
         case .album(let a): return a
         case .artist(let ref): return model.artistPage(ref).releases.first
         case .playlist(let id): return model.playlistInfo(id).asAlbum
-        case .settings, .tips: return nil
+        case .settings, .tips, .allMemories, .labs: return nil
         case nil: return root
         }
     }

@@ -106,7 +106,17 @@ struct HomeView: View {
         .task { spotifyElsewhere.look(model) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { spotifyElsewhere.look(model) } else if phase == .background { spotifyElsewhere.reset() }
+            // Lyric Cards pick only while Yoin is in front (Android: the process lifecycle).
+            if phase == .active { LyricHighlightProcessor.shared.appBecameActive(model) }
+            else { LyricHighlightProcessor.shared.appResignedActive() }
+            if phase == .active { MemoryLedgerSource.shared.reload(model: model) }
         }
+        // The memory ledger: read when Home shows, after an account change, and when Memories closes.
+        .task(id: model.profiles.activeId) {
+            MemoryLedgerSource.shared.reload(model: model)
+            LyricHighlightProcessor.shared.appBecameActive(model)
+        }
+        .onChange(of: memories.isOpen) { _, open in if !open { MemoryLedgerSource.shared.reload(model: model) } }
         .onChange(of: model.profiles.activeId) { spotifyElsewhere.reset() }
         // Yoin starts playing: the pill has nothing to offer.
         .onChange(of: model.playback.isPlaying) { _, playing in if playing { spotifyElsewhere.dismiss() } }
@@ -206,7 +216,30 @@ struct HomeView: View {
 
     // MARK: Sections (the account's layout, Android HomeSection catalog)
 
-    private func hasContent(_ s: HomeSection, _ feed: HomeFeed) -> Bool { feed.hasContent(s) }
+    private func hasContent(_ s: HomeSection, _ feed: HomeFeed) -> Bool {
+        switch s {
+        case .memoryGrid: !(MemoryLedgerSource.shared.state?.isEmpty ?? true)
+        // The intro shows until it's answered, on a device that could run the model.
+        case .lyricHighlight: !lyricCards.isEmpty || !LyricHighlightStore.shared.introSeen
+        case .otherProfiles: !otherAccounts.isEmpty
+        default: feed.hasContent(s)
+        }
+    }
+
+    /// The account in use's lyric cards, the next to show first (Android nextToShow, up to four).
+    private var lyricCards: [LyricHighlightRow] {
+        let store = LyricHighlightStore.shared
+        _ = store.revision
+        guard model.store.isReal, let a = model.profiles.active.flatMap(MemoryLedgerSource.account(of:)) else { return [] }
+        // Never shown first, then the longest ago (Android nextToShow, without its random draw so the pager
+        // keeps its order while Home is open).
+        return store.cards(provider: a.provider, scope: a.scope).sorted {
+            ($0.lastShownAt ?? .min, $0.id) < ($1.lastShownAt ?? .min, $1.id)
+        }
+        .prefix(4).map { $0 }
+    }
+
+    private var otherAccounts: [OtherAccountItem] { HomeOtherAccounts.items(model: model) }
 
     @ViewBuilder
     private func sectionView(_ s: HomeSection, _ feed: HomeFeed) -> some View {
@@ -225,7 +258,10 @@ struct HomeView: View {
             case .rediscover: rediscover(feed.rediscover)
             case .recentlyPlayed: recentlyPlayed(feed)
             case .yourPlaylists: yourPlaylists(feed.playlists)
-            case .otherProfiles: EmptyView()
+            case .otherProfiles: OtherAccountsShelf(items: otherAccounts)
+            case .lyricHighlight: HomeLyricCardsSection(cards: lyricCards)
+            case .memoryGrid:
+                if let state = MemoryLedgerSource.shared.state { HomeMemoryLedgerSection(state: state) }
             }
         }
     }
@@ -239,8 +275,9 @@ struct HomeView: View {
         case .recentlyAdded: feed.recentAlbums + feed.recentTracks.map(\.album)
         case .rediscover: feed.rediscover.map(\.album)
         case .recentlyPlayed: feed.recentlyPlayed
-        case .yourPlaylists, .otherProfiles: []
+        case .yourPlaylists, .otherProfiles, .lyricHighlight, .memoryGrid: []
         }
+        if s == .otherProfiles { return Array(otherAccounts.prefix(3).map(\.palette)) }
         return Array(albums.prefix(3).map(\.palette))
     }
 
@@ -1302,7 +1339,8 @@ extension HomeFeed {
         case .rediscover: !rediscover.isEmpty
         case .recentlyPlayed: !recentlyPlayed.isEmpty
         case .yourPlaylists: !playlists.isEmpty
-        case .otherProfiles: false
+        // Read from their own stores (HomeView.hasContent).
+        case .otherProfiles, .lyricHighlight, .memoryGrid: false
         }
     }
 }

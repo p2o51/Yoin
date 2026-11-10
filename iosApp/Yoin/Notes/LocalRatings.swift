@@ -122,6 +122,9 @@ final class LocalRatings {
         return rows[Self.storageKey(scope: scopes.scope(for: p.provider), provider: p.provider, songId: p.songId)]
     }
 
+    /// Every account's rows (All Memories reads across accounts, #178).
+    var everyAccount: [Row] { Array(rows.values) }
+
     private var visibleRows: [Row] { rows.values.filter { scopes.isVisible(provider: $0.provider, scope: $0.scope) } }
 
     /// Every row the current account sees, "provider:songId" → value (0 for a not-rated row; see `rating(key:)`).

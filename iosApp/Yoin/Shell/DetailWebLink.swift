@@ -68,7 +68,7 @@ extension AppModel {
         case .artist(let ref):
             guard let id = ref.id else { return nil }
             return DetailLinkTarget(kind: .artist, id: MediaId(provider: store.provider, rawId: id), title: ref.name)
-        case .settings, .tips: return nil
+        case .settings, .tips, .allMemories, .labs: return nil
         case nil: return root.flatMap(Self.linkTarget(album:))
         }
     }

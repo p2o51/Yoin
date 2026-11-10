@@ -205,6 +205,11 @@ private struct SectionGlyph: View {
             case .otherProfiles:
                 box(4, 10, 12, 12, 0.9, 3); box(19, 10, 12, 12, 0.55, 3)
                 box(4, 25, 8, 2.4, 0.35, 1.2); box(19, 25, 8, 2.4, 0.35, 1.2)
+            case .lyricHighlight:
+                box(5, 9, 24, 17, 0.45, 3)
+                box(8, 13, 17, 2.4, 0.9, 1.2); box(8, 18, 12, 2.4, 0.9, 1.2)
+            case .memoryGrid:
+                for c in 0..<5 { for r in 0..<3 { box(4 + CGFloat(c) * 5.6, 9 + CGFloat(r) * 5.6, 4.4, 4.4, (c + r) % 3 == 0 ? 0.9 : 0.3, 1) } }
             }
         }
         .accessibilityHidden(true)

@@ -10,6 +10,10 @@ enum Route: Hashable {
     case settings
     /// Settings › About › Tips, optionally on one tip (Home's bubble opens it).
     case tips(focus: String?)
+    /// Home's Memories grid → All Memories (#186).
+    case allMemories
+    /// Settings › Yoin Labs (#189).
+    case labs
 }
 
 enum ShellSection: Hashable {
@@ -411,7 +415,7 @@ final class AppModel {
         case .album(let a): return a
         case .artist(let ref): return artistPage(ref).releases.first
         case .playlist(let id): return playlistInfo(id).asAlbum
-        case .settings, .tips, nil: return nil
+        case .settings, .tips, .allMemories, .labs, nil: return nil
         }
     }
 
@@ -651,7 +655,7 @@ final class AppModel {
             }
             if out.isEmpty { return page.mostPlayed }
             return Array(out.prefix(limit))
-        case .settings, .tips, nil:
+        case .settings, .tips, .allMemories, .labs, nil:
             return []
         }
     }

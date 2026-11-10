@@ -134,14 +134,17 @@ struct ServerSettingsView: View {
 
     // MARK: Features
 
-    /// Features: AI features (Yoin Labs joins it when there is one on iOS).
+    /// Features: AI features and Yoin Labs (Android #189 #191).
     private var featuresGroup: some View {
         group(String(localized: "Features")) {
             [AnyView(SettingsNavRow(title: String(localized: "AI features"), summary: geminiSummary, app: app) {
                 SettingsPage(title: String(localized: "AI features")) { app, row in
                     GeminiSettingsSection(app: app, row: row, page: true)
                 }
-            })]
+            }),
+             AnyView(SettingsNavRow(title: "Yoin Labs", summary: String(localized: "Experimental features"), app: app) {
+                LabsView()
+             })]
         }
     }
 

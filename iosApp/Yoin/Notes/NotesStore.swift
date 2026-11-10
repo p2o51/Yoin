@@ -38,6 +38,9 @@ final class NotesStore {
     /// The notes of the signed-in account (another server's notes on a song with the same id stay hidden).
     var notes: [SongNote] { stored.filter(visible) }
 
+    /// Every account's notes (All Memories reads across accounts, #178).
+    var everyAccount: [SongNote] { stored }
+
     init(fileURL: URL, now: @escaping () -> Date = Date.init, scopes: AccountScope = .shared) {
         self.fileURL = fileURL
         self.now = now

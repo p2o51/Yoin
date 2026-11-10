@@ -76,6 +76,10 @@ final class AlbumMemoryStore {
     var albums: [String: AlbumRecord] {
         visible(allAlbums) { ($0.provider, $0.scope, Self.key($0.provider, $0.albumId)) }
     }
+    /// Every account's album rows and titles (All Memories reads across accounts, #178).
+    var everyAlbum: [AlbumRecord] { Array(allAlbums.values) }
+    var everyTitle: [TitleRecord] { Array(allTitles.values) }
+
     var titles: [String: TitleRecord] {
         visible(allTitles) { ($0.provider, $0.scope, Self.key($0.provider, $0.albumId)) }
     }
