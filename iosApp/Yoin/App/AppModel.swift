@@ -254,7 +254,9 @@ final class AppModel {
         case "library-idle": isIdle = true; section = .library
         default: break
         }
-        padSelection = library.albums().first
+        // Screenshots and demos open iPad with the mock's first album in the column. A real launch opens with
+        // no column (Android: the right column appears only when a page is opened), never a made-up album.
+        if LaunchConfig.demoContent, !LaunchConfig.screen.hasPrefix("home") { padSelection = library.albums().first }
         let store = store
         let engine = player
         // Codex A39: what the engine did on its own reaches the shell (the toast); a held failure stays

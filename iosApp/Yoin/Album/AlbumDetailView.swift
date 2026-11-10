@@ -170,7 +170,10 @@ struct AlbumDetailView: View {
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            let side = min(Tokens.detail.ALBUM_COVER_WIDTH_FRACTION.cg * w, Tokens.detail.ALBUM_COVER_MAX.cg)
+            // A short container (a tablet column in landscape) also caps the cover by height, so the
+            // header, the review and the titles under it still fit above the column's Play split.
+            let side = min(Tokens.detail.ALBUM_COVER_WIDTH_FRACTION.cg * w, Tokens.detail.ALBUM_COVER_MAX.cg,
+                           max(160, geo.size.height - 470))
             let band = side + 56
             let e = smooth(p)
             let f = pageFrac

@@ -64,3 +64,17 @@ struct SelectionPill: View {
             .padding(3)
     }
 }
+
+extension View {
+    /// A horizontal shelf's ends fade instead of cutting hard where its container stops (a split's column
+    /// edge, the window edge): Android's "no mid-page truncation" (full bleed, contentPadding, edge fade).
+    func shelfEdgeFade(_ width: CGFloat = 16) -> some View {
+        mask {
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: width)
+                Rectangle()
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: width)
+            }
+        }
+    }
+}

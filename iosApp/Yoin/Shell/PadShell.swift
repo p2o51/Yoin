@@ -119,8 +119,10 @@ private struct PadColumns: View {
                 HStack(spacing: 0) {
                     // Outside a NavigationStack the floating top tab bar adds
                     // no safe area, so clear it by hand.
+                    // A bar, not padding: the feed scrolls under it with the system's soft top edge (as
+                    // under the phone's bars) instead of running into the status bar and the tab bar.
                     shellContent
-                        .safeAreaPadding(.top, 52)
+                        .safeAreaBar(edge: .top) { Color.clear.frame(height: 52) }
                         .frame(width: shell)
                     Capsule()
                         .fill(Yoin.outline)
@@ -160,6 +162,8 @@ private struct PadColumns: View {
     }
 
     @State private var wide = false
+    /// The Play split's 56 plus its 16 margin each side.
+    static let playClearance: CGFloat = 88
 
     /// The wide window's detail column (Android: every detail page is the
     /// shell's right column, docs/adaptive-principles.md): the album picked
@@ -171,6 +175,9 @@ private struct PadColumns: View {
         if let album = model.padSelection {
             NavigationStack(path: path) {
                 AlbumDetailView(album: album, padColumn: true)
+                    // The column's Play split sits over its foot: the page lays out above it, so the
+                    // titles and the list never run under the button (a short landscape column did).
+                    .safeAreaPadding(.bottom, Self.playClearance)
                     .id(album.id)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .navigationDestination(for: Route.self, destination: destination)
@@ -183,6 +190,7 @@ private struct PadColumns: View {
         } else if let first = model.path.first {
             NavigationStack(path: tailPath) {
                 destination(first)
+                    .safeAreaPadding(.bottom, Self.playClearance)
                     .id(first)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .navigationDestination(for: Route.self, destination: destination)

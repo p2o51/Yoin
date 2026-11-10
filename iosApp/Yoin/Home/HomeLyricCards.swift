@@ -12,6 +12,7 @@ struct HomeLyricCardsSection: View {
     @Environment(AppModel.self) private var model
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
+    @Environment(\.homeMargin) private var margin
     var cards: [LyricHighlightRow]
     private let store = LyricHighlightStore.shared
     private let processor = LyricHighlightProcessor.shared
@@ -26,11 +27,12 @@ struct HomeLyricCardsSection: View {
                         ForEach(cards) { card($0, s).containerRelativeFrame(.horizontal) { w, _ in min(w * 0.86, 420) } }
                     }
                     .scrollTargetLayout()
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, margin)
                 }
                 .scrollTargetBehavior(.viewAligned)
                 .scrollIndicators(.hidden)
-                .padding(.horizontal, -16)
+                .padding(.horizontal, -margin)
+                .shelfEdgeFade()
             }
         }
         .onAppear {
@@ -82,33 +84,35 @@ struct HomeLyricCardsSection: View {
 
     // MARK: Intro
 
+    /// The beta's first-use offer: compact, phone-wide on a tablet, the model's state folded into one line.
     private func intro(_ s: CoverScheme) -> some View {
         let status = processor.status ?? processor.checkNow()
-        return VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("Beta").homeType(Tokens.type.labelSmall, .semibold).foregroundStyle(s.onPrimaryContainer)
-                    .padding(.horizontal, 8).frame(height: 20).background(s.primaryContainer, in: .capsule)
-                Text("You found a beta feature").homeType(Tokens.type.titleMedium, .semibold).foregroundStyle(s.onSurface)
+                    .padding(.horizontal, 7).frame(height: 18).background(s.primaryContainer, in: .capsule)
+                Text("You found a beta feature").homeType(Tokens.type.titleSmall, .semibold).foregroundStyle(s.onSurface)
             }
-            Text(LabsCopy.introBody).homeType(Tokens.type.bodyMedium).foregroundStyle(s.onSurface)
-            Text(LabsCopy.introStatus(status)).homeType(Tokens.type.bodyMedium).foregroundStyle(s.onSurfaceVariant)
-            Text("Lines you select and share or save on the lyrics page are remembered too, and show up here.")
+            Text(LabsCopy.introBody + " " + LabsCopy.introStatus(status))
                 .homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
-            HStack(spacing: 10) {
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
                 Spacer()
                 if status == .unsupported {
                     Button("Got it") { withAnimation(Yoin.spatial) { store.introSeen = true } }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.glass).controlSize(.small)
                 } else {
                     Button("Not now") { withAnimation(Yoin.spatial) { store.introSeen = true } }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.glass).controlSize(.small)
                     Button("Turn on") { withAnimation(Yoin.spatial) { processor.setOptedIn(true) } }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(.glassProminent).controlSize(.small)
                 }
             }
         }
-        .padding(18)
-        .background(s.surfaceContainerLow, in: .rect(cornerRadius: 28))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 560, alignment: .leading)
+        .background(s.surfaceContainerLow, in: .rect(cornerRadius: 24))
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
     }
 }

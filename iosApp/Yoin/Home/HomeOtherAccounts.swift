@@ -126,6 +126,7 @@ struct OtherAccountsShelf: View {
     @Environment(AppModel.self) private var model
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
+    @Environment(\.homeMargin) private var margin
     var items: [OtherAccountItem]
     @AppStorage("homeOtherProfilesSwitchNoticeSeen") private var noticeSeen = false
     @State private var pending: OtherAccountItem?
@@ -142,10 +143,11 @@ struct OtherAccountsShelf: View {
                         .buttonStyle(PressScale())
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -16)
+            .padding(.horizontal, -margin)
+            .shelfEdgeFade()
         }
         .confirmationDialog(Text("Switch to \(pending?.profileName ?? "")?"),
                             isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),

@@ -9,6 +9,9 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     @State private var contentWidth: CGFloat = 370
+    /// The feed container's resting size, for the density (Android feedUnits).
+    @State private var feedSize = CGSize(width: 402, height: 874)
+    private var density: HomeDensity { HomeDensity(width: feedSize.width, height: feedSize.height) }
     /// Edit mode and the account's section layout (HomeEdit.swift).
     @State private var edit = HomeEditController()
     /// The Memories bubble's motion and turns (HomeMemoryBubble.swift).
@@ -187,15 +190,17 @@ struct HomeView: View {
                     HomeSkeleton(width: contentWidth, scheme: scheme)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, density.margin)
             .coordinateSpace(.named(HomeEditController.feedSpace))
             .background(HomeHoldObserver(edit: edit))
             .overlay(alignment: .topLeading) { CarriedStrip(edit: edit, covers: feed.map { covers(edit.hole ?? .activities, $0) } ?? []) }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width - 32 } action: { contentWidth = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = HomeDensity(width: $0, height: feedSize.height).content }
             .background(ScrollPullObserver(presentation: memories, enabled: !edit.isEditing && !covered) {
                 bubble.cue(.outOfReach, pill: nil)
             })
         }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { feedSize = $0 }
+        .environment(\.homeMargin, density.margin)
         .contentMargins(.bottom, 24, for: .scrollContent)
         // A carried section owns the finger: the feed doesn't scroll under it.
         .scrollDisabled(edit.carried != nil)
@@ -380,8 +385,12 @@ struct HomeView: View {
     /// as many as the preset seats and the history fills.
     private func activities(_ a: [ActivityEntry], preset: HomeRowPreset) -> some View {
         let gap = Tokens.home.ACTIVITY_ROW_GAP.cg
-        let rows = activityStops(a).stops.stopPayload(for: preset)
         let hasHero = a[0].entity != .artist
+        // A tablet-wide feed: the unit grid (more cards per row, the same card sizes; Android N ≥ 3).
+        let rows = density.isTablet
+            ? HomeDensity.activityGrid(units: density.units, hasHero: hasHero, supportingCount: hasHero ? a.count - 1 : a.count,
+                                       preset: preset)
+            : activityStops(a).stops.stopPayload(for: preset)
         let supporting = hasHero ? Array(a.dropFirst()) : a
         return VStack(alignment: .leading, spacing: gap) {
             HomeSectionTitle(String(localized: "Activities")).padding(.bottom, 6)
@@ -398,7 +407,9 @@ struct HomeView: View {
                         ForEach(Array(row.slots.enumerated()), id: \.offset) { _, slot in
                             let width = contentWidth > 0 ? usable * CGFloat(slot.weight) / total : nil
                             Group {
-                                if let e = supporting.entry(at: slot.entryIndex) {
+                                if slot.kind == .hero {
+                                    HeroCard(entry: a[0]).frame(maxHeight: .infinity)
+                                } else if let e = supporting.entry(at: slot.entryIndex) {
                                     if slot.kind == .small { SmallCard(entry: e) } else { WideCard(entry: e) }
                                 } else {
                                     // An entry past the supply: a spacer of the same weight.
@@ -408,7 +419,8 @@ struct HomeView: View {
                             .frame(width: width)
                         }
                     }
-                    .frame(height: Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
+                    // A grid row holding the hero is the hero's height; the cards beside it stretch.
+                    .frame(height: row.slots.contains { $0.kind == .hero } ? 132 : Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
                 }
             }
         }
@@ -440,7 +452,74 @@ struct HomeView: View {
 
     @ViewBuilder
     private func jumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
-        if feed.layout == .mock { mockJumpBackIn(feed.jumpBackIn) } else { serverJumpBackIn(feed, preset: preset) }
+        if density.isTablet, !feed.jumpBackIn.isEmpty || !feed.signals.isEmpty {
+            tabletJumpBackIn(feed, preset: preset)
+        } else if feed.layout == .mock {
+            mockJumpBackIn(feed.jumpBackIn)
+        } else {
+            serverJumpBackIn(feed, preset: preset)
+        }
+    }
+
+    /// One placed thing of the tablet shelf: a cover or a 2-column signal card, at a column and row.
+    private struct JBIPlaced: Identifiable {
+        var id: String
+        var album: Album?
+        var signal: JBISignal?
+        var column: Int
+        var row: Int
+    }
+
+    /// Jump Back In on a tablet-wide feed (Android HomeJbiTemplate, "Drift"): phone-sized covers in
+    /// `coverColumns` columns, each column starting 0 / ¼ / ½ row down from its neighbour, the signal
+    /// cards lying across two columns in the first row. Same data, same layout.
+    private func tabletJumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
+        let gap = Tokens.home.JBI_COLUMN_GAP.cg
+        let cols = density.coverColumns
+        let (colW, cover) = density.jbiColumn(gap: gap)
+        // A short supply takes fewer rows (Android: a row the covers can't fill is dropped).
+        let supply = feed.jumpBackIn.count + 2 * min(feed.signals.count, 2)
+        let rows = max(1, min(HomeDensity.jbiRows(columns: cols, preset: preset), Int((Double(supply) / Double(cols)).rounded(.up))))
+        let signals = Array(feed.signals.prefix(HomeRowPresets.jbiSignalLimit(rows: rows, cells: rows * cols)))
+        // Signals across columns 1–2 and, for a second, the last two columns but one; covers fill the rest.
+        var signalCols: [Int] = []
+        if !signals.isEmpty { signalCols.append(min(1, cols - 2)) }
+        if signals.count > 1, cols >= 6 { signalCols.append(cols - 3) }
+        var taken = Set<Int>()
+        for c in signalCols { taken.insert(c); taken.insert(c + 1) }
+        var offsets = HomeDensity.jbiOffsets(lanes: cols, seed: HomeDensity.stableSeed(feed.jumpBackIn.first?.id.rawId ?? ""))
+        for c in signalCols { offsets[c + 1] = offsets[c] }
+        var placed: [JBIPlaced] = []
+        for (i, c) in signalCols.enumerated() where i < signals.count {
+            placed.append(JBIPlaced(id: "signal\(i)", signal: signals[i], column: c, row: 0))
+        }
+        var covers = feed.jumpBackIn[...]
+        for r in 0..<rows {
+            for c in 0..<cols where !(r == 0 && taken.contains(c)) {
+                guard let album = covers.popFirst() else { break }
+                placed.append(JBIPlaced(id: "cover\(album.id.rawId)", album: album, column: c, row: r))
+            }
+        }
+        let pitch = cover + 50 + Tokens.home.JBI_ROW_GAP.cg
+        // As tall as the lowest thing placed: a short supply leaves no empty band under the shelf.
+        let height = (placed.map { CGFloat($0.row) + offsets[$0.column] }.max() ?? 0) * pitch + pitch - Tokens.home.JBI_ROW_GAP.cg
+        return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
+            HomeSectionTitle(String(localized: "Jump Back In"))
+            ZStack(alignment: .topLeading) {
+                ForEach(placed) { p in
+                    Group {
+                        if let signal = p.signal {
+                            SignalCard(signal: signal).frame(width: colW * 2 + gap, alignment: .leading)
+                        } else if let album = p.album {
+                            JBICell(album: album, mark: feed.memoryMarks[album.id.rawId], size: cover)
+                                .frame(width: colW, alignment: .leading)
+                        }
+                    }
+                    .offset(x: CGFloat(p.column) * (colW + gap), y: (CGFloat(p.row) + offsets[p.column]) * pitch)
+                }
+            }
+            .frame(width: density.content, height: height, alignment: .topLeading)
+        }
     }
 
     /// One Jump Back In row of a server's shelf.
@@ -553,7 +632,10 @@ struct HomeView: View {
 
     private func recentlyAdded(_ feed: HomeFeed) -> some View {
         let tiles = feed.recentTracks
-        let gridWidth = min(340, max(226.8, (contentWidth - 14) * 2.6 / 3.6))
+        // Tablet: 3 or 4 track columns (only as many as fill two rows), whole 166-wide cells.
+        let trackCols = density.isTablet ? min(density.recentTrackColumns, max(2, (min(tiles.count, 8) + 1) / 2)) : 2
+        let gridWidth = density.isTablet ? density.recentGridWidth(columns: trackCols)
+                                         : min(340, max(226.8, (contentWidth - 14) * 2.6 / 3.6))
         let tileGap = Tokens.home.RECENTLY_ADDED_TILE_GAP.cg
         return VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(String(localized: "Recently Added"))
@@ -561,11 +643,12 @@ struct HomeView: View {
                 HStack(alignment: .top, spacing: 14) {
                     if !tiles.isEmpty {
                         VStack(alignment: .leading, spacing: 14) {
-                            ForEach(Array(stride(from: 0, to: min(tiles.count, 4), by: 2)), id: \.self) { r in
+                            ForEach(Array(stride(from: 0, to: min(tiles.count, trackCols * 2), by: trackCols)), id: \.self) { r in
                                 HStack(spacing: tileGap) {
-                                    ForEach(r..<min(r + 2, tiles.count), id: \.self) { i in
+                                    ForEach(r..<min(r + trackCols, tiles.count), id: \.self) { i in
                                         TrackTile(album: tiles[i].album, track: tiles[i].track)
-                                            .frame(width: (gridWidth - tileGap) / 2, alignment: .leading)
+                                            .frame(width: (gridWidth - tileGap * CGFloat(trackCols - 1)) / CGFloat(trackCols),
+                                                   alignment: .leading)
                                             .onTapGesture { homeTap(edit) { model.play(tiles, startAt: i) } }
                                     }
                                 }
@@ -577,10 +660,11 @@ struct HomeView: View {
                         AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId])
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, density.margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -16)
+            .padding(.horizontal, -density.margin)
+            .shelfEdgeFade()
         }
     }
 
@@ -607,10 +691,11 @@ struct HomeView: View {
             HomeSectionTitle(title)
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 14) { content() }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, density.margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -16)
+            .padding(.horizontal, -density.margin)
+            .shelfEdgeFade()
         }
     }
 
@@ -634,10 +719,11 @@ struct HomeView: View {
                         .frame(width: contentWidth * 0.86)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, density.margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -16)
+            .padding(.horizontal, -density.margin)
+            .shelfEdgeFade()
         }
     }
 }
@@ -686,6 +772,9 @@ private struct HomeSchemeKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    /// The feed's page margin (HomeDensity): shelves bleed by it to the container's edge.
+    @Entry var homeMargin: CGFloat = 16
+
     var homeScheme: CoverScheme? {
         get { self[HomeSchemeKey.self] }
         set { self[HomeSchemeKey.self] = newValue }
@@ -902,12 +991,14 @@ private struct JBICell: View {
     @State private var zoomTile = ZoomTile()
     var album: Album
     var mark: MemoryMark?
+    /// The cover's size: the phone's, or a tablet column's (HomeDensity.jbiColumn).
+    var size: CGFloat = Tokens.home.JBI_COVER.cg
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let s = scheme!
         Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
-            AlbumItem(album: album, size: Tokens.home.JBI_COVER.cg, subtitle: album.kindLine) {
+            AlbumItem(album: album, size: size, subtitle: album.kindLine) {
                 // albumMemoryMarkInk: palette base, accent in dark mode.
                 if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
             }
