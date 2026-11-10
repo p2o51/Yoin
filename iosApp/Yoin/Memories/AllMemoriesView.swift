@@ -55,6 +55,12 @@ struct AllMemoriesView: View {
         .task { source.reload() }
     }
 
+    /// An empty state for the moment after a switch, before the ledger reloads.
+    private var state0: LedgerState {
+        LedgerState(entries: [], stats: MemoryLedger.stats([]), grid: MemoryGrid(scale: .month, cells: []), covers: [:],
+                    profiles: [], activeAccount: nil, today: Date())
+    }
+
     @ViewBuilder
     private func content(_ state: LedgerState) -> some View {
         stats(state)
@@ -324,7 +330,18 @@ struct AllMemoriesView: View {
 
     /// The album's page, for an album of the account in use (another account's opens nothing here).
     private func open(_ album: LedgerAlbum?, _ state: LedgerState) {
-        guard let album, !state.isOther(album.account) else { return }
+        guard let album else { return }
+        // Another account's: Yoin switches to it first, as Android's Go to album does (#178).
+        if state.isOther(album.account) {
+            guard let p = state.profile(album.account) else { return }
+            Task {
+                await model.profiles.switchTo(p.id)
+                guard model.profiles.active?.id == p.id else { return }
+                source.reload(model: model)
+                open(album, source.state ?? state0)
+            }
+            return
+        }
         let a = model.store.albumDetails[album.albumId]
             ?? Album(id: MediaId(provider: album.account.provider, rawId: album.albumId), title: album.name,
                      artist: album.artist, year: 0, palette: state.covers[album.key] ?? MemoryGridView.fallback(album.key),

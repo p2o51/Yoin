@@ -37,6 +37,30 @@ enum Tips {
             text: "While in another account, if Spotify is playing or paused on a song, tap the pill at the top of Home to switch to it",
             titleZhHans: "切换到 Spotify",
             textZhHans: "在其他账号下，已登录的 Spotify 有歌正在播放或暂停时，点首页顶部的胶囊即可切换过去"),
+        // All Memories (Home grid + page, Android #186 / #178); Argon's iOS wording (.argon/ios-parity-1110).
+        Tip(id: "MemoryLedger", icon: "edit_note", updated: "2026-11-10",
+            title: "All Memories",
+            text: "Tap All Memories on Home and tap a square on the grid to see just that time, or switch between Timeline, Cards, and a sortable List below on the right; memories marked \"From …\" switch to that account first when opened",
+            titleZhHans: "全部回忆",
+            textZhHans: "点首页的「全部回忆」，在日历格点一格只看那段时间，下方右侧可切换时间线、卡片与可排序的列表；标有「来自 …」的其他账号回忆，点开会先切换到该账号"),
+        // Lyric Cards with Apple Intelligence (Android #180); Argon's iOS wording.
+        Tip(id: "LyricHighlight", icon: "lyrics", updated: "2026-11-10",
+            title: "Lyric Cards",
+            text: "On devices with Apple Intelligence, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up",
+            titleZhHans: "歌词卡片",
+            textZhHans: "支持 Apple 智能的设备上，点首页歌词卡片从那句开播，左右滑动翻看；歌词里分享或保存的句子也会加入"),
+        // Yoin Labs (Android #189); Argon's iOS wording.
+        Tip(id: "Labs", icon: "sparkle", updated: "2026-11-10",
+            title: "Yoin Labs",
+            text: "Experimental features are now in Settings > Yoin Labs, including the Lyric Cards toggle",
+            titleZhHans: "Yoin Labs",
+            textZhHans: "实验功能现在在 设置 > Yoin Labs，歌词卡片的开关也在那里"),
+        // Volume leveling (Android #139); Argon's iOS wording (the Subsonic account's page).
+        Tip(id: "VolumeLeveling", icon: "equalizer", updated: "2026-11-10",
+            title: "Volume leveling",
+            text: "In Settings > your Subsonic account > Volume leveling, turn on ReplayGain by track or by album to keep volume consistent",
+            titleZhHans: "音量平衡",
+            textZhHans: "设置 > 点开 Subsonic 账号 > 音量平衡，可按曲目或按专辑开启 ReplayGain，让歌曲音量一致"),
         // Home screen widgets (Widgets/, parity A-F10); Argon's wording (.argon/ios-widgets-tip), the widget
         // names as the gallery shows them.
         Tip(id: "HomeScreenWidgets", icon: "library", updated: "2026-11-07",
