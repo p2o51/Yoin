@@ -250,4 +250,5 @@
     <string name="tip_read">Read</string>
     <string name="tip_next">Next</string>
     <string name="tip_done">Done</string>
+    <string name="home_spotify_elsewhere_cd">Playing on Spotify: %1$s, %2$s. Switch to Spotify</string>
 </resources>
