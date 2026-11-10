@@ -400,6 +400,8 @@ final class AppModel {
             case "artist": path = [.artist(ArtistRef("", id: id))]
             case "playlist": path = [.playlist(id)]
             case "settings": path = [.settings]
+            case "all-memories": path = [.allMemories]
+            case "labs": path = [.labs]
             default: break
             }
         }

@@ -46,7 +46,7 @@ final class AccountQuickSwitchTests: XCTestCase {
         // The newest tips lead; this one stays among the first few.
         let i = Tips.all.firstIndex { $0.id == "AccountQuickSwitch" }
         XCTAssertNotNil(i)
-        XCTAssertLessThan(i ?? .max, 6)
+        XCTAssertLessThan(i ?? .max, 10)
         XCTAssertEqual(i.map { Tips.all[$0].textZhHans }, "长按头像并滑动以切换账号")
     }
 

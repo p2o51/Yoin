@@ -100,6 +100,8 @@ struct HomeView: View {
             await model.store.loadPlaylists()
             // The albums memories need (the pill, the marks, the deck), after a relaunch or a sync.
             await model.store.hydrateMemoryAlbums()
+            // The ledger names songs from the album pages just loaded.
+            MemoryLedgerSource.shared.reload(model: model)
         }
         .onAppear { edit.load(scope: model.store.homeScope) }
         // One look each time the app opens or comes back; none outlives leaving or a switch.

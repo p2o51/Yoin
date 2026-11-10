@@ -52,7 +52,11 @@ struct AllMemoriesView: View {
         .safeAreaBar(edge: .top) { topBar }
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .task { source.reload() }
+        .task {
+            source.reload()
+            // Album pages a mark needs to be named (a scored song never played here): loaded, then read again.
+            if await model.store.hydrateMemoryAlbums() { source.reload() }
+        }
     }
 
     /// An empty state for the moment after a switch, before the ledger reloads.
