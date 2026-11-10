@@ -59,7 +59,9 @@ internal fun TipIllustration(
     ) {
         when (tip) {
             HomeBubbleTip.Labs -> LabsDemo(playing)
+            HomeBubbleTip.SettingsRegrouped -> SettingsGroupsDemo(playing)
             HomeBubbleTip.LyricHighlight -> LyricHighlightDemo(playing)
+            HomeBubbleTip.MemoryLedger -> MemoryLedgerDemo(playing)
             HomeBubbleTip.ScreenCorners -> ScreenCornersDemo(playing)
             HomeBubbleTip.MemoriesAllAccounts -> MemoriesAllAccountsDemo(playing)
             HomeBubbleTip.SpotifySpeakers -> SpotifySpeakersDemo(playing)

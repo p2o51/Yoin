@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -54,6 +55,9 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.home.edit.HomeEditController
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerActivity
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerViewModel
 import com.gpo.yoin.ui.settings.ProfileCard
 import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -75,6 +79,7 @@ private val NoLyricIntro = MutableStateFlow<LyricHighlightIntro?>(null)
 private val NoLyricHighlights = MutableStateFlow<List<HomeLyricHighlight>>(emptyList())
 private val NoLyricHighlightDevice = MutableStateFlow(false)
 private val NoNanoTestLog = MutableStateFlow<List<String>>(emptyList())
+private val NoMemoryLedger = MutableStateFlow<MemoryLedgerState?>(null)
 
 /** How Home's hold on the header avatar ends ([HomeAccountHold]). */
 private enum class HomeHoldEnd { HandBack, FadeAway, Release }
@@ -118,8 +123,12 @@ fun HomeScreen(
     otherProfiles: OtherProfilesViewModel? = null,
     // 「歌词一句」: the Gemini Nano lyric line (null = no section).
     lyricHighlights: LyricHighlightViewModel? = null,
+    // The Memories grid's ledger (null = no grid).
+    memoryLedger: MemoryLedgerViewModel? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val memoryLedgerState by (memoryLedger?.state ?: NoMemoryLedger).collectAsState()
+    val context = LocalContext.current
     val loadingReportsPressure by viewModel.loadingReportsPressure.collectAsState()
     val homeLayout by viewModel.homeLayout.collectAsState()
     // A section new since the last edit session waits in the tray (Q6a).
@@ -213,6 +222,8 @@ fun HomeScreen(
             lyricIntro = lyricIntro,
             onLyricIntroOptIn = { lyricHighlights?.optIn() },
             onLyricIntroDismiss = { lyricHighlights?.dismissIntro() },
+            memoryLedger = memoryLedgerState,
+            onOpenMemoryLedger = { context.startActivity(MemoryLedgerActivity.intent(context)) },
         )
     }
 }
@@ -275,6 +286,9 @@ fun HomeContent(
     lyricIntro: LyricHighlightIntro? = null,
     onLyricIntroOptIn: () -> Unit = {},
     onLyricIntroDismiss: () -> Unit = {},
+    // The Memories grid, and opening All Memories.
+    memoryLedger: MemoryLedgerState? = null,
+    onOpenMemoryLedger: () -> Unit = {},
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -457,6 +471,8 @@ fun HomeContent(
                                 lyricIntro = lyricIntro,
                                 onLyricIntroOptIn = onLyricIntroOptIn,
                                 onLyricIntroDismiss = onLyricIntroDismiss,
+                                memoryLedger = memoryLedger,
+                                onOpenMemoryLedger = onOpenMemoryLedger,
                                 memoryPill = feed.memoryPill,
                                 homeCovered = homeCovered,
                                 sections = sections,

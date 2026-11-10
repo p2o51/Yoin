@@ -12,5 +12,5 @@
     <string name="screen_corners_example_memories">Memories closing</string>
     <string name="screen_corners_example_back">Back gesture</string>
     <string name="home_tip_screen_corners_title">Screen corners</string>
-    <string name="home_tip_screen_corners">Match page and back-gesture corners to your screen in Settings &gt; Motion &gt; Screen corners</string>
+    <string name="home_tip_screen_corners">Match page and back-gesture corners to your screen in Settings &gt; Appearance &gt; Screen corners</string>
 </resources>

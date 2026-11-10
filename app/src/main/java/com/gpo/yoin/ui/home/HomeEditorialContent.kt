@@ -157,6 +157,7 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
 import com.gpo.yoin.ui.home.edit.AllHiddenKey
 import com.gpo.yoin.ui.home.edit.FooterEntryKey
 import com.gpo.yoin.ui.home.edit.GatedPlacementSpec
@@ -307,6 +308,9 @@ internal fun HomeEditorialContent(
     lyricIntro: LyricHighlightIntro? = null,
     onLyricIntroOptIn: () -> Unit = {},
     onLyricIntroDismiss: () -> Unit = {},
+    // The Memories grid (HomeMemoryLedger.kt; null = not loaded) and opening All Memories.
+    memoryLedger: MemoryLedgerState? = null,
+    onOpenMemoryLedger: () -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
@@ -720,6 +724,7 @@ internal fun HomeEditorialContent(
         lyricHighlightAvailable,
         nanoTestLog.isNotEmpty(),
         lyricIntro != null,
+        memoryLedger,
     ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
@@ -740,6 +745,7 @@ internal fun HomeEditorialContent(
                         HomeSection.OtherProfiles -> otherProfileItems.isNotEmpty()
                         HomeSection.LyricHighlight ->
                             lyricIntro != null || lyricHighlights.isNotEmpty() || nanoTestLog.isNotEmpty()
+                        HomeSection.MemoryGrid -> memoryLedger?.isEmpty == false
                     }
                 },
                 available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
@@ -912,6 +918,7 @@ internal fun HomeEditorialContent(
         recentlyPlayed,
         otherProfileItems,
         lyricHighlights,
+        memoryLedger,
         buildCoverArtUrl,
         stripShapes,
     ) {
@@ -927,6 +934,7 @@ internal fun HomeEditorialContent(
                 recentlyPlayed = recentlyPlayed,
                 otherProfileItems = otherProfileItems,
                 lyricHighlights = lyricHighlights,
+                memoryLedger = memoryLedger,
                 buildCoverArtUrl = buildCoverArtUrl,
                 shapes = stripShapes,
             )
@@ -1303,6 +1311,23 @@ internal fun HomeEditorialContent(
                                             )
                                     },
                                 )
+
+                                // Every memory on a grid; a tap opens All Memories.
+                                HomeSection.MemoryGrid -> memoryLedger?.let { ledger ->
+                                    MemoryLedgerSection(
+                                        state = ledger,
+                                        extractBackdropColors = shouldExtractBackdropColors,
+                                        onOpen = onOpenMemoryLedger,
+                                        modifier = remember(firstReveal) {
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .stagedBeat(
+                                                    progress = { firstReveal.payload },
+                                                    rise = 16.dp,
+                                                )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -1557,6 +1582,7 @@ private fun homeStripCovers(
     recentlyPlayed: List<Album>,
     otherProfileItems: List<OtherProfileItem>,
     lyricHighlights: List<HomeLyricHighlight>,
+    memoryLedger: MemoryLedgerState?,
     buildCoverArtUrl: (String) -> String,
     shapes: HomeStripShapes,
 ): List<StripCover> {
@@ -1599,6 +1625,12 @@ private fun homeStripCovers(
         HomeSection.LyricHighlight -> lyricHighlights.take(count).map { card ->
             stripCover(resolveHomeCoverArtUrl(CoverRef.fromStorageKey(card.coverKey), buildCoverArtUrl), shapes.song)
         }
+        // The albums the latest memories are about, newest first.
+        HomeSection.MemoryGrid -> memoryLedger?.entries.orEmpty()
+            .mapNotNull { entry -> entry.album?.let { memoryLedger?.coverUrls?.get(it.key) } }
+            .distinct()
+            .take(count)
+            .map { url -> stripCover(url, shapes.album) }
     }
 }
 

@@ -105,6 +105,17 @@ enum class HomeSection(
         defaultEnabled = true,
         appendEnabled = true,
     ),
+
+    // Owner 2026-11-08 (B3): every memory on a calendar grid whose cells
+    // grow when you write less; a tap opens All Memories. Hidden while
+    // there's nothing, so shown by default and to customized layouts too.
+    MemoryGrid(
+        id = "memory_grid",
+        title = "All Memories",
+        supportingText = "Every note and score, on a grid that grows with you",
+        defaultEnabled = true,
+        appendEnabled = true,
+    ),
     ;
 
     /**
@@ -140,6 +151,7 @@ internal val HomeSection.titleRes: Int
         HomeSection.YourPlaylists -> R.string.home_section_your_playlists
         HomeSection.OtherProfiles -> R.string.home_section_other_profiles
         HomeSection.LyricHighlight -> R.string.home_section_lyric_highlight
+        HomeSection.MemoryGrid -> R.string.home_section_memory_grid
     }
 
 @get:StringRes
@@ -153,6 +165,7 @@ internal val HomeSection.supportingRes: Int
         HomeSection.YourPlaylists -> R.string.home_section_your_playlists_supporting
         HomeSection.OtherProfiles -> R.string.home_section_other_profiles_supporting
         HomeSection.LyricHighlight -> R.string.home_section_lyric_highlight_supporting
+        HomeSection.MemoryGrid -> R.string.home_section_memory_grid_supporting
     }
 
 @get:StringRes
@@ -166,6 +179,7 @@ internal val HomeSection.placeholderRes: Int
         HomeSection.YourPlaylists -> R.string.home_placeholder_your_playlists
         HomeSection.OtherProfiles -> R.string.home_placeholder_other_profiles
         HomeSection.LyricHighlight -> R.string.home_placeholder_lyric_highlight
+        HomeSection.MemoryGrid -> R.string.home_placeholder_memory_grid
     }
 
 /**

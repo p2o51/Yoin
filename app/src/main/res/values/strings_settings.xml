@@ -25,9 +25,12 @@
     <!-- Settings shell -->
     <string name="settings_title">Settings</string>
     <string name="settings_section_features">Features</string>
-    <string name="settings_section_motion">Motion</string>
     <string name="settings_section_storage">Storage</string>
-    <string name="settings_section_about">About</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_section_sync_storage">Sync and storage</string>
+    <string name="settings_section_help_about">Help and about</string>
+    <string name="home_tip_settings_regrouped_title">Settings, regrouped</string>
+    <string name="home_tip_settings_regrouped">Settings is now grouped into Appearance, Sync and storage, and Help and about, with NeoDB under Sync and storage</string>
     <string name="settings_about_name" translatable="false">Yoin</string>
     <string name="settings_about_version">Version %1$s</string>
     <string name="settings_about_website">Website</string>

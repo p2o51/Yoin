@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="memory_ledger_title">全部回忆</string>
+    <plurals name="memory_ledger_writings_label">
+        <item quantity="other">笔回忆</item>
+    </plurals>
+    <plurals name="memory_ledger_scores_label">
+        <item quantity="other">个评分</item>
+    </plurals>
+    <string name="memory_ledger_open">打开全部回忆</string>
+
+    <string name="memory_ledger_stat_albums">张专辑</string>
+    <string name="memory_ledger_stat_writings">篇文字</string>
+    <string name="memory_ledger_stat_characters">个字</string>
+    <string name="memory_ledger_stat_rated">首歌打了分</string>
+
+    <string name="memory_ledger_view_timeline">时间线</string>
+    <string name="memory_ledger_view_cards">卡片</string>
+    <string name="memory_ledger_view_list">列表</string>
+    <string name="memory_ledger_sort_recent">最近</string>
+    <string name="memory_ledger_sort_score">评分最高</string>
+    <string name="memory_ledger_sort_name">名称</string>
+    <string name="memory_ledger_album_score">专辑评分</string>
+    <string name="memory_ledger_unknown_song">未知歌曲</string>
+
+    <plurals name="memory_ledger_month_count">
+        <item quantity="other">%d 条</item>
+    </plurals>
+    <string name="memory_ledger_quiet_one">%1$s没有写</string>
+    <string name="memory_ledger_quiet_range">%1$s到%2$s没有写</string>
+    <string name="memory_ledger_range_empty">这段时间没有留下什么。</string>
+
+    <string name="memory_ledger_kind_album_note">专辑笔记</string>
+    <string name="memory_ledger_kind_song_note">歌曲笔记</string>
+    <string name="memory_ledger_kind_review">短评</string>
+    <string name="memory_ledger_kind_title">回忆标题</string>
+    <string name="memory_ledger_kind_album_rating">专辑评分</string>
+    <string name="memory_ledger_kind_track_rating">歌曲评分</string>
+    <string name="memory_ledger_unknown_album">不知道是哪张专辑</string>
+    <string name="memory_ledger_from">来自 %1$s</string>
+
+    <string name="memory_ledger_since">从 %1$s 开始记。所有资料算同一个人。</string>
+    <string name="memory_ledger_empty_title">还没有回忆</string>
+    <string name="memory_ledger_empty_body">听歌时写下一笔，或者给专辑打个分，就会出现在这里。</string>
+</resources>

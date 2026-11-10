@@ -323,6 +323,9 @@ private fun SectionGlyph(section: HomeSection, color: Color, modifier: Modifier 
                 box(19f, 11f, 12f, 2.6f, 0.55f, 1.2f); box(19f, 16f, 10f, 2.6f, 0.55f, 1.2f)
                 box(19f, 22f, 7f, 2.2f, 0.3f, 1.2f)
             }
+            HomeSection.MemoryGrid -> for (c in 0 until 4) for (r in 0 until 3) {
+                box(4f + c * 7.4f, 8f + r * 7.4f, 5.6f, 5.6f, 0.9f - (c + r) * 0.1f, 1.4f)
+            }
         }
     }
 }
