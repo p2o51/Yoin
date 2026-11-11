@@ -52,6 +52,10 @@ struct PadShell: View {
                         .frame(width: panelWidth)
                         .clipShape(.rect(cornerRadius: 28))
                         .padding([.vertical, .trailing], 8)
+                        // Where Full grows out of when the panel goes Full (and folds back into).
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global).insetBy(dx: 0, dy: 0) } action: { r in
+                            model.np.panelFrame = r.inset(by: UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 8))
+                        }
                         // Android OverlayPlayerVisibility: in and out by its own width, no fade, on the
                         // spring the columns give way on.
                         .transition(.move(edge: .trailing))
@@ -72,7 +76,15 @@ struct PadShell: View {
                     .transition(.identity)
             }
         }
-        .onChange(of: model.npExpanded) { _, open in model.np.show(open) }
+        .onChange(of: model.npExpanded) { _, open in
+            // Full opened from the panel goes back to the panel (Android's Full → Panel → Closed), whatever
+            // closed it (⌄, the drag, back): the panel is put back under the page, which folds into it.
+            if !open, model.np.fromPanel, !model.npPanel, model.padPanelFits {
+                var t = Transaction(); t.disablesAnimations = true
+                withTransaction(t) { model.npPanel = true }
+            }
+            model.np.show(open)
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.padWidth = $0 }
         .onAppear {
             if model.npExpanded { model.np.snapOpen() }

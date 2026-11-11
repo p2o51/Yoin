@@ -742,9 +742,21 @@ final class AppModel {
     /// iPad: whether the side panel fits beside the columns (Android: window − panel ≥ 744).
     var padPanelFits: Bool { padWidth - min(max(padWidth * 0.5, 360), 420) >= 744 }
     /// iPad: the side panel grows into Full Now Playing.
-    func npPanelToFull() { withAnimation(Yoin.spatial) { npPanel = false }; setNowPlaying(expanded: true) }
+    func npPanelToFull() {
+        // The Full page grows out of the panel itself (the morph starts on the panel's rect, which it covers).
+        np.fromPanel = true
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { npPanel = false }
+        setNowPlaying(expanded: true)
+    }
     /// iPad: Full Now Playing goes back to the side panel.
-    func npFullToPanel() { setNowPlaying(expanded: false); withAnimation(Yoin.spatial) { npPanel = true } }
+    func npFullToPanel() {
+        // The panel is back in place under the page, and the page folds into its rect.
+        np.fromPanel = true
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { npPanel = true }
+        setNowPlaying(expanded: false)
+    }
 
     /// iPad pill tap: the panel only when there is room for it beside the
     /// columns (Android rule: shell + detail + handle ≥ 744, else go Full).
