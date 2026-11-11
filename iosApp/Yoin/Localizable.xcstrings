@@ -8491,36 +8491,6 @@
           }
         }
       }
-    },
-    "iPad navigation": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iPad 导航"
-          }
-        }
-      }
-    },
-    "A Bottom row": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A 底部一排"
-          }
-        }
-      }
-    },
-    "B Two corners": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "B 两个下角"
-          }
-        }
-      }
     }
   },
   "version": "1.0"

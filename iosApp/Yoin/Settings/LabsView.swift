@@ -32,7 +32,6 @@ struct LabsView: View {
     private let processor = LyricHighlightProcessor.shared
     private let store = LyricHighlightStore.shared
     @Environment(\.openURL) private var openURL
-    @AppStorage(PadNavStyle.key) private var padNav = PadNavStyle.b.rawValue
 
     var body: some View {
         SettingsPage(title: "Yoin Labs") { app, row in
@@ -42,9 +41,6 @@ struct LabsView: View {
                 .padding(.horizontal, 8)
             section(app, String(localized: "On-device model")) { modelCard(app, row) }
             section(app, String(localized: "Experimental features")) { featuresCard(app, row) }
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                section(app, String(localized: "iPad navigation")) { padNavCard(app, row) }
-            }
         }
         .onAppear { processor.checkNow() }
     }
@@ -97,21 +93,6 @@ struct LabsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(row, in: RoundedRectangle(cornerRadius: 20))
                 }
-
-    /// Where iPad's floating nav and mini player sit (PadShell), while 51 compares the two. Takes effect at
-    /// once.
-    private func padNavCard(_ app: CoverScheme, _ row: Color) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Picker("iPad navigation", selection: $padNav) {
-                ForEach(PadNavStyle.allCases) { Text($0.label).tag($0.rawValue) }
-            }
-            .pickerStyle(.segmented)
-            .animation(Yoin.spatial, value: padNav)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(row, in: RoundedRectangle(cornerRadius: 20))
-    }
 
     private func section<C: View>(_ app: CoverScheme, _ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 8) {

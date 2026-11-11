@@ -2,18 +2,16 @@ import SwiftUI
 
 /// iPad's navigation (51 2026-11-11): no system tab bar, no sidebar. Both columns run to the top edge
 /// under the status bar (a soft band, as on the phone), and Yoin's own two pieces of floating glass
-/// carry the navigation: the nav capsule (Home, Library, Search) and the phone's mini player. Where they
-/// sit is `PadNavStyle` (A: one row at the bottom centre; B: the two bottom corners), switchable in
-/// Yoin Labs. Albums open in a right-hand column of the same window, Now Playing as a panel beside the
+/// carry the navigation: the nav capsule (Home, Library, Search) in the bottom-leading corner and the
+/// phone's mini player in the bottom-trailing one (51 2026-11-11 chose this "two corners" placement over
+/// one centred row). Albums open in a right-hand column of the same window, Now Playing as a panel beside the
 /// columns (or Full when the window is too narrow).
 struct PadShell: View {
     @Environment(AppModel.self) private var model
-    @AppStorage(PadNavStyle.key) private var styleRaw = PadNavStyle.b.rawValue
     @Namespace private var npNS
     enum PadTab: Hashable { case sections, search }
     private var tab: PadTab { model.searchActive ? .search : .sections }
 
-    private var style: PadNavStyle { PadNavStyle(rawValue: styleRaw) ?? .b }
 
     var body: some View {
         GeometryReader { geo in
@@ -24,18 +22,18 @@ struct PadShell: View {
                 // and kept alive between visits as tabs are. Yoin's own dock is the navigation.
                 TabView(selection: Binding(get: { tab }, set: { _ in })) {
                     Tab(value: PadTab.sections) {
-                        PadColumns(npNamespace: npNS, active: !model.searchActive, style: style)
+                        PadColumns(npNamespace: npNS, active: !model.searchActive)
                             .toolbarVisibility(.hidden, for: .tabBar)
                     }
                     Tab(value: PadTab.search) {
                         // Search's own surface in the shell column (Android Wide: results on the left,
                         // what they open in the detail column).
-                        PadColumns(npNamespace: npNS, active: model.searchActive, onCloseSearch: closeSearch, style: style)
+                        PadColumns(npNamespace: npNS, active: model.searchActive, onCloseSearch: closeSearch)
                             .toolbarVisibility(.hidden, for: .tabBar)
                     }
                 }
                 .tabViewStyle(.tabBarOnly)
-                .overlay { PadDock(style: style) }
+                .overlay { PadDock() }
                 if model.npPanel {
                     // Inside the shell's plane: it recedes with the shell.
                     NowPlayingView(npNamespace: npNS, panel: true)
@@ -71,34 +69,15 @@ struct PadShell: View {
     }
 }
 
-/// Where iPad's two pieces of floating glass sit (51 2026-11-11, prototype artifact 5XRNjtNy…). A Yoin
-/// Labs choice while 51 compares them; `-ipadNav A|B` at launch for screenshots.
-enum PadNavStyle: String, CaseIterable, Identifiable {
-    /// One row, nav then player, centred on the window's bottom edge (Android tablets' place).
-    case a = "A"
-    /// The nav capsule in the bottom-leading corner, the player in the bottom-trailing one; in a split
-    /// the nav belongs to the shell column and the player to the detail column.
-    case b = "B"
-
-    static let key = "ipadNav"
-    var id: String { rawValue }
-    var label: LocalizedStringKey {
-        switch self {
-        case .a: "A Bottom row"
-        case .b: "B Two corners"
-        }
-    }
-}
-
 /// The floating pieces' sizes, shared by the dock and the columns that keep their content clear of it.
 enum PadDockMetrics {
     /// Glass height (the phone bar's).
     static let height: CGFloat = 60
     /// From the window's bottom edge.
     static let bottom: CGFloat = 22
-    /// From the window's side edges (B).
+    /// From the window's side edges.
     static let side: CGFloat = 24
-    /// Between the two pieces (A).
+    /// Between a Play split and the player sharing their row.
     static let gap: CGFloat = 12
     static let playerWidth: CGFloat = 320
     /// The Play split's height.
@@ -113,42 +92,27 @@ enum PadDockMetrics {
 }
 
 /// iPad's floating glass: the nav capsule and the mini player (ShellBar's own pieces, so the selection,
-/// colours, wave wash, long presses and the failure banner are the phone's), placed by `PadNavStyle`.
+/// colours, wave wash, long presses and the failure banner are the phone's), in the window's two bottom
+/// corners.
 /// Laid over the columns, out of the bottom safe area (the window's edge is the measure).
 private struct PadDock: View {
     @Environment(AppModel.self) private var model
-    var style: PadNavStyle
     @Namespace private var npNS
 
     /// The player is hidden while Now Playing is up as a panel beside the columns (it would be twice).
     private var showsPlayer: Bool { !model.isIdle && !model.npPanel }
 
     var body: some View {
-        Group {
-            switch style {
-            case .a:
-                HStack(spacing: PadDockMetrics.gap) {
-                    ShellBar(npNamespace: npNS, pad: .nav).fixedSize()
-                    if showsPlayer {
-                        ShellBar(npNamespace: npNS, pad: .player).fixedSize()
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-            case .b:
-                HStack(spacing: 0) {
-                    ShellBar(npNamespace: npNS, pad: .nav).fixedSize()
-                    Spacer(minLength: PadDockMetrics.gap)
-                    if showsPlayer {
-                        ShellBar(npNamespace: npNS, pad: .player).fixedSize()
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
-                }
-                .padding(.horizontal, PadDockMetrics.side)
+        HStack(spacing: 0) {
+            ShellBar(npNamespace: npNS, pad: .nav).fixedSize()
+            Spacer(minLength: PadDockMetrics.gap)
+            if showsPlayer {
+                ShellBar(npNamespace: npNS, pad: .player).fixedSize()
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
+        .padding(.horizontal, PadDockMetrics.side)
         .animation(Yoin.spatial, value: showsPlayer)
-        .animation(Yoin.spatial, value: style)
         .padding(.bottom, PadDockMetrics.bottom)
         // Memories (pulled down over Home) takes the whole window, as on the phone: the dock leaves on
         // the pull itself.
@@ -174,7 +138,6 @@ private struct PadColumns: View {
     var active: Bool
     /// The Search tab: Search's surface in place of the section, its ✕ here.
     var onCloseSearch: (() -> Void)? = nil
-    var style: PadNavStyle = .b
 
     var body: some View {
         columns
@@ -246,19 +209,14 @@ private struct PadColumns: View {
     @State private var wide = false
     static let handleWidth: CGFloat = 12
 
-    /// Where the detail column's Play split sits, from the window's bottom edge. A: the dock's row is
-    /// centred on the window and crosses the column, so Play goes above it. B: the player is the column's
-    /// trailing corner, so Play shares its row at the leading corner, unless the column is too narrow for
-    /// both (then it goes above).
+    /// Where the detail column's Play split sits, from the window's bottom edge: the player is the
+    /// column's trailing corner, so Play shares its row at the leading corner, unless the column is too
+    /// narrow for both (then it goes above).
     private func playBottom(detailWidth: CGFloat) -> CGFloat {
-        switch style {
-        case .a: return PadDockMetrics.playLifted
-        case .b:
-            let row = PadDockMetrics.side + Tokens.bar.SPLIT_WIDTH.cg + PadDockMetrics.gap
-                + PadDockMetrics.playerWidth + PadDockMetrics.side
-            let playerShown = !model.isIdle && !model.npPanel
-            return !playerShown || detailWidth >= row ? PadDockMetrics.playInRow : PadDockMetrics.playLifted
-        }
+        let row = PadDockMetrics.side + Tokens.bar.SPLIT_WIDTH.cg + PadDockMetrics.gap
+            + PadDockMetrics.playerWidth + PadDockMetrics.side
+        let playerShown = !model.isIdle && !model.npPanel
+        return !playerShown || detailWidth >= row ? PadDockMetrics.playInRow : PadDockMetrics.playLifted
     }
 
     /// What a detail page keeps free under its last row for a Play split whose bottom is `playBottom`
