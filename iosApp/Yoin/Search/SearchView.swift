@@ -99,11 +99,12 @@ struct SearchView: View {
         ScrollView {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, Tokens.search.RESULTS_BOTTOM_RESERVE.cg)
         }
+        // The content's width is the offered width less the 16 margins (see `offeredWidth`).
+        .offeredWidth { width = max(0, $0 - 32) }
         .scrollPosition($scrollPosition)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             offset = y

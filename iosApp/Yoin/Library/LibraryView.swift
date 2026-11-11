@@ -161,8 +161,8 @@ struct LibraryView: View {
                     gridTab(shown)
                 }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
+        .offeredWidth { width = $0 }
         .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
         .task(id: LoadKey(generation: model.store.generation, filter: filter)) {

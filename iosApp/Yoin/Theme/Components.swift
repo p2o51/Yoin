@@ -78,3 +78,17 @@ extension View {
         }
     }
 }
+
+extension View {
+    /// Lays the view (a page's scroll view) out at exactly the space it is offered and reports that width.
+    /// A vertical scroll view takes its content's width across, so a page that sized its content from its own
+    /// measured width held itself at a width it once had when its container narrowed (an iPad column
+    /// opening beside it, a rotation); the offered width is the one input instead.
+    func offeredWidth(_ action: @escaping (CGFloat) -> Void) -> some View {
+        GeometryReader { g in
+            self
+                .frame(width: g.size.width, height: g.size.height)
+                .onChange(of: g.size.width, initial: true) { _, w in action(w) }
+        }
+    }
+}
