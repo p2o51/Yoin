@@ -515,6 +515,12 @@ final class LibraryStore {
         }
         mixed += random
         for a in mixed where jbi.count < 12 && seen.insert(a.id).inserted { jbi.append(a) }
+        // A tablet's longer shelf (Android's pool keeps Activities' albums and holds 28 covers): the rest of
+        // the mix, then Activities' own albums, never the rated album the 1×2 shows.
+        let rated = Set(signals.filter { $0.kind == .ratedAlbum }.map(\.album.id))
+        var more: [Album] = []
+        var taken = Set(jbi.map(\.id)).union(rated)
+        for a in mixed + recent.prefix(4) where jbi.count + more.count < 28 && taken.insert(a.id).inserted { more.append(a) }
 
         let gridAlbums = Set(recentTracks.map(\.album.id))
         let recentAlbums = newest.filter { !gridAlbums.contains($0.id) || recentTracks.isEmpty }
@@ -538,7 +544,7 @@ final class LibraryStore {
                         recentAlbums: recentAlbums, rediscover: rediscover, signals: signals,
                         memoryMarks: history?.marks ?? [:],
                         recentlyPlayed: recent.filter { !shownInActivities.contains($0.id) },
-                        playlists: Array(playlists.prefix(homePlaylistLimit)))
+                        playlists: Array(playlists.prefix(homePlaylistLimit)), jumpBackInMore: more)
     }
 
     /// Activities entries kept: the hero, two rows of cards and a strip (the XL preset).

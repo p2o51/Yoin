@@ -475,7 +475,7 @@ struct HomeView: View {
 
     /// The tablet shelf's cards in ranking order: the signal cards, then the covers.
     private func tabletJbiCards(_ feed: HomeFeed) -> [JBICard] {
-        feed.signals.map(JBICard.signal) + feed.jumpBackIn.map(JBICard.cover)
+        feed.signals.map(JBICard.signal) + (feed.jumpBackIn + feed.jumpBackInMore).map(JBICard.cover)
     }
 
     /// The tablet ladder of [feed] on this width's cover columns (Android jbiRowLadder).

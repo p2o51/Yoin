@@ -369,6 +369,9 @@ struct HomeFeed: Hashable, Sendable {
     var recentlyPlayed: [Album] = []
     /// Your Playlists: the library's playlists (Android HOME_PLAYLIST_LIMIT).
     var playlists: [LibraryItem] = []
+    /// A tablet's Jump Back In past the phone's twelve: the albums Activities shows too, and the rest of the
+    /// mix, up to Android's 28 covers (GRID_MAX_COMPACTS). The phone's shelf never reads it.
+    var jumpBackInMore: [Album] = []
 
     var isEmpty: Bool {
         activities.isEmpty && jumpBackIn.isEmpty && recentTracks.isEmpty && recentAlbums.isEmpty && rediscover.isEmpty
