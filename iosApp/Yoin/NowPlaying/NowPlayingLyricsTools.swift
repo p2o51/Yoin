@@ -125,6 +125,10 @@ struct ExpandedLyricsList: View {
     var scheme: CoverScheme
     var onUserScroll: () -> Void
     var onTap: (Int) -> Void
+    /// Two-column focus (Android LyricsFullscreenPane halftoneFocus): every
+    /// line prints through fine dots; the current line is solid, the next
+    /// two stay readable.
+    var halftone: Bool = false
 
     /// Android LyricsRowInset: rows reach this far past the page edge.
     static let rowInset: CGFloat = 12
@@ -298,6 +302,7 @@ struct ExpandedLyricsList: View {
         let runBottom = !(picked && selected.contains(i + 1))
         let translation = i < translations.count ? translations[i] : nil
         let text = lines[i]
+        let dots = halftone && !selecting ? LyricHalftone.radius(line: i, active: active) : LyricHalftone.solid
         VStack(alignment: .leading, spacing: 0) {
             Text(text.isEmpty ? " " : text)
                 .font(emphasized ? YoinFont.rounded(24, semibold: true) : .gsf(24, .medium))
@@ -314,6 +319,9 @@ struct ExpandedLyricsList: View {
             }
         }
         .scaleEffect(emphasized ? 1 : 0.96, anchor: .leading)
+        // Focus's halftone (Android lyricHalftone): solid → this line's dots.
+        .modifier(LyricHalftone(radius: dots))
+        .animation(Yoin.effects, value: dots)
         .opacity(alpha)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Self.rowInset)
@@ -730,5 +738,42 @@ struct LyricsShareSheet: View {
                                                         cardScale: cardScale))
         r.scale = 3
         image = r.uiImage
+    }
+}
+
+/// Android LyricHalftone.kt: in focus a lyric line is printed through a grid
+/// of dots `cell` apart, `radius` across; at `solid` and above the 4 pt cell is
+/// covered and no mask runs. Uses the DotDissolve shader (the same dot mask).
+nonisolated struct LyricHalftone: ViewModifier, Animatable {
+    var radius: CGFloat
+
+    /// LyricDotsCell / LyricDotsSolid.
+    static let cell: CGFloat = 4
+    static let solid: CGFloat = 3
+    /// LyricDotsRestLarge: tablets (medium width and height) — the two-column player.
+    static let restLarge: CGFloat = 1.8
+    /// LyricDotsReadable, for LyricDotsReadableLines after the current one.
+    static let readable: CGFloat = 2.2
+    static let readableLines = 2
+
+    /// A line's dots in two-column focus: the current line solid, the next
+    /// two readable, the rest (sung lines included) at the tablet rest.
+    static func radius(line: Int, active: Int) -> CGFloat {
+        if line == active { return solid }
+        if active >= 0, line > active, line - active <= readableLines { return readable }
+        return restLarge
+    }
+
+    var animatableData: CGFloat {
+        get { radius }
+        set { radius = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .padding(2)
+            .colorEffect(ShaderLibrary.yoinDotDissolve(.float(Self.cell), .float(radius)),
+                         isEnabled: radius < Self.solid - 0.01)
+            .padding(-2)
     }
 }
