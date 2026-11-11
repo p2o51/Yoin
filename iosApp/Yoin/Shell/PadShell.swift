@@ -9,30 +9,42 @@ import SwiftUI
 struct PadShell: View {
     @Environment(AppModel.self) private var model
     @Namespace private var npNS
-    enum PadTab: Hashable { case sections, search }
-    private var tab: PadTab { model.searchActive ? .search : .sections }
+    /// Search's surface is built on its first visit and kept (its query and results).
+    @State private var searchBuilt = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 
     var body: some View {
         GeometryReader { geo in
             let panelWidth = min(max(geo.size.width * 0.5, 360), 420)
             HStack(spacing: 0) {
-                // A TabView with its bar hidden, not a ZStack: each place is hosted on its own (a
-                // NavigationStack under the shell's recede layers, with no TabView between, never pushed),
-                // and kept alive between visits as tabs are. Yoin's own dock is the navigation.
-                TabView(selection: Binding(get: { tab }, set: { _ in })) {
-                    Tab(value: PadTab.sections) {
-                        PadColumns(npNamespace: npNS, active: !model.searchActive)
-                            .toolbarVisibility(.hidden, for: .tabBar)
-                    }
-                    Tab(value: PadTab.search) {
-                        // Search's own surface in the shell column (Android Wide: results on the left,
-                        // what they open in the detail column).
-                        PadColumns(npNamespace: npNS, active: model.searchActive, onCloseSearch: closeSearch)
-                            .toolbarVisibility(.hidden, for: .tabBar)
+                // One tab of a TabView with its bar hidden: the tab hosts the places on its own (a
+                // NavigationStack under the shell's recede layers, with no TabView between, never pushed).
+                // Inside it the sections and Search cross-fade (Android: Search rises over the shell), each
+                // kept alive between visits. Yoin's own dock is the navigation.
+                TabView {
+                    Tab {
+                        ZStack {
+                            PadColumns(npNamespace: npNS, active: !model.searchActive)
+                                .opacity(model.searchActive ? 0 : 1)
+                                .allowsHitTesting(!model.searchActive)
+                                .accessibilityHidden(model.searchActive)
+                            if searchBuilt {
+                                // Search's own surface in the shell column (Android Wide: results on the left,
+                                // what they open in the detail column).
+                                PadColumns(npNamespace: npNS, active: model.searchActive, onCloseSearch: closeSearch)
+                                    .opacity(model.searchActive ? 1 : 0)
+                                    .scaleEffect(model.searchActive || reduceMotion ? 1 : 0.98)
+                                    .allowsHitTesting(model.searchActive)
+                                    .accessibilityHidden(!model.searchActive)
+                            }
+                        }
+                        .animation(Yoin.effects, value: model.searchActive)
+                        .toolbarVisibility(.hidden, for: .tabBar)
                     }
                 }
                 .tabViewStyle(.tabBarOnly)
+                .onChange(of: model.searchActive, initial: true) { _, on in if on { searchBuilt = true } }
                 .overlay { PadDock() }
                 if model.npPanel {
                     // Inside the shell's plane: it recedes with the shell.
@@ -185,6 +197,9 @@ private struct PadColumns: View {
             // Android DetailPaneState: the column opens and closes on the spatial spring; the shell beside
             // it gives up (and takes back) its width on the same spring. The tree stays put either way, so
             // the feed keeps its place.
+            // Android DetailPaneState: the shell takes its column width on the tap's frame (its sections
+            // re-tier once, before the spring) and the column slides in with its page; closing, the column
+            // slides out first and the shell takes its width back as it lands.
             if want { shownColumn = columnContent }
             withAnimation(Yoin.spatial) { columnOpen = want ? 1 : 0 } completion: {
                 if !columnWanted { shownColumn = nil }
@@ -224,8 +239,9 @@ private struct PadColumns: View {
     private func wideColumns(w: CGFloat) -> some View {
         let restShell = clampShell(draggedShell ?? Self.shellBudget(w), w: w)
         let detail = w - restShell - Self.handleWidth
-        // The shell's width between the window (closed) and its column budget (open).
-        let shell = w - (w - restShell) * columnOpen
+        // The shell keeps its column width while a column is out (opening, open, or closing).
+        let shell = shownColumn == nil ? w : restShell
+        let slide = (1 - columnOpen) * (detail + Self.handleWidth)
         HStack(spacing: 0) {
             // Both columns run to the top edge; the feed scrolls up under the status bar with the
             // phone's soft band over it (51 2026-11-11: no strip, no bar on top).
@@ -235,7 +251,7 @@ private struct PadColumns: View {
                 .overlay(alignment: .top) { StatusEdgeBand() }
                 .frame(width: shell)
             handle(w: w, rest: restShell)
-                .opacity(Double(columnOpen))
+                .offset(x: slide)
             // The column is as tall as the shell beside it, edge to edge (no inset card): the album's colour
             // starts at the screen's top; its page keeps its own content below the status bar. It keeps its
             // resting width and slides in beside the shell as the shell gives way.
@@ -249,6 +265,8 @@ private struct PadColumns: View {
                 }
             }
             .frame(width: detail)
+            .background(Yoin.surface.ignoresSafeArea())
+            .offset(x: slide)
         }
         .frame(width: w, alignment: .leading)
         .background(Yoin.surface.ignoresSafeArea())
