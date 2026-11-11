@@ -178,6 +178,22 @@ struct LibraryView: View {
             // glass press bloom) overlaps the bar and is that 4 gap.
             // The track styles keep 8 between the field and the track, so
             // the two capsules read as a pair, not one stacked slab.
+            if wideHeader {
+                // Android's wide Library app bar: the search field at its own width, the chips beside it,
+                // the account at the end (a full-width field read as a bar across the whole page).
+                HStack(spacing: 8) {
+                    searchPill.frame(width: Self.wideSearchWidth)
+                    chips
+                        .opacity(model.searchActive ? 0 : 1)
+                        .animation(model.searchActive ? nil : Yoin.effects, value: model.searchActive)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    accountButton
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 16)
+                .padding(.top, SearchView.headerTop)
+                .padding(.bottom, 4)
+            } else {
             VStack(alignment: .leading, spacing: LibraryFilterRow.Style.current.isTrack ? 0 : -4) {
                 header
                 chips
@@ -186,6 +202,7 @@ struct LibraryView: View {
                     // through), never both at half.
                     .opacity(model.searchActive ? 0 : 1)
                     .animation(model.searchActive ? nil : Yoin.effects, value: model.searchActive)
+            }
             }
         }
         .scrollPosition($position)
@@ -214,7 +231,7 @@ struct LibraryView: View {
                 // app bar, 44 chips and 4 gap) plus LibraryScrollerTopInset 8;
                 // bottom = floatingBottomGroupContentPadding 108 over the inset,
                 // less the 62 the shell already reserves for the bar.
-                .padding(.top, 64 + Tokens.library.CHIP_HEIGHT.cg + 4 + Tokens.library.SCROLLER_TOP_INSET.cg
+                .padding(.top, 64 + (wideHeader ? 0 : Tokens.library.CHIP_HEIGHT.cg + 4) + Tokens.library.SCROLLER_TOP_INSET.cg
                          + (LibraryFilterRow.Style.current.isTrack ? 4 : 0))
                 .padding(.bottom, Tokens.library.BOTTOM_GROUP_PADDING.cg - 62)
             }
@@ -263,8 +280,21 @@ struct LibraryView: View {
 
     // MARK: Header: search pill + avatar
 
+    /// Android Wide (≥ 840): the app bar holds the field and the chips in one row.
+    private var wideHeader: Bool { width >= 840 }
+    static let wideSearchWidth: CGFloat = 360
+
     private var header: some View {
         HStack(spacing: 8) {
+            searchPill
+            accountButton
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, SearchView.headerTop)
+        .padding(.bottom, 4)
+    }
+
+    private var searchPill: some View {
             Button { model.openSearch(from: .library) } label: {
                 HStack(spacing: 12) {
                     // Adaptive label colors: they flip with the glass over dark content.
@@ -283,6 +313,9 @@ struct LibraryView: View {
             // bar's circle, the pill steps aside so no second field waits here.
             .opacity(model.searchActive && model.searchOrigin == .bar ? 0 : 1)
             .animation(Yoin.effects, value: model.searchActive)
+    }
+
+    private var accountButton: some View {
             // The account Library is reading, as on Home (Android: 资料库也要显示当前的账号).
             Button { if !AccountFan.shared.swallowsTap { model.openSettings() } } label: {
                 HeaderAccountAvatar(profile: model.profiles.active,
@@ -295,10 +328,6 @@ struct LibraryView: View {
             .accessibilityValue(model.profiles.active?.spokenAccount ?? "")
             // Hold and slide onto another account (Android #162).
             .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, SearchView.headerTop)
-        .padding(.bottom, 4)
     }
 
     // MARK: Chips
