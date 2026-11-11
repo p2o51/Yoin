@@ -13,6 +13,7 @@ struct YoinApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .modifier(QAWindowFrame())
         }
         .commands { YoinCommands(model: AppModel.shared) }
     }
@@ -109,4 +110,33 @@ private struct SlowMotionInstaller: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
+/// QA stand-in for a narrow iPad window (Split View, Stage Manager), which the simulator can't be put into
+/// from the command line: `-padWindowWidth 683 -padWindowClass regular` lays the app out in a window that
+/// wide (leading edge, the rest of the screen dimmed) with that horizontal size class, so the same layout
+/// code runs as in a real window that size. Debug builds only; nothing without the argument.
+struct QAWindowFrame: ViewModifier {
+    func body(content: Content) -> some View {
+        #if DEBUG
+        let d = UserDefaults.standard
+        let width = d.double(forKey: "padWindowWidth")
+        if width > 0 {
+            let compact = d.string(forKey: "padWindowClass") == "compact"
+            HStack(spacing: 0) {
+                content
+                    .environment(\.horizontalSizeClass, compact ? .compact : .regular)
+                    .frame(width: width)
+                    .clipShape(.rect(cornerRadius: 18, style: .continuous))
+                Color.black.opacity(0.85).frame(width: 10)
+                Color.gray.opacity(0.35)
+            }
+            .background(Color.black.ignoresSafeArea())
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
 }
