@@ -168,7 +168,7 @@ struct MemoriesBarRetreat: ViewModifier {
 /// headers), so this approximates it: a material band that fades out
 /// downward, like Apple Music's top. Hidden under Now Playing, by the morph's
 /// progress (read here, so its frames re-render the band only).
-private struct StatusEdgeBand: View {
+struct StatusEdgeBand: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {

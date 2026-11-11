@@ -20,7 +20,13 @@ struct ShellBar: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     var npNamespace: Namespace.ID
+    /// iPad (PadShell): one of the bar's two floating pieces on its own. nil = the phone's whole bar.
+    var pad: PadBarPart? = nil
     @Namespace private var glassNS
+
+    /// iPad's floating glass (PadShell, 51 2026-11-11): the nav capsule (Home, Library, Search, always
+    /// labelled like the phone's idle bar) and the mini player (the phone's pill), placed apart.
+    enum PadBarPart { case nav, player }
 
     private let height: CGFloat = 60
     private var lab: GlassLab { GlassLab.shared }
@@ -85,15 +91,21 @@ struct ShellBar: View {
     var body: some View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 6) {
-                if model.isDetail, let album = model.detailAlbum {
+                if pad == .nav {
+                    navButton(.home)
+                    navButton(.library)
+                    searchButton
+                } else if pad == .player {
+                    if !model.isIdle { pill.frame(width: PadDockMetrics.playerWidth) }
+                } else if model.isDetail, let album = model.detailAlbum {
                     playSplit(album)
                 } else {
                     navButton(.home)
                 }
-                if !model.isIdle {
+                if pad == nil, !model.isIdle {
                     pill
                 }
-                if !model.isDetail {
+                if pad == nil, !model.isDetail {
                     navButton(.library)
                     searchButton
                         .padding(.leading, 6)
@@ -107,7 +119,7 @@ struct ShellBar: View {
         // A song that couldn't be played holds playback on it (Codex A39):
         // say so over the bar, with Retry (the pill's play does the same).
         .overlay(alignment: .bottom) {
-            if let failure = model.player.failure {
+            if let failure = model.player.failure, pad != .nav {
                 PlaybackFailureBanner(failure: failure, scheme: scheme) {
                     switch failure.action {
                     case .settings: model.openSettings()
@@ -132,7 +144,9 @@ struct ShellBar: View {
 
     @ViewBuilder
     private func navButton(_ s: ShellSection) -> some View {
-        let selected = model.section == s
+        let selected = model.section == s && !(pad != nil && model.searchActive)
+        // The phone's idle bar labels its halves; iPad's nav capsule always does.
+        let labelled = model.isIdle || pad == .nav
         let tintedStyle = lab.extra("barSelectedStyle") >= 0.5
         let icon = switch s {
         case .home: selected ? "home_filled" : "home"
@@ -142,18 +156,23 @@ struct ShellBar: View {
             : tintedStyle ? (s == .home ? scheme.onPrimary : scheme.onSecondary)
             : accent(s)
         let button = Button {
-            tap(.library) { model.select(s) }
+            tap(.library) {
+                // iPad: Search is a place of its own beside the sections; Home / Library leave it.
+                if pad != nil, model.searchActive { model.searchActive = false }
+                model.select(s)
+            }
         } label: {
             HStack(spacing: 8) {
                 YoinIcon(icon, size: 24)
-                if model.isIdle {
+                if labelled {
                     Text(s == .home ? String(localized: "Home") : String(localized: "Library")).font(.gsf(14, .semibold))
                 }
             }
             .foregroundStyle(ink)
             .labContrast(selected ? "barSelected" : "barUnselected")
-            .frame(width: model.isIdle ? nil : (selected ? 68 : 54), height: height)
-            .frame(maxWidth: model.isIdle ? .infinity : nil)
+            .padding(.horizontal, pad == .nav ? 20 : 0)
+            .frame(width: labelled ? nil : (selected ? 68 : 54), height: height)
+            .frame(maxWidth: model.isIdle && pad == nil ? .infinity : nil)
             .background {
                 if selected && !tintedStyle {
                     // Apple-style selection highlight inside the glass.
@@ -167,7 +186,7 @@ struct ShellBar: View {
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        .simultaneousGesture(longPress(.library, openLibrarySearch), including: s == .library ? .all : .subviews)
+        .simultaneousGesture(longPress(.library, openLibrarySearch), including: s == .library && pad == nil ? .all : .subviews)
         .accessibilityActions {
             if s == .library { Button("Search library", action: openLibrarySearch) }
         }
@@ -187,7 +206,54 @@ struct ShellBar: View {
         }
     }
 
+    @ViewBuilder
     private var searchButton: some View {
+        if pad != nil {
+            padSearchButton
+        } else {
+            phoneSearchButton
+        }
+    }
+
+    /// iPad: Search is the nav capsule's third place (its field is up at once, no circle to grow out of),
+    /// selected like Home and Library while it is open.
+    private var padSearchButton: some View {
+        let selected = model.searchActive
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5
+        let ink: Color = !selected ? Yoin.ink : tintedStyle ? scheme.onTertiary : scheme.tertiary
+        let button = Button {
+            if !model.searchActive { model.openSearch(from: .library) }
+        } label: {
+            YoinIcon("search", size: 24)
+                .foregroundStyle(ink)
+                .labContrast(selected ? "barSelected" : "barUnselected")
+                .frame(width: height, height: height)
+                .background {
+                    if selected && !tintedStyle {
+                        Circle()
+                            .fill((colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
+                                .opacity(lab.extra("barSelectionPill") / 0.55))
+                            .padding(5)
+                    }
+                }
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        return Group {
+            if selected && tintedStyle {
+                button.glassEffect(.regular.tint(scheme.tertiary.opacity(lab.style("barSelected").tintOpacity)).interactive(),
+                                   in: .circle)
+            } else {
+                button.labGlass(selected ? "barSelected" : "barUnselected", scheme: scheme, brand: brand,
+                                auto: scheme.tertiary, in: Circle())
+            }
+        }
+        .glassEffectID("search", in: glassNS)
+        .accessibilityLabel("Search")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var phoneSearchButton: some View {
         Button { model.openSearch(from: .bar) } label: {
             YoinIcon("search", size: 24)
                 .foregroundStyle(Yoin.ink)
