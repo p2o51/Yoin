@@ -16,8 +16,8 @@ final class HomeJbiPoolsTests: XCTestCase {
                       track: Track(id: MediaId(provider: "subsonic", rawId: "s\(i)"), number: 1, title: "S\(i)", durationSec: 100))
     }
 
-    private func playlist(_ i: Int, art hasArt: Bool = true) -> LibraryItem {
-        LibraryItem(id: MediaId(provider: "subsonic", rawId: "p\(i)"), kind: .playlist, title: "P\(i)", subtitle: "",
+    private func playlist(_ i: Int, art hasArt: Bool = true) -> JBILibraryItem {
+        JBILibraryItem(id: MediaId(provider: "subsonic", rawId: "p\(i)"), kind: .playlist, title: "P\(i)", subtitle: "",
                     palette: hasArt ? art : noArt, album: nil)
     }
 

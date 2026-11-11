@@ -90,7 +90,11 @@ enum HomeJbiPools {
     static func stableHash(_ s: String) -> UInt64 {
         var h: UInt64 = 0xcbf2_9ce4_8422_2325
         for b in s.utf8 { h = (h ^ UInt64(b)) &* 0x100_0000_01b3 }
-        return h
+        // A final avalanche (splitmix64): FNV-1a alone left the order nearly the same when only the
+        // window's last digit changed, so the shelf didn't roll from one window to the next.
+        h = (h ^ (h >> 30)) &* 0xbf58_476d_1ce4_e5b9
+        h = (h ^ (h >> 27)) &* 0x94d0_49bb_1331_11eb
+        return h ^ (h >> 31)
     }
 
     /// The shelf's covers: [albums] / [tracks] / [playlists] are the pools (already trimmed); the ones a
@@ -124,3 +128,7 @@ private extension Array where Element == JBIItem {
     /// Stable: items with artwork first.
     func artFirst() -> [JBIItem] { filter(\.hasArt) + filter { !$0.hasArt } }
 }
+
+/// The library item a playlist cover is built from (a name the test target can reach: `LibraryItem` is
+/// also a type of the shared Kotlin framework there).
+typealias JBILibraryItem = LibraryItem
