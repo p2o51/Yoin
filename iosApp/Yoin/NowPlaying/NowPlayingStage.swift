@@ -88,6 +88,9 @@ struct NowPlayingBudget {
     var rest: Pose
     var focus: Pose?
     var inlineHero: Bool
+    /// The column's width: the width given, or (the enlarged phone) the
+    /// cover, its rating column and the 24 insets when the cover is height-bound.
+    var stageWidth: CGFloat
 
     // The resting pose's slots, as before.
     var topBar: CGFloat { rest.topBar }
@@ -124,7 +127,8 @@ struct NowPlayingBudget {
 
     /// `height` = the column's height: from below the status bar to
     /// max(home indicator, 16) above the bottom.
-    init(width: CGFloat, height: CGFloat, forceShort: Bool) {
+    /// `enlarged`: iPad Full in a Medium window (Android NowPlayingEnlargedSpec).
+    init(width: CGFloat, height: CGFloat, forceShort: Bool, enlarged: EnlargedSpec? = nil) {
         var short = Self.referenceShortHeight
         #if DEBUG
         // `-npShortHeight 600`: a shorter forced column (16:9, the Fold's
@@ -134,8 +138,9 @@ struct NowPlayingBudget {
         #endif
         let resolved = forceShort ? min(height, short) : height
         let budget = NowPlayingBudgetKt.resolveStageColumnBudget(
-            width: Float(width), height: Float(resolved), metrics: Self.metrics, enlarged: nil, previous: nil)
+            width: Float(width), height: Float(resolved), metrics: Self.metrics, enlarged: enlarged, previous: nil)
         inlineHero = budget.heroOneLine
+        stageWidth = CGFloat(budget.stageWidth)
         rest = Self.pose(budget.rest, height: height)
         focus = budget.focus.map { Self.pose($0, height: height) }
     }
