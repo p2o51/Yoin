@@ -130,7 +130,7 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
                 ActivityEntry(id: "wide", eyebrow: "1d ago", album: a[1]),
                 ActivityEntry(id: "strip", eyebrow: "3d ago", album: a[11]),
             ],
-            jumpBackIn: jumpBackIn(),
+            jumpBackIn: jumpBackIn().map(JBIItem.album),
             recentTracks: grid.map { PlaylistEntry(album: a[$0.0], track: a[$0.0].tracks[$0.1]) },
             recentAlbums: [10, 4, 7, 5, 2, 8].map { a[$0] },
             rediscover: [

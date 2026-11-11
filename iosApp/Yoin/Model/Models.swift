@@ -354,7 +354,9 @@ struct HomeFeed: Hashable, Sendable {
     var layout: Layout
     /// [0] hero, [1] artist card, [2] wide card, [3] strip.
     var activities: [ActivityEntry]
-    var jumpBackIn: [Album]
+    /// Jump Back In's covers (albums, songs, playlists: HomeJbiPools), up to 28; the phone's shelf takes the
+    /// first rows its preset seats, a tablet's template as many as its columns hold.
+    var jumpBackIn: [JBIItem]
     /// Recently Added's 2 × 2 track grid.
     var recentTracks: [PlaylistEntry]
     var recentAlbums: [Album]
@@ -369,9 +371,6 @@ struct HomeFeed: Hashable, Sendable {
     var recentlyPlayed: [Album] = []
     /// Your Playlists: the library's playlists (Android HOME_PLAYLIST_LIMIT).
     var playlists: [LibraryItem] = []
-    /// A tablet's Jump Back In past the phone's twelve: the albums Activities shows too, and the rest of the
-    /// mix, up to Android's 28 covers (GRID_MAX_COMPACTS). The phone's shelf never reads it.
-    var jumpBackInMore: [Album] = []
 
     var isEmpty: Bool {
         activities.isEmpty && jumpBackIn.isEmpty && recentTracks.isEmpty && recentAlbums.isEmpty && rediscover.isEmpty

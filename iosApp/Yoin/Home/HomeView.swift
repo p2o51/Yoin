@@ -287,7 +287,7 @@ struct HomeView: View {
         if s == .yourPlaylists { return Array(feed.playlists.prefix(3).map(\.palette)) }
         let albums: [Album] = switch s {
         case .activities: feed.activities.map(\.album)
-        case .jumpBackIn: feed.signals.map(\.album) + feed.jumpBackIn
+        case .jumpBackIn: feed.signals.map(\.album) + feed.jumpBackIn.compactMap(\.album)
         case .recentlyAdded: feed.recentAlbums + feed.recentTracks.map(\.album)
         case .rediscover: feed.rediscover.map(\.album)
         case .recentlyPlayed: feed.recentlyPlayed
@@ -467,7 +467,7 @@ struct HomeView: View {
         if density.isTablet, !feed.jumpBackIn.isEmpty || !feed.signals.isEmpty {
             tabletJumpBackIn(feed, preset: preset)
         } else if feed.layout == .mock {
-            mockJumpBackIn(feed.jumpBackIn)
+            mockJumpBackIn(feed.jumpBackIn.compactMap(\.album))
         } else {
             serverJumpBackIn(feed, preset: preset)
         }
@@ -475,7 +475,7 @@ struct HomeView: View {
 
     /// The tablet shelf's cards in ranking order: the signal cards, then the covers.
     private func tabletJbiCards(_ feed: HomeFeed) -> [JBICard] {
-        feed.signals.map(JBICard.signal) + (feed.jumpBackIn + feed.jumpBackInMore).map(JBICard.cover)
+        feed.signals.map(JBICard.signal) + feed.jumpBackIn.map(JBICard.cover)
     }
 
     /// The tablet ladder of [feed] on this width's cover columns (Android jbiRowLadder).
@@ -503,8 +503,8 @@ struct HomeView: View {
                 case let .signal(signal):
                     SignalCard(signal: signal, cover: cover, standing: standing)
                         .frame(width: wide ? wideWidth : colW, alignment: .leading)
-                case let .cover(album):
-                    JBICell(album: album, mark: feed.memoryMarks[album.id.rawId], size: cover)
+                case let .cover(item):
+                    JBICell(item: item, marks: feed.memoryMarks, size: cover)
                         .frame(width: colW, alignment: .leading)
                 }
             }
@@ -540,8 +540,8 @@ struct HomeView: View {
     /// One Jump Back In row of a server's shelf.
     private enum JBIRow: Hashable {
         /// A 1×2 then a cover, or a cover then a 1×2 (the mock's two rows).
-        case signal(JBISignal, Album?, leading: Bool)
-        case covers([Album])
+        case signal(JBISignal, JBIItem?, leading: Bool)
+        case covers([JBIItem])
     }
 
     /// The shelf's cells (a 1×2 takes two) at [preset]: 2 / 3 / 4 / 6 rows of three. The signal
@@ -583,17 +583,17 @@ struct HomeView: View {
                     switch row {
                     case let .signal(signal, cover, leading):
                         if !leading, let cover {
-                            JBICell(album: cover, mark: feed.memoryMarks[cover.id.rawId])
+                            JBICell(item: cover, marks: feed.memoryMarks)
                                 .frame(width: pairUnit, alignment: .leading)
                         }
                         SignalCard(signal: signal).frame(width: pairUnit * 2, alignment: .leading)
                         if leading, let cover {
-                            JBICell(album: cover, mark: feed.memoryMarks[cover.id.rawId])
+                            JBICell(item: cover, marks: feed.memoryMarks)
                                 .frame(width: pairUnit, alignment: .leading)
                         }
-                    case let .covers(albums):
-                        ForEach(albums) { album in
-                            JBICell(album: album, mark: feed.memoryMarks[album.id.rawId])
+                    case let .covers(items):
+                        ForEach(items, id: \.stableId) { item in
+                            JBICell(item: item, marks: feed.memoryMarks)
                                 .frame(width: col, alignment: .leading)
                         }
                     }
@@ -1001,12 +1001,12 @@ private typealias MemoryMark = AlbumMemoryMark
 /// A card of the tablet shelf, seated on Android's template: a signal (rating / note) card or a cover.
 enum JBICard: JbiCard {
     case signal(JBISignal)
-    case cover(Album)
+    case cover(JBIItem)
 
     var stableId: String {
         switch self {
         case let .signal(s): "signal:\(s.kind == .ratedAlbum ? "rated" : "noted"):\(s.album.id.provider):\(s.album.id.rawId)"
-        case let .cover(a): "cover:\(a.id.provider):\(a.id.rawId)"
+        case let .cover(item): item.stableId
         }
     }
 
@@ -1015,28 +1015,78 @@ enum JBICard: JbiCard {
     }
 }
 
+/// One Jump Back In cover: an album (opens it), a song (plays it, as Android's PlaySong card) or a playlist
+/// (opens it). The subtitle carries the kind, since the shelf mixes them.
 private struct JBICell: View {
     @Environment(AppModel.self) private var model
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
     @State private var zoomTile = ZoomTile()
-    var album: Album
-    var mark: MemoryMark?
+    var item: JBIItem
+    /// Raw album id → memory mark; only an album's own cover wears one.
+    var marks: [String: AlbumMemoryMark] = [:]
     /// The cover's size: the phone's, or a tablet column's (HomeDensity.jbiColumn).
     var size: CGFloat = Tokens.home.JBI_COVER.cg
     @Environment(\.colorScheme) private var colorScheme
 
+    init(item: JBIItem, marks: [String: AlbumMemoryMark] = [:], size: CGFloat = Tokens.home.JBI_COVER.cg) {
+        self.item = item
+        self.marks = marks
+        self.size = size
+    }
+
+    /// The mock shelf's album cover with its hand-set mark.
+    init(album: Album, mark: AlbumMemoryMark?) {
+        self.init(item: .album(album), marks: mark.map { [album.id.rawId: $0] } ?? [:])
+    }
+
     var body: some View {
-        let s = scheme!
-        Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
-            AlbumItem(album: album, size: size, subtitle: album.kindLine) {
-                // albumMemoryMarkInk: palette base, accent in dark mode.
-                if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
+        switch item {
+        case let .album(album):
+            let mark = marks[album.id.rawId]
+            let s = scheme!
+            Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
+                AlbumItem(album: album, size: size, subtitle: album.kindLine) {
+                    // albumMemoryMarkInk: palette base, accent in dark mode.
+                    if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
+                }
+                .zoomSource(album.id, zoomNS, tile: zoomTile.key)
             }
-            .zoomSource(album.id, zoomNS, tile: zoomTile.key)
+            .buttonStyle(PressScale())
+        case let .track(entry):
+            Button { homeTap(edit) { model.play([entry]) } } label: {
+                plainCover(entity: .song, palette: entry.album.palette, seed: entry.album.seed, title: entry.track.title,
+                           subtitle: KindLine.make(String(localized: "Track"), entry.track.artist ?? entry.album.artist))
+            }
+            .buttonStyle(PressScale())
+        case let .playlist(playlist):
+            Button { homeTap(edit) { model.openPlaylist(playlist.id.rawId) } } label: {
+                plainCover(entity: .playlist, palette: playlist.palette, seed: playlist.id.rawId.count, title: playlist.title,
+                           subtitle: KindLine.make(String(localized: "Playlist"), playlist.owner ?? ""))
+            }
+            .buttonStyle(PressScale())
         }
-        .buttonStyle(PressScale())
+    }
+
+    /// A song's or playlist's cover and caption, set like an album's (JBI 1×1: 5 gap, title 16/22, bodySmall).
+    private func plainCover(entity: EntityBackdrop.Entity, palette: CoverPalette, seed: Int, title: String,
+                            subtitle: String) -> some View {
+        let s = scheme!
+        return VStack(alignment: .leading, spacing: 5) {
+            EntityBackdrop(entity: entity, palette: palette, seed: seed, size: size, stroke: s.primary)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
+                    .homeLine(16, 22)
+                    .foregroundStyle(s.onSurface)
+                Text(subtitle)
+                    .homeType(Tokens.type.bodySmall)
+                    .foregroundStyle(s.onSurfaceVariant)
+            }
+            .lineLimit(1)
+        }
+        .frame(width: size, alignment: .leading)
     }
 }
 

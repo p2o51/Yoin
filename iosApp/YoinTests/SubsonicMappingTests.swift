@@ -135,9 +135,12 @@ final class SubsonicMappingTests: XCTestCase {
         XCTAssertEqual(feed.activities.map(\.album.id.rawId), ["a0", "a1", "a2", "a3"])
         XCTAssertEqual(feed.activities[0].eyebrow, loc("\(10) plays"))
         XCTAssertEqual(feed.activities[1].eyebrow, "")
-        XCTAssertEqual(feed.jumpBackIn.count, 12)
-        XCTAssertEqual(Set(feed.jumpBackIn.map(\.id)).count, 12)
-        XCTAssertFalse(feed.jumpBackIn.contains { $0.id.rawId == "a0" })
+        // Android's pool: the random albums first, topped up to 14 from the recent / frequent mix; Activities'
+        // albums are not left out (the shelf's own rule is the signal cards').
+        let shelf = feed.jumpBackIn.compactMap(\.album?.id.rawId)
+        XCTAssertEqual(shelf.count, 14)
+        XCTAssertEqual(Set(shelf).count, 14)
+        XCTAssertEqual(Array(shelf.prefix(9)), (11..<20).map { "a\($0)" })
         XCTAssertEqual(feed.recentAlbums.map(\.id.rawId), ["a8", "a9"])
         XCTAssertEqual(feed.rediscover.first?.album.id.rawId, "a10")
         XCTAssertEqual(feed.rediscover.first?.score, 8)

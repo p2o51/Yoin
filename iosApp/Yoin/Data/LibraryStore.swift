@@ -75,6 +75,9 @@ final class LibraryStore {
         var highest: [Album]
         var random: [Album]
         var recentTracks: [PlaylistEntry]
+        /// Jump Back In's song pool: Subsonic's random songs; Apple Music and Spotify (no random read) the
+        /// songs last played.
+        var trackPool: [PlaylistEntry] = []
     }
 
     private(set) var albums: [Album] = []
@@ -248,9 +251,12 @@ final class LibraryStore {
                     tracks += album.tracks.prefix(2).map { PlaylistEntry(album: album, track: $0) }
                 }
             }
+            // Jump Back In's songs (Android getRandomSongs, 16 requested); a failed read leaves the shelf without.
+            let randomSongs = (try? await client.getRandomSongs(size: 16)) ?? []
             guard gen == generation else { return }
             let lists = HomeLists(recent: recentAlbums, frequent: f.map(mapping.album), newest: newestAlbums,
-                                  highest: h.map(mapping.album), random: x.map(mapping.album), recentTracks: tracks)
+                                  highest: h.map(mapping.album), random: x.map(mapping.album), recentTracks: tracks,
+                                  trackPool: randomSongs.enumerated().map { mapping.entry($1, index: $0) })
             homeLists = lists
             homePhase = .loaded
             persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
@@ -274,7 +280,7 @@ final class LibraryStore {
             let l = try await apple.homeLists()
             guard gen == generation else { return }
             let lists = HomeLists(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
-                                  random: l.older, recentTracks: l.recentTracks)
+                                  random: l.older, recentTracks: l.recentTracks, trackPool: l.recentTracks)
             homeLists = lists
             homePhase = .loaded
             persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
@@ -294,7 +300,7 @@ final class LibraryStore {
             let l = try await spotify.homeLists()
             guard gen == generation else { return }
             let lists = HomeLists(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
-                                  random: l.older, recentTracks: l.recentTracks)
+                                  random: l.older, recentTracks: l.recentTracks, trackPool: l.recentTracks)
             homeLists = lists
             homePhase = .loaded
             persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
@@ -320,7 +326,8 @@ final class LibraryStore {
             homeLists.map { l in
                 Self.buildHome(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: l.highest,
                                random: l.random, recentTracks: l.recentTracks, history: homeHistory(l),
-                               playlists: playlists)
+                               playlists: playlists, trackPool: l.trackPool,
+                               now: Int64(Date().timeIntervalSince1970 * 1000))
             }
         } onChange: { [weak self] in
             // Called before the change lands: rebuild on the next turn.
@@ -479,7 +486,8 @@ final class LibraryStore {
     /// Pure: the shelves from the lists (unit-tested).
     nonisolated static func buildHome(recent: [Album], frequent: [Album], newest: [Album], highest: [Album],
                                       random: [Album], recentTracks: [PlaylistEntry],
-                                      history: HomeOverlay? = nil, playlists: [LibraryItem] = []) -> HomeFeed {
+                                      history: HomeOverlay? = nil, playlists: [LibraryItem] = [],
+                                      trackPool: [PlaylistEntry] = [], now: Int64 = 0) -> HomeFeed {
         func plays(_ a: Album) -> String {
             guard let n = a.playCount, n > 0 else { return String(localized: "Recently active") }
             return n == 1 ? String(localized: "1 play") : String(localized: "\(n) plays")
@@ -503,24 +511,20 @@ final class LibraryStore {
         }
 
         let signals = history?.signals ?? []
-        // Only an album's own card keeps its cover off the shelf (an artist's or playlist's card shows that artist or playlist).
-        var seen = Set(activities.filter { $0.entity == .album }.map(\.album.id))
-        for s in signals where s.kind == .ratedAlbum { seen.insert(s.album.id) }
-        var jbi: [Album] = []
-        let rest = Array(recent.dropFirst(4))
+        // Jump Back In (Android buildWidgetGrid, see HomeJbiPools): albums, songs and playlists, less the ones a
+        // signal card already shows. Activities' albums stay (Android leaves them in too).
+        let excludedAlbums = Set(signals.filter { $0.kind == .ratedAlbum }.map(\.album.id))
+        let excludedTracks = Set(signals.compactMap { $0.kind == .notedTrack ? $0.song?.track.id : nil })
         var mixed: [Album] = []
-        for i in 0..<max(frequent.count, rest.count) {
+        for i in 0..<max(frequent.count, recent.count) {
             if i < frequent.count { mixed.append(frequent[i]) }
-            if i < rest.count { mixed.append(rest[i]) }
+            if i < recent.count { mixed.append(recent[i]) }
         }
-        mixed += random
-        for a in mixed where jbi.count < 12 && seen.insert(a.id).inserted { jbi.append(a) }
-        // A tablet's longer shelf (Android's pool keeps Activities' albums and holds 28 covers): the rest of
-        // the mix, then Activities' own albums, never the rated album the 1×2 shows.
-        let rated = Set(signals.filter { $0.kind == .ratedAlbum }.map(\.album.id))
-        var more: [Album] = []
-        var taken = Set(jbi.map(\.id)).union(rated)
-        for a in mixed + recent.prefix(4) where jbi.count + more.count < 28 && taken.insert(a.id).inserted { more.append(a) }
+        let jbi = HomeJbiPools.select(
+            albums: HomeJbiPools.albumPool(random: random, fallback: mixed),
+            tracks: HomeJbiPools.trackPool(trackPool),
+            playlists: HomeJbiPools.playlistPool(playlists, now: now),
+            excludedAlbums: excludedAlbums, excludedTracks: excludedTracks)
 
         let gridAlbums = Set(recentTracks.map(\.album.id))
         let recentAlbums = newest.filter { !gridAlbums.contains($0.id) || recentTracks.isEmpty }
@@ -544,7 +548,7 @@ final class LibraryStore {
                         recentAlbums: recentAlbums, rediscover: rediscover, signals: signals,
                         memoryMarks: history?.marks ?? [:],
                         recentlyPlayed: recent.filter { !shownInActivities.contains($0.id) },
-                        playlists: Array(playlists.prefix(homePlaylistLimit)), jumpBackInMore: more)
+                        playlists: Array(playlists.prefix(homePlaylistLimit)))
     }
 
     /// Activities entries kept: the hero, two rows of cards and a strip (the XL preset).

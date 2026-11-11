@@ -106,6 +106,8 @@ enum DetailCacheDTO {
         var highest: [Album]
         var random: [Album]
         var recentTracks: [Entry]
+        /// Jump Back In's song pool; absent in rows stored before it.
+        var trackPool: [Entry]? = nil
     }
 }
 
@@ -173,7 +175,8 @@ struct DetailCacheCodec {
 
     func dto(_ h: LibraryStore.HomeLists) -> DetailCacheDTO.Home {
         .init(recent: h.recent.map(dto), frequent: h.frequent.map(dto), newest: h.newest.map(dto),
-              highest: h.highest.map(dto), random: h.random.map(dto), recentTracks: h.recentTracks.map(dto))
+              highest: h.highest.map(dto), random: h.random.map(dto), recentTracks: h.recentTracks.map(dto),
+              trackPool: h.trackPool.map(dto))
     }
 
     // MARK: In
@@ -224,6 +227,7 @@ struct DetailCacheCodec {
     func home(_ h: DetailCacheDTO.Home) -> LibraryStore.HomeLists {
         LibraryStore.HomeLists(recent: h.recent.map(album), frequent: h.frequent.map(album), newest: h.newest.map(album),
                                highest: h.highest.map(album), random: h.random.map(album),
-                               recentTracks: h.recentTracks.map(entry))
+                               recentTracks: h.recentTracks.map(entry),
+                               trackPool: (h.trackPool ?? h.recentTracks).map(entry))
     }
 }
