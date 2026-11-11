@@ -52,7 +52,9 @@ struct PadShell: View {
                         .frame(width: panelWidth)
                         .clipShape(.rect(cornerRadius: 28))
                         .padding([.vertical, .trailing], 8)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        // Android OverlayPlayerVisibility: in and out by its own width, no fade, on the
+                        // spring the columns give way on.
+                        .transition(.move(edge: .trailing))
                 }
             }
             .background(Yoin.surface.ignoresSafeArea())
@@ -60,16 +62,20 @@ struct PadShell: View {
         // World depth, as on the phone: the shell steps back under Full Now
         // Playing and under a sheet (the NP panel is part of its plane);
         // Full Now Playing under a sheet it opens.
-        .modifier(WorldRecede(layer: .padShell))
+        .modifier(WorldRecede(layer: .shell))
         .overlay {
-            if model.npExpanded {
-                NowPlayingView(npNamespace: npNS)
+            // Full Now Playing grows out of the mini player in the bottom-trailing corner and folds back
+            // into it (Android #190 on a tablet), on the phone's one progress: ⌄, the drag and back all move it.
+            if model.np.mounted {
+                NowPlayingMorph(npNamespace: npNS)
                     .modifier(WorldRecede(layer: .nowPlaying))
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .transition(.identity)
             }
         }
+        .onChange(of: model.npExpanded) { _, open in model.np.show(open) }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.padWidth = $0 }
         .onAppear {
+            if model.npExpanded { model.np.snapOpen() }
             // `-screen settings`: the sign-in page in the album column.
             if LaunchConfig.baseScreen == "settings", !model.path.contains(.settings) { model.openSettings() }
         }

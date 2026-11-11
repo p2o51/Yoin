@@ -49,6 +49,7 @@ struct ShellBar: View {
             .onChanged { _ in
                 if longPressed == which { longPressed = nil }
                 // The pill: Now Playing builds while the finger is down.
+                // (iPad: only where the tap goes Full, not to the side panel.)
                 if which == .pill, !model.isPad, !model.isIdle { model.np.prewarm() }
             }
             .onEnded { _ in
@@ -289,7 +290,8 @@ struct ShellBar: View {
                 if model.isPad { model.openNowPlayingOnPad() } else { model.setNowPlaying(expanded: true) }
             }
         } label: {
-            PillContent(np: model.isPad ? nil : model.np)
+            // iPad too: Full Now Playing grows out of this pill and folds back into it (Android #190).
+            PillContent(np: model.np)
                 .contentShape(.capsule)
         }
         .buttonStyle(.plain)
@@ -309,7 +311,7 @@ struct ShellBar: View {
         }
         .glassEffectID("np", in: glassNS)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-            if !model.isPad { model.np.pillFrame = r }
+            model.np.pillFrame = r
         }
         // While Now Playing is up (or morphing), the morph's glass shape is
         // the pill: it starts and ends exactly on this frame.
