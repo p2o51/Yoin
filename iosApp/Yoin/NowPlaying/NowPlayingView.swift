@@ -175,7 +175,10 @@ struct NowPlayingView: View, Equatable {
     /// Playing synced lyrics that follow the playhead, on the expanded
     /// Lyrics page, not selecting lines (Android lyricToolsIdleEligible).
     private var lyricToolsIdleEligible: Bool {
-        guard model.player.isPlaying, stage == .expanded, tab == NowPlayingDetailPage.lyrics.rawValue,
+        // The expanded page's tools, or the enlarged column's tab-row tools at rest
+        // (Android toolsOnScreen: the enlarged tablet's tab row).
+        let enlargedRest = model.isPad && !panel && !wide && stage == .compact
+        guard model.player.isPlaying, stage == .expanded || enlargedRest, tab == NowPlayingDetailPage.lyrics.rawValue,
               lyricsFollow, !lyricsSelecting, let l = loadedLyrics else { return false }
         return l.synced
     }
@@ -435,6 +438,11 @@ struct NowPlayingView: View, Equatable {
                     .frame(width: g.size.width, height: g.size.height)
                     .onChange(of: twoColumns, initial: true) { _, on in if wide != on { wide = on } }
                     .overlay(alignment: .bottom) {
+                        // Two columns: the composer and the Ask bar sit in the
+                        // right column, at its x and width (Android: they are
+                        // that column's bottom accessory).
+                        let column = twoColumns ? wideRightColumn(size: g.size, bottomInset: g.bottom) : nil
+                        Group {
                         if asking {
                             askLayer
                                 .padding(.bottom, max(0, keyboardHeight - g.bottom))
@@ -448,6 +456,9 @@ struct NowPlayingView: View, Equatable {
                                 .ignoresSafeArea(.keyboard)
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
+                        }
+                        .padding(.leading, column?.x ?? 0)
+                        .padding(.trailing, column.map { g.size.width - $0.x - $0.width } ?? 0)
                     }
                     .offset(y: g.minY - live.minY)
                     .onChange(of: live, initial: true) { _, now in
@@ -552,13 +563,15 @@ struct NowPlayingView: View, Equatable {
         let enlargedColumn = model.isPad && !panel ? NowPlayingPadFrame.enlargedColumnWidth(windowWidth: size.width) : nil
         let ratingColumn = enlargedColumn.map { NowPlayingPadFrame.enlargedRatingColumn(column: $0) }
             ?? Tokens.np.PHONE_RATING_COLUMN.cg
+        let controlSize = enlargedColumn.map { NowPlayingPadFrame.enlargedControlSize(column: $0) }
+            ?? Tokens.np.CONTROL_SIZE.cg
         let budget = NowPlayingBudget(
             width: size.width,
             height: column,
             forceShort: model.npForceShort,
             enlarged: enlargedColumn.map {
                 EnlargedSpec(columnWidth: Float($0), ratingColumn: Float(ratingColumn),
-                             controlSize: Float(Tokens.np.CONTROL_SIZE))
+                             controlSize: Float(controlSize))
             }
         )
         let stageWidth = budget.stageWidth
@@ -611,11 +624,13 @@ struct NowPlayingView: View, Equatable {
             .frame(height: expanded ? 0 : coverH, alignment: .top)
             .zIndex(1)
             Spacer().frame(height: coverGap)
-            tabsSlot(expanded: expanded, tools: enlargedColumn != nil && page == .lyrics)
+            let rowTools = enlargedColumn != nil && page == .lyrics
+            tabsSlot(expanded: expanded, tools: rowTools)
                 .frame(height: tabsH, alignment: .top)
-                // Expanded, the clip stands off so the glass tabs' own edge
-                // light and shadow aren't cut to a hard line.
-                .clipShape(Rectangle().inset(by: expanded ? -64 : 0))
+                // Expanded (and the enlarged column's glass tools at rest), the
+                // clip stands off so the glass keys' own edge light and shadow
+                // aren't cut to a hard line.
+                .clipShape(Rectangle().inset(by: expanded || (rowTools && stage == .compact) ? -64 : 0))
                 .npFade(open, contentFade)
             Spacer().frame(height: tabGap)
             // The lyrics run on under the glass transport; the current line
@@ -637,7 +652,7 @@ struct NowPlayingView: View, Equatable {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(stage == .focus ? String(localized: "Lyrics") : page.title)
                 }
-                transport(p, short: short != nil)
+                transport(p, short: short != nil, control: controlSize)
                     .padding(.top, clear)
                     .opacity(expanded ? 0 : 1)
                     .offset(y: expanded ? 48 : 0)
@@ -668,7 +683,7 @@ struct NowPlayingView: View, Equatable {
                     // Android lyricToolsWakeGuard: while the tools are away,
                     // the first tap where they stood only brings them back
                     // (the title sank into that band).
-                    if lyricToolsIdle {
+                    if lyricToolsIdle && expanded {
                         Color.clear
                             .frame(height: NowPlayingExpanded.lyricTools)
                             .contentShape(.rect)
@@ -985,6 +1000,16 @@ struct NowPlayingView: View, Equatable {
                 if tools, let t = engineTrack {
                     Spacer(minLength: 8)
                     lyricTools(t, keySize: Self.enlargedToolKey)
+                        // Idle, they fade in place (Android LyricToolsIdle); the
+                        // first tap on them only brings them back.
+                        .opacity(lyricToolsIdle ? 0 : 1)
+                        .overlay {
+                            if lyricToolsIdle {
+                                Color.clear.contentShape(.rect)
+                                    .onTapGesture { wakeLyricTools() }
+                                    .accessibilityHidden(true)
+                            }
+                        }
                 }
             }
                 .frame(height: tools ? Self.enlargedToolKey : nil)
@@ -1121,7 +1146,9 @@ struct NowPlayingView: View, Equatable {
                     if !lyricsSelecting { lyricsFollow = false }
                     wakeLyricTools()
                 },
-                onTap: { i in lyricLineTapped(i, times: times, synced: loaded.synced) }
+                onTap: { i in lyricLineTapped(i, times: times, synced: loaded.synced) },
+                // Two-column focus prints the lyrics through the halftone (Android WidePlayingContent).
+                halftone: wide && stage == .focus
             )
     }
 
@@ -1704,8 +1731,10 @@ struct NowPlayingView: View, Equatable {
     /// one press state and one glass.
     /// `atEase` (Android PlaybackControls atEase, two-column focus at ease):
     /// the buttons and the times step away, the progress bar stays.
-    private func transport(_ p: PlaybackSnapshot, short: Bool = false, atEase: Bool = false) -> some View {
-        let control = Tokens.np.CONTROL_SIZE.cg
+    /// `control`: the enlarged column's 60 where it is ≥ 1.4 phone columns
+    /// (Android NowPlayingEnlargedSpec.controlSize), else 56.
+    private func transport(_ p: PlaybackSnapshot, short: Bool = false, atEase: Bool = false,
+                           control: CGFloat = Tokens.np.CONTROL_SIZE.cg) -> some View {
         let gap = Tokens.np.TRANSPORT_GAP.cg
         let rowGap = Tokens.np.CONTROL_ROW_GAP.cg
         let secondRow = short ? NowPlayingBudget.shortFocusProgressRow : control
@@ -1737,7 +1766,7 @@ struct NowPlayingView: View, Equatable {
                     playPauseLabel(playing: playing, pressed: pausePressed)
                         .frame(width: word)
                         .padding(.horizontal, pad)
-                        .frame(width: max(0, playWidth), height: 56)
+                        .frame(width: max(0, playWidth), height: control)
                         .contentShape(.capsule)
                 }
                 .buttonStyle(PressReport { touch("pause", $0) })
@@ -1749,7 +1778,7 @@ struct NowPlayingView: View, Equatable {
                 // PREVIOUS's place in this row, opening as it arrives.
                 .padding(.leading, short ? control + gap : 0)
                 roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: String(localized: "Next"),
-                            width: max(0, nextWidth)) {
+                            width: max(0, nextWidth), size: control) {
                     model.player.next()
                 }
                 .animation(Yoin.standardFastSpatial, value: playing)
@@ -1763,9 +1792,9 @@ struct NowPlayingView: View, Equatable {
                                onCycle: { model.player.cyclePlayMode() },
                                onShuffle: { model.player.setShuffle($0) },
                                onRepeat: { model.player.setRepeat($0) },
-                               onPress: { touch(String(localized: "Play mode"), $0) })
+                               onPress: { touch(String(localized: "Play mode"), $0) }, size: control)
             }
-            .frame(height: 56)
+            .frame(height: control)
             // The progress row's place: the row itself is drawn over the
             // container (below), so its glass stays behind the times and the bar.
             Color.clear.frame(height: secondRow)
@@ -1773,7 +1802,8 @@ struct NowPlayingView: View, Equatable {
         .overlay(alignment: .topLeading) {
             // PREVIOUS: at the start of the progress row at rest, at the
             // start of the top row in short focus.
-            roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: String(localized: "Previous")) {
+            roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: String(localized: "Previous"),
+                        size: control) {
                 model.player.previous()
             }
             .offset(y: short ? 0 : control + rowGap + (secondRow - control) / 2)
@@ -1907,13 +1937,14 @@ struct NowPlayingView: View, Equatable {
     }
 
     private func roundButton(_ icon: String, fill: Color, ink: Color, label: String, badge: String? = nil,
-                             width: CGFloat = 56, action: @escaping () -> Void) -> some View {
+                             width: CGFloat = 56, size: CGFloat = 56, action: @escaping () -> Void) -> some View {
         // Untinted (Balanced / HIG presets) or a neutral floor (Gemini):
         // the glyph goes on-surface.
         let tinted = GlassLab.shared.style("transportSecondary").tintOn
             && !GlassLab.shared.neutralTint("transportSecondary")
         return Button(action: action) {
-            YoinIcon(icon, size: 28)
+            // Android: the glyph is half the control (56 → 28, 60 → 30).
+            YoinIcon(icon, size: size / 2)
                 .foregroundStyle(tinted ? ink : scheme.onSurface)
                 .opacity(badge == "off" ? 0.45 : 1)
                 .overlay(alignment: .bottomTrailing) {
@@ -1923,7 +1954,7 @@ struct NowPlayingView: View, Equatable {
                     }
                 }
                 .labContrast("transportSecondary")
-                .frame(width: width, height: 56)
+                .frame(width: width, height: size)
                 .contentShape(.capsule)
         }
         .buttonStyle(PressReport { touch(label, $0) })
@@ -2710,9 +2741,10 @@ struct PlayModeButton: View {
     /// One more per segment tap: the merge waits for a quiet spell.
     @State private var splitTouches = 0
 
-    static let size: CGFloat = 56
+    /// The transport's control size (56; the large enlarged column's 60).
+    var size: CGFloat = 56
     /// Android playModeNaturalWidth: control × 1.6 + the 2 dp gap.
-    static let splitWidth: CGFloat = size * 1.6 + 2
+    private var splitWidth: CGFloat { size * 1.6 + 2 }
     static let holdSeconds: Double = 3
 
     private var tinted: Bool {
@@ -2721,8 +2753,8 @@ struct PlayModeButton: View {
     private var ink: Color { tinted ? scheme.onTertiaryContainer : scheme.onSurface }
 
     var body: some View {
-        let width = split ? Self.splitWidth : Self.size
-        let segment = (Self.splitWidth - 2) / 2
+        let width = split ? splitWidth : size
+        let segment = (splitWidth - 2) / 2
         ZStack {
             if split {
                 HStack(spacing: 2) {
@@ -2748,7 +2780,7 @@ struct PlayModeButton: View {
                 let merged = PlayModeGlyph(shuffle: shuffle, repeatMode: repeatMode)
                 glyph(merged.icon, one: merged.one, off: merged.off)
                     .foregroundStyle(ink)
-                    .frame(width: Self.size, height: Self.size)
+                    .frame(width: size, height: size)
                     .contentShape(.capsule)
                     .onTapGesture { onCycle() }
                     .accessibilityElement()
@@ -2759,7 +2791,7 @@ struct PlayModeButton: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
         }
-        .frame(width: width, height: Self.size)
+        .frame(width: width, height: size)
         .onLongPressGesture(minimumDuration: 0.4, perform: {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             setSplit(!split)
@@ -2793,14 +2825,14 @@ struct PlayModeButton: View {
     /// One segment: outer corners round, inner ones nearly square (Android
     /// PlayModeInnerCornerRatio 0.18); lit, a solid primary inset.
     private func half<G: View>(lit: Bool, leading: Bool, width: CGFloat, @ViewBuilder _ glyph: () -> G) -> some View {
-        let outer = Self.size / 2, inner = Self.size * 0.18
+        let outer = size / 2, inner = size * 0.18
         let shape = UnevenRoundedRectangle(topLeadingRadius: leading ? outer : inner,
                                            bottomLeadingRadius: leading ? outer : inner,
                                            bottomTrailingRadius: leading ? inner : outer,
                                            topTrailingRadius: leading ? inner : outer, style: .continuous)
         return glyph()
             .foregroundStyle(lit ? scheme.onPrimary : ink)
-            .frame(width: width, height: Self.size)
+            .frame(width: width, height: size)
             .background { shape.fill(scheme.primary).padding(3).opacity(lit ? 1 : 0) }
             .contentShape(shape)
     }
@@ -2860,14 +2892,7 @@ extension NowPlayingView {
     func wideContent(size: CGSize, top: CGFloat, bottomInset: CGFloat) -> some View {
         let p = model.playback
         let F = DualPaneBudget.self
-        let metrics = F.metrics(controlSize: Tokens.np.CONTROL_SIZE.cg, rowGap: Tokens.np.CONTROL_ROW_GAP.cg,
-                                labelLine: Tokens.type.labelLarge.lineHeight.cg,
-                                artistLine: Tokens.type.titleMedium.lineHeight.cg,
-                                titleLine: Tokens.type.headlineMedium.lineHeight.cg, navBottom: bottomInset)
-        // The page sits between the system insets; Android's content height
-        // runs from under the status bar to the window's foot.
-        let budget = F.resolve(rowWidth: size.width - F.framePadding * 2,
-                               contentHeight: size.height + bottomInset, metrics: metrics)
+        let budget = wideBudget(size: size, bottomInset: bottomInset)
         let focusOffered = budget.focusOffered
         let inFocus = stage == .focus && focusOffered
         let pose = inFocus ? (budget.focus ?? budget.rest) : budget.rest
@@ -2968,6 +2993,28 @@ extension NowPlayingView {
         .padding(.top, budget.frameTop)
         .padding(.bottom, budget.frameBottom)
         .frame(width: size.width, height: size.height, alignment: .top)
+    }
+
+    /// The two-column budget for this page size (see `wideContent`).
+    func wideBudget(size: CGSize, bottomInset: CGFloat) -> DualPaneBudget.Result {
+        let F = DualPaneBudget.self
+        let metrics = F.metrics(controlSize: Tokens.np.CONTROL_SIZE.cg, rowGap: Tokens.np.CONTROL_ROW_GAP.cg,
+                                labelLine: Tokens.type.labelLarge.lineHeight.cg,
+                                artistLine: Tokens.type.titleMedium.lineHeight.cg,
+                                titleLine: Tokens.type.headlineMedium.lineHeight.cg, navBottom: bottomInset)
+        // The page sits between the system insets; Android's content height
+        // runs from under the status bar to the window's foot.
+        return F.resolve(rowWidth: size.width - F.framePadding * 2,
+                         contentHeight: size.height + bottomInset, metrics: metrics)
+    }
+
+    /// The right column's x and width in the page (rest or focus pose).
+    func wideRightColumn(size: CGSize, bottomInset: CGFloat) -> (x: CGFloat, width: CGFloat) {
+        let F = DualPaneBudget.self
+        let budget = wideBudget(size: size, bottomInset: bottomInset)
+        let pose = stage == .focus ? (budget.focus ?? budget.rest) : budget.rest
+        let x = F.framePadding + pose.slot + F.columnGap
+        return (x, max(0, size.width - F.framePadding - x))
     }
 
     /// The lyric page's inset (Android: the pager pads its pages by 24 and

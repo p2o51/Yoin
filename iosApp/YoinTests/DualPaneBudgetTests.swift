@@ -78,5 +78,8 @@ final class DualPaneBudgetTests: XCTestCase {
         XCTAssertEqual(NowPlayingPadFrame.enlargedRatingColumn(column: 640), 104)
         XCTAssertEqual(NowPlayingPadFrame.enlargedRatingColumn(column: 360), 56)
         XCTAssertEqual(NowPlayingPadFrame.enlargedRatingColumn(column: 530), 82, accuracy: 0.001)
+        XCTAssertEqual(NowPlayingPadFrame.enlargedControlSize(column: 640), 60)
+        XCTAssertEqual(NowPlayingPadFrame.enlargedControlSize(column: 560), 60)
+        XCTAssertEqual(NowPlayingPadFrame.enlargedControlSize(column: 530), 56)
     }
 }

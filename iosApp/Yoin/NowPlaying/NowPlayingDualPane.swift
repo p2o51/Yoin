@@ -28,6 +28,12 @@ enum NowPlayingPadFrame: Equatable {
     static func enlargedRatingColumn(column: CGFloat) -> CGFloat {
         min(max(56 + 80 * (column / 400 - 1), 56), 104)
     }
+
+    /// Android nowPlayingEnlargedSpec: the controls grow to 60 once the
+    /// column is 1.4 phone columns (560), else the phone's 56.
+    static func enlargedControlSize(column: CGFloat) -> CGFloat {
+        column / 400 >= 1.4 ? 60 : 56
+    }
 }
 
 /// Android NowPlayingBudget.kt's DualPane section (`resolveDualPaneBudget`,
