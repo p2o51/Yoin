@@ -119,10 +119,10 @@ private struct PadColumns: View {
                 HStack(spacing: 0) {
                     // Outside a NavigationStack the floating top tab bar adds
                     // no safe area, so clear it by hand.
-                    // A bar, not padding: the feed scrolls under it with the system's soft top edge (as
-                    // under the phone's bars) instead of running into the status bar and the tab bar.
+                    // Outside a NavigationStack the floating top tab bar adds no safe area, so clear it by
+                    // hand. The feed runs up under the status bar (51 2026-11-11: that is the right look).
                     shellContent
-                        .safeAreaBar(edge: .top) { Color.clear.frame(height: 52) }
+                        .safeAreaPadding(.top, 52)
                         .frame(width: shell)
                     Capsule()
                         .fill(Yoin.outline)
@@ -130,10 +130,13 @@ private struct PadColumns: View {
                         .frame(width: 12)
                         .frame(maxHeight: .infinity)
                         .background(Yoin.surface)
+                    // The column runs to the top edge like the shell beside it (no strip of page above it,
+                    // 51 2026-11-11); its page keeps its own content below the status bar.
                     detailColumn
                         .environment(\.inPadColumn, true)
-                        .clipShape(.rect(cornerRadius: 28))
-                        .padding(.vertical, 8)
+                        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 28, bottomTrailingRadius: 28))
+                        .ignoresSafeArea(.container, edges: .top)
+                        .padding(.bottom, 8)
                         .padding(.trailing, 8)
                 }
                 .background(Yoin.surface)
