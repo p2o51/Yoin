@@ -68,7 +68,18 @@ struct HomeView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            feedScroll
+            // Sized by the space Home is given, not by what it holds: the feed's sections are as wide as the
+            // content width, and the scroll view takes its content's width across, so reading the scroll view
+            // back kept a feed that had been wide stuck wide when its container narrowed (an iPad column
+            // opening, a rotation). The proposal is the one input (Android: the container's width).
+            GeometryReader { g in
+                feedScroll
+                    .frame(width: g.size.width, height: g.size.height)
+                    .onChange(of: g.size, initial: true) { _, size in
+                        feedSize = size
+                        contentWidth = HomeDensity(width: size.width, height: size.height).content
+                    }
+            }
                 .modifier(IslandPush(bubble: bubble))
                 .modifier(MemoriesHomeBehind(presentation: memories))
             // Spotify's pill has the header for its 5 s: the bubble keeps quiet.
@@ -194,12 +205,10 @@ struct HomeView: View {
             .coordinateSpace(.named(HomeEditController.feedSpace))
             .background(HomeHoldObserver(edit: edit))
             .overlay(alignment: .topLeading) { CarriedStrip(edit: edit, covers: feed.map { covers(edit.hole ?? .activities, $0) } ?? []) }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = HomeDensity(width: $0, height: feedSize.height).content }
             .background(ScrollPullObserver(presentation: memories, enabled: !edit.isEditing && !covered) {
                 bubble.cue(.outOfReach, pill: nil)
             })
         }
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { feedSize = $0 }
         .environment(\.homeMargin, density.margin)
         .contentMargins(.bottom, 24, for: .scrollContent)
         // A carried section owns the finger: the feed doesn't scroll under it.
@@ -441,6 +450,9 @@ struct HomeView: View {
         case .activities:
             let stops = activityStops(feed.activities).stops
             return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
+        case .jumpBackIn where density.isTablet && !(feed.jumpBackIn.isEmpty && feed.signals.isEmpty):
+            let stops = tabletJbiStops(feed)
+            return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
         case .jumpBackIn where feed.layout == .server:
             let stops = jbiStops(feed)
             return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
@@ -461,64 +473,67 @@ struct HomeView: View {
         }
     }
 
-    /// One placed thing of the tablet shelf: a cover or a 2-column signal card, at a column and row.
-    private struct JBIPlaced: Identifiable {
-        var id: String
-        var album: Album?
-        var signal: JBISignal?
-        var column: Int
-        var row: Int
+    /// The tablet shelf's cards in ranking order: the signal cards, then the covers.
+    private func tabletJbiCards(_ feed: HomeFeed) -> [JBICard] {
+        feed.signals.map(JBICard.signal) + feed.jumpBackIn.map(JBICard.cover)
     }
 
-    /// Jump Back In on a tablet-wide feed (Android HomeJbiTemplate, "Drift"): phone-sized covers in
-    /// `coverColumns` columns, each column starting 0 / ¼ / ½ row down from its neighbour, the signal
-    /// cards lying across two columns in the first row. Same data, same layout.
+    /// The tablet ladder of [feed] on this width's cover columns (Android jbiRowLadder).
+    private func tabletJbiStops(_ feed: HomeFeed) -> [HomeRowStop<JbiPresetLayout<JBICard>>] {
+        jbiTabletLadder(cards: tabletJbiCards(feed), columns: density.coverColumns)
+    }
+
+    /// Jump Back In on a tablet-wide feed (Android HomeJbiTemplate): phone-sized covers in `coverColumns`
+    /// lanes, each lane starting 0 / ¼ / ½ row below its neighbour; a signal card stands (1 column × 2 rows,
+    /// cover over its copy) or lies (2 columns, cover beside its copy) as the seeded template says, and a
+    /// lying card's right neighbour drops half a row. A shelf too short for any template is a plain column
+    /// grid. The preset picks the rows (S = L−2 … XL = L+1).
     private func tabletJumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
         let gap = Tokens.home.JBI_COLUMN_GAP.cg
+        let rowGap = Tokens.home.JBI_ROW_GAP.cg
         let cols = density.coverColumns
         let (colW, cover) = density.jbiColumn(gap: gap)
-        // A short supply takes fewer rows (Android: a row the covers can't fill is dropped).
-        let supply = feed.jumpBackIn.count + 2 * min(feed.signals.count, 2)
-        let rows = max(1, min(HomeDensity.jbiRows(columns: cols, preset: preset), Int((Double(supply) / Double(cols)).rounded(.up))))
-        let signals = Array(feed.signals.prefix(HomeRowPresets.jbiSignalLimit(rows: rows, cells: rows * cols)))
-        // Signals across columns 1–2 and, for a second, the last two columns but one; covers fill the rest.
-        var signalCols: [Int] = []
-        if !signals.isEmpty { signalCols.append(min(1, cols - 2)) }
-        if signals.count > 1, cols >= 6 { signalCols.append(cols - 3) }
-        var taken = Set<Int>()
-        for c in signalCols { taken.insert(c); taken.insert(c + 1) }
-        var offsets = HomeDensity.jbiOffsets(lanes: cols, seed: HomeDensity.stableSeed(feed.jumpBackIn.first?.id.rawId ?? ""))
-        for c in signalCols { offsets[c + 1] = offsets[c] }
-        var placed: [JBIPlaced] = []
-        for (i, c) in signalCols.enumerated() where i < signals.count {
-            placed.append(JBIPlaced(id: "signal\(i)", signal: signals[i], column: c, row: 0))
-        }
-        var covers = feed.jumpBackIn[...]
-        for r in 0..<rows {
-            for c in 0..<cols where !(r == 0 && taken.contains(c)) {
-                guard let album = covers.popFirst() else { break }
-                placed.append(JBIPlaced(id: "cover\(album.id.rawId)", album: album, column: c, row: r))
-            }
-        }
-        let pitch = cover + 50 + Tokens.home.JBI_ROW_GAP.cg
-        // As tall as the lowest thing placed: a short supply leaves no empty band under the shelf.
-        let height = (placed.map { CGFloat($0.row) + offsets[$0.column] }.max() ?? 0) * pitch + pitch - Tokens.home.JBI_ROW_GAP.cg
-        return VStack(alignment: .leading, spacing: Tokens.home.JBI_ROW_GAP.cg) {
-            HomeSectionTitle(String(localized: "Jump Back In"))
-            ZStack(alignment: .topLeading) {
-                ForEach(placed) { p in
-                    Group {
-                        if let signal = p.signal {
-                            SignalCard(signal: signal).frame(width: colW * 2 + gap, alignment: .leading)
-                        } else if let album = p.album {
-                            JBICell(album: album, mark: feed.memoryMarks[album.id.rawId], size: cover)
-                                .frame(width: colW, alignment: .leading)
-                        }
-                    }
-                    .offset(x: CGFloat(p.column) * (colW + gap), y: (CGFloat(p.row) + offsets[p.column]) * pitch)
+        let composition = tabletJbiStops(feed).stopPayload(for: preset)
+        let pitch = cover + 50 + rowGap
+        let wideWidth = colW * 2 + gap
+
+        func cell(_ card: JBICard, standing: Bool = false, wide: Bool = false) -> some View {
+            Group {
+                switch card {
+                case let .signal(signal):
+                    SignalCard(signal: signal, cover: cover, standing: standing)
+                        .frame(width: wide ? wideWidth : colW, alignment: .leading)
+                case let .cover(album):
+                    JBICell(album: album, mark: feed.memoryMarks[album.id.rawId], size: cover)
+                        .frame(width: colW, alignment: .leading)
                 }
             }
-            .frame(width: density.content, height: height, alignment: .topLeading)
+        }
+
+        return VStack(alignment: .leading, spacing: rowGap) {
+            HomeSectionTitle(String(localized: "Jump Back In"))
+            switch composition {
+            case let .template(layout):
+                let t = layout.template
+                // As tall as the lowest thing placed: a short supply leaves no empty band under the shelf.
+                let height = (t.pieces.map { CGFloat(t.top(of: $0)) + CGFloat($0.kind.rowSpan) }.max() ?? 1) * pitch - rowGap
+                ZStack(alignment: .topLeading) {
+                    ForEach(layout.cells, id: \.card.stableId) { c in
+                        cell(c.card, standing: c.piece.kind == .tallSignal, wide: c.piece.kind == .wideSignal)
+                            .offset(x: CGFloat(c.piece.column) * (colW + gap), y: CGFloat(t.top(of: c.piece)) * pitch)
+                    }
+                }
+                .frame(width: density.content, height: height, alignment: .topLeading)
+            case let .packed(rows):
+                VStack(alignment: .leading, spacing: rowGap) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        HStack(alignment: .top, spacing: gap) {
+                            ForEach(row, id: \.stableId) { card in cell(card, wide: card.expanded) }
+                        }
+                    }
+                }
+                .frame(width: density.content, alignment: .leading)
+            }
         }
     }
 
@@ -983,6 +998,23 @@ private struct StripCard: View {
 /// Memory mark on a plain album cover: 16 dp disc + 12 dp Cookie12Sided.
 private typealias MemoryMark = AlbumMemoryMark
 
+/// A card of the tablet shelf, seated on Android's template: a signal (rating / note) card or a cover.
+enum JBICard: JbiCard {
+    case signal(JBISignal)
+    case cover(Album)
+
+    var stableId: String {
+        switch self {
+        case let .signal(s): "signal:\(s.kind == .ratedAlbum ? "rated" : "noted"):\(s.album.id.provider):\(s.album.id.rawId)"
+        case let .cover(a): "cover:\(a.id.provider):\(a.id.rawId)"
+        }
+    }
+
+    var expanded: Bool {
+        if case .signal = self { true } else { false }
+    }
+}
+
 private struct JBICell: View {
     @Environment(AppModel.self) private var model
     @Environment(\.homeEdit) private var edit
@@ -1092,10 +1124,67 @@ private struct SignalCard: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     var signal: JBISignal
+    /// The cover's size: the phone's, or a tablet column's.
+    var cover: CGFloat = Tokens.home.JBI_COVER.cg
+    /// A tablet's standing 1×2: the cover over its copy instead of beside it.
+    var standing = false
 
     @Environment(\.colorScheme) private var colorScheme
 
     private var album: Album { signal.album }
+
+    /// The cover and its caption (a tablet column's cover size, or the phone's).
+    @ViewBuilder
+    private func coverBlock(_ s: CoverScheme) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: cover,
+                           stroke: s.primary)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(signal.title)
+                    .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
+                    .homeLine(16, 22)
+                    .foregroundStyle(s.onSurface)
+                Text(signal.kind == .ratedAlbum ? album.kindLine : signal.subtitle)
+                    .homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
+            }
+            .lineLimit(1)
+            .frame(width: cover, alignment: .leading)
+        }
+    }
+
+    /// The score over its basis, then the words.
+    @ViewBuilder
+    private func ratingColumn(_ s: CoverScheme, ink: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            // Row(verticalAlignment = Bottom): the basis sits 3 dp off the score's line-box bottom.
+            HStack(alignment: .bottom, spacing: 6) {
+                Text(signal.score)
+                    .homeType(Tokens.type.headlineSmall, .bold, digits: true)
+                if let basis = signal.basis {
+                    Text(basis)
+                        .homeType(Tokens.type.labelSmall, digits: true)
+                        .opacity(0.85)
+                        .padding(.bottom, 3)
+                }
+            }
+            .foregroundStyle(ink)
+            if let comment = signal.comment {
+                // A memory's title in the headline face; a note is body text.
+                if signal.kind == .ratedAlbum {
+                    Text(comment)
+                        .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 24)
+                        .foregroundStyle(s.onSurface)
+                        .lineLimit(3)
+                } else {
+                    Text(comment)
+                        .homeType(Tokens.type.bodyMedium)
+                        .foregroundStyle(s.onSurface)
+                        .lineLimit(3)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
     var body: some View {
         let s = scheme!
@@ -1113,50 +1202,19 @@ private struct SignalCard: View {
                 }
             }
         } label: {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 5) {
-                    EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: Tokens.home.JBI_COVER.cg,
-                                   stroke: s.primary)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(signal.title)
-                            .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
-                            .homeLine(16, 22)
-                            .foregroundStyle(s.onSurface)
-                        Text(signal.kind == .ratedAlbum ? album.kindLine : signal.subtitle)
-                            .homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
+            Group {
+                if standing {
+                    // Standing (tablet 1×2): the cover block over its copy, one column wide.
+                    VStack(alignment: .leading, spacing: 10) {
+                        coverBlock(s)
+                        ratingColumn(s, ink: ink)
                     }
-                    .lineLimit(1)
-                    .frame(width: Tokens.home.JBI_COVER.cg, alignment: .leading)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    // Row(verticalAlignment = Bottom): the basis sits 3 dp off the score's line-box bottom.
-                    HStack(alignment: .bottom, spacing: 6) {
-                        Text(signal.score)
-                            .homeType(Tokens.type.headlineSmall, .bold, digits: true)
-                        if let basis = signal.basis {
-                            Text(basis)
-                                .homeType(Tokens.type.labelSmall, digits: true)
-                                .opacity(0.85)
-                                .padding(.bottom, 3)
-                        }
-                    }
-                    .foregroundStyle(ink)
-                    if let comment = signal.comment {
-                        // A memory's title in the headline face; a note is body text.
-                        if signal.kind == .ratedAlbum {
-                            Text(comment)
-                                .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 24)
-                                .foregroundStyle(s.onSurface)
-                                .lineLimit(3)
-                        } else {
-                            Text(comment)
-                                .homeType(Tokens.type.bodyMedium)
-                                .foregroundStyle(s.onSurface)
-                                .lineLimit(3)
-                        }
+                } else {
+                    HStack(alignment: .top, spacing: 16) {
+                        coverBlock(s)
+                        ratingColumn(s, ink: ink)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .contentShape(.rect)
         }

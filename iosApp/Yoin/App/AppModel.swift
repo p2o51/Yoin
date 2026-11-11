@@ -432,6 +432,11 @@ final class AppModel {
     /// the bar starts its detail → shell morph with the pop instead of when
     /// the pop finishes.
     func back() {
+        // iPad: the album picked into the detail column is the column's root; its ← closes the column.
+        if path.isEmpty, isPad, padSelection != nil {
+            withAnimation(Yoin.spatial) { padSelection = nil }
+            return
+        }
         guard !path.isEmpty else { return }
         path.removeLast()
     }

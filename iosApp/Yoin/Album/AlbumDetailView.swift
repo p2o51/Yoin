@@ -81,6 +81,8 @@ struct AlbumDetailView: View {
     @State private var pullLanding = false
     /// The pulled-up list sits at its top (a pull-down there collapses it).
     @State private var listAtTop = true
+    /// The track list's scroll (the overview's cover hands over to the header stamp as it scrolls away).
+    @State private var listScroll: CGFloat = 0
     /// This page's claim on the edge swipe (AlbumPopGate).
     @State private var gateID = UUID()
     private var pageFrac: CGFloat {
@@ -165,6 +167,20 @@ struct AlbumDetailView: View {
 
     /// Android's Medium threshold for a page's own width.
     static func opensOnList(width: CGFloat) -> Bool { width >= 600 }
+
+    /// Android's ≥ Medium album page (AlbumMediumOverview): a tablet column, or a page at least 600 wide,
+    /// is one plain scrolling list whose first row is the cover (240) beside the hero's blocks (Last Play,
+    /// the emblem, the review); no hero ⇄ list pull. Albums only; playlists keep their sleeves.
+    private func isOverview(_ w: CGFloat) -> Bool {
+        playlist == nil && (Self.opensOnList(width: w) || padColumn || inPadColumn)
+    }
+
+    /// The overview's content width: the page less its 16 margins, capped at Android's feed width (720).
+    static func overviewContent(_ w: CGFloat) -> CGFloat { min(w - 32, 720) }
+
+    /// The overview cover: Android's 240, or less in a column too narrow to keep the blocks beside it
+    /// at least as wide.
+    static func overviewCoverSide(_ w: CGFloat) -> CGFloat { min(240, (overviewContent(w) - 24) / 2) }
 
     /// Hero ⇄ list: how far each travels on the pull (MD3 shared axis, 30).
     static let axisTravel: CGFloat = 30
@@ -624,6 +640,9 @@ struct AlbumDetailView: View {
         // Landed: the scrapbook's own cover (tilted, under its emblem) takes
         // over, on the same threshold it waits on, so exactly one is showing.
         .opacity(coverFlies && f >= 0.999 ? 0 : 1)
+        // The overview: the header stamp appears as the list's own cover scrolls away under the header
+        // (and whenever the page turns to the scrapbook, which the cover flies to).
+        .opacity(isOverview(w) && f < 0.001 ? Double(smooth(listScroll / Self.overviewCoverSide(w), 0.4, 0.95)) : 1)
         .offset(x: flown.minX, y: flown.minY)
     }
 
@@ -870,6 +889,7 @@ struct AlbumDetailView: View {
     private func trackList(w: CGFloat) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if isOverview(w) { overviewRow(w: w).padding(.bottom, 24) }
                 // An empty playlist has no count; its empty line stands in (Android PlaylistTrackList).
                 if !playlistIsEmpty {
                     countLabel
@@ -928,13 +948,17 @@ struct AlbumDetailView: View {
                             settlePage(to: 1, velocity: 0)
                         })) { playAlbum(from: i) }
                 }
-                linerNotes
-                    .padding(.horizontal, 8)
-                    .padding(.top, 28)
-                    .opacity(max(0, (smooth(p) - 0.6) / 0.4))
+                if !isOverview(w) {
+                    linerNotes
+                        .padding(.horizontal, 8)
+                        .padding(.top, 28)
+                        .opacity(max(0, (smooth(p) - 0.6) / 0.4))
+                }
                 }
             }
-            .padding(.horizontal, 16)
+            .frame(maxWidth: isOverview(w) ? Self.overviewContent(w) : nil)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, isOverview(w) ? 0 : 16)
             .padding(.top, 4)
             .animation(Yoin.effects, value: bodyPending)
         }
@@ -960,6 +984,9 @@ struct AlbumDetailView: View {
         .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent + bandFade) }
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top <= 1 } action: { _, top in
             listAtTop = top
+        }
+        .onScrollGeometryChange(for: CGFloat.self) { max(0, $0.contentOffset.y + $0.contentInsets.top) } action: { _, y in
+            if isOverview(w) { listScroll = y }
         }
         .scrollDisabled(p < 1)
         .frame(width: w)
@@ -1255,6 +1282,21 @@ struct AlbumDetailView: View {
     /// The list's liner notes (AlbumHeroMetaBlocks, default arrangement):
     /// Last Play (label, 4, day bodyLarge, 4, time bodyMedium tabular) and the
     /// emblem (+ "X/N rated") across one row, centred; the comment 14 below.
+    /// The overview's first row (Android AlbumMediumHeroRow): the cover beside the hero's blocks.
+    private func overviewRow(w: CGFloat) -> some View {
+        let side = Self.overviewCoverSide(w)
+        return HStack(alignment: .top, spacing: 24) {
+            CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
+                .frame(width: side, height: side)
+                .clipShape(.rect(cornerRadius: Tokens.shape.HERO.cg, style: .continuous))
+                .labCoverShadow()
+                .accessibilityHidden(true)
+            linerNotes
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 8)
+    }
+
     private var linerNotes: some View {
         let bun = self.bun
         return VStack(alignment: .leading, spacing: 14) {
@@ -1462,7 +1504,8 @@ struct AlbumDetailView: View {
                     guard playlist == nil else { return false }
                     return !(page <= 0.001 && d.x > 0)
                 case .vertical:
-                    guard page <= 0.001 else { return false }
+                    // The overview is one list: nothing to pull (Android composes no RevealState there).
+                    guard page <= 0.001, !isOverview(width) else { return false }
                     return p < 0.999 || (d.y > 0 && listAtTop)
                 }
             },

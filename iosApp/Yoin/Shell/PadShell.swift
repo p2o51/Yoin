@@ -146,31 +146,8 @@ private struct PadColumns: View {
     private var columns: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            if w >= 840, model.padSelection != nil || !model.path.isEmpty {
-                // resolvePaneBudget: shell share 0.45, ≥ 600 when w ≥ 1080, both ≥ 360.
-                let shell = max(360, w >= 1080 ? max(600, w * 0.45) : w * 0.45)
-                let detail = w - shell - Self.handleWidth
-                HStack(spacing: 0) {
-                    // Both columns run to the top edge; the feed scrolls up under the status bar with the
-                    // phone's soft band over it (51 2026-11-11: no strip, no bar on top).
-                    shellContent
-                        .safeAreaPadding(.bottom, PadDockMetrics.extraShellClearance)
-                        .overlay(alignment: .top) { StatusEdgeBand() }
-                        .frame(width: shell)
-                    Capsule()
-                        .fill(Yoin.outline)
-                        .frame(width: 4, height: 48)
-                        .frame(width: Self.handleWidth)
-                        .frame(maxHeight: .infinity)
-                        .background(Yoin.surface.ignoresSafeArea())
-                    // The column is as tall as the shell beside it, edge to edge (no inset card): the
-                    // album's colour starts at the screen's top; its page keeps its own content below the
-                    // status bar.
-                    detailColumn(playBottom: playBottom(detailWidth: detail))
-                        .environment(\.inPadColumn, true)
-                        .ignoresSafeArea(.container, edges: [.top, .bottom])
-                }
-                .background(Yoin.surface.ignoresSafeArea())
+            if w >= 840 {
+                wideColumns(w: w)
             } else {
                 NavigationStack(path: path) {
                     shellContent
@@ -204,6 +181,101 @@ private struct PadColumns: View {
             guard active, wide else { return }
             model.path.removeAll()
         }
+        .onChange(of: columnWanted, initial: true) { _, want in
+            // Android DetailPaneState: the column opens and closes on the spatial spring; the shell beside
+            // it gives up (and takes back) its width on the same spring. The tree stays put either way, so
+            // the feed keeps its place.
+            if want { shownColumn = columnContent }
+            withAnimation(Yoin.spatial) { columnOpen = want ? 1 : 0 } completion: {
+                if !columnWanted { shownColumn = nil }
+            }
+        }
+        .onChange(of: columnContent) { _, now in if columnWanted, let now { shownColumn = now } }
+    }
+
+    /// What the detail column holds: the album picked into it, else the first page opened from the shell.
+    private enum ColumnContent: Equatable { case album(Album), route(Route) }
+
+    private var columnContent: ColumnContent? {
+        if let album = model.padSelection { return .album(album) }
+        if let first = model.path.first { return .route(first) }
+        return nil
+    }
+
+    private var columnWanted: Bool { active && columnContent != nil }
+
+    /// 0 closed … 1 open, on the spatial spring.
+    @State private var columnOpen: CGFloat = 0
+    /// What the column shows: held through its closing spring, so it leaves as itself.
+    @State private var shownColumn: ColumnContent?
+    /// The handle's drag: the shell's width the finger left it at (Android PaneSplitState, 1:1, clamped,
+    /// no snap); nil = the budget's own split.
+    @State private var draggedShell: CGFloat?
+    @State private var dragStartShell: CGFloat?
+
+    /// resolvePaneBudget: shell share 0.45, ≥ 600 when w ≥ 1080, both ≥ 360.
+    static func shellBudget(_ w: CGFloat) -> CGFloat { max(360, w >= 1080 ? max(600, w * 0.45) : w * 0.45) }
+
+    private func clampShell(_ v: CGFloat, w: CGFloat) -> CGFloat {
+        min(max(v, 360), w - Self.handleWidth - 360)
+    }
+
+    @ViewBuilder
+    private func wideColumns(w: CGFloat) -> some View {
+        let restShell = clampShell(draggedShell ?? Self.shellBudget(w), w: w)
+        let detail = w - restShell - Self.handleWidth
+        // The shell's width between the window (closed) and its column budget (open).
+        let shell = w - (w - restShell) * columnOpen
+        HStack(spacing: 0) {
+            // Both columns run to the top edge; the feed scrolls up under the status bar with the
+            // phone's soft band over it (51 2026-11-11: no strip, no bar on top).
+            // Never pushes: in a wide window every page opens in the column.
+            shellContent
+                .safeAreaPadding(.bottom, PadDockMetrics.extraShellClearance)
+                .overlay(alignment: .top) { StatusEdgeBand() }
+                .frame(width: shell)
+            handle(w: w, rest: restShell)
+                .opacity(Double(columnOpen))
+            // The column is as tall as the shell beside it, edge to edge (no inset card): the album's colour
+            // starts at the screen's top; its page keeps its own content below the status bar. It keeps its
+            // resting width and slides in beside the shell as the shell gives way.
+            Group {
+                if let shownColumn {
+                    detailColumn(shownColumn, playBottom: playBottom(detailWidth: detail))
+                        .environment(\.inPadColumn, true)
+                        .ignoresSafeArea(.container, edges: [.top, .bottom])
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: detail)
+        }
+        .frame(width: w, alignment: .leading)
+        .background(Yoin.surface.ignoresSafeArea())
+        .onChange(of: w) { _, _ in draggedShell = nil }
+    }
+
+    /// The split's handle (Android M3 drag handle): the finger moves it 1:1, clamped so neither column is
+    /// narrower than a phone (360); it stays where it is let go.
+    private func handle(w: CGFloat, rest: CGFloat) -> some View {
+        Capsule()
+            .fill(Yoin.outline)
+            .frame(width: dragStartShell == nil ? 4 : 6, height: dragStartShell == nil ? 48 : 64)
+            .animation(Yoin.spatial, value: dragStartShell == nil)
+            .frame(width: Self.handleWidth)
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect.inset(by: -10))
+            .background(Yoin.surface.ignoresSafeArea())
+            .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                .onChanged { g in
+                    if dragStartShell == nil { dragStartShell = rest }
+                    var t = Transaction(animation: nil)
+                    t.disablesAnimations = true
+                    withTransaction(t) { draggedShell = clampShell((dragStartShell ?? rest) + g.translation.width, w: w) }
+                }
+                .onEnded { _ in dragStartShell = nil })
+            .hoverEffect(.highlight)
+            .accessibilityLabel("Resize columns")
     }
 
     @State private var wide = false
@@ -234,9 +306,10 @@ private struct PadColumns: View {
     /// playlist, Settings), whose back closes the column. Later pages push
     /// inside it.
     @ViewBuilder
-    private func detailColumn(playBottom: CGFloat) -> some View {
+    private func detailColumn(_ content: ColumnContent, playBottom: CGFloat) -> some View {
         let clear = clearance(above: playBottom)
-        if let album = model.padSelection {
+        switch content {
+        case .album(let album):
             NavigationStack(path: path) {
                 AlbumDetailView(album: album, padColumn: true)
                     // The column's Play split sits over its foot: the page lays out above it, so the
@@ -251,7 +324,7 @@ private struct PadColumns: View {
             .overlay(alignment: .bottomLeading) {
                 if active { playSplit(PadDetailPlay(root: album), bottom: playBottom) }
             }
-        } else if let first = model.path.first {
+        case .route(let first):
             NavigationStack(path: tailPath) {
                 destination(first)
                     .safeAreaPadding(.bottom, clear)
