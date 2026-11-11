@@ -1398,6 +1398,16 @@
         }
       }
     },
+    "Back to side panel": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回侧栏"
+          }
+        }
+      }
+    },
     "Back up and export": {
       "localizations": {
         "zh-Hans": {
@@ -2782,6 +2792,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "来自你的资料库"
+          }
+        }
+      }
+    },
+    "Full screen": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏"
           }
         }
       }

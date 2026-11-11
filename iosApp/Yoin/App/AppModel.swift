@@ -748,6 +748,13 @@ final class AppModel {
 
     /// iPad pill tap: the panel only when there is room for it beside the
     /// columns (Android rule: shell + detail + handle ≥ 744, else go Full).
+    /// iPad: whether the side panel fits beside the columns (Android: window − panel ≥ 744).
+    var padPanelFits: Bool { padWidth - min(max(padWidth * 0.5, 360), 420) >= 744 }
+    /// iPad: the side panel grows into Full Now Playing.
+    func npPanelToFull() { withAnimation(Yoin.spatial) { npPanel = false }; setNowPlaying(expanded: true) }
+    /// iPad: Full Now Playing goes back to the side panel.
+    func npFullToPanel() { setNowPlaying(expanded: false); withAnimation(Yoin.spatial) { npPanel = true } }
+
     func openNowPlayingOnPad() {
         let panel = min(max(padWidth * 0.5, 360), 420)
         if padWidth - panel >= 744 {
