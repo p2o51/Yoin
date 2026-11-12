@@ -37,6 +37,7 @@ import com.gpo.yoin.data.integration.neodb.NeoDBApi
 import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.integration.neodb.NeoDbRestoreGuard
 import com.gpo.yoin.data.integration.neodb.NeoDbTokenStore
+import com.gpo.yoin.data.integration.neodb.NeoDbVoicesService
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.LibraryRecentsSource
 import com.gpo.yoin.data.repository.RoomLibraryRecentsSource
@@ -666,6 +667,17 @@ class AppContainer(private val context: Context) {
             tokenStore = neoDbTokenStore,
             mappingDao = database.externalMappingDao(),
             albumRatingDao = database.albumRatingDao(),
+        )
+    }
+
+    /** Others' words on an album from NeoDB (the "别人怎么说" page); reads only, works signed out. */
+    val neoDbVoicesService: NeoDbVoicesService by lazy {
+        NeoDbVoicesService(
+            api = neoDbApi,
+            configDao = database.neoDbConfigDao(),
+            tokenStore = neoDbTokenStore,
+            client = neoDbHttpClient,
+            json = neoDbJson,
         )
     }
 
