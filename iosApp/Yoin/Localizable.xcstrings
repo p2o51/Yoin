@@ -3142,6 +3142,26 @@
         }
       }
     },
+    "Install Spotify": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装 Spotify"
+          }
+        }
+      }
+    },
+    "Install the Spotify app to play Spotify tracks.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请安装 Spotify 应用以播放 Spotify 曲目。"
+          }
+        }
+      }
+    },
     "Instance": {
       "localizations": {
         "zh-Hans": {
@@ -4889,6 +4909,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Premium 账号"
+          }
+        }
+      }
+    },
+    "Premium required": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 Premium"
           }
         }
       }

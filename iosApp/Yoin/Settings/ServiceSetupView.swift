@@ -445,9 +445,11 @@ struct ServiceSetupView: View {
             if let p = editing {
                 group(String(localized: "Spotify")) {
                     let tokens = profiles.store.spotify(p.id)
+                    // What the account's card says (Android ServiceSetupViewModel.accountIssue).
+                    let issue = needsSpotifySignIn ? String(localized: "Sign in again") : SpotifyIssues.shared.issue(for: p.id)?.label
                     return [AnyView(infoRow(String(localized: "Account"), tokens?.displayName ?? tokens?.userId ?? String(localized: "Not signed in"))),
-                            AnyView(infoRow(String(localized: "Status"), needsSpotifySignIn ? String(localized: "Sign in again") : String(localized: "Connected"),
-                                            ink: needsSpotifySignIn ? app.error : app.primary))]
+                            AnyView(infoRow(String(localized: "Status"), issue ?? String(localized: "Connected"),
+                                            ink: issue != nil ? app.error : app.primary))]
                 }
             }
             group(String(localized: "Developer setup")) { [AnyView(clientIdRow)] }
@@ -629,6 +631,8 @@ struct ServiceSetupView: View {
                     .yoinRole(Tokens.type.bodyMedium)
                     .foregroundStyle(ink ?? app.onSurfaceVariant)
                     .lineLimit(2)
+                    .contentTransition(.opacity)
+                    .animation(Yoin.effects, value: value)
             }
         }
         .padding(.horizontal, 16)

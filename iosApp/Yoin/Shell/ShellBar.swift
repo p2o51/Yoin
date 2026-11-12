@@ -90,6 +90,42 @@ struct ShellBar: View {
     }
 
     var body: some View {
+        Group {
+            if pad == nil {
+                // The phone's bar is a safeAreaBar, and only what lies inside a safe-area bar's own
+                // bounds is touched: the banner is part of its height (hung over it as an overlay it
+                // showed, but its button did nothing).
+                VStack(spacing: 8) {
+                    failureBanner
+                    controls
+                }
+            } else {
+                controls.overlay(alignment: .bottom) { failureBanner.padding(.bottom, height + 8) }
+            }
+        }
+        .animation(Yoin.spatial, value: model.player.failure)
+        .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
+    }
+
+    /// A song that couldn't be played holds playback on it (Codex A39): said over the bar, with what
+    /// the failure offers (Retry, as the pill's play does; Settings; Open Spotify; Install Spotify).
+    @ViewBuilder
+    private var failureBanner: some View {
+        if let failure = model.player.failure, pad != .nav {
+            PlaybackFailureBanner(failure: failure, scheme: scheme) {
+                switch failure.action {
+                case .settings: model.openSettings()
+                case .openSpotify: if let u = URL(string: "spotify:") { UIApplication.shared.open(u) }
+                case .installSpotify: SpotifyApp.openStore()
+                case .retry, .none: model.player.retry()
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    private var controls: some View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 6) {
                 if pad == .nav {
@@ -117,24 +153,6 @@ struct ShellBar: View {
         .animation(Yoin.spatial, value: model.section)
         .animation(Yoin.spatial, value: model.isIdle)
         .frame(height: height)
-        // A song that couldn't be played holds playback on it (Codex A39):
-        // say so over the bar, with Retry (the pill's play does the same).
-        .overlay(alignment: .bottom) {
-            if let failure = model.player.failure, pad != .nav {
-                PlaybackFailureBanner(failure: failure, scheme: scheme) {
-                    switch failure.action {
-                    case .settings: model.openSettings()
-                    case .openSpotify: if let u = URL(string: "spotify:") { UIApplication.shared.open(u) }
-                    case .retry, .none: model.player.retry()
-                    }
-                }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, height + 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(Yoin.spatial, value: model.player.failure)
-        .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
     }
 
     // MARK: Nav buttons
@@ -619,6 +637,9 @@ struct PlaybackFailureBanner: View {
     var scheme: CoverScheme
     var retry: () -> Void
 
+    /// What a toast rises by to sit 12 above the phone's banner (a two-line message, 66 high).
+    static let toastLift: CGFloat = 52
+
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 0) {
@@ -655,6 +676,7 @@ struct PlaybackFailureBanner: View {
         switch failure.action {
         case .settings: "Settings"
         case .openSpotify: "Open Spotify"
+        case .installSpotify: "Install Spotify"
         case .retry, .none: "Retry"
         }
     }

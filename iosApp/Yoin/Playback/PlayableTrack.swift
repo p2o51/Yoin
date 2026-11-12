@@ -62,13 +62,15 @@ struct PlaybackFailure: Sendable, Equatable {
     var network: Bool
 
     /// What the banner offers for this failure (Android's typed connect failures, SpotifyConnectFailure):
-    /// sign in again opens Settings, Spotify not running opens Spotify, Premium has nothing to retry.
-    enum Action: Equatable, Sendable { case retry, settings, openSpotify, none }
+    /// sign in again opens Settings, Spotify not running opens Spotify, no Spotify app opens its App
+    /// Store page, Premium has nothing to retry.
+    enum Action: Equatable, Sendable { case retry, settings, openSpotify, installSpotify, none }
 
     var action: Action { Self.action(for: message) }
 
     static func action(for message: String) -> Action {
         if message == SpotifyFailureCopy.premium { return .none }
+        if message == SpotifyFailureCopy.appMissing { return .installSpotify }
         if message.hasPrefix(String(localized: "Reconnect Spotify in Settings")) || message == String(localized: "Sign in again") {
             return .settings
         }
@@ -81,6 +83,8 @@ struct PlaybackFailure: Sendable, Equatable {
 enum SpotifyFailureCopy {
     static var premium: String { String(localized: "Spotify Premium is required for in-app playback.") }
     static var openSpotify: String { String(localized: "Open Spotify on this iPhone, then tap Play") }
+    /// No Spotify app on this device (player_spotify_app_missing).
+    static var appMissing: String { String(localized: "Install the Spotify app to play Spotify tracks.") }
 }
 
 /// Things the engine did on its own that the UI may want to surface.

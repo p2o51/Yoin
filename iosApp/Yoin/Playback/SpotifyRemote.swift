@@ -78,7 +78,7 @@ final class SpotifyRemote {
     private var link: AppRemoteLink?
     private var clientId: String?
     /// Whose remote this is (the account's profile id): another account gets a remote of its own.
-    private var account: String?
+    private(set) var account: String?
     private var connectWaiters: [CheckedContinuation<Bool, Never>] = []
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "spotify")
 
@@ -231,7 +231,7 @@ final class SpotifyRemote {
         guard enabled() else { return onFailure?("The QA fake doesn't play songs") ?? () }
         guard let r = appRemote() else { return onFailure?("Add your Spotify Client ID in Settings") ?? () }
         r.authorizeAndPlay(uri) { [weak self] opened in
-            if !opened { self?.onFailure?("Install the Spotify app to play Spotify songs") }
+            if !opened { self?.onFailure?(SpotifyFailureCopy.appMissing) }
         }
     }
 

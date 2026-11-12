@@ -63,6 +63,7 @@ How to read a clip quickly:
 | np-open-close, np-drag-dismiss, np-morph-slow, np-focus-demo, np-about-cycle (rec) | `-npAutoCycle YES`, `-npScriptedDrag YES`, `-screen np-morph`, `-npFocusDemo YES`, `-npAutoCycle YES -npAutoCycleHold 5 -npTab about-full` | R3/R5: shell visible (blurred) on every frame, NP never a blank slab, no end-of-settle snap |
 | srv-home, srv-np, srv-album | `-subsonicURL http://127.0.0.1:4995 -subsonicUser demo -subsonicPass demo` (+ `-historySeed demo`, `-serverPlay album:al-field -serverOpenNowPlaying YES`, `-serverRoute album:al-field`) | real covers, unrated, no lyrics, real queue |
 | format tags (not in the driver) | the srv args + `-serverRoute playlist:pl-commute -playlistDemo menu` (song sheet) or `-serverPlay album:al-field -serverOpenNowPlaying YES` (Now Playing); `-formatDemo flac,0,16,44100,6` (suffix, kbps, depth, Hz, channels) makes every song claim that format | a block per tag under the sheet's artist and after Now Playing's artist ("FLAC 16/44.1", "5.1"; the demo server's own songs read "WAV 44.1"); no row without tags (`-screen song-menu`) |
+| Spotify can't play here (not in the driver) | `-spotifyFake <url> -spotifyIssueDemo install` or `premium`, with `-screen settings` for the card and `-settingsOpenSetup active` for the account's page (§4; the demo starts QA Mix's first song) | install: the simulator has no Spotify app, so the start is held with "Install the Spotify app to play Spotify tracks." and an Install Spotify button (it opens Spotify's App Store page; on a simulator Safari, which can't show it), the Spotify card's pill and its page's Status say "Install Spotify". premium: the same with "Spotify Premium is required for in-app playback.", no button, and "Premium required" on that account only. The toast sits above the phone's banner, not on it |
 | artist without releases (not in the driver) | the srv args + `-serverRoute artist:ar-kiri -artistDemo empty` (the loaded page with its releases taken away; the demo server has no such artist) | "Discography" with "0 releases", then "No releases" in the muted body colour; no chips, no year in the header |
 
 ## 2. Hand pass (light and dark, iPhone then iPad)
@@ -123,7 +124,8 @@ NP panel.
 Debug builds only. `scripts/fake_spotify.py` is an in-memory Spotify Web API (no network, no covers,
 no audio); `-spotifyFake <url>` signs in a stand-in account (`yoin-qa`, "Yoin QA") with dummy tokens
 that never expire and points every Web API call at it. App Remote and the Spotify app are never
-touched: a play start fails quietly. Always pair it with `-silentAudio YES`.
+touched: a play start goes nowhere, and on a simulator (no Spotify app) it is held with the Install
+Spotify banner, as on a phone without Spotify. Always pair it with `-silentAudio YES`.
 
 ```sh
 python3 scripts/fake_spotify.py                      # :4997; Ctrl-C to stop (state resets on restart)
@@ -142,9 +144,11 @@ Walk-throughs (UI tests in `YoinSpotifyQA`, its own scheme, never part of the Yo
 Songs to the foot and Playlists, Search Library | Spotify with the Playlists filter reading three
 pages, an owned playlist's ⋮ (Cloud backup, Rename, Delete), the followed one (no ⋮, the "Spotify only
 shows…" line, 25 tracks), a song's Add to playlist (owned + collaborative only), removing the first
-"Satellite Quiet" from QA Mix (the server keeps the second), and Settings › Cloud sync › Playlist cloud
-backup with Spotify as source and restore destination. Each step writes a screenshot and the element
-tree to `/tmp/yoin-spotify-qa` (`YOIN_QA_OUT` to change).
+"Satellite Quiet" from QA Mix (the server keeps the second), Settings › Cloud sync › Playlist cloud
+backup with Spotify as source and restore destination, and the Install Spotify banner with its card
+and its button (`testInstallSpotifyWhenTheAppIsMissing`; the button's step needs the network). Each
+step writes a screenshot and the element tree to `/tmp/yoin-spotify-qa` (`TEST_RUNNER_YOIN_QA_OUT` to
+change; `TEST_RUNNER_YOIN_FAKE_SPOTIFY=http://127.0.0.1:<port>` for a fake on another port).
 
 ```sh
 python3 scripts/fake_spotify.py &

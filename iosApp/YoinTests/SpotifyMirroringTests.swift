@@ -11,7 +11,9 @@ final class SpotifyMirroringTests: XCTestCase {
 
     override func setUp() {
         MirrorStub.reset()
-        spotify = SpotifyAudioOutput()
+        // This iPhone has the Spotify app (the simulator has none), and what a start says of the
+        // account stays out of the app's own cards.
+        spotify = SpotifyAudioOutput(issues: SpotifyIssues(), spotifyInstalled: { true })
         engine = PlayerEngine(output: spotify)
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [MirrorStub.self]

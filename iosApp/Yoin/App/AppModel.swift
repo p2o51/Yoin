@@ -265,7 +265,11 @@ final class AppModel {
         player.onEvent = { event in
             switch event {
             case .skippedAfterError(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't play \(track.title)"))
-            case .failed(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't reach the server for \(track.title)"))
+            case .failed(let track, let message):
+                // A start Spotify refused (no app here, no Premium) isn't the server: the banner says which.
+                let refused = SpotifyIssues.Issue(message: message) != nil
+                PlaylistActions.shared.show(refused ? String(localized: "Couldn't play \(track.title)")
+                                                    : String(localized: "Couldn't reach the server for \(track.title)"))
             case .queueFailed: PlaylistActions.shared.show(String(localized: "Couldn't play this queue"))
             case .queueEnded: break
             }
@@ -307,6 +311,7 @@ final class AppModel {
         #if DEBUG
         signInFromLaunchArguments()
         runProfilesScript()
+        runSpotifyIssueDemo()
         // `-landingReset YES`: forget that the landing was seen (QA of the first-run gate).
         if UserDefaults.standard.bool(forKey: "landingReset") { DefaultsLandingStore().reset() }
         #endif
@@ -349,6 +354,21 @@ final class AppModel {
                 default: break
                 }
             }
+        }
+    }
+
+    /// `-spotifyIssueDemo install|premium` (with `-spotifyFake`): the stand-in account's QA Mix is
+    /// started as a tap on its first song would. install: the simulator has no Spotify app, so the
+    /// start is refused as on a phone without it. premium: the refusal a free account gets (there
+    /// is none to test with) is reported for it.
+    private func runSpotifyIssueDemo() {
+        guard let demo = UserDefaults.standard.string(forKey: "spotifyIssueDemo") else { return }
+        Task {
+            for _ in 0..<40 where store.spotify == nil { try? await Task.sleep(for: .milliseconds(250)) }
+            await store.loadPlaylist("pl_owned")
+            guard let p = store.playlist("pl_owned"), !p.entries.isEmpty else { return }
+            play(p.entries)
+            if demo == "premium" { playbackSystem.spotifyOutput?.demoRefuse(.premiumRequired) }
         }
     }
 

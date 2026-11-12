@@ -560,6 +560,8 @@ final class ProfileManager {
             return "Couldn't save the sign-in (Keychain error \(status))"
         case .success(let saved):
             spotifyRevoked.remove(saved.id)
+            // A new sign-in may be another subscription: what Spotify refused before no longer counts.
+            SpotifyIssues.shared.forget(saved.id)
             if activate || saved.id == activeId || activeId == nil {
                 commit(saved, probe: nil, account: nil)
             } else {
@@ -589,6 +591,7 @@ final class ProfileManager {
         withAnimation(Yoin.spatial) {
             if switchingTo == id { switchingTo = nil }
             if failure?.profileId == id { failure = nil }
+            SpotifyIssues.shared.forget(id)
             if store.remove(id) {
                 endPlayback()
                 settle(store.active)

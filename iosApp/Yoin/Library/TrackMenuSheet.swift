@@ -609,9 +609,12 @@ private struct PlaylistActionsHost: ViewModifier {
             .onChange(of: actions.renaming?.id) { _, _ in name = actions.renaming?.title ?? "" }
             .overlay(alignment: .bottom) {
                 if let toast = actions.toast {
+                    // Over the phone bar's failure banner, not on it (a held failure shows both at once).
+                    let lifted = !model.isPad && model.player.failure != nil
                     ToastPill(toast: toast)
                         .padding(.horizontal, 24)
-                        .padding(.bottom, 96)
+                        .padding(.bottom, 96 + (lifted ? PlaybackFailureBanner.toastLift : 0))
+                        .animation(Yoin.spatial, value: lifted)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .id(toast.id)
                 }
