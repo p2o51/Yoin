@@ -85,6 +85,31 @@ class MemoryLedgerTest {
     }
 
     @Test
+    fun should_nameAScoresAlbum_fromItsSongsLookup() = runTest {
+        val entries = buildMemoryLedger(
+            MemoryLedgerRows(
+                trackRatings = listOf(
+                    LedgerTrackRatingRow("a", "subsonic", "song1", 7.9f, at(today), linkedAlbumId = null),
+                ),
+            ),
+            profileIds = null,
+            knownTrack = { profile, provider, song ->
+                if (profile == "a" && provider == "subsonic" && song == "song1") {
+                    LedgerTrack("Pulse", "al1", "Pulse EP", "Regene", "c-al1")
+                } else {
+                    null
+                }
+            },
+        )
+
+        val entry = entries.single()
+        assertEquals("Pulse", entry.trackTitle)
+        assertEquals("al1", entry.album?.albumId)
+        assertEquals("Pulse EP", entry.album?.name)
+        assertEquals("c-al1", entry.album?.coverKey)
+    }
+
+    @Test
     fun should_keepSongNote_withoutAlbum() = runTest {
         val entries = buildMemoryLedger(
             MemoryLedgerRows(songNotes = listOf(songNote("s1", "a", null, today))),
@@ -321,14 +346,21 @@ class MemoryLedgerTest {
     }
 
     @Test
-    fun should_keepAScoreWithoutAlbum_asASmallCard() {
+    fun should_gatherAMonthsScoresWithoutAlbum_intoOneCard() {
         val rows = memoryTimelineRows(
-            listOf(mark("s", today, null, MemoryLedgerKind.TrackRating, song = "s", score = 8f)),
+            listOf(
+                mark("s", today, null, MemoryLedgerKind.TrackRating, song = "s", score = 8f),
+                mark("n", today.minusDays(1), null, MemoryLedgerKind.SongNote, song = "n", text = "hm"),
+                mark("t", today.minusDays(2), null, MemoryLedgerKind.TrackRating, song = "t", score = 6f),
+            ),
             today,
             zone,
         )
 
-        assertTrue(rows[1] is MemoryTimelineRow.Note)
+        val scores = rows[1] as MemoryTimelineRow.Scores
+        assertEquals(listOf("s", "t"), scores.entries.map { it.id })
+        assertTrue(rows[2] is MemoryTimelineRow.Note)
+        assertEquals(3, rows.size)
     }
 
     @Test

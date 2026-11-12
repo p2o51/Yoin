@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.sheetScrollEdge
+import androidx.compose.foundation.lazy.rememberLazyListState
 import android.content.res.Resources
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -148,10 +150,14 @@ internal fun LyricsSearchSheet(
         modifier = modifier,
     ) {
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val resultsState = rememberLazyListState()
         LazyColumn(
+            state = resultsState,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
+                .weight(1f)
+                // Results sink under the tide line below the search field, as under any fixed chrome.
+                .sheetScrollEdge(resultsState),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 top = 8.dp,

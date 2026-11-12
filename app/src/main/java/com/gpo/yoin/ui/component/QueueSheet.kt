@@ -206,8 +206,11 @@ fun QueueSheet(
         val resources = LocalContext.current.resources
         val reorderQueued = rememberQueueReorderState(sections.queued)
         val reorderNext = rememberQueueReorderState(sections.next)
+        val listState = rememberLazyListState()
         LazyColumn(
-            state = rememberLazyListState(),
+            state = listState,
+            // Rows sink under the tide line at the sheet's top instead of being cut flat (owner 2026-11-06).
+            modifier = Modifier.sheetScrollEdge(listState),
             contentPadding = PaddingValues(bottom = 16.dp + navBottom),
         ) {
             item(key = "header") {

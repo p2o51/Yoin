@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.sheetScrollEdge
 import androidx.annotation.RawRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -113,12 +114,8 @@ private fun LicenseTextSheet(component: OssComponent, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
-        ) {
+        // The name and copyright stay put; the license text scrolls under the tide line (owner 2026-11-06).
+        Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp)) {
             Text(
                 text = component.name,
                 style = MaterialTheme.typography.headlineSmall,
@@ -128,14 +125,20 @@ private fun LicenseTextSheet(component: OssComponent, onDismiss: () -> Unit) {
                 text = component.copyright,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
-            )
-            Text(
-                text = text,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
+        val scroll = rememberScrollState()
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .sheetScrollEdge(scroll)
+                .verticalScroll(scroll)
+                .padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 24.dp),
+        )
     }
 }
 

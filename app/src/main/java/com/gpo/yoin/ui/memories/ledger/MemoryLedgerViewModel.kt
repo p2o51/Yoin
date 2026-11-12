@@ -39,8 +39,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 
 /** An account the ledger has memories from: what its filter chip and an entry's "from" line show. */
 @Immutable
@@ -85,11 +85,19 @@ class MemoryLedgerViewModel internal constructor(
     private val today: () -> LocalDate = { LocalDate.now(zone()) },
 ) : ViewModel() {
 
+    private val tracks = LedgerTrackResolver(profiles)
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<MemoryLedgerState?> = combine(dao.changes().distinctUntilChanged(), profileCards) { _, cards ->
         cards
     }
-        .mapLatest(::load)
+        .transformLatest { cards ->
+            // What's on the device first; then, for songs nothing here names the album of, their services.
+            val local = load(cards)
+            emit(local)
+            val wanted = tracks.pending(local.entries, cards.associate { it.id to it.provider.key })
+            if (tracks.resolve(wanted)) emit(load(cards))
+        }
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -131,6 +139,7 @@ class MemoryLedgerViewModel internal constructor(
                     )
                 }
             },
+            knownTrack = tracks::known,
         )
         val withMemories = entries.mapTo(HashSet()) { it.profileId }
         val ledgerProfiles = cards

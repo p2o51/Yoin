@@ -104,6 +104,20 @@ data class MemoryLedgerRows(
     val albumFacts: List<LedgerAlbumFactRow> = emptyList(),
 )
 
+/**
+ * A song as its service describes it (a single-track lookup): which album it is on, and its name. What a song
+ * note or score needs when Yoin never played the song nor opened its album (a score pulled from the server, or
+ * synced from another device).
+ */
+data class LedgerTrack(
+    val title: String?,
+    /** Raw album id in the song's provider; null or blank when the service doesn't say. */
+    val albumId: String?,
+    val albumName: String?,
+    val artist: String?,
+    val coverKey: String?,
+)
+
 /** Name, artist and cover for an album Yoin never played (its cached detail), or null. */
 fun interface LedgerAlbumLookup {
     suspend fun find(profileId: String, provider: String, albumId: String): MemoryLedgerAlbum?
@@ -121,6 +135,8 @@ suspend fun buildMemoryLedger(
     // A scored song's name Yoin never saw played or noted: from its album's cached tracks.
     trackTitle: suspend (album: MemoryLedgerAlbum, songId: String) -> String? = { _, _ -> null },
     lookup: LedgerAlbumLookup = LedgerAlbumLookup { _, _, _ -> null },
+    // A song looked up on its service already (profileId, provider, raw song id): read only, never fetched here.
+    knownTrack: (profileId: String, provider: String, songId: String) -> LedgerTrack? = { _, _, _ -> null },
 ): List<MemoryLedgerEntry> {
     fun counts(profileId: String) = profileIds == null || profileId in profileIds
     val albums = HashMap<String, MemoryLedgerAlbum?>()
@@ -173,6 +189,17 @@ suspend fun buildMemoryLedger(
         return merged
     }
 
+    // A song's album when nothing local names it: the song's own lookup, its album then known like any other.
+    suspend fun songAlbum(profileId: String, provider: String, storedAlbumId: String?, track: LedgerTrack?): MemoryLedgerAlbum? {
+        album(profileId, provider, storedAlbumId)?.let { return it }
+        val id = track?.albumId?.takeIf { it.isNotBlank() } ?: return null
+        album(profileId, provider, id)?.let { return it }
+        val name = track.albumName?.takeIf { it.isNotBlank() } ?: return null
+        val made = MemoryLedgerAlbum(profileId, provider, id, name, track.artist.orEmpty(), track.coverKey)
+        albums[ledgerAlbumKey(profileId, provider, id)] = made
+        return made
+    }
+
     val out = ArrayList<MemoryLedgerEntry>()
     rows.albumNotes.filter { counts(it.profileId) }.forEach { note ->
         val album = album(note.profileId, note.provider, note.albumId) ?: return@forEach
@@ -187,14 +214,16 @@ suspend fun buildMemoryLedger(
     }
     rows.songNotes.filter { counts(it.note.profileId) }.forEach { row ->
         val note = row.note
+        val songId = MediaId.storedRawId(note.provider, note.trackId)
+        val track = knownTrack(note.profileId, note.provider, songId)
         out += MemoryLedgerEntry(
             id = "song-note:${note.id}",
             kind = MemoryLedgerKind.SongNote,
             at = note.createdAt,
             profileId = note.profileId,
-            album = album(note.profileId, note.provider, row.linkedAlbumId),
+            album = songAlbum(note.profileId, note.provider, row.linkedAlbumId, track),
             text = note.content,
-            trackTitle = note.title.takeIf { it.isNotBlank() },
+            trackTitle = note.title.takeIf { it.isNotBlank() } ?: track?.title?.takeIf { it.isNotBlank() },
             songId = MediaId.storedRawId(note.provider, note.trackId),
             positionMs = note.positionMs,
         )
@@ -226,9 +255,11 @@ suspend fun buildMemoryLedger(
     }
     rows.trackRatings.filter { counts(it.profileId) }.forEach { row ->
         val score = row.rating ?: return@forEach
-        val album = album(row.profileId, row.provider, row.linkedAlbumId)
+        val track = knownTrack(row.profileId, row.provider, MediaId.storedRawId(row.provider, row.songId))
+        val album = songAlbum(row.profileId, row.provider, row.linkedAlbumId, track)
         // Which song was scored: two scores on one album must read apart.
         val title = row.title?.takeIf { it.isNotBlank() }
+            ?: track?.title?.takeIf { it.isNotBlank() }
             ?: album?.let { known ->
                 try {
                     trackTitle(known, MediaId.storedRawId(row.provider, row.songId))

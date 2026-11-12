@@ -19,7 +19,8 @@ import kotlinx.coroutines.launch
  *
  * Resumable: each answer is stored as it comes (a track that is gone as a link with no album, never asked again),
  * and a failure (offline, rate limited, signed out) ends the pass; the next one picks up where it stopped. Spotify
- * only: the other providers' tracks reach their albums through plays and album pages.
+ * and Subsonic (`getSong`, owner 2026-11-12: scores pulled from the server or another device showed as 「不知道是哪张专辑」);
+ * Apple Music's tracks reach their albums through plays and album pages.
  */
 class TrackAlbumLinkEnricher(
     private val links: TrackAlbumLinkDao,
@@ -63,7 +64,7 @@ class TrackAlbumLinkEnricher(
         val source = activeSource.value ?: return 0
         val profileId = activeProfileId.value ?: return 0
         val provider = source.id
-        if (provider != MediaId.PROVIDER_SPOTIFY) return 0
+        if (provider != MediaId.PROVIDER_SPOTIFY && provider != MediaId.PROVIDER_SUBSONIC) return 0
         var looked = 0
         while (true) {
             val batch = links.getUnlinkedTracks(profileId, provider, BATCH)

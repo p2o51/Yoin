@@ -2,6 +2,10 @@
 
 package com.gpo.yoin.ui.settings.backup
 
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.gpo.yoin.ui.component.seamScrolledPx
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.SeamTop
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -183,6 +187,7 @@ internal fun PlaylistBackupScreen(
     val title = backup?.name ?: stringResource(R.string.settings_playlist_backups_title)
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
     val viewportTop = remember { mutableFloatStateOf(0f) }
+    val listState = rememberLazyListState()
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
     val headlineHeight = remember { mutableFloatStateOf(1f) }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -235,9 +240,12 @@ internal fun PlaylistBackupScreen(
                                 if (state == PlaylistBackupUiState.Loading) YoinLoadingIndicator()
                             }
                         is PlaylistBackupUiState.Content -> LazyColumn(
+                            state = listState,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .onGloballyPositioned { viewportTop.floatValue = it.positionInWindow().y },
+                                .onGloballyPositioned { viewportTop.floatValue = it.positionInWindow().y }
+                                // Rows break up and text fades under the bar, as on Settings itself.
+                                .seamDissolveViewport(top = SeamTop.Chrome) { listState.seamScrolledPx() },
                             contentPadding = PaddingValues(
                                 start = 16.dp,
                                 top = 8.dp,

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -125,7 +126,11 @@ fun AddToPlaylistSheet(
             val navBottom = WindowInsets.navigationBars
                 .asPaddingValues()
                 .calculateBottomPadding()
+            val listState = rememberLazyListState()
             LazyColumn(
+                state = listState,
+                // The heading stays above; the list's top edge is the tide line (owner 2026-11-06).
+                modifier = Modifier.sheetScrollEdge(listState),
                 // No height cap and no outer bottom padding — the sheet is
                 // free to grow up to its natural max and the list runs
                 // edge-to-edge against the sheet boundary. The nav-bar
