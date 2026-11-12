@@ -1,10 +1,14 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -33,11 +37,15 @@ class NeoDbVoicesScreenTest {
     private val opened = mutableListOf<String>()
     private var retries = 0
 
+    /** What the page shows; a test moves it on to follow a load. */
+    private var shown by mutableStateOf<NeoDbVoicesUiState>(NeoDbVoicesUiState.Loading)
+
     private fun show(state: NeoDbVoicesUiState) {
+        shown = state
         rule.setContent {
             YoinTheme {
                 NeoDbVoicesScreen(
-                    uiState = state,
+                    uiState = shown,
                     albumName = "OK Computer",
                     artistName = "Radiohead",
                     onBackClick = {},
@@ -77,6 +85,42 @@ class NeoDbVoicesScreenTest {
         assertEquals(column, card.width.value, 0.5f)
         assertEquals(column, wayOut.width.value, 0.5f)
         assertEquals(card.left.value, wayOut.left.value, 0.5f)
+    }
+
+    @Test
+    fun should_giveWayOnASpring_when_theItemsLinksArriveAfterThePage() {
+        show(NeoDbVoicesUiState.Loading)
+        fun width(label: String) = rule.onNodeWithText(label).getUnclippedBoundsInRoot().width.value
+        val half = width("RYM")
+        assertEquals(half, width("AOTY"), 0.5f)
+        rule.onNodeWithText("See all on NeoDB").assertDoesNotExist()
+        rule.onNodeWithText("Douban").assertDoesNotExist()
+
+        rule.mainClock.autoAdvance = false
+        shown = content().run { copy(album = album.copy(doubanUrl = "https://music.douban.com/subject/1/")) }
+        // The state lands on one frame and the springs start on a later one: step until Douban's button is in,
+        // then a little further.
+        var frames = 0
+        while (rule.onAllNodesWithText("Douban").fetchSemanticsNodes().isEmpty()) {
+            rule.mainClock.advanceTimeByFrame()
+            check(++frames < 30) { "Douban's button never came in" }
+        }
+        rule.mainClock.advanceTimeBy(32)
+
+        // Under way: Douban's button is opening, and RYM is between its half of the row and its third.
+        val third = (half * 2 + 8f - 16f) / 3
+        val opening = width("Douban")
+        val moving = width("RYM")
+        assertTrue("Douban $opening should still be opening towards $third", opening > 0f && opening < third - 1f)
+        assertTrue("RYM $moving should be between $third and $half", moving > third + 1f && moving < half - 1f)
+
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+
+        // Settled: NeoDB's button is in, and the three catalogues share the row in thirds (to the pixel a
+        // row's weights round to).
+        rule.onNodeWithText("See all on NeoDB").assertIsDisplayed()
+        listOf("Douban", "RYM", "AOTY").forEach { label -> assertEquals(third, width(label), 1f) }
     }
 
     @Test

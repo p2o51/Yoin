@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.togetherWith
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
@@ -59,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -69,6 +73,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
@@ -255,6 +260,10 @@ private fun VoicesContent(
         }.collect { nearEnd -> if (nearEnd) onLoadMore() }
     }
     var unfolded by remember { mutableStateOf(emptySet<String>()) }
+    // The other catalogues' scores and the next pages arrive after the first words: what comes in fades in, and
+    // the cards under it move over on a spring instead of jumping while they are being read.
+    val itemFade = YoinMotion.effectsSpring<Float>()
+    val itemPlacement = YoinMotion.spatialSpring<IntOffset>()
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Fixed(2),
         state = gridState,
@@ -270,7 +279,11 @@ private fun VoicesContent(
         item(key = "spread", span = StaggeredGridItemSpan.FullLine) { Spread(state.album) }
         if (state.references.isNotEmpty()) {
             item(key = "references", span = StaggeredGridItemSpan.FullLine) {
-                References(state.references, onOpenUrl)
+                References(
+                    references = state.references,
+                    onOpenUrl = onOpenUrl,
+                    modifier = Modifier.animateItem(itemFade, itemPlacement, itemFade),
+                )
             }
         }
         if (state.voices.isEmpty()) {
@@ -279,7 +292,9 @@ private fun VoicesContent(
                     text = stringResource(R.string.neodb_voices_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 24.dp),
+                    modifier = Modifier
+                        .animateItem(itemFade, itemPlacement, itemFade)
+                        .padding(vertical = 24.dp),
                 )
             }
         }
@@ -297,10 +312,17 @@ private fun VoicesContent(
                 unfolded = voice.id in unfolded,
                 onUnfold = { unfolded = unfolded + voice.id },
                 onOpen = { voice.url?.let(onOpenUrl) },
+                modifier = Modifier.animateItem(itemFade, itemPlacement, itemFade),
             )
         }
         item(key = "tail", span = StaggeredGridItemSpan.FullLine) {
-            Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .animateItem(itemFade, itemPlacement, itemFade)
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 when {
                     state.loadingMore -> YoinLoadingIndicator(size = 32.dp)
                     state.moreFailed -> TextButton(onClick = onLoadMore) {
@@ -403,8 +425,12 @@ private fun Spread(album: NeoDbAlbumVoices) {
 }
 
 @Composable
-private fun References(references: List<NeoDbReferenceScore>, onOpenUrl: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun References(
+    references: List<NeoDbReferenceScore>,
+    onOpenUrl: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         references.forEach { ref ->
             Surface(
                 shape = RoundedCornerShape(18.dp),
@@ -442,12 +468,13 @@ private fun VoiceCard(
     unfolded: Boolean,
     onUnfold: () -> Unit,
     onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
     val haptics = rememberYoinHaptics()
     val folded = voice.folded && !unfolded
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
             .background(if (lifted) scheme.surfaceContainerHigh else scheme.surfaceContainer)
@@ -540,7 +567,10 @@ private fun Grade(rating: Int, color: Color, size: Dp) {
     }
 }
 
-/** NeoDB filled (the one final action), the other catalogues tonal beside each other. */
+/**
+ * NeoDB filled (the one final action), the other catalogues tonal beside each other. NeoDB's and Douban's links
+ * come with the item, after the page is up: their buttons open on a spring and the rest gives way with them.
+ */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun WaysOut(
@@ -552,35 +582,70 @@ private fun WaysOut(
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (neoDbUrl != null) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        AnimatedVisibility(
+            visible = neoDbUrl != null,
+            enter = YoinMotion.expandVertically(YoinMotionRole.Standard) + YoinMotion.fadeIn(YoinMotionRole.Standard),
+            exit = YoinMotion.shrinkVertically(YoinMotionRole.Standard) + YoinMotion.fadeOut(YoinMotionRole.Standard),
+        ) {
             Button(
                 onClick = {
                     haptics.performClick()
-                    onOpenUrl(neoDbUrl)
+                    neoDbUrl?.let(onOpenUrl)
                 },
                 shapes = ButtonDefaults.shapes(),
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                // The gap to the row below is the button's own, so it opens and closes with it.
+                modifier = Modifier.padding(bottom = WaysOutGap).fillMaxWidth().height(52.dp),
             ) { Text(stringResource(R.string.neodb_voices_open_neodb)) }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val others = listOfNotNull(
-                doubanUrl?.let { stringResource(R.string.neodb_voices_douban) to it },
-                stringResource(R.string.neodb_voices_rym) to rymUrl,
-                stringResource(R.string.neodb_voices_aoty) to aotyUrl,
+        Row {
+            // Douban's share of the row, 0 to 1: its button and its gap grow from nothing, so the two beside it
+            // slide over to thirds instead of jumping there.
+            val doubanShare by animateFloatAsState(
+                targetValue = if (doubanUrl != null) 1f else 0f,
+                animationSpec = YoinMotion.spatialSpring(),
+                label = "waysOutDoubanShare",
             )
-            others.forEach { (label, url) ->
-                FilledTonalButton(
-                    onClick = {
-                        haptics.performClick()
-                        onOpenUrl(url)
-                    },
-                    shapes = ButtonDefaults.shapes(),
-                    modifier = Modifier.weight(1f),
-                ) { Text(label, maxLines = 1) }
+            val doubanAlpha by animateFloatAsState(
+                targetValue = if (doubanUrl != null) 1f else 0f,
+                animationSpec = YoinMotion.effectsSpring(),
+                label = "waysOutDoubanAlpha",
+            )
+            if (doubanShare > MIN_ROW_SHARE) {
+                OtherWayOut(
+                    label = stringResource(R.string.neodb_voices_douban),
+                    onClick = { doubanUrl?.let(onOpenUrl) },
+                    modifier = Modifier.weight(doubanShare).graphicsLayer { alpha = doubanAlpha },
+                )
+                Spacer(Modifier.width(WaysOutGap * doubanShare))
             }
+            OtherWayOut(
+                label = stringResource(R.string.neodb_voices_rym),
+                onClick = { onOpenUrl(rymUrl) },
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(WaysOutGap))
+            OtherWayOut(
+                label = stringResource(R.string.neodb_voices_aoty),
+                onClick = { onOpenUrl(aotyUrl) },
+                modifier = Modifier.weight(1f),
+            )
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun OtherWayOut(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val haptics = rememberYoinHaptics()
+    FilledTonalButton(
+        onClick = {
+            haptics.performClick()
+            onClick()
+        },
+        shapes = ButtonDefaults.shapes(),
+        modifier = modifier,
+    ) { Text(label, maxLines = 1) }
 }
 
 private fun Context.openExternal(url: String) {
@@ -601,3 +666,7 @@ private const val LOAD_MORE_AHEAD = 4
 private const val LONG_VOICE_CHARS = 40
 private val SpreadBarMax = 92.dp
 private val SpreadBarShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+private val WaysOutGap = 8.dp
+
+/** Below this share of the row a button isn't laid out at all (a row weight must be above zero). */
+private const val MIN_ROW_SHARE = 0.001f
