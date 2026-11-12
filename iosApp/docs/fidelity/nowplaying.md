@@ -24,6 +24,7 @@ Screenshots: `iosApp/screenshots/iphone-np.png`, `-dark`, `-short`, `-touch`, `-
 | Time labels | labelLarge tabular, min width 44 / 52, 8 dp each side of the bar, flush with the row ends (PlaybackControls.kt:474–503) | min 40 / 48, 6 pt gaps, row inset 10 pt for the glass → bar 8 pt narrower, labels pulled in | 44 / 52, 8 pt gaps, no inset: bar and labels sit at Android's x. The touch-glass capsule is drawn outside the row instead (4 pt before, 10 pt after), so it still clears Previous |
 | Hero, one row (short) | title displaySmall, artist titleMedium×0.9 on its baseline, 12 apart, artist ≤ 40 % of the row and measured first; slot content at the **top** (NowPlayingScreen.kt:4700–4760, 4905–4906, `StageHeightSlot` 4564) | bottom-aligned + 12 pt bottom padding (row rose when the slot was squeezed); artist uncapped; no artist stretch | top-aligned; artist capped at 40 %, layout priority over the title; artist stretch 1.02 |
 | Hero, stacked | artist titleMedium×0.9 (24 line) / 2 / title displaySmall (44 line), stretches 1.02 / 1.03 | same | unchanged |
+| Format tags (after the artist; also the song sheet's header, under the artist) | a block per tag, codec first then the layout ("FLAC 16/44.1", "5.1"): labelSmall 11/16 tabular, 6 × 1 inside a 6-corner block, 4 apart, secondaryContainer / onSecondaryContainer (`AudioFormatTagRow.kt`, `AudioFormatTags.kt`, NowPlayingScreen.kt:6445, TrackMenu.kt:454) | one capsule in onSurfaceVariant 12 %; the raw suffix ("M4A 256", "WAV"); a multichannel file showed its layout alone ("5.1"); none in the song sheet | `FormatTagRow` (Theme/Components.swift) with Android's numbers and colours, fed by `FormatTags.tags` (Playback/ReplayGain.swift, a port of `audioFormatTags` and `subsonicAudioFormat`): "AAC 256", "WAV 44.1", "FLAC 16/44.1" + "5.1"; an MP4 the server couldn't read gets no tag. Debug: `-formatDemo flac,0,16,44100,6` |
 | Pills | bottom-aligned in their slot, no bottom padding (NowPlayingScreen.kt:1918) | extra 8 pt bottom padding | removed: pills sit on the column's bottom edge as on Android |
 | Rating number | titleLarge 22/28 tabular, 8 dp from the top; color lerps onSurfaceVariant → onPrimary as fill goes 80 → 100 % (RatingSlider.kt:205–225) | 22 pt natural box; hard switch at 80 % | `yoinRole(titleLarge)` line box; color mixed over 80 → 100 % |
 | Cover, rating column, transport rows, pill sizes/shapes, column padding | (budget + YoinTokens) | already matched | unchanged |
@@ -36,5 +37,10 @@ Screenshots: `iosApp/screenshots/iphone-np.png`, `-dark`, `-short`, `-touch`, `-
   transport (owner's "lyrics under the transport" decision).
 - `-screen np-short` puts the height the 700 pt reference wouldn't have between transport and
   hero (debug comparison only).
+- Format tags show the file as the server lists it. Android's Now Playing shows what arrives instead
+  (`playingFormatTags`: "Opus 192" for a transcode, the decoder's channel count and codec), names
+  E-AC-3 JOC "Dolby Atmos" from the decoder's MIME type, and adds an accent "Spatial" while the system
+  spatializes. iOS has the "Dolby Atmos" wording (`FormatTags.codecLabel`), but nothing reads the
+  playing item's format yet, so that tag and "Spatial" never show.
 - Android-only affordances not ported here: spine marquee beside a height-capped cover,
   TrackLibraryButton, Cast button, play-mode split, PLAY/PAUSE width morph.

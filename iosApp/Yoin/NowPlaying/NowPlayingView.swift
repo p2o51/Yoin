@@ -2004,22 +2004,16 @@ struct NowPlayingView: View, Equatable {
                             }
                     }
                     .layoutPriority(1)
-                    // The song's format after the artist ("FLAC 24/96", "5.1"; Android #121 #139).
-                    if let tag = model.player.currentTrack?.qualityTag {
-                        Text(tag)
-                            .font(.gsf(11, .semibold))
-                            .foregroundStyle(scheme.onSurfaceVariant.opacity(0.85))
-                            .padding(.horizontal, 6)
-                            .frame(height: 18)
-                            .background(scheme.onSurfaceVariant.opacity(0.12), in: .capsule)
-                            .lineLimit(1)
-                            .fixedSize()
+                    // The song's format after the artist, a block per tag ("FLAC 16/44.1", "5.1"; Android
+                    // NowPlayingFormatTags, #121 #139).
+                    if let tags = model.player.currentTrack?.formatTags, !tags.isEmpty {
+                        FormatTagRow(tags: tags, container: scheme.secondaryContainer,
+                                     content: scheme.onSecondaryContainer)
                             .transition(.opacity)
-                            .accessibilityLabel(Text("Format \(tag)"))
                     }
                 }
                 .lineLimit(1)
-                .animation(Yoin.effects, value: model.player.currentTrack?.qualityTag)
+                .animation(Yoin.effects, value: model.player.currentTrack?.formatTags)
                 .npFade(open, contentFade)
                 routeLink(albumRoute(p), label: String(localized: "Go to album")) { heroTitle(p) }
                     .frame(height: 44, alignment: .leading)
@@ -3147,18 +3141,14 @@ extension NowPlayingView {
                         }
                 }
                 .layoutPriority(1)
-                if let tag = model.player.currentTrack?.qualityTag {
-                    Text(tag)
-                        .font(.gsf(11, .semibold))
-                        .foregroundStyle(scheme.onSurfaceVariant.opacity(0.85))
-                        .padding(.horizontal, 6)
-                        .frame(height: 18)
-                        .background(scheme.onSurfaceVariant.opacity(0.12), in: .capsule)
-                        .fixedSize()
-                        .accessibilityLabel(Text("Format \(tag)"))
+                if let tags = model.player.currentTrack?.formatTags, !tags.isEmpty {
+                    FormatTagRow(tags: tags, container: scheme.secondaryContainer,
+                                 content: scheme.onSecondaryContainer)
+                        .transition(.opacity)
                 }
             }
             .lineLimit(1)
+            .animation(Yoin.effects, value: model.player.currentTrack?.formatTags)
             routeLink(albumRoute(p), label: String(localized: "Go to album")) {
                 Text(p.track.title)
                     .font(.gsf(Tokens.type.headlineMedium.size.cg))

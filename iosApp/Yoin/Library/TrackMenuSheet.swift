@@ -82,13 +82,14 @@ private struct TrackMenuTrigger: ViewModifier {
 }
 
 /// A song's sheet (Android TrackMenuSheet): the song (56 Thumb cover, title
-/// over artist), then a top row of one-tap actions on the song — Play next /
-/// Add to queue / Favorite / Share (owner 2026-11-03, after Apple Music's
-/// row) — then Add to playlist, then Go to album / View in Scrapbook / Go to
-/// artist, then Remove from playlist on a playlist the user owns, then Keep
-/// screen on from Now Playing. A row the song or provider can't do is left
-/// out, and so is an empty group. Rows are Settings segments (20 outer /
-/// 4 inner, 2 apart, groups 12 apart) on the system glass sheet.
+/// over artist, then the file's format tags where the server names them),
+/// then a top row of one-tap actions on the song — Play next / Add to queue /
+/// Favorite / Share (owner 2026-11-03, after Apple Music's row) — then Add
+/// to playlist, then Go to album / View in Scrapbook / Go to artist, then
+/// Remove from playlist on a playlist the user owns, then Keep screen on
+/// from Now Playing. A row the song or provider can't do is left out, and so
+/// is an empty group. Rows are Settings segments (20 outer / 4 inner, 2
+/// apart, groups 12 apart) on the system glass sheet.
 ///
 /// Now Playing context (the mini player's and the cover's long-press): the
 /// song is the one playing, so queueing it again makes no sense — the top
@@ -349,15 +350,25 @@ struct TrackMenuSheet: View {
     /// header 56 + 4, groups 12 apart, the top row 76, rows 56 two apart,
     /// Keep screen on 56), so the sheet presents at its final detent.
     private var estimatedHeight: CGFloat {
-        var h: CGFloat = 24 + 60 + 12 + Self.quickHeight
+        var h: CGFloat = 24 + headerHeight + 4 + 12 + Self.quickHeight
         for rows in groups { h += 12 + CGFloat(rows.count) * 56 + CGFloat(max(rows.count - 1, 0)) * 2 }
         if context.kind == .nowPlaying { h += 12 + 56 }
         return h + 16
     }
 
-    /// TrackMenuHeader: 56 Thumb, 16, titleMedium SemiBold over bodyMedium.
+    /// The header's height: the 56 cover, or the text beside it where the format tags make it the taller
+    /// (title 24, artist 20, then 4 and the tags' 18).
+    private var headerHeight: CGFloat {
+        var text = Tokens.type.titleMedium.lineHeight.cg
+        if !artist.isEmpty { text += Tokens.type.bodyMedium.lineHeight.cg }
+        if !track.track.formatTags.isEmpty { text += 4 + FormatTagRow.height }
+        return max(56, text)
+    }
+
+    /// TrackMenuHeader: 56 Thumb, 16, titleMedium SemiBold over bodyMedium, then the file's format tags.
     private var header: some View {
-        HStack(spacing: 16) {
+        let tags = track.track.formatTags
+        return HStack(spacing: 16) {
             CoverArt(palette: track.album.palette, cornerRadius: 0, seed: track.album.seed)
                 .frame(width: 56, height: 56)
                 .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
@@ -369,6 +380,11 @@ struct TrackMenuSheet: View {
                     Text(artist).lineLimit(1)
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurfaceVariant)
+                }
+                // The file's own format (Subsonic); what is playing shows on Now Playing.
+                if !tags.isEmpty {
+                    FormatTagRow(tags: tags, container: app.secondaryContainer, content: app.onSecondaryContainer)
+                        .padding(.top, 4)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
