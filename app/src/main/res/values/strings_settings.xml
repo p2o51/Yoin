@@ -418,5 +418,27 @@
     <string name="labs_nano_download_note">Downloaded by Android (AICore). It\'s a few GB, so Wi‑Fi is recommended.</string>
     <string name="labs_features_section">Experimental features</string>
     <string name="labs_lyrics_detail">Show lyrics picked on this phone on Home, and tap to play from that line</string>
+    <string name="nano_diag_title">Gemini Nano diagnostics</string>
+    <string name="nano_diag_entry_detail">See what Android says about the model on this phone</string>
+    <string name="nano_diag_intro">What Android (AICore) says about Gemini Nano on this phone, for each model version. Useful when a supported phone says it isn\'t supported.</string>
+    <string name="nano_diag_models_section">Model versions</string>
+    <string name="nano_diag_variant_unavailable">Not available</string>
+    <string name="nano_diag_actions_section">Try</string>
+    <string name="nano_diag_download_failed">Download failed: %1$s</string>
+    <string name="nano_diag_test">Run a test prompt</string>
+    <string name="nano_diag_test_detail">Asks the model for one word, on this phone</string>
+    <string name="nano_diag_test_running">Asking the model…</string>
+    <string name="nano_diag_test_reply">Replied “%1$s” in %2$d ms</string>
+    <string name="nano_diag_test_failed">Failed after %1$d ms</string>
+    <string name="nano_diag_update_aicore">Update AICore</string>
+    <string name="nano_diag_update_aicore_detail">Opens AICore in Google Play. An out-of-date AICore can hide the model.</string>
+    <string name="nano_diag_copy">Copy diagnostics</string>
+    <string name="nano_diag_copy_detail">For a bug report or Discord</string>
+    <string name="nano_diag_copied">Copied</string>
+    <string name="nano_diag_device_section">This phone</string>
+    <string name="nano_diag_android">Android %1$s</string>
+    <string name="nano_diag_app">Yoin %1$s</string>
+    <string name="nano_diag_not_installed">Not installed</string>
+    <string name="nano_diag_unavailable_help">No model version is available. Gemini Nano needs a supported phone (Pixel 9 or later, Galaxy S26, Z Fold8 / Flip8 and others) with a locked bootloader. On a supported phone, update AICore and Private Compute Services in Google Play, give it a while after a new setup or system update, then check again.</string>
     <string name="labs_lyrics_no_nano">Lines you share or save on the lyrics page still show up on Home.</string>
 </resources>

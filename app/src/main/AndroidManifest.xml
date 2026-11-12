@@ -22,6 +22,10 @@
         <package android:name="com.apple.android.music" />
         <!-- The landing's Spotoolfy step opens it when installed (docs/spotoolfy-migration.md §5.2). -->
         <package android:name="com.gojyuplusone.spotoolfy.spotoolfy_flutter" />
+        <!-- Yoin Labs › Gemini Nano diagnostics shows these versions (AICore itself is queried by ML Kit GenAI). -->
+        <package android:name="com.google.android.aicore" />
+        <package android:name="com.google.android.as" />
+        <package android:name="com.google.android.as.oss" />
     </queries>
 
     <application

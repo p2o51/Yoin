@@ -186,7 +186,7 @@
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
     <string name="home_tip_labs_title">Yoin Labs</string>
-    <string name="home_tip_labs">实验功能与 Gemini Nano 模型下载，现在都在 设置 &gt; Yoin Labs</string>
+    <string name="home_tip_labs">实验功能、Gemini Nano 模型下载与诊断，现在都在 设置 &gt; Yoin Labs</string>
     <string name="home_tip_lyric_highlight_title">歌词卡片</string>
     <string name="home_tip_lyric_highlight">支持 Gemini Nano 的机型上，点首页歌词卡片从那句开播，左右滑动翻看；歌词里分享或保存的句子也会加入</string>
     <string name="home_tip_memory_ledger_title">全部回忆</string>

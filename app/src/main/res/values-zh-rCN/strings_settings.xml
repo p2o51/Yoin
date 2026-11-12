@@ -384,5 +384,27 @@
     <string name="labs_nano_download_note">模型由 Android 系统（AICore）下载，大约几 GB，建议连 Wi‑Fi 下载。</string>
     <string name="labs_features_section">实验功能</string>
     <string name="labs_lyrics_detail">在首页显示本机挑出的歌词，点按从那句开始播放</string>
+    <string name="nano_diag_title">Gemini Nano 诊断</string>
+    <string name="nano_diag_entry_detail">查看系统对这台手机上模型的说法</string>
+    <string name="nano_diag_intro">Android 系统（AICore）对这台手机上每个 Gemini Nano 版本的回答。支持的手机却显示不支持时，可以在这里看原因。</string>
+    <string name="nano_diag_models_section">模型版本</string>
+    <string name="nano_diag_variant_unavailable">不可用</string>
+    <string name="nano_diag_actions_section">试试看</string>
+    <string name="nano_diag_download_failed">下载失败：%1$s</string>
+    <string name="nano_diag_test">运行测试提示</string>
+    <string name="nano_diag_test_detail">在本机让模型回一个词</string>
+    <string name="nano_diag_test_running">正在询问模型…</string>
+    <string name="nano_diag_test_reply">回答「%1$s」，用时 %2$d 毫秒</string>
+    <string name="nano_diag_test_failed">%1$d 毫秒后失败</string>
+    <string name="nano_diag_update_aicore">更新 AICore</string>
+    <string name="nano_diag_update_aicore_detail">在 Google Play 打开 AICore。AICore 版本过旧时可能找不到模型。</string>
+    <string name="nano_diag_copy">复制诊断信息</string>
+    <string name="nano_diag_copy_detail">用于反馈或发到 Discord</string>
+    <string name="nano_diag_copied">已复制</string>
+    <string name="nano_diag_device_section">这台手机</string>
+    <string name="nano_diag_android">Android %1$s</string>
+    <string name="nano_diag_app">Yoin %1$s</string>
+    <string name="nano_diag_not_installed">未安装</string>
+    <string name="nano_diag_unavailable_help">没有可用的模型版本。Gemini Nano 需要支持的手机（Pixel 9 及以后、Galaxy S26、Z Fold8 / Flip8 等），并且 Bootloader 未解锁。如果手机是支持的，请在 Google Play 更新 AICore 和 Private Compute Services，刚设置好或刚更新系统时稍等一会儿，再重新检查。</string>
     <string name="labs_lyrics_no_nano">你在歌词页分享或保存的句子，仍会出现在首页。</string>
 </resources>
