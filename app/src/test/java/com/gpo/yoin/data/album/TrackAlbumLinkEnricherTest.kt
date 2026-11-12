@@ -56,13 +56,19 @@ class TrackAlbumLinkEnricherTest {
         spacingMs = 0L,
     )
 
-    private suspend fun note(trackId: String, at: Long, title: String = "Unknown track", artist: String = "") =
+    private suspend fun note(
+        trackId: String,
+        at: Long,
+        title: String = "Unknown track",
+        artist: String = "",
+        provider: String = MediaId.PROVIDER_SPOTIFY,
+    ) =
         database.songNoteDao().insert(
             SongNote(
                 id = "note-$trackId",
                 profileId = "profile-a",
                 trackId = trackId,
-                provider = MediaId.PROVIDER_SPOTIFY,
+                provider = provider,
                 content = "kept",
                 createdAt = at,
                 updatedAt = at,
@@ -126,10 +132,30 @@ class TrackAlbumLinkEnricherTest {
     }
 
     @Test
-    fun should_doNothing_when_theAccountInUseIsNotSpotify() = runTest {
-        note("t1", at = 1L)
-        every { source.id } returns MediaId.PROVIDER_SUBSONIC
+    fun should_doNothing_when_theAccountInUseHasNoSingleTrackLookup() = runTest {
+        note("t1", at = 1L, provider = MediaId.PROVIDER_APPLE_MUSIC)
+        every { source.id } returns MediaId.PROVIDER_APPLE_MUSIC
 
+        assertEquals(0, enricher().runPass())
+        assertEquals(null, database.trackAlbumLinkDao().get("profile-a", MediaId.PROVIDER_APPLE_MUSIC, "t1"))
+    }
+
+    @Test
+    fun should_linkSubsonicSongs_andPassOneTheServerNoLongerHas() = runTest {
+        // A score pulled from the server for a song never played here; one of them was deleted since.
+        note("gone", at = 1L, provider = MediaId.PROVIDER_SUBSONIC)
+        note("s2", at = 2L, provider = MediaId.PROVIDER_SUBSONIC)
+        every { source.id } returns MediaId.PROVIDER_SUBSONIC
+        coEvery { library.getTrack(MediaId(MediaId.PROVIDER_SUBSONIC, "gone")) } returns null
+        coEvery { library.getTrack(MediaId(MediaId.PROVIDER_SUBSONIC, "s2")) } returns
+            track("s2", "al2").copy(albumId = MediaId(MediaId.PROVIDER_SUBSONIC, "al2"))
+
+        assertEquals(2, enricher().runPass())
+
+        val links = database.trackAlbumLinkDao()
+        // The missing song is asked once and doesn't hold up the ones after it.
+        assertEquals("", links.get("profile-a", MediaId.PROVIDER_SUBSONIC, "gone")?.albumId)
+        assertEquals("al2", links.get("profile-a", MediaId.PROVIDER_SUBSONIC, "s2")?.albumId)
         assertEquals(0, enricher().runPass())
     }
 }
