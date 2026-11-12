@@ -44,7 +44,7 @@ internal class LedgerTrackResolver(
         .filter { it.kind == MemoryLedgerKind.TrackRating || it.kind == MemoryLedgerKind.SongNote }
         .mapNotNull { entry -> providers[entry.profileId]?.let { Wanted(entry.profileId, it, entry.songId!!) } }
         .distinctBy { it.key }
-        .filter { it.key !in answers }
+        .filter { !answers.containsKey(it.key) }
         .toList()
 
     /** Asks for each of [wanted], a few at a time; returns whether any answer named an album. */

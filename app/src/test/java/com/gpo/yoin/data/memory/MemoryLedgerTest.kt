@@ -70,10 +70,10 @@ class MemoryLedgerTest {
         )
         val looked = mutableListOf<String>()
 
-        val entries = buildMemoryLedger(rows, profileIds = null) { profile, provider, id ->
+        val entries = buildMemoryLedger(rows, profileIds = null, lookup = { profile, provider, id ->
             looked += id
             if (id == "cached") MemoryLedgerAlbum(profile, provider, id, "From the cache", "", "c") else null
-        }
+        })
 
         val byId = entries.associate { it.id to it.album }
         assertEquals("From the note", byId["album-note:n1"]?.name)
