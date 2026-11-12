@@ -83,9 +83,11 @@ class MemoryLedgerViewModel internal constructor(
     private val repository: YoinRepository,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
     private val today: () -> LocalDate = { LocalDate.now(zone()) },
+    // Returns once the album link enricher is between passes: it asks a streaming service the same songs.
+    serviceFree: suspend () -> Unit = {},
 ) : ViewModel() {
 
-    private val tracks = LedgerTrackResolver(profiles)
+    private val tracks = LedgerTrackResolver(profiles, serviceFree = serviceFree)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<MemoryLedgerState?> = combine(dao.changes().distinctUntilChanged(), profileCards) { _, cards ->
@@ -204,6 +206,7 @@ class MemoryLedgerViewModel internal constructor(
             profiles = container.profileManager,
             profileCards = profileCardsFlow(container),
             repository = container.repository,
+            serviceFree = { container.trackAlbumLinkEnricher.awaitIdle() },
         ) as T
     }
 

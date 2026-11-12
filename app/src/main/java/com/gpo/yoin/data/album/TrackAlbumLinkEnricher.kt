@@ -59,6 +59,17 @@ class TrackAlbumLinkEnricher(
         }
     }
 
+    /**
+     * Returns once no pass is running. The memory ledger asks the same service about the same songs
+     * (`LedgerTrackResolver`): it waits here, so a streaming service hears one of the two at a time.
+     */
+    suspend fun awaitIdle() {
+        while (true) {
+            val running = synchronized(this) { job }?.takeIf { it.isActive } ?: return
+            running.join()
+        }
+    }
+
     /** Links as many tracks as it can; returns how many it looked up. */
     suspend fun runPass(): Int {
         val source = activeSource.value ?: return 0

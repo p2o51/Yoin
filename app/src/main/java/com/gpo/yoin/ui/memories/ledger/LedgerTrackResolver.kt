@@ -36,10 +36,19 @@ import kotlinx.coroutines.sync.withPermit
  * song at a time with a breath between, the newest few each pass, and the ledger shows each pass's answers
  * before asking for more. An account whose lookup fails (offline, rate limited, signed out) is left alone
  * until the ledger next reloads.
+ *
+ * Nothing here is stored, so every start of the app asks again. A streaming account is therefore asked about
+ * [serviceBudget] songs a process and no more (the newest ones): a big import must not cost hundreds of
+ * requests each time the app opens, and a 429 would close the account's Web API to Home, search and playback
+ * alike. The enricher asks the same service about the same songs, and each link it stores reloads the ledger:
+ * a streaming service's lookups wait until its pass is over ([serviceFree]).
  */
 internal class LedgerTrackResolver(
     private val profiles: ProfileManager,
     private val spacingMs: Long = SpacingMs,
+    private val serviceBudget: Int = ServiceBudget,
+    /** Returns once nothing else is asking the streaming service about these songs. */
+    private val serviceFree: suspend () -> Unit = {},
 ) {
     /** What a lookup needs: [key] names the song in its own account. */
     data class Wanted(val profileId: String, val provider: String, val songId: String) {
@@ -107,8 +116,13 @@ internal class LedgerTrackResolver(
                             asked += already.isNews
                             continue
                         }
+                        if ((serviceAnswered[want.profileId] ?: 0) >= serviceBudget) continue
+                        serviceFree()
                         if (requests++ > 0 && spacingMs > 0) delay(spacingMs)
-                        asked += ask(want)
+                        val answer = ask(want)
+                        // A failed lookup taught nothing and isn't counted: the song is asked again.
+                        if (answer != null) serviceAnswered.merge(want.profileId, 1, Int::plus)
+                        asked += answer
                     }
                 }
                 asked
@@ -146,11 +160,17 @@ internal class LedgerTrackResolver(
         /** The enricher's breath between a streaming service's lookups. */
         const val SpacingMs = 250L
 
+        /** Songs a streaming account is asked about in one process: one pass's worth. */
+        const val ServiceBudget = 20
+
         /** Shared by every visit while the process lives. */
         val answers = ConcurrentHashMap<String, LedgerTrack>()
 
         /** One streaming-service pass at a time, whoever asks. */
         val serviceLane = Mutex()
+
+        /** How many songs each streaming account has answered for since the process started. */
+        val serviceAnswered = ConcurrentHashMap<String, Int>()
 
         /** The service doesn't know the song. */
         val Unknown = LedgerTrack(title = null, albumId = null, albumName = null, artist = null, coverKey = null)

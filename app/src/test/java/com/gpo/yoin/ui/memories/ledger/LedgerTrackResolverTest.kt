@@ -12,9 +12,12 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -23,7 +26,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The resolver's answers live for the process (one map for every visit), so each test names its own account.
+ * The resolver's answers live for the process (one map for every visit), and so does what a streaming account
+ * has been asked, so each test names its own account.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class LedgerTrackResolverTest {
@@ -128,7 +132,8 @@ class LedgerTrackResolverTest {
         coEvery { library.getTrack(any()) } answers {
             track(MediaId.PROVIDER_SPOTIFY, firstArg<MediaId>().rawId, "Song", albumId = "al")
         }
-        val resolver = LedgerTrackResolver(profiles)
+        // A budget above the songs here: this is about how a pass asks, not how many a process may.
+        val resolver = LedgerTrackResolver(profiles, serviceBudget = 100)
         val entries = (1..25).map { score("metered", "s$it") }
         val providers = mapOf("metered" to MediaId.PROVIDER_SPOTIFY)
 
@@ -146,6 +151,69 @@ class LedgerTrackResolverTest {
         val third = resolver.resolve(resolver.pending(entries, providers))
         assertEquals(LedgerTrackResolver.Pass(answered = 0, found = false), third)
         coVerify(exactly = 25) { library.getTrack(any()) }
+    }
+
+    @Test
+    fun should_askAStreamingAccountNoMore_when_itsBudgetIsSpent() = runTest {
+        // A big import nothing here names the albums of. Answers aren't stored, so every start of the app would
+        // ask for all of them again: the newest twenty are asked, the rest are left as they are.
+        use("capped", MediaId.PROVIDER_SPOTIFY)
+        coEvery { library.getTrack(any()) } answers {
+            track(MediaId.PROVIDER_SPOTIFY, firstArg<MediaId>().rawId, "Song", albumId = "al")
+        }
+        val resolver = LedgerTrackResolver(profiles)
+        val entries = (1..25).map { score("capped", "s$it") }
+        val providers = mapOf("capped" to MediaId.PROVIDER_SPOTIFY)
+
+        val first = resolver.resolve(resolver.pending(entries, providers))
+        val second = resolver.resolve(resolver.pending(entries, providers))
+        // Home's ledger and the page's spend from one budget.
+        val other = LedgerTrackResolver(profiles).resolve(resolver.pending(entries, providers))
+
+        assertEquals(LedgerTrackResolver.Pass(answered = 20, found = true), first)
+        // A pass that answers nothing ends the ledger's passes.
+        assertEquals(LedgerTrackResolver.Pass(answered = 0, found = false), second)
+        assertEquals(LedgerTrackResolver.Pass(answered = 0, found = false), other)
+        assertEquals(5, resolver.pending(entries, providers).size)
+        coVerify(exactly = 20) { library.getTrack(any()) }
+    }
+
+    @Test
+    fun should_notSpendTheBudget_on_aLookupThatFailed() = runTest {
+        use("flaky", MediaId.PROVIDER_SPOTIFY)
+        val resolver = LedgerTrackResolver(profiles, serviceBudget = 2)
+        val asking = wanted("flaky", MediaId.PROVIDER_SPOTIFY, 3)
+
+        coEvery { library.getTrack(any()) } throws IOException("offline")
+        val offline = resolver.resolve(asking)
+        coEvery { library.getTrack(any()) } answers {
+            track(MediaId.PROVIDER_SPOTIFY, firstArg<MediaId>().rawId, "Song", albumId = "al")
+        }
+        val online = resolver.resolve(asking)
+
+        assertEquals(LedgerTrackResolver.Pass(answered = 0, found = false), offline)
+        // Both of the budget's songs are still there to ask once the account answers.
+        assertEquals(LedgerTrackResolver.Pass(answered = 2, found = true), online)
+        coVerify(exactly = 3) { library.getTrack(any()) }
+    }
+
+    @Test
+    fun should_waitForTheEnrichersPass_before_askingAStreamingService() = runTest {
+        // The enricher asks the same account about the same songs; two askers at once double its pace.
+        use("busy", MediaId.PROVIDER_SPOTIFY)
+        coEvery { library.getTrack(any()) } answers {
+            track(MediaId.PROVIDER_SPOTIFY, firstArg<MediaId>().rawId, "Song", albumId = "al")
+        }
+        val enricherDone = CompletableDeferred<Unit>()
+        val resolver = LedgerTrackResolver(profiles, serviceFree = { enricherDone.await() })
+
+        val pass = async { resolver.resolve(wanted("busy", MediaId.PROVIDER_SPOTIFY, 2)) }
+        advanceUntilIdle()
+        coVerify(exactly = 0) { library.getTrack(any()) }
+
+        enricherDone.complete(Unit)
+        assertEquals(LedgerTrackResolver.Pass(answered = 2, found = true), pass.await())
+        coVerify(exactly = 2) { library.getTrack(any()) }
     }
 
     @Test

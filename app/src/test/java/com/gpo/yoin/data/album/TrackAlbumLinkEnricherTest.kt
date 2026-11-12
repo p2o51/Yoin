@@ -12,11 +12,16 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -129,6 +134,36 @@ class TrackAlbumLinkEnricherTest {
         coEvery { library.getTrack(MediaId.spotify("t2")) } returns track("t2", "a2")
         assertEquals(1, enricher().runPass())
         assertEquals("a2", database.trackAlbumLinkDao().get("profile-a", MediaId.PROVIDER_SPOTIFY, "t2")?.albumId)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun should_holdAWaiterBack_until_thePassIsOver() = runTest {
+        // The memory ledger asks the same service about the same songs: it waits for the pass to end.
+        note("t1", at = 1L)
+        val answer = CompletableDeferred<Track?>()
+        coEvery { library.getTrack(MediaId.spotify("t1")) } coAnswers { answer.await() }
+        val enricher = TrackAlbumLinkEnricher(
+            links = database.trackAlbumLinkDao(),
+            notes = database.songNoteDao(),
+            activeSource = activeSource,
+            activeProfileId = activeProfile,
+            scope = backgroundScope,
+            clock = { 7L },
+            spacingMs = 0L,
+        )
+        // No pass running: nothing to wait for.
+        enricher.awaitIdle()
+
+        enricher.kick()
+        val waiter = async { enricher.awaitIdle() }
+        runCurrent()
+        assertTrue(waiter.isActive)
+
+        answer.complete(track("t1", "a1"))
+        waiter.await()
+        // The waiter went on only after the pass stored what it learned.
+        assertEquals("a1", database.trackAlbumLinkDao().get("profile-a", MediaId.PROVIDER_SPOTIFY, "t1")?.albumId)
     }
 
     @Test
