@@ -490,7 +490,7 @@ struct PillContent: View {
             // frame.
             if np?.mounted != true {
                 PlaybackPosition { position, duration in
-                    PillWash(progress: position / duration, playing: p.isPlaying,
+                    PillWash(positionSec: position, durationSec: duration, playing: p.isPlaying,
                              color: scheme.primary.opacity(lab.extra("washOpacity")),
                              amplitude: lab.extra("washAmplitude"))
                 }
@@ -540,15 +540,24 @@ struct PillContent: View {
 /// Android NowPlayingPill progress wash: fill from the leading edge to the
 /// progress point, whose edge is a vertical sine (one wave over the pill's
 /// height) that drifts while playing.
+///
+/// The engine ticks the position 4 times a second; on a short song each tick
+/// moved the edge several points, so it stepped. The timeline already draws
+/// every frame while playing (the sine drifts), so the edge is extrapolated
+/// there from the last tick at the song's rate (Android's
+/// PlaybackProgressSmoother): no extra frames or view updates.
 struct PillWash: View {
-    var progress: Double
+    var positionSec: Double
+    var durationSec: Double
     var playing: Bool
     var color: Color
     var amplitude: Double
+    @State private var front = WashFront()
 
     var body: some View {
         TimelineView(.animation(paused: !playing)) { ctx in
             let phase = ctx.date.timeIntervalSinceReferenceDate * 2 * Double.pi
+            let progress = front.at(positionSec, of: durationSec, playing: playing, now: ctx.date)
             Canvas { gc, size in
                 guard progress > 0 else { return }
                 let x = size.width * progress
@@ -566,6 +575,39 @@ struct PillWash: View {
             }
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// The wash edge between position ticks. A tick slightly behind what was
+/// drawn (timer jitter) re-anchors at the drawn edge instead of stepping
+/// back; a seek, a new song, or a stall past `maxLead` snaps to the tick.
+/// A plain class: written while drawing, never observed.
+final class WashFront {
+    private var sample = Double.nan
+    private var anchorSec = 0.0
+    private var anchorDate = Date.distantPast
+    private var shownSec = 0.0
+    private var wasPlaying = false
+    private static let maxLead = 0.6
+
+    func at(_ positionSec: Double, of durationSec: Double, playing: Bool, now: Date) -> Double {
+        guard durationSec > 0 else { return 0 }
+        if !playing {
+            sample = positionSec
+            anchorSec = positionSec
+            shownSec = positionSec
+            wasPlaying = false
+        } else {
+            if !wasPlaying || positionSec != sample {
+                let behind = shownSec - positionSec
+                anchorSec = wasPlaying && behind > 0 && behind <= Self.maxLead ? shownSec : positionSec
+                anchorDate = now
+                sample = positionSec
+                wasPlaying = true
+            }
+            shownSec = anchorSec + min(max(now.timeIntervalSince(anchorDate), 0), Self.maxLead)
+        }
+        return min(max(shownSec / durationSec, 0), 1)
     }
 }
 
