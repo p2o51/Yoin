@@ -307,6 +307,12 @@ class ProfileManager(
                 newSource.dispose()
             }
             _activeSource.value = previousSource
+            if (t is CancellationException) {
+                // The caller went away mid-switch (its page closed). Nothing failed: no error to
+                // leave behind for the next screen that watches the switch.
+                _switchingState.value = SwitchState.Idle
+                throw t
+            }
             _switchingState.value = SwitchState.Error(id, t.message ?: t.toString())
         }
     }

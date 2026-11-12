@@ -20,7 +20,7 @@ This repository is **Yoin**, an Android Compose music client focused on MD3 Expr
 
 ## Tech Stack
 
-- Kotlin, Jetpack Compose, single-activity Compose Navigation
+- Kotlin, Jetpack Compose. The shell (Home, Library, Now Playing, Memories) is one Activity; Settings and the detail pages are Activities of their own, and on wide windows a detail page opens in the shell's right column (Navigation 3)
 - Material 3 stable plus scoped MD3 Expressive opt-in where needed
 - Media3, MediaSession, CacheDataSource
 - Room for local persistence
@@ -73,38 +73,39 @@ Do not add out-of-scope features such as podcast, radio, chat, user management, 
 - Keep Composables stateless by default and hoist state to ViewModels.
 - Prefer feature-based package structure.
 - Prefer `StateFlow` over `LiveData`.
-- Keep provider-specific transport code in `data/remote/<provider>/`(e.g. `data/remote/` currently houses Subsonic — future providers get their own subpackage).
+- Keep provider-specific transport code in `data/remote/<provider>/` (`data/remote/` itself holds Subsonic, `data/remote/applemusic/` Apple Music; Spotify's Web API client predates this rule and lives in `data/source/spotify/`).
 - Keep Room entities and local persistence code in `data/local/`.
 - Use `sealed interface` and `data class` patterns for UI state modeling.
 
 ## Multi-Provider Architecture
 
-The data layer is built to support multiple music backends behind a single provider-agnostic interface. The abstraction, Profile/Room plumbing, neutral domain models, Repository migration, playback handle split, and Settings profile switcher are all landed. The remaining provider work is Spotify content/playback, capability-gated UI, and shipping hardening.
+The data layer is built to support multiple music backends behind a single provider-agnostic interface. The abstraction, Profile/Room plumbing, neutral domain models, Repository migration, playback handle split, and Settings profile switcher are all landed, and three providers ship. What is left is listed under "Remaining phases".
 
 ### Core abstractions
 
 - `data/model/` — neutral domain models used by every provider. `MediaId`namespaces every remote id as `(provider, rawId)`; `Track`, `Album`, `Artist`, `Playlist`, `Lyrics`, `SearchResults`, `Starred`, `CoverRef`, and `PlaybackHandle` all carry `MediaId`s. Do not leak provider-shaped DTOs (e.g. `com.gpo.yoin.data.remote.Song`) across this boundary.
 - `data/source/MusicSource` — the provider interface. Sliced by concern (`MusicLibrary`, `MusicMetadata`, `MusicWriteActions`, `MusicPlayback`) and gated by a `Capability` set so the UI can hide affordances a provider can't support (e.g. five-star rating for Spotify). `MusicPlayback.handleFor(track)`returns a `PlaybackHandle`: `DirectStream(uri)` for servers the player can stream directly (Subsonic), or `ExternalController(...)` for providers that require delegation (Spotify App Remote).
 - `data/source/subsonic/SubsonicMusicSource` — first provider. Ships.
-- `data/source/spotify/SpotifyMusicSource` — second provider. Owns OAuth via `SpotifyOAuthActivity`, read-only Web API integration (search, playlists, saved items, album/artist detail), and App Remote playback through `player/SpotifyAppRemotePlayer`. The App Remote base infrastructure is landed; remaining Spotify work is robustness, capability gating, re-auth, and QA.
-- `data/model/LegacyViewCompat.kt` — temporary presentation-layer aliases (`album.song`, `playlist.entry`, etc.) kept only to reduce churn while the UI settles on canonical neutral names. New code should prefer the real neutral fields directly.
+- `data/source/spotify/SpotifyMusicSource` — second provider. Owns OAuth via `SpotifyOAuthActivity`, the Web API integration (search, playlists, saved items, album/artist detail, library and playlist writes), and App Remote playback through `player/SpotifyAppRemotePlayer`.
+- `data/source/applemusic/AppleMusicSource` — third provider. Reads through `data/remote/applemusic/`; MusicKit playback is wrapped as a Media3 player in `player/applemusic/`.
 
 ### Profiles & credentials
 
 - `data/local/Profile` + `ProfileDao` — Room-backed list of configured accounts. Each profile carries a `provider` token and an opaque `credentialsJson` blob. Multiple profiles per provider are allowed (e.g. two Subsonic servers).
 - `data/profile/ProfileCredentials` — sealed, `@Serializable`. Add a subtype per provider (`Subsonic`, `Spotify`, ...).
 - `data/profile/ProfileCredentialsCodec` — serialises credentials. Profiles store them through `EncryptedProfileCredentialsCodec` (AndroidKeyStore AES-GCM) as per-profile files under `noBackupFilesDir/profile_credentials/`; `PlaintextProfileCredentialsCodec` only reads rows written before encryption landed.
-- `data/profile/ProfileManager` — owns the profile list and the active profile. Exposes `activeProfile: StateFlow<Profile?>` and `activeSource: StateFlow<MusicSource?>`. On profile switch, disposes the previous source and builds a new one. `migrateLegacyServerConfigIfNeeded()`is idempotent and runs on app start to seed a Subsonic Profile from a v3 `server_config` row.
+- `data/profile/ProfileManager` — owns the profile list and the active profile. Exposes `activeProfile: StateFlow<Profile?>` and `activeSource: StateFlow<MusicSource?>`. On profile switch, disposes the previous source and builds a new one. `runStartupMigrations()` runs on app start. (The v3 `server_config` table and its migration into a Profile are gone; only the v5→v6 Room migration that drops the table remains.)
 
 ### Room schema & the `provider` column
 
 Every table that references a remote entity id carries a `provider` column and, where applicable, includes it in the primary key. This prevents cross- provider collisions when two profiles are configured.
 
-- `local_ratings`, `song_info`, `cache_metadata` — composite PK `(songId, provider)`.
+- `local_ratings` — composite PK `(profileId, songId, provider)`; `cache_metadata` — composite PK `(songId, provider)`.
 - `play_history`, `activity_events` — `provider` as a regular column.
 - Default value for migrated rows and for Kotlin defaults is `MediaId.PROVIDER_SUBSONIC`.
+- Tables that hold one account's data also carry `profileId`, so two accounts on the same provider stay apart.
 
-When adding a new table that references remote ids, always include a `provider: String` column. DAO queries must filter on both `songId` and `provider` (see `LocalRatingDao.getRating`, `PlayHistoryDao.getMostRecentPlay`, `SongInfoDao.getBySongId`, `CacheMetadataDao.getBySongId`).
+When adding a new table that references remote ids, always include a `provider: String` column. DAO queries must filter on the id, `provider` and, for per-account data, `profileId` (see `LocalRatingDao.getRating`, `PlayHistoryDao.getMostRecentPlay`, `CacheMetadataDao.getBySongId`).
 
 ### When implementing a new feature that hits a remote backend
 
@@ -117,16 +118,16 @@ When adding a new table that references remote ids, always include a `provider: 
 
 - `YoinRepository` is already slimmed onto `ProfileManager.activeSource`.
 - ViewModels and Composables consume `data.model.*` neutral models.
-- `PlaybackManager` branches on `PlaybackHandle` and routes `ExternalController` to `SpotifyAppRemotePlayer`. The `PlaybackState`carries a `connectionPhase` (`Idle` / `Connecting` / `Ready` / `Error`) plus `pendingTrack` so Spotify doesn't fake "already playing" before the first real `PlayerState` arrives from App Remote.
+- `PlaybackManager` branches on `PlaybackHandle` and routes a Spotify `ExternalController` to `SpotifyAppRemotePlayer`; an Apple Music one (`ControllerType.APPLE_MUSIC_KIT`) plays through the Media3 controller of `AppleMusicPlaybackService`. The `PlaybackState`carries a `connectionPhase` (`Idle` / `Connecting` / `Ready` / `Error`) plus `pendingTrack` so Spotify doesn't fake "already playing" before the first real `PlayerState` arrives from App Remote.
 - Spotify connect failures are typed (`SpotifyConnectFailure.NoClientId`, `SpotifyAppMissing`, `PremiumRequired`, `AuthFailure`, `TransportFailure`) and surface through `PlaybackManager.events` — `YoinNavHost` collects them into an actionable snackbar at the shell level.
-- `SettingsScreen` exposes profile list / switch / create / edit / delete UI, Spotify OAuth bootstrap, runtime Spotify Client ID config with a deep-linkable `focusSection = "spotify"` entry point, and "No Client ID" badge on unavailable profile cards.
+- `SettingsScreen` lists, switches and deletes accounts, with a deep-linkable `focusSection` entry point (`SettingsActivity.intent`). Adding or editing an account — Spotify OAuth and the runtime Spotify Client ID included — happens on that service's own page (`ui/settings/service/ServiceSetupActivity`).
 
 ### Remaining phases
 
 - Phase A (**done**) — Spotify read-only content in `SpotifyMusicSource`.
 - Phase B (**done: base**) — App Remote plumbing (connection lifecycle, typed failures, `ExternalController` dispatch, Launching / ConnectError UI states, shell snackbar actions, Client ID onboarding).
 - Phase C — capability-gated UI: hide five-star rating / lyrics tab / random-songs / favorite toggle etc. based on `source.capabilities`. Pass the active `Set<Capability>` through `PlaybackState` (or a parallel `ActiveProviderState` flow) — feature composables must not reach up to `AppContainer`.
-- Phase D — encrypted `ProfileCredentialsCodec`, Spotify `invalid_grant`re-auth UX (`ProfileState.NeedsReconnect` + `Reconnect(profileId)` mode on `SpotifyOAuthActivity`), QA pass on real device, and removal of legacy migration shims (`LegacyViewCompat.kt`, `server_config` write path).
+- Phase D — QA pass on real device. Already landed from this phase: the encrypted `ProfileCredentialsCodec`, the Spotify `invalid_grant` reconnect flow (a revoked account shows Reconnect on its card and its service page), and the removal of `LegacyViewCompat.kt` and the `server_config` write path.
 
 ## Tips Follow Every Feature
 
@@ -146,11 +147,12 @@ The owner's rule (2026-11-06): a feature PR updates the in-app Tips (`HomeBubble
 
 ## Navigation Model
 
-- The app uses single-activity Compose Navigation.
-- Root destinations are Home and Library.
-- Settings and detail pages are pushed destinations.
+- The shell is one Activity (`MainActivity`); its root destinations are Home and Library.
+- Settings and detail pages are separate Activities. On a wide window a detail page opens in the shell's right column instead (`ui/navigation/pane/`).
 - Now Playing is a fullscreen shell-owned overlay.
-- Bottom navigation is the MD3 Expressive button group.
+- Bottom navigation is `YoinButtonGroup`, the app's own Expressive button group.
+
+`.claude/skills/predictive-back/SKILL.md` is the current doctrine for back and screen transitions. The sections below give the taxonomy and intent; where mechanics differ, the skill and the code win.
 
 ## Predictive Back Is Part Of The Product
 
@@ -183,7 +185,7 @@ Examples: `Home`, `Library`.
 
 Examples: `Settings`, `AlbumDetail`, `ArtistDetail`, `PlaylistDetail`
 
-- Must be a pushed NavHost route
+- Is its own Activity (a detail page is a column entry on wide windows), never a second route/overlay model of the same page
 - Must use the shared PushPage back implementation
 - Must expose an explicit back affordance, usually the top app bar back button
 - Feature screens must not implement raw `PredictiveBackHandler`
@@ -222,7 +224,7 @@ If these are not answered, implementation is not ready.
 ## Existing Repository Constraints
 
 - `Shell` owns the root experience and immersive overlays.
-- `Settings` and detail pages are pushed routes.
+- `Settings` and detail pages are separate Activities (detail pages become column entries on wide windows).
 - `Now Playing` and `Memories` are shell overlays, not ordinary routes.
 - Default to `PushPage` unless the screen clearly expands from or collapses back into a shell-owned anchor.
 - Do not model the same page as both a route and an overlay.
@@ -241,14 +243,14 @@ If these are not answered, implementation is not ready.
 
 ### PushPage
 
-- Add a Nav route.
-- Use the shared push-page back surface/wrapper.
+- Add an Activity (for a detail page, also its column entry in `ui/navigation/pane/`).
+- Use the shared push-page back implementation for its class (see the predictive-back skill).
 - Provide a top-level back icon.
 - Route explicit back clicks and system back to the same destination.
 
 Prefer existing shared infrastructure such as:
 
-- `YoinBackSurface`
+- `DetailPredictiveBackCollapse` and `BackMotionTokens`
 - `ShellBackResolver`
 - Shared back controllers
 - Shared motion tokens such as `YoinMotion`

@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.settings.backup
 
 import com.gpo.yoin.data.backup.BackupTrack
+import com.gpo.yoin.data.backup.BackupVersion
 import com.gpo.yoin.data.backup.PlaylistBackupContent
 import com.gpo.yoin.data.backup.PlaylistBackupRecord
 import com.gpo.yoin.data.backup.PlaylistBackupStore
@@ -136,6 +137,36 @@ class PlaylistBackupViewModelTest {
         advanceUntilIdle()
 
         assertEquals(RestoreUiState.Failed(target), viewModel.restore.value)
+    }
+
+    // An earlier version opened for a restore and then put away stayed "the backup": Back up now
+    // handed that version's songs on, and they were filed as what the backup held until now.
+    @Test
+    fun should_backUpTheStoredRecord_when_anEarlierVersionWasLastOpenedForRestore() = runTest {
+        val earlier = BackupVersion(
+            since = 0L,
+            until = 1L,
+            content = PlaylistBackupContent(tracks = backup.content.tracks.take(1)),
+        )
+        val withHistory = backup.copy(versions = listOf(earlier))
+        every { store.observe("b1") } returns MutableStateFlow(withHistory)
+        val backedUp = mutableListOf<PlaylistBackupRecord>()
+        val viewModel = PlaylistBackupViewModel(
+            backupId = "b1",
+            store = store,
+            restoreTargets = flowOf(listOf(target)),
+            match = { _, _, _, _ -> emptyList() },
+            create = { _, _, _ -> error("not expected") },
+            backUpNow = { backedUp += it },
+        )
+        advanceUntilIdle()
+
+        viewModel.openRestore(versionSince = earlier.since)
+        viewModel.dismissSheet()
+        viewModel.backUpAgain()
+        advanceUntilIdle()
+
+        assertEquals(listOf(withHistory), backedUp)
     }
 
     private fun resolutions(): List<TrackResolution> {

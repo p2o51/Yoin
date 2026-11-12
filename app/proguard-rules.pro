@@ -2,9 +2,6 @@
 # By default, the flags in this file are appended to flags specified
 # in the SDK tools proguard-defaults.txt.
 
-# Keep Subsonic API response models for serialization
--keep class com.gpo.yoin.data.remote.model.** { *; }
-
 # kotlinx.serialization
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt

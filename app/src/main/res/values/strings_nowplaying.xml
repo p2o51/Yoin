@@ -55,10 +55,6 @@
     <string name="np_lyrics_none">No lyrics available</string>
     <string name="np_lyric_up_next">Up next · %1$s</string>
 
-    <string name="np_dock_playing_from_album">PLAYING FROM ALBUM</string>
-    <string name="np_dock_playing_from_playlist">PLAYING FROM PLAYLIST</string>
-    <string name="np_dock_playing_from_artist">PLAYING FROM ARTIST</string>
-    <string name="np_dock_now_playing">NOW PLAYING</string>
     <string name="np_from_album">PLAYING FROM ALBUM</string>
     <string name="np_from_playlist">PLAYING FROM PLAYLIST</string>
     <string name="np_from_artist">PLAYING FROM ARTIST</string>

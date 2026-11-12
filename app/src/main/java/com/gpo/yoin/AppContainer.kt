@@ -554,6 +554,31 @@ class AppContainer(private val context: Context) {
         }
     }
 
+    /**
+     * Ratings the active service hasn't taken yet (written offline, or while its server was down)
+     * go out again, off the caller's thread. [YoinApplication] calls it when a network comes back;
+     * [startPendingRatingRetries] when an account becomes active.
+     */
+    fun retryPendingRatings() {
+        applicationScope.launch {
+            try {
+                repository.syncPendingRatings()
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                // applicationScope has no handler: an escape here would take the process down.
+                Log.w("YoinRatings", "Waiting ratings not sent", error)
+            }
+        }
+    }
+
+    /** Each account that becomes active (and the first at launch) sends the ratings it still owes its server. */
+    fun startPendingRatingRetries() {
+        applicationScope.launch {
+            profileManager.activeSource.collect { source -> if (source != null) retryPendingRatings() }
+        }
+    }
+
     val audioVisualizerManager: AudioVisualizerManager by lazy {
         AudioVisualizerManager()
     }

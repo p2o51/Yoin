@@ -295,7 +295,10 @@ class MemoriesViewModel(
                 val nextDeck = withPendingTitles(deckCoordinator.advanceDeck(direction))
                 if (activeProfileId.value != profileId) return@launch
                 if (nextDeck.isEmpty()) {
-                    _uiState.value = currentContent.copy(isLoadingAdjacentDeck = false)
+                    // The deck as it is now, not as it was before the wait: a review or title
+                    // saved meanwhile is already patched into it.
+                    val latest = _uiState.value as? MemoriesUiState.Content ?: return@launch
+                    _uiState.value = latest.copy(isLoadingAdjacentDeck = false)
                     return@launch
                 }
 

@@ -85,16 +85,16 @@ which checks their SHA-256 against [`app/libs/README-apple-music.md`](../app/lib
   push or a same-repo PR, a missing token fails the run instead. To have
   Dependabot PRs fully checked, add the same token under **Secrets and variables →
   Dependabot**.
+- Upgrading the SDK: upload the new AARs as a new release in `yoin-ci-assets`,
+  then update the tag and the sums in the action, `app/build.gradle.kts` and the README.
 
 Unit tests cache Robolectric's android-all jars (`~/.m2/repository/org/robolectric`),
 keyed on the Robolectric version in `gradle/libs.versions.toml`. Robolectric
 downloads them from Maven Central on first use, and an uncached download
 occasionally fails mid-run.
-- Upgrading the SDK: upload the new AARs as a new release in `yoin-ci-assets`,
-  then update the tag and the sums in the action, `app/build.gradle.kts` and the README.
 
-Yoin Symbols is checked out at a pinned commit of `p2o51/yoin-symbols` (that repo
-has no tags yet). Bump the `ref:` in both workflows when the app needs newer glyphs.
+Yoin Symbols is checked out from `p2o51/yoin-symbols` at `main` (`ref: main` in both
+workflows), so a merged icon change reaches the next build with nothing to bump.
 
 Generate the keystore base64 locally:
 

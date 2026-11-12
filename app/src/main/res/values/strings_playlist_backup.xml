@@ -17,8 +17,6 @@
     <string name="playlist_backup_delete_title">Delete this backup?</string>
     <string name="playlist_backup_delete_body">Removed here and on your synced devices.</string>
     <string name="playlist_backup_cancel">Cancel</string>
-    <string name="playlist_backup_section_source">Backed up from</string>
-    <string name="playlist_backup_backed_up">Backed up</string>
     <string name="playlist_backup_section_songs">Songs</string>
     <string name="playlist_backup_section_unexported">Couldn\'t be backed up</string>
     <string name="playlist_backup_section_restores">Restores</string>
@@ -49,7 +47,6 @@
     <string name="playlist_restore_added">Added</string>
     <string name="playlist_restore_skipped">Skipped</string>
     <string name="playlist_restore_not_found">Not found</string>
-    <string name="playlist_restore_candidates">Candidates</string>
     <string name="playlist_restore_create">Create playlist</string>
     <string name="playlist_restore_writing">Creating on %1$s</string>
     <string name="playlist_restore_done">Created on %1$s</string>

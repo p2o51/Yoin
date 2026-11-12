@@ -43,7 +43,6 @@
     <string name="settings_cd_account_options_card">%1$s 的选项</string>
     <string name="settings_cd_manage_account">管理账号</string>
     <string name="settings_cd_switch_account">切换到此账号</string>
-    <string name="settings_account_in_use">使用中</string>
     <string name="settings_account_reconnect">重新连接</string>
     <string name="settings_account_credentials_missing">凭据缺失</string>
     <string name="settings_spotify_no_client_id">无 Client ID</string>
@@ -212,13 +211,9 @@
     <string name="settings_apple_status_need_service">将你的 Apple Music 账号连接至 Yoin。</string>
     <string name="settings_apple_status_authorize">请在 Apple Music 中完成授权。</string>
     <string name="settings_apple_auth_start">将你的 Apple Music 资料库与播放连接至 Yoin。</string>
-    <string name="settings_apple_status_no_token">无法连接</string>
     <string name="settings_apple_status_cancelled">无法连接</string>
     <string name="settings_apple_status_subscription">无法连接</string>
     <string name="settings_apple_status_auth_failed">无法连接</string>
-    <string name="settings_apple_status_connected_store">已连接</string>
-    <string name="settings_apple_retry">重试</string>
-    <string name="settings_apple_status_timeout">无法连接</string>
     <string name="settings_apple_status_failed">无法连接</string>
 
     <string name="settings_sync_title">云同步</string>
@@ -251,7 +246,6 @@
     <string name="settings_sync_unrecognized">Google 未识别此版本</string>
     <string name="settings_sync_fingerprint">%1$s\nSHA-1\n%2$s</string>
     <string name="settings_sync_reauth_body">已退出 Google 账号</string>
-    <string name="settings_sync_waiting_reconnect">正在等待 Google…</string>
     <string name="settings_sync_reconnect">登录</string>
     <string name="settings_sync_copy_removed_body">Drive 副本已移除</string>
     <string name="settings_sync_upload_again">重新上传</string>
