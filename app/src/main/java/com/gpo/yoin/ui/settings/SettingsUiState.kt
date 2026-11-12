@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.settings
 
 import com.gpo.yoin.data.profile.ProfileManager
+import com.gpo.yoin.data.remote.ai.AiProviderPrefs
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.settings.service.AccountFace
@@ -16,6 +17,8 @@ sealed interface SettingsUiState {
         val cacheSizeBytes: Long = 0L,
         val geminiApiKey: String = "",
         val geminiTargetLanguage: String = "",
+        /** The AI service and tier in use, for the AI row's summary (Settings › AI features sets them). */
+        val aiPrefs: AiProviderPrefs = AiProviderPrefs(),
         val neoDbInstance: String = "",
         val neoDbAccessToken: String = "",
     ) : SettingsUiState

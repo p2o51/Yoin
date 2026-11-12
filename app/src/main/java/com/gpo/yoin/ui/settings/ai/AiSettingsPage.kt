@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -28,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -64,6 +67,7 @@ import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.remote.ai.AiApiFormat
 import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.data.remote.ai.AiProviderPrefs
 import com.gpo.yoin.data.remote.ai.AiSearchService
 import com.gpo.yoin.data.remote.ai.AiThinking
 import com.gpo.yoin.data.remote.ai.AiTier
@@ -77,6 +81,7 @@ import com.gpo.yoin.ui.settings.SettingsFeature
 import com.gpo.yoin.ui.settings.SettingsFeatureActivity
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
  * Settings › AI features (owner 2026-11-12, prototype v2): a service row, the
@@ -90,15 +95,46 @@ internal fun AiSettingsPageContent() {
     val app = context.applicationContext as YoinApplication
     val viewModel: AiSettingsViewModel = viewModel(factory = AiSettingsViewModel.Factory(app.container))
     val state by viewModel.state.collectAsState()
+    val uriHandler = LocalUriHandler.current
+    AiSettingsPageBody(
+        state = state,
+        actions = viewModel,
+        onOpenTiers = { context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.AiTiers)) },
+        onOpenTry = { context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.AiTry)) },
+        // No app to open a link with (no browser on the device) must not take the page down.
+        onOpenLink = { url -> runCatching { uriHandler.openUri(url) } },
+    )
+}
+
+/**
+ * The AI page's controls over plain state: what [AiSettingsPageContent] shows,
+ * and what the Tips demo and the preview show with state of their own.
+ * [providerModifier], [tierModifier] and [tryModifier] name the parts the demo touches.
+ */
+@Composable
+internal fun AiSettingsPageBody(
+    state: AiSettingsState,
+    actions: AiSettingsActions,
+    onOpenTiers: () -> Unit,
+    onOpenTry: () -> Unit,
+    onOpenLink: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    providerModifier: (AiProvider) -> Modifier = { Modifier },
+    tierModifier: (AiTier) -> Modifier = { Modifier },
+    tryModifier: Modifier = Modifier,
+) {
     val prefs = state.prefs
     val haptics = rememberYoinHaptics()
-    val uriHandler = LocalUriHandler.current
 
-    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        ProviderRow(selected = prefs.provider, onSelect = {
-            haptics.performSegmentTick()
-            viewModel.setProvider(it)
-        })
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        ProviderRow(
+            selected = prefs.provider,
+            onSelect = {
+                haptics.performSegmentTick()
+                actions.setProvider(it)
+            },
+            chipModifier = providerModifier,
+        )
         TradeoffChart(provider = prefs.provider, tier = prefs.tier)
 
         if (prefs.provider != AiProvider.Custom) {
@@ -107,7 +143,7 @@ internal fun AiSettingsPageContent() {
                     SectionLabel(stringResource(R.string.ai_tiers_label), Modifier.weight(1f))
                     IconButton(onClick = {
                         haptics.performClick()
-                        context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.AiTiers))
+                        onOpenTiers()
                     }) {
                         Icon(
                             YoinSymbols.Info,
@@ -123,9 +159,9 @@ internal fun AiSettingsPageContent() {
                             selected = prefs.tier == tier,
                             onClick = {
                                 haptics.performSegmentTick()
-                                viewModel.setTier(tier)
+                                actions.setTier(tier)
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).then(tierModifier(tier)),
                         )
                     }
                 }
@@ -133,30 +169,30 @@ internal fun AiSettingsPageContent() {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 SecretTextField(
                     value = state.key,
-                    onValueChange = { viewModel.setKey(prefs.provider, it) },
+                    onValueChange = { actions.setKey(prefs.provider, it) },
                     label = stringResource(R.string.ai_key_label),
                     placeholder = if (prefs.provider == AiProvider.Gemini) "AIza…" else "sk-…",
                     modifier = Modifier.fillMaxWidth(),
                 )
                 val (linkText, url) = keyLink(prefs.provider)
-                TextButton(onClick = { uriHandler.openUri(url) }) {
+                TextButton(onClick = { onOpenLink(url) }) {
                     Text(linkText)
                     Spacer(Modifier.width(4.dp))
                     Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
                 }
             }
         } else {
-            CustomSection(state = state, viewModel = viewModel)
+            CustomSection(state = state, actions = actions, onOpenLink = onOpenLink)
         }
 
-        LanguageButton(language = state.targetLanguage, onPick = viewModel::setTargetLanguage)
+        LanguageButton(language = state.targetLanguage, onPick = actions::setTargetLanguage)
 
         Button(
             onClick = {
                 haptics.performClick()
-                context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.AiTry))
+                onOpenTry()
             },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp).then(tryModifier),
         ) {
             Icon(YoinSymbols.PlayCircle, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
@@ -206,6 +242,9 @@ private fun ChoiceChip(
     modifier: Modifier = Modifier,
     rest: Int = 14,
     height: Int = 44,
+    // A chip of a set width (a weighted row) keeps only a thin edge: its word is centred, and a
+    // 360dp phone leaves 「DeepSeek」 no room for more.
+    horizontalPadding: Int = 12,
 ) {
     val scheme = MaterialTheme.colorScheme
     val corner by animateDpAsState(
@@ -227,21 +266,26 @@ private fun ChoiceChip(
             .height(height.dp)
             .semantics { this.selected = selected; role = Role.RadioButton },
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 12.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = horizontalPadding.dp)) {
             Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun ProviderRow(selected: AiProvider, onSelect: (AiProvider) -> Unit) {
+private fun ProviderRow(
+    selected: AiProvider,
+    onSelect: (AiProvider) -> Unit,
+    chipModifier: (AiProvider) -> Modifier = { Modifier },
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         AiProvider.entries.forEach { provider ->
             ChoiceChip(
                 text = providerName(provider),
                 selected = selected == provider,
                 onClick = { onSelect(provider) },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).then(chipModifier(provider)),
+                horizontalPadding = 4,
             )
         }
     }
@@ -463,10 +507,9 @@ private fun Legend(dark: Boolean, modifier: Modifier = Modifier) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CustomSection(state: AiSettingsState, viewModel: AiSettingsViewModel) {
+private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, onOpenLink: (String) -> Unit) {
     val prefs = state.prefs
     val haptics = rememberYoinHaptics()
-    val uriHandler = LocalUriHandler.current
     // Drafts so a half-typed address or model isn't trimmed under the cursor.
     var baseUrl by rememberSaveable { mutableStateOf(prefs.customBaseUrl) }
     var model by rememberSaveable(prefs.customModel) { mutableStateOf(prefs.customModel) }
@@ -482,7 +525,7 @@ private fun CustomSection(state: AiSettingsState, viewModel: AiSettingsViewModel
                     selected = prefs.customFormat == format,
                     onClick = {
                         haptics.performSegmentTick()
-                        viewModel.setCustomFormat(format)
+                        actions.setCustomFormat(format)
                     },
                     modifier = Modifier.weight(1f),
                 )
@@ -493,7 +536,7 @@ private fun CustomSection(state: AiSettingsState, viewModel: AiSettingsViewModel
             value = baseUrl,
             onValueChange = {
                 baseUrl = it
-                viewModel.setCustomBaseUrl(it)
+                actions.setCustomBaseUrl(it)
             },
             label = stringResource(R.string.ai_custom_url),
             placeholder = if (prefs.customFormat == AiApiFormat.OpenAi) "https://api.openai.com/v1" else "https://api.anthropic.com",
@@ -501,7 +544,7 @@ private fun CustomSection(state: AiSettingsState, viewModel: AiSettingsViewModel
         )
         SecretTextField(
             value = prefs.customKey,
-            onValueChange = { viewModel.setKey(AiProvider.Custom, it) },
+            onValueChange = { actions.setKey(AiProvider.Custom, it) },
             label = stringResource(R.string.ai_key_label),
             placeholder = "sk-…",
             modifier = Modifier.fillMaxWidth(),
@@ -510,18 +553,24 @@ private fun CustomSection(state: AiSettingsState, viewModel: AiSettingsViewModel
             value = model,
             onValueChange = {
                 model = it
-                viewModel.setCustomModel(it)
+                actions.setCustomModel(it)
             },
             label = stringResource(R.string.ai_custom_model),
             placeholder = "",
             trailingContent = {
-                TextButton(
-                    onClick = {
-                        haptics.performClick()
-                        viewModel.pullModels()
-                    },
-                    enabled = !state.models.loading && prefs.customBaseUrl.isNotBlank() && prefs.customKey.isNotBlank(),
-                ) { Text(stringResource(R.string.ai_custom_pull)) }
+                // The trailing slot sits inline with the ~24dp text row: pin it to that height and let
+                // the button overflow into the field's padding, as SecretTextField's eye does. A plain
+                // 40dp button would make this field taller than the address and the key above it.
+                Box(modifier = Modifier.height(24.dp), contentAlignment = Alignment.Center) {
+                    TextButton(
+                        onClick = {
+                            haptics.performClick()
+                            actions.pullModels()
+                        },
+                        enabled = !state.models.loading && prefs.customBaseUrl.isNotBlank() && prefs.customKey.isNotBlank(),
+                        modifier = Modifier.requiredHeight(40.dp),
+                    ) { Text(stringResource(R.string.ai_custom_pull)) }
+                }
             },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -541,7 +590,7 @@ private fun CustomSection(state: AiSettingsState, viewModel: AiSettingsViewModel
                         selected = prefs.customModel == id,
                         onClick = {
                             haptics.performSegmentTick()
-                            viewModel.setCustomModel(id)
+                            actions.setCustomModel(id)
                         },
                         height = 36,
                         rest = 12,
@@ -567,7 +616,7 @@ private fun CustomSection(state: AiSettingsState, viewModel: AiSettingsViewModel
                         selected = prefs.customThinking == level,
                         onClick = {
                             haptics.performSegmentTick()
-                            viewModel.setCustomThinking(level)
+                            actions.setCustomThinking(level)
                         },
                         modifier = Modifier.weight(1f),
                     )
@@ -583,7 +632,7 @@ private fun CustomSection(state: AiSettingsState, viewModel: AiSettingsViewModel
                     selected = prefs.searchService == service,
                     onClick = {
                         haptics.performSegmentTick()
-                        viewModel.setSearchService(service)
+                        actions.setSearchService(service)
                     },
                 )
             }
@@ -592,12 +641,12 @@ private fun CustomSection(state: AiSettingsState, viewModel: AiSettingsViewModel
             val name = searchServiceName(prefs.searchService)
             SecretTextField(
                 value = prefs.searchKey,
-                onValueChange = viewModel::setSearchKey,
+                onValueChange = actions::setSearchKey,
                 label = stringResource(R.string.ai_search_key, name),
                 placeholder = "",
                 modifier = Modifier.fillMaxWidth(),
             )
-            TextButton(onClick = { uriHandler.openUri(searchKeyUrl(prefs.searchService)) }) {
+            TextButton(onClick = { onOpenLink(searchKeyUrl(prefs.searchService)) }) {
                 Text(stringResource(R.string.ai_get_search_key, name))
                 Spacer(Modifier.width(4.dp))
                 Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -653,5 +702,64 @@ private fun LanguageButton(language: String, onPick: (String) -> Unit) {
                 )
             }
         }
+    }
+}
+
+/**
+ * The page's actions over state the caller holds, with nothing behind them: no file, no Room, no
+ * network. For the Tips demo and the preview.
+ */
+internal class AiSettingsStateActions(private val state: MutableState<AiSettingsState>) : AiSettingsActions {
+    private fun prefs(transform: (AiProviderPrefs) -> AiProviderPrefs) {
+        state.value = state.value.copy(prefs = transform(state.value.prefs))
+    }
+
+    override fun setProvider(provider: AiProvider) = prefs { it.copy(provider = provider) }
+
+    override fun setTier(tier: AiTier) = prefs { it.copy(tier = tier) }
+
+    override fun setKey(provider: AiProvider, key: String) {
+        when (provider) {
+            AiProvider.Gemini -> state.value = state.value.copy(geminiKey = key)
+            AiProvider.DeepSeek -> prefs { it.copy(deepSeekKey = key) }
+            AiProvider.Qwen -> prefs { it.copy(qwenKey = key) }
+            AiProvider.Custom -> prefs { it.copy(customKey = key) }
+        }
+    }
+
+    override fun setCustomFormat(format: AiApiFormat) = prefs { it.copy(customFormat = format) }
+
+    override fun setCustomBaseUrl(url: String) = prefs { it.copy(customBaseUrl = url) }
+
+    override fun setCustomModel(model: String) = prefs { it.copy(customModel = model) }
+
+    override fun setCustomThinking(thinking: AiThinking) = prefs { it.copy(customThinking = thinking) }
+
+    override fun setSearchService(service: AiSearchService) = prefs { it.copy(searchService = service) }
+
+    override fun setSearchKey(key: String) = prefs { it.copy(searchKey = key) }
+
+    override fun setTargetLanguage(language: String) {
+        state.value = state.value.copy(targetLanguage = language)
+    }
+
+    override fun pullModels() = Unit
+}
+
+@Preview(showBackground = true, widthDp = 360)
+@Composable
+private fun AiSettingsPageBodyPreview() {
+    YoinTheme {
+        val state = remember {
+            mutableStateOf(AiSettingsState(AiProviderPrefs(provider = AiProvider.DeepSeek, tier = AiTier.Best)))
+        }
+        AiSettingsPageBody(
+            state = state.value,
+            actions = remember { AiSettingsStateActions(state) },
+            onOpenTiers = {},
+            onOpenTry = {},
+            onOpenLink = {},
+            modifier = Modifier.padding(16.dp),
+        )
     }
 }

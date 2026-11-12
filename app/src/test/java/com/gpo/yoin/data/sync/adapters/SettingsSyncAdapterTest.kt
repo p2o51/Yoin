@@ -160,7 +160,7 @@ class SettingsSyncAdapterTest {
     @Test
     fun should_captureDefaultLanguage_when_userSwitchesBackWhileTracked() = runTest {
         val trackedAdapter = SettingsSyncAdapter(db, seam, tracked = { it == LANGUAGE })
-        // What SettingsViewModel.saveGeminiTargetLanguage leaves behind after Japanese -> English.
+        // What AiSettingsViewModel.setTargetLanguage leaves behind after Japanese -> English.
         db.geminiConfigDao().upsert(GeminiConfig(apiKey = "k", targetLanguage = GeminiConfig.DEFAULT_TARGET_LANGUAGE))
 
         val row = trackedAdapter.readAll(null).single()

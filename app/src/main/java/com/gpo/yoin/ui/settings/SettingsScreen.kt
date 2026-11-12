@@ -92,11 +92,13 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
-import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.data.remote.ai.AiProviderPrefs
+import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
@@ -118,12 +120,10 @@ import com.gpo.yoin.ui.detail.DetailBackButton
 import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.ai.AiSettingsPageContent
-import com.gpo.yoin.ui.settings.ai.providerName
-import com.gpo.yoin.ui.settings.ai.tierName
-import com.gpo.yoin.data.remote.ai.AiProvider
-import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.ui.settings.ai.AiTiersPageContent
 import com.gpo.yoin.ui.settings.ai.AiTryPageContent
+import com.gpo.yoin.ui.settings.ai.providerName
+import com.gpo.yoin.ui.settings.ai.tierName
 import com.gpo.yoin.ui.settings.backup.PlaylistBackupsPageContent
 import com.gpo.yoin.ui.settings.service.ServiceSetupContract
 import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
@@ -258,8 +258,6 @@ fun SettingsScreen(
         onDismissSwitchError = viewModel::dismissSwitchError,
         onDismissDeleteConfirm = viewModel::dismissDeleteConfirm,
         onConfirmDeleteProfile = viewModel::confirmDeleteProfile,
-        onSaveGeminiApiKey = viewModel::saveGeminiApiKey,
-        onSaveGeminiTargetLanguage = viewModel::saveGeminiTargetLanguage,
         onOpenNeoDbSignIn = viewModel::openNeoDbSignIn,
         onSaveNeoDbConfig = viewModel::saveNeoDbConfig,
         onClearNeoDbToken = viewModel::clearNeoDbToken,
@@ -303,8 +301,6 @@ fun SettingsContent(
     onClearCache: () -> Unit,
     modifier: Modifier = Modifier,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
-    onSaveGeminiApiKey: (String) -> Unit = {},
-    onSaveGeminiTargetLanguage: (String) -> Unit = {},
     onOpenNeoDbSignIn: (String) -> Unit = {},
     onSaveNeoDbConfig: (String, String) -> Unit = { _, _ -> },
     onClearNeoDbToken: () -> Unit = {},
@@ -414,6 +410,7 @@ fun SettingsContent(
                                         item(key = SettingsFeature.Gemini, paintsOwnSegment = listDetail) {
                                             GeminiItem(
                                                 apiKey = state.geminiApiKey,
+                                                aiPrefs = state.aiPrefs,
                                                 // Every row opens a whole page (owner 2026-11-09); list-detail puts it on the right (§7).
                                                 onOpenPage = { onOpenFeature(SettingsFeature.Gemini) },
                                                 listDetail = listDetail,
@@ -1248,12 +1245,11 @@ private fun ServiceChoiceRow(
 @Composable
 private fun GeminiItem(
     apiKey: String,
+    aiPrefs: AiProviderPrefs,
     onOpenPage: () -> Unit,
     listDetail: Boolean = true,
     selected: Boolean = false,
 ) {
-    val app = LocalContext.current.applicationContext as YoinApplication
-    val aiPrefs by app.container.aiProviderStore.prefs.collectAsState()
     val ai = AiSettings(aiPrefs, geminiKey = apiKey)
     val summaryText = if (!ai.isReady) {
         stringResource(R.string.settings_gemini_summary_empty)
