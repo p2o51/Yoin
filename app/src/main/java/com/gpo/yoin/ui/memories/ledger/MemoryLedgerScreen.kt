@@ -35,11 +35,13 @@ import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridS
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -126,11 +128,8 @@ import java.util.Locale
  * row, and a sortable list. The pull-down Memories deck stays the way to come across them at random.
  */
 
-/**
- * The grid's place among the page's items (headline, stats, grid; on a large screen the stats share the grid's
- * item): how the lift knows it has gone above.
- */
-private fun gridItemIndex(wide: Boolean): Int = if (wide) 1 else 2
+/** The grid's place among the page's items (headline, stats, grid): how the lift knows it has gone above. */
+private const val GridItemIndex = 2
 
 /** The top app bar's own height, under the status bar. */
 private val BarHeight = 64.dp
@@ -164,8 +163,6 @@ internal fun MemoryLedgerScreen(
     var sort by rememberSaveable { mutableStateOf(MemoryLedgerSort.Recent) }
     val listState = rememberLazyStaggeredGridState()
     val lift = remember { MemoryGridLift() }
-    // Which item the grid is: set as the body lays out (it depends on the width).
-    val gridIndex = remember { intArrayOf(gridItemIndex(wide = false)) }
     val barHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + BarHeight
     val pixels = remember(state?.grid) { state?.grid?.let(::liftPixels).orEmpty() }
     val albumColors = rememberLedgerAlbumColors(
@@ -179,7 +176,7 @@ internal fun MemoryLedgerScreen(
     val liftProgress: (LayoutCoordinates?, Float) -> Float = { into, barBottom ->
         // Read for invalidation: every scroll frame redraws the lift.
         listState.firstVisibleItemScrollOffset
-        val scrolledPast = listState.firstVisibleItemIndex > gridIndex[0]
+        val scrolledPast = listState.firstVisibleItemIndex > GridItemIndex
         val measured = into?.let { lift.progress(it, barBottom) }
         when {
             state == null || state.isEmpty || pixels.isEmpty() -> 0f
@@ -202,6 +199,8 @@ internal fun MemoryLedgerScreen(
     )
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         SettingsPageBackground(modifier = modifier) {
+            // The page is no Surface: without this, text that sets no colour of its own is black in dark mode.
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
             Box(Modifier.fillMaxSize().onGloballyPositioned { screen[0] = it }) {
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 if (state == null) {
@@ -219,7 +218,6 @@ internal fun MemoryLedgerScreen(
                         selectedCell = selectedCell,
                         onSelectCell = { selectedCell = it },
                         listState = listState,
-                        onLayout = { wide -> gridIndex[0] = gridItemIndex(wide) },
                         lift = lift,
                         albumColors = albumColors,
                         // The real grid steps aside the moment its copies take off, so no square shows twice.
@@ -271,6 +269,7 @@ internal fun MemoryLedgerScreen(
                     ),
                 )
             }
+            }
         }
     }
 }
@@ -286,7 +285,6 @@ private fun LedgerBody(
     selectedCell: Int?,
     onSelectCell: (Int?) -> Unit,
     listState: LazyStaggeredGridState,
-    onLayout: (wide: Boolean) -> Unit,
     lift: MemoryGridLift,
     albumColors: Map<String, LedgerAlbumColors>,
     gridAlpha: () -> Float,
@@ -327,7 +325,6 @@ private fun LedgerBody(
         // A large screen is used, not left as margins (owner 2026-11-12): the stats stand beside the grid, and
         // the timeline and the cards run in as many columns as fit, so they fall into a masonry.
         val layout = ledgerLayout(maxWidth)
-        onLayout(layout.wide)
         val gridView = @Composable { gridItemModifier: Modifier ->
             MemoryGridView(
                     grid = state.grid,
@@ -347,7 +344,7 @@ private fun LedgerBody(
                 albumColors = albumColors,
                 lift = lift,
                 modifier = gridItemModifier
-                    .widthIn(max = 640.dp)
+                    .widthIn(max = if (layout.wide) 880.dp else 640.dp)
                     .seamDissolve()
                     .onGloballyPositioned { lift.grid = it }
                     .graphicsLayer { alpha = gridAlpha() }
@@ -372,17 +369,16 @@ private fun LedgerBody(
                 item("empty", span = full) { LedgerEmpty() }
                 return@LazyVerticalStaggeredGrid
             }
-            if (layout.wide) {
-                item("grid", span = full) {
-                    Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-                        gridView(Modifier.weight(1f, fill = false))
-                        LedgerStats(state, stacked = true, modifier = Modifier.width(200.dp))
-                    }
-                }
-            } else {
-                item("stats", span = full) { LedgerStats(state, modifier = Modifier.padding(top = 8.dp)) }
-                item("grid", span = full) { gridView(Modifier.padding(top = 24.dp)) }
+            // On a large screen the figures run larger across the top and the grid grows wider, so nothing is
+            // left beside the grid to float alone once it has risen into the bar.
+            item("stats", span = full) {
+                LedgerStats(
+                    state,
+                    large = layout.wide,
+                    modifier = Modifier.padding(top = 8.dp).then(if (layout.wide) Modifier.widthIn(max = 880.dp) else Modifier),
+                )
             }
+            item("grid", span = full) { gridView(Modifier.padding(top = 24.dp)) }
             item("bar", span = full) {
                 LedgerViewBar(
                     view = view,
@@ -470,7 +466,7 @@ private fun LedgerEmpty() {
 }
 
 @Composable
-private fun LedgerStats(state: MemoryLedgerState, modifier: Modifier = Modifier, stacked: Boolean = false) {
+private fun LedgerStats(state: MemoryLedgerState, modifier: Modifier = Modifier, large: Boolean = false) {
     val numbers = remember { NumberFormat.getIntegerInstance() }
     val stats = state.stats
     val figures = listOf(
@@ -479,7 +475,7 @@ private fun LedgerStats(state: MemoryLedgerState, modifier: Modifier = Modifier,
         stats.characters to R.string.memory_ledger_stat_characters,
         stats.ratedTracks to R.string.memory_ledger_stat_rated,
     )
-    // Beside the grid (a large screen) they stand one above another, the numbers larger.
+    // A large screen gives the numbers room to be the headline figures they are.
     val figure = @Composable { value: Int, label: Int, figureModifier: Modifier ->
         Column(figureModifier.seamFade()) {
             Text(
@@ -487,8 +483,8 @@ private fun LedgerStats(state: MemoryLedgerState, modifier: Modifier = Modifier,
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontFamily = GoogleSansFlex,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = if (stacked) 40.sp else 24.sp,
-                    lineHeight = if (stacked) 44.sp else 30.sp,
+                    fontSize = if (large) 40.sp else 24.sp,
+                    lineHeight = if (large) 46.sp else 30.sp,
                 ),
                 maxLines = 1,
             )
@@ -500,14 +496,8 @@ private fun LedgerStats(state: MemoryLedgerState, modifier: Modifier = Modifier,
             )
         }
     }
-    if (stacked) {
-        Column(modifier, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            figures.forEach { (value, label) -> figure(value, label, Modifier) }
-        }
-    } else {
-        Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            figures.forEach { (value, label) -> figure(value, label, Modifier.weight(1f)) }
-        }
+    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (large) 24.dp else 12.dp)) {
+        figures.forEach { (value, label) -> figure(value, label, Modifier.weight(1f)) }
     }
 }
 

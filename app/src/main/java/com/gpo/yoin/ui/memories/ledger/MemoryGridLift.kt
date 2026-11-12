@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import com.gpo.yoin.data.memory.MemoryGrid
 import com.gpo.yoin.data.memory.MemoryGridCell
+import com.gpo.yoin.data.memory.MemoryGridMark
 import com.gpo.yoin.data.memory.MemoryGridScale
 import com.gpo.yoin.ui.detail.smoothStep
 import com.gpo.yoin.ui.experience.LocalMotionProfile
@@ -161,7 +162,7 @@ internal fun MemoryGridLiftLayer(
             // A hair larger than the square so neighbours meet without a seam.
             val target = Rect(x, row * mosaic.side, x + mosaic.side + 1f, (row + 1) * mosaic.side + 1f)
             if (reduced) {
-                drawLiftPixel(pixel, target, 0f, paint)
+                drawLiftPixel(pixel, target, 0f, paint, landed = 1f)
                 continue
             }
             // Oldest first, as the cover's strips go, but close together so they rise as one flock.
@@ -170,7 +171,8 @@ internal fun MemoryGridLiftLayer(
             val from = lift.rectOf(pixel, into, quadGap)
             val rect = if (from == null || q >= 1f) target else lerp(from, target, q)
             val radius = if (from == null) 0f else from.width * 0.18f * (1f - q)
-            drawLiftPixel(pixel, rect, radius, paint)
+            // The grid's look in flight; the bar's pixels as it lands.
+            drawLiftPixel(pixel, rect, radius, paint, landed = smoothStep(0.7f, 1f, q))
         }
         if (reduced) drawContext.canvas.restore()
         // A light veil under the title once the bar has formed, so white reads on pale covers too.
@@ -179,10 +181,49 @@ internal fun MemoryGridLiftLayer(
     }
 }
 
-private fun DrawScope.drawLiftPixel(pixel: LiftPixel, rect: Rect, radius: Float, paint: CellPaint) {
-    if (pixel.mark < 0) {
-        drawLedgerCell(pixel.cell, rect.topLeft, rect.size, radius, paint)
-    } else {
-        drawMark(pixel.cell.marks[pixel.mark], rect.topLeft, rect.size, radius, paint)
+private fun DrawScope.drawLiftPixel(pixel: LiftPixel, rect: Rect, radius: Float, paint: CellPaint, landed: Float = 0f) {
+    if (landed < 1f) {
+        if (pixel.mark < 0) {
+            drawLedgerCell(pixel.cell, rect.topLeft, rect.size, radius, paint)
+        } else {
+            drawMark(pixel.cell.marks[pixel.mark], rect.topLeft, rect.size, radius, paint)
+        }
+    }
+    if (landed > 0f) drawBarPixel(pixel, rect, paint, alpha = landed)
+}
+
+/**
+ * A square landed in the bar, as pixels (owner 2026-11-12: square, pieced like pixels, no big triangles): a
+ * square of two colours (an album written about, or two albums spliced) becomes a 2×2 checker of them, one
+ * colour stays one square.
+ */
+private fun DrawScope.drawBarPixel(pixel: LiftPixel, rect: Rect, paint: CellPaint, alpha: Float) {
+    val (first, second) = barColors(pixel, paint) ?: return
+    if (first == second) {
+        drawRect(first, rect.topLeft, rect.size, alpha = alpha)
+        return
+    }
+    val half = Size(rect.width / 2f + 0.5f, rect.height / 2f + 0.5f)
+    val x = rect.left
+    val y = rect.top
+    val w = rect.width / 2f
+    val h = rect.height / 2f
+    drawRect(first, Offset(x, y), half, alpha = alpha)
+    drawRect(second, Offset(x + w, y), half, alpha = alpha)
+    drawRect(second, Offset(x, y + h), half, alpha = alpha)
+    drawRect(first, Offset(x + w, y + h), half, alpha = alpha)
+}
+
+private fun barColors(pixel: LiftPixel, paint: CellPaint): Pair<Color, Color>? {
+    fun of(mark: MemoryGridMark): Pair<Color, Color> {
+        val colors = paint.of(mark.album)
+        return if (mark.wrote) colors.base to colors.accent else colors.base to colors.base
+    }
+    if (pixel.mark >= 0) return of(pixel.cell.marks[pixel.mark])
+    val marks = pixel.cell.marks
+    return when {
+        marks.isEmpty() -> null
+        marks.size == 1 -> of(marks[0])
+        else -> paint.of(marks[0].album).base to paint.of(marks[1].album).base
     }
 }
