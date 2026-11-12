@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -343,8 +344,10 @@ private fun LedgerBody(
                     },
                 albumColors = albumColors,
                 lift = lift,
+                // A full-line item is given the whole width: let go of it first, or the cap does nothing.
                 modifier = gridItemModifier
-                    .widthIn(max = if (layout.wide) 880.dp else 640.dp)
+                    .wrapContentWidth(Alignment.Start)
+                    .widthIn(max = if (layout.wide) 760.dp else 640.dp)
                     .seamDissolve()
                     .onGloballyPositioned { lift.grid = it }
                     .graphicsLayer { alpha = gridAlpha() }
@@ -375,7 +378,9 @@ private fun LedgerBody(
                 LedgerStats(
                     state,
                     large = layout.wide,
-                    modifier = Modifier.padding(top = 8.dp).then(if (layout.wide) Modifier.widthIn(max = 880.dp) else Modifier),
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .then(if (layout.wide) Modifier.wrapContentWidth(Alignment.Start).widthIn(max = 760.dp) else Modifier),
                 )
             }
             item("grid", span = full) { gridView(Modifier.padding(top = 24.dp)) }
