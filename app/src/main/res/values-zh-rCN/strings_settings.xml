@@ -390,6 +390,7 @@
     <string name="nano_diag_models_section">模型版本</string>
     <string name="nano_diag_variant_unavailable">不可用</string>
     <string name="nano_diag_actions_section">试试看</string>
+    <string name="nano_diag_download_failed">下载失败：%1$s</string>
     <string name="nano_diag_test">运行测试提示</string>
     <string name="nano_diag_test_detail">在本机让模型回一个词</string>
     <string name="nano_diag_test_running">正在询问模型…</string>

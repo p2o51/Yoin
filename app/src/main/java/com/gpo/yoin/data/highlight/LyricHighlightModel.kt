@@ -49,6 +49,9 @@ interface LyricHighlightModel {
     /** Fetches the model when [status] says DOWNLOADABLE; true once it is on the device. */
     suspend fun download(): Boolean
 
+    /** Why the last [download] ended without the model, in AICore's words (the diagnostics page shows it). */
+    val downloadFailure: String? get() = null
+
     suspend fun answer(prompt: String): NanoAnswer
 }
 
@@ -129,16 +132,24 @@ class GeminiNanoLyricModel : LyricHighlightModel {
         preference = wanted
     }
 
+    @Volatile
+    override var downloadFailure: String? = null
+        private set
+
     override suspend fun download(): Boolean = lock.withLock {
         try {
             // AICore keeps the download going on its side; this only waits for the outcome.
             val end = client().download().first { it is DownloadStatus.DownloadCompleted || it is DownloadStatus.DownloadFailed }
-            if (end is DownloadStatus.DownloadFailed) Log.i(TAG, "Gemini Nano download failed: ${end.e.errorCode}")
+            val failure = (end as? DownloadStatus.DownloadFailed)?.let { describeNanoError(it.e) }
+            downloadFailure = failure
+            if (failure != null) Log.i(TAG, "Gemini Nano download failed: $failure")
             end is DownloadStatus.DownloadCompleted
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            Log.i(TAG, "Gemini Nano download failed: ${e.javaClass.simpleName} ${e.message}")
+            val failure = describeNanoError(e)
+            downloadFailure = failure
+            Log.i(TAG, "Gemini Nano download failed: $failure")
             false
         }
     }

@@ -142,6 +142,14 @@ class LyricHighlightProcessor(
     /** A download started from Yoin Labs is running. */
     val downloading: StateFlow<Boolean> = _downloading.asStateFlow()
 
+    private val _downloadFailure = MutableStateFlow<String?>(null)
+
+    /**
+     * Why the last model download ended without the model, in AICore's words (the diagnostics page shows it under
+     * Download model and copies it). Gone when the next download from Labs starts, and once the model is ready.
+     */
+    val downloadFailure: StateFlow<String?> = _downloadFailure.asStateFlow()
+
     private var check: Job? = null
 
     /** Ask AICore again now (Yoin Labs opening, or its "Check again"); a check already running is left to finish. */
@@ -157,11 +165,12 @@ class LyricHighlightProcessor(
     fun downloadNow() {
         if (_downloading.value) return
         _downloading.value = true
+        _downloadFailure.value = null
         scope.launch {
             try {
                 publishStatus(NanoStatus.DOWNLOADING)
                 note("Downloading the model (from Labs)…")
-                model.download()
+                download()
             } finally {
                 _downloading.value = false
             }
@@ -177,9 +186,18 @@ class LyricHighlightProcessor(
     private fun inForeground(): Boolean =
         ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
 
+    /** Fetches the model, keeping AICore's reason when it doesn't arrive. */
+    private suspend fun download(): Boolean {
+        val fetched = model.download()
+        _downloadFailure.value = if (fetched) null else model.downloadFailure
+        return fetched
+    }
+
     private suspend fun checkStatus(): NanoStatus {
         val nano = model.status()
         _unavailableReason.value = if (nano == NanoStatus.UNAVAILABLE) model.unavailableReason else null
+        // The model is here after all (AICore carried on by itself): the old failure explains nothing now.
+        if (nano == NanoStatus.AVAILABLE) _downloadFailure.value = null
         publishStatus(nano)
         return nano
     }
@@ -225,7 +243,7 @@ class LyricHighlightProcessor(
         if (nano == NanoStatus.DOWNLOADABLE && onUnmeteredNetwork()) {
             // A supported phone that hasn't fetched Nano yet: ask AICore for it (Wi-Fi only), then look again.
             note("Downloading the model…")
-            model.download()
+            download()
             nano = checkStatus()
             note("Nano after download: $nano")
         }

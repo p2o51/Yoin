@@ -424,6 +424,7 @@
     <string name="nano_diag_models_section">Model versions</string>
     <string name="nano_diag_variant_unavailable">Not available</string>
     <string name="nano_diag_actions_section">Try</string>
+    <string name="nano_diag_download_failed">Download failed: %1$s</string>
     <string name="nano_diag_test">Run a test prompt</string>
     <string name="nano_diag_test_detail">Asks the model for one word, on this phone</string>
     <string name="nano_diag_test_running">Asking the model…</string>

@@ -68,6 +68,24 @@ class NanoDiagnosticsTest {
     }
 
     @Test
+    fun should_showTheDownloadRunning_when_aStableVariantIsBeingFetched() {
+        // Whoever started it: the row, the lyric cards on Wi-Fi, or a download that outlived the app.
+        assertTrue(report(stableFull = NanoStatus.DOWNLOADING).downloadInFlight)
+        assertTrue(report(stableFull = NanoStatus.DOWNLOADABLE, stableFast = NanoStatus.DOWNLOADING).downloadInFlight)
+        assertFalse(report(stableFull = NanoStatus.DOWNLOADABLE).downloadInFlight)
+        // Preview isn't what the row fetches.
+        assertFalse(report(stableFull = NanoStatus.DOWNLOADABLE, previewFull = NanoStatus.DOWNLOADING).downloadInFlight)
+    }
+
+    @Test
+    fun should_sayWhyTheDownloadFailed_when_copiedAfterAFailedDownload() {
+        val report = report(stableFull = NanoStatus.DOWNLOADABLE)
+        val text = report.asText(downloadFailure = "ErrorCode 11 NOT_ENOUGH_DISK_SPACE")
+        assertTrue(text.endsWith("Preview · Fast: UNAVAILABLE\nDownload failed: ErrorCode 11 NOT_ENOUGH_DISK_SPACE"))
+        assertFalse(report.asText().contains("Download failed"))
+    }
+
+    @Test
     fun should_listEveryVariantWithItsModelOrError_when_copiedAsText() {
         val text = report(stableFull = NanoStatus.AVAILABLE).asText()
         assertEquals(

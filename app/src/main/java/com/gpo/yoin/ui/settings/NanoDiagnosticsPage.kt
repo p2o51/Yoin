@@ -47,6 +47,7 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val processor = (context.applicationContext as YoinApplication).container.lyricHighlightProcessor
     val downloading by processor.downloading.collectAsState()
+    val downloadFailure by processor.downloadFailure.collectAsState()
     val scope = rememberCoroutineScope()
     var report by remember { mutableStateOf<NanoDiagnostics.Report?>(null) }
     var checking by remember { mutableStateOf(true) }
@@ -106,7 +107,14 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
         if (current != null) {
             SettingsGroup(title = stringResource(R.string.nano_diag_actions_section)) {
                 if (current.canDownload) {
-                    item { NanoDownloadRow(downloading = downloading, onDownload = processor::downloadNow) }
+                    item {
+                        NanoDownloadRow(
+                            // Running, whoever started it: this row, or AICore already fetching a Stable variant.
+                            downloading = downloading || current.downloadInFlight,
+                            onDownload = processor::downloadNow,
+                            failure = downloadFailure,
+                        )
+                    }
                 }
                 if (current.anyAvailable) {
                     item {
@@ -168,7 +176,7 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
                         icon = YoinSymbols.Copy,
                         title = stringResource(R.string.nano_diag_copy),
                         summary = stringResource(R.string.nano_diag_copy_detail),
-                        onClick = { copyReport(context, current, test) },
+                        onClick = { copyReport(context, current, test, downloadFailure) },
                     )
                 }
             }
@@ -209,9 +217,17 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
 /**
  * Download model, as a row to tap like the others in its group. Beside a button the note had a third of a phone's
  * width and a row's two lines, and lost most of its words; here it has the row's width and keeps every line.
+ *
+ * [failure] is why the last download ended without the model, in AICore's words; it shows under the note until a
+ * download is running again.
  */
 @Composable
-internal fun NanoDownloadRow(downloading: Boolean, onDownload: () -> Unit, modifier: Modifier = Modifier) {
+internal fun NanoDownloadRow(
+    downloading: Boolean,
+    onDownload: () -> Unit,
+    modifier: Modifier = Modifier,
+    failure: String? = null,
+) {
     SettingsItem(
         icon = YoinSymbols.Download,
         title = stringResource(R.string.labs_nano_download),
@@ -222,6 +238,13 @@ internal fun NanoDownloadRow(downloading: Boolean, onDownload: () -> Unit, modif
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (failure != null && !downloading) {
+                Text(
+                    text = stringResource(R.string.nano_diag_download_failed, failure),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         },
         onClick = if (downloading) null else onDownload,
         trailing = if (downloading) {
@@ -256,9 +279,14 @@ private fun openAiCoreInPlay(context: Context) {
     }
 }
 
-private fun copyReport(context: Context, report: NanoDiagnostics.Report, test: NanoDiagnostics.TestResult?) {
+private fun copyReport(
+    context: Context,
+    report: NanoDiagnostics.Report,
+    test: NanoDiagnostics.TestResult?,
+    downloadFailure: String?,
+) {
     val text = buildString {
-        append(report.asText())
+        append(report.asText(downloadFailure))
         test?.let {
             appendLine()
             append("Test (${it.variant}): ${it.error ?: it.reply} in ${it.millis} ms")

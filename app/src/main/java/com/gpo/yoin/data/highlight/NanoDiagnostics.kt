@@ -62,8 +62,19 @@ object NanoDiagnostics {
                     stable.any { it.status == NanoStatus.DOWNLOADABLE || it.status == NanoStatus.DOWNLOADING }
             }
 
-        /** Plain text for the clipboard: what a bug report needs. */
-        fun asText(): String = buildString {
+        /**
+         * AICore is already fetching a Stable variant, whoever asked: the Download row, the lyric cards on Wi-Fi
+         * ([LyricHighlightProcessor.downloading] is only the row's own), or a download that outlived the app. The
+         * row shows it running instead of offering a second one.
+         */
+        val downloadInFlight: Boolean
+            get() = probes.any { it.stage == stableStage && it.status == NanoStatus.DOWNLOADING }
+
+        /**
+         * Plain text for the clipboard: what a bug report needs. [downloadFailure] is why the last download ended
+         * without the model, when one did.
+         */
+        fun asText(downloadFailure: String? = null): String = buildString {
             appendLine("Gemini Nano diagnostics")
             appendLine("Device: $device")
             appendLine("Android: $android")
@@ -75,6 +86,7 @@ object NanoDiagnostics {
                 probe.error?.let { append(" — $it") }
                 appendLine()
             }
+            downloadFailure?.let { appendLine("Download failed: $it") }
         }.trimEnd()
     }
 

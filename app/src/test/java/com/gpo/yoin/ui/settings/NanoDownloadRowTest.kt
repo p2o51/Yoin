@@ -68,6 +68,23 @@ class NanoDownloadRowTest {
         rule.runOnIdle { assertEquals(1, downloads) }
     }
 
+    @Config(qualifiers = "w360dp-h800dp")
+    @Test
+    fun should_sayWhyTheLastDownloadFailed_when_noDownloadIsRunning() {
+        val failure = "ErrorCode 11 NOT_ENOUGH_DISK_SPACE: Not enough storage"
+        val downloading = mutableStateOf(false)
+        show { NanoDownloadRow(downloading = downloading.value, onDownload = {}, failure = failure) }
+        val line = context.getString(R.string.nano_diag_download_failed, failure)
+
+        rule.onNodeWithText(line, useUnmergedTree = true).assertExists()
+        assertFalse(noteLayout().hasVisualOverflow)
+
+        // A download is running again: it has no answer yet, and the old one goes.
+        downloading.value = true
+        rule.waitForIdle()
+        rule.onNodeWithText(line, useUnmergedTree = true).assertDoesNotExist()
+    }
+
     private fun show(row: @Composable () -> Unit) {
         rule.setContent {
             YoinTheme {
