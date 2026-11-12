@@ -115,6 +115,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.Album
@@ -313,6 +314,11 @@ internal fun HomeEditorialContent(
     onOpenMemoryLedger: () -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
+    // Another Spotify account's playback (HomeSpotifyElsewherePill), whether it
+    // is up (the Memories bubble keeps quiet meanwhile), and a tap on it.
+    spotifyElsewhere: SpotifyElsewhere? = null,
+    spotifyElsewhereUp: Boolean = false,
+    onSpotifyElsewhereClick: (SpotifyElsewhere) -> Unit = {},
     // Something above Home owns the screen (Now Playing, the detail column):
     // the Memories bubble keeps quiet.
     homeCovered: Boolean = false,
@@ -1024,6 +1030,9 @@ internal fun HomeEditorialContent(
                         onNavigateToMemories = onNavigateToMemories,
                         memoriesHintProgress = memoriesHintProgress,
                         memoryPill = memoryPill,
+                        spotifyElsewhere = spotifyElsewhere,
+                        spotifyElsewhereUp = spotifyElsewhereUp,
+                        onSpotifyElsewhereClick = onSpotifyElsewhereClick,
                         // The pill surfaces on the feed's last launch beat.
                         memoryPillReveal = { firstReveal.payload },
                         extractBackdropColors = shouldExtractBackdropColors,
@@ -1374,7 +1383,8 @@ internal fun HomeEditorialContent(
                     // It speaks once the feed's launch reveal has landed.
                     revealProgress = { firstReveal.payload },
                     scrolledPx = { listState.seamScrolledPx() },
-                    covered = homeCovered,
+                    // Spotify's pill has the header for its 5 s: the bubble keeps quiet.
+                    covered = homeCovered || spotifyElsewhereUp,
                     extractBackdropColors = shouldExtractBackdropColors,
                     onOpenMemoryFocus = { sessionId -> onOpenMemoryFocusState.value(sessionId) },
                     onNavigateToMemories = onNavigateToMemories,
@@ -1658,6 +1668,9 @@ private fun HomeContentHeader(
     bubbleController: MemoryBubbleController? = null,
     memoryPill: HomeMemoryPill? = null,
     memoryPillReveal: () -> Float = { 1f },
+    spotifyElsewhere: SpotifyElsewhere? = null,
+    spotifyElsewhereUp: Boolean = false,
+    onSpotifyElsewhereClick: (SpotifyElsewhere) -> Unit = {},
     extractBackdropColors: Boolean = false,
     onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
     // Landscape handset: a 28sp title (LandscapeHome).
@@ -1699,6 +1712,12 @@ private fun HomeContentHeader(
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
+                HomeSpotifyElsewherePill(
+                    elsewhere = spotifyElsewhere,
+                    visible = spotifyElsewhereUp,
+                    onClick = onSpotifyElsewhereClick,
+                    modifier = Modifier.then(iconSemantics),
+                )
             }
         } else {
             // The Memories entry takes whatever the title and Settings leave, and
@@ -1720,6 +1739,13 @@ private fun HomeContentHeader(
                         .then(iconSemantics),
                 )
                 HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
+                // Spotify's pill stands over the Memories entry for its 5 s.
+                HomeSpotifyElsewherePill(
+                    elsewhere = spotifyElsewhere,
+                    visible = spotifyElsewhereUp,
+                    onClick = onSpotifyElsewhereClick,
+                    modifier = Modifier.then(iconSemantics),
+                )
             }
         }
         Spacer(modifier = Modifier.width(2.dp))

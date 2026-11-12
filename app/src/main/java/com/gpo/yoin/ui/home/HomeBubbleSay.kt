@@ -41,6 +41,7 @@ internal enum class HomeBubbleTip(
     private val symbol: () -> ImageVector,
 ) {
     MemoryLedger(R.string.home_tip_memory_ledger_title, R.string.home_tip_memory_ledger, day(2026, 11, 12), { YoinSymbols.Memory }),
+    SpotifyElsewhere(R.string.home_tip_spotify_elsewhere_title, R.string.home_tip_spotify_elsewhere, day(2026, 11, 10), { YoinSymbols.MusicNote }),
     Labs(R.string.home_tip_labs_title, R.string.home_tip_labs, day(2026, 11, 9), { YoinSymbols.Insights }),
     SettingsRegrouped(R.string.home_tip_settings_regrouped_title, R.string.home_tip_settings_regrouped, day(2026, 11, 9), { YoinSymbols.Settings }),
     LyricHighlight(R.string.home_tip_lyric_highlight_title, R.string.home_tip_lyric_highlight, day(2026, 11, 8), { YoinSymbols.MusicNote }),

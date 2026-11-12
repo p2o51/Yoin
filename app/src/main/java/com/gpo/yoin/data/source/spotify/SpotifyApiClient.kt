@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.awaitCancellation
@@ -872,7 +873,11 @@ class SpotifyApiClient(
                 )
             }
             val response = try {
-                withContext(Dispatchers.IO) {
+                // Not cancellable: Spotify rotates the refresh token, so once the
+                // call is out its answer must be kept and stored (below), even
+                // if the caller gave up meanwhile (a timed-out peek); dropping it
+                // leaves a spent token in storage and the account asks to reconnect.
+                withContext(Dispatchers.IO + NonCancellable) {
                     authService.refreshToken(inside.refreshToken, clientId = clientId)
                 }
             } catch (e: SpotifyAuthException) {
@@ -899,7 +904,7 @@ class SpotifyApiClient(
                 revoked = false,
             )
             credentials = refreshed
-            onCredentialsRefreshed(refreshed)
+            withContext(NonCancellable) { onCredentialsRefreshed(refreshed) }
         }
     }
 

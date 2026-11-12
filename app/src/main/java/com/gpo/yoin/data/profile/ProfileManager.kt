@@ -2,9 +2,11 @@ package com.gpo.yoin.data.profile
 
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.ProfileDao
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.source.MusicSource
+import com.gpo.yoin.data.source.spotify.toElsewhere
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -277,6 +279,10 @@ class ProfileManager(
             onSwitchPrepare()
 
             _switchingState.value = SwitchState.Switching(id, SwitchState.Stage.Connecting)
+            // A look at another Spotify account's playback may be renewing its
+            // token: built after it, the source reads the renewed one (a refresh
+            // token renews once; the old one would come back invalid_grant).
+            spotifyPeekLock.withLock { }
             newSource = withContext(Dispatchers.IO) { buildSource(target) }
                 ?: throw IllegalStateException("Profile ${target.displayName} has invalid credentials")
             withTimeoutOrNull(PING_TIMEOUT_MS) { newSource.library().ping() }
@@ -578,6 +584,54 @@ class ProfileManager(
         }
     }
 
+    private val spotifyPeekLock = Mutex()
+
+    /**
+     * What a signed-in Spotify account other than the one in use is playing
+     * (owner 2026-11-10: Home's header shows it for 5 s). One `GET /me/player`
+     * per such account, with its stored token: nothing connects to Spotify, so
+     * nothing wakes it. A token renewed on the way is stored before this
+     * returns, and [switchTo] waits for a look in progress. Null when nothing
+     * plays or pauses on any of them, or the active account is Spotify.
+     */
+    suspend fun peekSpotifyElsewhere(): com.gpo.yoin.data.source.spotify.SpotifyElsewhere? =
+        spotifyPeekLock.withLock {
+            val activeId = _activeProfileId.value
+            val active = activeId?.let { profileDao.getById(it) }
+            if (active?.provider == MediaId.PROVIDER_SPOTIFY) return@withLock null
+            val answers = profileDao.getAll()
+                .filter { it.id != activeId && it.provider == MediaId.PROVIDER_SPOTIFY }
+                .mapNotNull { profile -> peekSpotify(profile) }
+            com.gpo.yoin.data.source.spotify.pickSpotifyElsewhere(answers)
+        }
+
+    private suspend fun peekSpotify(profile: Profile): com.gpo.yoin.data.source.spotify.SpotifyElsewhere? {
+        val credentials = withContext(Dispatchers.IO) { decodeCredentials(profile) }
+            as? ProfileCredentials.Spotify ?: return null
+        if (credentials.revoked) return null
+        val httpClient = spotifyHttpClientProvider()
+        val client = com.gpo.yoin.data.source.spotify.SpotifyApiClient(
+            httpClient = httpClient,
+            authService = com.gpo.yoin.data.source.spotify.SpotifyAuthService(httpClient),
+            initialCredentials = credentials,
+            clientIdProvider = spotifyClientIdProvider,
+            // Stored before the read goes on (not launched): a switch right
+            // after must build from the renewed token.
+            onCredentialsRefreshed = { refreshed -> persistCredentialsSilently(profile.id, refreshed) },
+            onCredentialsRevoked = { markSpotifyProfileRevoked(profile.id) },
+            rateLimitGate = spotifyRateLimitGate,
+            rateLimitProfileId = profile.id,
+        )
+        val state = try {
+            withTimeoutOrNull(SPOTIFY_PEEK_TIMEOUT_MS) { client.getPlaybackState() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            null
+        }
+        return state?.toElsewhere(profile.id)
+    }
+
     private fun buildSource(profile: Profile): MusicSource? {
         val credentials = decodeCredentials(profile) ?: return null
         return buildSource(profile, credentials)
@@ -674,6 +728,7 @@ class ProfileManager(
 
         private const val PING_TIMEOUT_MS = 8_000L
         private const val PRIME_TIMEOUT_MS = 8_000L
+        private const val SPOTIFY_PEEK_TIMEOUT_MS = 5_000L
     }
 }
 
