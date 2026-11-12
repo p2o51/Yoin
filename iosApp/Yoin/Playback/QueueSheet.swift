@@ -40,7 +40,7 @@ struct QueueSheet: View {
                 part(queued)
             }
             if !next.isEmpty {
-                sectionLabel(sourceTitle.map { "Next from: \($0)" } ?? String(localized: "Next up"))
+                sectionLabel(sourceTitle.map { String(localized: "Next from: \($0)") } ?? String(localized: "Next up"))
                 part(next)
             }
             if upcoming.isEmpty {

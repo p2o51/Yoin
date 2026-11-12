@@ -3839,6 +3839,16 @@
         }
       }
     },
+    "Next from: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接下来：%@"
+          }
+        }
+      }
+    },
     "Next in queue": {
       "localizations": {
         "zh-Hans": {

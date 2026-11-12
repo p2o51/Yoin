@@ -542,7 +542,8 @@ final class AppModel {
     // MARK: Playing server songs
 
     /// Where the queue plays from (Android ActivityContext): the detail page
-    /// it was started on; nil from Home / Library / Search lists.
+    /// it was started on, or the memory's album for a start in Memories; nil
+    /// from Home / Library / Search lists.
     enum PlayingFrom: Equatable {
         case album(Album), playlist(id: String, title: String), artist(ArtistRef)
 
@@ -571,6 +572,18 @@ final class AppModel {
             case .artist(let ref): .artist(ref)
             }
         }
+
+        /// What a start plays from: the source it names itself ([named]: a memory's album, as
+        /// Memories is an overlay and no page), else the page it was started on ([page]).
+        static func of(named: PlayingFrom?, page: Route?, playlistTitle: (String) -> String) -> PlayingFrom? {
+            if let named { return named }
+            return switch page {
+            case .album(let a): .album(a)
+            case .playlist(let id): .playlist(id: id, title: playlistTitle(id))
+            case .artist(let ref): .artist(ref)
+            default: nil
+            }
+        }
     }
 
     private(set) var playingFrom: PlayingFrom?
@@ -578,16 +591,14 @@ final class AppModel {
     /// Replaces the queue with [entries] and plays [startAt]; shuffle on or off.
     /// [shuffle]: a Shuffle play (the list starts shuffled, shuffle on). An ordinary start keeps the
     /// remembered play mode (Codex F03; Android PlaybackManager keeps it across starts).
-    func play(_ entries: [PlaylistEntry], startAt: Int = 0, shuffle: Bool = false) {
+    /// [from]: the source of a start that isn't a page's own (Android's activityContext argument); it
+    /// wins over the page on screen, which is otherwise what the queue plays from.
+    func play(_ entries: [PlaylistEntry], startAt: Int = 0, shuffle: Bool = false, from: PlayingFrom? = nil) {
         startGeneration += 1
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
-        playingFrom = switch path.last ?? padSelection.map({ .album($0) }) {
-        case .album(let a): .album(a)
-        case .playlist(let id): .playlist(id: id, title: playlistInfo(id).title)
-        case .artist(let ref): .artist(ref)
-        default: nil
-        }
+        playingFrom = PlayingFrom.of(named: from, page: path.last ?? padSelection.map({ .album($0) }),
+                                     playlistTitle: { playlistInfo($0).title })
         playbackSystem.spotifyOutput?.contextPlan = spotifyContext(entries, tracks: tracks)
         if shuffle { player.setShuffle(true) }
         player.play(queue: tracks, startAt: shuffle ? Int.random(in: 0..<tracks.count) : min(startAt, tracks.count - 1))

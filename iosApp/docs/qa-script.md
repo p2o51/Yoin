@@ -62,6 +62,7 @@ How to read a clip quickly:
 | np-queue, song-menu | `-screen np-queue`, `-screen song-menu` | sheet content, depth behind (recede/dim/blur, no black) |
 | np-open-close, np-drag-dismiss, np-morph-slow, np-focus-demo, np-about-cycle (rec) | `-npAutoCycle YES`, `-npScriptedDrag YES`, `-screen np-morph`, `-npFocusDemo YES`, `-npAutoCycle YES -npAutoCycleHold 5 -npTab about-full` | R3/R5: shell visible (blurred) on every frame, NP never a blank slab, no end-of-settle snap |
 | srv-home, srv-np, srv-album | `-subsonicURL http://127.0.0.1:4995 -subsonicUser demo -subsonicPass demo` (+ `-historySeed demo`, `-serverPlay album:al-field -serverOpenNowPlaying YES`, `-serverRoute album:al-field`) | real covers, unrated, no lyrics, real queue |
+| srv-memory-np, srv-memory-queue | the same sign-in + `-historySeed demo -memoriesShot al-lowtide -memoriesShotDiary YES -memoriesShotPlay YES` and `-memoriesShotNowPlaying YES` / `-memoriesShotQueue YES` | a memory's liner row played: Now Playing's header and the queue sheet name the memory's album (Playing from), not the page under Memories |
 
 ## 2. Hand pass (light and dark, iPhone then iPad)
 

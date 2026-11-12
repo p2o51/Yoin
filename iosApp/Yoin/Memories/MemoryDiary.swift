@@ -422,18 +422,10 @@ struct DiaryBlocks: View {
         }
     }
 
-    /// A row plays its track from the start; a note from its moment. The
-    /// song already current is not restarted: it seeks there and plays on if
-    /// it was paused (Android `requestSeek`). Another song's seek is held by
-    /// the output until the song is ready (AppleMusicAudioOutput).
+    /// A row plays its track from the start; a note from its moment (MemoryPlayback.swift: the
+    /// queue says it plays from this memory's album).
     private func play(_ g: MemoryCard.DiaryTrack, at ms: Int64?) {
-        let album = card.album
-        let current = model.player.currentTrack?.id == g.track.id.rawId
-        if !current {
-            model.play(album.tracks.map { PlaylistEntry(album: album, track: $0) }, startAt: g.index)
-        }
-        if let ms { model.player.seek(to: Double(ms) / 1000) }
-        if current { model.player.resume() }
+        model.play(card, track: g, at: ms)
     }
 
     /// The record's run-out groove: three hairline rings over the numerals.

@@ -112,6 +112,8 @@ CASES=(
   "srv-home|still|$SRV -historySeed demo"
   "srv-np|still|$SRV -serverPlay album:al-field -serverOpenNowPlaying YES"
   "srv-album|still|$SRV -serverRoute album:al-field"
+  "srv-memory-np|still:16|$SRV -historySeed demo -memoriesShot al-lowtide -memoriesShotDiary YES -memoriesShotPlay YES -memoriesShotNowPlaying YES"
+  "srv-memory-queue|still:18|$SRV -historySeed demo -memoriesShot al-lowtide -memoriesShotDiary YES -memoriesShotPlay YES -memoriesShotQueue YES"
 )
 
 match() {
@@ -134,7 +136,7 @@ for mode in $MODES; do
     echo "$mode/$name: $args" >> "$OUT/index.txt"
     if [[ $kind == still* ]]; then
       # still:N waits N s (the NP stage launch aids fire 4 s after launch).
-      wait_s=3; [[ $kind == still:* ]] && wait_s=${kind#still:}; [[ $name == srv-* ]] && wait_s=8
+      wait_s=3; [[ $name == srv-* ]] && wait_s=8; [[ $kind == still:* ]] && wait_s=${kind#still:}
       xcrun simctl launch "$UDID" com.gpo.yoin ${=args} -silentAudio YES >/dev/null
       sleep $wait_s
       xcrun simctl io "$UDID" screenshot --type=png "$base.png" >/dev/null 2>&1

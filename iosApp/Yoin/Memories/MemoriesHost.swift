@@ -202,15 +202,30 @@ enum MemoriesScript {
     }
 
     /// `-memoriesShot <album id>`: open on that card and stay (screenshots); with
-    /// `-memoriesShotDiary YES`, its diary too.
+    /// `-memoriesShotDiary YES`, its diary too. `-memoriesShotPlay YES` then plays the diary's first
+    /// liner row as its tap does (pair with `-silentAudio YES`), and `-memoriesShotNowPlaying YES` /
+    /// `-memoriesShotQueue YES` open Now Playing / its queue sheet over it (the Playing-from line).
     static func runShot(_ memories: MemoriesPresentation) async {
-        guard let target = UserDefaults.standard.string(forKey: "memoriesShot"), !started else { return }
+        let d = UserDefaults.standard
+        guard let target = d.string(forKey: "memoriesShot"), !started else { return }
         started = true
         try? await Task.sleep(for: .seconds(4))
         memories.open(focus: target)
-        guard UserDefaults.standard.bool(forKey: "memoriesShotDiary") else { return }
+        guard d.bool(forKey: "memoriesShotDiary") else { return }
         try? await Task.sleep(for: .seconds(2.5))
-        if let deck, let card = current?() { deck.openDiary(card) }
+        guard let deck, let card = current?() else { return }
+        deck.openDiary(card)
+        guard d.bool(forKey: "memoriesShotPlay"), let row = card.diaryTracks.first else { return }
+        try? await Task.sleep(for: .seconds(2))
+        let model = AppModel.shared
+        model.play(card, track: row)
+        let queue = d.bool(forKey: "memoriesShotQueue")
+        guard queue || d.bool(forKey: "memoriesShotNowPlaying") else { return }
+        try? await Task.sleep(for: .seconds(1.5))
+        model.setNowPlaying(expanded: true)
+        guard queue else { return }
+        try? await Task.sleep(for: .seconds(1.5))
+        model.queueSheetOpen = true
     }
 
     /// A sideways swipe on the deck (set by MemoriesView): −1 = to the next card.
