@@ -55,6 +55,8 @@ import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberExpandSymbolPainter
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -151,7 +153,8 @@ internal fun SettingsSegments(
             key(item.key) {
                 val shape = animateShapeAsState(remember(index, items.size) { settingsSegmentShape(index, items.size) })
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    // Under the bar a segment breaks up (dots, the tide or the cookie lip); its text fades.
+                    modifier = Modifier.fillMaxWidth().seamDissolve(),
                     shape = shape,
                     color = if (item.paintsOwnSegment) Color.Transparent else rowColor,
                 ) {
@@ -173,7 +176,8 @@ internal fun SettingsGroupLabel(
         modifier = modifier
             .fillMaxWidth()
             // Pixel sets the label 8dp inside the rows' edge.
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 8.dp)
+            .seamFade(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -252,7 +256,7 @@ internal fun SettingsItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SettingsRowIcon(icon, tone = iconTone)
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(modifier = Modifier.weight(1f).seamFade(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
@@ -328,13 +332,23 @@ internal fun SettingsExpandableItem(
     onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     iconTone: SettingsTone? = null,
-    // False on a feature's own page (list-detail right pane): always open,
-    // no chevron, the header row is just the heading.
+    // False on a feature's own page: always open and no header row — the
+    // page's headline already names it (owner 2026-11-09: no repeated title).
     collapsible: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val open = expanded || !collapsible
     val segment = LocalSettingsRowShape.current
+    if (!collapsible) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, top = 18.dp, end = 16.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            content = content,
+        )
+        return
+    }
     Column(modifier = modifier.fillMaxWidth()) {
         // Open, the header is only the top of the segment: its press ripple
         // keeps the segment's top corners and runs square into the fields.

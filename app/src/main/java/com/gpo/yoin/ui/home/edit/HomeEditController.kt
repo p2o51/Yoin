@@ -257,10 +257,25 @@ class HomeEditController(
     fun setRows(section: HomeSection, rows: HomeRowPreset): Boolean =
         change(HomeEditChangeKind.Rows, section, haptic = {}) { it.withRows(section, rows) }
 
+    /** 「歌词一句」's dots crossing to another count: the resize's tick. */
+    fun lyricCountTick() = feedback.segmentTick()
+
+    /** 「歌词一句」 at [rows] cards, dropped from its dots. One Undo step; confirms when it changed. */
+    fun setLyricCount(rows: HomeRowPreset): Boolean =
+        change(HomeEditChangeKind.Rows, HomeSection.LyricHighlight, haptic = feedback::confirm) {
+            it.withRows(HomeSection.LyricHighlight, rows)
+        }
+
+    /**
+     * Enabled sections the feed can't show on this device (「歌词一句」 without Gemini Nano). A carry's order
+     * never holds them; [commitOrder] keeps them where they are. Set by the feed.
+     */
+    var feedUnseen: Set<HomeSection> = emptySet()
+
     /** A carry dropped. Confirms only when the order changed; runs mid-carry by design. */
     fun commitOrder(enabledOrder: List<HomeSection>): Boolean =
         change(HomeEditChangeKind.Order, haptic = feedback::confirm, duringCarry = true) {
-            it.withEnabledOrder(enabledOrder)
+            it.withEnabledOrder(enabledOrder, unseen = feedUnseen)
         }
 
     /** Undo, Add (scroll to the tray) or nothing for the dimmed Undo. Haptics are the controller's, not the bar's. */

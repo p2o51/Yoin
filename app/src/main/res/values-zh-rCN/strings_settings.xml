@@ -15,9 +15,12 @@
 
     <string name="settings_title">设置</string>
     <string name="settings_section_features">功能</string>
-    <string name="settings_section_motion">动效</string>
     <string name="settings_section_storage">存储</string>
-    <string name="settings_section_about">关于</string>
+    <string name="settings_section_appearance">外观</string>
+    <string name="settings_section_sync_storage">同步与存储</string>
+    <string name="settings_section_help_about">帮助与关于</string>
+    <string name="home_tip_settings_regrouped_title">设置重新分组</string>
+    <string name="home_tip_settings_regrouped">设置按外观、同步与存储、帮助与关于重新归类，NeoDB 移到了同步与存储</string>
     <string name="settings_about_version">版本 %1$s</string>
     <string name="settings_about_website">官网</string>
     <string name="settings_about_website_open_failed">无法打开官网</string>
@@ -40,7 +43,6 @@
     <string name="settings_cd_account_options_card">%1$s 的选项</string>
     <string name="settings_cd_manage_account">管理账号</string>
     <string name="settings_cd_switch_account">切换到此账号</string>
-    <string name="settings_account_in_use">使用中</string>
     <string name="settings_account_reconnect">重新连接</string>
     <string name="settings_account_credentials_missing">凭据缺失</string>
     <string name="settings_spotify_no_client_id">无 Client ID</string>
@@ -209,13 +211,9 @@
     <string name="settings_apple_status_need_service">将你的 Apple Music 账号连接至 Yoin。</string>
     <string name="settings_apple_status_authorize">请在 Apple Music 中完成授权。</string>
     <string name="settings_apple_auth_start">将你的 Apple Music 资料库与播放连接至 Yoin。</string>
-    <string name="settings_apple_status_no_token">无法连接</string>
     <string name="settings_apple_status_cancelled">无法连接</string>
     <string name="settings_apple_status_subscription">无法连接</string>
     <string name="settings_apple_status_auth_failed">无法连接</string>
-    <string name="settings_apple_status_connected_store">已连接</string>
-    <string name="settings_apple_retry">重试</string>
-    <string name="settings_apple_status_timeout">无法连接</string>
     <string name="settings_apple_status_failed">无法连接</string>
 
     <string name="settings_sync_title">云同步</string>
@@ -248,7 +246,6 @@
     <string name="settings_sync_unrecognized">Google 未识别此版本</string>
     <string name="settings_sync_fingerprint">%1$s\nSHA-1\n%2$s</string>
     <string name="settings_sync_reauth_body">已退出 Google 账号</string>
-    <string name="settings_sync_waiting_reconnect">正在等待 Google…</string>
     <string name="settings_sync_reconnect">登录</string>
     <string name="settings_sync_copy_removed_body">Drive 副本已移除</string>
     <string name="settings_sync_upload_again">重新上传</string>
@@ -373,4 +370,19 @@
     <plurals name="settings_sync_review_dialog_body">
         <item quantity="other">已在当前设备上从 %1$s 中移除。可在此处恢复，或在所有设备上删除。</item>
     </plurals>
+    <!-- Yoin Labs (LabsPage.kt). Copy: Argon (Gemini), 2026-11-09. -->
+    <string name="settings_labs_summary">实验功能与 Gemini Nano</string>
+    <string name="labs_intro">还在尝试中的实验功能，之后可能会改动或移除。</string>
+    <string name="labs_nano_section">本机模型</string>
+    <string name="labs_nano_ready">本机已就绪</string>
+    <string name="labs_nano_downloadable">此设备支持，尚未下载模型</string>
+    <string name="labs_nano_downloading">正在下载模型…</string>
+    <string name="labs_nano_unsupported">这台手机不支持 Gemini Nano</string>
+    <string name="labs_nano_checking">正在检查…</string>
+    <string name="labs_nano_download">下载模型</string>
+    <string name="labs_nano_check_again">重新检查</string>
+    <string name="labs_nano_download_note">模型由 Android 系统（AICore）下载，大约几 GB，建议连 Wi‑Fi 下载。</string>
+    <string name="labs_features_section">实验功能</string>
+    <string name="labs_lyrics_detail">在首页显示本机挑出的歌词，点按从那句开始播放</string>
+    <string name="labs_lyrics_no_nano">你在歌词页分享或保存的句子，仍会出现在首页。</string>
 </resources>

@@ -115,6 +115,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.Album
@@ -157,6 +158,7 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
 import com.gpo.yoin.ui.home.edit.AllHiddenKey
 import com.gpo.yoin.ui.home.edit.FooterEntryKey
 import com.gpo.yoin.ui.home.edit.GatedPlacementSpec
@@ -297,8 +299,26 @@ internal fun HomeEditorialContent(
     // What the other accounts play most (HomeOtherProfiles.kt); a tap switches and plays.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
+    // 「歌词一句」 (HomeLyricHighlight.kt): the line on show, whether this device has Gemini Nano at all
+    // (without it the section is left out of the feed, edit mode and the tray), playing it, drawing another.
+    lyricHighlights: List<HomeLyricHighlight> = emptyList(),
+    lyricHighlightAvailable: Boolean = false,
+    // The Gemini Nano test copy's step log (BuildConfig.NANO_TEST), shown under the card; empty otherwise.
+    nanoTestLog: List<String> = emptyList(),
+    onLyricHighlightPlay: (HomeLyricHighlight) -> Unit = {},
+    lyricIntro: LyricHighlightIntro? = null,
+    onLyricIntroOptIn: () -> Unit = {},
+    onLyricIntroDismiss: () -> Unit = {},
+    // The Memories grid (HomeMemoryLedger.kt; null = not loaded) and opening All Memories.
+    memoryLedger: MemoryLedgerState? = null,
+    onOpenMemoryLedger: () -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
+    // Another Spotify account's playback (HomeSpotifyElsewherePill), whether it
+    // is up (the Memories bubble keeps quiet meanwhile), and a tap on it.
+    spotifyElsewhere: SpotifyElsewhere? = null,
+    spotifyElsewhereUp: Boolean = false,
+    onSpotifyElsewhereClick: (SpotifyElsewhere) -> Unit = {},
     // Something above Home owns the screen (Now Playing, the detail column):
     // the Memories bubble keeps quiet.
     homeCovered: Boolean = false,
@@ -705,7 +725,12 @@ internal fun HomeEditorialContent(
         rediscover,
         recentlyPlayed,
         playlists,
-        otherProfileItems
+        otherProfileItems,
+        lyricHighlights,
+        lyricHighlightAvailable,
+        nanoTestLog.isNotEmpty(),
+        lyricIntro != null,
+        memoryLedger,
     ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
@@ -724,16 +749,22 @@ internal fun HomeEditorialContent(
                         HomeSection.RecentlyPlayed -> recentlyPlayed.isNotEmpty()
                         HomeSection.YourPlaylists -> playlists.isNotEmpty()
                         HomeSection.OtherProfiles -> otherProfileItems.isNotEmpty()
+                        HomeSection.LyricHighlight ->
+                            lyricIntro != null || lyricHighlights.isNotEmpty() || nanoTestLog.isNotEmpty()
+                        HomeSection.MemoryGrid -> memoryLedger?.isEmpty == false
                     }
                 },
+                available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
             )
         }
     }
     val trayMounted = motion.trayMounted
-    val hiddenSections = layout.hiddenSections
-    val allHidden = enabledOrder.isEmpty()
+    // A section this device can't fill (「歌词一句」 without Gemini Nano) isn't offered in the tray either.
+    val hiddenSections = layout.hiddenSections.filter { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
+    val allHidden = enabledOrder.none { it != HomeSection.LyricHighlight || lyricHighlightAvailable }
     val feedKeys = homeFeedKeys(blocks, trayMounted, hiddenSections, allHidden)
     SideEffect {
+        controller.feedUnseen = if (lyricHighlightAvailable) emptySet() else setOf(HomeSection.LyricHighlight)
         val displayed = blocks.map { it.section }
         if (motion.displayed != displayed) motion.displayed = displayed
         feedRefs.keys = feedKeys
@@ -892,6 +923,8 @@ internal fun HomeEditorialContent(
         playlists,
         recentlyPlayed,
         otherProfileItems,
+        lyricHighlights,
+        memoryLedger,
         buildCoverArtUrl,
         stripShapes,
     ) {
@@ -906,6 +939,8 @@ internal fun HomeEditorialContent(
                 playlists = playlists,
                 recentlyPlayed = recentlyPlayed,
                 otherProfileItems = otherProfileItems,
+                lyricHighlights = lyricHighlights,
+                memoryLedger = memoryLedger,
                 buildCoverArtUrl = buildCoverArtUrl,
                 shapes = stripShapes,
             )
@@ -995,6 +1030,9 @@ internal fun HomeEditorialContent(
                         onNavigateToMemories = onNavigateToMemories,
                         memoriesHintProgress = memoriesHintProgress,
                         memoryPill = memoryPill,
+                        spotifyElsewhere = spotifyElsewhere,
+                        spotifyElsewhereUp = spotifyElsewhereUp,
+                        onSpotifyElsewhereClick = onSpotifyElsewhereClick,
                         // The pill surfaces on the feed's last launch beat.
                         memoryPillReveal = { firstReveal.payload },
                         extractBackdropColors = shouldExtractBackdropColors,
@@ -1235,6 +1273,37 @@ internal fun HomeEditorialContent(
                                     },
                                 )
 
+                                // Lyric lines Gemini Nano (or the user) picked, one to four cards; a tap plays from one.
+                                HomeSection.LyricHighlight -> if (lyricIntro != null) {
+                                    LyricHighlightIntroCard(
+                                        intro = lyricIntro,
+                                        onOptIn = onLyricIntroOptIn,
+                                        onDismiss = onLyricIntroDismiss,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                } else if (lyricHighlights.isEmpty()) {
+                                    NanoTestLog(lines = nanoTestLog, withTitle = true, modifier = Modifier.fillMaxWidth())
+                                } else {
+                                    LyricHighlightSection(
+                                        cards = lyricHighlights,
+                                        count = layout.rowsOf(HomeSection.LyricHighlight).lyricCards,
+                                        frame = feedFrame,
+                                        shelfScrollEnabled = !editing,
+                                        testLog = nanoTestLog,
+                                        buildCoverArtUrl = buildCoverArtUrl,
+                                        extractBackdropColors = shouldExtractBackdropColors,
+                                        onPlay = onLyricHighlightPlay,
+                                        modifier = remember(firstReveal) {
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .stagedBeat(
+                                                    progress = { firstReveal.payload },
+                                                    rise = 16.dp,
+                                                )
+                                        },
+                                    )
+                                }
+
                                 // What the other accounts play most; a tap switches and plays.
                                 HomeSection.OtherProfiles -> OtherProfilesSection(
                                     items = otherProfileItems,
@@ -1251,6 +1320,23 @@ internal fun HomeEditorialContent(
                                             )
                                     },
                                 )
+
+                                // Every memory on a grid; a tap opens All Memories.
+                                HomeSection.MemoryGrid -> memoryLedger?.let { ledger ->
+                                    MemoryLedgerSection(
+                                        state = ledger,
+                                        extractBackdropColors = shouldExtractBackdropColors,
+                                        onOpen = onOpenMemoryLedger,
+                                        modifier = remember(firstReveal) {
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .stagedBeat(
+                                                    progress = { firstReveal.payload },
+                                                    rise = 16.dp,
+                                                )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -1297,7 +1383,8 @@ internal fun HomeEditorialContent(
                     // It speaks once the feed's launch reveal has landed.
                     revealProgress = { firstReveal.payload },
                     scrolledPx = { listState.seamScrolledPx() },
-                    covered = homeCovered,
+                    // Spotify's pill has the header for its 5 s: the bubble keeps quiet.
+                    covered = homeCovered || spotifyElsewhereUp,
                     extractBackdropColors = shouldExtractBackdropColors,
                     onOpenMemoryFocus = { sessionId -> onOpenMemoryFocusState.value(sessionId) },
                     onNavigateToMemories = onNavigateToMemories,
@@ -1331,11 +1418,14 @@ internal fun homeFeedBlocks(
     held: HomeSection?,
     placeholdersAboveOpen: Boolean,
     hasContent: (HomeSection) -> Boolean,
+    // False for a section this device can never fill: no block, not even a placeholder while editing.
+    available: (HomeSection) -> Boolean = { true },
 ): List<HomeFeedBlock> {
     val heldIndex = layout.sections.indexOfFirst { it.section == held }
     return layout.sections.mapIndexedNotNull { index, state ->
         val section = state.section
         when {
+            !available(section) -> null
             !state.enabled && section !in hiding -> null
             hasContent(section) -> HomeFeedBlock(section, placeholder = false)
             !editing -> null
@@ -1501,6 +1591,8 @@ private fun homeStripCovers(
     playlists: List<LibraryPlaylist>,
     recentlyPlayed: List<Album>,
     otherProfileItems: List<OtherProfileItem>,
+    lyricHighlights: List<HomeLyricHighlight>,
+    memoryLedger: MemoryLedgerState?,
     buildCoverArtUrl: (String) -> String,
     shapes: HomeStripShapes,
 ): List<StripCover> {
@@ -1540,6 +1632,15 @@ private fun homeStripCovers(
                 if (item.kind == OtherProfileItem.Kind.Playlist) shapes.playlist else shapes.album,
             )
         }
+        HomeSection.LyricHighlight -> lyricHighlights.take(count).map { card ->
+            stripCover(resolveHomeCoverArtUrl(CoverRef.fromStorageKey(card.coverKey), buildCoverArtUrl), shapes.song)
+        }
+        // The albums the latest memories are about, newest first.
+        HomeSection.MemoryGrid -> memoryLedger?.entries.orEmpty()
+            .mapNotNull { entry -> entry.album?.let { memoryLedger?.coverUrls?.get(it.key) } }
+            .distinct()
+            .take(count)
+            .map { url -> stripCover(url, shapes.album) }
     }
 }
 
@@ -1567,6 +1668,9 @@ private fun HomeContentHeader(
     bubbleController: MemoryBubbleController? = null,
     memoryPill: HomeMemoryPill? = null,
     memoryPillReveal: () -> Float = { 1f },
+    spotifyElsewhere: SpotifyElsewhere? = null,
+    spotifyElsewhereUp: Boolean = false,
+    onSpotifyElsewhereClick: (SpotifyElsewhere) -> Unit = {},
     extractBackdropColors: Boolean = false,
     onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
     // Landscape handset: a 28sp title (LandscapeHome).
@@ -1608,6 +1712,12 @@ private fun HomeContentHeader(
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
+                HomeSpotifyElsewherePill(
+                    elsewhere = spotifyElsewhere,
+                    visible = spotifyElsewhereUp,
+                    onClick = onSpotifyElsewhereClick,
+                    modifier = Modifier.then(iconSemantics),
+                )
             }
         } else {
             // The Memories entry takes whatever the title and Settings leave, and
@@ -1629,6 +1739,13 @@ private fun HomeContentHeader(
                         .then(iconSemantics),
                 )
                 HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
+                // Spotify's pill stands over the Memories entry for its 5 s.
+                HomeSpotifyElsewherePill(
+                    elsewhere = spotifyElsewhere,
+                    visible = spotifyElsewhereUp,
+                    onClick = onSpotifyElsewhereClick,
+                    modifier = Modifier.then(iconSemantics),
+                )
             }
         }
         Spacer(modifier = Modifier.width(2.dp))

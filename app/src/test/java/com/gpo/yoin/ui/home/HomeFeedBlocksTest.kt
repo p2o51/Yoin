@@ -44,9 +44,26 @@ class HomeFeedBlocksTest {
                 HomeFeedBlock(HomeSection.RecentlyPlayed, placeholder = true),
                 HomeFeedBlock(HomeSection.YourPlaylists, placeholder = true),
                 HomeFeedBlock(HomeSection.OtherProfiles, placeholder = true),
+                HomeFeedBlock(HomeSection.LyricHighlight, placeholder = true),
+                HomeFeedBlock(HomeSection.MemoryGrid, placeholder = true),
             ),
             blocks(editing = true),
         )
+    }
+
+    @Test
+    fun should_dropUnavailableSection_even_when_editing() {
+        val blocks = homeFeedBlocks(
+            layout = HomeLayout.Default,
+            hiding = emptySet(),
+            editing = true,
+            held = null,
+            placeholdersAboveOpen = true,
+            hasContent = hasContent,
+            available = { it != HomeSection.LyricHighlight },
+        )
+        assertEquals(false, blocks.any { it.section == HomeSection.LyricHighlight })
+        assertEquals(true, blocks.any { it.section == HomeSection.Rediscover })
     }
 
     @Test
@@ -54,7 +71,7 @@ class HomeFeedBlocksTest {
         // Recently Added lifted at entry: the empty Jump Back In above it waits, Rediscover below doesn't.
         val held = blocks(editing = true, held = HomeSection.RecentlyAdded, open = false)
         assertEquals(
-            listOf(HomeSection.Activities, HomeSection.RecentlyAdded, HomeSection.Rediscover, HomeSection.RecentlyPlayed, HomeSection.YourPlaylists, HomeSection.OtherProfiles),
+            listOf(HomeSection.Activities, HomeSection.RecentlyAdded, HomeSection.Rediscover, HomeSection.RecentlyPlayed, HomeSection.YourPlaylists, HomeSection.OtherProfiles, HomeSection.LyricHighlight, HomeSection.MemoryGrid),
             held.map { it.section },
         )
 

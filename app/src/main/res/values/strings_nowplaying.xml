@@ -55,10 +55,6 @@
     <string name="np_lyrics_none">No lyrics available</string>
     <string name="np_lyric_up_next">Up next · %1$s</string>
 
-    <string name="np_dock_playing_from_album">PLAYING FROM ALBUM</string>
-    <string name="np_dock_playing_from_playlist">PLAYING FROM PLAYLIST</string>
-    <string name="np_dock_playing_from_artist">PLAYING FROM ARTIST</string>
-    <string name="np_dock_now_playing">NOW PLAYING</string>
     <string name="np_from_album">PLAYING FROM ALBUM</string>
     <string name="np_from_playlist">PLAYING FROM PLAYLIST</string>
     <string name="np_from_artist">PLAYING FROM ARTIST</string>
@@ -233,6 +229,10 @@
     <string name="np_device_switch_back_cast">Switch back to this device</string>
     <string name="np_device_connected_cast">Casting</string>
     <string name="np_device_use_cast_pill">Not casting</string>
+    <string name="np_device_spotify_remembered">Recently used · may need waking in Spotify</string>
+    <string name="np_device_spotify_only">Switch through Spotify</string>
+    <string name="np_msg_spotify_device_asleep">That speaker is asleep. Pick it once in Spotify (More devices), then Yoin can control it.</string>
+    <string name="np_msg_spotify_open_failed">Couldn\'t open Spotify.</string>
     <string name="np_device_dlna_error_discovery">Unable to find speakers. Connect to the same Wi-Fi network and try again.</string>
     <string name="np_device_dlna_error_group">Unable to connect to the Sonos group. Check the speaker connection and try again.</string>
     <string name="np_device_dlna_error_stop">The speaker did not confirm stopping. Retry before switching playback.</string>

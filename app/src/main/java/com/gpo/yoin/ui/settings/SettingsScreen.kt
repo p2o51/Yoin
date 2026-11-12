@@ -58,7 +58,6 @@ import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,8 +72,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -102,6 +99,7 @@ import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.SeamTopPreference
 import com.gpo.yoin.ui.component.SeamTopStyle
 import com.gpo.yoin.ui.component.YoinDropdownMenu
@@ -112,6 +110,9 @@ import com.gpo.yoin.ui.component.currentSeamTopStyle
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.nameRes
+import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.detail.DetailBackButton
 import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -123,20 +124,23 @@ import com.gpo.yoin.ui.settings.sync.CloudSyncActivity
 import com.gpo.yoin.ui.settings.sync.CloudSyncSettingsRow
 import com.gpo.yoin.ui.spotoolfy.SpotoolfyRecapActivity
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.animateFloatAsPacedState
+import com.gpo.yoin.ui.theme.currentScreenCornerRadius
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** Deep-link targets for [SettingsActivity]'s `focusSection` extra. */
 object SettingsFocus {
     /** Opens the Spotify setup page with its Client ID field focused. */
     const val SPOTIFY = "spotify"
 
-    /** Scrolls to and expands the NeoDB row. */
+    /** Opens the NeoDB page, Settings underneath. */
     const val NEODB = "neodb"
 }
 
@@ -151,7 +155,6 @@ fun SettingsScreen(
     val switchingState by viewModel.switchingState.collectAsState()
     val providerPicker by viewModel.providerPickerState.collectAsState()
     val deleteConfirm by viewModel.deleteConfirmState.collectAsState()
-    val spotoolfyRecapBatchId by viewModel.spotoolfyRecapBatchId.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -180,6 +183,8 @@ fun SettingsScreen(
     }
     val featureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         featureMark.answered()
+        // The page has its own ViewModel; a NeoDB sign-in there shows on the row now.
+        viewModel.refreshNeoDbToken()
     }
     val context = LocalContext.current
     val openFeaturePage: (SettingsFeature) -> Unit = { feature ->
@@ -200,6 +205,14 @@ fun SettingsScreen(
                     scope.launch { snackbarHostState.showSnackbar(event.message.asString(context)) }
             }
         }
+    }
+
+    // NeoDB sign-in links (album pages) land on the NeoDB page; Settings stays underneath.
+    var neoDbDeepLinkHandled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(focusSection) {
+        if (focusSection != SettingsFocus.NEODB || neoDbDeepLinkHandled) return@LaunchedEffect
+        neoDbDeepLinkHandled = true
+        openFeaturePage(SettingsFeature.NeoDb)
     }
 
     // "No Client ID" deep link lands on the Spotify page itself; Settings
@@ -228,7 +241,6 @@ fun SettingsScreen(
         providerPickerVisible = providerPicker.visible,
         deleteConfirmState = deleteConfirm,
         snackbarHostState = snackbarHostState,
-        focusSection = focusSection,
         onBackClick = onBackClick,
         onSwitchToProfile = viewModel::switchToProfile,
         onOpenService = openService,
@@ -260,7 +272,6 @@ fun SettingsScreen(
             )
         },
         cloudSyncSelected = cloudSyncMark.open == true,
-        spotoolfyRecapBatchId = spotoolfyRecapBatchId,
         modifier = modifier,
     )
 }
@@ -284,7 +295,6 @@ fun SettingsContent(
     onClearCache: () -> Unit,
     modifier: Modifier = Modifier,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
-    focusSection: String? = null,
     onSaveGeminiApiKey: (String) -> Unit = {},
     onSaveGeminiTargetLanguage: (String) -> Unit = {},
     onOpenNeoDbSignIn: (String) -> Unit = {},
@@ -299,7 +309,6 @@ fun SettingsContent(
     cloudSyncRow: (@Composable () -> Unit)? = null,
     cloudSyncSelected: Boolean = false,
     // Settings › About › Spotoolfy recap: the account in use's newest import, null when it has none (D15).
-    spotoolfyRecapBatchId: String? = null,
 ) {
     // Large title → app-bar title handoff (Pixel's collapsing header): the
     // positions land in plain float state and are read only in the bar
@@ -307,7 +316,6 @@ fun SettingsContent(
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
     val headlineHeight = remember { mutableFloatStateOf(1f) }
-    var headerHeightPx by remember { mutableIntStateOf(0) }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         SettingsPageBackground(listPane = listDetail, modifier = modifier) {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -339,12 +347,6 @@ fun SettingsContent(
                 ) { innerPadding ->
                     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val scrollState = rememberScrollState()
-                    var neoDbTopPx by remember { mutableIntStateOf(-1) }
-                    LaunchedEffect(focusSection, neoDbTopPx) {
-                        if (focusSection == SettingsFocus.NEODB && neoDbTopPx >= 0) {
-                            scrollState.animateScrollTo(headerHeightPx + neoDbTopPx)
-                        }
-                    }
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -356,12 +358,13 @@ fun SettingsContent(
                             // Full width on every window (user, 2026-10-04):
                             // a centred reading column under a full-bleed
                             // card row read as two layouts.
+                            // Rows break up and text fades under the bar, as in Library (owner 2026-11-08).
+                            .seamDissolveViewport(top = SeamTop.Chrome) { scrollState.value.toFloat() }
                             .verticalScroll(scrollState)
                             .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                     ) {
                         SettingsHeadline(
                             title = stringResource(R.string.settings_title),
-                            modifier = Modifier.onSizeChanged { headerHeightPx = it.height },
                             titleModifier = Modifier.onGloballyPositioned {
                                 headlineTop.floatValue = it.positionInWindow().y
                                 headlineHeight.floatValue = it.size.height.toFloat().coerceAtLeast(1f)
@@ -399,45 +402,28 @@ fun SettingsContent(
                                         asRows = listDetail,
                                         openAccountId = openAccountId,
                                     )
-                                    SettingsGroup(
-                                        title = stringResource(R.string.settings_section_features),
-                                        modifier = Modifier.onGloballyPositioned { coords ->
-                                            neoDbTopPx = coords.positionInParent().y.toInt().coerceAtLeast(0)
-                                        },
-                                    ) {
+                                    SettingsGroup(title = stringResource(R.string.settings_section_features)) {
                                         item(key = SettingsFeature.Gemini, paintsOwnSegment = listDetail) {
                                             GeminiItem(
                                                 apiKey = state.geminiApiKey,
                                                 targetLanguage = state.geminiTargetLanguage,
                                                 onSaveApiKey = onSaveGeminiApiKey,
                                                 onSaveTargetLanguage = onSaveGeminiTargetLanguage,
-                                                // List-detail: the feature opens on the right (§7).
-                                                onOpenPage = if (listDetail) {
-                                                    { onOpenFeature(SettingsFeature.Gemini) }
-                                                } else {
-                                                    null
-                                                },
+                                                // Every row opens a whole page (owner 2026-11-09); list-detail puts it on the right (§7).
+                                                onOpenPage = { onOpenFeature(SettingsFeature.Gemini) },
+                                                listDetail = listDetail,
                                                 selected = openFeature == SettingsFeature.Gemini,
                                             )
                                         }
-                                        item(key = SettingsFeature.NeoDb, paintsOwnSegment = listDetail) {
-                                            NeoDbItem(
-                                                instance = state.neoDbInstance,
-                                                accessToken = state.neoDbAccessToken,
-                                                initiallyExpanded = focusSection == SettingsFocus.NEODB,
-                                                onOpenSignIn = onOpenNeoDbSignIn,
-                                                onSaveConfig = onSaveNeoDbConfig,
-                                                onClearToken = onClearNeoDbToken,
-                                                onOpenPage = if (listDetail) {
-                                                    { onOpenFeature(SettingsFeature.NeoDb) }
-                                                } else {
-                                                    null
-                                                },
-                                                selected = openFeature == SettingsFeature.NeoDb,
+                                        item(key = SettingsFeature.Labs, paintsOwnSegment = listDetail) {
+                                            LabsItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.Labs,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.Labs) },
                                             )
                                         }
                                     }
-                                    SettingsGroup(title = stringResource(R.string.settings_section_motion)) {
+                                    SettingsGroup(title = stringResource(R.string.settings_section_appearance)) {
                                         item(key = SettingsFeature.ScrollEdge, paintsOwnSegment = listDetail) {
                                             ScrollEdgeItem(
                                                 listDetail = listDetail,
@@ -445,12 +431,33 @@ fun SettingsContent(
                                                 onOpenPage = { onOpenFeature(SettingsFeature.ScrollEdge) },
                                             )
                                         }
+                                        item(key = SettingsFeature.ScreenCorners, paintsOwnSegment = listDetail) {
+                                            ScreenCornersItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.ScreenCorners,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.ScreenCorners) },
+                                            )
+                                        }
                                     }
-                                    SettingsGroup(title = stringResource(R.string.settings_section_storage)) {
+                                    // Where your data goes (owner 2026-11-09, plan A): sync, NeoDB, backups, cache.
+                                    SettingsGroup(title = stringResource(R.string.settings_section_sync_storage)) {
                                         cloudSyncRow?.let { row ->
                                             item(key = "cloud-sync", paintsOwnSegment = listDetail) {
                                                 if (listDetail) SelectableSegment(selected = cloudSyncSelected) { row() } else row()
                                             }
+                                        }
+                                        item(key = SettingsFeature.NeoDb, paintsOwnSegment = listDetail) {
+                                            NeoDbItem(
+                                                instance = state.neoDbInstance,
+                                                accessToken = state.neoDbAccessToken,
+                                                initiallyExpanded = false,
+                                                onOpenSignIn = onOpenNeoDbSignIn,
+                                                onSaveConfig = onSaveNeoDbConfig,
+                                                onClearToken = onClearNeoDbToken,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.NeoDb) },
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.NeoDb,
+                                            )
                                         }
                                         item(key = SettingsFeature.PlaylistBackups, paintsOwnSegment = listDetail) {
                                             PlaylistBackupsItem(
@@ -461,8 +468,8 @@ fun SettingsContent(
                                         }
                                         item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
-                                    SettingsGroup(title = stringResource(R.string.settings_section_about)) {
-                                        item { WelcomeGuideItem() }
+                                    // Owner 2026-11-09: tips, docs & feedback, Yoin (version; website and privacy inside), open source licenses.
+                                    SettingsGroup(title = stringResource(R.string.settings_section_help_about)) {
                                         item(key = SettingsFeature.Tips, paintsOwnSegment = listDetail) {
                                             TipsItem(
                                                 listDetail = listDetail,
@@ -470,28 +477,21 @@ fun SettingsContent(
                                                 onOpenPage = { onOpenFeature(SettingsFeature.Tips) },
                                             )
                                         }
-                                        item { WebsiteItem(snackbarHostState) }
+                                        item { WelcomeGuideItem() }
                                         item { DocsItem(snackbarHostState) }
                                         item { FeedbackItem(snackbarHostState) }
-                                        item { PrivacyPolicyItem(snackbarHostState) }
+                                        item(key = SettingsFeature.About, paintsOwnSegment = listDetail) {
+                                            AboutYoinItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.About,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.About) },
+                                            )
+                                        }
                                         item(key = SettingsFeature.Licenses, paintsOwnSegment = listDetail) {
                                             LicensesItem(
                                                 listDetail = listDetail,
                                                 selected = openFeature == SettingsFeature.Licenses,
                                                 onOpenPage = { onOpenFeature(SettingsFeature.Licenses) },
-                                            )
-                                        }
-                                        spotoolfyRecapBatchId?.let { batchId ->
-                                            item(key = "spotoolfy-recap") { SpotoolfyRecapItem(batchId) }
-                                        }
-                                        item {
-                                            SettingsItem(
-                                                icon = YoinSymbols.Info,
-                                                title = stringResource(R.string.settings_about_name),
-                                                summary = stringResource(
-                                                    R.string.settings_about_version,
-                                                    BuildConfig.VERSION_NAME,
-                                                ),
                                             )
                                         }
                                     }
@@ -549,6 +549,7 @@ internal fun SettingsHeadline(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = titleModifier
                 .padding(horizontal = 8.dp)
+                .seamFade(MaterialTheme.typography.displaySmall.fontSize)
                 .semantics { heading() },
         )
         Spacer(Modifier.height(36.dp))
@@ -769,7 +770,7 @@ private fun ProfileAccountRow(
                     ringColor = LocalSettingsRowColor.current,
                     size = 40.dp,
                 )
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).seamFade()) {
                     Text(
                         text = card.title,
                         style = MaterialTheme.typography.titleMedium,
@@ -830,7 +831,7 @@ private fun ProfileAccountRow(
 private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
     val haptics = rememberYoinHaptics()
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().seamDissolve(),
         shape = YoinContainerShapes.Panel,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -839,7 +840,11 @@ private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.settings_accounts_empty_title), style = MaterialTheme.typography.titleLarge)
+            Text(
+                stringResource(R.string.settings_accounts_empty_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.seamFade(),
+            )
             Button(
                 onClick = {
                     haptics.performClick()
@@ -906,6 +911,7 @@ private fun ProfileCardTile(
                 scaleY = scale
             }
             .testTag("account_card_${card.id}")
+            .seamDissolve()
             .semantics {
                 selected = card.isActive
                 onClick(label = tapLabel) {
@@ -975,7 +981,7 @@ private fun ProfileCardTile(
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(end = 12.dp),
+                modifier = Modifier.padding(end = 12.dp).seamFade(),
             )
             serviceLineGroups(
                 stringResource(identity.nameRes),
@@ -984,7 +990,7 @@ private fun ProfileCardTile(
             )?.let { groups ->
                 ServiceLine(
                     groups = groups,
-                    modifier = Modifier.padding(end = 12.dp),
+                    modifier = Modifier.padding(end = 12.dp).seamFade(),
                 )
             }
             AccountStatusPill(card = card, modifier = Modifier.padding(top = 10.dp))
@@ -1063,7 +1069,8 @@ private fun AddAccountTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
         modifier = modifier
             .width(112.dp)
             .fillMaxHeight()
-            .testTag("add_account"),
+            .testTag("add_account")
+            .seamDissolve(),
         shape = YoinContainerShapes.Card,
         color = settingsSurfaces().row,
         contentColor = MaterialTheme.colorScheme.primary,
@@ -1077,7 +1084,11 @@ private fun AddAccountTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
         ) {
             Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.size(28.dp))
-            Text(stringResource(R.string.settings_accounts_add_short), style = MaterialTheme.typography.labelLarge)
+            Text(
+                stringResource(R.string.settings_accounts_add_short),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.seamFade(),
+            )
         }
     }
 }
@@ -1234,8 +1245,9 @@ private fun GeminiItem(
     targetLanguage: String,
     onSaveApiKey: (String) -> Unit,
     onSaveTargetLanguage: (String) -> Unit,
-    // List-detail: the row opens the feature's page on the right instead.
+    // The list's row: opens the feature's page (on the right in list-detail).
     onOpenPage: (() -> Unit)? = null,
+    listDetail: Boolean = true,
     selected: Boolean = false,
     // The feature's own page: always open.
     asPage: Boolean = false,
@@ -1255,6 +1267,7 @@ private fun GeminiItem(
             summary = summaryText,
             selected = selected,
             onClick = onOpenPage,
+            listDetail = listDetail,
         )
         return
     }
@@ -1318,6 +1331,7 @@ private fun NeoDbItem(
     onSaveConfig: (String, String) -> Unit,
     onClearToken: () -> Unit,
     onOpenPage: (() -> Unit)? = null,
+    listDetail: Boolean = true,
     selected: Boolean = false,
     asPage: Boolean = false,
 ) {
@@ -1334,6 +1348,7 @@ private fun NeoDbItem(
             ),
             selected = selected,
             onClick = onOpenPage,
+            listDetail = listDetail,
         )
         return
     }
@@ -1418,7 +1433,12 @@ private fun FeaturePageRow(
     summary: String?,
     selected: Boolean,
     onClick: () -> Unit,
+    listDetail: Boolean = true,
 ) {
+    if (!listDetail) {
+        SettingsItem(icon = icon, title = title, summary = summary, onClick = onClick)
+        return
+    }
     SelectableSegment(selected = selected) {
         SettingsItem(
             icon = icon,
@@ -1468,7 +1488,7 @@ internal fun SelectableSegment(
         color = container,
         shape = shape,
         // The open row is the selected one for TalkBack, too.
-        modifier = Modifier.semantics { this.selected = selected },
+        modifier = Modifier.seamDissolve().semantics { this.selected = selected },
     ) {
         CompositionLocalProvider(LocalSettingsRowShape provides shape, LocalSettingsRowColor provides container) {
             content()
@@ -1487,7 +1507,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, ScrollEdge, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses }
+enum class SettingsFeature { Gemini, NeoDb, Labs, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses, About }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1502,6 +1522,11 @@ internal fun SettingsFeatureScreen(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (feature == SettingsFeature.ScreenCorners) {
+        // A page of its own: the whole window is its preview, no list scaffold.
+        ScreenCornersPage(onBackClick = onBackClick, modifier = modifier)
+        return
+    }
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -1521,13 +1546,16 @@ internal fun SettingsFeatureScreen(
     val featureTitle = when (feature) {
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
+        SettingsFeature.Labs -> stringResource(R.string.settings_labs_title)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
+        SettingsFeature.ScreenCorners -> stringResource(R.string.settings_motion_screen_corners)
         SettingsFeature.StreamQuality -> stringResource(R.string.settings_stream_quality_title)
         SettingsFeature.VolumeLeveling -> stringResource(R.string.settings_volume_leveling_title)
         SettingsFeature.Downloads -> stringResource(R.string.settings_downloads_title)
         SettingsFeature.Tips -> stringResource(R.string.settings_about_tips)
         SettingsFeature.PlaylistBackups -> stringResource(R.string.settings_playlist_backups_title)
         SettingsFeature.Licenses -> stringResource(R.string.settings_about_licenses)
+        SettingsFeature.About -> stringResource(R.string.settings_about_name)
     }
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
@@ -1560,13 +1588,15 @@ internal fun SettingsFeatureScreen(
                 snackbarHost = { YoinSnackbarHost(snackbarHostState) },
             ) { innerPadding ->
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                val scrollState = rememberScrollState()
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .imePadding()
                         .padding(innerPadding)
                         .onGloballyPositioned { viewportTop.floatValue = it.positionInWindow().y }
-                        .verticalScroll(rememberScrollState())
+                        .seamDissolveViewport(top = SeamTop.Chrome) { scrollState.value.toFloat() }
+                        .verticalScroll(scrollState)
                         .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                 ) {
                     SettingsHeadline(
@@ -1586,10 +1616,15 @@ internal fun SettingsFeatureScreen(
                         VolumeLevelingPageContent()
                     } else if (feature == SettingsFeature.Downloads) {
                         DownloadsPageContent()
+                    } else if (feature == SettingsFeature.Labs) {
+                        LabsPageContent()
                     } else if (feature == SettingsFeature.Tips) {
                         TipsPageContent()
                     } else if (feature == SettingsFeature.Licenses) {
                         OpenSourceLicensesPageContent()
+                    } else if (feature == SettingsFeature.About) {
+                        val recapBatchId by viewModel.spotoolfyRecapBatchId.collectAsState()
+                        AboutYoinPageContent(snackbarHostState = snackbarHostState, spotoolfyRecapBatchId = recapBatchId)
                     } else if (feature == SettingsFeature.PlaylistBackups) {
                         // Its own ViewModel over the backups table: no need to wait for the Settings state.
                         PlaylistBackupsPageContent()
@@ -1617,10 +1652,13 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.ScrollEdge, SettingsFeature.StreamQuality, SettingsFeature.VolumeLeveling,
+                                    SettingsFeature.Labs,
+                                    SettingsFeature.ScrollEdge, SettingsFeature.ScreenCorners, SettingsFeature.StreamQuality,
+                                    SettingsFeature.VolumeLeveling,
                                     SettingsFeature.Downloads,
                                     SettingsFeature.Tips,
                                     SettingsFeature.PlaylistBackups, SettingsFeature.Licenses,
+                                    SettingsFeature.About,
                                     -> Unit
                                 }
                             }
@@ -1651,6 +1689,43 @@ private fun ScrollEdgeItem(
         FeaturePageRow(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, selected = selected, onClick = onOpenPage)
     } else {
         SettingsItem(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › Motion › Screen corners: opens its page (ScreenCornersPage). Android only. */
+@Composable
+private fun ScreenCornersItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_motion_screen_corners)
+    val radius = currentScreenCornerRadius().value.roundToInt()
+    val summary = if (ScreenCorners.userRadius == null) {
+        stringResource(R.string.screen_corners_summary_follow, radius)
+    } else {
+        stringResource(R.string.screen_corners_value, radius)
+    }
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Smartphone, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Smartphone, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** Settings › Features › Yoin Labs: the beta features and Gemini Nano on this phone (LabsPage). */
+@Composable
+private fun LabsItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_labs_title)
+    val summary = stringResource(R.string.settings_labs_summary)
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Insights, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Insights, title = title, summary = summary, onClick = onOpenPage)
     }
 }
 
@@ -1703,6 +1778,48 @@ private fun PlaylistBackupsItem(
         )
     } else {
         SettingsItem(icon = YoinSymbols.Playlist, title = title, onClick = onOpenPage)
+    }
+}
+
+/**
+ * Settings › Help & about › About Yoin (owner 2026-11-09, plan A): one row with the version, opening a page
+ * that holds what used to stretch the About group — website, privacy policy, the Spotoolfy recap.
+ */
+@Composable
+private fun AboutYoinItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_about_name)
+    val summary = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME)
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.Info, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.Info, title = title, summary = summary, onClick = onOpenPage)
+    }
+}
+
+/** The Yoin page: the app and its version, its links, and the Spotoolfy recap when there is one. */
+@Composable
+internal fun AboutYoinPageContent(snackbarHostState: SnackbarHostState, spotoolfyRecapBatchId: String?) {
+    Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        SettingsSegments {
+            item {
+                // The headline already says Yoin: the row is just the version.
+                SettingsItem(
+                    icon = YoinSymbols.Info,
+                    title = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME),
+                )
+            }
+            item { WebsiteItem(snackbarHostState) }
+            item { PrivacyPolicyItem(snackbarHostState) }
+        }
+        spotoolfyRecapBatchId?.let { batchId ->
+            SettingsSegments {
+                item(key = "spotoolfy-recap") { SpotoolfyRecapItem(batchId) }
+            }
+        }
     }
 }
 

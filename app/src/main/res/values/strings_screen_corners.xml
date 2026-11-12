@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_motion_screen_corners">Screen corners</string>
+    <string name="screen_corners_follow">Match screen</string>
+    <string name="screen_corners_value">%1$d dp</string>
+    <string name="screen_corners_summary_follow">Match screen · %1$d dp</string>
+    <string name="screen_corners_hint">Slide the bar until the line around the edge sits on your screen\'s corners. Now Playing, Memories and back gestures take this corner.</string>
+    <string name="screen_corners_slider_cd">Screen corner radius</string>
+    <string name="landing_corners_title">How round are your screen\'s corners?</string>
+    <string name="screen_corners_page_hint">Slide the bar until no black shows in the corners.</string>
+    <string name="screen_corners_example_now_playing">Now Playing opening</string>
+    <string name="screen_corners_example_memories">Memories closing</string>
+    <string name="screen_corners_example_back">Back gesture</string>
+    <string name="home_tip_screen_corners_title">Screen corners</string>
+    <string name="home_tip_screen_corners">Match page and back-gesture corners to your screen in Settings &gt; Appearance &gt; Screen corners</string>
+</resources>

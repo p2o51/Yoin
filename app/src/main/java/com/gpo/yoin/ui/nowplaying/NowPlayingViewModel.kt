@@ -102,6 +102,8 @@ class NowPlayingViewModel(
     private val lyricHintStore: LyricHintStore = LyricHintStore.InMemory(),
     private val dlnaManager: DlnaManager? = null,
     private val spatialAudio: StateFlow<SpatialAudioState> = MutableStateFlow(SpatialAudioState()),
+    private val spotifyDeviceMemory: SpotifyDeviceMemory = SpotifyDeviceMemory.InMemory(),
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
@@ -741,6 +743,15 @@ class NowPlayingViewModel(
         playbackManager.openSpotify()
     }
 
+    /** Spotify's own device picker reaches speakers the Web API can't (Sonos, Cast). */
+    private fun openSpotifyPicker() {
+        if (!playbackManager.openSpotify()) {
+            _devicesState.value = _devicesState.value.copy(
+                errorMessage = UiText.Res(R.string.np_msg_spotify_open_failed),
+            )
+        }
+    }
+
     fun togglePlayPause() {
         val state = playbackManager.playbackState.value
         // What the button shows: PAUSE through a buffering dip pauses.
@@ -899,11 +910,13 @@ class NowPlayingViewModel(
         )
         _lyricsActionInFlight.value = LyricsAction.Search
         viewModelScope.launch {
-            repository.applyLyricsSearchResult(
+            val applied = repository.applyLyricsSearchResult(
                 trackId = songId,
                 providerName = candidate.providerName,
                 songId = candidate.songId,
             )
+            if (!stillPlaying(songId)) return@launch
+            applied
                 .onSuccess { result ->
                     applyLyricsResult(result.lyrics, result.providerName, result.providerSongId)
                     _lyricsSearchState.value = LyricsSearchState()
@@ -939,7 +952,9 @@ class NowPlayingViewModel(
         if (_lyricsActionInFlight.value != null) return
         _lyricsActionInFlight.value = LyricsAction.Apply
         viewModelScope.launch {
-            repository.applyLyrics(trackId = songId, rawLrc = rawLrc)
+            val applied = repository.applyLyrics(trackId = songId, rawLrc = rawLrc)
+            if (!stillPlaying(songId)) return@launch
+            applied
                 .onSuccess { result ->
                     applyLyricsResult(result.lyrics, result.providerName, result.providerSongId)
                     _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_msg_lyrics_applied))
@@ -963,16 +978,16 @@ class NowPlayingViewModel(
 
         _lyricsActionInFlight.value = LyricsAction.Translate
         viewModelScope.launch {
-            when (
-                val result = repository.translateLyrics(
-                    trackId = song.id,
-                    title = song.title,
-                    artist = song.artist,
-                    lines = currentLyrics.map { it.text },
-                    currentLyricsProviderName = _currentLyricsProviderName.value,
-                    currentLyricsProviderSongId = _currentLyricsProviderSongId.value,
-                )
-            ) {
+            val result = repository.translateLyrics(
+                trackId = song.id,
+                title = song.title,
+                artist = song.artist,
+                lines = currentLyrics.map { it.text },
+                currentLyricsProviderName = _currentLyricsProviderName.value,
+                currentLyricsProviderSongId = _currentLyricsProviderSongId.value,
+            )
+            if (!stillPlaying(song.id)) return@launch
+            when (result) {
                 is YoinRepository.LyricsTranslationResult.ProviderSwitchAvailable -> {
                     pendingLyricsTranslationSwitchOffer = result.offer
                     _lyricsTranslationSwitchOffers.tryEmit(
@@ -1016,6 +1031,7 @@ class NowPlayingViewModel(
         _lyricsActionInFlight.value = LyricsAction.Translate
         viewModelScope.launch {
             repository.applyLyricsTranslationProviderSwitch(song.id, offer)
+            if (!stillPlaying(song.id)) return@launch
             _lyrics.value = offer.lyrics.toUiLyrics().mapIndexed { index, line ->
                 line.copy(translation = offer.translations[index])
             }
@@ -1196,7 +1212,20 @@ class NowPlayingViewModel(
             )
             runCatching {
                 when (providerId) {
-                    MediaId.PROVIDER_SPOTIFY -> repository.listSpotifyDevices()
+                    MediaId.PROVIDER_SPOTIFY -> {
+                        val listed = repository.listSpotifyDevices()
+                        if (profileId == null) {
+                            listed
+                        } else {
+                            val remembered = mergeRememberedSpotifyDevices(
+                                remembered = spotifyDeviceMemory.recall(profileId),
+                                listed = listed,
+                                nowMs = clock(),
+                            )
+                            spotifyDeviceMemory.remember(profileId, remembered)
+                            withRememberedSpotifyDevices(listed, remembered)
+                        }
+                    }
                     MediaId.PROVIDER_SUBSONIC -> {
                         if (showLoading) dlnaManager?.discover()
                         emptyList()
@@ -1243,6 +1272,11 @@ class NowPlayingViewModel(
 
     fun selectDevice(device: YoinDevice) {
         if (!device.isSelectable || _devicesState.value.busyDeviceId != null) return
+        if (device is YoinDevice.SpotifyConnect && device.spotifyOnly) {
+            // Sonos and the like: the Web API can't move playback there; Spotify's picker can.
+            if (!device.isActive) openSpotifyPicker()
+            return
+        }
         viewModelScope.launch {
             _devicesState.value = _devicesState.value.copy(busyDeviceId = device.id, errorMessage = null)
             val result = runCatching {
@@ -1284,14 +1318,25 @@ class NowPlayingViewModel(
                     delay(1_200)
                 }
             } else {
+                // The sheet hands back its localized copy; the marker is on the VM's row.
+                val remembered = device is YoinDevice.SpotifyConnect &&
+                    _devicesState.value.devices.any { row ->
+                        row.id == device.id && row.statusText == NpDeviceStatusRemembered
+                    }
                 _devicesState.value = _devicesState.value.copy(
                     busyDeviceId = null,
-                    errorMessage = dlnaManager?.error?.value
-                        ?.takeIf { device is YoinDevice.Dlna || device is YoinDevice.LocalPlayback }
-                        ?.asUiText() ?: userMessage(
-                        result.exceptionOrNull()?.message,
-                        R.string.np_msg_couldnt_switch_devices,
-                    ),
+                    errorMessage = if (remembered) {
+                        // Asleep: Spotify only wakes a local speaker from its own picker.
+                        openSpotifyPicker()
+                        UiText.Res(R.string.np_msg_spotify_device_asleep)
+                    } else {
+                        dlnaManager?.error?.value
+                            ?.takeIf { device is YoinDevice.Dlna || device is YoinDevice.LocalPlayback }
+                            ?.asUiText() ?: userMessage(
+                            result.exceptionOrNull()?.message,
+                            R.string.np_msg_couldnt_switch_devices,
+                        )
+                    },
                 )
                 return@launch
             }
@@ -1671,6 +1716,15 @@ class NowPlayingViewModel(
         }
     }
 
+    /**
+     * A lyric action (translate, apply, a searched pick) answers for the song it was started on.
+     * Whatever the repository keeps of it, it has kept under that song by the time it returns;
+     * what is left is this page's state, and after a skip that state is the next song's — the
+     * song change already reset it, in-flight marker included, so a late answer writes nothing.
+     */
+    private fun stillPlaying(songId: MediaId): Boolean =
+        playbackManager.playbackState.value.currentTrack?.id == songId
+
     private fun applyLyricsResult(
         lyrics: SourceLyrics,
         providerName: String?,
@@ -1696,6 +1750,7 @@ class NowPlayingViewModel(
                 lyricHintStore = container.lyricHintStore,
                 dlnaManager = container.dlnaManager,
                 spatialAudio = container.spatialAudio.state,
+                spotifyDeviceMemory = container.spotifyDeviceMemory,
             ) as T
     }
 }

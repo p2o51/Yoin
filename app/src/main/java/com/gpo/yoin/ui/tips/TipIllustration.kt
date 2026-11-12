@@ -59,6 +59,14 @@ internal fun TipIllustration(
     ) {
         when (tip) {
             HomeBubbleTip.ContinueOn -> ContinueOnDemo(playing)
+            HomeBubbleTip.SpotifyElsewhere -> SpotifyElsewhereDemo(playing)
+            HomeBubbleTip.Labs -> LabsDemo(playing)
+            HomeBubbleTip.SettingsRegrouped -> SettingsGroupsDemo(playing)
+            HomeBubbleTip.LyricHighlight -> LyricHighlightDemo(playing)
+            HomeBubbleTip.MemoryLedger -> MemoryLedgerDemo(playing)
+            HomeBubbleTip.ScreenCorners -> ScreenCornersDemo(playing)
+            HomeBubbleTip.MemoriesAllAccounts -> MemoriesAllAccountsDemo(playing)
+            HomeBubbleTip.SpotifySpeakers -> SpotifySpeakersDemo(playing)
             HomeBubbleTip.AccountQuickSwitch -> AccountQuickSwitchDemo(playing)
             HomeBubbleTip.MiniPlayerMenu -> MiniPlayerMenuDemo(playing)
             HomeBubbleTip.FocusCover -> FocusCoverDemo(playing)

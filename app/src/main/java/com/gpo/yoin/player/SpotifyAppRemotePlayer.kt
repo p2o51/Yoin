@@ -415,6 +415,9 @@ internal class SpotifyAppRemotePlayer(
         playModeWrite = null
         connectJob?.cancel()
         connectJob = null
+        // A silent retry still waiting out its delay would reconnect an account that was just left.
+        retryJob?.cancel()
+        retryJob = null
         replaceableOperationJob?.cancel()
         replaceableOperationJob = null
         pendingStart = null
@@ -524,6 +527,8 @@ internal class SpotifyAppRemotePlayer(
                     }.getOrNull()
                 }
                 if (pendingStart !== start) return@enqueueOperation
+                bringSpotifyHereIfIdleElsewhere(connected)
+                if (pendingStart !== start) return@enqueueOperation
                 val answered = withTimeoutOrNull(SPOTIFY_START_HEARD_TIMEOUT_MS) {
                     if (remoteContext != null) {
                         Log.d(tag, "App Remote start: ${remoteContext.contextUri} at ${remoteContext.index}")
@@ -553,6 +558,27 @@ internal class SpotifyAppRemotePlayer(
                 // Written, failed or given up: Spotify's own word stands from here.
                 if (playModeWrite === modeWrite) playModeWrite = null
             }
+        }
+    }
+
+    /**
+     * App Remote plays where the Spotify app here plays. When Spotify's active device is another
+     * one that is NOT sounding (a paused iPhone), the song would start there: on the 2026-11-08
+     * tablet test a tap in Yoin played on 51's iPhone. Only a device that is playing keeps the
+     * start (51, 2026-11-06), so bring Spotify back to this device first.
+     */
+    private suspend fun bringSpotifyHereIfIdleElsewhere(connected: SpotifyAppRemote) {
+        val state = readConnectState() ?: return
+        if (state.isThisDevice || state.playsElsewhere) return
+        Log.d(tag, "start: Spotify is idle on ${state.deviceName}; switching to this device")
+        try {
+            withTimeoutOrNull(CONNECT_STATE_TIMEOUT_MS) {
+                connected.connectApi.connectSwitchToLocalDevice().awaitUnit()
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            Log.w(tag, "connectSwitchToLocalDevice failed", error)
         }
     }
 
@@ -1887,8 +1913,8 @@ internal class SpotifyAppRemotePlayer(
 /** Grace for the subscription to report the requested track after a start command answers. */
 internal const val SPOTIFY_START_HEARD_TIMEOUT_MS = 4_000L
 
-/** How long a start waits on a Spotify app that doesn't answer before the hint ([SpotifyAppRemotePlayer.openSpotify]). */
-internal const val SPOTIFY_UNREACHABLE_AFTER_MS = 5_000L
+/** How long a start waits on a Spotify app that doesn't answer before Yoin opens it ([SpotifyAppRemotePlayer.openSpotify]): at most 2 s (51, 11-08), since an asleep Spotify is the common case. */
+internal const val SPOTIFY_UNREACHABLE_AFTER_MS = 1_500L
 
 /** Wait before reading Spotify's queue after a start or an Add to queue: the Web API lags the app a little. */
 internal const val SPOTIFY_QUEUE_READ_DELAY_MS = 800L

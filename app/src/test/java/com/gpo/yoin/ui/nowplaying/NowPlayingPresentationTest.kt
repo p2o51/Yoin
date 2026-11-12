@@ -138,6 +138,56 @@ class NowPlayingPresentationTest {
     }
 
     @Test
+    fun should_morphFromThePill_when_thePlayerCoversTheBar() {
+        assertEquals(PillMorph.CoverAndText, NowPlayingPresentation.Phone.pillMorph)
+        assertEquals(PillMorph.CoverAndText, NowPlayingPresentation.Enlarged.pillMorph)
+        assertEquals(PillMorph.Cover, NowPlayingPresentation.DualPane.pillMorph)
+        assertEquals(PillMorph.Cover, NowPlayingPresentation.Landscape.pillMorph)
+    }
+
+    @Test
+    fun should_notMorph_when_thePanelOpensBesideTheBar_or_onTheHinge() {
+        assertEquals(PillMorph.None, NowPlayingPresentation.Panel.pillMorph)
+        assertEquals(PillMorph.None, NowPlayingPresentation.Tabletop.pillMorph)
+    }
+
+    @Test
+    fun should_morph_when_thePlayerOpensOrClosesInAFullState() {
+        val p = NowPlayingPresentation.Panel
+        val e = NowPlayingPresentation.Enlarged
+        val latch = PillMorphLatch(expanded = false, presentation = NowPlayingPresentation.Phone)
+        // Opens straight into the enlarged phone (no panel fits).
+        assertEquals(PillMorph.CoverAndText, latch.morphFor(expanded = true, presentation = e))
+        // Closes from it.
+        assertEquals(PillMorph.CoverAndText, latch.morphFor(expanded = false, presentation = e))
+        // Opens as the panel, toggles to Full, then closes from Full.
+        assertEquals(PillMorph.None, latch.morphFor(expanded = true, presentation = p))
+        latch.morphFor(expanded = true, presentation = e)
+        assertEquals(PillMorph.CoverAndText, latch.morphFor(expanded = false, presentation = e))
+    }
+
+    @Test
+    fun should_notMorph_when_theCornerToggleMovesTheBar_withThePlayerOpen() {
+        val p = NowPlayingPresentation.Panel
+        val d = NowPlayingPresentation.DualPane
+        val latch = PillMorphLatch(expanded = false, presentation = p)
+        assertEquals(PillMorph.None, latch.morphFor(expanded = true, presentation = p))
+        // Panel → two columns: the bar hides while the player stays open.
+        assertEquals(PillMorph.None, latch.morphFor(expanded = true, presentation = d))
+        // And back: the bar returns, still no morph.
+        assertEquals(PillMorph.None, latch.morphFor(expanded = true, presentation = p))
+    }
+
+    @Test
+    fun should_dropTheMorph_when_thePresentationChangesMidTransition() {
+        val latch = PillMorphLatch(expanded = false, presentation = NowPlayingPresentation.Phone)
+        assertEquals(PillMorph.CoverAndText, latch.morphFor(expanded = true, presentation = NowPlayingPresentation.Phone))
+        // Rotated while open: both ends drop the morph until the next open or close.
+        assertEquals(PillMorph.None, latch.morphFor(expanded = true, presentation = NowPlayingPresentation.Landscape))
+        assertEquals(PillMorph.Cover, latch.morphFor(expanded = false, presentation = NowPlayingPresentation.Landscape))
+    }
+
+    @Test
     fun should_showTheLyricHint_atMostOnceADay() {
         val today = LocalDate.of(2026, 9, 30)
         assertTrue(lyricIdleHintAllowed(null, today))

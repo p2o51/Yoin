@@ -22,6 +22,7 @@ import com.gpo.yoin.ui.component.ArtworkForegroundRetry
 import com.gpo.yoin.ui.component.ArtworkNetworkRecovery
 import com.gpo.yoin.ui.component.ArtworkRetrySignal
 import com.gpo.yoin.ui.nowplaying.NowPlayingKeepScreenOn
+import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.widget.WidgetRefresher
 
 class YoinApplication : Application(), SingletonImageLoader.Factory {
@@ -56,6 +57,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         // Before any window composes: read inside the first composition, the stored choice
         // never reached that composition (Keep screen on came back off after a restart).
         NowPlayingKeepScreenOn.ensureLoaded(this)
+        ScreenCorners.install(this)
         retireLegacyImageDiskCache(cacheDir)
         registerArtworkNetworkRetry()
         ProcessLifecycleOwner.get().lifecycle.addObserver(ArtworkForegroundRetry())
@@ -65,6 +67,8 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
             container.clearNeoDbPendingAfterRestore()
             WidgetRefresher.start(this, container)
             PlaylistBackupFollower.start(container)
+            container.lyricHighlightProcessor.start()
+            container.startPendingRatingRetries()
         }
     }
 
@@ -106,8 +110,11 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 retryArtworkIf(recovery.onAvailable(network))
-                // Plays heard offline go out as soon as there's a network again.
-                if (containerOverrideForTests == null) container.scrobbleReporter.flush()
+                // Plays heard offline, and ratings given offline, go out as soon as there's a network again.
+                if (containerOverrideForTests == null) {
+                    container.scrobbleReporter.flush()
+                    container.retryPendingRatings()
+                }
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {

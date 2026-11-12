@@ -83,9 +83,17 @@ internal fun HomeSectionsScene(
     layout: HomeLayout,
     onEnabled: (HomeSection, Boolean) -> Unit,
     onMove: (from: Int, to: Int) -> Unit,
+    // Sections this device can't fill (「歌词一句」 without Gemini Nano): left out of the list, kept in the layout.
+    hidden: Set<HomeSection> = emptySet(),
 ) {
+    val shown = remember(layout.sections, hidden) { layout.sections.filter { it.section !in hidden } }
     LandingSceneColumn {
-        SectionList(layout.sections, onEnabled, onMove)
+        SectionList(shown, onEnabled) { from, to ->
+            // The shown list's indices, onto the full list.
+            val fullFrom = layout.sections.indexOf(shown.getOrNull(from) ?: return@SectionList)
+            val fullTo = layout.sections.indexOf(shown.getOrNull(to) ?: return@SectionList)
+            onMove(fullFrom, fullTo)
+        }
         Text(
             text = stringResource(R.string.landing_home_rows_note),
             style = MaterialTheme.typography.bodySmall,
@@ -309,6 +317,14 @@ private fun SectionGlyph(section: HomeSection, color: Color, modifier: Modifier 
             HomeSection.OtherProfiles -> {
                 box(4f, 10f, 12f, 12f, 0.9f, 3f); box(19f, 10f, 12f, 12f, 0.55f, 3f)
                 box(4f, 25f, 8f, 2.4f, 0.35f, 1.2f); box(19f, 25f, 8f, 2.4f, 0.35f, 1.2f)
+            }
+            HomeSection.LyricHighlight -> {
+                dot(10f, 17f, 6f, 0.9f)
+                box(19f, 11f, 12f, 2.6f, 0.55f, 1.2f); box(19f, 16f, 10f, 2.6f, 0.55f, 1.2f)
+                box(19f, 22f, 7f, 2.2f, 0.3f, 1.2f)
+            }
+            HomeSection.MemoryGrid -> for (c in 0 until 4) for (r in 0 until 3) {
+                box(4f + c * 7.4f, 8f + r * 7.4f, 5.6f, 5.6f, 0.9f - (c + r) * 0.1f, 1.4f)
             }
         }
     }

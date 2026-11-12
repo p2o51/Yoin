@@ -73,6 +73,7 @@ import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.spotify.SpotifyActivityArtistArtwork
+import com.gpo.yoin.data.source.spotify.SpotifyDevice
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
@@ -1161,6 +1162,20 @@ class YoinRepository(
         }
 
     /**
+     * A share link made now for [id] (see MusicMetadata.createShareLink):
+     * success(null) where the service makes none, failure when the server
+     * refused or couldn't be reached.
+     */
+    suspend fun createShareLink(kind: WebLinkKind, id: MediaId, description: String?): Result<String?> =
+        try {
+            Result.success(requireSource().metadata().createShareLink(kind, id, description))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+
+    /**
      * [track]'s album and artist: its own, or the ones its service names when asked (Apple Music's playlist,
      * library and search songs come without them; see MusicMetadata.songLinks). Either is null when there is
      * none to open.
@@ -1928,8 +1943,9 @@ class YoinRepository(
         favoriteStateOverlay.recordRemote(key, saved)
     }
 
-    suspend fun getRatings(trackIds: Collection<MediaId>): Map<MediaId, LocalRating> {
-        val profileId = activeProfileId.value ?: return emptyMap()
+    /** [profileId] null = the active profile (Memories reads another account's rows by passing it). */
+    suspend fun getRatings(trackIds: Collection<MediaId>, profileId: String? = null): Map<MediaId, LocalRating> {
+        val profileId = profileId ?: activeProfileId.value ?: return emptyMap()
         if (trackIds.isEmpty()) return emptyMap()
         return trackIds.asSequence()
             .distinct()
@@ -1940,18 +1956,55 @@ class YoinRepository(
             .associateBy { MediaId(it.provider, it.songId) }
     }
 
+    private val ratingRetries = Mutex()
+
+    /**
+     * Sends again the ratings the active service hasn't taken: written offline, while its
+     * server was down, or just before a switch away ([pushRating] leaves those marked
+     * needsSync). Called when an account becomes active and when a network comes back
+     * (AppContainer.retryPendingRatings).
+     *
+     * One at a time behind [ratingPushes], like a fresh rating's own push, and never over a
+     * newer one: each row is read again right before it goes, and its flag is cleared by
+     * [com.gpo.yoin.data.local.LocalRatingDao.markSynced], which leaves a rating changed
+     * meanwhile alone.
+     *
+     * Ends early when nothing more will go through: the service keeps no ratings (Spotify and
+     * Apple Music: they stay local), the account changed, or [RATING_RETRY_MAX_FAILURES] sends
+     * in a row failed (still offline). One rating the server refuses for its own reasons (the
+     * song is gone there) is passed over, so it never holds the others back.
+     */
     suspend fun syncPendingRatings() {
-        val source = activeSource.value ?: return
-        val profileId = activeProfileId.value ?: return
-        val pending = database.localRatingDao()
-            .getRatingsNeedingSync(source.id, profileId)
-            .first()
-        for (rating in pending) {
-            if (rating.provider != source.id) continue
-            val trackId = MediaId(rating.provider, rating.songId)
-            source.writeActions().setRating(trackId, rating.serverRating).onSuccess {
-                database.localRatingDao().upsert(rating.copy(needsSync = false))
+        if (!ratingRetries.tryLock()) return
+        try {
+            val source = activeSource.value ?: return
+            val profileId = activeProfileId.value ?: return
+            val dao = database.localRatingDao()
+            var failuresInARow = 0
+            for (waiting in dao.getRatingsNeedingSync(source.id, profileId).first()) {
+                val goOn = ratingPushes.withLock {
+                    // The account moved on: these ratings are another server's now.
+                    if (activeProfileId.value != profileId || activeSource.value !== source) return@withLock false
+                    // A rating written since has its own push on the way.
+                    if (newestRatings.containsKey(RatingKey(waiting))) return@withLock true
+                    val row = dao.getRatings(listOf(waiting.songId), waiting.provider, profileId).firstOrNull()
+                    if (row == null || !row.needsSync) return@withLock true
+                    val error = source.writeActions()
+                        .setRating(MediaId(row.provider, row.songId), row.serverRating)
+                        .onSuccess { dao.markSynced(row.songId, row.provider, row.profileId, row.rating) }
+                        .exceptionOrNull()
+                    when (error) {
+                        null -> failuresInARow = 0
+                        is CancellationException -> throw error
+                        is UnsupportedOperationException -> return@withLock false
+                        else -> failuresInARow++
+                    }
+                    failuresInARow < RATING_RETRY_MAX_FAILURES
+                }
+                if (!goOn) return
             }
+        } finally {
+            ratingRetries.unlock()
         }
     }
 
@@ -2270,6 +2323,35 @@ class YoinRepository(
         ).build(limit, includeIneligible)
     }
 
+    /**
+     * Another account's Memory candidates ([profileId] on [provider], not the one in use), for the Memories
+     * deck that shows every account's memories. Local only: its rows plus the album details Yoin cached for
+     * that account on disk — that account's source isn't built, so nothing goes to the network. An album
+     * without a cached detail still qualifies by its review / notes. [resolveCoverUrl] is that account's.
+     */
+    suspend fun getOtherProfileAlbumMemoryCandidates(
+        profileId: String,
+        provider: String,
+        resolveCoverUrl: (CoverRef, Int) -> String?,
+        limit: Int = 24,
+    ): List<AlbumMemoryCandidate> = AlbumMemoryCandidateBuilder(
+        profileId = profileId,
+        provider = provider,
+        getAlbum = { id -> getCachedAlbumFor(profileId, id) },
+        playHistoryDao = database.playHistoryDao(),
+        activityEventDao = database.activityEventDao(),
+        localRatingDao = database.localRatingDao(),
+        albumRatingDao = albumRatingDao,
+        albumNoteDao = albumNoteDao,
+        songNoteDao = songNoteDao,
+        songAboutEntryDao = songAboutEntryDao,
+        resolveCoverUrl = resolveCoverUrl,
+    ).build(limit)
+
+    /** [profileId]'s disk copy of album [id]'s detail, never the network; null when Yoin never cached it. */
+    suspend fun getCachedAlbumFor(profileId: String, id: MediaId): Album? =
+        runCatching { detailCacheStore?.readAlbum(profileId, id.toString())?.value() }.getOrNull()
+
     suspend fun getTopAlbumMemoryCandidate(): AlbumMemoryCandidate? =
         getAlbumMemoryCandidates(limit = 1).firstOrNull()
 
@@ -2446,8 +2528,8 @@ class YoinRepository(
     }
 
     /** 只读缓存拟题（首页 Jump Back In 用）—— 不触发生成，miss 返回 null。 */
-    suspend fun getCachedAlbumMemoryTitle(albumId: MediaId): String? {
-        val profileId = activeProfileId.value ?: return null
+    suspend fun getCachedAlbumMemoryTitle(albumId: MediaId, profileId: String? = null): String? {
+        val profileId = profileId ?: activeProfileId.value ?: return null
         return memoryCopyCacheDao.get(
             profileId = profileId,
             provider = albumId.provider,
@@ -2458,18 +2540,20 @@ class YoinRepository(
 
     // ── Memory writings（Memories 卡 resolve 的一次性快照读取） ────────────
 
-    suspend fun getAlbumRatingRow(albumId: MediaId): AlbumRating? {
-        val profileId = activeProfileId.value ?: return null
+    // [profileId] null = the active profile; Memories passes another account's id to show its memories.
+
+    suspend fun getAlbumRatingRow(albumId: MediaId, profileId: String? = null): AlbumRating? {
+        val profileId = profileId ?: activeProfileId.value ?: return null
         return albumRatingDao.get(albumId.rawId, albumId.provider, profileId)
     }
 
-    suspend fun getAlbumNotesOnce(albumId: MediaId): List<AlbumNote> {
-        val profileId = activeProfileId.value ?: return emptyList()
+    suspend fun getAlbumNotesOnce(albumId: MediaId, profileId: String? = null): List<AlbumNote> {
+        val profileId = profileId ?: activeProfileId.value ?: return emptyList()
         return albumNoteDao.getForAlbum(albumId.rawId, albumId.provider, profileId)
     }
 
-    suspend fun getSongNotesOnce(trackIds: List<MediaId>): List<SongNote> {
-        val profileId = activeProfileId.value ?: return emptyList()
+    suspend fun getSongNotesOnce(trackIds: List<MediaId>, profileId: String? = null): List<SongNote> {
+        val profileId = profileId ?: activeProfileId.value ?: return emptyList()
         val provider = trackIds.firstOrNull()?.provider ?: return emptyList()
         val rawIds = trackIds.filter { id -> id.provider == provider }.map(MediaId::rawId)
         if (rawIds.isEmpty()) return emptyList()
@@ -2480,24 +2564,29 @@ class YoinRepository(
 
     suspend fun listSpotifyDevices(): List<YoinDevice.SpotifyConnect> {
         val source = activeSource.value as? SpotifyMusicSource ?: return emptyList()
-        return source.listDevices()
-            .mapNotNull { device ->
-                val id = device.id ?: return@mapNotNull null
+        val listed = source.listDevices()
+        // A speaker Spotify plays on (Sonos, Cast) can be missing from /devices while
+        // /me/player names it, often with no id; add it so the sheet shows where the music is.
+        val playing = runCatching { source.playbackDevice() }.getOrNull()
+            ?.takeIf { device -> listed.none { it.sameDevice(device) } }
+        return (listed + listOfNotNull(playing?.copy(isActive = true)))
+            .map { device ->
+                // No id: Spotify won't take a transfer to it, but it is still where the music is.
+                val id = device.id
                 YoinDevice.SpotifyConnect(
-                    id = id,
+                    id = id ?: YoinDevice.SpotifyConnect.noIdKey(device.name),
                     name = device.name,
                     isActive = device.isActive,
                     spotifyType = device.type,
-                    isSelectable = !device.isRestricted,
-                    statusText = when {
-                        device.isRestricted -> "Unavailable from Spotify"
-                        device.isPrivateSession -> "Private session"
-                        else -> null
-                    },
+                    statusText = if (device.isPrivateSession) "Private session" else null,
+                    spotifyOnly = id == null || device.isRestricted,
                 )
             }
             .sortedByDescending(YoinDevice.SpotifyConnect::isActive)
     }
+
+    private fun SpotifyDevice.sameDevice(other: SpotifyDevice): Boolean =
+        if (id != null && other.id != null) id == other.id else name.trim().equals(other.name.trim(), ignoreCase = true)
 
     suspend fun transferSpotifyPlayback(deviceId: String, play: Boolean = true) {
         val source = activeSource.value as? SpotifyMusicSource ?: return
@@ -3854,6 +3943,9 @@ private fun List<SongNoteKey>.toMediaIdSet(): Set<MediaId> =
 
 /** Well under SQLite's old 999-value limit, with room for the query's own values. */
 private const val NOTE_KEYS_PER_QUERY = 500
+
+/** Failed sends in a row after which a pass over the waiting ratings gives up (the server can't be reached). */
+private const val RATING_RETRY_MAX_FAILURES = 3
 
 /** Background detail refreshes in flight at once ([YoinRepository]'s revalidation). */
 private const val DETAIL_REVALIDATE_PARALLELISM = 2

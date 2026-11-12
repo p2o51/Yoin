@@ -2,9 +2,6 @@
 # By default, the flags in this file are appended to flags specified
 # in the SDK tools proguard-defaults.txt.
 
-# Keep Subsonic API response models for serialization
--keep class com.gpo.yoin.data.remote.model.** { *; }
-
 # kotlinx.serialization
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
@@ -65,3 +62,9 @@
 -keepclassmembers class * extends androidx.work.ListenableWorker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
+
+# Gemini Nano (ML Kit GenAI Prompt API, 「歌词一句」 / Yoin Labs): AICore is reached over Binder and the SDK is
+# beta. Keep it whole so a release build talks to AICore exactly like the debug build that was tested.
+-keep class com.google.mlkit.genai.** { *; }
+-keep class com.google.android.gms.internal.mlkit_genai_prompt.** { *; }
+-dontwarn com.google.mlkit.genai.**

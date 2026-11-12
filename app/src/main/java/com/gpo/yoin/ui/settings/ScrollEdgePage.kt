@@ -34,6 +34,7 @@ import com.gpo.yoin.ui.component.SeamTopStyle
 import com.gpo.yoin.ui.component.currentSeamTopStyle
 import com.gpo.yoin.ui.component.descriptionRes
 import com.gpo.yoin.ui.component.nameRes
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -53,7 +54,7 @@ internal fun ScrollEdgePageContent(modifier: Modifier = Modifier) {
             text = stringResource(R.string.settings_scroll_edge_intro),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 20.dp),
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 20.dp).seamFade(),
         )
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SeamTopStyle.entries.forEach { style ->
@@ -73,7 +74,7 @@ internal fun ScrollEdgePageContent(modifier: Modifier = Modifier) {
             text = stringResource(R.string.settings_scroll_edge_foot),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 16.dp),
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 16.dp).seamFade(),
         )
     }
 }

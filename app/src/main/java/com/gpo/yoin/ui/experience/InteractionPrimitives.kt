@@ -1,8 +1,5 @@
 package com.gpo.yoin.ui.experience
 
-import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.FiniteAnimationSpec
-import androidx.compose.material3.MotionScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -12,15 +9,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.theme.YoinMotion
-private val PullSettleMotionScheme = MotionScheme.standard()
-
-private fun pullSettleSpec(): FiniteAnimationSpec<Float> =
-    YoinMotion.defaultSpatialSpec(
-        role = com.gpo.yoin.ui.theme.YoinMotionRole.Standard,
-        expressiveScheme = PullSettleMotionScheme,
-        standardScheme = PullSettleMotionScheme,
-    )
 
 enum class EdgeAdvanceDirection {
     Backward,
@@ -71,65 +59,6 @@ fun rememberEdgeAdvanceState(
     resistance: Float = 0.52f,
 ): EdgeAdvanceState = remember(triggerPx, maxPullPx, resistance) {
     EdgeAdvanceState(
-        triggerPx = triggerPx,
-        maxPullPx = maxPullPx,
-        resistance = resistance,
-    )
-}
-
-@Stable
-class PullToDismissState internal constructor(
-    private val triggerPx: Float,
-    private val maxPullPx: Float,
-    private val resistance: Float,
-) {
-    var pullPx by mutableFloatStateOf(0f)
-        private set
-
-    val progress: Float
-        get() = (pullPx / triggerPx).coerceIn(0f, 1f)
-
-    fun registerPull(deltaPx: Float): Boolean {
-        pullPx = (pullPx + deltaPx * resistance).coerceAtMost(maxPullPx)
-        return pullPx >= triggerPx
-    }
-
-    fun release(deltaPx: Float) {
-        pullPx = (pullPx - deltaPx).coerceAtLeast(0f)
-    }
-
-    suspend fun animateToTrigger() {
-        animate(
-            initialValue = pullPx,
-            targetValue = triggerPx.coerceAtMost(maxPullPx),
-            animationSpec = pullSettleSpec(),
-        ) { value, _ ->
-            pullPx = value
-        }
-    }
-
-    suspend fun animateReset() {
-        animate(
-            initialValue = pullPx,
-            targetValue = 0f,
-            animationSpec = pullSettleSpec(),
-        ) { value, _ ->
-            pullPx = value
-        }
-    }
-
-    fun reset() {
-        pullPx = 0f
-    }
-}
-
-@Composable
-fun rememberPullToDismissState(
-    triggerPx: Float,
-    maxPullPx: Float = triggerPx * 1.3f,
-    resistance: Float = 0.45f,
-): PullToDismissState = remember(triggerPx, maxPullPx, resistance) {
-    PullToDismissState(
         triggerPx = triggerPx,
         maxPullPx = maxPullPx,
         resistance = resistance,

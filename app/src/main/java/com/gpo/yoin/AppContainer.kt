@@ -152,6 +152,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_32_33,
                 MIGRATION_33_34,
                 MIGRATION_34_35,
+                MIGRATION_35_36,
             )
             .addCallback(createCallback)
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
@@ -519,6 +520,23 @@ class AppContainer(private val context: Context) {
     }
 
     /**
+     * Gemini Nano lyric highlights for Home's 「歌词一句」 (data/highlight/): picked a few at a time while Yoin is
+     * in the foreground, on devices with Nano only.
+     */
+    val lyricHighlightProcessor: com.gpo.yoin.data.highlight.LyricHighlightProcessor by lazy {
+        com.gpo.yoin.data.highlight.LyricHighlightProcessor(
+            context = context,
+            repository = repository,
+            dao = database.lyricHighlightDao(),
+            albumRatingDao = database.albumRatingDao(),
+            model = com.gpo.yoin.data.highlight.GeminiNanoLyricModel(),
+            currentTrack = { playbackManager.playbackState.value.currentTrack },
+            profileStartupDone = profileStartupDone,
+            testMode = BuildConfig.NANO_TEST,
+        )
+    }
+
+    /**
      * Reports Subsonic plays to the server (scrobble), queueing those it can't send
      * yet in noBackupFilesDir: the queue is this device's, never restored elsewhere.
      */
@@ -536,6 +554,31 @@ class AppContainer(private val context: Context) {
         }
     }
 
+    /**
+     * Ratings the active service hasn't taken yet (written offline, or while its server was down)
+     * go out again, off the caller's thread. [YoinApplication] calls it when a network comes back;
+     * [startPendingRatingRetries] when an account becomes active.
+     */
+    fun retryPendingRatings() {
+        applicationScope.launch {
+            try {
+                repository.syncPendingRatings()
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                // applicationScope has no handler: an escape here would take the process down.
+                Log.w("YoinRatings", "Waiting ratings not sent", error)
+            }
+        }
+    }
+
+    /** Each account that becomes active (and the first at launch) sends the ratings it still owes its server. */
+    fun startPendingRatingRetries() {
+        applicationScope.launch {
+            profileManager.activeSource.collect { source -> if (source != null) retryPendingRatings() }
+        }
+    }
+
     val audioVisualizerManager: AudioVisualizerManager by lazy {
         AudioVisualizerManager()
     }
@@ -550,6 +593,11 @@ class AppContainer(private val context: Context) {
     /** Once-a-day UI hints (the Now Playing "tap to expand" lyric line). */
     val lyricHintStore: com.gpo.yoin.ui.nowplaying.LyricHintStore by lazy {
         com.gpo.yoin.ui.nowplaying.SharedPrefsLyricHintStore(context)
+    }
+
+    /** Spotify Connect devices seen per account (the Devices sheet's "recently used" rows). */
+    val spotifyDeviceMemory: com.gpo.yoin.ui.nowplaying.SpotifyDeviceMemory by lazy {
+        com.gpo.yoin.ui.nowplaying.SharedPrefsSpotifyDeviceMemory(context)
     }
 
     /** Home edit-mode hints (session count, sections seen), per device. */
@@ -575,6 +623,11 @@ class AppContainer(private val context: Context) {
             accountKey = { profile -> cloudSync.accountKeys.of(profile) },
             requestNowPlaying = experienceSessionStore::requestNowPlaying,
         )
+    }
+
+    /** The mini player's progress between position ticks, shared by every window's pill. */
+    val playbackProgressSmoother: com.gpo.yoin.ui.component.PlaybackProgressSmoother by lazy {
+        com.gpo.yoin.ui.component.PlaybackProgressSmoother { playbackManager.playbackState.value.duration }
     }
 
     val motionCapabilityProvider: MotionCapabilityProvider by lazy {
@@ -931,6 +984,38 @@ class AppContainer(private val context: Context) {
         val MIGRATION_34_35 = object : Migration(34, 35) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `home_grid_pool_cache` ADD COLUMN `version` TEXT")
+            }
+        }
+
+        // Gemini Nano lyric highlights (data/highlight/).
+        val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `lyric_highlights` (
+                        `profileId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `songId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `artist` TEXT NOT NULL,
+                        `album` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `coverArtId` TEXT,
+                        `durationMs` INTEGER NOT NULL,
+                        `text` TEXT,
+                        `startMs` INTEGER,
+                        `lyricsFingerprint` TEXT,
+                        `model` TEXT,
+                        `attemptedAt` INTEGER NOT NULL,
+                        `lastShownAt` INTEGER,
+                        PRIMARY KEY(`profileId`, `provider`, `songId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_lyric_highlights_shown` " +
+                        "ON `lyric_highlights` (`profileId`, `provider`, `lastShownAt`)",
+                )
             }
         }
 

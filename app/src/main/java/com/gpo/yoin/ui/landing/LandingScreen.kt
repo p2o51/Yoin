@@ -58,6 +58,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.highlight.NanoStatus
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -65,8 +66,10 @@ import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.ShellChromeForm
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.experience.voteHighFrameRate
+import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.landing.guide.ConnectGuide
 import com.gpo.yoin.ui.navigation.back.LandingPredictiveBack
+import com.gpo.yoin.ui.settings.ScreenCornerControl
 import com.gpo.yoin.ui.settings.assignAvatarShapes
 import com.gpo.yoin.ui.settings.service.SetupService
 import com.gpo.yoin.ui.spotoolfy.SpotoolfyRecapActivity
@@ -551,8 +554,18 @@ private fun LandingScene(
             imported = spotoolfyWritten,
         )
         LandingStep.AppleMusic -> AppleConnectScene(SetupService.AppleMusic in state.connected, reactions)
-        LandingStep.Home -> HomeSectionsScene(state.layout, vm::setSectionEnabled, vm::moveSection)
+        LandingStep.Home -> {
+            // 「歌词一句」 only where Gemini Nano is known to be there.
+            val nano by container.lyricHighlightProcessor.status.collectAsState()
+            HomeSectionsScene(
+                layout = state.layout,
+                onEnabled = vm::setSectionEnabled,
+                onMove = vm::moveSection,
+                hidden = if (nano == NanoStatus.AVAILABLE) emptySet() else setOf(HomeSection.LyricHighlight),
+            )
+        }
         LandingStep.Edge -> ScrollEdgeScene(selected = state.edge, playing = edgePlaying, onSelect = vm::setEdge)
+        LandingStep.Corners -> LandingSceneColumn { ScreenCornerControl() }
         LandingStep.Ready -> ReadyScene(accounts)
     }
 }
@@ -590,6 +603,7 @@ private fun bubbleLines(step: LandingStep, noAccounts: Boolean): Pair<Int, Int?>
     LandingStep.AppleMusic -> R.string.landing_apple_title to R.string.landing_apple_body
     LandingStep.Home -> R.string.landing_home_title to null
     LandingStep.Edge -> R.string.landing_edge_title to null
+    LandingStep.Corners -> R.string.landing_corners_title to null
     LandingStep.Ready -> if (noAccounts) R.string.landing_ready_none_title to R.string.landing_ready_none_body else R.string.landing_ready_title to null
 }
 

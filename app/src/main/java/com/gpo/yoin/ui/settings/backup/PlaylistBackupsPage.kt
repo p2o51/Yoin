@@ -35,6 +35,7 @@ import com.gpo.yoin.data.backup.PlaylistBackupRecord
 import com.gpo.yoin.data.backup.PlaylistRestoreRecord
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.settings.SettingsItem
 import com.gpo.yoin.ui.settings.SettingsSegments
 import com.gpo.yoin.ui.settings.tone
@@ -88,7 +89,7 @@ internal fun PlaylistBackupsList(
                 text = stringResource(R.string.playlist_backups_empty),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 24.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 24.dp).seamFade(),
             )
             state is PlaylistBackupsUiState.Content -> SettingsSegments {
                 state.backups.forEach { backup ->
@@ -154,6 +155,7 @@ private fun BackupRow(backup: PlaylistBackupRecord, nowMs: Long, onClick: () -> 
                 text = pluralStringResource(R.plurals.playlist_backup_songs, backup.trackCount, backup.trackCount),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.seamFade(),
             )
         },
     )

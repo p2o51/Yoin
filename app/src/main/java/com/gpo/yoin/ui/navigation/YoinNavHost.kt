@@ -86,6 +86,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlayableQueue
@@ -132,7 +133,9 @@ import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.home.LocalMemoryBubbleShell
+import com.gpo.yoin.ui.home.LyricHighlightViewModel
 import com.gpo.yoin.ui.home.OtherProfilesViewModel
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerViewModel
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
 import com.gpo.yoin.ui.home.rememberMemoryBubbleShell
@@ -144,8 +147,11 @@ import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.MemorySwitchGate
+import com.gpo.yoin.ui.memories.MemorySwitchNotice
 import com.gpo.yoin.ui.memories.rememberMemoriesHomeBehind
 import com.gpo.yoin.ui.memories.rememberMemoriesHostPose
+import com.gpo.yoin.ui.memories.rememberMemorySwitchGate
 import com.gpo.yoin.ui.memories.toPlaybackActivityContext
 import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
@@ -173,6 +179,7 @@ import com.gpo.yoin.ui.nowplaying.LocalNowPlayingPanelBeside
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingPanelMinContentWidth
 import com.gpo.yoin.ui.nowplaying.NowPlayingPresentation
+import com.gpo.yoin.ui.nowplaying.PillMorph
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
@@ -184,6 +191,8 @@ import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingStageProgress
+import com.gpo.yoin.ui.nowplaying.rememberPillMorph
+import com.gpo.yoin.ui.nowplaying.rememberShownNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberWindowWidthDp
 import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -202,6 +211,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -449,8 +459,11 @@ private fun YoinShell(
     val npFrame = rememberNowPlayingFrame(nowPlayingViewModel, npPanelMinContent)
     val npPanelMotion = rememberNowPlayingPanelMotion()
     val npPanel = rememberNowPlayingPanelInset(npFrame, showNowPlaying, npPanelMotion)
-    val npSharesCover = npFrame.presentation == NowPlayingPresentation.Phone ||
-        npFrame.presentation == NowPlayingPresentation.Tabletop
+    // The bar's end of the pill morph: the same shown frame and open/close
+    // latch as NowPlayingOverlayHost, so the two ends never disagree.
+    val npShownFrame = rememberShownNowPlayingFrame(showNowPlaying, npFrame)
+    val npPillMorph = rememberPillMorph(showNowPlaying, npShownFrame.presentation)
+    val npSharesCover = npPillMorph != PillMorph.None
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
     )
@@ -884,6 +897,10 @@ private fun YoinShell(
     val accountSwitcher: AccountSwitcherViewModel = viewModel(factory = AccountSwitcherViewModel.Factory(app.container))
     // Home's On Your Other Accounts shelf: a tap switches here, then plays.
     val otherProfiles: OtherProfilesViewModel = viewModel(factory = OtherProfilesViewModel.Factory(app.container, app))
+    // Home's 「歌词一句」: the Gemini Nano lyric line, on devices that have Nano.
+    val lyricHighlights: LyricHighlightViewModel = viewModel(factory = LyricHighlightViewModel.Factory(app.container))
+    // Home's Memories grid: every account's memories, kept fresh as they're written.
+    val memoryLedger: MemoryLedgerViewModel = viewModel(factory = MemoryLedgerViewModel.Factory(app.container))
     val switchFailedMessage by rememberUpdatedState(stringResource(R.string.settings_switch_failed))
     LaunchedEffect(accountSwitcher) {
         accountSwitcher.switchFailures.collect {
@@ -1033,6 +1050,8 @@ private fun YoinShell(
                                 viewModel = homeViewModel,
                                 accountSwitcher = accountSwitcher,
                                 otherProfiles = otherProfiles,
+                                lyricHighlights = lyricHighlights,
+                                memoryLedger = memoryLedger,
                                 isPlaying = isPlaying,
                                 activeSongId = currentTrack?.id?.toString(),
                                 // Something above Home owns the screen (Now
@@ -1084,6 +1103,8 @@ private fun YoinShell(
                             )
 
                             if (memoriesMounted) {
+                                // Switching accounts from a memory asks once first (it stops playback).
+                                val memorySwitchGate = rememberMemorySwitchGate()
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -1109,7 +1130,12 @@ private fun YoinShell(
                                         // detail 前进推入（隐藏底栏不参与 morph 交接）。
                                         // 不 dismiss —— Memories 留在原地，back
                                         // 从专辑页回来时它还在。
-                                        onOpenAlbum = rememberMemoryAlbumOpen(app.container.repository) { memory ->
+                                        // Another account's memory switches to that account first.
+                                        onOpenAlbum = rememberMemoryAlbumOpen(
+                                            app.container.repository,
+                                            accountSwitcher,
+                                            memorySwitchGate,
+                                        ) { memory ->
                                             // MemoryEntry.entityId is the RAW id
                                             // (the coordinator strips the provider
                                             // prefix); AlbumDetailViewModel parses a
@@ -1143,34 +1169,33 @@ private fun YoinShell(
                                             navigateToSettingsFromShell("neodb")
                                         },
                                         onPlayMemoryTrack = { memory, trackIndex ->
-                                            val queue = memory.playbackSongs
-                                            if (queue.isNotEmpty()) {
-                                                val startIndex = trackIndex.coerceIn(0, queue.lastIndex)
-                                                val selectedSong = queue[startIndex]
-                                                val activityContext = memory.toPlaybackActivityContext()
-
-                                                if (memory.entityType == MemoryEntityType.SONG || queue.size <= 1) {
-                                                    app.container.profileManager.activeSource.value?.let { source ->
-                                                        app.container.playbackManager.playSingle(
-                                                            track = selectedSong,
-                                                            source = source,
-                                                            activityContext = activityContext,
-                                                        )
-                                                    }
-                                                } else {
-                                                    app.container.profileManager.activeSource.value?.let { source ->
-                                                        app.container.playbackManager.play(
-                                                            tracks = queue,
-                                                            startIndex = startIndex,
-                                                            source = source,
-                                                            activityContext = activityContext,
-                                                        )
-                                                    }
+                                            val owner = memory.otherProfile
+                                            if (owner == null) {
+                                                app.container.profileManager.activeSource.value?.let { source ->
+                                                    playMemoryTrack(app.container, memory, trackIndex, source)
+                                                }
+                                            } else {
+                                                // Another account's track: switch there (as Home's
+                                                // other-accounts shelf does), then play once its source is up.
+                                                val subject = memory.playbackSongs.getOrNull(trackIndex)?.title
+                                                    ?: memory.title
+                                                memorySwitchGate.request(owner, subject, opensAlbum = false) {
+                                                    accountSwitcher.switchTo(owner.id, onLanded = {
+                                                        shellScope.launch {
+                                                            val source = withTimeoutOrNull(OtherProfileSourceWaitMs) {
+                                                                app.container.profileManager.activeSource.first {
+                                                                    it?.id == memory.entityProvider
+                                                                }
+                                                            } ?: return@launch
+                                                            playMemoryTrack(app.container, memory, trackIndex, source)
+                                                        }
+                                                    })
                                                 }
                                             }
                                         },
                                         modifier = Modifier.fillMaxSize(),
                                     )
+                                    MemorySwitchNotice(memorySwitchGate)
                                 }
                             }
                         }
@@ -1583,13 +1608,15 @@ private fun YoinShell(
                             experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
                             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                         },
-                        // Only the full-window phone column (and Tabletop) takes the
-                        // mini-player → cover morph; the side panel, the enlarged
-                        // phone and the two-column player drop it. Leaving the mini
-                        // cover's shared element here would make it a no-peer
-                        // shared element, which the SharedTransitionLayout
-                        // lookahead measures with degenerate constraints — so the
-                        // shell's side is disabled exactly where NP's is.
+                        // The mini-player → player morph wherever the player covers
+                        // the bar (PillMorph): the phone column, the enlarged phone and
+                        // the two columns (opened where no panel fits, or closed from
+                        // their full state), and landscape; the side panel drops it, and
+                        // so does the bar moving for the corner toggle (rememberPillMorph).
+                        // Leaving the mini cover's shared element where NP has none
+                        // would make it a no-peer shared element, which the
+                        // SharedTransitionLayout lookahead measures with degenerate
+                        // constraints — so the shell's side follows NP's exactly.
                         sharedTransitionScope = if (npSharesCover) {
                             sharedTransitionScope
                         } else {
@@ -1600,6 +1627,7 @@ private fun YoinShell(
                         } else {
                             null
                         },
+                        morphPillText = npPillMorph == PillMorph.CoverAndText,
                     )
                 }
             }
@@ -1747,13 +1775,56 @@ private fun markDetailClick(route: DetailPaneRoute, via: String) {
  * the same callback instance across recompositions and can still skip them.
  */
 @Composable
-private fun rememberMemoryAlbumOpen(repository: YoinRepository, open: (MemoryEntry) -> Unit): (MemoryEntry) -> Unit =
-    remember(repository, open) {
+private fun rememberMemoryAlbumOpen(
+    repository: YoinRepository,
+    accountSwitcher: AccountSwitcherViewModel,
+    switchGate: MemorySwitchGate,
+    open: (MemoryEntry) -> Unit,
+): (MemoryEntry) -> Unit =
+    remember(repository, accountSwitcher, switchGate, open) {
         { memory ->
-            repository.prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
-            open(memory)
+            val go = {
+                repository.prefetchAlbumDetail("${memory.entityProvider}:${memory.entityId}")
+                open(memory)
+            }
+            // Another account's memory: its album is that account's, so switch there first (the deck keeps
+            // the card in view across the switch) and open the album once the account is in use. The first
+            // time, the one-off notice asks before switching.
+            val owner = memory.otherProfile
+            if (owner == null) {
+                go()
+            } else {
+                switchGate.request(owner, memory.title, opensAlbum = true) {
+                    accountSwitcher.switchTo(owner.id, onLanded = go)
+                }
+            }
         }
     }
+
+/** How long playing another account's memory track waits for that account's source after the switch. */
+private const val OtherProfileSourceWaitMs = 10_000L
+
+/** Play [memory]'s track at [trackIndex] (its queue, or the one song) on [source]. */
+private fun playMemoryTrack(container: AppContainer, memory: MemoryEntry, trackIndex: Int, source: MusicSource) {
+    val queue = memory.playbackSongs
+    if (queue.isEmpty()) return
+    val startIndex = trackIndex.coerceIn(0, queue.lastIndex)
+    val activityContext = memory.toPlaybackActivityContext()
+    if (memory.entityType == MemoryEntityType.SONG || queue.size <= 1) {
+        container.playbackManager.playSingle(
+            track = queue[startIndex],
+            source = source,
+            activityContext = activityContext,
+        )
+    } else {
+        container.playbackManager.play(
+            tracks = queue,
+            startIndex = startIndex,
+            source = source,
+            activityContext = activityContext,
+        )
+    }
+}
 
 /** Debug-only `detail.click` for a Memories stamp's album (its full MediaId, as the page is opened with). */
 private fun markMemoryAlbumClick(memory: MemoryEntry, via: String) {

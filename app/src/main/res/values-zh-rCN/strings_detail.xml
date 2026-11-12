@@ -20,6 +20,7 @@
     <string name="detail_share_album_title">%1$s – %2$s</string>
     <string name="detail_share_artist">分享这位艺术家</string>
     <string name="detail_share_playlist">分享这个播放列表</string>
+    <string name="detail_share_link_failed">服务器没能生成分享链接，只分享了名字</string>
 
     <string name="detail_album_error_not_found">未找到专辑</string>
     <string name="detail_album_error_load">无法加载此专辑。</string>

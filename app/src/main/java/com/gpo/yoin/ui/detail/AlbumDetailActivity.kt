@@ -7,7 +7,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -76,6 +76,7 @@ class AlbumDetailActivity : ComponentActivity() {
         handoffRequestInfo: android.app.HandoffActivityDataRequestInfo,
     ): android.app.HandoffActivityData = ContinueOnWindows.handoffData(this, handoffRequestInfo)
 
+    @OptIn(ExperimentalSharedTransitionApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ContinueOnWindows.install(this)
@@ -193,6 +194,7 @@ class AlbumDetailActivity : ComponentActivity() {
                 // ▾: Play next, Add to queue, Add to playlist, Save to / Remove from
                 // library (Spotify), Open in …; Share carries the link.
                 val webLink = rememberDetailWebLink(app.container, WebLinkKind.Album, albumId)
+                val shareAlbum = rememberDetailShare(app.container, WebLinkKind.Album, albumId, webLink)
                 val menu = rememberDetailMenu(
                     container = app.container,
                     link = webLink,
@@ -225,7 +227,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     )
                 }
 
-                Box(modifier = Modifier.fillMaxSize()) {
+                DetailNowPlayingWindow(nowPlayingFrame, nowPlayingOpen) { nowPlayingMorph ->
                 ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                 AlbumDetailScreen(
                     uiState = uiState,
@@ -284,12 +286,7 @@ class AlbumDetailActivity : ComponentActivity() {
                         } else {
                             context.getString(R.string.detail_share_album)
                         }
-                        val text = detailShareText(title, webLink)
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, text)
-                        }
-                        context.startActivity(Intent.createChooser(send, null))
+                        shareAlbum(title)
                     },
                     menu = menu,
                     onOpenArtist = (uiState as? AlbumDetailUiState.Content)?.artistId?.let { artistId ->
@@ -322,6 +319,8 @@ class AlbumDetailActivity : ComponentActivity() {
                     onArtistClick = { id -> openFromNowPlaying(DetailPageKind.Artist, id) },
                     onPlaylistClick = { id -> openFromNowPlaying(DetailPageKind.Playlist, id) },
                     panelMotion = nowPlayingPanelMotion,
+                    // The pill on this page's bar grows into the player's cover.
+                    sharedTransitionScope = nowPlayingMorph,
                 )
                 NowPlayingAccessories(
                     viewModel = nowPlayingViewModel,

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,7 +43,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.gpo.yoin.R
+import com.gpo.yoin.data.highlight.LyricHighlightSelector
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarEditLeftSlot
 import com.gpo.yoin.ui.component.BarEditPose
@@ -56,8 +60,11 @@ import com.gpo.yoin.ui.home.HomeAccountFanState
 import com.gpo.yoin.ui.home.HomeAccountQuickSwitch
 import com.gpo.yoin.ui.home.HomeGreetingTitle
 import com.gpo.yoin.ui.home.HomeHeaderTitleBreathing
+import com.gpo.yoin.ui.home.HomeLyricHighlight
 import com.gpo.yoin.ui.home.HomeSection
+import com.gpo.yoin.ui.home.HomeSpotifyElsewherePill
 import com.gpo.yoin.ui.home.HomeWidgetGridSection
+import com.gpo.yoin.ui.home.LyricHighlightSection
 import com.gpo.yoin.ui.home.MemoryBubbleController
 import com.gpo.yoin.ui.home.MemoryBubbleOverlay
 import com.gpo.yoin.ui.home.edit.HomeEditCardScope
@@ -75,11 +82,12 @@ import com.gpo.yoin.ui.home.memoryBubbleTitle
 import com.gpo.yoin.ui.home.titleRes
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.MemoryScoreKind
+import com.gpo.yoin.ui.memories.award.MemoriesAwardLifecycle
+import com.gpo.yoin.ui.memories.MemoryOtherProfile
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptAttribution
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptCandidate
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptKind
-import com.gpo.yoin.ui.memories.MemoryScoreKind
-import com.gpo.yoin.ui.memories.award.MemoriesAwardLifecycle
 import com.gpo.yoin.ui.memories.emblem.rememberGrooveTilt
 import com.gpo.yoin.ui.memories.memoriesAuroraBackground
 import com.gpo.yoin.ui.memories.showcase.CardEmblem
@@ -279,6 +287,146 @@ internal fun AccountQuickSwitchDemo(playing: Boolean) {
     }
 }
 
+/**
+ * Opened in a non-Spotify account while the signed-in Spotify one plays: the
+ * header's pill (Home's own HomeSpotifyElsewherePill) shows the song beside
+ * the avatar; the finger taps it and Spotify's account is the one in use.
+ */
+@Composable
+internal fun SpotifyElsewhereDemo(playing: Boolean) {
+    val accounts = DemoAccounts
+    val spotify = accounts.first { it.provider == ProviderKind.SPOTIFY }
+    var activeId by remember { mutableStateOf(accounts[0].id) }
+    var shown by remember { mutableStateOf(false) }
+    val covers = demoCoverUrls()
+    val elsewhere = remember(covers, spotify) {
+        val album = DemoAlbums[3]
+        SpotifyElsewhere(
+            profileId = spotify.id,
+            trackTitle = DemoTrackTitles[0],
+            artistName = album.artist,
+            coverUrl = covers.getOrNull(3),
+            isPlaying = true,
+        )
+    }
+    DemoPhone(playing = playing, script = {
+        activeId = accounts[0].id
+        shown = false
+        delay(700)
+        // The app comes to the front: Spotify's song shows up top.
+        shown = true
+        delay(1_600)
+        moveTo("spotify-pill")
+        tap {
+            shown = false
+            activeId = spotify.id
+        }
+        lift()
+        delay(2_000)
+    }) {
+        DemoHomePage(
+            editProgress = { 0f },
+            editing = false,
+            onEnterEdit = {},
+            onDone = {},
+            cardScope = null,
+            headerAction = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    HomeSpotifyElsewherePill(
+                        elsewhere = elsewhere,
+                        visible = shown,
+                        onClick = {
+                            shown = false
+                            activeId = spotify.id
+                        },
+                        modifier = Modifier.demoTarget("spotify-pill"),
+                    )
+                    HomeAccountButton(
+                        card = accounts.first { it.id == activeId },
+                        onClick = {},
+                    )
+                }
+            },
+        )
+    }
+}
+
+/**
+ * 「歌词一句」: the real Home shelf under the header. The finger swipes on to the next song's line
+ * and back, then taps a card to play from it; the lines here are made up for the demo (a real card
+ * shows the song's own).
+ */
+@Composable
+internal fun LyricHighlightDemo(playing: Boolean) {
+    val covers = demoCoverUrls()
+    val cards = remember(covers) {
+        DemoLyricLines.mapIndexed { i, (text, kind) ->
+            val album = DemoAlbums[i]
+            HomeLyricHighlight(
+                songId = MediaId.subsonic("tip-lyric-$i"),
+                title = DemoTrackTitles[i],
+                artist = album.artist,
+                album = album.name,
+                albumId = null,
+                coverKey = covers[i],
+                durationMs = 200_000L,
+                text = text,
+                startMs = null,
+                kind = kind,
+            )
+        }
+    }
+    val pagerState = rememberPagerState(pageCount = { 3 })
+    DemoPhone(playing = playing, script = {
+        pagerState.scrollToPage(0)
+        delay(900)
+        for (target in listOf(1, 2, 1)) {
+            moveTo("lyric", fx = 0.8f, fy = 0.6f)
+            delay(200)
+            coroutineScope {
+                launch { pagerState.animateScrollToPage(target) }
+                drag(fx = at("lyric", fx = 0.3f, fy = 0.6f).x, fy = at("lyric", fy = 0.6f).y, ms = 420) {}
+            }
+            delay(900)
+        }
+        moveTo("lyric", fx = 0.4f, fy = 0.5f)
+        delay(250)
+        tap {}
+        delay(900)
+        lift()
+        delay(600)
+    }) {
+        DemoHomePage(
+            editProgress = { 0f },
+            editing = false,
+            onEnterEdit = {},
+            onDone = {},
+            cardScope = null,
+            body = {
+                LyricHighlightSection(
+                    cards = cards,
+                    count = 3,
+                    frame = null,
+                    buildCoverArtUrl = { it },
+                    extractBackdropColors = true,
+                    onPlay = {},
+                    shelfScrollEnabled = false,
+                    pagerState = pagerState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .demoTarget("lyric"),
+                )
+            },
+        )
+    }
+}
+
+private val DemoLyricLines = listOf(
+    "We left the porch light on all winter,\nso the summer would know the way" to LyricHighlightSelector.Bucket.HEAVY,
+    "Some songs wait in a drawer for years,\nthen fit you like a coat" to LyricHighlightSelector.Bucket.REDISCOVER,
+    "I hum the parts I don't know yet" to LyricHighlightSelector.Bucket.USER,
+)
+
 // The header avatar's box (HomeAccountButton), and where the fan's items sit
 // under it, as fractions of that box (HomeAccountQuickSwitch's 12dp gap, 48dp items, 60dp steps).
 private val DemoAccountBox = 48.dp
@@ -294,6 +442,8 @@ private fun BoxScope.DemoHomePage(
     hint: () -> Float = { 0f },
     // In place of the Settings gear (the account in use, on Home).
     headerAction: (@Composable () -> Unit)? = null,
+    // In place of Jump Back In (another section's scene).
+    body: (@Composable () -> Unit)? = null,
 ) {
     val cards = demoWidgetCards()
     val bubble = remember { MemoryBubbleController() }
@@ -338,7 +488,9 @@ private fun BoxScope.DemoHomePage(
                     }
                 }
             }
-            CompositionLocalProvider(LocalHomeEditCardScope provides cardScope) {
+            if (body != null) {
+                body()
+            } else CompositionLocalProvider(LocalHomeEditCardScope provides cardScope) {
                 HomeWidgetGridSection(
                     title = stringResource(HomeSection.JumpBackIn.titleRes),
                     cards = cards,
@@ -393,14 +545,21 @@ private fun BoxScope.DemoHomePage(
     }
 }
 
-/** The Memories deck's first card on its ambient wash, under the deck's top bar. */
+/**
+ * The Memories deck's first card on its ambient wash, under the deck's top bar. [owner]: the card is another
+ * account's, so it says whose beside Go to album (and drops its quote, to leave the small phone room).
+ */
 @Composable
-private fun DemoMemoriesPage(onHome: () -> Unit, modifier: Modifier = Modifier) {
+private fun DemoMemoriesPage(
+    onHome: () -> Unit,
+    modifier: Modifier = Modifier,
+    owner: MemoryOtherProfile? = null,
+) {
     val dark = isSystemInDarkTheme()
-    val palette = MemoryPaletteSamples.M1
-    val album = DemoAlbums[3]
+    val palette = if (owner == null) MemoryPaletteSamples.M1 else MemoryPaletteSamples.M3
+    val album = DemoAlbums[if (owner == null) 3 else 0]
     val cover = demoCoverUrl(album)
-    val memory = remember(cover) {
+    val memory = remember(cover, owner) {
         MemoryEntry(
             stableId = "tip-memory",
             sourceActivityId = 0L,
@@ -418,14 +577,19 @@ private fun DemoMemoriesPage(onHome: () -> Unit, modifier: Modifier = Modifier) 
             scoreSupportingText = null,
             footerText = null,
             memoryTitle = "Night walks in the rain",
-            excerptCandidates = listOf(
-                MemoryExcerptCandidate(
-                    "The second side is the one I keep coming back to.",
-                    MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Oct 12"),
-                ),
-            ),
+            excerptCandidates = if (owner != null) {
+                emptyList()
+            } else {
+                listOf(
+                    MemoryExcerptCandidate(
+                        "The second side is the one I keep coming back to.",
+                        MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Oct 12"),
+                    ),
+                )
+            },
             playbackSongs = emptyList(),
             tracks = emptyList(),
+            otherProfile = owner,
         )
     }
     val metrics = remember { memoryCardMetrics(ScreenWidth, DemoScreenHeight) }
@@ -486,6 +650,57 @@ private fun DemoMemoriesPage(onHome: () -> Unit, modifier: Modifier = Modifier) 
         )
     }
 }
+
+/**
+ * Memories deals every account's memories: swipe to the next card, and one from another account says whose it
+ * is beside Go to album (the real card face and its「来自 …」line).
+ */
+@Composable
+internal fun MemoriesAllAccountsDemo(playing: Boolean) {
+    // 0 = this account's card, 1 = the next one, from another account.
+    val shift = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val spatial = YoinMotion.spatialSpring<Float>()
+    val widthPx = with(LocalDensity.current) { ScreenWidth.toPx() }
+    val settle: () -> Unit = { scope.launch { shift.animateTo(if (shift.value > 0.5f) 1f else 0f, spatial) } }
+    DemoPhone(playing = playing, script = {
+        shift.snapTo(0f)
+        delay(900)
+        moveTo(0.8f, 0.45f)
+        drag(0.25f, 0.45f, ms = 600) { p -> scope.launch { shift.snapTo(p * SwipeTravel) } }
+        shift.animateTo(1f, spatial)
+        lift()
+        delay(2_800)
+    }) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .draggable(
+                    orientation = Orientation.Horizontal,
+                    state = rememberDraggableState { delta ->
+                        scope.launch { shift.snapTo((shift.value - delta / widthPx).coerceIn(0f, 1f)) }
+                    },
+                    onDragStopped = { settle() },
+                ),
+        ) {
+            DemoMemoriesPage(
+                onHome = {},
+                modifier = Modifier.graphicsLayer { translationX = -size.width * shift.value },
+            )
+            DemoMemoriesPage(
+                onHome = {},
+                owner = DemoOtherAccount,
+                modifier = Modifier.graphicsLayer { translationX = size.width * (1f - shift.value) },
+            )
+        }
+    }
+}
+
+/** The account the demo's second memory is from (one of the switcher demo's accounts). */
+private val DemoOtherAccount = MemoryOtherProfile(id = "demo-b", name = "Okto", shape = 1, kind = ProviderKind.SPOTIFY)
+
+/** How far the demo's swipe carries the deck before it lets go (the rest is the settle). */
+private const val SwipeTravel = 0.6f
 
 /** How far the demo's pull takes Memories before it lets go (the rest is the settle). */
 private const val PullTravel = 0.45f

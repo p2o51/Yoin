@@ -641,6 +641,8 @@ private fun previewCovers(section: HomeSection, bun: Shape): List<StripCover> = 
     HomeSection.RecentlyPlayed -> listOf(StripCover(null, bun, Color(0xFF8A5A9E)))
     HomeSection.YourPlaylists -> listOf(StripCover(null, bun, Color(0xFF5A6FA6)))
     HomeSection.OtherProfiles -> listOf(StripCover(null, bun, Color(0xFF8C6A4F)), StripCover(null, bun, Color(0xFF4F6A8C)))
+    HomeSection.LyricHighlight -> listOf(StripCover(null, CircleShape, Color(0xFF6B4FD8)))
+    HomeSection.MemoryGrid -> listOf(StripCover(null, bun, Color(0xFF7D5BA6)), StripCover(null, bun, Color(0xFFB0753F)))
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)

@@ -5,7 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SnackbarDuration
@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
@@ -80,6 +81,7 @@ class PlaylistDetailActivity : ComponentActivity() {
         handoffRequestInfo: android.app.HandoffActivityDataRequestInfo,
     ): android.app.HandoffActivityData = ContinueOnWindows.handoffData(this, handoffRequestInfo)
 
+    @OptIn(ExperimentalSharedTransitionApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ContinueOnWindows.install(this)
@@ -101,6 +103,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
+                // As on the album and artist pages: Spotify and Apple Music have a public page to send.
+                val webLink = rememberDetailWebLink(app.container, WebLinkKind.Playlist, playlistId)
+                val sharePlaylist = rememberDetailShare(app.container, WebLinkKind.Playlist, playlistId, webLink)
                 val backingUp by viewModel.backingUp.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
@@ -211,7 +216,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                     )
                 }
 
-                Box(modifier = Modifier.fillMaxSize()) {
+                DetailNowPlayingWindow(nowPlayingFrame, nowPlayingOpen) { nowPlayingMorph ->
                     ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                         PlaylistDetailScreen(
                             uiState = uiState,
@@ -259,14 +264,10 @@ class PlaylistDetailActivity : ComponentActivity() {
                                 onMessage = nowPlayingViewModel::postMessage,
                             ),
                             onShare = {
-                                val text = (uiState as? PlaylistDetailUiState.Content)
-                                    ?.playlistName
-                                    ?: context.getString(R.string.detail_share_playlist)
-                                val send = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, text)
-                                }
-                                context.startActivity(Intent.createChooser(send, null))
+                                sharePlaylist(
+                                    (uiState as? PlaylistDetailUiState.Content)?.playlistName
+                                        ?: context.getString(R.string.detail_share_playlist),
+                                )
                             },
                             isPlaying = isPlaying,
                             onOpenNowPlaying = { nowPlayingOpen = true },
@@ -293,6 +294,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                     onArtistClick = { id -> openFromNowPlaying(DetailPageKind.Artist, id) },
                     onPlaylistClick = { id -> openFromNowPlaying(DetailPageKind.Playlist, id) },
                     panelMotion = nowPlayingPanelMotion,
+                    // The pill on this page's bar grows into the player's cover.
+                    sharedTransitionScope = nowPlayingMorph,
                 )
                 NowPlayingAccessories(
                     viewModel = nowPlayingViewModel,

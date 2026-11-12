@@ -53,7 +53,7 @@ class LandingViewModelTest {
         assertEquals(
             listOf(
                 LandingStep.Hello, LandingStep.Pick, LandingStep.About,
-                LandingStep.Subsonic, LandingStep.AppleMusic, LandingStep.Edge, LandingStep.Ready,
+                LandingStep.Subsonic, LandingStep.AppleMusic, LandingStep.Edge, LandingStep.Corners, LandingStep.Ready,
             ),
             steps,
         )

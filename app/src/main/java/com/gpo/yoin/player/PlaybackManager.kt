@@ -37,6 +37,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -287,7 +288,9 @@ class PlaybackManager(
                         ?: context.getString(R.string.player_init_failed),
                 )
             } finally {
-                connectJob = null
+                // A cancelled connect ends after its replacement was launched (a switch between the
+                // MusicKit and the local controller): only clear the slot if it is still this job's.
+                if (connectJob === coroutineContext[Job]) connectJob = null
             }
         }
     }
@@ -350,6 +353,7 @@ class PlaybackManager(
                 val result = manager.disconnect()
                 if (result.isSuccess && generation == playbackGeneration) {
                     _playbackState.value = PlaybackState(connectionPhase = ConnectionPhase.Idle)
+                    endScrobbleSession()
                 } else if (result.isFailure && hostStarted && generation == playbackGeneration) {
                     // Keep a failed-stop renderer controllable when the user is still here.
                     connectInBackground()
@@ -388,6 +392,16 @@ class PlaybackManager(
         controller = null
         context.stopService(android.content.Intent(context, com.gpo.yoin.player.applemusic.AppleMusicPlaybackService::class.java))
         _playbackState.value = PlaybackState(connectionPhase = ConnectionPhase.Idle)
+        endScrobbleSession()
+    }
+
+    /**
+     * The state was reset without [publishPlaybackState] (the listener is already gone, so the
+     * player's own stop never arrives): tell the scrobble rule the song stopped, or its timer
+     * counts a play that was cut short as heard to the threshold.
+     */
+    private fun endScrobbleSession() {
+        scrobbleReporter?.onState(null)
     }
 
     // ── Playback controls ─────────────────────────────────────────────
@@ -625,10 +639,13 @@ class PlaybackManager(
                     }
                 }
             }.onFailure { error ->
-                if (error is CancellationException) throw error
+                // A speaker that never confirmed the handoff (withTimeout) is a failed start to
+                // show, not a cancelled one: rethrown, the tap would end with nothing on screen.
+                val timedOut = error is TimeoutCancellationException
+                if (error is CancellationException && !timedOut) throw error
                 _playbackState.value = _playbackState.value.copy(
                     connectionPhase = ConnectionPhase.Error,
-                    connectionErrorMessage = error.message
+                    connectionErrorMessage = error.message.takeUnless { timedOut }
                         ?: context.getString(R.string.player_play_failed),
                 )
                 Log.w(TAG, "play failed for ${tracks[startIndex].id}", error)
@@ -1182,6 +1199,7 @@ class PlaybackManager(
             positionUpdateJob?.cancel()
             positionUpdateJob = null
             _playbackState.value = PlaybackState(connectionPhase = ConnectionPhase.Idle)
+            endScrobbleSession()
         }
     }
 

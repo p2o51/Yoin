@@ -47,10 +47,6 @@
     <string name="np_lyrics_none">暂无歌词</string>
     <string name="np_lyric_up_next">下一首 · %1$s</string>
 
-    <string name="np_dock_playing_from_album">播放自专辑</string>
-    <string name="np_dock_playing_from_playlist">播放自播放列表</string>
-    <string name="np_dock_playing_from_artist">播放自艺术家</string>
-    <string name="np_dock_now_playing">正在播放</string>
     <string name="np_from_album">播放自专辑</string>
     <string name="np_from_playlist">播放自播放列表</string>
     <string name="np_from_artist">播放自艺术家</string>
@@ -211,6 +207,10 @@
     <string name="np_device_switch_back_cast">切回此设备</string>
     <string name="np_device_connected_cast">正在投播</string>
     <string name="np_device_use_cast_pill">未投播</string>
+    <string name="np_device_spotify_remembered">最近用过 · 可能要先在 Spotify 里唤醒</string>
+    <string name="np_device_spotify_only">通过 Spotify 切换</string>
+    <string name="np_msg_spotify_device_asleep">这台音响睡着了。先在 Spotify 里选它一次（更多设备），Yoin 就能接着控制。</string>
+    <string name="np_msg_spotify_open_failed">无法打开 Spotify。</string>
     <string name="np_device_dlna_error_discovery">无法发现音响。请连接同一 Wi-Fi 网络后重试。</string>
     <string name="np_device_dlna_error_group">无法连接 Sonos 分组。请检查音响连接后重试。</string>
     <string name="np_device_dlna_error_stop">音响未确认停止。请重试后再切换播放设备。</string>

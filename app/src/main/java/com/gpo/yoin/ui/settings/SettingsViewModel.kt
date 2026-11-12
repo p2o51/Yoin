@@ -109,7 +109,13 @@ class SettingsViewModel(
     // card reads its account's credentials, a file and a Keystore decrypt, and
     // a switch begun on this page changes them under its overlay.
     val uiState: StateFlow<SettingsUiState> = combine(
-        combine(profileManager.profiles, container.profileAvatarStore.urls, ::Pair),
+        // credentialsRevision, as in profileCardsFlow: a Spotify grant revoked under an unchanged
+        // row has to bring the card's Reconnect up while this page is open.
+        combine(
+            profileManager.profiles,
+            container.profileAvatarStore.urls,
+            profileManager.credentialsRevision,
+        ) { profiles, avatarUrls, _ -> profiles to avatarUrls },
         profileManager.activeProfileId,
         cacheSizeFlow,
         miscSettingsBundleFlow,
@@ -309,6 +315,14 @@ class SettingsViewModel(
             container.neoDbTokenStore.clear()
             _neoDbTokenCache.value = ""
         }
+    }
+
+    /**
+     * Reads the NeoDB token again: the NeoDB page runs in its own Activity with its own
+     * ViewModel, so Settings' row picks up a sign-in or sign-out made there when the page closes.
+     */
+    fun refreshNeoDbToken() {
+        _neoDbTokenCache.value = container.neoDbTokenStore.readToken().orEmpty()
     }
 
     /** Empties the stream cache. Downloads stay: Settings › Downloads removes them. */

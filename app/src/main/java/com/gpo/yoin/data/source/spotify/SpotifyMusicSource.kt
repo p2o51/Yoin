@@ -550,6 +550,9 @@ class SpotifyMusicSource(
 
     suspend fun listDevices(): List<SpotifyDevice> = apiClient.listDevices()
 
+    /** The device `GET /me/player` names as active; null when none is. */
+    suspend fun playbackDevice(): SpotifyDevice? = apiClient.getPlaybackState()?.device
+
     /**
      * Where Spotify plays and what (`GET /me/player`), with [SpotifyConnectState.isThisDevice]
      * judged by [localNames] as [localDeviceId] matches them. Null when no device is active.

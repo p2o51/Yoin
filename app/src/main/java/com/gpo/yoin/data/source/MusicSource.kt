@@ -220,6 +220,16 @@ interface MusicMetadata {
      * that lives only in the user's library.
      */
     suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? = null
+
+    /**
+     * A share link made on request, for Share where [webUrl] has none: a
+     * Subsonic server's `createShare`, which anyone can open without an
+     * account. Called only when the user taps Share, since each call makes a
+     * new link on the server. [description] is shown on the share's page.
+     * Null where the service makes none (the default); throws when the
+     * server refused.
+     */
+    suspend fun createShareLink(kind: WebLinkKind, id: MediaId, description: String?): String? = null
 }
 
 /** What a [MusicMetadata.webUrl] points at; [path] is the URL segment both Spotify and Apple Music use. */

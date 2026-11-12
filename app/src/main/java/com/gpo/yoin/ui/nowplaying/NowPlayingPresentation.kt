@@ -31,6 +31,7 @@ import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalWindowChromeInfo
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.forPaneWidth
+import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import java.time.LocalDate
@@ -86,6 +87,99 @@ enum class NowPlayingPresentation {
  * panel leaves Home usable beside it; every other frame hides it.
  */
 fun nowPlayingCoversHome(presentation: NowPlayingPresentation): Boolean = presentation != NowPlayingPresentation.Panel
+
+/** What of the bar's pill grows into Now Playing as it opens (and shrinks back as it closes). */
+enum class PillMorph {
+    /** Nothing: the player opens beside the bar, or has no shared cover. */
+    None,
+
+    /** The cover alone: the player sets its title where no pill text can travel to. */
+    Cover,
+
+    /** Cover, title and artist. */
+    CoverAndText,
+}
+
+/**
+ * The pill → player morph for a player shown in this presentation. Both ends
+ * read this — a shared element left on one side only has no peer, and the
+ * shared-transition lookahead measures a lone one with degenerate constraints.
+ *
+ * - [NowPlayingPresentation.Phone], [NowPlayingPresentation.Enlarged]: the
+ *   phone column (the enlarged phone is the Medium window's full state, met
+ *   by opening where no panel fits or by closing from it).
+ * - [NowPlayingPresentation.DualPane]: the Wide window's full state; its title
+ *   sits at the foot of the right column, so only the cover travels.
+ * - [NowPlayingPresentation.Landscape]: the edge capsule's upright pill turns
+ *   its text sideways, so only the cover travels.
+ * - [NowPlayingPresentation.Panel]: the panel opens beside the bar, which keeps
+ *   its place and folds the pill away. [NowPlayingPresentation.Tabletop]: the
+ *   hinge layout keeps no shared cover (posture swaps resize mid-measure).
+ */
+val NowPlayingPresentation.pillMorph: PillMorph
+    get() = when (this) {
+        NowPlayingPresentation.Phone,
+        NowPlayingPresentation.Enlarged,
+        -> PillMorph.CoverAndText
+        NowPlayingPresentation.DualPane,
+        NowPlayingPresentation.Landscape,
+        -> PillMorph.Cover
+        NowPlayingPresentation.Panel,
+        NowPlayingPresentation.Tabletop,
+        -> PillMorph.None
+    }
+
+/**
+ * Holds the presentation Now Playing last opened or closed in, so the pill
+ * morphs only when the player itself enters or leaves — never when the
+ * panel's corner toggle (or a resize) moves the bar while the player stays
+ * open. The player's shared elements are live only during its own enter/exit
+ * (active-only config), so a bar hiding for panel → Full, or returning for
+ * Full → panel, would otherwise carry a shared pill with no peer.
+ *
+ * Both ends keep one, fed the same open flag and the same SHOWN presentation
+ * ([rememberShownNowPlayingFrame]), so they agree through every open and
+ * close: a presentation change after the flip turns the morph off on both.
+ * The bar reads it always (its pill only exists while the bar shows); the
+ * player reads it only while it enters or leaves, and at rest keeps the
+ * shown presentation's morph, so its cover's shared element is already in
+ * place (idle) when a close from a toggled full state begins — added in the
+ * close's first frame, it would have no bounds to animate from.
+ */
+internal class PillMorphLatch(expanded: Boolean, presentation: NowPlayingPresentation) {
+    private var lastExpanded = expanded
+    private var latched = presentation
+
+    fun morphFor(expanded: Boolean, presentation: NowPlayingPresentation): PillMorph {
+        if (expanded != lastExpanded) {
+            lastExpanded = expanded
+            latched = presentation
+        }
+        return if (presentation == latched) presentation.pillMorph else PillMorph.None
+    }
+}
+
+/** The pill morph for Now Playing's current open or close; see [PillMorphLatch]. */
+@Composable
+internal fun rememberPillMorph(expanded: Boolean, presentation: NowPlayingPresentation): PillMorph {
+    val latch = remember { PillMorphLatch(expanded, presentation) }
+    return latch.morphFor(expanded, presentation)
+}
+
+/**
+ * The frame Now Playing is SHOWN in: [liveFrame] while open; while closing
+ * (and closed), the frame it was last shown in. The shell can raise the panel
+ * floor (a detail column opening) in the same event that closes the player,
+ * and a resize can land mid-exit — re-resolving would turn the closing panel
+ * into the full-window player. The host lays out with this, and the bar's
+ * morph gate reads it too, so both ends of the morph follow one presentation.
+ */
+@Composable
+internal fun rememberShownNowPlayingFrame(expanded: Boolean, liveFrame: NowPlayingFrame): NowPlayingFrame {
+    val shown = remember { arrayOfNulls<NowPlayingFrame>(1) }
+    if (expanded) shown[0] = liveFrame
+    return if (expanded) liveFrame else shown[0] ?: liveFrame
+}
 
 /** Panel width: half the window, clamped to phone widths (fold 690 → 360, tablet 800 → 400). */
 fun nowPlayingPanelWidth(windowWidth: Dp): Dp = (windowWidth * 0.5f).coerceIn(PanelMinWidth, PanelMaxWidth)
@@ -301,8 +395,12 @@ fun Modifier.besideNowPlayingPanel(panel: NowPlayingPanelInset): Modifier = layo
     layout(placeable.width + inset, placeable.height) { placeable.placeRelative(0, 0) }
 }
 
-/** Left corners of the side panel (FoldNPPanel). */
-internal val NowPlayingPanelCornerRadius = 28.dp
+/**
+ * Left corners of the side panel (FoldNPPanel): the screen's corner
+ * (ScreenCorners, owner 2026-11-08), so the panel's edge echoes the glass it
+ * slides in from. A snapshot read.
+ */
+internal val NowPlayingPanelCornerRadius: Dp get() = ScreenCorners.radius
 
 /**
  * [besideNowPlayingPanel] for the PAGE beside the panel: it also fills what

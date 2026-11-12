@@ -443,6 +443,13 @@ class CloudSyncManager(
             if (engine().hasPendingChanges()) runCycle(force = true)
             mutex.withLock {
                 val plan = binder.prepareStartFresh(localProfileId) ?: return@withLock
+                // The cycle above didn't get them up (offline, a Drive error). The purge deletes every row
+                // that matches its last captured state, uploaded or not, and then forgets that state, so
+                // completeStartFresh's own pending check could no longer stop it: leave the account as it is.
+                if (plan.pendingChanges > 0) {
+                    Log.w(TAG, "Start fresh put off: ${plan.pendingChanges} changes of the old account are not uploaded")
+                    return@withLock
+                }
                 engine().purgeScopeLocally(plan.oldScope, localProfileId)
                 binder.completeStartFresh(plan)
             }

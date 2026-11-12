@@ -54,8 +54,8 @@ android {
         applicationId = "com.gpo.yoin"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.5.6"
+        versionCode = 24
+        versionName = "0.5.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -67,6 +67,8 @@ android {
         val googleWebClientId = (project.findProperty("googleWebClientId") as String?)
             ?: "747031130557-pnsffrq2rbmrhn5jq6ipamcdgtb5b6p3.apps.googleusercontent.com"
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
+        buildConfigField("boolean", "NANO_TEST", "false")
+        manifestPlaceholders["appLabel"] = "@string/app_name"
     }
 
     androidResources {
@@ -91,6 +93,13 @@ android {
             // QA: -PyoinAppIdSuffix=.qa installs a second, empty copy beside the real one (a first run without
             // touching the installed app's accounts or database). Unset by default.
             (project.findProperty("yoinAppIdSuffix") as String?)?.let { applicationIdSuffix = it }
+            // Gemini Nano test copy (「歌词一句」): -PyoinNanoTest=true with -PyoinAppIdSuffix=.nanotest installs
+            // "Yoin Nano" beside the everyday app (own package and data, Spotify setup untouched). Nano runs on a
+            // short leash and Home shows what it is doing (LyricHighlightProcessor.testMode).
+            if (project.findProperty("yoinNanoTest") == "true") {
+                buildConfigField("boolean", "NANO_TEST", "true")
+                manifestPlaceholders["appLabel"] = "Yoin Nano"
+            }
         }
         release {
             if (hasReleaseKeystore) {
@@ -220,10 +229,10 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.datasource)
     implementation(libs.media3.datasource.okhttp)
-    implementation(libs.media3.ui)
     // Cast (Phase 14)
     implementation(libs.media3.cast)
     implementation(libs.cast.framework)
+    implementation(libs.genai.prompt)
     // Google authorization for optional Drive appDataFolder cloud sync
     implementation(libs.play.services.auth) {
         // Declared by the 22.0.0 POM but referenced by no Play services class; sync has its own Task.await().

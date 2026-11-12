@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_motion_screen_corners">屏幕圆角</string>
+    <string name="screen_corners_follow">跟随屏幕</string>
+    <string name="screen_corners_value">%1$d dp</string>
+    <string name="screen_corners_summary_follow">跟随屏幕 · %1$d dp</string>
+    <string name="screen_corners_hint">拖动这条，让屏幕边缘那圈线贴住屏幕的圆角。Now Playing、回忆和返回手势都会用这个圆角。</string>
+    <string name="screen_corners_slider_cd">屏幕圆角半径</string>
+    <string name="landing_corners_title">你的屏幕圆角有多圆？</string>
+    <string name="screen_corners_page_hint">拖动底下的条，直到四个角刚好看不到黑边。</string>
+    <string name="screen_corners_example_now_playing">打开 Now Playing</string>
+    <string name="screen_corners_example_memories">收起回忆</string>
+    <string name="screen_corners_example_back">返回手势</string>
+    <string name="home_tip_screen_corners_title">屏幕圆角</string>
+    <string name="home_tip_screen_corners">设置 &gt; 外观 &gt; 屏幕圆角，把页面与返回手势的圆角对上手机屏幕</string>
+</resources>

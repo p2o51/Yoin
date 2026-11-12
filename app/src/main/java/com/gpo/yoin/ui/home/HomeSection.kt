@@ -94,6 +94,28 @@ enum class HomeSection(
         defaultEnabled = true,
         appendEnabled = true,
     ),
+
+    // Owner 2026-11-08 (「歌词一句」): one lyric line Gemini Nano picked on this
+    // device (data/highlight/). Only phones with Nano ever have content, so it
+    // is on by default and for customized layouts too; elsewhere it never shows.
+    LyricHighlight(
+        id = "lyric_highlight",
+        title = "Lyric Cards",
+        supportingText = "Lyrics picked from your songs, tap to play from that line",
+        defaultEnabled = true,
+        appendEnabled = true,
+    ),
+
+    // Owner 2026-11-08 (B3): every memory on a calendar grid whose cells
+    // grow when you write less; a tap opens All Memories. Hidden while
+    // there's nothing, so shown by default and to customized layouts too.
+    MemoryGrid(
+        id = "memory_grid",
+        title = "All Memories",
+        supportingText = "Every note and score, on a grid that grows with you",
+        defaultEnabled = true,
+        appendEnabled = true,
+    ),
     ;
 
     /**
@@ -103,6 +125,13 @@ enum class HomeSection(
      */
     val supportsRows: Boolean
         get() = this == Activities || this == JumpBackIn
+
+    /**
+     * Stores a [HomeRowPreset]: the [supportsRows] sections, plus 「歌词一句」, whose preset is how many
+     * cards it shows (owner 2026-11-08: one to four) and which picks it with its own dots, not the row resize.
+     */
+    val takesPresets: Boolean
+        get() = supportsRows || this == LyricHighlight
 
     companion object {
         private val byId: Map<String, HomeSection> = entries.associateBy { it.id }
@@ -121,6 +150,8 @@ internal val HomeSection.titleRes: Int
         HomeSection.RecentlyPlayed -> R.string.home_section_recently_played
         HomeSection.YourPlaylists -> R.string.home_section_your_playlists
         HomeSection.OtherProfiles -> R.string.home_section_other_profiles
+        HomeSection.LyricHighlight -> R.string.home_section_lyric_highlight
+        HomeSection.MemoryGrid -> R.string.home_section_memory_grid
     }
 
 @get:StringRes
@@ -133,6 +164,8 @@ internal val HomeSection.supportingRes: Int
         HomeSection.RecentlyPlayed -> R.string.home_section_recently_played_supporting
         HomeSection.YourPlaylists -> R.string.home_section_your_playlists_supporting
         HomeSection.OtherProfiles -> R.string.home_section_other_profiles_supporting
+        HomeSection.LyricHighlight -> R.string.home_section_lyric_highlight_supporting
+        HomeSection.MemoryGrid -> R.string.home_section_memory_grid_supporting
     }
 
 @get:StringRes
@@ -145,6 +178,8 @@ internal val HomeSection.placeholderRes: Int
         HomeSection.RecentlyPlayed -> R.string.home_placeholder_recently_played
         HomeSection.YourPlaylists -> R.string.home_placeholder_your_playlists
         HomeSection.OtherProfiles -> R.string.home_placeholder_other_profiles
+        HomeSection.LyricHighlight -> R.string.home_placeholder_lyric_highlight
+        HomeSection.MemoryGrid -> R.string.home_placeholder_memory_grid
     }
 
 /**
@@ -251,7 +286,7 @@ data class HomeLayout(
 
     /** [section] at [rows]. Returns `this` for a section without presets, absent, or already there. */
     fun withRows(section: HomeSection, rows: HomeRowPreset): HomeLayout {
-        if (!section.supportsRows || sections.none { it.section == section && it.rows != rows }) return this
+        if (!section.takesPresets || sections.none { it.section == section && it.rows != rows }) return this
         return copy(
             sections = sections.map { state ->
                 if (state.section == section) state.copy(rows = rows) else state
@@ -273,13 +308,27 @@ data class HomeLayout(
      * index (proto.js withEnabledOrder). Returns `this` when [order] is the
      * current one or not a permutation of [enabledSections].
      */
-    fun withEnabledOrder(order: List<HomeSection>): HomeLayout {
+    fun withEnabledOrder(order: List<HomeSection>, unseen: Set<HomeSection> = emptySet()): HomeLayout {
         val enabled = enabledSections
-        if (order == enabled) return this
         val distinct = order.toSet()
-        if (order.size != enabled.size || distinct.size != order.size || distinct != enabled.toSet()) {
-            return this
-        }
+        if (distinct.size != order.size || !enabled.containsAll(distinct)) return this
+        // [unseen]: enabled sections the feed never shows on this device (「歌词一句」 without Gemini Nano), so an
+        // edit-mode carry can't include them. They keep their place in the enabled order; the rest fill around.
+        val missing = enabled.filterNot { it in distinct }
+        if (!unseen.containsAll(missing)) return this
+        val full = if (missing.isEmpty()) order else completeEnabledOrder(enabled, order) ?: return this
+        if (full == enabled) return this
+        return withFullEnabledOrder(full)
+    }
+
+    private fun completeEnabledOrder(enabled: List<HomeSection>, order: List<HomeSection>): List<HomeSection>? {
+        val shown = order.toSet()
+        if (shown.isEmpty()) return null
+        val next = order.iterator()
+        return enabled.map { section -> if (section in shown) next.next() else section }
+    }
+
+    private fun withFullEnabledOrder(order: List<HomeSection>): HomeLayout {
         // Each moved section takes its own state (rows, settings) with it.
         val byStateSection = sections.filter { it.enabled }.associateBy { it.section }
         val next = order.iterator()

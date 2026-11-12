@@ -65,6 +65,9 @@ fun YoinChromeGroup(
     onNowPlayingLongClick: (() -> Unit)? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    // The pill's title and artist travel with its cover (PillMorph.CoverAndText);
+    // the edge capsule's upright pill only ever shares its cover.
+    morphPillText: Boolean = true,
 ) {
     // The Play split's colours arrive as TARGETS (a page's cover palette, the
     // theme stand-in while a column page is still building): they animate
@@ -146,6 +149,7 @@ fun YoinChromeGroup(
             onNowPlayingLongClick = onNowPlayingLongClick,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
+            morphPillText = morphPillText,
             centered = form == ShellChromeForm.CenteredBar,
             wideMargin = wide,
             navOnly = navOnly,

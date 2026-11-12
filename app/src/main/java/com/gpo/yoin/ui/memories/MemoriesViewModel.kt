@@ -125,9 +125,12 @@ class MemoriesViewModel(
         viewModelScope.launch {
             activeProfileId
                 .collect {
+                    // The deck shows every account's memories, so the card in view stays in view across a
+                    // switch (Go to album on another account's memory switches to it): rebuilt stopped on it.
+                    val shown = shownMemoryId()
                     deckCoordinator.invalidate()
                     sessionStore.clearMemories()
-                    ensureLoaded(force = true)
+                    if (shown != null) ensureLoadedFocused(shown) else ensureLoaded(force = true)
                     refreshNeoDbConfigured()
                 }
         }
@@ -268,6 +271,13 @@ class MemoriesViewModel(
         ensureLoaded(force = true)
     }
 
+    /** The card in view (its [MemoryEntry.sourceActivityId]), or null with no deck painted. */
+    private fun shownMemoryId(): Long? {
+        val content = _uiState.value as? MemoriesUiState.Content ?: return null
+        val page = sessionStore.state.value.memories.currentPage
+        return content.memories.getOrNull(page)?.sourceActivityId
+    }
+
     fun advanceDeck(direction: MemoryDeckDirection) {
         val currentContent = _uiState.value as? MemoriesUiState.Content ?: return
         if (adjacentDeckJob?.isActive == true) return
@@ -285,7 +295,10 @@ class MemoriesViewModel(
                 val nextDeck = withPendingTitles(deckCoordinator.advanceDeck(direction))
                 if (activeProfileId.value != profileId) return@launch
                 if (nextDeck.isEmpty()) {
-                    _uiState.value = currentContent.copy(isLoadingAdjacentDeck = false)
+                    // The deck as it is now, not as it was before the wait: a review or title
+                    // saved meanwhile is already patched into it.
+                    val latest = _uiState.value as? MemoriesUiState.Content ?: return@launch
+                    _uiState.value = latest.copy(isLoadingAdjacentDeck = false)
                     return@launch
                 }
 
@@ -331,7 +344,8 @@ class MemoriesViewModel(
      */
     fun saveReview(memory: MemoryEntry, text: String) {
         val trimmed = text.trim()
-        if (trimmed.isEmpty() || memory.entityType != MemoryEntityType.ALBUM) return
+        // another account's memory is read-only here: its review belongs to that account
+        if (trimmed.isEmpty() || memory.entityType != MemoryEntityType.ALBUM || memory.isFromOtherProfile) return
         val key = memory.stableId
         _reviewDrafts.value = _reviewDrafts.value + (key to trimmed)
         val before = (_uiState.value as? MemoriesUiState.Content)?.memories?.firstOrNull { it.stableId == key }
@@ -480,7 +494,7 @@ class MemoriesViewModel(
 
     private fun writeMemoryTitle(memory: MemoryEntry, userTitle: String?) {
         val store = titleStore ?: return
-        if (memory.entityType != MemoryEntityType.ALBUM) return
+        if (memory.entityType != MemoryEntityType.ALBUM || memory.isFromOtherProfile) return
         val key = memory.stableId
         val shown = (_uiState.value as? MemoriesUiState.Content)?.memories?.firstOrNull { it.stableId == key } ?: memory
         val before = shown.userMemoryTitle()
@@ -537,7 +551,9 @@ class MemoriesViewModel(
             store.observeTitles().collect { titles ->
                 val content = _uiState.value as? MemoriesUiState.Content ?: return@collect
                 val patched = content.memories.map { entry ->
-                    if (entry.entityType != MemoryEntityType.ALBUM || entry.stableId in pendingTitles) {
+                    // the store follows the account in use; another account's card keeps its own title
+                    val ownAlbum = entry.entityType == MemoryEntityType.ALBUM && !entry.isFromOtherProfile
+                    if (!ownAlbum || entry.stableId in pendingTitles) {
                         entry
                     } else {
                         entry.withUserMemoryTitle(titles[MediaId(entry.entityProvider, entry.entityId)])
@@ -554,7 +570,10 @@ class MemoriesViewModel(
      * Not an album memory: [AlbumNeoDbSync.Unknown] (no line).
      */
     fun neoDbSync(memory: MemoryEntry): Flow<AlbumNeoDbSync> {
-        if (memory.entityType != MemoryEntityType.ALBUM) return flowOf(AlbumNeoDbSync.Unknown)
+        // another account's memory: no line (its NeoDB state is that account's)
+        if (memory.entityType != MemoryEntityType.ALBUM || memory.isFromOtherProfile) {
+            return flowOf(AlbumNeoDbSync.Unknown)
+        }
         val key = memory.neoDbKey()
         val row = repository.observeAlbumRating(MediaId(memory.entityProvider, memory.entityId))
         return combine(_neoDbConfigured, row, _syncingEntityIds, _neoDbFailed) { configured, rating, syncing, failed ->
@@ -574,7 +593,7 @@ class MemoriesViewModel(
      * one-shot sign-in prompt. A failure reports once and leaves the line on "Retry".
      */
     fun pushToNeoDb(memory: MemoryEntry) {
-        if (memory.entityType != MemoryEntityType.ALBUM) return
+        if (memory.entityType != MemoryEntityType.ALBUM || memory.isFromOtherProfile) return
         val syncKey = memory.neoDbKey()
         if (syncKey in _syncingEntityIds.value) return
 
@@ -649,6 +668,8 @@ class MemoriesViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             MemoriesViewModel(
                 deckCoordinator = container.memoriesDeckCoordinator.also { coordinator ->
+                    // Every other account's memories join the deck.
+                    coordinator.otherProfiles = containerOtherMemoryProfiles(container)
                     // Belongs in AppContainer's constructor call; that file is
                     // being edited by another session, so it is attached here.
                     coordinator.narrationSource = GeminiMemoryNarrationSource(
@@ -710,7 +731,8 @@ internal fun memoriesPlayhead(state: PlaybackState, deck: List<MemoryEntry>): Me
     val track = state.currentTrack ?: return MemoriesPlayhead(null, null)
     val raw = track.id.rawId
     val notes = deck.asSequence()
-        .filter { entry -> entry.entityProvider == track.id.provider }
+        // the account in use plays; another account's notes never light
+        .filter { entry -> entry.entityProvider == track.id.provider && !entry.isFromOtherProfile }
         .flatMap { entry -> entry.diaryTracks.asSequence() }
         .filter { row -> row.track.trackId == raw }
         .flatMap { row -> row.notes.asSequence() }

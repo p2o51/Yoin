@@ -358,7 +358,8 @@ internal fun AlbumSpectrumLayer(
     // (PlaylistSleeves.kt); only the spectrum and the cover fly.
     butterfly: Boolean = true,
 ) {
-    // A small tick as each band lands in the bar on the way up (owner 2026-11-07, as iOS: one per band).
+    // A small tick as each band lands in the bar on the way up (owner 2026-11-07, as iOS: one per band),
+    // and as each one leaves it again on the way back down (owner 2026-11-09).
     if (!reduced) {
         val haptics = rememberYoinHaptics()
         val currentProgress by rememberUpdatedState(progress)
@@ -367,7 +368,7 @@ internal fun AlbumSpectrumLayer(
             var landed = albumSpectrumLanded(source.spectrum, currentProgress())
             var lastTick = 0L
             snapshotFlow { albumSpectrumLanded(source.spectrum, currentProgress()) }.collect { now ->
-                if (now > landed && currentGeometry() != null) {
+                if (now != landed && currentGeometry() != null) {
                     val at = SystemClock.uptimeMillis()
                     // The bands can land a frame apart: one tick per frame or so, never a buzz.
                     if (at - lastTick >= SpectrumTickGapMillis) {
