@@ -35,6 +35,9 @@ final class CloudSync {
     private(set) var working = false
     /// The last action's message for the page (a failed sign-in, a failed delete).
     var message: String?
+    /// Accounts whose Start fresh was put off: the old account still has changes that aren't in the
+    /// Drive (`CloudSyncFreshHold`). Their row says so under "Paused".
+    private(set) var freshHeld: Set<String> = []
 
     /// DEBUG fake Drive: `-syncDebugBaseURL http://127.0.0.1:8765/ -syncDebugToken x`.
     let debug: (base: String, token: String)?
@@ -69,6 +72,9 @@ final class CloudSync {
     /// Called once at launch with how to read the local accounts. Does no network unless sync is on.
     func start(accounts: @escaping @MainActor () -> SyncDomainBridge.Accounts) {
         guard kit == nil else { return }
+        #if DEBUG
+        if startDemo() { return }
+        #endif
         self.accounts = accounts
         let domain = SyncDomainBridge(accounts: accounts)
         let kit = CloudSyncKit(
@@ -83,7 +89,7 @@ final class CloudSync {
         )
         self.kit = kit
         kit.core.onStateChange = { [weak self] state in
-            MainActor.assumeIsolated { self?.state = state }
+            MainActor.assumeIsolated { self?.take(state) }
         }
         NotesStore.onLocalChange = { CloudSync.shared.localChanged() }
         LocalRatings.onLocalChange = { CloudSync.shared.localChanged() }
@@ -198,7 +204,28 @@ final class CloudSync {
         await run { try await $0.linkAccount(localProfileId: profileId, syncProfileId: scope) }
     }
     func keepAsBefore(_ profileId: String) async { await run { try await $0.keepAccountAsBefore(localProfileId: profileId) } }
-    func startFresh(_ profileId: String) async { await run { try await $0.startFreshAccount(localProfileId: profileId) } }
+
+    /// Start fresh as the account [profileId] is signed in as now. The core uploads what the old account
+    /// still has waiting first; when that doesn't go through it changes nothing (Android
+    /// CloudSyncManager.startFreshAccount) and the account's row says what it waits for.
+    func startFresh(_ profileId: String) async {
+        guard let kit else { return }
+        working = true
+        defer { working = false }
+        do {
+            let notUploaded = try await kit.core.startFreshAccount(localProfileId: profileId).intValue
+            freshHeld = CloudSyncFreshHold.after(freshHeld, profile: profileId, notUploaded: notUploaded, state: state)
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    /// Every new state from the core.
+    private func take(_ new: CloudSyncState) {
+        state = new
+        let held = CloudSyncFreshHold.pruned(freshHeld, state: new)
+        if held != freshHeld { freshHeld = held }
+    }
 
     /// Backs the whole appDataFolder up now; returns the folder for the share sheet.
     func backupNow() async -> URL? {
@@ -247,6 +274,33 @@ final class CloudSync {
             try? await kit.core.localChanged()
         }
     }
+
+    #if DEBUG
+    /// `-syncDemo fresh-held` (with `-screen settings -syncOpenPage YES`): the page with sync on, Google out
+    /// of reach and one paused account; 4 s after launch its Start fresh comes back put off, as when the
+    /// old account's changes couldn't be uploaded. Nothing syncs and no button does anything.
+    private func startDemo() -> Bool {
+        guard UserDefaults.standard.string(forKey: "syncDemo") == "fresh-held" else { return false }
+        guard !state.phase.enabled else { return true }
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let profile = "demo"
+        state = CloudSyncState(
+            phase: CloudSyncPhaseOffline.shared,
+            account: GoogleAccountUi(email: "listener@example.com", displayName: "Listener"),
+            lastSyncAt: KotlinLong(value: now - 3 * 3_600_000), pendingChanges: true,
+            accounts: [SyncAccountRow(localProfileId: profile, provider: "subsonic", displayName: "demo",
+                                      status: SyncAccountStatusAccountChanged.shared)],
+            cloudOnlyAccounts: [],
+            devices: [SyncDeviceRow(deviceId: "this", name: UIDevice.current.model, isThisDevice: true,
+                                    lastSyncAt: KotlinLong(value: now - 3 * 3_600_000))],
+            lastSummary: nil, readOnly: false, lastBackup: nil)
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            freshHeld = CloudSyncFreshHold.after(freshHeld, profile: profile, notUploaded: 2, state: state)
+        }
+        return true
+    }
+    #endif
 
     private static func presenter() -> UIViewController? {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
