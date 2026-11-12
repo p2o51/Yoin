@@ -61,7 +61,9 @@ import androidx.graphics.shapes.RoundedPolygon
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MorphProgressShape
+import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.YoinPageWidths
+import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.home.HomeBubbleTip
 import com.gpo.yoin.ui.settings.SettingsBackButton
@@ -210,8 +212,12 @@ private fun TipPage(
     pager: PagerState,
     modifier: Modifier = Modifier,
 ) {
+    val scroll = rememberScrollState()
     Box(
-        modifier = modifier.verticalScroll(rememberScrollState()),
+        // A long tip scrolls under the tide line below the back button's row, as any page under fixed chrome.
+        modifier = modifier
+            .seamDissolveViewport(top = SeamTop.Chrome) { scroll.value.toFloat() }
+            .verticalScroll(scroll),
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(

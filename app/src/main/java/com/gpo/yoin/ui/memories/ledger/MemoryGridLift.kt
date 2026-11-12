@@ -19,15 +19,21 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import com.gpo.yoin.data.memory.MemoryGrid
 import com.gpo.yoin.data.memory.MemoryGridCell
+import com.gpo.yoin.data.memory.MemoryGridMark
 import com.gpo.yoin.data.memory.MemoryGridScale
 import com.gpo.yoin.ui.detail.smoothStep
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
+import kotlin.math.ceil
 
 /*
  * The grid becomes the top bar (owner 2026-11-09): as All Memories scrolls up past its grid, the grid's
- * squares rise into the top bar and line up across it, oldest at the start, the way an album's cover turns
- * into its spectrum bar. Scrolling back down they come home. Everything per frame is read while drawing.
+ * squares rise into the top bar. Scrolling back down they come home. Everything per frame is read while drawing.
+ *
+ * The bar is a mosaic of square pixels (owner 2026-11-12, replacing full-height slanted stripes that read as
+ * an album's spectrum bar): the squares keep the grid's own look, piece together edge to edge in a few rows,
+ * and run oldest first down each column and on across. When there are more places than squares, a square
+ * takes two neighbouring places, so every bar is filled whatever the count.
  */
 
 /**
@@ -96,6 +102,26 @@ internal fun liftPixels(grid: MemoryGrid): List<LiftPixel> = when (grid.scale) {
     }
 }
 
+/** The bar's squares: [rows] of them down, each [side] px, [places] in all (the last column may run off the edge). */
+internal class BarMosaic(val rows: Int, val side: Float, val places: Int)
+
+/**
+ * The fewest rows (two at least, so it reads as pixels, not tiles) whose squares, filling the bar's height and
+ * running across its [width], have a place for each of [count] squares.
+ */
+internal fun barMosaic(count: Int, width: Float, height: Float): BarMosaic {
+    var rows = 2
+    while (true) {
+        val side = height / rows
+        val columns = ceil(width / side).toInt().coerceAtLeast(1)
+        if (rows * columns >= count || rows >= MaxBarRows) return BarMosaic(rows, side, rows * columns)
+        rows++
+    }
+}
+
+/** Past this many rows the squares would be specks; extra squares then share places. */
+private const val MaxBarRows = 8
+
 /** How far into the lift the bar counts as formed (white title, light status bar icons). */
 internal const val GridLiftFormed = 0.5f
 
@@ -123,16 +149,21 @@ internal fun MemoryGridLiftLayer(
         val barBottom = barHeight.toPx()
         val p = progress(into, barBottom)
         if (p <= 0.001f) return@Canvas
-        val slot = size.width / n
         val quadGap = MonthQuadGap.toPx()
-        pixels.forEachIndexed { i, pixel ->
-            val at = if (rtl) n - 1 - i else i
-            // A hair wider than the slot so neighbours meet without a seam.
-            val target = Rect(at * slot, 0f, (at + 1) * slot + 1f, barBottom)
+        val mosaic = barMosaic(n, size.width, barBottom)
+        // Reduced motion: no flight, the whole bar fades in where it ends up (one layer, not one per square).
+        if (reduced) drawContext.canvas.saveLayer(Rect(Offset.Zero, size), Paint().apply { alpha = p })
+        for (k in 0 until mosaic.places) {
+            val i = (k.toLong() * n / mosaic.places).toInt()
+            val pixel = pixels[i]
+            val column = k / mosaic.rows
+            val row = k % mosaic.rows
+            val x = if (rtl) size.width - (column + 1) * mosaic.side else column * mosaic.side
+            // A hair larger than the square so neighbours meet without a seam.
+            val target = Rect(x, row * mosaic.side, x + mosaic.side + 1f, (row + 1) * mosaic.side + 1f)
             if (reduced) {
-                // No flight: the bar fades in where it ends up.
-                drawLiftPixel(pixel, target, 0f, paint, alpha = p)
-                return@forEachIndexed
+                drawLiftPixel(pixel, target, 0f, paint, landed = 1f)
+                continue
             }
             // Oldest first, as the cover's strips go, but close together so they rise as one flock.
             val lag = 0.1f * i / n
@@ -140,27 +171,59 @@ internal fun MemoryGridLiftLayer(
             val from = lift.rectOf(pixel, into, quadGap)
             val rect = if (from == null || q >= 1f) target else lerp(from, target, q)
             val radius = if (from == null) 0f else from.width * 0.18f * (1f - q)
-            drawLiftPixel(pixel, rect, radius, paint, alpha = 1f)
+            // The grid's look in flight; the bar's pixels as it lands.
+            drawLiftPixel(pixel, rect, radius, paint, landed = smoothStep(0.7f, 1f, q))
         }
+        if (reduced) drawContext.canvas.restore()
         // A light veil under the title once the bar has formed, so white reads on pale covers too.
         val veil = 0.24f * smoothStep(0.6f, 1f, p)
         if (veil > 0f) drawRect(Color.Black, Offset.Zero, Size(size.width, barBottom), alpha = veil)
     }
 }
 
-private fun DrawScope.drawLiftPixel(pixel: LiftPixel, rect: Rect, radius: Float, paint: CellPaint, alpha: Float) {
-    val draw: DrawScope.() -> Unit = {
+private fun DrawScope.drawLiftPixel(pixel: LiftPixel, rect: Rect, radius: Float, paint: CellPaint, landed: Float = 0f) {
+    if (landed < 1f) {
         if (pixel.mark < 0) {
             drawLedgerCell(pixel.cell, rect.topLeft, rect.size, radius, paint)
         } else {
             drawMark(pixel.cell.marks[pixel.mark], rect.topLeft, rect.size, radius, paint)
         }
     }
-    if (alpha >= 1f) {
-        draw()
-    } else {
-        drawContext.canvas.saveLayer(Rect(Offset.Zero, size), Paint().apply { this.alpha = alpha })
-        draw()
-        drawContext.canvas.restore()
+    if (landed > 0f) drawBarPixel(pixel, rect, paint, alpha = landed)
+}
+
+/**
+ * A square landed in the bar, as pixels (owner 2026-11-12: square, pieced like pixels, no big triangles): a
+ * square of two colours (an album written about, or two albums spliced) becomes a 2×2 checker of them, one
+ * colour stays one square.
+ */
+private fun DrawScope.drawBarPixel(pixel: LiftPixel, rect: Rect, paint: CellPaint, alpha: Float) {
+    val (first, second) = barColors(pixel, paint) ?: return
+    if (first == second) {
+        drawRect(first, rect.topLeft, rect.size, alpha = alpha)
+        return
+    }
+    val half = Size(rect.width / 2f + 0.5f, rect.height / 2f + 0.5f)
+    val x = rect.left
+    val y = rect.top
+    val w = rect.width / 2f
+    val h = rect.height / 2f
+    drawRect(first, Offset(x, y), half, alpha = alpha)
+    drawRect(second, Offset(x + w, y), half, alpha = alpha)
+    drawRect(second, Offset(x, y + h), half, alpha = alpha)
+    drawRect(first, Offset(x + w, y + h), half, alpha = alpha)
+}
+
+private fun barColors(pixel: LiftPixel, paint: CellPaint): Pair<Color, Color>? {
+    fun of(mark: MemoryGridMark): Pair<Color, Color> {
+        val colors = paint.of(mark.album)
+        return if (mark.wrote) colors.base to colors.accent else colors.base to colors.base
+    }
+    if (pixel.mark >= 0) return of(pixel.cell.marks[pixel.mark])
+    val marks = pixel.cell.marks
+    return when {
+        marks.isEmpty() -> null
+        marks.size == 1 -> of(marks[0])
+        else -> paint.of(marks[0].album).base to paint.of(marks[1].album).base
     }
 }

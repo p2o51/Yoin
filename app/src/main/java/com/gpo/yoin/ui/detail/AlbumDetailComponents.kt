@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.sheetScrollEdge
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -797,8 +798,10 @@ internal fun AlbumRateSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .imePadding()
-                // Words scrolled past the sheet's edge dissolve instead of being cut.
-                .verticalEdgeFadeOnScroll(scroll, top = RateSheetScrollFade, bottom = RateSheetScrollFade)
+                // The top edge is the tide line, as on every sheet (owner 2026-11-06); words leaving at the
+                // bottom (above the keyboard) still fade.
+                .sheetScrollEdge(scroll)
+                .verticalEdgeFadeOnScroll(scroll, bottom = RateSheetScrollFade)
                 .verticalScroll(scroll)
                 .navigationBarsPadding()
                 .padding(start = 24.dp, end = 24.dp, top = RateSheetBurstRoom, bottom = 20.dp),
