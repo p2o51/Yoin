@@ -2,6 +2,7 @@ package com.gpo.yoin.player.continueon
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
@@ -17,6 +18,7 @@ import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.player.PlaybackManager
 import java.net.Inet4Address
 import java.net.Inet6Address
+import java.net.Socket
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -47,13 +49,15 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * Handing off: while something plays, Yoin's windows offer the hand-off
  * ([offered]) and give the system a [ContinueOnCursor] when it asks
- * ([handoffEntries]), with a short-lived local pause channel.
+ * ([handoffEntries]), with a local pause channel that stays while the song
+ * does.
  *
  * Taking over: a window started with a cursor hands it to [receive], which
  * shows a small card ([prompt]) instead of playing at once (owner
- * 2026-11-08). "Continue here" ([confirm]) asks the other device to pause,
- * switches to the same account here, reads the songs back and starts from
- * where the other device stopped, then opens Now Playing.
+ * 2026-11-08). "Continue here" ([confirm]) switches to the same account
+ * here, asks the other device to pause, reads the songs back and starts
+ * from the song and the spot the other device stopped at, then opens Now
+ * Playing.
  */
 class ContinueOn internal constructor(
     private val context: Context,
@@ -63,8 +67,22 @@ class ContinueOn internal constructor(
     private val requestNowPlaying: () -> Unit,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    /** Asks the device that handed off to pause, each socket passed to `bind` before it connects. */
+    private val askToPause: suspend (
+        channel: ContinueOnCursor.PauseChannel,
+        trackId: String,
+        bind: (Socket) -> Unit,
+    ) -> ContinueOnPauseClient.Answer = { channel, trackId, bind ->
+        ContinueOnPauseClient.requestPause(channel, trackId, bind = bind)
+    },
 ) {
-    private val pauseServer = ContinueOnPauseServer(scope, onPause = ::pauseForHandoff)
+    // The system reads a cursor from a window as it goes to the background and may hand it over much
+    // later: the port stays for as long as this device still has a song the other one could take over.
+    private val pauseServer = ContinueOnPauseServer(
+        scope,
+        onPause = ::pauseForHandoff,
+        stillNeeded = { offered.value },
+    )
 
     /** The active account's cross-device id, kept ready: the system asks for a hand-off on the main thread. */
     @Volatile private var activeAccountKey: String? = null
@@ -114,7 +132,8 @@ class ContinueOn internal constructor(
      * The cursor for a hand-off the system is asking for, flattened for its extras; null when nothing
      * is playing here. [activeRequest] is true when the person has just picked this hand-off on the
      * other device; the pause channel is open for either kind, since the system may hand a background
-     * request's data over later.
+     * request's data over later (how much later is its own business: the channel then says which song
+     * this device has got to).
      */
     internal fun handoffEntries(activeRequest: Boolean): Map<String, Any>? {
         val state = playback.playbackState.value
@@ -165,11 +184,7 @@ class ContinueOn internal constructor(
     /** This device's addresses on the Wi-Fi or Ethernet it is on (Continue On needs both devices on one). */
     private fun localAddresses(): List<String> = runCatching {
         val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return emptyList()
-        val network = connectivity.activeNetwork ?: return emptyList()
-        val capabilities = connectivity.getNetworkCapabilities(network) ?: return emptyList()
-        val local = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
-        if (!local) return emptyList()
+        val network = connectivity.localNetwork() ?: return emptyList()
         connectivity.getLinkProperties(network)?.linkAddresses.orEmpty()
             .map { it.address }
             .filter { address ->
@@ -182,14 +197,25 @@ class ContinueOn internal constructor(
             .take(MAX_HOSTS)
     }.getOrDefault(emptyList())
 
-    /** The other device took over: pause here and say where it stopped (null: another song plays now). */
-    private suspend fun pauseForHandoff(trackId: String): Long? {
-        val state = playback.playbackState.value
-        val same = state.currentTrack?.id?.rawId == trackId
+    /**
+     * The other device took over: pause here and say which song this device is on by now (the cursor it
+     * holds may name an earlier one) and where in it; null with no song loaded.
+     */
+    private suspend fun pauseForHandoff(trackId: String): PausedAt? {
+        val track = playback.playbackState.value.currentTrack
         val position = playback.livePositionMs()
         playback.pause()
-        Log.i(TAG, "paused for a hand-off (same track: $same)")
-        return position.takeIf { same }
+        Log.i(TAG, "paused for a hand-off (same track: ${track?.id?.rawId == trackId})")
+        return track?.let { PausedAt(it.id.rawId, position) }
+    }
+
+    /**
+     * Ties [socket] to the Wi-Fi or Ethernet this device is on before it connects: with a VPN up here,
+     * the connection would otherwise go into its tunnel and never reach the other device.
+     */
+    private fun bindToLocalNetwork(socket: Socket) {
+        runCatching { context.getSystemService(ConnectivityManager::class.java)?.localNetwork()?.bindSocket(socket) }
+            .onFailure { Log.w(TAG, "pause socket not tied to the local network", it) }
     }
 
     // ---- Taking over -------------------------------------------------------------------------
@@ -254,28 +280,41 @@ class ContinueOn internal constructor(
     private enum class TakeOver { Paused, OtherStillPlaying }
 
     private suspend fun takeOver(cursor: ContinueOnCursor, profileId: String): TakeOver? {
-        // 1. The other device stops first, and says exactly where.
-        val spotify = cursor.provider == MediaId.PROVIDER_SPOTIFY
-        val answer = if (!spotify && cursor.playing) {
-            cursor.pause?.let { ContinueOnPauseClient.requestPause(it, cursor.trackId) }
-                ?: ContinueOnPauseClient.Answer.Unreachable
-        } else {
-            null
+        // 1. The same account here. Before the other device is asked to stop: a switch that fails
+        // leaves it playing.
+        if (profiles.activeProfileId.value != profileId) {
+            profiles.switchTo(profileId)
+            // The card tells a switch that failed. Left in ProfileManager, its error would open Settings on
+            // a switch Settings never started (Home's switcher acknowledges its own the same way).
+            val switched = profiles.switchingState.value
+            if (switched is ProfileManager.SwitchState.Error && switched.profileId == profileId) {
+                profiles.acknowledgeSwitchError()
+            }
         }
-        val pausedAt = (answer as? ContinueOnPauseClient.Answer.Paused)?.positionMs
-        // 2. The same account here.
-        if (profiles.activeProfileId.value != profileId) profiles.switchTo(profileId)
         if (profiles.activeProfileId.value != profileId) return null
         val source = withTimeoutOrNull(SOURCE_WAIT_MS) {
             profiles.activeSource.first { it != null && it.profileId.let { id -> id == null || id == profileId } }
         } ?: return null
+        // 2. The other device stops, and says which song it is on by now and exactly where: the system
+        // may have read this cursor long before (as the window there went to the background).
+        val spotify = cursor.provider == MediaId.PROVIDER_SPOTIFY
+        val answer = if (!spotify && cursor.playing) {
+            cursor.pause?.let { askToPause(it, cursor.trackId, ::bindToLocalNetwork) }
+                ?: ContinueOnPauseClient.Answer.Unreachable
+        } else {
+            null
+        }
+        val paused = answer as? ContinueOnPauseClient.Answer.Paused
+        val playingId = paused?.trackId ?: cursor.trackId
         // 3. The songs, read again from this device's copy of the account.
-        val queue = restoreQueue(source, cursor) ?: return null
-        // The account may have changed while the songs were read: this hand-off belongs to the one it chose.
+        val queue = restoreQueue(source, cursor, playingId) ?: return null
+        // The account may have changed meanwhile: this hand-off belongs to the one it chose.
         if (profiles.activeProfileId.value != profileId || profiles.activeSource.value !== source) return null
         val track = queue.tracks[queue.index]
         val durationMs = (track.durationSec ?: 0) * 1_000L
-        val position = pausedAt ?: cursor.positionAt(System.currentTimeMillis(), durationMs)
+        // Where the other device said it stopped, when the song that starts here is the one it stopped in.
+        val position = paused?.positionMs?.takeIf { track.id.rawId == playingId }
+            ?: cursor.positionAt(System.currentTimeMillis(), durationMs)
         // 4. Play from there, as the other device did.
         playback.play(
             tracks = queue.tracks,
@@ -332,19 +371,31 @@ class ContinueOn internal constructor(
     private data class RestoredQueue(val tracks: List<Track>, val index: Int, val activityContext: ActivityContext)
 
     /**
-     * The queue the other device was playing: its album, playlist or Liked songs read in one go when it
-     * came from one and the song is in it, else the song and what came next, read one by one.
+     * The queue the other device was playing, from [trackId] on (the song it is on by now, which need not
+     * be the cursor's any more): its album, playlist or Liked songs read in one go when it came from one
+     * and the song is in it, else the song and what came next, read one by one. A song that can't be read
+     * here falls back to the cursor's own.
      */
-    private suspend fun restoreQueue(source: MusicSource, cursor: ContinueOnCursor): RestoredQueue? {
-        val provider = cursor.provider
-        val activityContext = cursor.context.toActivityContext(provider)
+    private suspend fun restoreQueue(source: MusicSource, cursor: ContinueOnCursor, trackId: String): RestoredQueue? {
         val whole = runCatching { readContext(source, cursor) }
             .onFailure { if (it is CancellationException) throw it }
             .getOrNull()
-        whole?.indexOfFirst { it.id.rawId == cursor.trackId }?.takeIf { it >= 0 }?.let { index ->
+        return restoreFrom(source, cursor, whole, trackId)
+            ?: if (trackId != cursor.trackId) restoreFrom(source, cursor, whole, cursor.trackId) else null
+    }
+
+    private suspend fun restoreFrom(
+        source: MusicSource,
+        cursor: ContinueOnCursor,
+        whole: List<Track>?,
+        trackId: String,
+    ): RestoredQueue? {
+        val provider = cursor.provider
+        val activityContext = cursor.context.toActivityContext(provider)
+        whole?.indexOfFirst { it.id.rawId == trackId }?.takeIf { it >= 0 }?.let { index ->
             return RestoredQueue(whole, index, activityContext)
         }
-        val ids = cursor.queueIds.drop(cursor.index).take(MAX_SONG_READS)
+        val ids = cursor.queueFrom(trackId).take(MAX_SONG_READS)
         val permits = Semaphore(PARALLEL_READS)
         val tracks = coroutineScope {
             ids.map { raw ->
@@ -423,6 +474,27 @@ data class ContinueOnPrompt(
         /** The songs couldn't be read here. */
         Failed,
     }
+}
+
+/**
+ * The Wi-Fi or Ethernet this device is on itself, never a VPN laid over it. A VPN is the network in use
+ * and reports the transport under it as its own, but its addresses are the tunnel's, which nothing on
+ * the local network reaches, and a connection made through it never comes out there.
+ */
+internal fun ConnectivityManager.localNetwork(): Network? {
+    fun local(network: Network): Boolean {
+        val capabilities = getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+            (
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                )
+    }
+    activeNetwork?.takeIf(::local)?.let { return it }
+    // One look as a hand-off is asked for or answered; a NetworkCallback would have to stay registered.
+    @Suppress("DEPRECATION")
+    val networks = allNetworks
+    return networks.firstOrNull(::local)
 }
 
 /** The raw id in an [ActivityContext] id, which pages store either raw or as a full MediaId string. */

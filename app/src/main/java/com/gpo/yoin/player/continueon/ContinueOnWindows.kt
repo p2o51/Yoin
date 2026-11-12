@@ -5,6 +5,7 @@ import android.app.HandoffActivityDataRequestInfo
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Build
+import android.os.Bundle
 import android.os.PersistableBundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -67,13 +68,24 @@ internal object ContinueOnWindows {
     /** A hand-off [intent] started the shell: show its card. True when it was one (its extras are then cleared). */
     @Suppress("DEPRECATION")
     fun receive(activity: ComponentActivity, intent: Intent?): Boolean {
-        val extras = intent?.extras ?: return false
-        if (!extras.containsKey(ContinueOnCursor.KEY_VERSION)) return false
+        val extras = handoffExtras(intent) ?: return false
         val continueOn = (activity.application as YoinApplication).container.continueOn
         val received = continueOn.receive { key -> extras.get(key) }
         // Read once: a recreated window must not show the card again.
-        ContinueOnCursor.KEY_PREFIXED.forEach(intent::removeExtra)
+        ContinueOnCursor.KEY_PREFIXED.forEach { intent?.removeExtra(it) }
         return received
+    }
+
+    /**
+     * The extras of an [intent] that brings a hand-off to show; null for any other intent. A task
+     * reopened from Recents is started with the intent that first started it, cursor and all (clearing
+     * the extras in [receive] only reaches this process's copy): that hand-off was answered the first time.
+     */
+    internal fun handoffExtras(intent: Intent?): Bundle? {
+        val extras = intent?.extras ?: return null
+        if (!extras.containsKey(ContinueOnCursor.KEY_VERSION)) return null
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return null
+        return extras
     }
 
     private const val TAG = "YoinContinueOn"

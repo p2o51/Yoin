@@ -36,11 +36,12 @@ private fun rememberTipReadStore(): TipReadStore {
 @Composable
 internal fun tipsReadSummary(): String {
     val read by rememberTipReadStore().read.collectAsState()
-    val total = HomeBubbleTip.entries.size
-    return if (read.size >= total) {
+    val tips = remember { HomeBubbleTip.available() }
+    val readCount = tips.count { it in read }
+    return if (readCount >= tips.size) {
         stringResource(R.string.settings_tips_all_read)
     } else {
-        stringResource(R.string.settings_tips_read_count, read.size, total)
+        stringResource(R.string.settings_tips_read_count, readCount, tips.size)
     }
 }
 
@@ -55,9 +56,10 @@ internal fun TipsPageContent(modifier: Modifier = Modifier) {
     val haptics = rememberYoinHaptics()
     val store = rememberTipReadStore()
     val read by store.read.collectAsState()
+    val tips = remember { HomeBubbleTip.available() }
     Column(modifier = modifier) {
         SettingsSegments {
-            HomeBubbleTip.entries.forEach { tip ->
+            tips.forEach { tip ->
                 item(key = tip) {
                     SettingsItem(
                         icon = tip.icon,

@@ -110,6 +110,27 @@ class ContinueOnCursorTest {
     }
 
     @Test
+    fun should_startWhereTheCardShowsIt_when_theCursorIsTooOldToCatchUp() {
+        // Read a quarter of an hour ago as the window went to the background: the song has long ended there.
+        val now = cursor.capturedAtMs + 15 * 60_000L
+        assertEquals(61_000L, cursor.positionAt(nowMs = now, durationMs = 240_000L))
+        assertEquals(61_000L, cursor.positionAt(nowMs = now))
+    }
+
+    @Test
+    fun should_giveTheQueueFromTheSongTheDeviceIsOnNow_when_itHasMovedOn() {
+        val read = cursor.copy(queueIds = listOf("t3", "t1", "t2", "t3", "t4"), index = 2)
+        // Its own song, at its own place.
+        assertEquals(listOf("t2", "t3", "t4"), read.queueFrom("t2"))
+        // A later one: the place after the cursor's, not the same song queued earlier.
+        assertEquals(listOf("t3", "t4"), read.queueFrom("t3"))
+        // Gone back to an earlier one.
+        assertEquals(listOf("t1", "t2", "t3", "t4"), read.queueFrom("t1"))
+        // One the queue it was read with doesn't hold: alone.
+        assertEquals(listOf("t9"), read.queueFrom("t9"))
+    }
+
+    @Test
     fun should_keepTheTrackAndItsSurroundings_when_queueIsLong() {
         val queue = (0 until 1_000).map { "id$it" }
         val (window, index) = ContinueOnCursor.queueWindow(queue, 500)

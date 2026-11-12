@@ -1,9 +1,11 @@
 package com.gpo.yoin.ui.home
 
+import android.os.Build
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.gpo.yoin.R
+import com.gpo.yoin.player.continueon.ContinueOnWindows
 import com.gpo.yoin.symbols.YoinSymbols
 import java.time.LocalDate
 import kotlin.random.Random
@@ -33,14 +35,18 @@ internal sealed interface BubbleSay {
  * read before that day is unread again, so the bubble brings the change up.
  * A wording change alone keeps the day. The copy itself is Gemini's (owner
  * 2026-11-06: one short line per tip, written by Gemini, never by Claude).
+ *
+ * A tip about something only a newer Android has names it in [minSdk]; the
+ * bubble, the reader and Settings go by [available], never by all entries.
  */
 internal enum class HomeBubbleTip(
     @StringRes val title: Int,
     @StringRes val text: Int,
     val updated: LocalDate,
     private val symbol: () -> ImageVector,
+    private val minSdk: Int = 0,
 ) {
-    ContinueOn(R.string.home_tip_continue_on_title, R.string.home_tip_continue_on, day(2026, 11, 8), { YoinSymbols.Tablet }),
+    ContinueOn(R.string.home_tip_continue_on_title, R.string.home_tip_continue_on, day(2026, 11, 8), { YoinSymbols.Tablet }, minSdk = ContinueOnWindows.API),
     SpotifyElsewhere(R.string.home_tip_spotify_elsewhere_title, R.string.home_tip_spotify_elsewhere, day(2026, 11, 10), { YoinSymbols.MusicNote }),
     Labs(R.string.home_tip_labs_title, R.string.home_tip_labs, day(2026, 11, 9), { YoinSymbols.Insights }),
     SettingsRegrouped(R.string.home_tip_settings_regrouped_title, R.string.home_tip_settings_regrouped, day(2026, 11, 9), { YoinSymbols.Settings }),
@@ -66,6 +72,11 @@ internal enum class HomeBubbleTip(
     ;
 
     val icon: ImageVector get() = symbol()
+
+    companion object {
+        /** The tips a device on Android [sdk] can use, in the bubble's order. */
+        fun available(sdk: Int = Build.VERSION.SDK_INT): List<HomeBubbleTip> = entries.filter { sdk >= it.minSdk }
+    }
 }
 
 private fun day(year: Int, month: Int, dayOfMonth: Int): LocalDate = LocalDate.of(year, month, dayOfMonth)

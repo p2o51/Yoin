@@ -46,11 +46,28 @@ data class ContinueOnCursor(
     /** This device on the local network, waiting for one "pause" that carries [token]. */
     data class PauseChannel(val hosts: List<String>, val port: Int, val token: String)
 
-    /** Where [positionMs] has got to at [nowMs], within the track as far as is known ([durationMs] 0 = unknown). */
+    /**
+     * Where [positionMs] has got to at [nowMs], within the track as far as is known ([durationMs] 0 = unknown).
+     * A cursor read more than [MAX_DRIFT_MS] ago is not caught up: the device has long been in another
+     * song, so this one starts where the card shows it.
+     */
     fun positionAt(nowMs: Long, durationMs: Long = 0L): Long {
-        val moved = if (playing) (nowMs - capturedAtMs).coerceIn(0L, MAX_DRIFT_MS) else 0L
+        val since = if (playing) (nowMs - capturedAtMs).coerceAtLeast(0L) else 0L
+        val moved = if (since > MAX_DRIFT_MS) 0L else since
         val position = (positionMs + moved).coerceAtLeast(0L)
         return if (durationMs > 0L) position.coerceAtMost((durationMs - END_GUARD_MS).coerceAtLeast(0L)) else position
+    }
+
+    /**
+     * [queueIds] from [trackId] on. The cursor's own track is at [index]; another one (the device has
+     * moved on since the cursor was read) is looked for after it first, then before it, and stands
+     * alone when the queue doesn't hold it.
+     */
+    fun queueFrom(trackId: String): List<String> {
+        if (trackId == this.trackId) return queueIds.drop(index)
+        val later = queueIds.drop(index).indexOf(trackId)
+        val at = if (later >= 0) index + later else queueIds.indexOf(trackId)
+        return if (at >= 0) queueIds.drop(at) else listOf(trackId)
     }
 
     /** Flattened for a PersistableBundle (strings, ints, longs, booleans and string arrays only). */
