@@ -201,17 +201,8 @@ suspend fun buildMemoryLedger(
     }
 
     val out = ArrayList<MemoryLedgerEntry>()
-    rows.albumNotes.filter { counts(it.profileId) }.forEach { note ->
-        val album = album(note.profileId, note.provider, note.albumId) ?: return@forEach
-        out += MemoryLedgerEntry(
-            id = "album-note:${note.id}",
-            kind = MemoryLedgerKind.AlbumNote,
-            at = note.createdAt,
-            profileId = note.profileId,
-            album = album,
-            text = note.content,
-        )
-    }
+    // Songs first: a song's lookup may be the only thing that names its album, and the album's own note,
+    // score, review and title below must find it named (the list is sorted at the end, so order is free).
     rows.songNotes.filter { counts(it.note.profileId) }.forEach { row ->
         val note = row.note
         val songId = MediaId.storedRawId(note.provider, note.trackId)
@@ -227,31 +218,6 @@ suspend fun buildMemoryLedger(
             songId = MediaId.storedRawId(note.provider, note.trackId),
             positionMs = note.positionMs,
         )
-    }
-    rows.albumRatings.filter { counts(it.profileId) }.forEach { rating ->
-        val album = album(rating.profileId, rating.provider, rating.albumId) ?: return@forEach
-        val base = "${rating.profileId}|${rating.provider}|${album.albumId}"
-        if (rating.rating > 0f) {
-            out += MemoryLedgerEntry(
-                id = "album-rating:$base",
-                kind = MemoryLedgerKind.AlbumRating,
-                at = rating.updatedAt,
-                profileId = rating.profileId,
-                album = album,
-                score = rating.rating,
-            )
-        }
-        val review = rating.review?.trim()
-        if (!review.isNullOrEmpty()) {
-            out += MemoryLedgerEntry(
-                id = "review:$base",
-                kind = MemoryLedgerKind.Review,
-                at = rating.reviewUpdatedAt ?: rating.updatedAt,
-                profileId = rating.profileId,
-                album = album,
-                text = review,
-            )
-        }
     }
     rows.trackRatings.filter { counts(it.profileId) }.forEach { row ->
         val score = row.rating ?: return@forEach
@@ -279,6 +245,42 @@ suspend fun buildMemoryLedger(
             songId = MediaId.storedRawId(row.provider, row.songId),
             score = score,
         )
+    }
+    rows.albumNotes.filter { counts(it.profileId) }.forEach { note ->
+        val album = album(note.profileId, note.provider, note.albumId) ?: return@forEach
+        out += MemoryLedgerEntry(
+            id = "album-note:${note.id}",
+            kind = MemoryLedgerKind.AlbumNote,
+            at = note.createdAt,
+            profileId = note.profileId,
+            album = album,
+            text = note.content,
+        )
+    }
+    rows.albumRatings.filter { counts(it.profileId) }.forEach { rating ->
+        val album = album(rating.profileId, rating.provider, rating.albumId) ?: return@forEach
+        val base = "${rating.profileId}|${rating.provider}|${album.albumId}"
+        if (rating.rating > 0f) {
+            out += MemoryLedgerEntry(
+                id = "album-rating:$base",
+                kind = MemoryLedgerKind.AlbumRating,
+                at = rating.updatedAt,
+                profileId = rating.profileId,
+                album = album,
+                score = rating.rating,
+            )
+        }
+        val review = rating.review?.trim()
+        if (!review.isNullOrEmpty()) {
+            out += MemoryLedgerEntry(
+                id = "review:$base",
+                kind = MemoryLedgerKind.Review,
+                at = rating.reviewUpdatedAt ?: rating.updatedAt,
+                profileId = rating.profileId,
+                album = album,
+                text = review,
+            )
+        }
     }
     rows.titles.filter { counts(it.profileId) }.forEach { title ->
         val album = album(title.profileId, title.provider, title.albumId) ?: return@forEach

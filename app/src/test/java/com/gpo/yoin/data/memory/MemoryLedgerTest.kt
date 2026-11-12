@@ -110,6 +110,45 @@ class MemoryLedgerTest {
     }
 
     @Test
+    fun should_keepAnAlbumsOwnMarks_when_onlyItsSongsLookupNamesIt() = runTest {
+        // Synced from another device: the album was never played or opened here, and its note carries no name.
+        val rating = AlbumRating(
+            profileId = "a",
+            albumId = "al1",
+            rating = 8.5f,
+            review = "kept",
+            neoDbReviewUuid = null,
+            updatedAt = at(today),
+        )
+
+        val entries = buildMemoryLedger(
+            MemoryLedgerRows(
+                albumNotes = listOf(albumNote("n1", "a", "al1", today)),
+                albumRatings = listOf(rating),
+                trackRatings = listOf(trackScore("a", "song1", null, today), trackScore("a", "song2", null, today)),
+                titles = listOf(AlbumMemoryTitle("a", "subsonic", "al1", "Title", at(today))),
+            ),
+            profileIds = null,
+            knownTrack = { _, _, song -> LedgerTrack("Song $song", "al1", "Pulse EP", "Regene", "c-al1") },
+        )
+
+        // The album's note, score, review and title stand beside the two song scores that named it.
+        assertEquals(
+            listOf(
+                MemoryLedgerKind.AlbumNote,
+                MemoryLedgerKind.Review,
+                MemoryLedgerKind.Title,
+                MemoryLedgerKind.AlbumRating,
+                MemoryLedgerKind.TrackRating,
+                MemoryLedgerKind.TrackRating,
+            ),
+            entries.map { it.kind }.sorted(),
+        )
+        assertTrue(entries.all { it.album?.name == "Pulse EP" })
+        assertEquals(2, memoryLedgerStats(entries).writings)
+    }
+
+    @Test
     fun should_keepSongNote_withoutAlbum() = runTest {
         val entries = buildMemoryLedger(
             MemoryLedgerRows(songNotes = listOf(songNote("s1", "a", null, today))),
