@@ -181,4 +181,47 @@ class ShellBackResolverTest {
 
         assertEquals(ShellBackOwner.Memories, owner)
     }
+
+    @Test
+    fun should_closeTheColumnFirst_when_aMemoryOpenedItsAlbumInTheOpenColumn() {
+        // Opened: column, Memories — then "Go to album" swaps the open column's page.
+        val recency = mutableListOf<ShellBackOwner>()
+        recency.noteShellSurface(ShellBackOwner.DetailPane, open = true)
+        recency.noteShellSurface(ShellBackOwner.Memories, open = true)
+        recency.noteShellSurface(ShellBackOwner.DetailPane, open = true)
+        fun owner(pane: Boolean) = resolveShellBackOwner(
+            showNowPlaying = false,
+            selectedSection = YoinSection.HOME,
+            homeSurface = HomeSurface.Memories,
+            detailPaneOpen = pane,
+            recency = recency,
+        )
+
+        assertEquals(listOf(ShellBackOwner.Memories, ShellBackOwner.DetailPane), recency)
+        assertEquals(ShellBackOwner.DetailPane, owner(pane = true))
+        // The album leaves; the memory it came from is still there and answers next.
+        recency.noteShellSurface(ShellBackOwner.DetailPane, open = false)
+        assertEquals(ShellBackOwner.Memories, owner(pane = false))
+    }
+
+    @Test
+    fun should_stepThePlayerBackFirst_when_itWentDeeperBesideANewerSurface() {
+        // Opened: side panel, column, Memories — then lyrics or focus in the panel.
+        val recency = mutableListOf<ShellBackOwner>()
+        recency.noteShellSurface(ShellBackOwner.NowPlaying, open = true)
+        recency.noteShellSurface(ShellBackOwner.DetailPane, open = true)
+        recency.noteShellSurface(ShellBackOwner.Memories, open = true)
+        fun owner() = resolveShellBackOwner(
+            showNowPlaying = true,
+            selectedSection = YoinSection.HOME,
+            homeSurface = HomeSurface.Memories,
+            detailPaneOpen = true,
+            nowPlayingIsPanel = true,
+            recency = recency,
+        )
+
+        assertEquals(ShellBackOwner.Memories, owner())
+        recency.noteShellSurface(ShellBackOwner.NowPlaying, open = true)
+        assertEquals(ShellBackOwner.NowPlaying, owner())
+    }
 }

@@ -343,8 +343,11 @@ the dispatcher gate does:
 3. **Who answers back** (`ShellBackResolver`, 2026-11-12 「返回是进入的反序」):
    a full-window Now Playing first, then Home edit; the side-by-side surfaces
    — the NP side panel, the column, Memories — close in REVERSE OPENING ORDER
-   (`backRecency`, `noteShellSurface`). NP stands down through
-   `NowPlayingOverlayHost(backYields = …)` while a newer surface owns back.
+   (`backRecency`, `noteShellSurface`). Going further inside an open one
+   notes it as newest again: a page shown in the column (`openPane` /
+   `pushPane`), the player's stage leaving Compact (lyrics, focus). NP stands
+   down through `NowPlayingOverlayHost(backYields = …)` while a newer surface
+   owns back.
 
 Pages composed in the column read `LocalDetailHostMode == Pane`:
 `DetailBottomBar` returns early (no bar), `rememberDetailBackCollapse`

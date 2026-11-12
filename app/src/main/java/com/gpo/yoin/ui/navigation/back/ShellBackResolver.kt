@@ -31,7 +31,10 @@ enum class ShellBackOwner {
  * Surfaces that sit SIDE BY SIDE — the Now Playing side panel, the detail
  * column, Memories over the shell column — close in reverse order of opening
  * (owner 2026-11-12: 「返回是进入的反序」): [recency] lists them oldest first
- * as the shell saw them open, and the latest one still open answers. One
+ * as the shell saw them open, and the latest one still open answers. Going
+ * further inside an open one — another page shown in the column, the
+ * player's lyrics or focus — counts as entering it again: the shell notes it
+ * as the newest, so back undoes that step first. One
  * missing from [recency] (opened in the frame before the shell recorded it)
  * ranks oldest, ties falling back to Now Playing > detail column > Memories.
  */
@@ -57,7 +60,10 @@ fun resolveShellBackOwner(
     return open.maxByOrNull { recency.lastIndexOf(it) } ?: ShellBackOwner.None
 }
 
-/** The side-by-side surfaces' opening order, oldest first: [owner] opened (moves to the end) or closed (leaves). */
+/**
+ * The side-by-side surfaces' opening order, oldest first: [owner] opened or
+ * was entered further (moves to the end), or closed (leaves).
+ */
 fun MutableList<ShellBackOwner>.noteShellSurface(owner: ShellBackOwner, open: Boolean) {
     remove(owner)
     if (open) add(owner)

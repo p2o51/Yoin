@@ -544,6 +544,20 @@ private fun YoinShell(
     LaunchedEffect(showNowPlaying) { backRecency.noteShellSurface(ShellBackOwner.NowPlaying, showNowPlaying) }
     LaunchedEffect(paneOpen) { backRecency.noteShellSurface(ShellBackOwner.DetailPane, paneOpen) }
     LaunchedEffect(memoriesOpen) { backRecency.noteShellSurface(ShellBackOwner.Memories, memoriesOpen) }
+    // Going further inside a surface that is already open is the newest thing
+    // the user entered: a page shown in the column (openPane / pushPane) and
+    // the player's lyrics or focus make that surface the newest again, so
+    // back undoes that step before it closes one opened in between. The stage
+    // is collected here, not read as state: a stage change must not recompose
+    // the shell.
+    LaunchedEffect(showNowPlaying, nowPlayingViewModel) {
+        if (!showNowPlaying) return@LaunchedEffect
+        nowPlayingViewModel.stageMode.drop(1).collect { mode ->
+            if (mode != NowPlayingStageMode.Compact) {
+                backRecency.noteShellSurface(ShellBackOwner.NowPlaying, open = true)
+            }
+        }
+    }
     val shellBackOwner = resolveShellBackOwner(
         showNowPlaying = showNowPlaying,
         selectedSection = selectedSection,
@@ -589,6 +603,10 @@ private fun YoinShell(
             paneStack.clear()
             paneStack.add(route)
         }
+        // The page just asked for is the newest thing entered, also when the
+        // column was already open (paneOpen does not flip then): back leaves
+        // it before Memories or a side panel opened before the tap.
+        backRecency.noteShellSurface(ShellBackOwner.DetailPane, open = true)
         // The page the user asked for must be visible. A full-window player
         // would cover the column: step it back to the side panel — or, where
         // the panel cannot sit beside two columns, close it.
@@ -610,6 +628,7 @@ private fun YoinShell(
         markDetailClick(route, via = "pane-push")
         app.container.repository.prefetchPaneDetail(route)
         paneStack.add(route)
+        backRecency.noteShellSurface(ShellBackOwner.DetailPane, open = true)
     }
     // Opening or closing the column re-tiers the shell — never mid-edit: edit
     // mode animates out first (P settles at 0), then the column moves.
