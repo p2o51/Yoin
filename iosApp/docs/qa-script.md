@@ -154,3 +154,19 @@ YOIN_SKIP_SHARED_BUILD=1 xcodebuild test -project Yoin.xcodeproj -scheme YoinSpo
 Restart the fake between runs that write (a restore adds a playlist; a removal shortens QA Mix). The
 stand-in account stays on the simulator after a fake launch; launched without the flag it would ask
 the real Spotify with dummy tokens and turn to "Sign in again": use a throwaway simulator.
+
+## 5. The iPad app on a Mac
+
+The same target runs on a Mac as "Designed for iPad". Rules that differ there hang on one flag,
+`Platform.current.isMac` (`App/Platform.swift`); nothing else reads `ProcessInfo.isiOSAppOnMac`.
+
+- Compile check, never run (the debug build shares its bundle id and data with the installed copy):
+  `xcodebuild build -project Yoin.xcodeproj -scheme Yoin -destination "platform=macOS,variant=Designed for iPad" -derivedDataPath build/dd-mac -allowProvisioningUpdates`
+- Stand in for a Mac: `-platformMac YES` on the iPad simulator (debug builds), or
+  `Platform.$standIn.withValue(.mac) { … }` in a test.
+- The window stops at 360 × 480 (`App/WindowFloor.swift`: one phone column wide, and the height under
+  which Android switches to the landscape handset's shell, a form iOS doesn't have). iPad windows keep
+  the system's minimum. To see the shell at that size:
+  `-padWindowWidth 360 -padWindowHeight 480 -padWindowClass compact -screen home|np|album|library`.
+- Not checked on a real Mac window yet: that the system holds the drag at the floor, and what a window
+  restored smaller than the floor does.

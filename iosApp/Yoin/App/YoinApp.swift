@@ -14,6 +14,8 @@ struct YoinApp: App {
         WindowGroup {
             RootView()
                 .modifier(QAWindowFrame())
+                // On a Mac the window stops at the smallest size the phone shell is laid out for.
+                .background(WindowFloorInstaller())
         }
         .commands { YoinCommands(model: AppModel.shared) }
     }
@@ -115,7 +117,8 @@ private struct SlowMotionInstaller: UIViewRepresentable {
 /// QA stand-in for a narrow iPad window (Split View, Stage Manager), which the simulator can't be put into
 /// from the command line: `-padWindowWidth 683 -padWindowClass regular` lays the app out in a window that
 /// wide (leading edge, the rest of the screen dimmed) with that horizontal size class, so the same layout
-/// code runs as in a real window that size. Debug builds only; nothing without the argument.
+/// code runs as in a real window that size. `-padWindowHeight 480` makes it that tall as well (top edge):
+/// a short window, such as the Mac's smallest (WindowFloor). Debug builds only; nothing without the argument.
 struct QAWindowFrame: ViewModifier {
     func body(content: Content) -> some View {
         #if DEBUG
@@ -123,11 +126,13 @@ struct QAWindowFrame: ViewModifier {
         let width = d.double(forKey: "padWindowWidth")
         if width > 0 {
             let compact = d.string(forKey: "padWindowClass") == "compact"
+            let height = d.double(forKey: "padWindowHeight")
             HStack(spacing: 0) {
                 content
                     .environment(\.horizontalSizeClass, compact ? .compact : .regular)
-                    .frame(width: width)
+                    .frame(width: width, height: height > 0 ? height : nil)
                     .clipShape(.rect(cornerRadius: 18, style: .continuous))
+                    .frame(maxHeight: .infinity, alignment: .top)
                 Color.black.opacity(0.85).frame(width: 10)
                 Color.gray.opacity(0.35)
             }
