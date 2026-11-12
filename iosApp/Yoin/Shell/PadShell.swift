@@ -86,6 +86,11 @@ struct PadShell: View {
             model.np.show(open)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.padWidth = $0 }
+        // A column opening beside the panel where the two columns no longer fit: the page stays visible and
+        // the panel steps away (Android: "the page is always visible").
+        .onChange(of: model.padColumnOpen) { _, open in
+            if open, model.npPanel, !model.padPanelFits { withAnimation(Yoin.spatial) { model.npPanel = false } }
+        }
         .onAppear {
             if model.npExpanded { model.np.snapOpen() }
             // `-screen settings`: the sign-in page in the album column.
@@ -176,7 +181,10 @@ private struct PadColumns: View {
     private var columns: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            if w >= 840 {
+            // Whether pages open in a column is the window's (Android hasDetailPane: a Wide window), not
+            // the space left beside the Now Playing panel: beside the panel the two columns share what is
+            // left, each at least a phone column (the panel only opens there when 744 is left).
+            if model.padWidth >= 840 {
                 wideColumns(w: w)
             } else {
                 NavigationStack(path: path) {
@@ -205,7 +213,7 @@ private struct PadColumns: View {
                 }
             }
         }
-        .onGeometryChange(for: Bool.self) { $0.size.width >= 840 } action: { wide = $0 }
+        .onChange(of: model.padWidth >= 840, initial: true) { _, now in wide = now }
         .onChange(of: model.padSelection) { _, _ in
             // A new album in the column replaces whatever was pushed on it.
             guard active, wide else { return }

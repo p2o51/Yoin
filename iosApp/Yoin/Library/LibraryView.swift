@@ -47,7 +47,7 @@ struct LibraryView: View {
     /// YoinShared): Android's knee mapping, where the thumb tracks the top row
     /// and the last stretch of the track covers the final screen.
     struct ScrollMetrics: Equatable {
-        var offset: CGFloat = 0, content: CGFloat = 1, viewport: CGFloat = 1
+        var offset: CGFloat = 0, content: CGFloat = 1, viewport: CGFloat = 1, insets: CGFloat = 0
 
         func rows(_ items: Int, columns: Int) -> Int32 {
             FastScrollMath.shared.lineCount(itemCount: Int32(items), itemsPerLine: Int32(columns))
@@ -86,8 +86,17 @@ struct LibraryView: View {
     /// cells stay phone-sized and the count follows the width (min 96, a
     /// landscape phone's short window 100).
     private var columns: Int {
-        LibraryGrid.columns(width: width, regularWidth: hSize == .regular, compactHeight: vSize == .compact)
+        let base = LibraryGrid.columns(width: width, regularWidth: hSize == .regular, compactHeight: vSize == .compact)
+        // A short shelf past the phone's width grows its cells (Android LibrarySparseCells, owner 2026-11-12):
+        // All, Albums and Artists; never the phone's fixed three or a short landscape window.
+        guard vSize != .compact, hSize == .regular || width >= 600,
+              filter == nil || filter == .albums || filter == .artists, gridViewport > 0 else { return base }
+        return LibraryGrid.sparseColumns(itemCount: ordered.items.count, baseColumns: base, width: width - 32,
+                                         height: gridViewport, leading: LibraryGrid.sparseSortRow)
     }
+    /// The grid's visible height: the scroll view less its top bar (header, chips) and bottom inset, and the
+    /// grid's top padding (Android: maxHeight − 8 − the floating bar's padding).
+    @State private var gridViewport: CGFloat = 0
     private var cell: CGFloat { LibraryGrid.cell(width: width, columns: columns) }
 
     /// Android librarySortOptions: only orders the data can back (see `LibrarySortOptions`).
@@ -208,9 +217,11 @@ struct LibraryView: View {
         .scrollPosition($position)
         .onScrollGeometryChange(for: ScrollMetrics.self) {
             ScrollMetrics(offset: $0.contentOffset.y + $0.contentInsets.top, content: $0.contentSize.height,
-                          viewport: $0.containerSize.height)
+                          viewport: $0.containerSize.height, insets: $0.contentInsets.top + $0.contentInsets.bottom)
         } action: { _, m in
             metrics = m
+            let visible = m.viewport - m.insets - Tokens.library.GRID_TOP_PADDING.cg
+            if abs(visible - gridViewport) > 0.5 { gridViewport = visible }
             memory.offsets[tab] = m.offset
             wake()
         }
@@ -887,6 +898,30 @@ enum LibraryGrid {
         guard regularWidth || width >= 600 else { return 3 }
         return max(3, Int((available + gutter) / (96 + gutter)))
     }
+
+    /// A short shelf's columns (Android librarySparseColumns, 8f90026d): [baseColumns] (the usual ~96 cells),
+    /// or fewer while [itemCount] cells can't fill [height] — from max(3, ⌈base / 2⌉) up, the first count whose
+    /// rows (sort row [leading] + rows × (cell + 44) + gaps) fit; none fits → base. [width] is the grid's own
+    /// (inside the margins); 12 column / 16 row gaps as the grid's.
+    static func sparseColumns(itemCount: Int, baseColumns: Int, width: CGFloat, height: CGFloat,
+                              cellExtra: CGFloat = sparseCellExtra, leading: CGFloat = 0,
+                              rowGap: CGFloat = 16, columnGap: CGFloat = 12) -> Int {
+        guard baseColumns > sparseMinColumns, itemCount > 0 else { return baseColumns }
+        let fewest = max(sparseMinColumns, (baseColumns + 1) / 2)
+        for columns in fewest..<baseColumns {
+            let cell = (width - columnGap * CGFloat(columns - 1)) / CGFloat(columns)
+            let rows = (itemCount + columns - 1) / columns
+            let content = leading + (cell + cellExtra) * CGFloat(rows) + rowGap * CGFloat(rows - 1)
+            if content <= height { return columns }
+        }
+        return baseColumns
+    }
+
+    /// Title + subtitle under a cell's artwork (Android LibrarySparseCellExtra).
+    static let sparseCellExtra: CGFloat = 44
+    /// The sort row above the first cells (Android LibrarySparseSortRow).
+    static let sparseSortRow: CGFloat = 48
+    static let sparseMinColumns = 3
 
     /// A cell's side for [columns] across [width] (16 margins, 12 gaps).
     static func cell(width: CGFloat, columns: Int) -> CGFloat {
