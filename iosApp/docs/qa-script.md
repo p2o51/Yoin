@@ -63,6 +63,7 @@ How to read a clip quickly:
 | np-open-close, np-drag-dismiss, np-morph-slow, np-focus-demo, np-about-cycle (rec) | `-npAutoCycle YES`, `-npScriptedDrag YES`, `-screen np-morph`, `-npFocusDemo YES`, `-npAutoCycle YES -npAutoCycleHold 5 -npTab about-full` | R3/R5: shell visible (blurred) on every frame, NP never a blank slab, no end-of-settle snap |
 | srv-home, srv-np, srv-album | `-subsonicURL http://127.0.0.1:4995 -subsonicUser demo -subsonicPass demo` (+ `-historySeed demo`, `-serverPlay album:al-field -serverOpenNowPlaying YES`, `-serverRoute album:al-field`) | real covers, unrated, no lyrics, real queue |
 | srv-memory-np, srv-memory-queue | the same sign-in + `-historySeed demo -memoriesShot al-lowtide -memoriesShotDiary YES -memoriesShotPlay YES` and `-memoriesShotNowPlaying YES` / `-memoriesShotQueue YES` | a memory's liner row played: Now Playing's header and the queue sheet name the memory's album (Playing from), not the page under Memories |
+| srv-memories-switch | the same sign-in + `-historySeed demo -profilesScript "wait:8000;add:http://localhost:4995,spare;wait:2500;open:all-memories" -allMemoriesShotSwitch YES -homeOtherProfilesSwitchNoticeSeen NO` | a second account (spare) in use, All Memories open, the first "From demo" card tapped: the one-off switch notice comes out of that card ("To open …", Switch and open). `-homeOtherProfilesSwitchNoticeSeen NO` asks on every launch (Home's other-accounts shelf shares the flag); without it a confirmed notice never returns |
 
 ## 2. Hand pass (light and dark, iPhone then iPad)
 

@@ -16,6 +16,8 @@ struct AllMemoriesView: View {
     @AppStorage("memoryLedgerView") private var viewRaw = LedgerView.timeline.rawValue
     @AppStorage("memoryLedgerSort") private var sortRaw = LedgerSort.recent.rawValue
     @State private var selected: Int?
+    /// Going to another account's album asks once before switching (the notice Home's shelf shares).
+    @State private var switchGate = AccountSwitchGate()
 
     private var app: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
@@ -56,6 +58,14 @@ struct AllMemoriesView: View {
             source.reload()
             // Album pages a mark needs to be named (a scored song never played here): loaded, then read again.
             if await model.store.hydrateMemoryAlbums() { source.reload() }
+            #if DEBUG
+            // `-allMemoriesShotSwitch YES`: taps the first card kept on another account (the switch notice).
+            if UserDefaults.standard.bool(forKey: "allMemoriesShotSwitch"), let state = source.state,
+               let card = firstOtherCard(state) {
+                try? await Task.sleep(for: .seconds(1))
+                open(card.album, state, from: card.anchor)
+            }
+            #endif
         }
     }
 
@@ -177,11 +187,11 @@ struct AllMemoriesView: View {
                     }
                     .padding(.top, 10)
                 case .album(_, let item, let end):
-                    albumCard(item, state)
+                    albumCard(item, state, anchor: row.id)
                         .frame(maxWidth: 420)
                         .frame(maxWidth: .infinity, alignment: end ? .trailing : .leading)
                 case .note(let e):
-                    noteCard(e, state)
+                    noteCard(e, state, anchor: row.id)
                 case .quiet(let from, let to):
                     Text(quietLine(from, to)).yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant)
                         .padding(.vertical, 4)
@@ -204,9 +214,9 @@ struct AllMemoriesView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             ForEach(items) { item in
                 switch item {
-                case .album: albumCard(item, state)
+                case .album: albumCard(item, state, anchor: item.id)
                 case .song(_, _, _, _, _, let note, _, _):
-                    if let note { noteCard(note, state) } else { songLine(item, state) }
+                    if let note { noteCard(note, state, anchor: item.id) } else { songLine(item, state) }
                 }
             }
         }
@@ -215,9 +225,10 @@ struct AllMemoriesView: View {
     private func list(_ items: [LedgerItem], _ state: LedgerState) -> some View {
         LazyVStack(spacing: 2) {
             ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
-                Button { open(item.albumRef, state) } label: { songLine(item, state) }
+                Button { open(item.albumRef, state, from: item.id) } label: { songLine(item, state) }
                     .buttonStyle(.plain)
                     .background(app.surfaceBright, in: CloudSyncView.segment(i, items.count))
+                    .accountSwitchNotice(switchGate, anchor: item.id)
             }
         }
     }
@@ -253,10 +264,11 @@ struct AllMemoriesView: View {
 
     // MARK: Cards
 
-    private func albumCard(_ item: LedgerItem, _ state: LedgerState) -> some View {
+    /// [anchor]: this card among the page's (the same album has a card in each month of the timeline).
+    private func albumCard(_ item: LedgerItem, _ state: LedgerState, anchor: String) -> some View {
         guard case let .album(album, title, score, review, songs, _) = item else { return AnyView(EmptyView()) }
         return AnyView(
-            Button { open(album, state) } label: {
+            Button { open(album, state, from: anchor) } label: {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .top, spacing: 10) {
                         cover(album, state, size: 56)
@@ -289,11 +301,12 @@ struct AllMemoriesView: View {
                 .background(app.surfaceBright, in: .rect(cornerRadius: 20))
                 .contentShape(.rect(cornerRadius: 20))
             }
-            .buttonStyle(PressScale()))
+            .buttonStyle(PressScale())
+            .accountSwitchNotice(switchGate, anchor: anchor))
     }
 
-    private func noteCard(_ e: LedgerEntry, _ state: LedgerState) -> some View {
-        Button { open(e.album, state) } label: {
+    private func noteCard(_ e: LedgerEntry, _ state: LedgerState, anchor: String) -> some View {
+        Button { open(e.album, state, from: anchor) } label: {
             VStack(alignment: .leading, spacing: 6) {
                 if let text = e.text {
                     Text(text).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurface).lineLimit(6)
@@ -314,6 +327,7 @@ struct AllMemoriesView: View {
             .contentShape(.rect(cornerRadius: 16))
         }
         .buttonStyle(PressScale())
+        .accountSwitchNotice(switchGate, anchor: anchor)
     }
 
     private func scoreBadge(_ s: Double) -> some View {
@@ -332,17 +346,20 @@ struct AllMemoriesView: View {
             .opacity(album == nil ? 0.3 : 1)
     }
 
-    /// The album's page, for an album of the account in use (another account's opens nothing here).
-    private func open(_ album: LedgerAlbum?, _ state: LedgerState) {
+    /// The album's page. Another account's: Yoin switches to it first, as Android's Go to album does (#178),
+    /// and the first time ever the notice asks before switching, on the tapped card ([anchor]), since a
+    /// switch stops what is playing.
+    private func open(_ album: LedgerAlbum?, _ state: LedgerState, from anchor: String) {
         guard let album else { return }
-        // Another account's: Yoin switches to it first, as Android's Go to album does (#178).
         if state.isOther(album.account) {
             guard let p = state.profile(album.account) else { return }
-            Task {
-                await model.profiles.switchTo(p.id)
-                guard model.profiles.active?.id == p.id else { return }
-                source.reload(model: model)
-                open(album, source.state ?? state0)
+            switchGate.request(from: anchor, account: p.name, subject: album.name, opensAlbum: true) {
+                Task {
+                    await model.profiles.switchTo(p.id)
+                    guard model.profiles.active?.id == p.id else { return }
+                    source.reload(model: model)
+                    open(album, source.state ?? state0, from: anchor)
+                }
             }
             return
         }
@@ -352,6 +369,29 @@ struct AllMemoriesView: View {
                      tracks: [])
         model.open(a)
     }
+
+    #if DEBUG
+    /// The first card of another account in the view on screen, and its anchor (`-allMemoriesShotSwitch`).
+    private func firstOtherCard(_ state: LedgerState) -> (album: LedgerAlbum, anchor: String)? {
+        let entries = filtered(state)
+        func other(_ item: LedgerItem) -> LedgerAlbum? { item.albumRef.flatMap { state.isOther($0.account) ? $0 : nil } }
+        switch view {
+        case .timeline:
+            for row in MemoryLedger.timeline(entries, today: state.today, calendar: .current) {
+                if case .album(_, let item, _) = row, let album = other(item) { return (album, row.id) }
+            }
+        case .cards:
+            for item in MemoryLedger.items(entries) {
+                if case .album = item, let album = other(item) { return (album, item.id) }
+            }
+        case .list:
+            for item in MemoryLedger.sorted(MemoryLedger.items(entries), by: sort) {
+                if let album = other(item) { return (album, item.id) }
+            }
+        }
+        return nil
+    }
+    #endif
 
     static func score(_ s: Double) -> String { String(format: "%.1f", s) }
 

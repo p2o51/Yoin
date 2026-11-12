@@ -114,6 +114,7 @@ CASES=(
   "srv-album|still|$SRV -serverRoute album:al-field"
   "srv-memory-np|still:16|$SRV -historySeed demo -memoriesShot al-lowtide -memoriesShotDiary YES -memoriesShotPlay YES -memoriesShotNowPlaying YES"
   "srv-memory-queue|still:18|$SRV -historySeed demo -memoriesShot al-lowtide -memoriesShotDiary YES -memoriesShotPlay YES -memoriesShotQueue YES"
+  "srv-memories-switch|still:18|$SRV -historySeed demo -profilesScript wait:8000;add:http://localhost:4995,spare;wait:2500;open:all-memories -allMemoriesShotSwitch YES -homeOtherProfilesSwitchNoticeSeen NO"
 )
 
 match() {

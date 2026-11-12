@@ -28,7 +28,7 @@ struct LedgerState: Sendable {
     var isEmpty: Bool { entries.isEmpty }
 
     func profile(_ account: LedgerAccount) -> LedgerProfile? { profiles.first { $0.account == account } }
-    /// A mark from an account other than the one in use (shown "From …", opens nothing).
+    /// A mark from an account other than the one in use (shown "From …"; its album opens after a switch).
     func isOther(_ account: LedgerAccount) -> Bool { activeAccount != nil && account != activeAccount }
 }
 

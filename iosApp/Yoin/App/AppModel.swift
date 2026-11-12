@@ -325,8 +325,9 @@ final class AppModel {
     #if DEBUG
     /// Debug builds, account QA without typing: `-profilesScript "add:http://127.0.0.1:4995;wait:2000;
     /// switch:0;remove:1;open:settings"`. `add:<url>` connects demo/demo there (Settings › Add account's
-    /// path, made the account in use); `switch:<n>` / `remove:<n>` act on the n-th card as a tap / a
-    /// confirmed Remove do; `open:` settings, home or library. Never in release builds.
+    /// path, made the account in use; `add:<url>,<user>` as that user); `switch:<n>` / `remove:<n>` act on
+    /// the n-th card as a tap / a confirmed Remove do; `open:` settings, all-memories, home or library.
+    /// Never in release builds.
     private func runProfilesScript() {
         guard let script = UserDefaults.standard.string(forKey: "profilesScript") else { return }
         Task {
@@ -336,13 +337,17 @@ final class AppModel {
                 let verb = token[..<colon], arg = colon == token.endIndex ? "" : String(token[token.index(after: colon)...])
                 let card = Int(arg).flatMap { $0 < profiles.profiles.count ? profiles.profiles[$0] : nil }
                 switch verb {
-                case "add": _ = await profiles.connectSubsonic(baseUrl: arg, username: "demo", password: "demo", activate: true)
+                case "add":
+                    let parts = arg.split(separator: ",", maxSplits: 1).map(String.init)
+                    _ = await profiles.connectSubsonic(baseUrl: parts.first ?? arg, username: parts.count > 1 ? parts[1] : "demo",
+                                                       password: "demo", activate: true)
                 case "switch": if let card { await profiles.switchTo(card.id) }
                 case "remove": if let card { profiles.remove(card.id) }
                 case "wait": try? await Task.sleep(for: .milliseconds(Int(arg) ?? 1000))
                 case "open":
                     switch arg {
                     case "settings": if !path.contains(.settings) { openSettings() }
+                    case "all-memories": path = [.allMemories]
                     case "library": path = []; select(.library)
                     default: path = []; select(.home)
                     }

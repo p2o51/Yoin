@@ -8102,6 +8102,26 @@
         }
       }
     },
+    "To open %@, Yoin switches to that account first. What's playing now stops.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开「%@」要先切换到这个账号，正在播放的内容会停下。"
+          }
+        }
+      }
+    },
+    "Switch and open": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换并打开"
+          }
+        }
+      }
+    },
     "Your pick": {
       "localizations": {
         "zh-Hans": {

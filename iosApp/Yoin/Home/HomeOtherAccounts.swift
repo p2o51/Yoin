@@ -128,8 +128,8 @@ struct OtherAccountsShelf: View {
     @Environment(\.homeScheme) private var scheme
     @Environment(\.homeMargin) private var margin
     var items: [OtherAccountItem]
-    @AppStorage("homeOtherProfilesSwitchNoticeSeen") private var noticeSeen = false
-    @State private var pending: OtherAccountItem?
+    /// The first tap ever asks before switching (the notice All Memories shares).
+    @State private var switchGate = AccountSwitchGate()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -138,9 +138,15 @@ struct OtherAccountsShelf: View {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(items) { item in
                         Button {
-                            homeTap(edit) { if noticeSeen { model.play(otherAccount: item) } else { pending = item } }
+                            homeTap(edit) {
+                                switchGate.request(from: item.id, account: item.profileName, subject: item.title,
+                                                   opensAlbum: false) {
+                                    model.play(otherAccount: item)
+                                }
+                            }
                         } label: { card(item) }
                         .buttonStyle(PressScale())
+                        .accountSwitchNotice(switchGate, anchor: item.id)
                     }
                 }
                 .padding(.horizontal, margin)
@@ -148,20 +154,6 @@ struct OtherAccountsShelf: View {
             .scrollIndicators(.hidden)
             .padding(.horizontal, -margin)
             .shelfEdgeFade()
-        }
-        .confirmationDialog(Text("Switch to \(pending?.profileName ?? "")?"),
-                            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
-                            titleVisibility: .visible) {
-            if let item = pending {
-                Button("Switch and play") {
-                    noticeSeen = true
-                    pending = nil
-                    model.play(otherAccount: item)
-                }
-            }
-            Button("Cancel", role: .cancel) { pending = nil }
-        } message: {
-            Text("To play \(pending?.title ?? ""), Yoin switches to that account first. What's playing now stops.")
         }
     }
 
