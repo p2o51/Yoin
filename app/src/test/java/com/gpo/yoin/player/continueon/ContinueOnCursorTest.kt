@@ -69,6 +69,36 @@ class ContinueOnCursorTest {
     }
 
     @Test
+    fun should_dropThePauseChannel_when_itsTokenCouldAddALine() {
+        listOf("tok\nGET / HTTP/1.1", "tok en", "tok\r", "").forEach { token ->
+            val entries = cursor.toEntries() + (ContinueOnCursor.KEY_PAUSE_TOKEN to token)
+            assertNull(ContinueOnCursor.fromEntries(entries::get)!!.pause)
+        }
+    }
+
+    @Test
+    fun should_keepOnlyWrittenOutAddresses_when_pauseHostsAreRead() {
+        val hosts = arrayOf(
+            "192.168.1.20",
+            "example.com",
+            "fd00::1a2b",
+            "300.1.1.1",
+            "localhost",
+            "10.0.0.7 x",
+            // 192.168.1.20 in Arabic-Indic digits: not an address, a name.
+            "١٩٢.١٦٨.١.٢٠",
+        )
+        val entries = cursor.toEntries() + (ContinueOnCursor.KEY_PAUSE_HOSTS to hosts)
+        assertEquals(listOf("192.168.1.20", "fd00::1a2b"), ContinueOnCursor.fromEntries(entries::get)!!.pause?.hosts)
+    }
+
+    @Test
+    fun should_dropThePauseChannel_when_noHostIsAnAddress() {
+        val entries = cursor.toEntries() + (ContinueOnCursor.KEY_PAUSE_HOSTS to arrayOf("example.com"))
+        assertNull(ContinueOnCursor.fromEntries(entries::get)!!.pause)
+    }
+
+    @Test
     fun should_catchUpThePosition_when_itWasPlaying() {
         assertEquals(66_000L, cursor.positionAt(nowMs = 6_000L))
         assertEquals(61_000L, cursor.copy(playing = false).positionAt(nowMs = 6_000L))

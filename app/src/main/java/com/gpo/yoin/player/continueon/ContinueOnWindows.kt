@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.os.Build
 import android.os.PersistableBundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.annotation.RequiresApi
 import androidx.lifecycle.Lifecycle
@@ -39,7 +40,11 @@ internal object ContinueOnWindows {
 
     @RequiresApi(API)
     private fun setOffered(activity: ComponentActivity, offered: Boolean) {
-        if (activity.isHandoffEnabled != offered) activity.setHandoffEnabled(offered, null)
+        // Every window with a player calls this whenever a song loads. Continue On is an extra: a device
+        // or a system build that refuses it must not take the window down with it.
+        runCatching {
+            if (activity.isHandoffEnabled != offered) activity.setHandoffEnabled(offered, null)
+        }.onFailure { Log.w(TAG, "hand-off could not be turned ${if (offered) "on" else "off"}", it) }
     }
 
     /**
@@ -51,7 +56,11 @@ internal object ContinueOnWindows {
     fun handoffData(activity: ComponentActivity, request: HandoffActivityDataRequestInfo): HandoffActivityData {
         val continueOn = (activity.application as YoinApplication).container.continueOn
         val builder = HandoffActivityData.Builder(ComponentName(activity, MainActivity::class.java))
-        continueOn.handoffEntries(request.isActiveRequest)?.let { builder.setExtras(it.toPersistableBundle()) }
+        // The system calls this while the song plays: a cursor that can't be read hands over Yoin alone.
+        runCatching { continueOn.handoffEntries(request.isActiveRequest) }
+            .onFailure { Log.w(TAG, "hand-off cursor could not be read", it) }
+            .getOrNull()
+            ?.let { builder.setExtras(it.toPersistableBundle()) }
         return builder.build()
     }
 
@@ -66,6 +75,8 @@ internal object ContinueOnWindows {
         ContinueOnCursor.KEY_PREFIXED.forEach(intent::removeExtra)
         return received
     }
+
+    private const val TAG = "YoinContinueOn"
 
     private fun Map<String, Any>.toPersistableBundle(): PersistableBundle = PersistableBundle().also { bundle ->
         forEach { (key, value) ->

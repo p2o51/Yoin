@@ -35,7 +35,9 @@ where the other device is in it, and "Continue here". Only that tap:
    on one side, the only account of that service, else the active one);
 3. reads the queue back: the album / playlist / Liked songs in one go when the
    song is in it, else the song and the next 30 one by one (`getTrack`);
-4. plays from where the other device stopped and opens Now Playing.
+4. plays from where the other device stopped and opens Now Playing. A song
+   that was paused there loads paused here (`PlaybackManager.play(startPaused)`),
+   also when this device was playing something else.
 
 No matching account: the card says so. Spotify needs no pause: playing on
 this device moves Spotify Connect here, and the phone stops by itself.
@@ -52,6 +54,12 @@ side starts from that exact position. The port closes after one good pause,
 five wrong tokens, or two minutes. When it can't be reached (a router that
 isolates its devices), this device plays anyway and the card says the other
 one may still be playing.
+
+`MainActivity` is exported, so a cursor's extras can come from any app, not
+only from the system. Nothing plays before the tap, and the pause channel of
+a cursor is used only when its hosts are written-out addresses (no name is
+looked up) and its token is in the alphabet Yoin makes tokens in, so a made-up
+cursor can't aim the PAUSE line at another host or add lines to it.
 
 Yoin targets API 36. Android 17 restricts local network access for apps that
 target it; moving to target 37 will need that permission for this channel

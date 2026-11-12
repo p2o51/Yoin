@@ -97,6 +97,21 @@ data class ContinueOnCursor(
         /** Never start a hand-off in the track's last moments (it would end at once). */
         private const val END_GUARD_MS = 3_000L
 
+        private const val MAX_PAUSE_HOSTS = 4
+
+        /** A pause token: URL-safe Base64, as [ContinueOnPauseServer] makes it. */
+        private val PAUSE_TOKEN = Regex("[A-Za-z0-9_-]{1,128}")
+
+        // [0-9], not \d: Android's \d also takes other scripts' digits, which are a name to look up.
+        private val IPV4 = Regex("([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})")
+        private val IPV6 = Regex("[0-9A-Fa-f:.]{2,45}")
+
+        /** An IPv4 or IPv6 address written out, which connects without a name lookup. */
+        internal fun isNumericAddress(host: String): Boolean {
+            IPV4.matchEntire(host)?.let { match -> return match.groupValues.drop(1).all { it.toInt() <= 255 } }
+            return ':' in host && IPV6.matches(host)
+        }
+
         private const val PREFIX = "yoin.continueOn."
         const val KEY_VERSION = PREFIX + "v"
         const val KEY_PROVIDER = PREFIX + "provider"
@@ -150,10 +165,15 @@ data class ContinueOnCursor(
             val context = (read(KEY_CONTEXT_KIND) as? String)
                 ?.let { kind -> Context.Kind.entries.firstOrNull { it.name == kind } }
                 ?.let { kind -> Context(kind, read(KEY_CONTEXT_ID) as? String, read(KEY_CONTEXT_NAME) as? String) }
+            // The shell is an exported window, so these extras can come from any app: the pause channel is
+            // only ever a few numeric addresses (never a name to look up) and a token in the alphabet Yoin
+            // makes them in, so nothing here can aim the PAUSE line elsewhere or add lines to it.
             val pauseHosts = (read(KEY_PAUSE_HOSTS) as? Array<*>)?.filterIsInstance<String>().orEmpty()
+                .filter(::isNumericAddress)
+                .take(MAX_PAUSE_HOSTS)
             val pausePort = read(KEY_PAUSE_PORT) as? Int ?: 0
-            val pauseToken = read(KEY_PAUSE_TOKEN) as? String
-            val pause = if (pauseHosts.isNotEmpty() && pausePort in 1..65535 && !pauseToken.isNullOrBlank()) {
+            val pauseToken = (read(KEY_PAUSE_TOKEN) as? String)?.takeIf(PAUSE_TOKEN::matches)
+            val pause = if (pauseHosts.isNotEmpty() && pausePort in 1..65535 && pauseToken != null) {
                 PauseChannel(pauseHosts, pausePort, pauseToken)
             } else {
                 null

@@ -18,6 +18,7 @@ import com.gpo.yoin.player.PlaybackManager
 import java.net.Inet4Address
 import java.net.Inet6Address
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,6 +39,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -60,6 +62,7 @@ class ContinueOn internal constructor(
     private val accountKey: suspend (Profile) -> String?,
     private val requestNowPlaying: () -> Unit,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val pauseServer = ContinueOnPauseServer(scope, onPause = ::pauseForHandoff)
 
@@ -72,9 +75,22 @@ class ContinueOn internal constructor(
                 activeAccountKey = null
                 // Another account's pause port must not stop this one's playback.
                 pauseServer.close()
-                activeAccountKey = profile?.let { runCatching { accountKey(it) }.getOrNull() }
+                activeAccountKey = profile?.let { keyOf(it) }
             }
         }
+    }
+
+    /**
+     * [accountKey] off the main thread: it decrypts the account's stored credentials (a file and the
+     * Keystore), and the first of these runs as the shell first draws. Null when it can't be read.
+     */
+    private suspend fun keyOf(profile: Profile): String? = try {
+        withContext(io) { accountKey(profile) }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Log.w(TAG, "no account key for ${profile.provider}", error)
+        null
     }
 
     /**
@@ -299,7 +315,7 @@ class ContinueOn internal constructor(
 
     private suspend fun matchProfile(cursor: ContinueOnCursor): Profile? {
         val candidates = profiles.profiles.first().filter { it.provider == cursor.provider }
-        val keys = candidates.associateWith { runCatching { accountKey(it) }.getOrNull() }
+        val keys = candidates.associateWith { keyOf(it) }
         cursor.accountKey?.let { key -> keys.entries.firstOrNull { it.value == key }?.let { return it.key } }
         // The account's id isn't known on one side (Spotify or Apple Music not syncing there): the only
         // account of that service here that could be it, else the one in use.

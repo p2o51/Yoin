@@ -432,7 +432,16 @@ class PlaybackManager(
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
         // The user chose this: a queue still being read must not take over when it lands.
         cancelLoadingStart()
-        startPlayable(tracks, startIndex, source, activityContext, shuffled, explicitStart, startPositionMs, startPaused)
+        startPlayable(
+            tracks,
+            startIndex,
+            source,
+            activityContext,
+            shuffled,
+            explicitStart,
+            startPositionMs,
+            startPaused,
+        )
     }
 
     /**
@@ -572,6 +581,9 @@ class PlaybackManager(
                             val playMode = preferredPlayMode
                             executeOrQueue { player ->
                                 player.setMediaItems(items, startIndex, startPositionMs.coerceAtLeast(0L))
+                                // A player that was playing something else keeps playWhenReady through
+                                // setMediaItems: without this the paused hand-off would start by itself.
+                                if (startPaused) player.pause()
                                 player.prepare()
                                 if (!startPaused) player.play()
                                 player.applyPlayMode(playMode)
