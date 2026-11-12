@@ -771,7 +771,8 @@ private fun DashedRule(color: Color, modifier: Modifier) {
             start = Offset(0f, size.height / 2),
             end = Offset(size.width, size.height / 2),
             strokeWidth = 1.dp.toPx(),
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx())),
+            // The receipt's dash (About), so the two read as one family.
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())),
         )
     }
 }
@@ -813,19 +814,28 @@ private fun TimelineAlbumCard(
 ) {
     val item = row.item
     val interaction = remember { MutableInteractionSource() }
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = if (masonry) 12.dp else 16.dp)) {
-        val width: Dp = if (masonry) maxWidth else (maxWidth * 0.66f).coerceAtMost(300.dp)
-        Column(
-            modifier = Modifier
-                .align(if (row.end && !masonry) Alignment.TopEnd else Alignment.TopStart)
-                .width(width)
-                .noRippleClickable(interaction, enabled = item.album.profileId == state.activeProfileId) {
-                    onOpen(item.album)
-                },
-        ) {
-            LedgerCover(item.album, state, Modifier.fillMaxWidth(), corner = 16.dp)
+    // Owner 2026-11-12: the covers take turns starting from the left and from the right, but what's written
+    // under them always runs the full width.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = if (masonry) 12.dp else 16.dp)
+            .noRippleClickable(interaction, enabled = item.album.profileId == state.activeProfileId) {
+                onOpen(item.album)
+            },
+    ) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val width: Dp = if (masonry) maxWidth else (maxWidth * 0.66f).coerceAtMost(300.dp)
+            LedgerCover(
+                item.album,
+                state,
+                Modifier.align(if (row.end && !masonry) Alignment.TopEnd else Alignment.TopStart).width(width),
+                corner = 16.dp,
+            )
+        }
+        run {
             Column(
-                modifier = Modifier.padding(top = 14.dp).seamFade(),
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp).seamFade(),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 item.title?.let {
@@ -855,8 +865,14 @@ private fun TimelineAlbumCard(
                     )
                 }
                 if (item.songs.isNotEmpty()) {
-                    Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        item.songs.forEach { song -> SongScoreRow(song.title, song.score) }
+                    // A dashed rule over each line, as About's receipt does (owner 2026-11-12).
+                    val rule = MaterialTheme.colorScheme.outlineVariant
+                    Column(Modifier.padding(top = 6.dp)) {
+                        item.songs.forEach { song ->
+                            DashedRule(rule, Modifier.fillMaxWidth())
+                            SongScoreRow(song.title, song.score, Modifier.padding(vertical = 8.dp))
+                        }
+                        DashedRule(rule, Modifier.fillMaxWidth())
                     }
                 }
                 Row(
@@ -877,8 +893,8 @@ private fun TimelineAlbumCard(
 }
 
 @Composable
-private fun SongScoreRow(title: String?, score: Float) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun SongScoreRow(title: String?, score: Float, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = title ?: stringResource(R.string.memory_ledger_unknown_song),
             style = MaterialTheme.typography.bodySmall,
@@ -1190,8 +1206,10 @@ private fun ScoresCard(entries: List<MemoryLedgerEntry>, state: MemoryLedgerStat
                 color = MaterialTheme.colorScheme.outline,
             )
         }
-        sorted.forEach { entry ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        val rule = MaterialTheme.colorScheme.outlineVariant
+        sorted.forEachIndexed { i, entry ->
+            if (i > 0) DashedRule(rule, Modifier.fillMaxWidth())
+            Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = entry.trackTitle ?: stringResource(R.string.memory_ledger_unknown_song),
                     style = MaterialTheme.typography.bodyMedium,
