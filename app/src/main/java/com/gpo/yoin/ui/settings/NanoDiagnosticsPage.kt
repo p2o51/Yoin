@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,7 +34,6 @@ import com.gpo.yoin.data.highlight.NanoDiagnostics
 import com.gpo.yoin.data.highlight.NanoStatus
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.seamFade
-import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import kotlinx.coroutines.launch
 
 /*
@@ -50,7 +48,6 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
     val processor = (context.applicationContext as YoinApplication).container.lyricHighlightProcessor
     val downloading by processor.downloading.collectAsState()
     val scope = rememberCoroutineScope()
-    val haptics = rememberYoinHaptics()
     var report by remember { mutableStateOf<NanoDiagnostics.Report?>(null) }
     var checking by remember { mutableStateOf(true) }
     var testing by remember { mutableStateOf(false) }
@@ -109,23 +106,7 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
         if (current != null) {
             SettingsGroup(title = stringResource(R.string.nano_diag_actions_section)) {
                 if (current.canDownload) {
-                    item {
-                        SettingsItem(
-                            icon = YoinSymbols.Download,
-                            title = stringResource(R.string.labs_nano_download),
-                            summary = stringResource(R.string.labs_nano_download_note),
-                            trailing = {
-                                if (downloading) {
-                                    Spinner()
-                                } else {
-                                    FilledTonalButton(onClick = {
-                                        haptics.performContextClick()
-                                        processor.downloadNow()
-                                    }) { Text(stringResource(R.string.labs_nano_download)) }
-                                }
-                            },
-                        )
-                    }
+                    item { NanoDownloadRow(downloading = downloading, onDownload = processor::downloadNow) }
                 }
                 if (current.anyAvailable) {
                     item {
@@ -223,6 +204,32 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/**
+ * Download model, as a row to tap like the others in its group. Beside a button the note had a third of a phone's
+ * width and a row's two lines, and lost most of its words; here it has the row's width and keeps every line.
+ */
+@Composable
+internal fun NanoDownloadRow(downloading: Boolean, onDownload: () -> Unit, modifier: Modifier = Modifier) {
+    SettingsItem(
+        icon = YoinSymbols.Download,
+        title = stringResource(R.string.labs_nano_download),
+        modifier = modifier,
+        summaryContent = {
+            Text(
+                text = stringResource(R.string.labs_nano_download_note),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        onClick = if (downloading) null else onDownload,
+        trailing = if (downloading) {
+            { Spinner() }
+        } else {
+            null
+        },
+    )
 }
 
 @Composable

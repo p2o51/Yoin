@@ -78,7 +78,7 @@ internal fun LabsPageBody(
     onLyricsChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     switchModifier: Modifier = Modifier,
-    /** Opens Gemini Nano diagnostics; null (the Tips demo) leaves the row out. */
+    /** Opens Gemini Nano diagnostics; null leaves the row out. */
     onOpenDiagnostics: (() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
