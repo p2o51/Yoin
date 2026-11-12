@@ -115,8 +115,8 @@ private fun computeJbiLayout(
     seed: Int,
 ): JbiLayout? {
     if (columns < 2 || rows < 1) return null
-    val signals = cards.filter { it.expanded }.take(JBI_MAX_SIGNALS)
     val compacts = cards.filterNot { it.expanded }
+    val signals = cards.filter { it.expanded }.take(jbiSparseSignalLimit(compacts.size, columns))
     for (r in rows downTo 1) {
         val template = jbiTemplate(columns, r, signals.size, seed)
         if (template.covers > compacts.size) continue
@@ -328,6 +328,15 @@ private fun laneOffsets(required: Array<Float?>, random: Random): List<Float> = 
         add(offset)
     }
 }
+
+/**
+ * Signal cards a shelf of [covers] covers takes on [columns] lanes (owner
+ * 2026-11-12: a small library's two rating cards took the whole row and left
+ * no cover): while the covers can't fill one row, one card; else the usual two.
+ * The iPad seats Jump Back In by the same rule.
+ */
+internal fun jbiSparseSignalLimit(covers: Int, columns: Int): Int =
+    if (covers < columns) 1 else JBI_MAX_SIGNALS
 
 /** The seed for a shelf: its leading cover, so a signal card arriving doesn't re-roll the layout. */
 internal fun jbiLayoutSeed(cards: List<HomeWidgetCard>): Int =
