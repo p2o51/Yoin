@@ -479,7 +479,14 @@ struct HomeView: View {
 
     /// The tablet shelf's cards in ranking order: the signal cards, then the covers.
     private func tabletJbiCards(_ feed: HomeFeed) -> [JBICard] {
-        feed.signals.map(JBICard.signal) + feed.jumpBackIn.map(JBICard.cover)
+        var covers = feed.jumpBackIn
+        #if DEBUG
+        // QA aid: `-jbiCovers N` trims the shelf's covers (a small library).
+        if UserDefaults.standard.object(forKey: "jbiCovers") != nil {
+            covers = Array(covers.prefix(max(0, UserDefaults.standard.integer(forKey: "jbiCovers"))))
+        }
+        #endif
+        return feed.signals.map(JBICard.signal) + covers.map(JBICard.cover)
     }
 
     /// The tablet ladder of [feed] on this width's cover columns (Android jbiRowLadder).
@@ -643,7 +650,7 @@ struct HomeView: View {
     }
 
     /// The screenshots' hand-set 1×2 copy.
-    static func mockSignal(_ album: Album, _ kind: JBISignal.Kind) -> JBISignal {
+    private static func mockSignal(_ album: Album, _ kind: JBISignal.Kind) -> JBISignal {
         kind == .ratedAlbum
             ? JBISignal(kind: kind, album: album, title: album.title, subtitle: album.artist,
                         score: HomeHistory.scoreText(album.rating), basis: "Oct 28",
@@ -1054,7 +1061,25 @@ private struct JBICell: View {
 
     var body: some View {
         content.jbiHideMenu(key: item.hideKey, open: $hideOpen)
+        #if DEBUG
+            // QA aid: `-jbiHideDemo menu` opens the first album's "not now" menu, `-jbiHideDemo hide` hides it.
+            .task {
+                guard case .album = item, let mode = UserDefaults.standard.string(forKey: "jbiHideDemo"),
+                      Self.claimDemo(item.stableId) else { return }
+                try? await Task.sleep(for: .seconds(mode == "menu" ? 5 : 5))
+                if mode == "menu" { hideOpen = true } else {
+                    withAnimation(Yoin.spatial) { model.store.hideJbi(key: item.hideKey, span: .threeDays) }
+                }
+            }
+        #endif
     }
+    #if DEBUG
+    @MainActor private static var demoId: String? = nil
+    @MainActor private static func claimDemo(_ id: String) -> Bool {
+        if demoId == nil { demoId = id }
+        return demoId == id
+    }
+    #endif
 
     /// A tap: edit mode opens the "not now" menu (Android HomeJbiHidden), otherwise the card's own action.
     private func jbiTap(_ action: () -> Void) {
