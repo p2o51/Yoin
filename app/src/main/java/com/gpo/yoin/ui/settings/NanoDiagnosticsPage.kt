@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.highlight.NanoDiagnostics
@@ -54,7 +55,7 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
     var checking by remember { mutableStateOf(true) }
     var testing by remember { mutableStateOf(false) }
     var test by remember { mutableStateOf<NanoDiagnostics.TestResult?>(null) }
-    var round by remember { mutableStateOf(0) }
+    var round by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(round, downloading) {
         checking = true
@@ -235,8 +236,8 @@ private fun NanoStatus.labelRes(): Int = when (this) {
 private const val AICORE_PACKAGE = "com.google.android.aicore"
 
 private fun openAiCoreInPlay(context: Context) {
-    val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$AICORE_PACKAGE"))
-    val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$AICORE_PACKAGE"))
+    val market = Intent(Intent.ACTION_VIEW, "market://details?id=$AICORE_PACKAGE".toUri())
+    val web = Intent(Intent.ACTION_VIEW, "https://play.google.com/store/apps/details?id=$AICORE_PACKAGE".toUri())
     try {
         context.startActivity(market)
     } catch (e: ActivityNotFoundException) {
