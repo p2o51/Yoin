@@ -7,6 +7,7 @@ import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.ModelPreference
+import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
 import com.google.mlkit.genai.prompt.generationConfig
@@ -66,18 +67,40 @@ class GeminiNanoLyricModel : LyricHighlightModel {
     override var unavailableReason: String? = null
         private set
 
-    private fun client(): GenerativeModel = client ?: Generation.getClient(
-        generationConfig {
-            // Accuracy over speed: the answer is ~15 tokens, so FULL costs little more than FAST.
-            modelConfig = modelConfig { preference = ModelPreference.FULL }
-        },
-    ).also { client = it }
+    /**
+     * FULL first (accuracy over speed: the answer is ~15 tokens, so FULL costs little more than FAST). A phone that
+     * only carries the FAST variant (some Galaxy Z Fold8 report nano-v4-fast only) falls back to it.
+     */
+    @Volatile
+    private var preference: Int = ModelPreference.FULL
+
+    private fun client(): GenerativeModel = client ?: nanoClient(ModelReleaseStage.STABLE, preference).also { client = it }
 
     override suspend fun status(): NanoStatus = lock.withLock {
-        try {
+        // A variant that is ready wins (FULL before FAST); otherwise the first one AICore can fetch, FULL first.
+        val full = probe(ModelPreference.FULL)
+        if (full == NanoStatus.AVAILABLE) return@withLock full
+        val fullReason = unavailableReason
+        val fast = probe(ModelPreference.FAST)
+        if (fast == NanoStatus.AVAILABLE) return@withLock fast
+        if (full != NanoStatus.UNAVAILABLE) {
+            switchTo(ModelPreference.FULL)
+            unavailableReason = null
+            return@withLock full
+        }
+        if (fast != NanoStatus.UNAVAILABLE) return@withLock fast
+        // Neither: report FULL's reason (the one a bug report needs first) and start from FULL next time.
+        unavailableReason = fullReason ?: unavailableReason
+        switchTo(ModelPreference.FULL)
+        NanoStatus.UNAVAILABLE
+    }
+
+    private suspend fun probe(wanted: Int): NanoStatus {
+        switchTo(wanted)
+        return try {
             val raw = client().checkStatus()
             unavailableReason = if (raw == FeatureStatus.UNAVAILABLE) "FeatureStatus.UNAVAILABLE" else null
-            Log.i(TAG, "Gemini Nano status: $raw")
+            Log.i(TAG, "Gemini Nano status (${preferenceName(wanted)}): $raw")
             when (raw) {
                 FeatureStatus.AVAILABLE -> NanoStatus.AVAILABLE
                 FeatureStatus.DOWNLOADABLE -> NanoStatus.DOWNLOADABLE
@@ -89,14 +112,20 @@ class GeminiNanoLyricModel : LyricHighlightModel {
         } catch (e: Throwable) {
             // No AICore at all (most devices) throws rather than answering UNAVAILABLE. Throwable, not Exception:
             // a linkage error here used to end the check silently, so Home never learned anything (11-09).
-            val reason = (e as? GenAiException)?.let { "GenAiException ${it.errorCode}" } ?: e.javaClass.simpleName
-            unavailableReason = listOfNotNull(reason, e.message?.take(120)).joinToString(": ")
-            Log.i(TAG, "Gemini Nano unavailable: $unavailableReason")
+            unavailableReason = describeNanoError(e)
+            Log.i(TAG, "Gemini Nano unavailable (${preferenceName(wanted)}): $unavailableReason")
             // A client that failed to set up is not reused: the next check builds a fresh one.
             runCatching { client?.close() }
             client = null
             NanoStatus.UNAVAILABLE
         }
+    }
+
+    private fun switchTo(wanted: Int) {
+        if (preference == wanted) return
+        runCatching { client?.close() }
+        client = null
+        preference = wanted
     }
 
     override suspend fun download(): Boolean = lock.withLock {
@@ -161,4 +190,45 @@ class GeminiNanoLyricModel : LyricHighlightModel {
     private companion object {
         const val TAG = "GeminiNanoLyric"
     }
+}
+
+/** A Gemini Nano client for one model variant (Stable / Preview × Full / Fast). */
+internal fun nanoClient(stage: Int, variant: Int): GenerativeModel =
+    Generation.getClient(
+        generationConfig {
+            modelConfig = modelConfig {
+                releaseStage = stage
+                preference = variant
+            }
+        },
+    )
+
+internal fun preferenceName(preference: Int): String =
+    if (preference == ModelPreference.FAST) "Fast" else "Full"
+
+internal fun releaseStageName(stage: Int): String =
+    if (stage == ModelReleaseStage.PREVIEW) "Preview" else "Stable"
+
+/** AICore's refusal in a line: the error code's name when it is a GenAiException, else the exception's class. */
+internal fun describeNanoError(e: Throwable): String {
+    val head = (e as? GenAiException)?.let { "ErrorCode ${it.errorCode} ${genAiErrorName(it.errorCode)}" }
+        ?: e.javaClass.simpleName.ifEmpty { e.javaClass.name }
+    return listOfNotNull(head, e.message?.take(160)).joinToString(": ")
+}
+
+internal fun genAiErrorName(code: Int): String = when (code) {
+    GenAiException.ErrorCode.REQUEST_PROCESSING_ERROR -> "REQUEST_PROCESSING_ERROR"
+    GenAiException.ErrorCode.CANCELLED -> "CANCELLED"
+    GenAiException.ErrorCode.NOT_AVAILABLE -> "NOT_AVAILABLE"
+    GenAiException.ErrorCode.BUSY -> "BUSY"
+    GenAiException.ErrorCode.RESPONSE_PROCESSING_ERROR -> "RESPONSE_PROCESSING_ERROR"
+    GenAiException.ErrorCode.REQUEST_TOO_LARGE -> "REQUEST_TOO_LARGE"
+    GenAiException.ErrorCode.RESPONSE_GENERATION_ERROR -> "RESPONSE_GENERATION_ERROR"
+    GenAiException.ErrorCode.NOT_SUPPORTED -> "NOT_SUPPORTED"
+    GenAiException.ErrorCode.PER_APP_BATTERY_USE_QUOTA_EXCEEDED -> "PER_APP_BATTERY_USE_QUOTA_EXCEEDED"
+    GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED -> "BACKGROUND_USE_BLOCKED"
+    GenAiException.ErrorCode.NOT_ENOUGH_DISK_SPACE -> "NOT_ENOUGH_DISK_SPACE"
+    GenAiException.ErrorCode.NEEDS_SYSTEM_UPDATE -> "NEEDS_SYSTEM_UPDATE"
+    GenAiException.ErrorCode.AICORE_INCOMPATIBLE -> "AICORE_INCOMPATIBLE"
+    else -> "UNKNOWN"
 }

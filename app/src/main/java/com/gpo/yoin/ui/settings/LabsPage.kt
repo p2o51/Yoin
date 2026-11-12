@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -54,6 +55,9 @@ internal fun LabsPageContent(modifier: Modifier = Modifier) {
         onDownload = processor::downloadNow,
         onCheckAgain = processor::checkNow,
         onLyricsChange = processor::setOptedIn,
+        onOpenDiagnostics = {
+            context.startActivity(SettingsFeatureActivity.intent(context, SettingsFeature.NanoDiagnostics))
+        },
         modifier = modifier,
     )
 }
@@ -74,6 +78,8 @@ internal fun LabsPageBody(
     onLyricsChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     switchModifier: Modifier = Modifier,
+    /** Opens Gemini Nano diagnostics; null (the Tips demo) leaves the row out. */
+    onOpenDiagnostics: (() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(28.dp)) {
@@ -118,6 +124,22 @@ internal fun LabsPageBody(
                             }
                         },
                     )
+                }
+                if (onOpenDiagnostics != null) {
+                    item {
+                        SettingsItem(
+                            icon = YoinSymbols.Insights,
+                            title = stringResource(R.string.nano_diag_title),
+                            summary = stringResource(R.string.nano_diag_entry_detail),
+                            onClick = {
+                                haptics.performContextClick()
+                                onOpenDiagnostics()
+                            },
+                            trailing = {
+                                Icon(imageVector = YoinSymbols.ChevronRight, contentDescription = null)
+                            },
+                        )
+                    }
                 }
             }
             if (state.nano == NanoStatus.DOWNLOADABLE || state.nano == NanoStatus.DOWNLOADING) {

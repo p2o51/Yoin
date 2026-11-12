@@ -1507,7 +1507,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, Labs, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses, About }
+enum class SettingsFeature { Gemini, NeoDb, Labs, NanoDiagnostics, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses, About }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1547,6 +1547,7 @@ internal fun SettingsFeatureScreen(
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.Labs -> stringResource(R.string.settings_labs_title)
+        SettingsFeature.NanoDiagnostics -> stringResource(R.string.nano_diag_title)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
         SettingsFeature.ScreenCorners -> stringResource(R.string.settings_motion_screen_corners)
         SettingsFeature.StreamQuality -> stringResource(R.string.settings_stream_quality_title)
@@ -1618,6 +1619,8 @@ internal fun SettingsFeatureScreen(
                         DownloadsPageContent()
                     } else if (feature == SettingsFeature.Labs) {
                         LabsPageContent()
+                    } else if (feature == SettingsFeature.NanoDiagnostics) {
+                        NanoDiagnosticsPageContent()
                     } else if (feature == SettingsFeature.Tips) {
                         TipsPageContent()
                     } else if (feature == SettingsFeature.Licenses) {
@@ -1652,7 +1655,7 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
-                                    SettingsFeature.Labs,
+                                    SettingsFeature.Labs, SettingsFeature.NanoDiagnostics,
                                     SettingsFeature.ScrollEdge, SettingsFeature.ScreenCorners, SettingsFeature.StreamQuality,
                                     SettingsFeature.VolumeLeveling,
                                     SettingsFeature.Downloads,
