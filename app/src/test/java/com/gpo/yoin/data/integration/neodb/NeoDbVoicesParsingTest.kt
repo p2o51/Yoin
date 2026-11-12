@@ -173,6 +173,29 @@ class NeoDbVoicesParsingTest {
     }
 
     @Test
+    fun should_keepOneVoice_when_pageRepeatsAPost() {
+        val page = json.decodeFromString<NeoDbPostPage>(
+            """
+            {"pages":1,"count":2,"data":[
+            {"id":"7","ext_neodb":{"relatedWith":[{"type":"Comment","content":"好听"}]}},
+            {"id":"7","ext_neodb":{"relatedWith":[{"type":"Comment","content":"好听"}]}},
+            {"id":"8","ext_neodb":{"relatedWith":[{"type":"Comment","content":"一般"}]}}]}
+            """.trimIndent(),
+        )
+        // The grid keys its cards by id: the same id twice would crash it.
+        assertEquals(listOf("7", "8"), NeoDbVoicesParsing.page(1, page).voices.map { it.id })
+    }
+
+    @Test
+    fun should_openOnlyWebLinks_when_linkComesFromAPost() {
+        assertTrue(NeoDbVoicesParsing.isWebLink("https://neodb.social/@a/posts/1/"))
+        assertTrue(NeoDbVoicesParsing.isWebLink("HTTP://example.org/review/1"))
+        assertFalse(NeoDbVoicesParsing.isWebLink("intent://scan/#Intent;scheme=zxing;end"))
+        assertFalse(NeoDbVoicesParsing.isWebLink("file:///sdcard/Download/a.html"))
+        assertFalse(NeoDbVoicesParsing.isWebLink(""))
+    }
+
+    @Test
     fun should_cutLongReviewAtASentence_when_openingIsTooLong() {
         val sentence = "这是一句不短不长的话。"
         val opening = NeoDbVoicesParsing.reviewOpening(sentence.repeat(40))

@@ -234,7 +234,8 @@ private fun VoicesContent(
         snapshotFlow {
             val info = gridState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last >= info.totalItemsCount - LOAD_MORE_AHEAD
+            // Not before the grid is laid out: with nothing measured, 0 >= 0 - 4 fetched page 2 on every open.
+            info.totalItemsCount > 0 && last >= info.totalItemsCount - LOAD_MORE_AHEAD
         }.collect { nearEnd -> if (nearEnd) onLoadMore() }
     }
     var unfolded by remember { mutableStateOf(emptySet<String>()) }
@@ -266,7 +267,8 @@ private fun VoicesContent(
         }
         itemsIndexed(
             items = state.voices,
-            key = { _, voice -> voice.id },
+            // Prefixed: a post's id can never meet the fixed keys above and below ("spread", "tail").
+            key = { _, voice -> "voice:${voice.id}" },
             span = { _, voice ->
                 if (voice.isLong()) StaggeredGridItemSpan.FullLine else StaggeredGridItemSpan.SingleLane
             },
@@ -558,10 +560,16 @@ private fun WaysOut(
 }
 
 private fun Context.openExternal(url: String) {
+    if (!NeoDbVoicesParsing.isWebLink(url)) {
+        Log.w("NeoDbVoices", "not a web link, left unopened: $url")
+        return
+    }
     try {
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (e: ActivityNotFoundException) {
         Log.w("NeoDbVoices", "no app opens $url", e)
+    } catch (e: SecurityException) {
+        Log.w("NeoDbVoices", "may not open $url", e)
     }
 }
 

@@ -150,7 +150,8 @@ internal object NeoDbVoicesParsing {
     }
 
     fun page(page: Int, body: NeoDbPostPage): NeoDbVoicePage = NeoDbVoicePage(
-        voices = body.data.mapNotNull(::voice),
+        // One voice per id: the list keys its cards by id, and a repeated key crashes a lazy grid.
+        voices = body.data.mapNotNull(::voice).distinctBy { it.id },
         page = page,
         pages = body.pages,
         count = body.count,
@@ -220,6 +221,13 @@ internal object NeoDbVoicesParsing {
 
     fun query(albumName: String, artist: String?): String =
         listOfNotNull(albumName.trim(), artist?.trim()?.takeIf(String::isNotEmpty)).joinToString(" ")
+
+    /**
+     * A link the page may hand to the browser. Post and catalogue links come from NeoDB and, through
+     * federation, from any server its users follow: only a web address is opened, never another scheme.
+     */
+    fun isWebLink(url: String): Boolean =
+        url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)
 
     /** `https://www.discogs.com/master/21491-Radiohead-OK-Computer` → ("master", 21491). */
     fun discogsId(url: String): Pair<String, Long>? {

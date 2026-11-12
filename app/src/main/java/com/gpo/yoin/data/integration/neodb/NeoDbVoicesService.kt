@@ -2,6 +2,7 @@ package com.gpo.yoin.data.integration.neodb
 
 import android.util.Log
 import com.gpo.yoin.data.local.NeoDBConfigDao
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -48,13 +49,16 @@ class NeoDbVoicesService internal constructor(
         val items = api.searchAlbumPublic(access.instance, access.token, query)
         NeoDbVoicesParsing.pickAlbumItem(albumName, artist, items)
             ?.let { NeoDbVoicesParsing.albumVoices(access.instance, it) }
-    }
+    }.cancellable()
 
     /** One page (1-based, 20 posts) of short comments and reviews, newest first. */
     suspend fun voices(itemUuid: String, page: Int): Result<NeoDbVoicePage> = runCatching {
         val access = access()
         NeoDbVoicesParsing.page(page, api.listItemPosts(access.instance, access.token, itemUuid, page))
-    }
+    }.cancellable()
+
+    /** A cancelled read is not a failed one: the caller's coroutine ends instead of showing an error. */
+    private fun <T> Result<T>.cancellable(): Result<T> = onFailure { if (it is CancellationException) throw it }
 
     /** Where to search NeoDB when no item matched. */
     suspend fun searchUrl(albumName: String, artist: String?): String =
@@ -66,9 +70,11 @@ class NeoDbVoicesService internal constructor(
      * Each source fails quietly: a missing card, never an error.
      */
     suspend fun referenceScores(album: NeoDbAlbumVoices): List<NeoDbReferenceScore> = coroutineScope {
-        val discogs = async { album.discogsUrl?.let { runCatching { discogsScore(it) }.logged("discogs") } }
+        val discogs = async {
+            album.discogsUrl?.let { runCatching { discogsScore(it) }.cancellable().logged("discogs") }
+        }
         val musicBrainz = async {
-            album.musicBrainzUrl?.let { runCatching { musicBrainzScore(it) }.logged("musicbrainz") }
+            album.musicBrainzUrl?.let { runCatching { musicBrainzScore(it) }.cancellable().logged("musicbrainz") }
         }
         listOfNotNull(discogs.await(), musicBrainz.await())
     }

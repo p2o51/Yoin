@@ -46,6 +46,7 @@ class NeoDbVoicesViewModel(
     val uiState: StateFlow<NeoDbVoicesUiState> = _uiState.asStateFlow()
 
     private var nextPage = 1
+    private var loadJob: Job? = null
     private var pageJob: Job? = null
 
     init {
@@ -53,10 +54,13 @@ class NeoDbVoicesViewModel(
     }
 
     fun load() {
+        // One load at a time: Retry stays tappable while its message fades out, and a second tap must not
+        // run a second search beside the first.
+        loadJob?.cancel()
         pageJob?.cancel()
         _uiState.value = NeoDbVoicesUiState.Loading
         nextPage = 1
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             val album = service.findAlbum(albumName, artistName).getOrElse {
                 _uiState.value = NeoDbVoicesUiState.Failed
                 return@launch
