@@ -357,9 +357,12 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
     )
     val untestedText = stringResource(R.string.ai_untested)
     val measurer = rememberTextMeasurer()
-    val small = TextStyle(fontSize = 10.sp, color = scheme.onSurfaceVariant)
-    val axisStyle = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurface)
-    val dotLabel = TextStyle(fontSize = 12.sp, color = scheme.onSurface)
+    // From the type scale: a bare TextStyle has no font family, and the canvas would draw the
+    // system font instead of the app's.
+    val typography = MaterialTheme.typography
+    val small = typography.labelSmall.copy(fontSize = 10.sp, color = scheme.onSurfaceVariant)
+    val axisStyle = typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, color = scheme.onSurface)
+    val dotLabel = typography.labelMedium.copy(color = scheme.onSurface)
     val iconTurn by animateFloatAsState(turns * 180f, YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive), label = "flipTurn")
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
