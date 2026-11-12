@@ -53,29 +53,50 @@ class NeoDbVoicesViewModelTest {
 
     /** What NeoDB answers, by request. Null: HTTP 500. */
     private var answer: (Request) -> String? = { null }
+
+    /** The requests NeoDB turns away with 401, whatever [answer] says. */
+    private var unauthorized: (Request) -> Boolean = { false }
     private val requests = CopyOnWriteArrayList<String>()
 
-    private fun viewModel(albumName: String = "OK Computer", artist: String? = "Radiohead"): NeoDbVoicesViewModel {
+    /** Each request's path and the Authorization header it carried (null: anonymous). */
+    private val bearers = CopyOnWriteArrayList<Pair<String, String?>>()
+
+    private fun viewModel(
+        albumName: String = "OK Computer",
+        artist: String? = "Radiohead",
+        // Stored for the user's own instance; without one the service reads neodb.social signed out.
+        token: String? = null,
+    ): NeoDbVoicesViewModel {
         val client = OkHttpClient.Builder()
             .addInterceptor(
                 Interceptor { chain ->
                     val request = chain.request()
                     requests += request.url.encodedPath + "?" + request.url.encodedQuery.orEmpty()
-                    val body = answer(request)
+                    bearers += request.url.encodedPath to request.header("Authorization")
+                    val refused = unauthorized(request)
+                    val body = if (refused) null else answer(request)
                     Response.Builder()
                         .request(request)
                         .protocol(Protocol.HTTP_1_1)
-                        .code(if (body == null) 500 else 200)
-                        .message(if (body == null) "Server Error" else "OK")
-                        .body((body ?: "{}").toResponseBody("application/json".toMediaType()))
+                        .code(if (refused) 401 else if (body == null) 500 else 200)
+                        .message(if (refused) "Unauthorized" else if (body == null) "Server Error" else "OK")
+                        .body(
+                            (if (refused) """{"detail": "Unauthorized"}""" else body ?: "{}")
+                                .toResponseBody("application/json".toMediaType()),
+                        )
                         .build()
                 },
             )
             .build()
+        val tokenStore = NeoDbTokenStore(
+            cipher = if (token == null) NoCipher else PlainCipher,
+            storageDir = temp.root,
+        )
+        token?.let(tokenStore::writeToken)
         val service = NeoDbVoicesService(
             api = NeoDBApi(client = client, json = json),
-            configDao = NoConfig,
-            tokenStore = NeoDbTokenStore(cipher = NoCipher, storageDir = temp.root),
+            configDao = if (token == null) NoConfig else OwnInstance,
+            tokenStore = tokenStore,
             client = client,
             json = json,
         )
@@ -134,6 +155,35 @@ class NeoDbVoicesViewModelTest {
         viewModel.load()
         viewModel.awaitIdle()
         assertTrue(viewModel.uiState.value is NeoDbVoicesUiState.Content)
+    }
+
+    @Test
+    fun should_readSignedOut_when_neoDbNoLongerTakesTheToken() {
+        // neodb.social, 2026-11-13: a token revoked on the site still gets the search; the posts answer 401.
+        answer = neoDb()
+        unauthorized = { request -> request.header("Authorization") != null && "/posts/" in request.url.encodedPath }
+        val viewModel = viewModel(token = "revoked")
+        viewModel.awaitIdle()
+
+        val state = viewModel.uiState.value as NeoDbVoicesUiState.Content
+        assertEquals(listOf("p1-a", "p1-b"), state.voices.map { it.id })
+        // Asked with the token, then once more without it.
+        assertEquals(
+            listOf<String?>("Bearer revoked", null),
+            bearers.filter { (path, _) -> "/posts/" in path }.map { it.second },
+        )
+    }
+
+    @Test
+    fun should_fail_when_neoDbTurnsAwayTheAnonymousReadToo() {
+        answer = neoDb()
+        unauthorized = { request -> "/posts/" in request.url.encodedPath }
+        val viewModel = viewModel(token = "revoked")
+        viewModel.awaitIdle()
+
+        assertEquals(NeoDbVoicesUiState.Failed, viewModel.uiState.value)
+        // One retry without the token, not a loop.
+        assertEquals(2, bearers.count { (path, _) -> "/posts/" in path })
     }
 
     @Test
@@ -233,6 +283,20 @@ class NeoDbVoicesViewModelTest {
     private object NoCipher : CredentialsCipher {
         override fun encrypt(plaintext: ByteArray): EncryptedBlob = error("signed out: nothing to encrypt")
         override fun decrypt(blob: EncryptedBlob): ByteArray = error("signed out: nothing to decrypt")
+    }
+
+    private object OwnInstance : NeoDBConfigDao {
+        override fun observe(): Flow<NeoDBConfig?> = flowOf(NeoDBConfig())
+        override suspend fun get(): NeoDBConfig = NeoDBConfig()
+        override suspend fun upsert(config: NeoDBConfig) = Unit
+        override suspend fun clear() = Unit
+    }
+
+    /** The token as it is, behind the 12 bytes the store reads as an IV. */
+    private object PlainCipher : CredentialsCipher {
+        override fun encrypt(plaintext: ByteArray): EncryptedBlob =
+            EncryptedBlob(iv = ByteArray(12), ciphertext = plaintext)
+        override fun decrypt(blob: EncryptedBlob): ByteArray = blob.ciphertext
     }
 
     private companion object {

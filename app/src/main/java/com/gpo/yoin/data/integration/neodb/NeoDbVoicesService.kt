@@ -41,12 +41,25 @@ class NeoDbVoicesService internal constructor(
         if (token != null && configured != null) Access(configured, token) else Access(DEFAULT_INSTANCE, null)
     }
 
+    /**
+     * [call] with the stored token; turned away with it (401 or 403), once more without, on the same instance.
+     * A token revoked on NeoDB's site stays in the app, and the page reads signed out anyway: the search still
+     * answers such a token, the posts answer 401 (neodb.social, 2026-11-13), which left the page on "Couldn't
+     * reach NeoDB" for good.
+     */
+    private suspend fun <T> Access.read(call: suspend (token: String?) -> T): T = try {
+        call(token)
+    } catch (e: NeoDBException) {
+        if (token == null || (e.code != 401 && e.code != 403)) throw e
+        call(null)
+    }
+
     /** The NeoDB item for the album, with its spread and outside links; null when NeoDB has nothing like it. */
     suspend fun findAlbum(albumName: String, artist: String?): Result<NeoDbAlbumVoices?> = runCatching {
         val access = access()
         val query = NeoDbVoicesParsing.query(albumName, artist)
         if (query.isBlank()) return@runCatching null
-        val items = api.searchAlbumPublic(access.instance, access.token, query)
+        val items = access.read { token -> api.searchAlbumPublic(access.instance, token, query) }
         NeoDbVoicesParsing.pickAlbumItem(albumName, artist, items)
             ?.let { NeoDbVoicesParsing.albumVoices(access.instance, it) }
     }.cancellable()
@@ -54,7 +67,8 @@ class NeoDbVoicesService internal constructor(
     /** One page (1-based, 20 posts) of short comments and reviews, newest first. */
     suspend fun voices(itemUuid: String, page: Int): Result<NeoDbVoicePage> = runCatching {
         val access = access()
-        NeoDbVoicesParsing.page(page, api.listItemPosts(access.instance, access.token, itemUuid, page))
+        val posts = access.read { token -> api.listItemPosts(access.instance, token, itemUuid, page) }
+        NeoDbVoicesParsing.page(page, posts)
     }.cancellable()
 
     /** A cancelled read is not a failed one: the caller's coroutine ends instead of showing an error. */
