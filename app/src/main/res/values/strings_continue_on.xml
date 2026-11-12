@@ -4,8 +4,9 @@
     <string name="continue_on_from">From %1$s</string>
     <string name="continue_on_other_device">your other device</string>
     <string name="continue_on_unknown_song">Unknown song</string>
-    <string name="continue_on_playing_at">Playing · %1$s</string>
-    <string name="continue_on_paused_at">Paused · %1$s</string>
+    <!-- The other device's state; where it is in the song is drawn beside it. -->
+    <string name="continue_on_playing">Playing</string>
+    <string name="continue_on_paused">Paused</string>
     <string name="continue_on_continue_here">Continue here</string>
     <string name="continue_on_not_now">Not now</string>
     <string name="continue_on_ok">OK</string>

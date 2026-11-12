@@ -3,8 +3,8 @@
     <string name="continue_on_from">来自 %1$s</string>
     <string name="continue_on_other_device">另一台设备</string>
     <string name="continue_on_unknown_song">未知歌曲</string>
-    <string name="continue_on_playing_at">正在播放 · %1$s</string>
-    <string name="continue_on_paused_at">已暂停 · %1$s</string>
+    <string name="continue_on_playing">正在播放</string>
+    <string name="continue_on_paused">已暂停</string>
     <string name="continue_on_continue_here">在这里继续</string>
     <string name="continue_on_not_now">不用了</string>
     <string name="continue_on_ok">好</string>

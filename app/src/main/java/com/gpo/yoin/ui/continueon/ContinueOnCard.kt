@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,10 +41,14 @@ import com.gpo.yoin.player.continueon.ContinueOn
 import com.gpo.yoin.player.continueon.ContinueOnCursor
 import com.gpo.yoin.player.continueon.ContinueOnPrompt
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
@@ -60,7 +63,9 @@ fun ContinueOnCard(continueOn: ContinueOn, modifier: Modifier = Modifier) {
         prompt = prompt,
         onContinue = continueOn::confirm,
         onDismiss = continueOn::dismiss,
-        modifier = modifier,
+        // The window's card clears the navigation bar. The Tips demo's phone has none, and padding
+        // the card there by this device's bar lifted it off the demo's bottom edge.
+        modifier = modifier.navigationBarsPadding(),
     )
 }
 
@@ -92,7 +97,6 @@ internal fun ContinueOnCard(
                     onDismiss = onDismiss,
                     continueModifier = continueModifier,
                     modifier = Modifier
-                        .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 24.dp)
                         .widthIn(max = 420.dp)
                         .fillMaxWidth(),
@@ -113,7 +117,7 @@ private fun CardBody(
     val haptics = rememberYoinHaptics()
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(28.dp),
+        shape = YoinShapeTokens.ExtraLarge,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 3.dp,
         shadowElevation = 6.dp,
@@ -137,23 +141,28 @@ private fun CardBody(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    val subtitle = listOfNotNull(prompt.artist, prompt.album).filter { it.isNotBlank() }
-                    if (subtitle.isNotEmpty()) {
-                        Text(
-                            text = subtitle.joinToString(" · "),
+                    // As a song row has them (SongListItem): the artist, then the album muted, no glyph between.
+                    val artist = prompt.artist?.takeIf { it.isNotBlank() }
+                    val album = prompt.album?.takeIf { it.isNotBlank() }
+                    if (artist != null || album != null) {
+                        MetaLine(
+                            groups = listOfNotNull(
+                                artist?.let { MetaGroup.Plain(it) },
+                                album?.let { MetaGroup.Plain(it, muted = true) },
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Text(
-                        text = stringResource(
-                            if (prompt.playing) R.string.continue_on_playing_at else R.string.continue_on_paused_at,
-                            formatPosition(prompt.positionMs),
+                    MetaLine(
+                        groups = listOf(
+                            MetaGroup.Kind(
+                                stringResource(
+                                    if (prompt.playing) R.string.continue_on_playing else R.string.continue_on_paused,
+                                ),
+                            ),
+                            MetaGroup.Stat(formatPosition(prompt.positionMs)),
                         ),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -231,11 +240,10 @@ private fun Actions(
 
 @Composable
 private fun Cover(url: String?) {
-    val shape = RoundedCornerShape(12.dp)
     Box(
         modifier = Modifier
             .size(64.dp)
-            .clip(shape)
+            .clip(YoinArtworkShapes.Thumb)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
     ) {
