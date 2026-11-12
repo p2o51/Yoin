@@ -1,8 +1,15 @@
 package com.gpo.yoin.ui.settings.ai
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -59,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -137,52 +147,72 @@ internal fun AiSettingsPageBody(
         )
         TradeoffChart(provider = prefs.provider, tier = prefs.tier)
 
-        if (prefs.provider != AiProvider.Custom) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SectionLabel(stringResource(R.string.ai_tiers_label), Modifier.weight(1f))
-                    IconButton(onClick = {
-                        haptics.performClick()
-                        onOpenTiers()
-                    }) {
-                        Icon(
-                            YoinSymbols.Info,
-                            contentDescription = stringResource(R.string.ai_cd_tier_details),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        // Tiers ⇄ Custom is the page's one body swap: the two cross-fade and the page takes its new
+        // height on the spatial spring. The tiered services share a body, so picking among them
+        // swaps nothing.
+        val sizeSpring = YoinMotion.spatialSpring<IntSize>()
+        AnimatedContent(
+            targetState = prefs.provider,
+            transitionSpec = {
+                val fade = YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                fade.using(SizeTransform { _, _ -> sizeSpring })
+            },
+            contentKey = { it == AiProvider.Custom },
+            label = "aiServiceBody",
+            modifier = Modifier.fillMaxWidth(),
+        ) { provider ->
+            if (provider != AiProvider.Custom) {
+                // Everything here reads [provider], not the choice: on its way out for Custom this
+                // body still shows the service it was for.
+                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SectionLabel(stringResource(R.string.ai_tiers_label), Modifier.weight(1f))
+                            IconButton(onClick = {
+                                haptics.performClick()
+                                onOpenTiers()
+                            }) {
+                                Icon(
+                                    YoinSymbols.Info,
+                                    contentDescription = stringResource(R.string.ai_cd_tier_details),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AiTier.entries.forEach { tier ->
+                                TierCard(
+                                    tier = tier,
+                                    selected = prefs.tier == tier,
+                                    onClick = {
+                                        haptics.performSegmentTick()
+                                        actions.setTier(tier)
+                                    },
+                                    modifier = Modifier.weight(1f).then(tierModifier(tier)),
+                                )
+                            }
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        SecretTextField(
+                            value = state.keyFor(provider),
+                            onValueChange = { actions.setKey(provider, it) },
+                            label = stringResource(R.string.ai_key_label),
+                            placeholder = if (provider == AiProvider.Gemini) "AIza…" else "sk-…",
+                            modifier = Modifier.fillMaxWidth(),
                         )
+                        val (linkText, url) = keyLink(provider)
+                        TextButton(onClick = { onOpenLink(url) }) {
+                            Text(linkText)
+                            Spacer(Modifier.width(4.dp))
+                            Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AiTier.entries.forEach { tier ->
-                        TierCard(
-                            tier = tier,
-                            selected = prefs.tier == tier,
-                            onClick = {
-                                haptics.performSegmentTick()
-                                actions.setTier(tier)
-                            },
-                            modifier = Modifier.weight(1f).then(tierModifier(tier)),
-                        )
-                    }
-                }
+            } else {
+                CustomSection(state = state, actions = actions, onOpenLink = onOpenLink)
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SecretTextField(
-                    value = state.key,
-                    onValueChange = { actions.setKey(prefs.provider, it) },
-                    label = stringResource(R.string.ai_key_label),
-                    placeholder = if (prefs.provider == AiProvider.Gemini) "AIza…" else "sk-…",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                val (linkText, url) = keyLink(prefs.provider)
-                TextButton(onClick = { onOpenLink(url) }) {
-                    Text(linkText)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
-                }
-            }
-        } else {
-            CustomSection(state = state, actions = actions, onOpenLink = onOpenLink)
         }
 
         LanguageButton(language = state.targetLanguage, onPick = actions::setTargetLanguage)
@@ -387,11 +417,18 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
             drawEnd(measurer, axisValue(yAxis, worst = false), small, Offset(left - 6.dp.toPx(), top), alignEnd = true)
             val xText = measurer.measure("${axisLabel.getValue(xAxis)} →", axisStyle)
             drawText(xText, topLeft = Offset((left + right - xText.size.width) / 2f, bottom + 16.dp.toPx()))
+            val gutter = left - 6.dp.toPx()
             val yText = measurer.measure("↑${axisLabel.getValue(yAxis)}", axisStyle)
-            drawText(
-                yText,
-                topLeft = Offset((left - 6.dp.toPx() - yText.size.width).coerceAtLeast(0f), (top + bottom - yText.size.height) / 2f),
-            )
+            if (yText.size.width <= gutter) {
+                drawText(yText, topLeft = Offset(gutter - yText.size.width, (top + bottom - yText.size.height) / 2f))
+            } else {
+                // Too long to sit beside the plot (「More accurate」): it runs up the axis instead,
+                // written like the x label, so its arrow still points at the better end.
+                val along = measurer.measure("${axisLabel.getValue(yAxis)} →", axisStyle)
+                val centre = Offset(along.size.height / 2f, (top + bottom) / 2f)
+                val unturned = Offset(centre.x - along.size.width / 2f, centre.y - along.size.height / 2f)
+                rotate(degrees = -90f, pivot = centre) { drawText(along, topLeft = unturned) }
+            }
 
             untested.forEachIndexed { i, point ->
                 val mine = point.provider == provider
@@ -552,113 +589,165 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
             placeholder = "sk-…",
             modifier = Modifier.fillMaxWidth(),
         )
-        ExpressiveTextField(
-            value = model,
-            onValueChange = {
-                model = it
-                actions.setCustomModel(it)
-            },
-            label = stringResource(R.string.ai_custom_model),
-            placeholder = "",
-            trailingContent = {
-                // The trailing slot sits inline with the ~24dp text row: pin it to that height and let
-                // the button overflow into the field's padding, as SecretTextField's eye does. A plain
-                // 40dp button would make this field taller than the address and the key above it.
-                Box(modifier = Modifier.height(24.dp), contentAlignment = Alignment.Center) {
-                    TextButton(
-                        onClick = {
-                            haptics.performClick()
-                            actions.pullModels()
-                        },
-                        enabled = !state.models.loading && prefs.customBaseUrl.isNotBlank() && prefs.customKey.isNotBlank(),
-                        modifier = Modifier.requiredHeight(40.dp),
-                    ) { Text(stringResource(R.string.ai_custom_pull)) }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        state.models.error?.let { error ->
-            Text(
-                stringResource(R.string.ai_models_error, error),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 4.dp),
+        // The model field and the rows that come and go under it. They bring their own gaps, so a
+        // row opening or closing moves what is below it the whole way, with no jump at either end.
+        Column {
+            ExpressiveTextField(
+                value = model,
+                onValueChange = {
+                    model = it
+                    actions.setCustomModel(it)
+                },
+                label = stringResource(R.string.ai_custom_model),
+                placeholder = "",
+                trailingContent = {
+                    // The trailing slot sits inline with the ~24dp text row: pin it to that height and let
+                    // the button overflow into the field's padding, as SecretTextField's eye does. A plain
+                    // 40dp button would make this field taller than the address and the key above it.
+                    Box(modifier = Modifier.height(24.dp), contentAlignment = Alignment.Center) {
+                        TextButton(
+                            onClick = {
+                                haptics.performClick()
+                                actions.pullModels()
+                            },
+                            enabled = !state.models.loading &&
+                                prefs.customBaseUrl.isNotBlank() &&
+                                prefs.customKey.isNotBlank(),
+                            modifier = Modifier.requiredHeight(40.dp),
+                        ) { Text(stringResource(R.string.ai_custom_pull)) }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
             )
-        }
-        if (state.models.ids.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                state.models.ids.take(MAX_MODEL_CHIPS).forEach { id ->
-                    ChoiceChip(
-                        text = id,
-                        selected = prefs.customModel == id,
-                        onClick = {
-                            haptics.performSegmentTick()
-                            actions.setCustomModel(id)
-                        },
-                        height = 36,
-                        rest = 12,
+            val chips = modelChips(state.models.ids, model)
+            Column(modifier = Modifier.fillMaxWidth().animateContentSize(YoinMotion.spatialSpring())) {
+                state.models.error?.let { error ->
+                    Text(
+                        stringResource(R.string.ai_models_error, error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
                     )
+                }
+                if (chips.isNotEmpty()) {
+                    FlowRow(
+                        modifier = Modifier.padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        chips.forEach { id ->
+                            ChoiceChip(
+                                text = id,
+                                selected = prefs.customModel == id,
+                                onClick = {
+                                    haptics.performSegmentTick()
+                                    actions.setCustomModel(id)
+                                },
+                                height = 36,
+                                rest = 12,
+                            )
+                        }
+                    }
                 }
             }
-        }
-        // Thinking once there is a model to think with (owner 2026-11-12).
-        if (prefs.customModel.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            SectionLabel(stringResource(R.string.ai_custom_thinking))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                AiThinking.entries.forEach { level ->
-                    ChoiceChip(
-                        text = stringResource(
-                            when (level) {
-                                AiThinking.Off -> R.string.ai_thinking_off
-                                AiThinking.Low -> R.string.ai_thinking_low
-                                AiThinking.Medium -> R.string.ai_thinking_medium
-                                AiThinking.High -> R.string.ai_thinking_high
-                            },
-                        ),
-                        selected = prefs.customThinking == level,
-                        onClick = {
-                            haptics.performSegmentTick()
-                            actions.setCustomThinking(level)
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
+            // Thinking once there is a model to think with (owner 2026-11-12).
+            AnimatedVisibility(
+                visible = prefs.customModel.isNotBlank(),
+                enter = expandVertically(YoinMotion.spatialSpring(), expandFrom = Alignment.Top) +
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                exit = shrinkVertically(YoinMotion.spatialSpring(), shrinkTowards = Alignment.Top) +
+                    YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+            ) {
+                Column(modifier = Modifier.padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionLabel(stringResource(R.string.ai_custom_thinking))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AiThinking.entries.forEach { level ->
+                            ChoiceChip(
+                                text = stringResource(
+                                    when (level) {
+                                        AiThinking.Off -> R.string.ai_thinking_off
+                                        AiThinking.Low -> R.string.ai_thinking_low
+                                        AiThinking.Medium -> R.string.ai_thinking_medium
+                                        AiThinking.High -> R.string.ai_thinking_high
+                                    },
+                                ),
+                                selected = prefs.customThinking == level,
+                                onClick = {
+                                    haptics.performSegmentTick()
+                                    actions.setCustomThinking(level)
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
             }
         }
         Spacer(Modifier.height(4.dp))
         SectionLabel(stringResource(R.string.ai_search_label))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            AiSearchService.entries.forEach { service ->
-                ChoiceChip(
-                    text = searchServiceName(service),
-                    selected = prefs.searchService == service,
-                    onClick = {
-                        haptics.performSegmentTick()
-                        actions.setSearchService(service)
-                    },
-                )
+        Column {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AiSearchService.entries.forEach { service ->
+                    ChoiceChip(
+                        text = searchServiceName(service),
+                        selected = prefs.searchService == service,
+                        onClick = {
+                            haptics.performSegmentTick()
+                            actions.setSearchService(service)
+                        },
+                    )
+                }
             }
-        }
-        if (prefs.searchService != AiSearchService.None) {
-            val name = searchServiceName(prefs.searchService)
-            SecretTextField(
-                value = prefs.searchKey,
-                onValueChange = actions::setSearchKey,
-                label = stringResource(R.string.ai_search_key, name),
-                placeholder = "",
-                modifier = Modifier.fillMaxWidth(),
-            )
-            TextButton(onClick = { onOpenLink(searchKeyUrl(prefs.searchService)) }) {
-                Text(stringResource(R.string.ai_get_search_key, name))
-                Spacer(Modifier.width(4.dp))
-                Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
+            val searchOn = prefs.searchService != AiSearchService.None
+            // Keep the last service's field on screen while it folds away for 「不搜索」.
+            var keyService by remember { mutableStateOf(prefs.searchService) }
+            if (searchOn) keyService = prefs.searchService
+            AnimatedVisibility(
+                visible = searchOn,
+                enter = expandVertically(YoinMotion.spatialSpring(), expandFrom = Alignment.Top) +
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                exit = shrinkVertically(YoinMotion.spatialSpring(), shrinkTowards = Alignment.Top) +
+                    YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+            ) {
+                Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val name = searchServiceName(keyService)
+                    // One field per service: its own key, and a key shown in the clear for one
+                    // service is masked again for the next.
+                    key(keyService) {
+                        SecretTextField(
+                            value = prefs.searchKeyFor(keyService),
+                            onValueChange = { actions.setSearchKey(keyService, it) },
+                            label = stringResource(R.string.ai_search_key, name),
+                            placeholder = "",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    TextButton(onClick = { onOpenLink(searchKeyUrl(keyService)) }) {
+                        Text(stringResource(R.string.ai_get_search_key, name))
+                        Spacer(Modifier.width(4.dp))
+                        Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                }
             }
         }
     }
 }
 
 private const val MAX_MODEL_CHIPS = 24
+
+/**
+ * The fetched model ids to offer as chips. An endpoint with a short list shows all of it; an
+ * aggregator's hundreds are narrowed by what is [typed] in the model field, so any of them can
+ * be reached, and never more than [MAX_MODEL_CHIPS] are drawn.
+ */
+internal fun modelChips(ids: List<String>, typed: String): List<String> {
+    if (ids.size <= MAX_MODEL_CHIPS) return ids
+    val query = typed.trim()
+    return ids.asSequence().filter { it.contains(query, ignoreCase = true) }.take(MAX_MODEL_CHIPS).toList()
+}
 
 @Composable
 private fun searchServiceName(service: AiSearchService): String = when (service) {
@@ -740,7 +829,7 @@ internal class AiSettingsStateActions(private val state: MutableState<AiSettings
 
     override fun setSearchService(service: AiSearchService) = prefs { it.copy(searchService = service) }
 
-    override fun setSearchKey(key: String) = prefs { it.copy(searchKey = key) }
+    override fun setSearchKey(service: AiSearchService, key: String) = prefs { it.withSearchKey(service, key) }
 
     override fun setTargetLanguage(language: String) {
         state.value = state.value.copy(targetLanguage = language)

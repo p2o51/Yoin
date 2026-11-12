@@ -8,15 +8,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.data.remote.ai.AiProviderPrefs
+import com.gpo.yoin.data.remote.ai.AiSearchService
 import com.gpo.yoin.data.remote.ai.AiTier
 import com.gpo.yoin.ui.theme.YoinTheme
 import org.junit.Assert.assertEquals
@@ -68,6 +74,49 @@ class AiSettingsPageBodyTest {
     }
 
     @Test
+    fun should_giveEachSearchServiceItsOwnKeyField_when_theSearchChoiceChanges() {
+        state.value = AiSettingsState(
+            AiProviderPrefs(
+                provider = AiProvider.Custom,
+                searchService = AiSearchService.DeepSeek,
+                searchKeyDeepSeek = "ds-key",
+            ),
+        )
+        showPage()
+
+        rule.onNodeWithText("Exa").performScrollTo().performClick()
+        // The DeepSeek key must not turn up under Exa's label.
+        searchKeyField("Exa").performScrollTo().assertTextEquals("")
+        searchKeyField("Exa").performTextInput("exa-key")
+        rule.onNodeWithText("Tavily").performScrollTo().performClick()
+        searchKeyField("Tavily").performScrollTo().assertTextEquals("")
+
+        rule.runOnIdle {
+            assertEquals("ds-key", state.value.prefs.searchKeyDeepSeek)
+            assertEquals("exa-key", state.value.prefs.searchKeyExa)
+            assertEquals("", state.value.prefs.searchKeyTavily)
+        }
+
+        rule.onNodeWithText("No search").performScrollTo().performClick()
+        rule.onNodeWithText("Tavily key").assertDoesNotExist()
+    }
+
+    @Test
+    fun should_offerEveryFetchedModel_when_theListIsShort() {
+        val ids = listOf("claude-haiku", "claude-opus", "claude-sonnet")
+        assertEquals(ids, modelChips(ids, typed = "opus"))
+    }
+
+    @Test
+    fun should_narrowALongModelListByWhatIsTyped() {
+        val ids = (1..300).map { "ai21/model-$it" } + listOf("anthropic/claude-sonnet", "openai/gpt")
+
+        assertEquals(24, modelChips(ids, typed = "").size)
+        assertEquals(listOf("anthropic/claude-sonnet"), modelChips(ids, typed = " Claude "))
+        assertEquals(emptyList<String>(), modelChips(ids, typed = "no-such-model"))
+    }
+
+    @Test
     fun should_openTheServicesKeyPage_when_theKeyLinkIsTapped() {
         state.value = AiSettingsState(AiProviderPrefs(provider = AiProvider.DeepSeek))
         showPage()
@@ -86,6 +135,10 @@ class AiSettingsPageBodyTest {
         rule.onNodeWithText("最佳").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("拿一首歌试试").performScrollTo().assertIsDisplayed()
     }
+
+    /** The masked field under "[service] key": the one whose eye button names it. */
+    private fun searchKeyField(service: String) =
+        rule.onNode(hasSetTextAction() and hasAnyDescendant(hasContentDescription("Show $service key")))
 
     private fun showPage() {
         rule.setContent {

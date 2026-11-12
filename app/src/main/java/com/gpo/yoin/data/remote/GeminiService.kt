@@ -24,6 +24,7 @@ class GeminiService(
     data class AboutRun(
         val values: List<CanonicalAboutValue>,
         val rawText: String,
+        val searchKind: AiSettings.SearchKind,
         val searchQueries: List<String>,
         val pagesRead: Int,
     )
@@ -63,6 +64,7 @@ class GeminiService(
         return AboutRun(
             values = parseTaggedResponse(rawText),
             rawText = rawText,
+            searchKind = ai.searchKind,
             searchQueries = if (ai.searchKind == AiSettings.SearchKind.External) queries else emptyList(),
             pagesRead = searched.pages,
         )
@@ -680,4 +682,5 @@ Output exactly this and nothing else:
     }
 }
 
-class GeminiException(message: String) : Exception(message)
+/** [httpCode] is set when the service answered with an HTTP error. */
+class GeminiException(message: String, val httpCode: Int? = null) : Exception(message)

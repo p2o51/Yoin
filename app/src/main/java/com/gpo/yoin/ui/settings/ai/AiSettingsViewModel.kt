@@ -53,7 +53,8 @@ interface AiSettingsActions {
 
     fun setSearchService(service: AiSearchService)
 
-    fun setSearchKey(key: String)
+    /** The key for search [service], as typed. Each service keeps its own. */
+    fun setSearchKey(service: AiSearchService, key: String)
 
     fun setTargetLanguage(language: String)
 
@@ -160,7 +161,8 @@ class AiSettingsViewModel(
 
     override fun setSearchService(service: AiSearchService) = store.update { it.copy(searchService = service) }
 
-    override fun setSearchKey(key: String) = store.update { it.copy(searchKey = key.trim()) }
+    override fun setSearchKey(service: AiSearchService, key: String) =
+        store.update { it.withSearchKey(service, key.trim()) }
 
     override fun setTargetLanguage(language: String) {
         val normalized = GeminiConfig.normalizeTargetLanguage(language)
@@ -179,9 +181,9 @@ class AiSettingsViewModel(
         models.value = ModelList(loading = true)
         viewModelScope.launch {
             models.value = try {
-                val ids = geminiService.listCustomModels(AiSettings(prefs, geminiKey = ""))
-                if (prefs.customModel.isBlank()) ids.firstOrNull()?.let(::setCustomModel)
-                ModelList(ids = ids)
+                // Only lists them. The model is the user's to pick: the first id of an
+                // aggregator's hundreds is nobody's choice, and it would start billing the key.
+                ModelList(ids = geminiService.listCustomModels(AiSettings(prefs, geminiKey = "")))
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
@@ -216,6 +218,7 @@ class AiSettingsViewModel(
                     song = song,
                     millis = (System.nanoTime() - started) / 1_000_000,
                     fields = run.values.associate { it.entryKey to it.answer },
+                    search = run.searchKind,
                     queries = run.searchQueries,
                     pages = run.pagesRead,
                     model = ai.modelId,
@@ -261,13 +264,14 @@ data class AiSettingsState(
     val models: ModelList = ModelList(),
 ) {
     /** The key field's value for the service on screen. */
-    val key: String
-        get() = when (prefs.provider) {
-            AiProvider.Gemini -> geminiKey
-            AiProvider.DeepSeek -> prefs.deepSeekKey
-            AiProvider.Qwen -> prefs.qwenKey
-            AiProvider.Custom -> prefs.customKey
-        }
+    val key: String get() = keyFor(prefs.provider)
+
+    fun keyFor(provider: AiProvider): String = when (provider) {
+        AiProvider.Gemini -> geminiKey
+        AiProvider.DeepSeek -> prefs.deepSeekKey
+        AiProvider.Qwen -> prefs.qwenKey
+        AiProvider.Custom -> prefs.customKey
+    }
 }
 
 data class ModelList(
@@ -285,6 +289,8 @@ sealed interface TestRun {
         val song: TestSong,
         val millis: Long,
         val fields: Map<String, String>,
+        /** Who searched: the model, Yoin ([queries], [pages]), or nobody. */
+        val search: AiSettings.SearchKind,
         val queries: List<String>,
         val pages: Int,
         val model: String,

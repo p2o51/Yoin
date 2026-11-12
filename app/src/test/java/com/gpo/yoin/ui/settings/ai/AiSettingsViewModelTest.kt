@@ -8,6 +8,7 @@ import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.data.remote.ai.AiSearchService
 import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.coEvery
@@ -23,6 +24,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -133,7 +135,13 @@ class AiSettingsViewModelTest {
         dao.config.value = null
         val used = slot<AiSettings>()
         coEvery { service.runCanonicalAbout(capture(used), any(), any(), any(), any()) } returns
-            GeminiService.AboutRun(values = emptyList(), rawText = "", searchQueries = emptyList(), pagesRead = 0)
+            GeminiService.AboutRun(
+                values = emptyList(),
+                rawText = "",
+                searchKind = AiSettings.SearchKind.BuiltIn,
+                searchQueries = emptyList(),
+                pagesRead = 0,
+            )
         val vm = viewModel()
         val song = TestSong("Lemon", "Kenshi Yonezu", "STRAY SHEEP")
 
@@ -148,6 +156,53 @@ class AiSettingsViewModelTest {
         assertTrue(vm.test.value is TestRun.Done)
         assertEquals("typed-key", used.captured.apiKey)
         assertNull(dao.config.value)
+    }
+
+    @Test
+    fun should_sayNobodySearched_when_theTryRanWithoutSearch() = runTest {
+        coEvery { service.runCanonicalAbout(any(), any(), any(), any(), any()) } returns
+            GeminiService.AboutRun(
+                values = emptyList(),
+                rawText = "",
+                searchKind = AiSettings.SearchKind.None,
+                searchQueries = emptyList(),
+                pagesRead = 0,
+            )
+        val vm = viewModel()
+
+        vm.runTest(TestSong("Lemon", "Kenshi Yonezu", "STRAY SHEEP"))
+        runCurrent()
+
+        assertEquals(AiSettings.SearchKind.None, (vm.test.value as TestRun.Done).search)
+    }
+
+    @Test
+    fun should_listTheModelsAndPickNone_when_fetched() = runTest {
+        store.update {
+            it.copy(provider = AiProvider.Custom, customBaseUrl = "https://x/v1", customKey = "sk")
+        }
+        coEvery { service.listCustomModels(any()) } returns listOf("ai21/jamba", "anthropic/claude", "openai/gpt")
+        val vm = viewModel()
+
+        vm.pullModels()
+        advanceUntilIdle()
+
+        assertEquals(listOf("ai21/jamba", "anthropic/claude", "openai/gpt"), vm.state.value.models.ids)
+        assertEquals("", store.prefs.value.customModel)
+        assertFalse(AiSettings(store.prefs.value, "").isReady)
+    }
+
+    @Test
+    fun should_keepEachSearchServicesKey_when_anotherServicesKeyIsTyped() = runTest {
+        val vm = viewModel()
+
+        vm.setSearchKey(AiSearchService.DeepSeek, " ds-key ")
+        vm.setSearchService(AiSearchService.Exa)
+        vm.setSearchKey(AiSearchService.Exa, "exa-key")
+
+        assertEquals("ds-key", store.prefs.value.searchKeyDeepSeek)
+        assertEquals("exa-key", store.prefs.value.searchKeyExa)
+        assertEquals("", store.prefs.value.searchKeyTavily)
     }
 }
 

@@ -34,10 +34,15 @@ class AiSettingsTest {
         assertTrue(AiSettings(full, "").isReady)
         // A search service without its key means no search.
         assertEquals(AiSettings.SearchKind.None, AiSettings(full, "").searchKind)
-        assertEquals(AiSettings.SearchKind.External, AiSettings(full.copy(searchKey = "s"), "").searchKind)
+        assertEquals(AiSettings.SearchKind.External, AiSettings(full.copy(searchKeyDeepSeek = "s"), "").searchKind)
         assertEquals(
             AiSettings.SearchKind.None,
-            AiSettings(full.copy(searchKey = "s", searchService = AiSearchService.None), "").searchKind,
+            AiSettings(full.copy(searchKeyDeepSeek = "s", searchService = AiSearchService.None), "").searchKind,
+        )
+        // A key belongs to the service it was typed for.
+        assertEquals(
+            AiSettings.SearchKind.None,
+            AiSettings(full.copy(searchKeyDeepSeek = "s", searchService = AiSearchService.Tavily), "").searchKind,
         )
     }
 

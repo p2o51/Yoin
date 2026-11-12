@@ -33,8 +33,26 @@ data class AiProviderPrefs(
     val customModel: String = "",
     val customThinking: AiThinking = AiThinking.Off,
     val searchService: AiSearchService = AiSearchService.DeepSeek,
-    val searchKey: String = "",
-)
+    // One key per search service: a key typed for one is never sent to another.
+    val searchKeyDeepSeek: String = "",
+    val searchKeyExa: String = "",
+    val searchKeyTavily: String = "",
+) {
+    /** The key Custom's search [service] was given. */
+    fun searchKeyFor(service: AiSearchService): String = when (service) {
+        AiSearchService.DeepSeek -> searchKeyDeepSeek
+        AiSearchService.Exa -> searchKeyExa
+        AiSearchService.Tavily -> searchKeyTavily
+        AiSearchService.None -> ""
+    }
+
+    fun withSearchKey(service: AiSearchService, key: String): AiProviderPrefs = when (service) {
+        AiSearchService.DeepSeek -> copy(searchKeyDeepSeek = key)
+        AiSearchService.Exa -> copy(searchKeyExa = key)
+        AiSearchService.Tavily -> copy(searchKeyTavily = key)
+        AiSearchService.None -> this
+    }
+}
 
 /** Everything one AI call needs. Built per call from the stored config. */
 data class AiSettings(
@@ -83,7 +101,11 @@ data class AiSettings(
         get() = if (provider == AiProvider.DeepSeek) AiSearchService.DeepSeek else prefs.searchService
 
     val searchApiKey: String
-        get() = if (provider == AiProvider.DeepSeek) prefs.deepSeekKey.trim() else prefs.searchKey.trim()
+        get() = if (provider == AiProvider.DeepSeek) {
+            prefs.deepSeekKey.trim()
+        } else {
+            prefs.searchKeyFor(prefs.searchService).trim()
+        }
 
     /**
      * How many searches Yoin runs per About. 35-song test (2026-11-12): one

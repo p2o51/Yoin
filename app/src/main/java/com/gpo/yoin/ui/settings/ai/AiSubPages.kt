@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.settings.ai
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.R
@@ -39,6 +43,8 @@ import com.gpo.yoin.data.remote.ai.AiTier
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 
 /** The tier page (from ⓘ): both tiers of the chosen service side by side, and what they cost. */
 @Composable
@@ -159,23 +165,38 @@ internal fun AiTryPageContent() {
             modifier = Modifier.fillMaxWidth().height(52.dp),
         ) { Text(stringResource(R.string.ai_try_run)) }
         Spacer(Modifier.height(8.dp))
-        when (val r = run) {
-            TestRun.Idle -> Unit
-            is TestRun.Running -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(32.dp)) { YoinLoadingIndicator() }
-                Spacer(Modifier.width(12.dp))
-                Text(stringResource(R.string.ai_try_running), style = MaterialTheme.typography.bodyLarge)
+        // Waiting, the answer and a failure take each other's place: they cross-fade and the
+        // page takes its new height on the spatial spring.
+        val sizeSpring = YoinMotion.spatialSpring<IntSize>()
+        AnimatedContent(
+            targetState = run,
+            transitionSpec = {
+                val fade = YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                fade.using(SizeTransform { _, _ -> sizeSpring })
+            },
+            contentKey = { it::class },
+            label = "aiTryRun",
+            modifier = Modifier.fillMaxWidth(),
+        ) { r ->
+            when (r) {
+                TestRun.Idle -> Unit
+                is TestRun.Running -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(32.dp)) { YoinLoadingIndicator() }
+                    Spacer(Modifier.width(12.dp))
+                    Text(stringResource(R.string.ai_try_running), style = MaterialTheme.typography.bodyLarge)
+                }
+                is TestRun.Failed -> Text(
+                    if (r.message == null) {
+                        stringResource(R.string.ai_try_no_key)
+                    } else {
+                        stringResource(R.string.ai_try_error, r.message)
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                is TestRun.Done -> TestResult(r)
             }
-            is TestRun.Failed -> Text(
-                if (r.message == null) {
-                    stringResource(R.string.ai_try_no_key)
-                } else {
-                    stringResource(R.string.ai_try_error, r.message)
-                },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error,
-            )
-            is TestRun.Done -> TestResult(r)
         }
     }
 }
@@ -188,11 +209,12 @@ private fun TestResult(run: TestRun.Done) {
             style = MaterialTheme.typography.titleMedium,
         )
         Text(
-            if (run.queries.isEmpty()) {
-                stringResource(R.string.ai_try_builtin)
-            } else {
-                stringResource(R.string.ai_try_queries, run.queries.joinToString(" / ")) + "\n" +
-                    stringResource(R.string.ai_try_pages, run.pages)
+            when (run.search) {
+                AiSettings.SearchKind.BuiltIn -> stringResource(R.string.ai_try_builtin)
+                AiSettings.SearchKind.None -> stringResource(R.string.ai_search_none)
+                AiSettings.SearchKind.External ->
+                    stringResource(R.string.ai_try_queries, run.queries.joinToString(" / ")) + "\n" +
+                        stringResource(R.string.ai_try_pages, run.pages)
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -8,6 +8,7 @@ import com.gpo.yoin.data.remote.ai.AiThinking
 import com.gpo.yoin.data.remote.ai.AiTier
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -27,9 +28,26 @@ class AiProviderStoreTest {
             customModel = "m",
             customThinking = AiThinking.High,
             searchService = AiSearchService.Exa,
-            searchKey = "s",
+            searchKeyDeepSeek = "sd",
+            searchKeyExa = "se",
+            searchKeyTavily = "st",
         )
         assertEquals(prefs, FileAiProviderStore.decode(FileAiProviderStore.encode(prefs)))
+    }
+
+    @Test
+    fun should_giveTheSharedSearchKeyToTheServiceChosenThen_when_theFileIsFromBeforePerServiceKeys() {
+        val old = JSONObject().put("searchService", "Tavily").put("searchKey", "tv-key")
+
+        val decoded = FileAiProviderStore.decode(old)
+
+        assertEquals("tv-key", decoded.searchKeyTavily)
+        assertEquals("", decoded.searchKeyDeepSeek)
+        assertEquals("", decoded.searchKeyExa)
+        // Written back, the shared key is gone and the Tavily one stays.
+        val rewritten = FileAiProviderStore.encode(decoded)
+        assertFalse(rewritten.has("searchKey"))
+        assertEquals(decoded, FileAiProviderStore.decode(rewritten))
     }
 
     @Test

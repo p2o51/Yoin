@@ -48,6 +48,7 @@ class FileAiProviderStore(context: Context) : AiProviderStore {
 
     companion object {
         private const val FILE_NAME = "ai_provider.json"
+        private const val LEGACY_SEARCH_KEY = "searchKey"
 
         internal fun encode(p: AiProviderPrefs): JSONObject = JSONObject()
             .put("provider", p.provider.name)
@@ -60,11 +61,13 @@ class FileAiProviderStore(context: Context) : AiProviderStore {
             .put("customModel", p.customModel)
             .put("customThinking", p.customThinking.name)
             .put("searchService", p.searchService.name)
-            .put("searchKey", p.searchKey)
+            .put("searchKeyDeepSeek", p.searchKeyDeepSeek)
+            .put("searchKeyExa", p.searchKeyExa)
+            .put("searchKeyTavily", p.searchKeyTavily)
 
         internal fun decode(o: JSONObject): AiProviderPrefs {
             val d = AiProviderPrefs()
-            return AiProviderPrefs(
+            val prefs = AiProviderPrefs(
                 provider = enumOr(o.optString("provider"), d.provider),
                 tier = enumOr(o.optString("tier"), d.tier),
                 deepSeekKey = o.optString("deepSeekKey", d.deepSeekKey),
@@ -75,8 +78,18 @@ class FileAiProviderStore(context: Context) : AiProviderStore {
                 customModel = o.optString("customModel", d.customModel),
                 customThinking = enumOr(o.optString("customThinking"), d.customThinking),
                 searchService = enumOr(o.optString("searchService"), d.searchService),
-                searchKey = o.optString("searchKey", d.searchKey),
+                searchKeyDeepSeek = o.optString("searchKeyDeepSeek", d.searchKeyDeepSeek),
+                searchKeyExa = o.optString("searchKeyExa", d.searchKeyExa),
+                searchKeyTavily = o.optString("searchKeyTavily", d.searchKeyTavily),
             )
+            // Files written while the search services shared one key: it was typed for the
+            // service chosen then, so that service keeps it and the others start empty.
+            val shared = o.optString(LEGACY_SEARCH_KEY)
+            return if (shared.isNotEmpty() && prefs.searchKeyFor(prefs.searchService).isEmpty()) {
+                prefs.withSearchKey(prefs.searchService, shared)
+            } else {
+                prefs
+            }
         }
 
         private inline fun <reified E : Enum<E>> enumOr(name: String, fallback: E): E =

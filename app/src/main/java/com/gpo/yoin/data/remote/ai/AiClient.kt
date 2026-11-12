@@ -69,17 +69,19 @@ class AiClient(
                     putJsonObject("search_options") { put("forced_search", true) }
                 }
             }
+            // Custom sends no temperature in either format: OpenAI's reasoning models and
+            // Anthropic's current models answer anything but their default with a 400.
             AiProvider.Custom -> when (ai.prefs.customFormat) {
                 AiApiFormat.OpenAi -> openAi(
                     ai = ai,
                     url = "${ai.prefs.customBaseUrl.trim().trimEnd('/')}/chat/completions",
                     prompt = prompt,
-                    temperature = temperature.takeIf { ai.prefs.customThinking == AiThinking.Off },
+                    temperature = null,
                     timeoutSeconds = timeoutSeconds,
                 ) {
                     reasoningEffort(ai.prefs.customThinking)?.let { put("reasoning_effort", it) }
                 }
-                AiApiFormat.Anthropic -> anthropic(ai, prompt, temperature, timeoutSeconds)
+                AiApiFormat.Anthropic -> anthropic(ai, prompt, timeoutSeconds)
             }
         }
     }
@@ -202,45 +204,33 @@ class AiClient(
             ?: throw GeminiException("No content in ${providerLabel(ai)} response")
     }
 
-    private fun anthropic(ai: AiSettings, prompt: String, temperature: Float, timeoutSeconds: Long?): String {
-        val budget = when (ai.prefs.customThinking) {
-            AiThinking.Off -> 0
-            AiThinking.Low -> 1024
-            AiThinking.Medium -> 4096
-            AiThinking.High -> 8192
+    private fun anthropic(ai: AiSettings, prompt: String, timeoutSeconds: Long?): String {
+        val thinking = ai.prefs.customThinking
+        val root = try {
+            postAnthropic(ai, anthropicBody(ai.modelId, prompt, thinking, budgetThinking = false), timeoutSeconds)
+        } catch (error: GeminiException) {
+            if (thinking == AiThinking.Off || !rejectsAdaptiveThinking(error)) throw error
+            postAnthropic(ai, anthropicBody(ai.modelId, prompt, thinking, budgetThinking = true), timeoutSeconds)
         }
-        val body = buildJsonObject {
-            put("model", ai.modelId)
-            put("max_tokens", ANTHROPIC_MAX_TOKENS + budget)
-            putJsonArray("messages") {
-                addJsonObject {
-                    put("role", "user")
-                    put("content", prompt)
-                }
-            }
-            if (budget > 0) {
-                putJsonObject("thinking") {
-                    put("type", "enabled")
-                    put("budget_tokens", budget)
-                }
-            } else {
-                put("temperature", temperature.coerceAtMost(1f))
-            }
-        }
-        val root = post(
-            "${anthropicBase(ai.prefs.customBaseUrl.trim().trimEnd('/'))}/messages",
-            body,
-            providerLabel(ai),
-            timeoutSeconds,
-        ) {
-            header("x-api-key", ai.apiKey)
-            header("anthropic-version", ANTHROPIC_VERSION)
+        // A reply cut at the cap is not an answer: a caller would cache half a translation.
+        if (root.str("stop_reason") == "max_tokens") {
+            throw GeminiException("${providerLabel(ai)} reply was cut off at the output limit")
         }
         return root.array("content")
             .filter { it.str("type") == "text" }
             .joinToString("") { it.str("text") }
             .takeIf { it.isNotEmpty() }
             ?: throw GeminiException("No content in ${providerLabel(ai)} response")
+    }
+
+    private fun postAnthropic(ai: AiSettings, body: JsonObject, timeoutSeconds: Long?): JsonObject = post(
+        "${anthropicBase(ai.prefs.customBaseUrl.trim().trimEnd('/'))}/messages",
+        body,
+        providerLabel(ai),
+        timeoutSeconds,
+    ) {
+        header("x-api-key", ai.apiKey)
+        header("anthropic-version", ANTHROPIC_VERSION)
     }
 
     private fun post(
@@ -264,7 +254,7 @@ class AiClient(
         call.execute().use { response ->
             val text = response.body?.string() ?: throw GeminiException("Empty response from $label")
             if (!response.isSuccessful) {
-                throw GeminiException("$label error (${response.code}): ${errorMessage(text)}")
+                throw GeminiException("$label error (${response.code}): ${errorMessage(text)}", response.code)
             }
             return runCatching { json.parseToJsonElement(text).jsonObject }
                 .getOrElse { throw GeminiException("Unreadable response from $label") }
@@ -284,7 +274,10 @@ class AiClient(
         const val MAX_PAGE_CHARS = 2000
         private const val DEEPSEEK_QUERY_LIMIT = 128
         private const val ANTHROPIC_VERSION = "2023-06-01"
-        private const val ANTHROPIC_MAX_TOKENS = 2048
+
+        // Thinking counts against the cap and current Claude models think by default; a long
+        // lyric translation alone runs to a few thousand tokens.
+        private const val ANTHROPIC_MAX_TOKENS = 16000
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
         fun providerLabel(ai: AiSettings): String = when (ai.provider) {
@@ -300,6 +293,56 @@ class AiClient(
             AiThinking.Medium -> "medium"
             AiThinking.High -> "high"
         }
+
+        /**
+         * The Messages API body. No temperature: Claude Opus 4.7 and later answer it with a
+         * 400. Thinking is adaptive with an effort level; 「不思考」 leaves both out (models
+         * that always think then run at their default). [budgetThinking] is the shape
+         * models before Claude 4.6 take instead: a fixed thinking budget.
+         */
+        internal fun anthropicBody(
+            model: String,
+            prompt: String,
+            thinking: AiThinking,
+            budgetThinking: Boolean,
+        ): JsonObject = buildJsonObject {
+            put("model", model)
+            put("max_tokens", ANTHROPIC_MAX_TOKENS)
+            putJsonArray("messages") {
+                addJsonObject {
+                    put("role", "user")
+                    put("content", prompt)
+                }
+            }
+            val effort = reasoningEffort(thinking) ?: return@buildJsonObject
+            if (budgetThinking) {
+                putJsonObject("thinking") {
+                    put("type", "enabled")
+                    put("budget_tokens", thinkingBudget(thinking))
+                }
+            } else {
+                putJsonObject("thinking") { put("type", "adaptive") }
+                putJsonObject("output_config") { put("effort", effort) }
+            }
+        }
+
+        private fun thinkingBudget(thinking: AiThinking): Int = when (thinking) {
+            AiThinking.Off -> 0
+            AiThinking.Low -> 1024
+            AiThinking.Medium -> 4096
+            AiThinking.High -> 8192
+        }
+
+        /**
+         * A 400 that names the thinking fields: the model (Claude before 4.6) or the gateway
+         * doesn't know adaptive thinking. Any other 400 is the caller's to see as it is.
+         */
+        internal fun rejectsAdaptiveThinking(error: GeminiException): Boolean {
+            val message = error.message.orEmpty()
+            return error.httpCode == 400 && ADAPTIVE_THINKING_WORDS.any { message.contains(it, ignoreCase = true) }
+        }
+
+        private val ADAPTIVE_THINKING_WORDS = listOf("thinking", "adaptive", "effort", "output_config")
 
         /** Anthropic's API lives under /v1; accept a base URL with or without it. */
         internal fun anthropicBase(base: String): String = if (base.endsWith("/v1")) base else "$base/v1"
