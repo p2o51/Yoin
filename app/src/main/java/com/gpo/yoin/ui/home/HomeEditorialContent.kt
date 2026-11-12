@@ -1834,7 +1834,13 @@ private fun ActivityBento(
             targetState = BentoContent(spec, hero, candidates, preset),
             contentKey = { it.spec },
             transitionSpec = {
-                if (reduced) {
+                // A width class change (the column or the panel moving, a
+                // rotation) re-seats in place, once — the crossfade ghosted
+                // the page at the tap (2026-11-12). A stagger-seed change at
+                // the same width still fades.
+                val widthChanged = initialState.spec.recipe != targetState.spec.recipe ||
+                    initialState.spec.units != targetState.spec.units
+                if (reduced || widthChanged) {
                     ContentTransform(EnterTransition.None, ExitTransition.None, sizeTransform = null)
                 } else {
                     // No SizeTransform: its animated WIDTH lags a container

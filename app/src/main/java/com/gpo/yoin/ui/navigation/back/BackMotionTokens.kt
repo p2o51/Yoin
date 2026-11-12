@@ -77,4 +77,13 @@ object BackMotionTokens {
 
     /** AOSP `DefaultCrossActivityBackAnimation.POST_COMMIT_DURATION`, the EMPHASIZED ride's length. */
     const val PostCommitDurationMs = 450
+
+    /**
+     * The detail column's close preview (Wide, its last page's back): at full
+     * gesture progress the page has moved this share of its own width toward
+     * the edge it leaves by, beside the AOSP scale. Commit carries the column
+     * out from exactly there (owner 2026-11-12: 「东西从哪来回哪去」 — the
+     * column must visibly head right under the finger, not only shrink).
+     */
+    const val ColumnClosePreviewTravel = 0.25f
 }

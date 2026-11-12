@@ -99,9 +99,16 @@
   才起步（`DetailPaneState.requestColumn` / `awaitPrewarm`），关闭时等弹簧落定后才换回
   （`holdsColumn`）；把手拖动是手指驱动，按实时宽度换档（`rememberColumnWindowInfos`，
   `derivedStateOf` 只在跨断点那帧重组）。
-- 新开的列先以空白页面滑入，页面在列落定后才构建并淡入（`DetailPaneState.pageReady`）：
-  详情页首次组合 + 布局 + 光栅化要好几帧，放在弹簧里同样会跳。推入页的底栏 morph 也一样：
-  跟页面 96dp 滑入同一拍起步（`slideReleased`，首个重帧已提交之后），不在 reveal 时起步。
+- 新开的列不再空白滑入（2026-11-12 owner：「东西从哪来回哪去」，空白列像卡住）：页面在开列请求那一刻就组合，
+  并在 prewarm 期间（列还在区域右缘外、被裁掉）完成首次布局，弹簧起步时页面已经建好，随列一起滑进来
+  （`DetailPaneState.pageReady` 随 `requestColumn` 置位，`DetailColumnsLayout` 在 `holdsColumn` 时就测量列）。
+  推入页的底栏 morph 仍跟页面 96dp 滑入同一拍起步（`slideReleased`）。
+- 侧栏关上时，旁边的栏（详情列、Memories）要等侧栏弹簧落定后才换回宽档（`holdsNpPanel`）；开侧栏仍在开始时换档。
+  关列时 Home 的 `homeCovered` 和 Memories 的底部留白跟随 `paneHasEntries`（列真正离开后才变），不在关列弹簧的首帧重排。
+- 宽度换档时首页的版块（「接着听」、Activities）原地一次换好，不再交叉淡化（淡化在点击那一帧把整页叠成重影）；
+  同宽度下的模板 / 种子变化仍然淡化。
+- Memories 由 surface 驱动的开合走 slow spatial（Standard，无过冲），从关闭态打开前先等 deck 首帧落地
+  （`awaitSteadyFrames`）——同一帧挂载 + 起弹簧，弹簧会在一帧里走完大半屏，看着像硬切。
 - 列的生命周期：列里页面的 ViewModel 跟列一起结束（`DetailPaneViewModelStoreOwner`——清栈不会
   pop entry）；切换账号即关列；Library 搜索结果开列时先收起全屏搜索（保留查询）；Memories 和列
   同时开着时底栏不隐藏（它承载列页面的 Play）。

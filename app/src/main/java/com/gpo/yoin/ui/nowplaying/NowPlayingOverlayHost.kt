@@ -116,6 +116,10 @@ fun NowPlayingOverlayHost(
     // Wide shell shows its detail column) — the same value the host passes
     // to its own rememberNowPlayingFrame.
     panelMinContentWidth: Dp = NowPlayingPanelMinContentWidth,
+    // The side panel open beside a surface opened AFTER it (Memories, the
+    // detail column): back belongs to that newer surface first, so every
+    // level here stands down (ShellBackResolver, reverse opening order).
+    backYields: Boolean = false,
 ) {
     val nowPlayingUiState by viewModel.uiState.collectAsState()
     val aboutUiState by viewModel.aboutUiState.collectAsState()
@@ -314,14 +318,15 @@ fun NowPlayingOverlayHost(
     // Focus is a level of its own (owner 2026-11-03): lyrics opened from focus
     // step back to focus, and focus steps back to the resting player — in two
     // columns too, before the Full player steps back to its side panel.
-    val stageBackLevel = expanded && (
+    val backLive = expanded && !backYields
+    val stageBackLevel = backLive && (
         stageMode == NowPlayingStageMode.Immersive ||
             !dualPaneNowPlaying && stageMode == NowPlayingStageMode.Expanded
         )
-    val fullscreenBackLevel = expanded && !stageBackLevel &&
+    val fullscreenBackLevel = backLive && !stageBackLevel &&
         (presentation == NowPlayingPresentation.Enlarged || dualPaneNowPlaying) &&
         frame.panelAvailable
-    val closeBackLevel = expanded && !stageBackLevel && !fullscreenBackLevel
+    val closeBackLevel = backLive && !stageBackLevel && !fullscreenBackLevel
 
     BackHandler(enabled = stageBackLevel) {
         viewModel.stepBackStage()
