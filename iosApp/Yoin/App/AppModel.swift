@@ -10,6 +10,8 @@ enum Route: Hashable {
     case settings
     /// Settings › About › Tips, optionally on one tip (Home's bubble opens it).
     case tips(focus: String?)
+    /// One tip on its own page, with its demo phone (Home's bubble opens it; Android TipActivity).
+    case tip(String)
     /// Home's Memories grid → All Memories (#186).
     case allMemories
     /// Settings › Yoin Labs (#189).
@@ -221,6 +223,12 @@ final class AppModel {
         case "np-panel": npPanel = true
         case "settings": path = [.settings]
         case "labs": path = [.labs]
+        #if DEBUG
+        // `-screen tips`: Settings › About › Tips. `-screen tip -tip LyricHighlight`: that tip's page
+        // (the first tip without `-tip`).
+        case "tips": path = [.tips(focus: nil)]
+        case "tip": path = [.tip(UserDefaults.standard.string(forKey: "tip") ?? Tips.all[0].id)]
+        #endif
         case "artist", "artist-bottom": path = [.artist(ArtistRef("Mina Asahi"))]
         case "playlist", "playlist-list": path = [.playlist("pl1")]
         case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
@@ -424,7 +432,7 @@ final class AppModel {
         case .album(let a): return a
         case .artist(let ref): return artistPage(ref).releases.first
         case .playlist(let id): return playlistInfo(id).asAlbum
-        case .settings, .tips, .allMemories, .labs, nil: return nil
+        case .settings, .tips, .tip, .allMemories, .labs, nil: return nil
         }
     }
 
@@ -689,7 +697,7 @@ final class AppModel {
             }
             if out.isEmpty { return page.mostPlayed }
             return Array(out.prefix(limit))
-        case .settings, .tips, .allMemories, .labs, nil:
+        case .settings, .tips, .tip, .allMemories, .labs, nil:
             return []
         }
     }

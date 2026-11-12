@@ -149,13 +149,6 @@ struct ShellBar: View {
         // The phone's idle bar labels its halves; iPad's nav capsule always does.
         let labelled = model.isIdle || pad == .nav
         let tintedStyle = lab.extra("barSelectedStyle") >= 0.5
-        let icon = switch s {
-        case .home: selected ? "home_filled" : "home"
-        case .library: selected ? "library_filled" : "library"
-        }
-        let ink: Color = !selected ? Yoin.ink
-            : tintedStyle ? (s == .home ? scheme.onPrimary : scheme.onSecondary)
-            : accent(s)
         let button = Button {
             tap(.library) {
                 // iPad: Search is a place of its own beside the sections; Home / Library leave it.
@@ -163,28 +156,8 @@ struct ShellBar: View {
                 model.select(s)
             }
         } label: {
-            HStack(spacing: 8) {
-                YoinIcon(icon, size: 24)
-                if labelled {
-                    Text(s == .home ? String(localized: "Home") : String(localized: "Library")).font(.gsf(14, .semibold))
-                }
-            }
-            .foregroundStyle(ink)
-            .labContrast(selected ? "barSelected" : "barUnselected")
-            .padding(.horizontal, pad == .nav ? 20 : 0)
-            .frame(width: labelled ? nil : (selected ? 68 : 54), height: height)
-            .frame(maxWidth: model.isIdle && pad == nil ? .infinity : nil)
-            .background {
-                if selected && !tintedStyle {
-                    // Apple-style selection highlight inside the glass.
-                    // Grey on light glass (white vanished on it), light on dark.
-                    Capsule()
-                        .fill((colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
-                            .opacity(lab.extra("barSelectionPill") / 0.55))
-                        .padding(5)
-                }
-            }
-            .contentShape(.capsule)
+            ShellNavFace(section: s, selected: selected, labelled: labelled, scheme: scheme,
+                         sidePadding: pad == .nav ? 20 : 0, fills: model.isIdle && pad == nil, height: height)
         }
         .buttonStyle(.plain)
         .simultaneousGesture(longPress(.library, openLibrarySearch), including: s == .library && pad == nil ? .all : .subviews)
@@ -414,6 +387,56 @@ struct ShellBar: View {
 
     private func addDetailToPlaylist() {
         Task { PlaylistActions.shared.requestAdd(await model.detailEntries()) }
+    }
+}
+
+/// A nav button's face: its symbol (filled when selected), its label where the bar shows one, the accent
+/// ink and the selection highlight inside the glass. The bar's own buttons draw it, and so does the tip
+/// page's demo bar (Tips/TipHomeScenes.swift).
+struct ShellNavFace: View {
+    var section: ShellSection
+    var selected: Bool
+    /// The phone's idle bar labels its halves; iPad's nav capsule always does.
+    var labelled: Bool
+    var scheme: CoverScheme
+    var sidePadding: CGFloat = 0
+    /// The idle bar's halves share the bar's width.
+    var fills = false
+    var height: CGFloat = 60
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let lab = GlassLab.shared
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5
+        let icon = switch section {
+        case .home: selected ? "home_filled" : "home"
+        case .library: selected ? "library_filled" : "library"
+        }
+        let ink: Color = !selected ? Yoin.ink
+            : tintedStyle ? (section == .home ? scheme.onPrimary : scheme.onSecondary)
+            : (section == .home ? scheme.primary : scheme.secondary)
+        HStack(spacing: 8) {
+            YoinIcon(icon, size: 24)
+            if labelled {
+                Text(section == .home ? String(localized: "Home") : String(localized: "Library")).font(.gsf(14, .semibold))
+            }
+        }
+        .foregroundStyle(ink)
+        .labContrast(selected ? "barSelected" : "barUnselected")
+        .padding(.horizontal, sidePadding)
+        .frame(width: labelled ? nil : (selected ? 68 : 54), height: height)
+        .frame(maxWidth: fills ? .infinity : nil)
+        .background {
+            if selected && !tintedStyle {
+                // Apple-style selection highlight inside the glass.
+                // Grey on light glass (white vanished on it), light on dark.
+                Capsule()
+                    .fill((colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
+                        .opacity(lab.extra("barSelectionPill") / 0.55))
+                    .padding(5)
+            }
+        }
+        .contentShape(.capsule)
     }
 }
 

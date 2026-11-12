@@ -3839,6 +3839,22 @@
         }
       }
     },
+    "tip.next": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一条"
+          }
+        }
+      }
+    },
     "Next in queue": {
       "localizations": {
         "zh-Hans": {

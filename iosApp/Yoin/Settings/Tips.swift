@@ -170,6 +170,18 @@ enum Tips {
         tips.filter { !read.contains($0.id) }
     }
 
+    /// After [current] is read, the next unread tip after it (wrapping); nil once every other tip is read
+    /// (Android `nextUnreadTip`): the tip page's Next goes there, and reads Done when there is none.
+    static func nextUnread(after current: String, read: Set<String>, in tips: [Tip] = all) -> Tip? {
+        guard let start = tips.firstIndex(where: { $0.id == current }) else { return unread(read, in: tips).first }
+        return (1..<tips.count).lazy.map { tips[(start + $0) % tips.count] }.first { !read.contains($0.id) }
+    }
+
+    /// The tip page's place in the list: Android `tip_position`, "3 / 19".
+    static func positionLine(index: Int, total: Int) -> String {
+        String(localized: "\(index + 1) / \(total)")
+    }
+
     // MARK: Read store encoding
 
     /// A read tip is kept as "Id@2026-11-04": its id and the `updated` day the user read. A tip updated

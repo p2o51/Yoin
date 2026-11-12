@@ -319,8 +319,11 @@ struct HomeView: View {
 
     // MARK: Header (HomeGreetingTitle.kt)
 
-    private var greeting: String {
-        switch Calendar.current.component(.hour, from: .now) {
+    private var greeting: String { Self.greeting(at: .now) }
+
+    /// The header's greeting at [date] (the tip page's demo Home says it too).
+    static func greeting(at date: Date) -> String {
+        switch Calendar.current.component(.hour, from: date) {
         case 5..<11: String(localized: "Good morning")
         case 11..<18: String(localized: "Good afternoon")
         default: String(localized: "Good evening")

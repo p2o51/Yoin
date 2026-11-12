@@ -13,9 +13,22 @@ struct AllMemoriesView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     private let source = MemoryLedgerSource.shared
-    @AppStorage("memoryLedgerView") private var viewRaw = LedgerView.timeline.rawValue
-    @AppStorage("memoryLedgerSort") private var sortRaw = LedgerSort.recent.rawValue
-    @State private var selected: Int?
+    /// The tip page's demo phone (Tips/TipMemoryLedgerScene.swift): made-up memories and a cell the demo
+    /// picks; nothing is loaded, opened or remembered.
+    var demo: AllMemoriesDemo? = nil
+    @AppStorage("memoryLedgerView") private var savedView = LedgerView.timeline.rawValue
+    @AppStorage("memoryLedgerSort") private var savedSort = LedgerSort.recent.rawValue
+    @State private var demoView = LedgerView.timeline.rawValue
+    @State private var demoSort = LedgerSort.recent.rawValue
+    @State private var ownSelected: Int?
+
+    /// The view and sort last chosen; the demo's are its own and forgotten.
+    private var viewChoice: Binding<String> { demo == nil ? $savedView : $demoView }
+    private var sortChoice: Binding<String> { demo == nil ? $savedSort : $demoSort }
+    private var viewRaw: String { viewChoice.wrappedValue }
+    private var sortRaw: String { sortChoice.wrappedValue }
+    private var selection: Binding<Int?> { demo?.selected ?? $ownSelected }
+    private var selected: Int? { selection.wrappedValue }
 
     private var app: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
@@ -31,7 +44,7 @@ struct AllMemoriesView: View {
                     .yoinRole(Tokens.type.displaySmall)
                     .foregroundStyle(app.onSurface)
                     .padding(.top, 8)
-                if let state = source.state, !state.isEmpty {
+                if let state = demo?.state ?? source.state, !state.isEmpty {
                     content(state)
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
@@ -49,10 +62,11 @@ struct AllMemoriesView: View {
             .animation(Yoin.spatial, value: sortRaw)
             .animation(Yoin.spatial, value: selected)
         }
-        .safeAreaBar(edge: .top) { topBar }
+        .modifier(TopBar(plain: demo != nil) { topBar })
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .task {
+            guard demo == nil else { return }
             source.reload()
             // Album pages a mark needs to be named (a scored song never played here): loaded, then read again.
             if await model.store.hydrateMemoryAlbums() { source.reload() }
@@ -71,8 +85,9 @@ struct AllMemoriesView: View {
         MemoryGridView(grid: state.grid, covers: state.covers, placement: .page,
                        faint: app.onSurface.opacity(0.07), outline: app.primary, label: app.onSurfaceVariant,
                        selected: selected) { i in
-            withAnimation(Yoin.spatial) { selected = selected == i ? nil : i }
+            withAnimation(Yoin.spatial) { selection.wrappedValue = selected == i ? nil : i }
         }
+        .demoTarget("ledgerGrid")
         .padding(16)
         .background(app.surfaceContainerLow, in: .rect(cornerRadius: 28))
         controls
@@ -127,7 +142,7 @@ struct AllMemoriesView: View {
         HStack {
             if view == .list {
                 Menu {
-                    Picker("Sort", selection: $sortRaw) {
+                    Picker("Sort", selection: sortChoice) {
                         Text("Recent").tag(LedgerSort.recent.rawValue)
                         Text("Highest score").tag(LedgerSort.score.rawValue)
                         Text("Name").tag(LedgerSort.name.rawValue)
@@ -144,7 +159,7 @@ struct AllMemoriesView: View {
                 .transition(.opacity)
             }
             Spacer()
-            Picker("View", selection: $viewRaw) {
+            Picker("View", selection: viewChoice) {
                 Text("Timeline").tag(LedgerView.timeline.rawValue)
                 Text("Cards").tag(LedgerView.cards.rawValue)
                 Text("List").tag(LedgerView.list.rawValue)
@@ -334,7 +349,7 @@ struct AllMemoriesView: View {
 
     /// The album's page, for an album of the account in use (another account's opens nothing here).
     private func open(_ album: LedgerAlbum?, _ state: LedgerState) {
-        guard let album else { return }
+        guard let album, demo == nil else { return }
         // Another account's: Yoin switches to it first, as Android's Go to album does (#178).
         if state.isOther(album.account) {
             guard let p = state.profile(album.account) else { return }
@@ -357,7 +372,7 @@ struct AllMemoriesView: View {
 
     private var topBar: some View {
         HStack {
-            Button { dismiss() } label: {
+            Button { if let demo { demo.onBack() } else { dismiss() } } label: {
                 YoinIcon("back", size: 22)
                     .foregroundStyle(app.onSurface)
                     .frame(width: 40, height: 40)
@@ -372,4 +387,29 @@ struct AllMemoriesView: View {
         .padding(.leading, 8)
         .padding(.vertical, 4)
     }
+}
+
+/// The page's top bar: a safe-area bar, so the list blurs out under it. On the demo phone ([plain]) a plain
+/// inset: the system draws that blur at the window's scale, over the phone's rim and the page around it.
+private struct TopBar<Bar: View>: ViewModifier {
+    var plain: Bool
+    @ViewBuilder var bar: () -> Bar
+
+    func body(content: Content) -> some View {
+        if plain {
+            content
+                .scrollEdgeEffectHidden(true, for: .all)
+                .safeAreaInset(edge: .top, spacing: 0) { bar() }
+        } else {
+            content.safeAreaBar(edge: .top) { bar() }
+        }
+    }
+}
+
+/// What the tip page's demo phone shows All Memories with.
+struct AllMemoriesDemo {
+    var state: LedgerState
+    /// The cell the list is narrowed to; the demo's touch sets it.
+    var selected: Binding<Int?>
+    var onBack: () -> Void
 }

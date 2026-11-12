@@ -14,13 +14,16 @@ struct HomeLyricCardsSection: View {
     @Environment(\.homeScheme) private var scheme
     @Environment(\.homeMargin) private var margin
     var cards: [LyricHighlightRow]
+    /// The tip page's demo phone (Tips/TipHomeScenes.swift): made-up cards with their covers, a pager the
+    /// demo turns, and nothing played or marked shown.
+    var demo: LyricCardsDemo? = nil
     private let store = LyricHighlightStore.shared
     private let processor = LyricHighlightProcessor.shared
 
     var body: some View {
         let s = scheme ?? .brand(dark: false)
         VStack(alignment: .leading, spacing: 12) {
-            if !store.introSeen && !store.optedIn { intro(s) }
+            if demo == nil, !store.introSeen && !store.optedIn { intro(s) }
             if !cards.isEmpty {
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 12) {
@@ -30,19 +33,21 @@ struct HomeLyricCardsSection: View {
                     .padding(.horizontal, margin)
                 }
                 .scrollTargetBehavior(.viewAligned)
+                .modifier(LyricCardsDemoPager(position: demo?.position))
                 .scrollIndicators(.hidden)
                 .padding(.horizontal, -margin)
                 .shelfEdgeFade()
             }
         }
         .onAppear {
+            guard demo == nil else { return }
             let now = LyricHighlightProcessor.nowMs
             if let first = cards.first { store.markShown(first.id, at: now) }
         }
     }
 
     private func card(_ c: LyricHighlightRow, _ s: CoverScheme) -> some View {
-        Button { homeTap(edit) { model.playFromLine(c) } } label: {
+        Button { homeTap(edit) { if let demo { demo.onPlay(c) } else { model.playFromLine(c) } } } label: {
             VStack(alignment: .leading, spacing: 14) {
                 Text(c.text ?? "")
                     .homeType(Tokens.type.titleMedium, .medium, size: 19, lineHeight: 27)
@@ -76,6 +81,7 @@ struct HomeLyricCardsSection: View {
     }
 
     private func palette(_ c: LyricHighlightRow) -> CoverPalette {
+        if let demo { return demo.palettes[c.id] ?? MemoryGridView.fallback(c.id) }
         if c.provider == AccountScope.subsonicProvider, let client = model.store.client {
             return SubsonicMapping(client: client).palette(coverId: c.coverKey ?? c.albumId)
         }
@@ -114,6 +120,25 @@ struct HomeLyricCardsSection: View {
         .frame(maxWidth: 560, alignment: .leading)
         .background(s.surfaceContainerLow, in: .rect(cornerRadius: 24))
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+}
+
+/// What the tip page's demo phone shows Lyric Cards with.
+struct LyricCardsDemo {
+    /// Card id → its cover.
+    var palettes: [String: CoverPalette]
+    /// The card the pager rests on; the demo turns it.
+    var position: Binding<String?>
+    var onPlay: (LyricHighlightRow) -> Void
+}
+
+/// The demo's hand on the pager; the feed's own pager is left as it is.
+private struct LyricCardsDemoPager: ViewModifier {
+    var position: Binding<String?>?
+
+    func body(content: Content) -> some View {
+        // Leading, where a swipe leaves a card (the shelf's view-aligned rest).
+        if let position { content.scrollPosition(id: position, anchor: .leading) } else { content }
     }
 }
 
