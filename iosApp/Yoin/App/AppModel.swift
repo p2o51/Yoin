@@ -521,6 +521,15 @@ final class AppModel {
 
     func artistPage(_ ref: ArtistRef) -> ArtistPage {
         if store.isReal, let id = ref.id {
+            #if DEBUG
+            // `-artistDemo empty` (with `-serverRoute artist:<id>`): the loaded page as an
+            // artist without releases, for the discography's "No releases" line.
+            if UserDefaults.standard.string(forKey: "artistDemo") == "empty", var page = store.artistPage(id) {
+                page.releases = []
+                page.mostPlayed = []
+                return page
+            }
+            #endif
             return store.artistPage(id)
                 ?? ArtistPage(id: MediaId(provider: store.provider, rawId: id), name: ref.name,
                               starred: false, palette: store.placeholderPalette(coverId: nil),

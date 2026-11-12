@@ -63,6 +63,7 @@ How to read a clip quickly:
 | np-open-close, np-drag-dismiss, np-morph-slow, np-focus-demo, np-about-cycle (rec) | `-npAutoCycle YES`, `-npScriptedDrag YES`, `-screen np-morph`, `-npFocusDemo YES`, `-npAutoCycle YES -npAutoCycleHold 5 -npTab about-full` | R3/R5: shell visible (blurred) on every frame, NP never a blank slab, no end-of-settle snap |
 | srv-home, srv-np, srv-album | `-subsonicURL http://127.0.0.1:4995 -subsonicUser demo -subsonicPass demo` (+ `-historySeed demo`, `-serverPlay album:al-field -serverOpenNowPlaying YES`, `-serverRoute album:al-field`) | real covers, unrated, no lyrics, real queue |
 | format tags (not in the driver) | the srv args + `-serverRoute playlist:pl-commute -playlistDemo menu` (song sheet) or `-serverPlay album:al-field -serverOpenNowPlaying YES` (Now Playing); `-formatDemo flac,0,16,44100,6` (suffix, kbps, depth, Hz, channels) makes every song claim that format | a block per tag under the sheet's artist and after Now Playing's artist ("FLAC 16/44.1", "5.1"; the demo server's own songs read "WAV 44.1"); no row without tags (`-screen song-menu`) |
+| artist without releases (not in the driver) | the srv args + `-serverRoute artist:ar-kiri -artistDemo empty` (the loaded page with its releases taken away; the demo server has no such artist) | "Discography" with "0 releases", then "No releases" in the muted body colour; no chips, no year in the header |
 
 ## 2. Hand pass (light and dark, iPhone then iPad)
 
