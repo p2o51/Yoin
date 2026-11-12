@@ -1148,7 +1148,8 @@ struct NowPlayingView: View, Equatable {
                 },
                 onTap: { i in lyricLineTapped(i, times: times, synced: loaded.synced) },
                 // Two-column focus prints the lyrics through the halftone (Android WidePlayingContent).
-                halftone: wide && stage == .focus
+                halftone: wide && stage == .focus,
+                reseatOnResize: wide
             )
     }
 

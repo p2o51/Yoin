@@ -129,6 +129,10 @@ struct ExpandedLyricsList: View {
     /// line prints through fine dots; the current line is solid, the next
     /// two stay readable.
     var halftone: Bool = false
+    /// Two columns (Android LyricsFullscreenPane): the seat is read again from
+    /// the window once it holds still after a resize — focus folds the tools
+    /// away and the page grows — and the line glides to it.
+    var reseatOnResize: Bool = false
 
     /// Android LyricsRowInset: rows reach this far past the page edge.
     static let rowInset: CGFloat = 12
@@ -194,9 +198,11 @@ struct ExpandedLyricsList: View {
                 .scrollPosition($position)
                 .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { offset.windowTop = $0 }
                 .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, g in
+                    let resized = offset.viewport > 0 && abs(offset.viewport - g.containerSize.height) > 1
                     offset.y = g.contentOffset.y
                     offset.viewport = g.containerSize.height
                     offset.contentHeight = g.contentSize.height
+                    if resized && reseatOnResize { reseatWhenSettled() }
                 }
                 // A quick flick can go from tracking straight to decelerating, never reporting
                 // .interacting: the list left the line while still "following", so Recenter
@@ -243,6 +249,23 @@ struct ExpandedLyricsList: View {
             withAnimation(Yoin.spatial) {
                 if let y = seatY(target) { position.scrollTo(y: y) } else { position.scrollTo(id: target, anchor: .center) }
             }
+        }
+    }
+
+    /// Android LyricsSeatSettleMs: a window that moves every frame (a stage
+    /// reshape) is read once it has held still this long.
+    static let seatSettle: Duration = .milliseconds(250)
+
+    /// Android's re-seat after the window's geometry changes: wait for it to
+    /// hold still, then glide the line to the seat the new window gives
+    /// (Android seatSettleSpec: the Standard default spatial spring).
+    private func reseatWhenSettled() {
+        guard follow, active >= 0, active < lines.count else { return }
+        offset.seating?.cancel()
+        offset.seating = Task { @MainActor in
+            try? await Task.sleep(for: Self.seatSettle)
+            guard !Task.isCancelled, follow, let y = seatY(active) else { return }
+            withAnimation(Yoin.standardDefaultSpatial) { position.scrollTo(y: y) }
         }
     }
 
@@ -320,7 +343,7 @@ struct ExpandedLyricsList: View {
         }
         .scaleEffect(emphasized ? 1 : 0.96, anchor: .leading)
         // Focus's halftone (Android lyricHalftone): solid → this line's dots.
-        .modifier(LyricHalftone(radius: dots))
+        .modifier(LyricHalftone(radius: dots, space: Self.contentSpace))
         .animation(Yoin.effects, value: dots)
         .opacity(alpha)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -746,6 +769,8 @@ struct LyricsShareSheet: View {
 /// covered and no mask runs. Uses the DotDissolve shader (the same dot mask).
 nonisolated struct LyricHalftone: ViewModifier, Animatable {
     var radius: CGFloat
+    /// The list's content coordinate space: the grid's shared origin.
+    var space: String? = nil
 
     /// LyricDotsCell / LyricDotsSolid.
     static let cell: CGFloat = 4
@@ -770,10 +795,18 @@ nonisolated struct LyricHalftone: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
+        let r = radius, on = radius < Self.solid - 0.01, space = self.space
         content
             .padding(2)
-            .colorEffect(ShaderLibrary.yoinDotDissolve(.float(Self.cell), .float(radius)),
-                         isEnabled: radius < Self.solid - 0.01)
+            // One grid for the whole list: each line's dots are phased from
+            // its place in the list's content space (Android tiles the dots
+            // with the content, so they ride along as it scrolls).
+            .visualEffect { view, proxy in
+                let o = space.map { proxy.frame(in: .named($0)).origin } ?? .zero
+                return view.colorEffect(ShaderLibrary.yoinDotGrid(.float(Self.cell), .float(r),
+                                                                  .float2(Float(o.x), Float(o.y))),
+                                        isEnabled: on)
+            }
             .padding(-2)
     }
 }
