@@ -16,6 +16,8 @@ import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.data.remote.ai.AiThinking
 import com.gpo.yoin.data.remote.ai.AiTier
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,16 +72,28 @@ class AiSettingsViewModel(
                 geminiKeyJob?.cancel()
                 geminiKeyJob = viewModelScope.launch {
                     delay(KEY_SAVE_DELAY_MS)
-                    val current = geminiDao.getConfig().first()
-                    if (current?.apiKey != trimmed) {
-                        geminiDao.upsert((current ?: GeminiConfig(apiKey = "")).copy(apiKey = trimmed))
-                    }
+                    saveGeminiKey(trimmed)
                 }
             }
             AiProvider.DeepSeek -> store.update { it.copy(deepSeekKey = trimmed) }
             AiProvider.Qwen -> store.update { it.copy(qwenKey = trimmed) }
             AiProvider.Custom -> store.update { it.copy(customKey = trimmed) }
         }
+    }
+
+    private suspend fun saveGeminiKey(key: String) {
+        val current = geminiDao.getConfig().first()
+        if (current?.apiKey != key) {
+            geminiDao.upsert((current ?: GeminiConfig(apiKey = "")).copy(apiKey = key))
+        }
+    }
+
+    /** Leaving the page inside the save delay must not drop the key just typed. */
+    override fun onCleared() {
+        val pending = geminiKeyJob?.takeIf { it.isActive } ?: return
+        pending.cancel()
+        val draft = geminiKeyDraft.value?.trim() ?: return
+        CoroutineScope(Dispatchers.IO).launch { saveGeminiKey(draft) }
     }
 
     fun setCustomFormat(format: AiApiFormat) {

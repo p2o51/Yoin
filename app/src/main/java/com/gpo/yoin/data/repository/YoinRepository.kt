@@ -2859,12 +2859,13 @@ class YoinRepository(
         )?.let { return it }
 
         val sourceHash = buildLyricsTranslationSourceHash(t, a, sourceLines)
+        val translationModel = aiProviderStore.settingsFor(config).modelId
         val cached = lyricsTranslationCacheDao.get(
             trackProvider = trackId.provider,
             trackRawId = trackId.rawId,
             sourceHash = sourceHash,
             targetLanguage = targetLanguage,
-            model = aiProviderStore.settingsFor(config).modelId,
+            model = translationModel,
         )
         cached
             ?.toTranslations(expectedLineCount = sourceLines.size)
@@ -2888,7 +2889,7 @@ class YoinRepository(
                     trackRawId = trackId.rawId,
                     sourceHash = sourceHash,
                     targetLanguage = targetLanguage,
-                    model = GeminiService.MODEL,
+                    model = translationModel,
                     translationsJson = lyricTranslationCacheJson.encodeToString(
                         sourceLines.indices.map { index ->
                             cleanedTranslations[index].orEmpty()
