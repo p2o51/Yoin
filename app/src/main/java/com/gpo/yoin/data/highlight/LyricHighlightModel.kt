@@ -74,7 +74,8 @@ class GeminiNanoLyricModel : LyricHighlightModel {
     @Volatile
     private var preference: Int = ModelPreference.FULL
 
-    private fun client(): GenerativeModel = client ?: nanoClient(ModelReleaseStage.STABLE, preference).also { client = it }
+    private fun client(): GenerativeModel =
+        client ?: nanoClient(ModelReleaseStage.STABLE, preference).also { client = it }
 
     override suspend fun status(): NanoStatus = lock.withLock {
         // A variant that is ready wins (FULL before FAST); otherwise the first one AICore can fetch, FULL first.

@@ -136,7 +136,11 @@ internal fun LabsPageBody(
                                 onOpenDiagnostics()
                             },
                             trailing = {
-                                Icon(imageVector = YoinSymbols.ChevronRight, contentDescription = null)
+                                Icon(
+                                    imageVector = YoinSymbols.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             },
                         )
                     }

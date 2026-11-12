@@ -108,7 +108,7 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
 
         if (current != null) {
             SettingsGroup(title = stringResource(R.string.nano_diag_actions_section)) {
-                if (current.anyDownloadable) {
+                if (current.canDownload) {
                     item {
                         SettingsItem(
                             icon = YoinSymbols.Download,
@@ -137,7 +137,11 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
                                 testing -> stringResource(R.string.nano_diag_test_running)
                                 result == null -> stringResource(R.string.nano_diag_test_detail)
                                 result.error != null -> stringResource(R.string.nano_diag_test_failed, result.millis)
-                                else -> stringResource(R.string.nano_diag_test_reply, result.reply.orEmpty(), result.millis)
+                                else -> stringResource(
+                                    R.string.nano_diag_test_reply,
+                                    result.reply.orEmpty(),
+                                    result.millis,
+                                )
                             },
                             summaryDetail = result?.let { it.error ?: it.variant },
                             onClick = if (testing) {
@@ -209,7 +213,7 @@ internal fun NanoDiagnosticsPageContent(modifier: Modifier = Modifier) {
                 }
             }
 
-            if (!current.anyAvailable && !current.anyDownloadable) {
+            if (!current.anyAvailable && !current.canDownload) {
                 Text(
                     text = stringResource(R.string.nano_diag_unavailable_help),
                     style = MaterialTheme.typography.bodyMedium,

@@ -48,13 +48,18 @@ object NanoDiagnostics {
         val probes: List<Probe>,
     ) {
         val anyAvailable: Boolean get() = probes.any { it.status == NanoStatus.AVAILABLE }
+
         /**
-         * A Stable variant AICore can fetch. Only Stable: the download button goes through the lyric cards' model
-         * (one owner for the download), which only uses Stable; Preview needs the AICore Developer Preview anyway.
+         * The download button would fetch something. It goes through the lyric cards' model (one owner for the
+         * download), so this is that model's own rule ([GeminiNanoLyricModel.status]): only Stable (Preview needs
+         * the AICore Developer Preview anyway), and only while no Stable variant is ready. With one ready the model
+         * keeps to it, and a download would ask for the variant that is already on the phone.
          */
-        val anyDownloadable: Boolean
-            get() = probes.any {
-                it.stage == stableStage && (it.status == NanoStatus.DOWNLOADABLE || it.status == NanoStatus.DOWNLOADING)
+        val canDownload: Boolean
+            get() {
+                val stable = probes.filter { it.stage == stableStage }
+                return stable.none { it.status == NanoStatus.AVAILABLE } &&
+                    stable.any { it.status == NanoStatus.DOWNLOADABLE || it.status == NanoStatus.DOWNLOADING }
             }
 
         /** Plain text for the clipboard: what a bug report needs. */
@@ -113,7 +118,8 @@ object NanoDiagnostics {
                         maxOutputTokens = 8
                     },
                 )
-                TestResult(label, response.candidates.firstOrNull()?.text?.trim(), SystemClock.elapsedRealtime() - start)
+                val reply = response.candidates.firstOrNull()?.text?.trim()
+                TestResult(label, reply, SystemClock.elapsedRealtime() - start)
             }
         } catch (e: CancellationException) {
             throw e
