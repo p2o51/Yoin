@@ -32,7 +32,11 @@ struct HomeView: View {
     /// signed out: the mock shelf, for screenshots and demos only
     /// (LaunchConfig.demoContent); a real launch with no account gets nil
     /// and the connect prompt.
-    private var liveFeed: HomeFeed? { Self.feed(isReal: model.store.isReal, demo: LaunchConfig.demoContent) { model.store.home } }
+    private var liveFeed: HomeFeed? {
+        let feed = Self.feed(isReal: model.store.isReal, demo: LaunchConfig.demoContent) { model.store.home }
+        // The mock shelf is not built from lists: a hidden card is taken off it here.
+        return model.store.isReal ? feed : feed?.removingHiddenJbi(model.store.hiddenJbiKeys())
+    }
 
     /// What Home shows: the live feed, except while a page is pushed over it and through the
     /// zoom back. Opening an album logs a visit, which moves it into Activities (and out of
@@ -521,18 +525,22 @@ struct HomeView: View {
                     ForEach(layout.cells, id: \.card.stableId) { c in
                         cell(c.card, standing: c.piece.kind == .tallSignal, wide: c.piece.kind == .wideSignal)
                             .offset(x: CGFloat(c.piece.column) * (colW + gap), y: CGFloat(t.top(of: c.piece)) * pitch)
+                            .transition(.jbiRemoval)
                     }
                 }
                 .frame(width: density.content, height: height, alignment: .topLeading)
+                // A hidden card folds away and the next one steps up on a spring.
+                .animation(Yoin.spatial, value: layout.cells.map { "\($0.card.stableId)@\($0.piece.column),\($0.piece.row)" })
             case let .packed(rows):
                 VStack(alignment: .leading, spacing: rowGap) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                         HStack(alignment: .top, spacing: gap) {
-                            ForEach(row, id: \.stableId) { card in cell(card, wide: card.expanded) }
+                            ForEach(row, id: \.stableId) { card in cell(card, wide: card.expanded).transition(.jbiRemoval) }
                         }
                     }
                 }
                 .frame(width: density.content, alignment: .leading)
+                .animation(Yoin.spatial, value: rows.map { $0.map(\.stableId) })
             }
         }
     }
@@ -584,22 +592,23 @@ struct HomeView: View {
                     case let .signal(signal, cover, leading):
                         if !leading, let cover {
                             JBICell(item: cover, marks: feed.memoryMarks)
-                                .frame(width: pairUnit, alignment: .leading)
+                                .frame(width: pairUnit, alignment: .leading).transition(.jbiRemoval)
                         }
-                        SignalCard(signal: signal).frame(width: pairUnit * 2, alignment: .leading)
+                        SignalCard(signal: signal).frame(width: pairUnit * 2, alignment: .leading).transition(.jbiRemoval)
                         if leading, let cover {
                             JBICell(item: cover, marks: feed.memoryMarks)
-                                .frame(width: pairUnit, alignment: .leading)
+                                .frame(width: pairUnit, alignment: .leading).transition(.jbiRemoval)
                         }
                     case let .covers(items):
                         ForEach(items, id: \.stableId) { item in
                             JBICell(item: item, marks: feed.memoryMarks)
-                                .frame(width: col, alignment: .leading)
+                                .frame(width: col, alignment: .leading).transition(.jbiRemoval)
                         }
                     }
                 }
             }
         }
+        .animation(Yoin.spatial, value: feed.signals.map(\.hideKey) + feed.jumpBackIn.map(\.stableId))
     }
 
     private func mockJumpBackIn(_ a: [Album]) -> some View {
@@ -634,7 +643,7 @@ struct HomeView: View {
     }
 
     /// The screenshots' hand-set 1×2 copy.
-    private static func mockSignal(_ album: Album, _ kind: JBISignal.Kind) -> JBISignal {
+    static func mockSignal(_ album: Album, _ kind: JBISignal.Kind) -> JBISignal {
         kind == .ratedAlbum
             ? JBISignal(kind: kind, album: album, title: album.title, subtitle: album.artist,
                         score: HomeHistory.scoreText(album.rating), basis: "Oct 28",
@@ -1041,12 +1050,24 @@ private struct JBICell: View {
         self.init(item: .album(album), marks: mark.map { [album.id.rawId: $0] } ?? [:])
     }
 
+    @State private var hideOpen = false
+
     var body: some View {
+        content.jbiHideMenu(key: item.hideKey, open: $hideOpen)
+    }
+
+    /// A tap: edit mode opens the "not now" menu (Android HomeJbiHidden), otherwise the card's own action.
+    private func jbiTap(_ action: () -> Void) {
+        jbiCardTap(edit, open: $hideOpen, action)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch item {
         case let .album(album):
             let mark = marks[album.id.rawId]
             let s = scheme!
-            Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
+            Button { jbiTap { model.open(album, tile: zoomTile.key) } } label: {
                 AlbumItem(album: album, size: size, subtitle: album.kindLine) {
                     // albumMemoryMarkInk: palette base, accent in dark mode.
                     if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
@@ -1055,13 +1076,13 @@ private struct JBICell: View {
             }
             .buttonStyle(PressScale())
         case let .track(entry):
-            Button { homeTap(edit) { model.play([entry]) } } label: {
+            Button { jbiTap { model.play([entry]) } } label: {
                 plainCover(entity: .song, palette: entry.album.palette, seed: entry.album.seed, title: entry.track.title,
                            subtitle: KindLine.make(String(localized: "Track"), entry.track.artist ?? entry.album.artist))
             }
             .buttonStyle(PressScale())
         case let .playlist(playlist):
-            Button { homeTap(edit) { model.openPlaylist(playlist.id.rawId) } } label: {
+            Button { jbiTap { model.openPlaylist(playlist.id.rawId) } } label: {
                 plainCover(entity: .playlist, palette: playlist.palette, seed: playlist.id.rawId.count, title: playlist.title,
                            subtitle: KindLine.make(String(localized: "Playlist"), playlist.owner ?? ""))
             }
@@ -1236,11 +1257,18 @@ private struct SignalCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @State private var hideOpen = false
+
     var body: some View {
+        content.jbiHideMenu(key: signal.hideKey, open: $hideOpen)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         let s = scheme!
         let ink = cardInk(album.palette, dark: colorScheme == .dark)
         Button {
-            homeTap(edit) {
+            jbiCardTap(edit, open: $hideOpen) {
                 // A memory 1×2 opens Memories stopped on its album (Android onOpenMemoryFocus);
                 // a noted track plays its song.
                 if let song = signal.song {

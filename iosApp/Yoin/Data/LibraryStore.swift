@@ -323,11 +323,14 @@ final class LibraryStore {
         let revision = homeRevision
         if let cached = homeCache, cached.revision == revision { return cached.feed }
         let feed = withObservationTracking {
-            homeLists.map { l in
+            // A card hidden for now (JbiHiddenStore): reading the tick redraws Home when one is.
+            _ = jbiHiddenTick
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            let hidden = jbiHiddenStore.hidden(scope: homeScope, now: now)
+            return homeLists.map { l in
                 Self.buildHome(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: l.highest,
-                               random: l.random, recentTracks: l.recentTracks, history: homeHistory(l),
-                               playlists: playlists, trackPool: l.trackPool,
-                               now: Int64(Date().timeIntervalSince1970 * 1000))
+                               random: l.random, recentTracks: l.recentTracks, history: homeHistory(l, hidden: hidden),
+                               playlists: playlists, trackPool: l.trackPool, now: now, hiddenJbi: hidden)
             }
         } onChange: { [weak self] in
             // Called before the change lands: rebuild on the next turn.
@@ -338,6 +341,23 @@ final class LibraryStore {
     }
 
     private var homeRevision = 0
+    /// Where the account's hidden Jump Back In cards are kept; tests swap it.
+    @ObservationIgnored var jbiHiddenStore = JbiHiddenStore.shared
+    /// Bumps when a card is hidden, so [home] is built again without it.
+    private var jbiHiddenTick = 0
+
+    /// The keys hidden on this account now (reading it tracks a hide, for the mock shelf's redraw).
+    func hiddenJbiKeys(now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> Set<String> {
+        _ = jbiHiddenTick
+        return jbiHiddenStore.hidden(scope: homeScope, now: now)
+    }
+
+    /// Hide a Jump Back In card for [span] on this account (edit mode's menu); the shelf rebuilds without it
+    /// and the next card in line steps up.
+    func hideJbi(key: String, span: JbiHideSpan, now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) {
+        jbiHiddenStore.hide(scope: homeScope, key: key, until: now + span.millis)
+        jbiHiddenTick &+= 1
+    }
     @ObservationIgnored private var homeCache: (revision: Int, feed: HomeFeed?)?
 
     /// The account's album memories (the Home lists' albums known too), for
@@ -440,7 +460,7 @@ final class LibraryStore {
         var now: Int64 = 0
     }
 
-    private func homeHistory(_ l: HomeLists) -> HomeOverlay? {
+    private func homeHistory(_ l: HomeLists, hidden: Set<String> = []) -> HomeOverlay? {
         guard isReal else { return nil }
         let inputs = historyInputs(extra: l.recent + l.frequent + l.newest + l.highest + l.random
             + l.recentTracks.map(\.album))
@@ -450,8 +470,13 @@ final class LibraryStore {
         let memories = HomeHistory.memories(inputs)
         var o = HomeOverlay(hasHistory: !inputs.plays.isEmpty, now: inputs.now)
         o.activities = HomeHistory.activityPicks(records, resolve: inputs.resolve)
-        if let rated = HomeHistory.ratedAlbumSignal(memories) { o.signals.append(rated) }
-        if let noted = HomeHistory.notedTrackSignal(inputs, placeholder: { [weak self] note in
+        // A memory or noted-track card hidden for now makes way for the next one (Android's pickers skip it).
+        if let rated = HomeHistory.ratedAlbumSignal(memories.filter { !hidden.contains(jbiAlbumHideKey($0.album.id)) }) {
+            o.signals.append(rated)
+        }
+        var signalInputs = inputs
+        signalInputs.notes = inputs.notes.filter { !hidden.contains(jbiSongHideKey(MediaId(provider: $0.provider, rawId: $0.trackId))) }
+        if let noted = HomeHistory.notedTrackSignal(signalInputs, placeholder: { [weak self] note in
             self?.placeholderAlbum(note) ?? Album(id: MediaId(provider: note.provider, rawId: note.trackId),
                                                     title: note.title, artist: note.artist, year: 0,
                                                     palette: AppleMusicMapping.palette(nil, key: note.trackId),
@@ -487,7 +512,8 @@ final class LibraryStore {
     nonisolated static func buildHome(recent: [Album], frequent: [Album], newest: [Album], highest: [Album],
                                       random: [Album], recentTracks: [PlaylistEntry],
                                       history: HomeOverlay? = nil, playlists: [LibraryItem] = [],
-                                      trackPool: [PlaylistEntry] = [], now: Int64 = 0) -> HomeFeed {
+                                      trackPool: [PlaylistEntry] = [], now: Int64 = 0,
+                                      hiddenJbi: Set<String> = []) -> HomeFeed {
         func plays(_ a: Album) -> String {
             guard let n = a.playCount, n > 0 else { return String(localized: "Recently active") }
             return n == 1 ? String(localized: "1 play") : String(localized: "\(n) plays")
@@ -524,7 +550,7 @@ final class LibraryStore {
             albums: HomeJbiPools.albumPool(random: random, fallback: mixed),
             tracks: HomeJbiPools.trackPool(trackPool),
             playlists: HomeJbiPools.playlistPool(playlists, now: now),
-            excludedAlbums: excludedAlbums, excludedTracks: excludedTracks)
+            excludedAlbums: excludedAlbums, excludedTracks: excludedTracks, hidden: hiddenJbi)
 
         let gridAlbums = Set(recentTracks.map(\.album.id))
         let recentAlbums = newest.filter { !gridAlbums.contains($0.id) || recentTracks.isEmpty }

@@ -121,6 +121,14 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
         }
         let a = Self.allAlbums
         let grid: [(Int, Int)] = [(9, 0), (6, 1), (2, 1), (8, 2)]
+        var shelf = jumpBackIn().map(JBIItem.album)
+        var signals: [JBISignal] = []
+        #if DEBUG
+        // QA aids: `-jbiCovers N` trims the shelf's covers, `-jbiSignals N` adds that many 1×2 signal cards.
+        if let n = UserDefaults.standard.object(forKey: "jbiCovers") as? Int { shelf = Array(shelf.prefix(max(0, n))) }
+        let wanted = UserDefaults.standard.integer(forKey: "jbiSignals")
+        signals = [HomeView.mockSignal(a[0], .ratedAlbum), HomeView.mockSignal(a[5], .notedTrack)].prefix(wanted).map { $0 }
+        #endif
         return HomeFeed(
             layout: .mock,
             activities: [
@@ -130,7 +138,7 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
                 ActivityEntry(id: "wide", eyebrow: "1d ago", album: a[1]),
                 ActivityEntry(id: "strip", eyebrow: "3d ago", album: a[11]),
             ],
-            jumpBackIn: jumpBackIn().map(JBIItem.album),
+            jumpBackIn: shelf,
             recentTracks: grid.map { PlaylistEntry(album: a[$0.0], track: a[$0.0].tracks[$0.1]) },
             recentAlbums: [10, 4, 7, 5, 2, 8].map { a[$0] },
             rediscover: [
@@ -138,7 +146,7 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
                                 footnoteDate: "2020.11", footnotePlays: "14"),
                 RediscoverEntry(album: a[8], reason: "3 notes", away: "1 year away", score: nil,
                                 footnoteDate: "2019.04", footnotePlays: "9"),
-            ])
+            ], signals: signals)
     }
 
     /// The artist page for a mock artist (newest release first).

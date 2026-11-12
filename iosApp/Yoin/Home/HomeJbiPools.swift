@@ -100,11 +100,16 @@ enum HomeJbiPools {
     /// The shelf's covers: [albums] / [tracks] / [playlists] are the pools (already trimmed); the ones a
     /// signal card shows are left out ([excludedAlbums], [excludedTracks]; Android `wideIds`).
     static func select(albums: [Album], tracks: [PlaylistEntry], playlists: [LibraryItem],
-                       excludedAlbums: Set<MediaId> = [], excludedTracks: Set<MediaId> = []) -> [JBIItem] {
+                       excludedAlbums: Set<MediaId> = [], excludedTracks: Set<MediaId> = [],
+                       hidden: Set<String> = []) -> [JBIItem] {
         // Covers first inside each pool (a stable sort keeps the pool's order within each group) ...
-        let albumPool = albums.filter { !excludedAlbums.contains($0.id) }.map(JBIItem.album).artFirst()
-        let trackPool = tracks.filter { !excludedTracks.contains($0.track.id) }.map(JBIItem.track).artFirst()
-        let playlistPool = playlists.map(JBIItem.playlist).artFirst()
+        // Cards the listener hid for now stay out of every pool (Android `jbiHideKey() in hidden`), so the next
+        // card in line steps up.
+        let albumPool = albums.filter { !excludedAlbums.contains($0.id) }.map(JBIItem.album)
+            .filter { !hidden.contains($0.hideKey) }.artFirst()
+        let trackPool = tracks.filter { !excludedTracks.contains($0.track.id) }.map(JBIItem.track)
+            .filter { !hidden.contains($0.hideKey) }.artFirst()
+        let playlistPool = playlists.map(JBIItem.playlist).filter { !hidden.contains($0.hideKey) }.artFirst()
         let primary = interleave(Array(albumPool.prefix(3)), Array(trackPool.prefix(2)), Array(playlistPool.prefix(3)))
         let rest = interleave(Array(albumPool.dropFirst(3)), Array(trackPool.dropFirst(2)),
                               Array(playlistPool.dropFirst(3)))

@@ -100,6 +100,10 @@ final class HomeEditController {
     /// A press under the long-press that entered edit lands on a card: drop that tap.
     var swallowsTap: Bool { isEditing || Date().timeIntervalSince(enteredAt) < 0.8 }
 
+    /// A tap on a Jump Back In card while editing (not the release of the hold that entered edit): the
+    /// "not now" menu's way in (Android's edit-mode card tap).
+    var acceptsCardTap: Bool { isEditing && carried == nil && Date().timeIntervalSince(enteredAt) >= 0.8 }
+
     // MARK: Changes (each one saved, each one an Undo step)
 
     // MARK: Row presets (D1 resize)
@@ -316,7 +320,7 @@ struct HomeEditBlock<Content: View>: View {
             content()
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { naturalHeight = $0 }
                 .opacity(1 - smoothstep(0, 0.45, f))
-                .allowsHitTesting(!edit.isEditing)
+                .allowsHitTesting(!edit.isEditing || (section == .jumpBackIn && f == 0))
                 .fixedSize(horizontal: false, vertical: true)
             if f > 0.001 {
                 if isHole {

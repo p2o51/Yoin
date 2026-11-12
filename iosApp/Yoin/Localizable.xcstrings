@@ -8511,6 +8511,26 @@
           }
         }
       }
+    },
+    "Hide for 3 days": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 天内不显示"
+          }
+        }
+      }
+    },
+    "Hide for a week": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一周内不显示"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
