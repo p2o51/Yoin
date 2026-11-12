@@ -240,4 +240,28 @@ final class HomeJbiTemplateTests: XCTestCase {
         let rows = jbiPackRows(shelf(signals: 2, covers: 6), columns: 4)
         XCTAssertEqual(rows.map { $0.map(\.stableId) }, [["s1", "c1", "c2"], ["c3", "c4", "s2"], ["c5", "c6"]])
     }
+
+    // MARK: Sparse shelf (Android 8f90026d)
+
+    /// Follows Android 8f90026d (owner 2026-11-12): while the covers can't fill one row of lanes, one signal card.
+    func test_should_seatOneSignal_when_coversCannotFillARow() throws {
+        let layout = try XCTUnwrap(jbiLayout(cards: shelf(signals: 2, covers: 3), columns: 4, rows: 2, seed: 5))
+        XCTAssertEqual(layout.cells.filter { $0.piece.kind.isSignal }.count, 1)
+        XCTAssertGreaterThanOrEqual(layout.template.covers, 1)
+        assertTiles(layout.template)
+    }
+
+    func test_should_keepTwoSignals_when_coversFillARow() throws {
+        let layout = try XCTUnwrap(jbiLayout(cards: shelf(signals: 2, covers: 8), columns: 6, rows: 2, seed: 5))
+        XCTAssertEqual(layout.cells.filter { $0.piece.kind.isSignal }.count, 2)
+        XCTAssertEqual(jbiSparseSignalLimit(covers: 5, columns: 6), 1)
+        XCTAssertEqual(jbiSparseSignalLimit(covers: 6, columns: 6), 2)
+    }
+
+    func test_should_packOneSignal_when_sparseAndTooShortForATemplate() {
+        // 2 covers on 9 lanes: no template fits; the packed fallback keeps one card too.
+        let stops = jbiTabletLadder(cards: shelf(signals: 2, covers: 2), columns: 9)
+        guard case let .packed(rows) = stops[0].payload else { return XCTFail("expected the packed shelf") }
+        XCTAssertEqual(rows.flatMap { $0 }.filter(\.expanded).count, 1)
+    }
 }

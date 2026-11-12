@@ -164,8 +164,8 @@ private extension Array {
 /// row fewer, down to one; nil = too few covers even for that (the caller falls back to the plain grid).
 func jbiLayout<Card: JbiCard>(cards: [Card], columns: Int, rows: Int, seed: Int32) -> JbiLayout<Card>? {
     guard columns >= 2, rows >= 1 else { return nil }
-    let signals = Array(cards.filter(\.expanded).prefix(jbiMaxSignals))
     let compacts = cards.filter { !$0.expanded }
+    let signals = Array(cards.filter(\.expanded).prefix(jbiSparseSignalLimit(covers: compacts.count, columns: columns)))
     var r = rows
     while r >= 1 {
         let template = jbiTemplate(columns: columns, rows: r, signals: signals.count, seed: seed)
@@ -344,6 +344,11 @@ private func laneOffsets(required: [Float?], random: inout KotlinRandom) -> [Flo
     }
     return out
 }
+
+/// Signal cards a shelf of [covers] covers takes on [columns] lanes (Android 8f90026d, owner 2026-11-12: a
+/// small library's two rating cards took the whole row and left no cover): while the covers can't fill one
+/// row, one card; else the usual two.
+func jbiSparseSignalLimit(covers: Int, columns: Int) -> Int { covers < columns ? 1 : jbiMaxSignals }
 
 /// The seed for a shelf: its leading cover, so a signal card arriving doesn't re-roll the layout
 /// (Android `activityLayoutSeed`: `key.hashCode() and Int.MAX_VALUE`).
@@ -558,7 +563,8 @@ enum JbiPresetLayout<Card: JbiCard>: Hashable {
 func jbiTabletLadder<Card: JbiCard>(cards: [Card], columns: Int) -> [HomeRowStop<JbiPresetLayout<Card>>] {
     let lRows = HomeDensity.jbiRows(columns: columns, preset: .l)
     guard let base = jbiLayout(cards: cards, columns: columns, rows: lRows, seed: jbiLayoutSeed(cards)) else {
-        let packed = jbiPackRows(trimToPhoneShelf(cards, cells: 12, maxSignals: HomeRowPresets.jbiSignalLimit(rows: 4, cells: 12)),
+        let packed = jbiPackRows(trimToPhoneShelf(cards, cells: 12, maxSignals: min(HomeRowPresets.jbiSignalLimit(rows: 4, cells: 12),
+                                                         jbiSparseSignalLimit(covers: cards.filter { !$0.expanded }.count, columns: columns))),
                                  columns: columns)
         return homeRowLadder { _ in (JbiPresetLayout.packed(packed), packed.count) }
     }
