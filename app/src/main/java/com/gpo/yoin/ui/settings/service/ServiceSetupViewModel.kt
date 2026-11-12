@@ -47,6 +47,10 @@ class ServiceSetupViewModel(
     private val request: ServiceSetupRequest,
     // Where the stored credentials (a file and a Keystore decrypt) are read.
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    // Test: one ping with what the form holds, answered with the server's own name (null when it gives none).
+    private val probeSubsonic: suspend (ProfileCredentials.Subsonic) -> String? = { credentials ->
+        SubsonicMusicSource.fromProfileCredentials(credentials).pingServerName()
+    },
 ) : ViewModel() {
     val profileId: String? get() = request.profileId
     private val tag = "ServiceSetupViewModel"
@@ -159,14 +163,12 @@ class ServiceSetupViewModel(
         val credentials = normalizeSubsonic(url, username, password) ?: return
         subsonicForm.update { it.copy(isBusy = true, status = SubsonicStatus.Testing) }
         viewModelScope.launch {
-            val result = runCatching {
-                SubsonicMusicSource.fromProfileCredentials(credentials).library().ping()
-            }
+            val result = runCatching { probeSubsonic(credentials) }
             subsonicForm.update {
                 it.copy(
                     isBusy = false,
                     status = result.fold(
-                        onSuccess = { SubsonicStatus.Reachable },
+                        onSuccess = { server -> SubsonicStatus.Reachable(server) },
                         onFailure = { error -> SubsonicStatus.Failed(error.toConnectionErrorMessage()) },
                     ),
                 )

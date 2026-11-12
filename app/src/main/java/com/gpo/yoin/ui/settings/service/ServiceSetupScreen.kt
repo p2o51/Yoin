@@ -616,7 +616,7 @@ private fun SubsonicStatusLine(status: SubsonicStatus) {
         val color by animateColorAsState(
             targetValue = when (current) {
                 is SubsonicStatus.Failed -> MaterialTheme.colorScheme.error
-                SubsonicStatus.Reachable -> MaterialTheme.colorScheme.primary
+                is SubsonicStatus.Reachable -> MaterialTheme.colorScheme.primary
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             animationSpec = YoinMotion.effectsSpring(),
@@ -641,20 +641,38 @@ private fun SubsonicStatusLine(status: SubsonicStatus) {
                     color = color,
                 )
             }
-            SubsonicStatus.Reachable -> StatusRow(
-                YoinSymbols.Check,
-                stringResource(R.string.settings_setup_reachable),
-                color,
-            )
+            is SubsonicStatus.Reachable -> Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                StatusRow(
+                    YoinSymbols.Check,
+                    stringResource(R.string.settings_setup_reachable),
+                    color,
+                )
+                // What the server calls itself ("Navidrome 0.64.2"), under the
+                // status and on its text's line; a plain Subsonic server gives none.
+                current.server?.let { server ->
+                    Text(
+                        text = server,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = StatusIconSize + StatusIconGap),
+                    )
+                }
+            }
             is SubsonicStatus.Failed -> StatusRow(YoinSymbols.Error, current.message.asString(), color)
         }
     }
 }
 
+private val StatusIconSize = 20.dp
+private val StatusIconGap = 8.dp
+
 @Composable
 private fun StatusRow(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, color: Color) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(StatusIconGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(StatusIconSize))
         Text(text = text, style = MaterialTheme.typography.bodyMedium, color = color)
     }
 }
@@ -832,6 +850,27 @@ private fun ServiceSetupSpotifyPreview() {
     YoinTheme {
         ServiceSetupContent(
             state = ServiceSetupUiState(service = SetupService.Spotify, isManaging = false),
+            onBackClick = {},
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F, heightDp = 900, name = "Subsonic account, tested")
+@Composable
+private fun ServiceSetupManageSubsonicPreview() {
+    YoinTheme {
+        ServiceSetupContent(
+            state = ServiceSetupUiState(
+                service = SetupService.Subsonic,
+                isManaging = true,
+                account = AccountFace(title = "qa", detail = "music.example.com"),
+                subsonic = SubsonicFormState(
+                    initialUrl = "https://music.example.com",
+                    initialUsername = "qa",
+                    initialPassword = "password",
+                    status = SubsonicStatus.Reachable(server = "Navidrome 0.64.2"),
+                ),
+            ),
             onBackClick = {},
         )
     }

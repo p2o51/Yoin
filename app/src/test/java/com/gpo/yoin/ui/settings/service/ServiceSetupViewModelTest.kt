@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.settings.service
 
 import androidx.lifecycle.viewModelScope
+import app.cash.turbine.test
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.Profile
@@ -8,17 +9,21 @@ import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.profile.ProfileLimitReachedException
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
+import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.common.UiText
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -69,8 +74,16 @@ class ServiceSetupViewModelTest {
     // The test's own dispatcher for the credentials' reads, and every page's
     // work stopped with its test: nothing left on a real pool to touch Main
     // once the next test has it (it would fail there, not here).
-    private fun viewModel(request: ServiceSetupRequest) =
-        ServiceSetupViewModel(container, request, ioDispatcher = mainDispatcherRule.dispatcher).also(viewModels::add)
+    private fun viewModel(
+        request: ServiceSetupRequest,
+        // The server a Test asks; a test that doesn't press Test has none.
+        probeSubsonic: suspend (ProfileCredentials.Subsonic) -> String? = { error("no server in this test") }
+    ) = ServiceSetupViewModel(
+        container,
+        request,
+        ioDispatcher = mainDispatcherRule.dispatcher,
+        probeSubsonic = probeSubsonic
+    ).also(viewModels::add)
 
     @After
     fun clearViewModels() {
@@ -136,6 +149,61 @@ class ServiceSetupViewModelTest {
 
         coVerify(exactly = 1) {
             profileManager.create(any(), ProfileCredentials.Subsonic("http://music.home:4533", "qa", "pw"))
+        }
+    }
+
+    // The account page names the server next to its status (iOS: Server, "Navidrome 0.64").
+    @Test
+    fun should_nameTheServer_when_theConnectionTestIsAnswered() = runTest {
+        val asked = mutableListOf<ProfileCredentials.Subsonic>()
+        val answer = CompletableDeferred<String?>()
+        val viewModel = viewModel(ServiceSetupRequest(SetupService.Subsonic)) { credentials ->
+            asked += credentials
+            answer.await()
+        }
+
+        viewModel.uiState.map { it.subsonic }.distinctUntilChanged().test {
+            assertEquals(SubsonicStatus.Idle, awaitItem().status)
+
+            viewModel.testSubsonicConnection(" http://music.home:4533/ ", " qa ", "pw")
+            val testing = awaitItem()
+            assertEquals(SubsonicStatus.Testing, testing.status)
+            assertTrue(testing.isBusy)
+
+            answer.complete("Navidrome 0.64.2")
+            val reached = awaitItem()
+            assertEquals(SubsonicStatus.Reachable(server = "Navidrome 0.64.2"), reached.status)
+            assertFalse(reached.isBusy)
+        }
+        // One ping, with the form as Save would store it.
+        assertEquals(listOf(ProfileCredentials.Subsonic("http://music.home:4533", "qa", "pw")), asked)
+    }
+
+    @Test
+    fun should_sayTheServerWasFoundWithoutAName_when_aPlainSubsonicServerAnswers() = runTest {
+        val answer = CompletableDeferred<String?>()
+        val viewModel = viewModel(ServiceSetupRequest(SetupService.Subsonic)) { answer.await() }
+
+        viewModel.uiState.map { it.subsonic.status }.distinctUntilChanged().test {
+            assertEquals(SubsonicStatus.Idle, awaitItem())
+            viewModel.testSubsonicConnection("http://music.home:4533", "qa", "pw")
+            assertEquals(SubsonicStatus.Testing, awaitItem())
+            answer.complete(null)
+            assertEquals(SubsonicStatus.Reachable(server = null), awaitItem())
+        }
+    }
+
+    @Test
+    fun should_sayWhyAndNameNoServer_when_theServerRefusesTheTest() = runTest {
+        val answer = CompletableDeferred<String?>()
+        val viewModel = viewModel(ServiceSetupRequest(SetupService.Subsonic)) { answer.await() }
+
+        viewModel.uiState.map { it.subsonic.status }.distinctUntilChanged().test {
+            assertEquals(SubsonicStatus.Idle, awaitItem())
+            viewModel.testSubsonicConnection("http://music.home:4533", "qa", "pw")
+            assertEquals(SubsonicStatus.Testing, awaitItem())
+            answer.completeExceptionally(SubsonicException(code = 40, message = "Wrong username or password"))
+            assertEquals(SubsonicStatus.Failed(UiText.Raw("Wrong username or password")), awaitItem())
         }
     }
 }
