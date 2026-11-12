@@ -329,8 +329,8 @@ private fun LedgerBody(
     }
     val full = StaggeredGridItemSpan.FullLine
     BoxWithConstraints(modifier) {
-        // A large screen is used, not left as margins (owner 2026-11-12): the stats stand beside the grid, and
-        // the timeline and the cards run in as many columns as fit, so they fall into a masonry.
+        // A large screen is used, not left as margins (owner 2026-11-12): the stats run large above a wider
+        // grid, and the timeline and the cards run in as many columns as fit, so they fall into a masonry.
         val layout = ledgerLayout(maxWidth)
         val gridView = @Composable { gridItemModifier: Modifier ->
             MemoryGridView(
@@ -1296,9 +1296,9 @@ private fun LedgerCover(album: MemoryLedgerAlbum?, state: MemoryLedgerState, mod
     }
 }
 
-/** How the page lays out at a width: how many lanes, how wide it may grow, whether the stats go beside the grid. */
+/** How the page lays out at a width: how many lanes, how wide it may grow, whether the top runs large. */
 private data class LedgerLayout(
-    /** Stats beside the grid, larger month headers. */
+    /** Larger stats over a wider, centred grid, and larger month headers. */
     val wide: Boolean,
     /** The timeline's columns: 1 on a phone (everything full width), more as a masonry. */
     val columns: Int,

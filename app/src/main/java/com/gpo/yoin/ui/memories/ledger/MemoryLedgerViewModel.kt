@@ -93,10 +93,19 @@ class MemoryLedgerViewModel internal constructor(
     }
         .transformLatest { cards ->
             // What's on the device first; then, for songs nothing here names the album of, their services.
-            val local = load(cards)
-            emit(local)
-            val wanted = tracks.pending(local.entries, cards.associate { it.id to it.provider.key })
-            if (tracks.resolve(wanted)) emit(load(cards))
+            var shown = load(cards)
+            emit(shown)
+            val providers = cards.associate { it.id to it.provider.key }
+            // A pass asks a streaming service for a few songs only: passes go on while they bring answers
+            // (each answered song leaves the pending ones, so this ends), and what a pass named shows at once.
+            while (true) {
+                val pass = tracks.resolve(tracks.pending(shown.entries, providers))
+                if (pass.found) {
+                    shown = load(cards)
+                    emit(shown)
+                }
+                if (pass.answered == 0) break
+            }
         }
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
