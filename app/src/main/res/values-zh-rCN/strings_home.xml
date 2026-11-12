@@ -231,4 +231,6 @@
     <string name="home_spotify_elsewhere_cd">Spotify 正在播放：%1$s，%2$s。切换到 Spotify</string>
     <string name="home_tip_spotify_elsewhere_title">切换到 Spotify</string>
     <string name="home_tip_spotify_elsewhere">在其他账号下，已登录的 Spotify 有歌正在播放或暂停时，点首页顶部的胶囊即可切换过去</string>
+    <string name="home_tip_ai_services_title">AI 功能</string>
+    <string name="home_tip_ai_services">在设置 &gt; AI 功能中选择 Gemini、DeepSeek、千问或自定义服务，切换「好」与「最佳」档位，或点「拿一首歌试试」当场测试</string>
 </resources>
