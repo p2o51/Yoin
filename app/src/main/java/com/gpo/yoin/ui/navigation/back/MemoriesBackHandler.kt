@@ -50,8 +50,8 @@ import kotlinx.coroutines.launch
  * CancellationException is rethrown (invariant 7). Mount it where the shell's
  * Memories BackHandler used to be and gate [enabled] on
  * `shellBackOwner == ShellBackOwner.Memories` — ShellBackResolver's
- * priority (NowPlaying > HomeEdit > DetailPane > Memories) is expressed only
- * by that gate (invariant 9).
+ * order (a full-window Now Playing, then Home edit, then the side-by-side
+ * surfaces newest first) is expressed only by that gate (invariant 9).
  */
 enum class MemoriesBackLevel { Card, Diary, TitleEdit }
 

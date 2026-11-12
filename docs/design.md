@@ -256,7 +256,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
     - **写入**：抬手那一刻写入（档位真的变了才写，打一拍 CONFIRM），每次换档算一步 Undo；键盘 ↑ 少一档、↓ 多一档；TalkBack 用块自己的 "More rows" / "Fewer rows" 动作。Undo、Reset、键盘、TalkBack 换档都和松手走同一条弹簧。
     - **存储**：按账号存在 `home_layout` 里该块 `HomeSectionPref.config` 的 `{"rows":"s"|"m"|"xl"}`；L（默认）不写这个字段，也不会写出 `"config":null`。认不出的键原样保留；认不出的 rows 值按 L 显示，但值本身保留。不升数据库。Reset Home 连档位一起清掉；重排时各块的设置跟着块走。触感见 `docs/haptic-feedback.md` §F.1。
   - **隐藏与恢复**：隐藏的块缩放淡出，进 feed 末尾的 "Hidden" 托盘；托盘每行点 + 回到原来的位置，"Reset Home" 回到默认。每一步立即保存，可以 Undo（最多 20 步，退出即清空）。全部隐藏时，普通态显示 "Your Home is empty" 卡。
-  - **退出**：Done、系统返回（= Done，离散，不震；返回进度预览是 P1）、点空白处。切 section、打开 Now Playing 或详情、进设置、App 退到后台时直接收起。状态是 `HomeSurface.Edit`，由 shell 持有的 `HomeEditController` 独占写入；返回归 `ShellBackOwner.HomeEdit`，优先级 NowPlaying > HomeEdit > DetailPane > Memories。
+  - **退出**：Done、系统返回（= Done，离散，不震；返回进度预览是 P1）、点空白处。切 section、打开 Now Playing 或详情、进设置、App 退到后台时直接收起。状态是 `HomeSurface.Edit`，由 shell 持有的 `HomeEditController` 独占写入；返回归 `ShellBackOwner.HomeEdit`，优先级 NowPlaying > HomeEdit，其后才轮到并排的面（详情列、Memories，按打开顺序的反序，见「详情列」）。
   - **无障碍**：编辑态每块是一个 TalkBack 停留点，播报 "Section j of N"（能调行数的块再加 ", N rows"），带 Move up / Move down / Hide 动作，能调行数的块另有 More rows / Fewer rows；托盘行带 Show。
   - **触感**见 `docs/haptic-feedback.md` §F。Pixel Tablet 没有振动马达，每个触感时刻都有能看到的等价动效。
 - **底栏编辑姿态**：随编辑进度变形，正在播放 pill 在所有形态下都折起，编辑期间不能从底栏打开 Now Playing。竖屏底栏和居中底栏是 `[Undo|Add] [Done]`：Home 槽换成 Undo（有可撤销的步骤时）或 Add（托盘非空时，滚到托盘），两者都没有时是变暗的 Undo；Library 槽换成主色的 Done。合体形态是 `[Undo|Add][Done][Play▾][随机播放]`；只剩图标的形态只显示图标；分离式挖孔带同构。Undo 暂用文字标签，所有形态都显示文字，等 Yoin Symbols 发布 Undo 符号后再换成图标。

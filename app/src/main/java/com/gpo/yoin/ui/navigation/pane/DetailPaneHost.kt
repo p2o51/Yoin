@@ -376,7 +376,8 @@ fun DetailPaneDivider(
  * its narrower column (requested at the tap, [requestColumn]) — until
  * [PrewarmCalmFrames] consecutive frames arrive on time (capped at
  * [PrewarmMaxNanos]) — so the open spring's clock starts on a light frame
- * and never skips. The page itself composes after the spring ([pageReady]).
+ * and never skips. The page composes and lays out in these same frames, past
+ * the region's end ([pageReady]), and rides in with the column.
  */
 suspend fun DetailPaneState.awaitPrewarm() {
     holdsColumn = true
@@ -408,7 +409,7 @@ private const val PrewarmCalmFrames = 2
 private const val PrewarmCalmFrameNanos = 24_000_000L
 private const val PrewarmMaxNanos = 900_000_000L
 
-/** Grows the column open/closed on the app's spatial spring; an open that lands builds the page. */
+/** Grows the column open/closed on the app's spatial spring (the page was built in the prewarm, see [pageReady]). */
 suspend fun DetailPaneState.animateOpen(open: Boolean, spec: androidx.compose.animation.core.AnimationSpec<Float>) {
     openFraction.animateTo(if (open) 1f else 0f, spec)
     if (open) pageReady = true
