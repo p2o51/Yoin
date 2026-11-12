@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.AiProviderStore
 import com.gpo.yoin.data.local.GeminiConfig
+import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.settingsFor
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.remote.ai.AiApiFormat
@@ -19,6 +20,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,17 +31,60 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** Settings › AI: the service, its tier and key, Custom's endpoint, and the 「拿一首歌试试」 page. */
+/**
+ * What the AI page's controls do: the ViewModel in the app, local state in
+ * the Tips demo and the previews.
+ */
+interface AiSettingsActions {
+    fun setProvider(provider: AiProvider)
+
+    fun setTier(tier: AiTier)
+
+    /** The key for [provider], as typed. */
+    fun setKey(provider: AiProvider, key: String)
+
+    fun setCustomFormat(format: AiApiFormat)
+
+    fun setCustomBaseUrl(url: String)
+
+    fun setCustomModel(model: String)
+
+    fun setCustomThinking(thinking: AiThinking)
+
+    fun setSearchService(service: AiSearchService)
+
+    fun setSearchKey(key: String)
+
+    fun setTargetLanguage(language: String)
+
+    /** 「拉取」: ask the Custom endpoint which models it has. */
+    fun pullModels()
+}
+
+/**
+ * Settings › AI: the service, its tier and key, Custom's endpoint, and the 「拿一首歌试试」 page.
+ *
+ * The Gemini key is written to Room a pause after the last keystroke, on
+ * `viewModelScope`. Leaving the page inside that pause cancels the write, so
+ * [onCleared] hands the key to [saveScope], which outlives this ViewModel.
+ */
 class AiSettingsViewModel(
-    private val container: AppContainer,
-) : ViewModel() {
-    private val store: AiProviderStore = container.aiProviderStore
-    private val geminiDao = container.database.geminiConfigDao()
-    private val geminiService: GeminiService = container.geminiService
+    private val store: AiProviderStore,
+    private val geminiDao: GeminiConfigDao,
+    private val geminiService: GeminiService,
+    /** Drops the answers the AI wrote: they are in the old language after a language switch. */
+    private val clearGeneratedAbout: suspend () -> Unit,
+    /** The song playing now, to prefill the test page. */
+    private val nowPlayingSong: () -> TestSong?,
+    private val saveScope: CoroutineScope = KeySaveScope,
+) : ViewModel(), AiSettingsActions {
 
     /** The Gemini key as typed: shown at once, written to Room after a pause. */
     private val geminiKeyDraft = MutableStateFlow<String?>(null)
     private var geminiKeyJob: Job? = null
+
+    /** The typed Gemini key Room doesn't have yet; null once it is written. Main thread only. */
+    private var unsavedGeminiKey: String? = null
 
     private val models = MutableStateFlow(ModelList())
     private val _test = MutableStateFlow<TestRun>(TestRun.Idle)
@@ -59,20 +104,22 @@ class AiSettingsViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AiSettingsState(store.prefs.value))
 
-    fun setProvider(provider: AiProvider) = store.update { it.copy(provider = provider) }
+    override fun setProvider(provider: AiProvider) = store.update { it.copy(provider = provider) }
 
-    fun setTier(tier: AiTier) = store.update { it.copy(tier = tier) }
+    override fun setTier(tier: AiTier) = store.update { it.copy(tier = tier) }
 
     /** The key for the service on screen. Gemini's lives in Room (cloud backup, as before v2). */
-    fun setKey(provider: AiProvider, key: String) {
+    override fun setKey(provider: AiProvider, key: String) {
         val trimmed = key.trim()
         when (provider) {
             AiProvider.Gemini -> {
                 geminiKeyDraft.value = key
+                unsavedGeminiKey = trimmed
                 geminiKeyJob?.cancel()
                 geminiKeyJob = viewModelScope.launch {
                     delay(KEY_SAVE_DELAY_MS)
                     saveGeminiKey(trimmed)
+                    if (unsavedGeminiKey == trimmed) unsavedGeminiKey = null
                 }
             }
             AiProvider.DeepSeek -> store.update { it.copy(deepSeekKey = trimmed) }
@@ -88,42 +135,45 @@ class AiSettingsViewModel(
         }
     }
 
-    /** Leaving the page inside the save delay must not drop the key just typed. */
+    /**
+     * Leaving the page inside the save delay must not drop the key just typed.
+     * `viewModelScope` is cancelled before this runs, the pending save with
+     * it, so the job can't be asked whether it was still waiting: the key not
+     * yet written is kept in [unsavedGeminiKey] and written from [saveScope].
+     */
     override fun onCleared() {
-        val pending = geminiKeyJob?.takeIf { it.isActive } ?: return
-        pending.cancel()
-        val draft = geminiKeyDraft.value?.trim() ?: return
-        CoroutineScope(Dispatchers.IO).launch { saveGeminiKey(draft) }
+        val key = unsavedGeminiKey ?: return
+        unsavedGeminiKey = null
+        saveScope.launch { saveGeminiKey(key) }
     }
 
-    fun setCustomFormat(format: AiApiFormat) {
+    override fun setCustomFormat(format: AiApiFormat) {
         store.update { it.copy(customFormat = format) }
         models.value = ModelList()
     }
 
-    fun setCustomBaseUrl(url: String) = store.update { it.copy(customBaseUrl = url.trim()) }
+    override fun setCustomBaseUrl(url: String) = store.update { it.copy(customBaseUrl = url.trim()) }
 
-    fun setCustomModel(model: String) = store.update { it.copy(customModel = model.trim()) }
+    override fun setCustomModel(model: String) = store.update { it.copy(customModel = model.trim()) }
 
-    fun setCustomThinking(thinking: AiThinking) = store.update { it.copy(customThinking = thinking) }
+    override fun setCustomThinking(thinking: AiThinking) = store.update { it.copy(customThinking = thinking) }
 
-    fun setSearchService(service: AiSearchService) = store.update { it.copy(searchService = service) }
+    override fun setSearchService(service: AiSearchService) = store.update { it.copy(searchService = service) }
 
-    fun setSearchKey(key: String) = store.update { it.copy(searchKey = key.trim()) }
+    override fun setSearchKey(key: String) = store.update { it.copy(searchKey = key.trim()) }
 
-    fun setTargetLanguage(language: String) {
+    override fun setTargetLanguage(language: String) {
         val normalized = GeminiConfig.normalizeTargetLanguage(language)
         viewModelScope.launch {
             val existing = geminiDao.getConfig().first() ?: GeminiConfig(apiKey = "")
             if (GeminiConfig.normalizeTargetLanguage(existing.targetLanguage) == normalized) return@launch
             geminiDao.upsert(existing.copy(targetLanguage = normalized))
             // Answers written in the old language would linger otherwise (as before v2).
-            container.database.songAboutEntryDao().deleteGenerated()
+            clearGeneratedAbout()
         }
     }
 
-    /** 「拉取」: ask the Custom endpoint which models it has. */
-    fun pullModels() {
+    override fun pullModels() {
         val prefs = store.prefs.value
         if (prefs.customBaseUrl.isBlank() || prefs.customKey.isBlank()) return
         models.value = ModelList(loading = true)
@@ -141,9 +191,7 @@ class AiSettingsViewModel(
     }
 
     /** The song playing now, to prefill the test page. */
-    fun nowPlaying(): TestSong? = container.playbackManager.playbackState.value.currentTrack?.let { track ->
-        TestSong(track.title.orEmpty(), track.artist.orEmpty(), track.album.orEmpty())
-    }
+    fun nowPlaying(): TestSong? = nowPlayingSong()
 
     /** Write About for [song] with the settings on screen, without saving anything. */
     fun runTest(song: TestSong) {
@@ -185,11 +233,24 @@ class AiSettingsViewModel(
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = AiSettingsViewModel(container) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = AiSettingsViewModel(
+            store = container.aiProviderStore,
+            geminiDao = container.database.geminiConfigDao(),
+            geminiService = container.geminiService,
+            clearGeneratedAbout = { container.database.songAboutEntryDao().deleteGenerated() },
+            nowPlayingSong = {
+                container.playbackManager.playbackState.value.currentTrack?.let { track ->
+                    TestSong(track.title.orEmpty(), track.artist.orEmpty(), track.album.orEmpty())
+                }
+            },
+        ) as T
     }
 
     private companion object {
         const val KEY_SAVE_DELAY_MS = 600L
+
+        /** Process-lifetime scope for the key a closing page hands over (see the class KDoc). */
+        val KeySaveScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
     }
 }
 

@@ -2859,7 +2859,10 @@ class YoinRepository(
         )?.let { return it }
 
         val sourceHash = buildLyricsTranslationSourceHash(t, a, sourceLines)
-        val translationModel = aiProviderStore.settingsFor(config).modelId
+        // Read once: the model whose cache is looked up is the one that translates and the one the
+        // translation is saved under, even if the service is switched while this runs.
+        val aiSettings = aiProviderStore.settingsFor(config)
+        val translationModel = aiSettings.modelId
         val cached = lyricsTranslationCacheDao.get(
             trackProvider = trackId.provider,
             trackRawId = trackId.rawId,
@@ -2871,7 +2874,7 @@ class YoinRepository(
             ?.toTranslations(expectedLineCount = sourceLines.size)
             ?.let { return LyricsTranslationResult.Success(it) }
 
-        val ai = readyAi(config) ?: return LyricsTranslationResult.ApiKeyMissing
+        val ai = aiSettings.takeIf { it.isReady } ?: return LyricsTranslationResult.ApiKeyMissing
         return try {
             val translations = geminiService.translateLyricLines(
                 ai = ai,

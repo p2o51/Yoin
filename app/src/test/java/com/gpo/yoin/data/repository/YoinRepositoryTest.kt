@@ -1,5 +1,8 @@
 package com.gpo.yoin.data.repository
 
+import com.gpo.yoin.data.local.AiProviderStore
+import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.data.remote.ai.AiProviderPrefs
 import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.local.YoinDatabase
@@ -894,6 +897,65 @@ class YoinRepositoryTest {
         assertTrue(saved.translationsJson.contains("第二句"))
         assertTrue(!saved.translationsJson.contains("[1]"))
         assertTrue(!saved.translationsJson.contains("【2】"))
+    }
+
+    @Test
+    fun should_cacheTranslationUnderTheChosenModel_when_anotherServiceTranslates() = runTest {
+        val deepSeek = AiProviderPrefs(provider = AiProvider.DeepSeek, deepSeekKey = "sk")
+        val repository = YoinRepository(
+            activeSource = MutableStateFlow(source),
+            activeProfileId = MutableStateFlow("spotify-profile"),
+            database = database,
+            geminiService = geminiService,
+            songAboutEntryDao = songAboutEntryDao,
+            geminiConfigDao = geminiConfigDao,
+            lyricsCacheDao = lyricsCacheDao,
+            lyricsTranslationCacheDao = lyricsTranslationCacheDao,
+            songNoteDao = songNoteDao,
+            albumNoteDao = albumNoteDao,
+            albumRatingDao = albumRatingDao,
+            memoryCopyCacheDao = memoryCopyCacheDao,
+            neoDbSyncService = neoDbSyncService,
+            clock = { currentTime },
+            aiProviderStore = AiProviderStore.InMemory(deepSeek),
+        )
+        coEvery { lyricsTranslationCacheDao.get(any(), any(), any(), any(), any()) } returns null
+        // No Gemini key: the chosen service's own key is the one that counts.
+        coEvery {
+            geminiConfigDao.getConfig()
+        } returns flowOf(GeminiConfig(apiKey = "", targetLanguage = "Simplified Chinese"))
+        coEvery {
+            geminiService.translateLyricLines(
+                ai = AiSettings(deepSeek, geminiKey = ""),
+                title = "Fake Love",
+                artist = "Drake",
+                lines = listOf("Line one", "Line two"),
+                targetLanguage = "Simplified Chinese",
+            )
+        } returns mapOf(0 to "第一句", 1 to "第二句")
+        val captured = slot<LyricsTranslationCache>()
+        coEvery { lyricsTranslationCacheDao.upsert(capture(captured)) } returns Unit
+
+        val result = repository.translateLyrics(
+            trackId = MediaId.spotify("track-1"),
+            title = "Fake Love",
+            artist = "Drake",
+            lines = listOf("Line one", "Line two"),
+            currentLyricsProviderName = null,
+            currentLyricsProviderSongId = null,
+        )
+
+        assertTrue(result is YoinRepository.LyricsTranslationResult.Success)
+        coVerify(exactly = 1) {
+            lyricsTranslationCacheDao.get(
+                trackProvider = "spotify",
+                trackRawId = "track-1",
+                sourceHash = any(),
+                targetLanguage = "Simplified Chinese",
+                model = AiSettings.DEEPSEEK_MODEL,
+            )
+        }
+        assertEquals(AiSettings.DEEPSEEK_MODEL, captured.captured.model)
     }
 
     @Test
