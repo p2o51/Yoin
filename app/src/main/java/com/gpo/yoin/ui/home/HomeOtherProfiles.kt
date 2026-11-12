@@ -35,18 +35,21 @@ import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.settings.ProfileCard
 import com.gpo.yoin.ui.settings.profileCardsFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -185,6 +188,38 @@ class OtherProfilesViewModel internal constructor(
         }
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _spotifyElsewhere = MutableStateFlow<SpotifyElsewhere?>(null)
+
+    /** Another signed-in Spotify account's playback, for Home's header (null = none, or shown already). */
+    val spotifyElsewhere: StateFlow<SpotifyElsewhere?> = _spotifyElsewhere.asStateFlow()
+    private var spotifyPeek: Job? = null
+
+    init {
+        // An answer for the account that asked: a switch drops it.
+        viewModelScope.launch {
+            profiles.activeProfileId.drop(1).collect {
+                spotifyPeek?.cancel()
+                _spotifyElsewhere.value = null
+            }
+        }
+    }
+
+    /** One look (the app opened or came back): Web API only, so Spotify is never woken for it. */
+    fun peekSpotifyElsewhere() {
+        if (spotifyPeek?.isActive == true) return
+        _spotifyElsewhere.value = null
+        val asked = profiles.activeProfileId.value
+        spotifyPeek = viewModelScope.launch {
+            val answer = profiles.peekSpotifyElsewhere()
+            if (profiles.activeProfileId.value == asked) _spotifyElsewhere.value = answer
+        }
+    }
+
+    /** Shown its 5 s (or Yoin plays): gone until the next look. */
+    fun dismissSpotifyElsewhere() {
+        _spotifyElsewhere.value = null
+    }
 
     private val _noticeSeen = MutableStateFlow(noticeStore.seen)
     val noticeSeen: StateFlow<Boolean> = _noticeSeen.asStateFlow()

@@ -228,4 +228,7 @@
     <string name="tip_read">已读</string>
     <string name="tip_next">下一条</string>
     <string name="tip_done">完成</string>
+    <string name="home_spotify_elsewhere_cd">Spotify 正在播放：%1$s，%2$s。切换到 Spotify</string>
+    <string name="home_tip_spotify_elsewhere_title">切换到 Spotify</string>
+    <string name="home_tip_spotify_elsewhere">在其他账号下，已登录的 Spotify 有歌正在播放或暂停时，点首页顶部的胶囊即可切换过去</string>
 </resources>
