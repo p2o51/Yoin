@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
+import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
@@ -116,6 +117,13 @@ import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.detail.DetailBackButton
 import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.settings.ai.AiSettingsPageContent
+import com.gpo.yoin.ui.settings.ai.providerName
+import com.gpo.yoin.ui.settings.ai.tierName
+import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.data.remote.ai.AiSettings
+import com.gpo.yoin.ui.settings.ai.AiTiersPageContent
+import com.gpo.yoin.ui.settings.ai.AiTryPageContent
 import com.gpo.yoin.ui.settings.backup.PlaylistBackupsPageContent
 import com.gpo.yoin.ui.settings.service.ServiceSetupContract
 import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
@@ -406,9 +414,6 @@ fun SettingsContent(
                                         item(key = SettingsFeature.Gemini, paintsOwnSegment = listDetail) {
                                             GeminiItem(
                                                 apiKey = state.geminiApiKey,
-                                                targetLanguage = state.geminiTargetLanguage,
-                                                onSaveApiKey = onSaveGeminiApiKey,
-                                                onSaveTargetLanguage = onSaveGeminiTargetLanguage,
                                                 // Every row opens a whole page (owner 2026-11-09); list-detail puts it on the right (§7).
                                                 onOpenPage = { onOpenFeature(SettingsFeature.Gemini) },
                                                 listDetail = listDetail,
@@ -1239,87 +1244,34 @@ private fun ServiceChoiceRow(
 
 // ── Features ─────────────────────────────────────────────────────────
 
+/** The list's AI row: which service and tier are in use; opens the AI page (on the right in list-detail). */
 @Composable
 private fun GeminiItem(
     apiKey: String,
-    targetLanguage: String,
-    onSaveApiKey: (String) -> Unit,
-    onSaveTargetLanguage: (String) -> Unit,
-    // The list's row: opens the feature's page (on the right in list-detail).
-    onOpenPage: (() -> Unit)? = null,
+    onOpenPage: () -> Unit,
     listDetail: Boolean = true,
     selected: Boolean = false,
-    // The feature's own page: always open.
-    asPage: Boolean = false,
 ) {
-    val summaryText = if (apiKey.isBlank()) {
+    val app = LocalContext.current.applicationContext as YoinApplication
+    val aiPrefs by app.container.aiProviderStore.prefs.collectAsState()
+    val ai = AiSettings(aiPrefs, geminiKey = apiKey)
+    val summaryText = if (!ai.isReady) {
         stringResource(R.string.settings_gemini_summary_empty)
     } else {
         stringResource(
             R.string.settings_gemini_summary_set,
-            GeminiConfig.normalizeTargetLanguage(targetLanguage),
+            providerName(ai.provider),
+            if (ai.provider == AiProvider.Custom) ai.modelId else tierName(aiPrefs.tier),
         )
     }
-    if (onOpenPage != null) {
-        FeaturePageRow(
-            icon = YoinSymbols.Sparkle,
-            title = stringResource(R.string.settings_gemini_title),
-            summary = summaryText,
-            selected = selected,
-            onClick = onOpenPage,
-            listDetail = listDetail,
-        )
-        return
-    }
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    var draftKey by rememberSaveable(apiKey) { mutableStateOf(apiKey) }
-    var languageMenuOpen by remember { mutableStateOf(false) }
-    val language = GeminiConfig.normalizeTargetLanguage(targetLanguage)
-    val haptics = rememberYoinHaptics()
-
-    SettingsExpandableItem(
+    FeaturePageRow(
         icon = YoinSymbols.Sparkle,
         title = stringResource(R.string.settings_gemini_title),
         summary = summaryText,
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-        collapsible = !asPage,
-    ) {
-        SecretTextField(
-            value = draftKey,
-            onValueChange = { draftKey = it },
-            label = stringResource(R.string.settings_gemini_key_label),
-            placeholder = stringResource(R.string.settings_gemini_key_placeholder),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Box {
-            OutlinedButton(
-                onClick = {
-                    haptics.performTick()
-                    languageMenuOpen = true
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.settings_gemini_answer_in, language), modifier = Modifier.weight(1f))
-            }
-            YoinDropdownMenu(expanded = languageMenuOpen, onDismissRequest = { languageMenuOpen = false }) {
-                GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { option ->
-                    YoinDropdownMenuItem(
-                        text = option,
-                        onClick = {
-                            haptics.performContextClick()
-                            languageMenuOpen = false
-                            onSaveTargetLanguage(option)
-                        },
-                    )
-                }
-            }
-        }
-        Button(
-            onClick = { onSaveApiKey(draftKey) },
-            enabled = draftKey.isNotBlank() && draftKey.trim() != apiKey,
-        ) { Text(stringResource(R.string.settings_gemini_save_key)) }
-    }
+        selected = selected,
+        onClick = onOpenPage,
+        listDetail = listDetail,
+    )
 }
 
 @Composable
@@ -1507,7 +1459,7 @@ internal class SegmentSelection(val colour: () -> Float, val corners: () -> Floa
 internal val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb, Labs, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses, About }
+enum class SettingsFeature { Gemini, AiTiers, AiTry, NeoDb, Labs, ScrollEdge, ScreenCorners, StreamQuality, VolumeLeveling, Downloads, Tips, PlaylistBackups, Licenses, About }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1545,6 +1497,8 @@ internal fun SettingsFeatureScreen(
     }
     val featureTitle = when (feature) {
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
+        SettingsFeature.AiTiers -> stringResource(R.string.ai_tiers_label)
+        SettingsFeature.AiTry -> stringResource(R.string.ai_try)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
         SettingsFeature.Labs -> stringResource(R.string.settings_labs_title)
         SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
@@ -1607,7 +1561,14 @@ internal fun SettingsFeatureScreen(
                         },
                     )
                     val content = uiState as? SettingsUiState.Content
-                    if (feature == SettingsFeature.ScrollEdge) {
+                    if (feature == SettingsFeature.Gemini) {
+                        // Its own ViewModel over the AI settings: no need to wait for the Settings state.
+                        AiSettingsPageContent()
+                    } else if (feature == SettingsFeature.AiTiers) {
+                        AiTiersPageContent()
+                    } else if (feature == SettingsFeature.AiTry) {
+                        AiTryPageContent()
+                    } else if (feature == SettingsFeature.ScrollEdge) {
                         // Reads only the global style: no need to wait for the Settings state.
                         ScrollEdgePageContent()
                     } else if (feature == SettingsFeature.StreamQuality) {
@@ -1636,13 +1597,6 @@ internal fun SettingsFeatureScreen(
                         SettingsSegments {
                             item {
                                 when (feature) {
-                                    SettingsFeature.Gemini -> GeminiItem(
-                                        apiKey = content.geminiApiKey,
-                                        targetLanguage = content.geminiTargetLanguage,
-                                        onSaveApiKey = viewModel::saveGeminiApiKey,
-                                        onSaveTargetLanguage = viewModel::saveGeminiTargetLanguage,
-                                        asPage = true,
-                                    )
                                     SettingsFeature.NeoDb -> NeoDbItem(
                                         instance = content.neoDbInstance,
                                         accessToken = content.neoDbAccessToken,
@@ -1652,6 +1606,7 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
+                                    SettingsFeature.Gemini, SettingsFeature.AiTiers, SettingsFeature.AiTry,
                                     SettingsFeature.Labs,
                                     SettingsFeature.ScrollEdge, SettingsFeature.ScreenCorners, SettingsFeature.StreamQuality,
                                     SettingsFeature.VolumeLeveling,

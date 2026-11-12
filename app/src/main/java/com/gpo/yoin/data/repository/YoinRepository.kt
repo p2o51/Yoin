@@ -14,6 +14,8 @@ import com.gpo.yoin.data.local.AlbumNoteDao
 import com.gpo.yoin.data.local.AlbumNoteKey
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.AlbumRatingDao
+import com.gpo.yoin.data.local.AiProviderStore
+import com.gpo.yoin.data.local.settingsFor
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.LocalRating
@@ -65,6 +67,7 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.remote.GeminiService
+import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.source.Capability
@@ -172,7 +175,12 @@ class YoinRepository(
     private val repositoryScope: CoroutineScope = CoroutineScope(SupervisorJob()),
     private val clock: () -> Long = System::currentTimeMillis,
     private val detailCacheStore: DetailCacheStore? = null,
+    /** AI settings v2 choices; null = Gemini only (tests, previews). */
+    private val aiProviderStore: AiProviderStore? = null,
 ) {
+    /** The AI settings for a call, or null when the chosen service has no key yet. */
+    private fun readyAi(config: GeminiConfig?): AiSettings? =
+        aiProviderStore.settingsFor(config).takeIf { it.isReady }
 
     // ── In-memory detail cache ─────────────────────────────────────────
     // Album / artist / playlist detail responses are network round-trips on
@@ -2434,12 +2442,11 @@ class YoinRepository(
         )
         if (cached != null && cached.promptHash == hash) return cached.copy
 
-        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
-        if (apiKey.isNullOrBlank()) return cached?.copy
+        val ai = readyAi(geminiConfigDao.getConfig().first()) ?: return cached?.copy
 
         return runCatching {
             val generated = geminiService.generateAlbumMemoryCopy(
-                apiKey = apiKey,
+                ai = ai,
                 albumName = album.name,
                 artist = album.artist,
                 year = album.year,
@@ -2497,12 +2504,11 @@ class YoinRepository(
         val hash = signal.hashCode().toString()
         if (cached?.title != null && cached.titlePromptHash == hash) return cached.title
 
-        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
-        if (apiKey.isNullOrBlank()) return cached?.title
+        val ai = readyAi(geminiConfigDao.getConfig().first()) ?: return cached?.title
 
         return runCatching {
             val generated = geminiService.generateAlbumMemoryTitle(
-                apiKey = apiKey,
+                ai = ai,
                 albumName = album.name,
                 artist = album.artist,
                 year = album.year,
@@ -2858,19 +2864,16 @@ class YoinRepository(
             trackRawId = trackId.rawId,
             sourceHash = sourceHash,
             targetLanguage = targetLanguage,
-            model = GeminiService.MODEL,
+            model = aiProviderStore.settingsFor(config).modelId,
         )
         cached
             ?.toTranslations(expectedLineCount = sourceLines.size)
             ?.let { return LyricsTranslationResult.Success(it) }
 
-        val apiKey = config?.apiKey?.trim().orEmpty()
-        if (apiKey.isEmpty()) {
-            return LyricsTranslationResult.ApiKeyMissing
-        }
+        val ai = readyAi(config) ?: return LyricsTranslationResult.ApiKeyMissing
         return try {
             val translations = geminiService.translateLyricLines(
-                apiKey = apiKey,
+                ai = ai,
                 title = t.ifEmpty { "Unknown song" },
                 artist = a.ifEmpty { "Unknown artist" },
                 lines = sourceLines,
@@ -3157,13 +3160,12 @@ class YoinRepository(
             ?: return AboutRegenerateResult.NothingNew
         if (row.kind == SongAboutEntry.KIND_OWN) return AboutRegenerateResult.NothingNew
         val config = geminiConfigDao.getConfig().first()
-        val apiKey = config?.apiKey
-        if (apiKey.isNullOrBlank()) return AboutRegenerateResult.ApiKeyMissing
-        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config.targetLanguage)
+        val ai = readyAi(config) ?: return AboutRegenerateResult.ApiKeyMissing
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config?.targetLanguage)
         return runCatching {
             val (title, answer) = if (row.kind == SongAboutEntry.KIND_ASK) {
                 val reply = geminiService.askAboutSong(
-                    apiKey = apiKey,
+                    ai = ai,
                     title = row.titleDisplay,
                     artist = row.artistDisplay,
                     album = row.albumDisplay,
@@ -3173,7 +3175,7 @@ class YoinRepository(
                 reply.title to reply.answer
             } else {
                 val values = geminiService.generateCanonicalAbout(
-                    apiKey = apiKey,
+                    ai = ai,
                     title = row.titleDisplay,
                     artist = row.artistDisplay,
                     album = row.albumDisplay,
@@ -3221,19 +3223,19 @@ class YoinRepository(
         }
 
         val config = geminiConfigDao.getConfig().first()
-        val apiKey = config?.apiKey
-        if (apiKey.isNullOrBlank()) {
+        val ai = readyAi(config)
+        if (ai == null) {
             return if (existing.isNotEmpty()) {
                 AboutLoadResult.Success
             } else {
                 AboutLoadResult.ApiKeyMissing
             }
         }
-        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config.targetLanguage)
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config?.targetLanguage)
 
         return runCatching {
             val values = geminiService.generateCanonicalAbout(
-                apiKey = apiKey,
+                ai = ai,
                 title = title,
                 artist = artist,
                 album = album,
@@ -3281,13 +3283,12 @@ class YoinRepository(
         }
 
         val config = geminiConfigDao.getConfig().first()
-        val apiKey = config?.apiKey
-        if (apiKey.isNullOrBlank()) return AskTitleResult.ApiKeyMissing
-        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config.targetLanguage)
+        val ai = readyAi(config) ?: return AskTitleResult.ApiKeyMissing
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config?.targetLanguage)
 
         return runCatching {
             val heading = geminiService.generateAskTitle(
-                apiKey = apiKey,
+                ai = ai,
                 title = title,
                 artist = artist,
                 album = album,
@@ -3318,9 +3319,8 @@ class YoinRepository(
         }
 
         val config = geminiConfigDao.getConfig().first()
-        val apiKey = config?.apiKey
-        if (apiKey.isNullOrBlank()) return AskAboutResult.ApiKeyMissing
-        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config.targetLanguage)
+        val ai = readyAi(config) ?: return AskAboutResult.ApiKeyMissing
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config?.targetLanguage)
 
         val titleKey = SongAboutEntry.normalize(title)
         val artistKey = SongAboutEntry.normalize(artist)
@@ -3329,7 +3329,7 @@ class YoinRepository(
 
         return runCatching {
             val reply = geminiService.askAboutSong(
-                apiKey = apiKey,
+                ai = ai,
                 title = title,
                 artist = artist,
                 album = album,

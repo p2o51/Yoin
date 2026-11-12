@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings › AI features (AI settings v2, 2026-11-12). -->
+<resources>
+    <string name="ai_provider_gemini" translatable="false">Gemini</string>
+    <string name="ai_provider_deepseek" translatable="false">DeepSeek</string>
+    <string name="ai_provider_qwen">Qwen</string>
+    <string name="ai_provider_custom">Custom</string>
+    <string name="ai_tier_good">Good</string>
+    <string name="ai_tier_best">Best</string>
+    <string name="ai_tiers_label">Tier</string>
+    <string name="ai_cd_tier_details">How the tiers differ</string>
+    <string name="ai_flip">Change view</string>
+    <string name="ai_axis_speed">Faster</string>
+    <string name="ai_axis_cost">Cheaper</string>
+    <string name="ai_axis_accuracy">More accurate</string>
+    <string name="ai_untested">Not tested</string>
+    <string name="ai_key_label">API key</string>
+    <string name="ai_get_key_gemini">Get a key in Google AI Studio</string>
+    <string name="ai_get_key_deepseek">Get a key on the DeepSeek platform</string>
+    <string name="ai_get_key_qwen">Get a key in Alibaba Cloud Model Studio</string>
+    <string name="ai_custom_format">Format</string>
+    <string name="ai_format_openai">OpenAI compatible</string>
+    <string name="ai_format_anthropic" translatable="false">Anthropic</string>
+    <string name="ai_custom_url">Address</string>
+    <string name="ai_custom_model">Model</string>
+    <string name="ai_custom_pull">Fetch</string>
+    <string name="ai_custom_thinking">Thinking</string>
+    <string name="ai_thinking_off">Off</string>
+    <string name="ai_thinking_low">Low</string>
+    <string name="ai_thinking_medium">Medium</string>
+    <string name="ai_thinking_high">High</string>
+    <string name="ai_search_label">Search</string>
+    <string name="ai_search_none">No search</string>
+    <string name="ai_search_key">%1$s key</string>
+    <string name="ai_get_search_key">Get a %1$s key</string>
+    <string name="ai_models_error">Couldn\'t fetch models: %1$s</string>
+    <string name="ai_try">Try a song</string>
+    <string name="ai_tiers_title">%1$s tiers</string>
+    <string name="ai_row_model">Model</string>
+    <string name="ai_row_search">Search</string>
+    <string name="ai_row_speed">Speed</string>
+    <string name="ai_row_accuracy">Accuracy</string>
+    <string name="ai_row_cost">Per 1,000 songs</string>
+    <string name="ai_seconds">%1$s s</string>
+    <string name="ai_cost" translatable="false">$%1$s</string>
+    <string name="ai_cost_estimated">$%1$s (est.)</string>
+    <string name="ai_search_google">Google Search</string>
+    <string name="ai_search_qwen">Qwen\'s own search</string>
+    <string name="ai_search_deepseek_once">DeepSeek Search once, full pages</string>
+    <string name="ai_search_deepseek_twice">DeepSeek Search twice, full pages</string>
+    <string name="ai_note_gemini">The first 5,000 searches each month are free; after that, about $31 per 1,000 songs. A free key without billing can\'t search and gets error 429.</string>
+    <string name="ai_note_deepseek">Works in mainland China without a proxy. Search uses the same key and is charged per call.</string>
+    <string name="ai_note_qwen">Works in mainland China without a proxy. Not tested yet.</string>
+    <string name="ai_tiers_source">Speed and accuracy from a 35-song test; cost at current prices.</string>
+    <string name="ai_try_song">Song</string>
+    <string name="ai_try_artist">Artist</string>
+    <string name="ai_try_album">Album</string>
+    <string name="ai_try_run">Try</string>
+    <string name="ai_try_running">Searching…</string>
+    <string name="ai_try_time">%1$s · %2$s s</string>
+    <string name="ai_try_queries">Searched: %1$s</string>
+    <string name="ai_try_pages">%1$d pages read</string>
+    <string name="ai_try_builtin">The model searched on its own</string>
+    <string name="ai_try_no_key">Paste a key first</string>
+    <string name="ai_try_error">Failed: %1$s</string>
+</resources>
