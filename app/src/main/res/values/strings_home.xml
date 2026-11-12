@@ -207,7 +207,7 @@
     <!-- Home bubble tips (owner 2026-10-17): one gesture or detail each, said between Memories. -->
     <!-- Tip page (ui/tips/TipScreen): "3 / 10" -->
     <string name="home_tip_labs_title">Yoin Labs</string>
-    <string name="home_tip_labs">Experimental features and the Gemini Nano model download are now in Settings &gt; Yoin Labs</string>
+    <string name="home_tip_labs">Experimental features, Gemini Nano model download, and diagnostics are now in Settings &gt; Yoin Labs</string>
     <string name="home_tip_lyric_highlight_title">Lyric Cards</string>
     <string name="home_tip_lyric_highlight">On phones with Gemini Nano, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up</string>
     <string name="home_tip_memory_ledger_title">All Memories</string>

@@ -48,8 +48,14 @@ object NanoDiagnostics {
         val probes: List<Probe>,
     ) {
         val anyAvailable: Boolean get() = probes.any { it.status == NanoStatus.AVAILABLE }
+        /**
+         * A Stable variant AICore can fetch. Only Stable: the download button goes through the lyric cards' model
+         * (one owner for the download), which only uses Stable; Preview needs the AICore Developer Preview anyway.
+         */
         val anyDownloadable: Boolean
-            get() = probes.any { it.status == NanoStatus.DOWNLOADABLE || it.status == NanoStatus.DOWNLOADING }
+            get() = probes.any {
+                it.stage == stableStage && (it.status == NanoStatus.DOWNLOADABLE || it.status == NanoStatus.DOWNLOADING)
+            }
 
         /** Plain text for the clipboard: what a bug report needs. */
         fun asText(): String = buildString {
@@ -69,6 +75,8 @@ object NanoDiagnostics {
 
     /** A test prompt's outcome: the reply and how long it took, or AICore's refusal. */
     data class TestResult(val variant: String, val reply: String?, val millis: Long, val error: String? = null)
+
+    private val stableStage = releaseStageName(ModelReleaseStage.STABLE)
 
     private val variants = listOf(
         ModelReleaseStage.STABLE to ModelPreference.FULL,

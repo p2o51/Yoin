@@ -43,6 +43,7 @@ internal fun LabsDemo(playing: Boolean) {
                     onDownload = {},
                     onCheckAgain = {},
                     onLyricsChange = { on = it },
+                    onOpenDiagnostics = {},
                     switchModifier = Modifier.demoTarget("labs-switch"),
                 )
             }
