@@ -69,9 +69,9 @@ internal object NeoDbVoicesParsing {
      * Which NeoDB item stands for the album, or null when NeoDB doesn't seem to have it. NeoDB's search is
      * loose: for "Museum" by OWIS, which it doesn't hold, it answers with a jazz "Museum" and a dozen other
      * museums (owner, 2026-11-09). So a hit must carry the album's title, and the artist must agree whenever
-     * both sides name one; a title that only contains the other's (an edition's longer name) needs the artist
-     * to agree outright. The same release often has several items (OK Computer: 510 ratings on one, 4 on the
-     * Apple Music edition), so among the hits the one most people rated wins.
+     * both sides name one; a title that is the other's plus an edition's words ("Blonde Deluxe Edition") needs
+     * the artist to agree outright. The same release often has several items (OK Computer: 510 ratings on one,
+     * 4 on the Apple Music edition), so among the hits the one most people rated wins.
      */
     fun pickAlbumItem(albumName: String, artistName: String?, items: List<ShelfItem.Item>): ShelfItem.Item? {
         val key = normalizeTitle(albumName)
@@ -86,12 +86,34 @@ internal object NeoDbVoicesParsing {
             val artist = artistAgreement(artistKeys, item.artist)
             when {
                 title == key && artist != ArtistAgreement.Differs -> exact += item
-                (title.contains(key) || key.contains(title)) && artist == ArtistAgreement.Same -> loose += item
+                artist == ArtistAgreement.Same && isEditionOf(title, key) -> loose += item
             }
         }
         // maxByOrNull keeps the first of equal counts: search order breaks ties.
         return exact.maxByOrNull { it.ratingCount ?: 0 } ?: loose.maxByOrNull { it.ratingCount ?: 0 }
     }
+
+    /**
+     * One normalized title is the other followed by an edition's words and nothing else. A title that merely
+     * contains the other is another release: for "范特西" by 周杰伦 neodb.social answers with "范特西plus" and
+     * "依然范特西" (2026-11-13), and "Luv Is Rage 2" is not "Luv Is Rage".
+     */
+    private fun isEditionOf(a: String, b: String): Boolean {
+        val (shorter, longer) = if (a.length <= b.length) a to b else b to a
+        if (!longer.startsWith(shorter)) return false
+        val added = longer.substring(shorter.length)
+        // A year or an ordinal alone ("… 2019", "… 25th") says too little: it needs a word beside it.
+        return EditionAdded.matches(added) && EditionWord.containsMatchIn(added)
+    }
+
+    /** What an edition adds outside brackets, as [normalizeTitle] leaves it (no spaces, no punctuation). */
+    private const val EDITION_WORD = "deluxe|super|expanded|extended|special|limited|collectors?|anniversary|" +
+        "edition|version|remaster(?:ed)?|reissue|bonus|tracks?|mono|stereo|vinyl|" +
+        "豪华|豪華|特别|特別|限定|限量|纪念|紀念|周年|週年|重制|重製|复刻|復刻|经典|經典|专辑|專輯|黑胶|黑膠|版|盤|盘"
+    private val EditionWord = Regex(EDITION_WORD)
+
+    /** Edition words, with a year ("2011 Remaster") or a count ("20th Anniversary", "25周年紀念版") among them. */
+    private val EditionAdded = Regex("""(?:$EDITION_WORD|(?:19|20)\d{2}|\d{1,3}(?:st|nd|rd|th|周年|週年))+""")
 
     private enum class ArtistAgreement { Same, Differs, Unknown }
 
@@ -111,7 +133,11 @@ internal object NeoDbVoicesParsing {
 
     private fun normalizeName(name: String): String = name.lowercase().filter { it.isLetterOrDigit() }
 
-    /** Case, punctuation, spaces and a trailing "(Remastered)" / "[Deluxe]" don't make a different album. */
+    /**
+     * Case, punctuation, spaces and a trailing "(Remastered)" / "[Deluxe]" don't make a different album. A title
+     * made of signs alone ("?", "( )", "÷") keeps them: they are all there is to compare, and without them the
+     * album could match nothing.
+     */
     fun normalizeTitle(title: String): String {
         var t = title.trim()
         while (true) {
@@ -119,7 +145,8 @@ internal object NeoDbVoicesParsing {
             if (stripped == t || stripped.isBlank()) break
             t = stripped
         }
-        return t.lowercase().filter { it.isLetterOrDigit() }
+        val lowered = t.lowercase()
+        return lowered.filter { it.isLetterOrDigit() }.ifEmpty { lowered.filterNot { it.isWhitespace() } }
     }
 
     fun albumVoices(instance: String, item: ShelfItem.Item): NeoDbAlbumVoices? {

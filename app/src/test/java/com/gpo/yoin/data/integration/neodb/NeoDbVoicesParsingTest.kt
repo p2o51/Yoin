@@ -61,6 +61,67 @@ class NeoDbVoicesParsingTest {
     }
 
     @Test
+    fun should_findNothing_when_onlyOtherReleasesContainTheTitle() {
+        // neodb.social, 2026-11-13: the search for "范特西 周杰伦" answers with these two and not the album.
+        val jay = listOf(
+            item("plus", "范特西plus", 1, listOf("周杰伦")),
+            item("still", "依然范特西 專輯 經典復刻黑膠", 1, listOf("周杰伦 Jay Chou")),
+        )
+        assertNull(NeoDbVoicesParsing.pickAlbumItem("范特西", "周杰伦", jay))
+
+        val beatles = listOf(
+            item("bossa", "Down Abbey Road Bossa - Songs of the Beatles", 0, listOf("Various", "Beatles")),
+            item("other", "The Other Way Of Crossing Abbey Road", 6, listOf("The Beatles")),
+        )
+        assertNull(NeoDbVoicesParsing.pickAlbumItem("Abbey Road", "The Beatles", beatles))
+
+        // A number alone is a sequel or a year, not an edition.
+        val sequel = listOf(item("two", "Luv Is Rage 2", 30, listOf("Lil Uzi Vert")))
+        assertNull(NeoDbVoicesParsing.pickAlbumItem("Luv Is Rage", "Lil Uzi Vert", sequel))
+    }
+
+    @Test
+    fun should_takeAnEdition_when_itsTitleAddsOnlyEditionWords() {
+        val vinyl = listOf(item("vinyl", "依然范特西 專輯 經典復刻黑膠", 1, listOf("周杰伦 Jay Chou")))
+        assertEquals("vinyl", NeoDbVoicesParsing.pickAlbumItem("依然范特西", "周杰伦", vinyl)?.uuid)
+
+        val remaster = listOf(item("remaster", "Abbey Road 2019 Remaster", 6, listOf("The Beatles")))
+        assertEquals("remaster", NeoDbVoicesParsing.pickAlbumItem("Abbey Road", "The Beatles", remaster)?.uuid)
+
+        // The other way round: Yoin's album carries the edition, NeoDB's item the plain title.
+        val plain = listOf(item("plain", "Abbey Road", 338, listOf("The Beatles")))
+        assertEquals(
+            "plain",
+            NeoDbVoicesParsing.pickAlbumItem("Abbey Road - 50th Anniversary Edition", "The Beatles", plain)?.uuid,
+        )
+    }
+
+    @Test
+    fun should_matchOnTheSigns_when_titleHasNoLetterOrDigit() {
+        // neodb.social, 2026-11-13: all three albums are there under these titles.
+        val question = listOf(
+            item("17", "17", 53, listOf("Xxxtentacion")),
+            item("q", "?", 41, listOf("XXXTENTACION")),
+            item("sad", "Sad!", 20, listOf("XXXTENTACION")),
+        )
+        assertEquals("q", NeoDbVoicesParsing.pickAlbumItem("?", "XXXTENTACION", question)?.uuid)
+
+        val brackets = listOf(
+            item("takk", "Takk...", 98, listOf("Sigur Rós")),
+            item("b", "( )", 77, listOf("Sigur Rós")),
+        )
+        assertEquals("b", NeoDbVoicesParsing.pickAlbumItem("( )", "Sigur Rós", brackets)?.uuid)
+        assertEquals("b", NeoDbVoicesParsing.pickAlbumItem("()", "Sigur Rós", brackets)?.uuid)
+
+        val divide = listOf(
+            item("word", "Divide", 109, listOf("Ed Sheeran")),
+            item("sign", "÷", 3, listOf("Ed Sheeran")),
+            item("tour", "+-=÷× (TOUR COLLECTION)", 1, listOf("Ed Sheeran")),
+        )
+        assertEquals("sign", NeoDbVoicesParsing.pickAlbumItem("÷ (Deluxe)", "Ed Sheeran", divide)?.uuid)
+    }
+
+    @Test
     fun should_acceptExactTitle_when_artistIsUnknown() {
         val items = listOf(item("a", "Blonde", 7))
         assertEquals("a", NeoDbVoicesParsing.pickAlbumItem("Blonde", null, items)?.uuid)
