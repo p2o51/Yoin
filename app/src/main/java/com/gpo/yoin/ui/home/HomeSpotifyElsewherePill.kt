@@ -57,17 +57,28 @@ internal const val SpotifyElsewhereShowMs = 5_000L
 internal fun spotifyElsewhereVisible(elsewhere: SpotifyElsewhere?, yoinPlaying: Boolean): Boolean =
     elsewhere != null && !yoinPlaying
 
-/** Drops [elsewhere] [SpotifyElsewhereShowMs] after it is first shown; a new answer starts over. */
+/**
+ * Drops [elsewhere] once it has been on screen [SpotifyElsewhereShowMs]; a new
+ * answer starts over. [onScreen] says the header can be seen right now (Home
+ * loaded, nothing over it): the time does not run while it can't, and a
+ * return to it gets the whole 5 s, so the answer is not spent unseen.
+ */
 @Composable
-internal fun SpotifyElsewhereTimer(elsewhere: SpotifyElsewhere?, visible: Boolean, onElapsed: () -> Unit) {
+internal fun SpotifyElsewhereTimer(
+    elsewhere: SpotifyElsewhere?,
+    visible: Boolean,
+    onScreen: Boolean,
+    onElapsed: () -> Unit,
+) {
     val elapsed by rememberUpdatedState(onElapsed)
-    LaunchedEffect(elsewhere, visible) {
+    LaunchedEffect(elsewhere, visible, onScreen) {
         if (elsewhere == null) return@LaunchedEffect
         if (!visible) {
             // Yoin started playing first: the pill has nothing to offer.
             elapsed()
             return@LaunchedEffect
         }
+        if (!onScreen) return@LaunchedEffect
         delay(SpotifyElsewhereShowMs)
         elapsed()
     }

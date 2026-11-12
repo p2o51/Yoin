@@ -156,7 +156,12 @@ fun HomeScreen(
         onStopOrDispose { otherProfiles?.dismissSpotifyElsewhere() }
     }
     val spotifyElsewhereUp = spotifyElsewhereVisible(spotifyElsewhere, yoinPlaying = isPlaying)
-    SpotifyElsewhereTimer(spotifyElsewhere, spotifyElsewhereUp) { otherProfiles?.dismissSpotifyElsewhere() }
+    // Its 5 s count only while the header can be seen: not under Loading
+    // (no header yet), nor behind Now Playing or the detail pane.
+    val spotifyElsewhereOnScreen = spotifyElsewhereUp && uiState is HomeUiState.Content && !homeCovered
+    SpotifyElsewhereTimer(spotifyElsewhere, spotifyElsewhereUp, spotifyElsewhereOnScreen) {
+        otherProfiles?.dismissSpotifyElsewhere()
+    }
     // The item whose first tap asks before switching (the one-off notice).
     var confirmingItem by remember { mutableStateOf<OtherProfileItem?>(null) }
     val switchAndPlay: (OtherProfileItem) -> Unit = remember(accountSwitcher, otherProfiles) {
