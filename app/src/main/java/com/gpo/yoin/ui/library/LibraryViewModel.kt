@@ -182,6 +182,15 @@ class LibraryViewModel(
     private var initialLoadJob: Job? = null
     private var tabLoadJob: Job? = null
     private var reshuffleJob: Job? = null
+
+    /** The pull being answered ([pullRefresh]). */
+    private var pullRefreshJob: Job? = null
+
+    /**
+     * The pager a pull read Songs with and failed ([rereadSongs]): the next
+     * pull reads with it again, and so leaves out an album that fails twice.
+     */
+    private var songsRefreshPager: NewestAlbumSongsPager? = null
     private var copyResources: Resources? = null
 
     /** Monotonic id per selectTab load; a stale failure must not revert a newer selection. */
@@ -704,35 +713,45 @@ class LibraryViewModel(
      * kept meanwhile: each batch's new albums join it as [readRemainingAlbums]'
      * do (at once, or held to the end), and nothing leaves until the whole
      * collection is in and replaces it (an album gone from the library leaves
-     * then). A batch that fails leaves the list as it is, the held albums in.
+     * then). A batch that fails leaves the list as it is, the held albums in,
+     * and [onFailure] hears why. The job ends when the read does.
      */
-    private fun rereadAlbums() {
+    private fun rereadAlbums(onFailure: (Throwable) -> Unit = {}): Job {
         albumsReadJob?.cancel()
         val generation = libraryDataGeneration
         val profileId = repository.currentProfileId()
         fun isCurrent(): Boolean = isDataLoadCurrent(generation, profileId)
-        albumsReadJob = viewModelScope.launch {
+        val job = viewModelScope.launch {
             val first = attempt { loadLibraryAlbums() }.getOrElse { error ->
                 Log.w(TAG, "Library albums couldn't be read again; the list stays", error)
-                if (isCurrent()) releaseHeldAlbums()
+                if (isCurrent()) {
+                    releaseHeldAlbums()
+                    onFailure(error)
+                }
                 return@launch
             }
             if (!isCurrent()) return@launch
             val fresh = first.albums.toMutableList()
-            val hold = libraryAlbumsQuery()?.let(::holdsAlbumBatches) == true
+            // With no albums listed yet (a pull after their first read failed), the first batch shows at once.
+            val hold = cachedAlbums != null && libraryAlbumsQuery()?.let(::holdsAlbumBatches) == true
             mergeAlbums(first.albums, first.nextOffset, hold)
-            val complete = first.nextOffset?.let { from -> readAlbumBatches(from, fresh, ::isCurrent) } ?: true
+            val complete = first.nextOffset
+                ?.let { from -> readAlbumBatches(from, fresh, onFailure, ::isCurrent) }
+                ?: true
             if (!isCurrent()) return@launch
             if (complete) cachedAlbums = fresh.distinctBy(Album::id)
             albumsHeldBack = emptySet()
             publishLists()
         }
+        albumsReadJob = job
+        return job
     }
 
     /**
      * Batches from [from] to the end of the collection, each merged into the
      * list as it lands (and added to [fresh], when given). False when a batch
-     * failed, or the data moved on, and the read stopped there.
+     * failed ([onFailure] hears why), or the data moved on, and the read
+     * stopped there.
      *
      * The end is a batch short of full. Two guards stand in for a server that
      * never sends one: a full batch with no album this read hadn't seen yet
@@ -742,6 +761,7 @@ class LibraryViewModel(
     private suspend fun readAlbumBatches(
         from: Int,
         fresh: MutableList<Album>? = null,
+        onFailure: (Throwable) -> Unit = {},
         isCurrent: () -> Boolean
     ): Boolean {
         val query = libraryAlbumsQuery() ?: return true
@@ -757,6 +777,7 @@ class LibraryViewModel(
                 repository.getAlbumList(query.type, size = query.batch, offset = offset)
             }.getOrElse { error ->
                 Log.w(TAG, "Library albums stopped at $offset; the next look reads on", error)
+                onFailure(error)
                 return false
             }
             if (!isCurrent()) return false
@@ -842,6 +863,156 @@ class LibraryViewModel(
     }
 
     /**
+     * A pull on the view shown (iOS's `.refreshable`): what it lists is read
+     * again from the service and replaces the rows in place as it arrives. No
+     * view goes back to its loading indicator, none loses its place, and the
+     * views not shown keep what they hold. All reads its artists, albums and
+     * playlists; a chip's view reads its own list. A list that can't be read
+     * keeps its rows, and a snackbar says which.
+     *
+     * Spotify's lists are its synced mirror, so there the pull is the one
+     * sync that is waited for ([YoinRepository.refreshSpotifyLibrary],
+     * forced), and [observeSpotifyLibrarySynced] takes the fresh mirror in.
+     *
+     * One pull at a time ([LibraryUiState.Content.isRefreshing] while it
+     * runs). A reload, another profile, or a library change that reads the
+     * lists itself ends it ([cancelDataLoads]).
+     */
+    fun pullRefresh() {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (pullRefreshJob?.isActive == true) return
+        val view = current.selectedTab
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        fun isCurrent(): Boolean = isDataLoadCurrent(generation, profileId)
+        _uiState.value = current.copy(isRefreshing = true)
+        pullRefreshJob = viewModelScope.launch {
+            try {
+                val failure = if (isSpotifyProvider()) {
+                    attempt { repository.refreshSpotifyLibrary(force = true).getOrThrow() }
+                        .exceptionOrNull()
+                        ?.let { LibraryTab.All to it }
+                } else {
+                    rereadView(view, ::isCurrent)
+                }
+                if (failure != null && isCurrent()) {
+                    val (kind, error) = failure
+                    _messages.tryEmit(error.snackbarOr(kind.loadFailureRes(), "Failed to load ${kind.name}"))
+                }
+            } finally {
+                updateContent { copy(isRefreshing = false) }
+            }
+        }
+    }
+
+    /** [view]'s lists read again for [pullRefresh]; the first that couldn't be, and why. */
+    private suspend fun rereadView(view: LibraryTab, isCurrent: () -> Boolean): Pair<LibraryTab, Throwable>? =
+        when (view) {
+            LibraryTab.All -> coroutineScope {
+                val artists = async { rereadArtists(isCurrent) }
+                val albums = async { rereadAlbumsWhole() }
+                val playlists = if (Capability.PLAYLISTS_READ in repository.currentCapabilities()) {
+                    async { rereadPlaylists(isCurrent) }
+                } else {
+                    null
+                }
+                val answers = listOfNotNull(
+                    LibraryTab.Artists to artists.await(),
+                    LibraryTab.Albums to albums.await(),
+                    playlists?.let { LibraryTab.Playlists to it.await() }
+                )
+                // Each of All's lists has answered again: one never read that still fails is left out.
+                if (isCurrent() && answers.any { (_, error) -> error == null }) {
+                    allSettled = true
+                    publishLists()
+                }
+                answers.firstNotNullOfOrNull { (kind, error) -> error?.let { kind to it } }
+            }
+            LibraryTab.Artists -> rereadArtists(isCurrent)?.let { view to it }
+            LibraryTab.Albums -> rereadAlbumsWhole()?.let { view to it }
+            LibraryTab.Songs -> rereadSongs(isCurrent)?.let { view to it }
+            LibraryTab.Playlists -> rereadPlaylists(isCurrent)?.let { view to it }
+            LibraryTab.Favorites -> rereadFavorites(isCurrent)?.let { view to it }
+        }
+
+    private suspend fun rereadArtists(isCurrent: () -> Boolean): Throwable? =
+        attempt { loadArtistsFlat() }
+            .onSuccess { artists ->
+                if (isCurrent()) {
+                    cachedArtists = artists
+                    publishLists()
+                }
+            }
+            .exceptionOrNull()
+
+    /** [rereadAlbums], waited for to the collection's end: what stopped it short, if anything did. */
+    private suspend fun rereadAlbumsWhole(): Throwable? {
+        var failure: Throwable? = null
+        rereadAlbums(onFailure = { failure = it }).join()
+        return failure
+    }
+
+    private suspend fun rereadPlaylists(isCurrent: () -> Boolean): Throwable? =
+        attempt { loadPlaylists() }
+            .onSuccess { playlists ->
+                if (isCurrent()) {
+                    cachedPlaylists = playlists
+                    publishLists()
+                }
+            }
+            .exceptionOrNull()
+
+    private suspend fun rereadFavorites(isCurrent: () -> Boolean): Throwable? =
+        attempt { repository.getStarred().applyFavoriteOverrides(repository.favoriteOverrides.value) }
+            .onSuccess { favorites ->
+                if (isCurrent()) {
+                    cachedFavorites = favorites
+                    updateContent { copy(favorites = favorites) }
+                }
+            }
+            .exceptionOrNull()
+
+    /**
+     * Songs read again for [pullRefresh], the rows on screen kept until the
+     * new ones arrive. The albums' songs ([songsFromNewestAlbums]) start over
+     * from the newest album, so albums added since come first, and read on
+     * from there as the list scrolls; a library's own songs are read whole;
+     * a random sample is drawn anew.
+     */
+    private suspend fun rereadSongs(isCurrent: () -> Boolean): Throwable? {
+        if (songsFromNewestAlbums()) {
+            val pager = songsRefreshPager ?: newestAlbumSongsPager().also { songsRefreshPager = it }
+            return attempt { pager.next() }
+                .onSuccess { firstPage ->
+                    if (songsRefreshPager === pager) songsRefreshPager = null
+                    if (!isCurrent()) return@onSuccess
+                    // A page the old pager is reading belongs to the list this one replaces.
+                    songsMoreJob?.cancel()
+                    songsPager = pager
+                    cachedSongs = firstPage.applySongsOverrides(repository.favoriteOverrides.value)
+                    songsMoreState = pager.moreState()
+                    updateContent { copy(songs = cachedSongs, songsMore = songsMoreState) }
+                }
+                .exceptionOrNull()
+        }
+        return attempt {
+            val songs = if (Capability.LIBRARY_SONGS in repository.currentCapabilities()) {
+                readLibrarySongs()
+            } else {
+                repository.getRandomSongs(size = 50)
+            }
+            songs.applySongsOverrides(repository.favoriteOverrides.value)
+        }
+            .onSuccess { songs ->
+                if (isCurrent()) {
+                    cachedSongs = songs
+                    updateContent { copy(songs = songs) }
+                }
+            }
+            .exceptionOrNull()
+    }
+
+    /**
      * Reads Songs' next page where Songs comes a page at a time
      * ([songsFromNewestAlbums]): as the list nears its end, or from the retry
      * button at its foot after a read failed. One read at a time and none past
@@ -894,6 +1065,7 @@ class LibraryViewModel(
     private fun forgetSongs() {
         cachedSongs = null
         songsPager = null
+        songsRefreshPager = null
         songsMoreState = LibrarySongsMore.None
     }
 
@@ -1929,6 +2101,7 @@ class LibraryViewModel(
     private fun cancelDataLoads() {
         initialLoadJob?.cancel()
         tabLoadJob?.cancel()
+        pullRefreshJob?.cancel()
         reshuffleJob?.cancel()
         songsMoreJob?.cancel()
         searchMoreJob?.cancel()
