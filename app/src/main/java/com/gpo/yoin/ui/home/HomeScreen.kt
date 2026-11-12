@@ -39,6 +39,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
@@ -75,6 +76,7 @@ private const val HomeLoadingIndicatorDelayMillis = 180L
 
 private val NoOtherProfileItems = MutableStateFlow(emptyList<OtherProfileItem>())
 private val NoticeAlreadySeen = MutableStateFlow(true)
+private val NoSpotifyElsewhere = MutableStateFlow<SpotifyElsewhere?>(null)
 private val NoLyricIntro = MutableStateFlow<LyricHighlightIntro?>(null)
 private val NoLyricHighlights = MutableStateFlow<List<HomeLyricHighlight>>(emptyList())
 private val NoLyricHighlightDevice = MutableStateFlow(false)
@@ -146,6 +148,20 @@ fun HomeScreen(
         lyricHighlights?.onHomeShown()
         onStopOrDispose { }
     }
+    // Another signed-in Spotify account's playback: looked up each time the
+    // app comes to the front, shown 5 s (owner 2026-11-10), dropped on leaving.
+    val spotifyElsewhere by (otherProfiles?.spotifyElsewhere ?: NoSpotifyElsewhere).collectAsState()
+    LifecycleStartEffect(otherProfiles) {
+        otherProfiles?.peekSpotifyElsewhere()
+        onStopOrDispose { otherProfiles?.dismissSpotifyElsewhere() }
+    }
+    val spotifyElsewhereUp = spotifyElsewhereVisible(spotifyElsewhere, yoinPlaying = isPlaying)
+    // Its 5 s count only while the header can be seen: not under Loading
+    // (no header yet), nor behind Now Playing or the detail pane.
+    val spotifyElsewhereOnScreen = spotifyElsewhereUp && uiState is HomeUiState.Content && !homeCovered
+    SpotifyElsewhereTimer(spotifyElsewhere, spotifyElsewhereUp, spotifyElsewhereOnScreen) {
+        otherProfiles?.dismissSpotifyElsewhere()
+    }
     // The item whose first tap asks before switching (the one-off notice).
     var confirmingItem by remember { mutableStateOf<OtherProfileItem?>(null) }
     val switchAndPlay: (OtherProfileItem) -> Unit = remember(accountSwitcher, otherProfiles) {
@@ -207,6 +223,15 @@ fun HomeScreen(
             onActivityArtistsShown = viewModel::onActivityArtistsShown,
             onFeedAtRestChanged = viewModel::onFeedAtRestChanged,
             onHideJbiCard = viewModel::hideJbiCard,
+            spotifyElsewhere = spotifyElsewhere,
+            spotifyElsewhereUp = spotifyElsewhereUp,
+            onSpotifyElsewhereClick = { elsewhere ->
+                // Nothing plays in Yoin while the pill is up, so the switch
+                // stops nothing: no notice. Spotify's own playback is picked
+                // up by the account once it is in use.
+                otherProfiles?.dismissSpotifyElsewhere()
+                accountSwitcher?.switchTo(elsewhere.profileId)
+            },
             otherProfileItems = otherProfileItems,
             onOtherProfileItemClick = { item ->
                 if (otherProfilesNoticeSeen) {
@@ -276,6 +301,10 @@ fun HomeContent(
     accountNeedsReconnect: Boolean = false,
     accountQuickSwitch: HomeAccountQuickSwitch? = null,
     loadingReportsPressure: Boolean = true,
+    // Another Spotify account's playback in the header, whether it is up, a tap on it.
+    spotifyElsewhere: SpotifyElsewhere? = null,
+    spotifyElsewhereUp: Boolean = false,
+    onSpotifyElsewhereClick: (SpotifyElsewhere) -> Unit = {},
     // On Your Other Accounts' items, and a tap on one.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
@@ -462,6 +491,9 @@ fun HomeContent(
                                 albumMemoryMarks = feed.albumMemoryMarks,
                                 playlists = feed.playlists,
                                 recentlyPlayed = feed.recentlyPlayed,
+                                spotifyElsewhere = spotifyElsewhere,
+                                spotifyElsewhereUp = spotifyElsewhereUp,
+                                onSpotifyElsewhereClick = onSpotifyElsewhereClick,
                                 otherProfileItems = otherProfileItems,
                                 onOtherProfileItemClick = onOtherProfileItemClick,
                                 lyricHighlights = lyricHighlights,

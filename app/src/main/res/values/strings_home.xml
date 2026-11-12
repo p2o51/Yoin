@@ -249,4 +249,7 @@
     <string name="tip_read">Read</string>
     <string name="tip_next">Next</string>
     <string name="tip_done">Done</string>
+    <string name="home_spotify_elsewhere_cd">Playing on Spotify: %1$s, %2$s. Switch to Spotify</string>
+    <string name="home_tip_spotify_elsewhere_title">Switch to Spotify</string>
+    <string name="home_tip_spotify_elsewhere">While in another account, if Spotify is playing or paused on a song, tap the pill at the top of Home to switch to it</string>
 </resources>
