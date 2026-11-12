@@ -17,16 +17,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -77,6 +81,7 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -126,7 +131,16 @@ internal fun NeoDbVoicesScreen(
     val scheme = MaterialTheme.colorScheme
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    Column(modifier = modifier.background(scheme.surface)) {
+    Column(
+        modifier = modifier
+            .background(scheme.surface)
+            // A landscape handset: the camera cutout and a side navigation bar stay clear of the page.
+            .windowInsetsPadding(
+                WindowInsets.displayCutout
+                    .union(WindowInsets.navigationBars)
+                    .only(WindowInsetsSides.Horizontal),
+            ),
+    ) {
         VoicesTopBar(
             albumName = albumName,
             onBackClick = onBackClick,
@@ -172,7 +186,9 @@ internal fun NeoDbVoicesScreen(
             rymUrl = NeoDbVoicesParsing.rymSearchUrl(albumName, artistName),
             aotyUrl = NeoDbVoicesParsing.aotySearchUrl(albumName, artistName),
             onOpenUrl = onOpenUrl,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp + navBottom),
+            modifier = Modifier
+                .yoinPageContentWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp + navBottom),
         )
     }
 }
@@ -243,6 +259,8 @@ private fun VoicesContent(
         columns = StaggeredGridCells.Fixed(2),
         state = gridState,
         modifier = Modifier
+            // A tablet doesn't stretch the cards across the window: the page's column, centred (AdaptiveWidth).
+            .yoinPageContentWidth()
             .fillMaxSize()
             .seamDissolveViewport(background = expressivePageSeamBackground()) { gridState.seamScrolledPx() },
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
@@ -318,11 +336,8 @@ private fun Spread(album: NeoDbAlbumVoices) {
         if (album.distribution.isNotEmpty()) {
             val top = album.distribution.max().coerceAtLeast(1)
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(SpreadHeight),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Bottom,
             ) {
                 album.distribution.forEachIndexed { i, percent ->
                     val spreadDescription = stringResource(R.string.neodb_voices_spread_cd)
@@ -336,20 +351,29 @@ private fun Spread(album: NeoDbAlbumVoices) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxHeight()
                             .semantics(mergeDescendants = true) {
                                 contentDescription = String.format(spreadDescription, i + 1, percent)
                             },
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        // The bar stands in a slot of its own height, so the labels under it sit on one line in
+                        // every column at any font size. In a row of fixed height the tallest bar took the room
+                        // of its own labels: they sat lower than their neighbours and were cut at large text.
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height((SpreadBarMax.value * fraction).coerceAtLeast(3f).dp)
-                                .clip(SpreadBarShape)
-                                .background(if (percent == top) scheme.primary else scheme.secondaryContainer),
-                        )
+                                .height(SpreadBarMax),
+                            contentAlignment = Alignment.BottomCenter,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height((SpreadBarMax.value * fraction).coerceAtLeast(3f).dp)
+                                    .clip(SpreadBarShape)
+                                    .background(if (percent == top) scheme.primary else scheme.secondaryContainer),
+                            )
+                        }
                         Grade(rating = (i + 1) * 2, color = scheme.tertiary, size = 10.dp)
                         Text(
                             text = stringResource(R.string.neodb_voices_percent, percent),
@@ -575,6 +599,5 @@ private fun Context.openExternal(url: String) {
 
 private const val LOAD_MORE_AHEAD = 4
 private const val LONG_VOICE_CHARS = 40
-private val SpreadHeight = 132.dp
 private val SpreadBarMax = 92.dp
 private val SpreadBarShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
