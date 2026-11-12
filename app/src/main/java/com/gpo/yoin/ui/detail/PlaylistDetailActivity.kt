@@ -5,7 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SnackbarDuration
@@ -74,6 +74,7 @@ class PlaylistDetailActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalSharedTransitionApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
@@ -94,7 +95,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
-                val sharePlaylist = rememberDetailShare(app.container, WebLinkKind.Playlist, playlistId, webLink = null)
+                // As on the album and artist pages: Spotify and Apple Music have a public page to send.
+                val webLink = rememberDetailWebLink(app.container, WebLinkKind.Playlist, playlistId)
+                val sharePlaylist = rememberDetailShare(app.container, WebLinkKind.Playlist, playlistId, webLink)
                 val backingUp by viewModel.backingUp.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
@@ -205,7 +208,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                     )
                 }
 
-                Box(modifier = Modifier.fillMaxSize()) {
+                DetailNowPlayingWindow(nowPlayingFrame, nowPlayingOpen) { nowPlayingMorph ->
                     ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                         PlaylistDetailScreen(
                             uiState = uiState,
@@ -283,6 +286,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                     onArtistClick = { id -> openFromNowPlaying(DetailPageKind.Artist, id) },
                     onPlaylistClick = { id -> openFromNowPlaying(DetailPageKind.Playlist, id) },
                     panelMotion = nowPlayingPanelMotion,
+                    // The pill on this page's bar grows into the player's cover.
+                    sharedTransitionScope = nowPlayingMorph,
                 )
                 NowPlayingAccessories(
                     viewModel = nowPlayingViewModel,

@@ -5,6 +5,7 @@ import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.local.AlbumNoteDao
 import com.gpo.yoin.data.local.AlbumRatingDao
 import com.gpo.yoin.data.local.GeminiConfigDao
+import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.LocalRatingDao
 import com.gpo.yoin.data.local.LyricsCacheDao
 import com.gpo.yoin.data.local.MemoryCopyCacheDao
@@ -285,6 +286,109 @@ class YoinRepositoryTest {
         coVerify(exactly = 1) {
             localRatingDao.markSynced("song-1", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 7.7f)
         }
+    }
+
+    // ── syncPendingRatings: a rating whose push failed (offline) goes out again later ──
+
+    private fun waitingRating(songId: String, rating: Float, serverRating: Int, needsSync: Boolean = true) =
+        LocalRating(
+            profileId = "spotify-profile",
+            songId = songId,
+            provider = MediaId.PROVIDER_SUBSONIC,
+            rating = rating,
+            serverRating = serverRating,
+            needsSync = needsSync,
+            updatedAt = 1L,
+        )
+
+    /** [listed] is what the pass finds waiting; each row reads back as [now] (default: unchanged) right before it is sent. */
+    private fun ratingsWaiting(listed: List<LocalRating>, now: Map<String, LocalRating?> = emptyMap()) {
+        every { source.id } returns MediaId.PROVIDER_SUBSONIC
+        every { localRatingDao.getRatingsNeedingSync(MediaId.PROVIDER_SUBSONIC, "spotify-profile") } returns
+            flowOf(listed)
+        listed.forEach { row ->
+            val current = if (row.songId in now) now[row.songId] else row
+            coEvery {
+                localRatingDao.getRatings(listOf(row.songId), MediaId.PROVIDER_SUBSONIC, "spotify-profile")
+            } returns listOfNotNull(current)
+        }
+    }
+
+    @Test
+    fun should_sendTheWaitingRatingsAgain_when_theServerTakesThemNow() = runTest {
+        ratingsWaiting(listOf(waitingRating("song-1", 7.4f, 4), waitingRating("song-2", 3.0f, 2)))
+        writeActions.setRatingResult = Result.success(Unit)
+
+        repository.syncPendingRatings()
+
+        assertEquals(listOf(4, 2), writeActions.serverRatings)
+        coVerify(exactly = 1) {
+            localRatingDao.markSynced("song-1", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 7.4f)
+        }
+        coVerify(exactly = 1) {
+            localRatingDao.markSynced("song-2", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 3.0f)
+        }
+        // Never a whole-row write: that could roll back a rating given meanwhile.
+        coVerify(exactly = 0) { localRatingDao.upsert(any()) }
+    }
+
+    @Test
+    fun should_sendTheRatingAsItStandsNow_when_itChangedAfterThePassListedIt() = runTest {
+        ratingsWaiting(
+            listed = listOf(waitingRating("song-1", 3.0f, 2), waitingRating("song-2", 6.0f, 3)),
+            now = mapOf(
+                "song-1" to waitingRating("song-1", 7.7f, 4),
+                // Its own push got through meanwhile: nothing left to send.
+                "song-2" to waitingRating("song-2", 6.0f, 3, needsSync = false),
+            ),
+        )
+        writeActions.setRatingResult = Result.success(Unit)
+
+        repository.syncPendingRatings()
+
+        assertEquals(listOf(4), writeActions.serverRatings)
+        coVerify(exactly = 1) {
+            localRatingDao.markSynced("song-1", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 7.7f)
+        }
+        coVerify(exactly = 0) { localRatingDao.markSynced("song-2", any(), any(), any()) }
+    }
+
+    @Test
+    fun should_passOverARatingTheServerRefuses_andSendTheNext() = runTest {
+        ratingsWaiting(listOf(waitingRating("gone", 5.0f, 3), waitingRating("song-2", 9.0f, 5)))
+        writeActions.setRatingResult = Result.success(Unit)
+        writeActions.ratingResultsByTrack[MediaId.subsonic("gone")] =
+            Result.failure(SubsonicException(code = 70, message = "Song not found"))
+
+        repository.syncPendingRatings()
+
+        assertEquals(listOf(3, 5), writeActions.serverRatings)
+        coVerify(exactly = 0) { localRatingDao.markSynced("gone", any(), any(), any()) }
+        coVerify(exactly = 1) {
+            localRatingDao.markSynced("song-2", MediaId.PROVIDER_SUBSONIC, "spotify-profile", 9.0f)
+        }
+    }
+
+    @Test
+    fun should_giveUpThePass_when_threeSendsInARowFail() = runTest {
+        ratingsWaiting((1..6).map { waitingRating("song-$it", 8.0f, 4) })
+        writeActions.setRatingResult = Result.failure(java.io.IOException("offline"))
+
+        repository.syncPendingRatings()
+
+        assertEquals(3, writeActions.serverRatings.size)
+        coVerify(exactly = 0) { localRatingDao.markSynced(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun should_stopAtOnce_when_theServiceKeepsNoRatings() = runTest {
+        ratingsWaiting(listOf(waitingRating("song-1", 7.4f, 4), waitingRating("song-2", 3.0f, 2)))
+        writeActions.setRatingResult = Result.failure(UnsupportedOperationException("no ratings here"))
+
+        repository.syncPendingRatings()
+
+        assertEquals(1, writeActions.serverRatings.size)
+        coVerify(exactly = 0) { localRatingDao.markSynced(any(), any(), any(), any()) }
     }
 
     @Test
@@ -916,6 +1020,9 @@ class YoinRepositoryTest {
         val serverRatings = mutableListOf<Int>()
         var holdNextRating: CompletableDeferred<Unit>? = null
 
+        /** A track's own answer, where it differs from [setRatingResult]. */
+        val ratingResultsByTrack = mutableMapOf<MediaId, Result<Unit>>()
+
         override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> =
             Result.failure(UnsupportedOperationException())
 
@@ -927,7 +1034,7 @@ class YoinRepositoryTest {
                 holdNextRating = null
                 hold.await()
             }
-            return setRatingResult
+            return ratingResultsByTrack[trackId] ?: setRatingResult
         }
 
         override suspend fun createPlaylist(name: String, description: String?): Result<Playlist> =

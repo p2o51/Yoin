@@ -46,6 +46,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.highlight.LyricHighlightSelector
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarEditLeftSlot
 import com.gpo.yoin.ui.component.BarEditPose
@@ -61,6 +62,7 @@ import com.gpo.yoin.ui.home.HomeGreetingTitle
 import com.gpo.yoin.ui.home.HomeHeaderTitleBreathing
 import com.gpo.yoin.ui.home.HomeLyricHighlight
 import com.gpo.yoin.ui.home.HomeSection
+import com.gpo.yoin.ui.home.HomeSpotifyElsewherePill
 import com.gpo.yoin.ui.home.HomeWidgetGridSection
 import com.gpo.yoin.ui.home.LyricHighlightSection
 import com.gpo.yoin.ui.home.MemoryBubbleController
@@ -280,6 +282,70 @@ internal fun AccountQuickSwitchDemo(playing: Boolean) {
                     inlineFan = true,
                     modifier = Modifier.demoTarget("account"),
                 )
+            },
+        )
+    }
+}
+
+/**
+ * Opened in a non-Spotify account while the signed-in Spotify one plays: the
+ * header's pill (Home's own HomeSpotifyElsewherePill) shows the song beside
+ * the avatar; the finger taps it and Spotify's account is the one in use.
+ */
+@Composable
+internal fun SpotifyElsewhereDemo(playing: Boolean) {
+    val accounts = DemoAccounts
+    val spotify = accounts.first { it.provider == ProviderKind.SPOTIFY }
+    var activeId by remember { mutableStateOf(accounts[0].id) }
+    var shown by remember { mutableStateOf(false) }
+    val covers = demoCoverUrls()
+    val elsewhere = remember(covers, spotify) {
+        val album = DemoAlbums[3]
+        SpotifyElsewhere(
+            profileId = spotify.id,
+            trackTitle = DemoTrackTitles[0],
+            artistName = album.artist,
+            coverUrl = covers.getOrNull(3),
+            isPlaying = true,
+        )
+    }
+    DemoPhone(playing = playing, script = {
+        activeId = accounts[0].id
+        shown = false
+        delay(700)
+        // The app comes to the front: Spotify's song shows up top.
+        shown = true
+        delay(1_600)
+        moveTo("spotify-pill")
+        tap {
+            shown = false
+            activeId = spotify.id
+        }
+        lift()
+        delay(2_000)
+    }) {
+        DemoHomePage(
+            editProgress = { 0f },
+            editing = false,
+            onEnterEdit = {},
+            onDone = {},
+            cardScope = null,
+            headerAction = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    HomeSpotifyElsewherePill(
+                        elsewhere = elsewhere,
+                        visible = shown,
+                        onClick = {
+                            shown = false
+                            activeId = spotify.id
+                        },
+                        modifier = Modifier.demoTarget("spotify-pill"),
+                    )
+                    HomeAccountButton(
+                        card = accounts.first { it.id == activeId },
+                        onClick = {},
+                    )
+                }
             },
         )
     }

@@ -15,8 +15,6 @@
     <string name="playlist_backup_delete_title">删除这个备份？</string>
     <string name="playlist_backup_delete_body">会从本机和同步的设备上删除。</string>
     <string name="playlist_backup_cancel">取消</string>
-    <string name="playlist_backup_section_source">备份自</string>
-    <string name="playlist_backup_backed_up">备份时间</string>
     <string name="playlist_backup_section_songs">歌曲</string>
     <string name="playlist_backup_section_unexported">未能备份</string>
     <string name="playlist_backup_section_restores">恢复记录</string>
@@ -44,7 +42,6 @@
     <string name="playlist_restore_added">已添加</string>
     <string name="playlist_restore_skipped">已跳过</string>
     <string name="playlist_restore_not_found">未找到</string>
-    <string name="playlist_restore_candidates">候选</string>
     <string name="playlist_restore_create">创建歌单</string>
     <string name="playlist_restore_writing">正在 %1$s 上创建</string>
     <string name="playlist_restore_done">已在 %1$s 上创建</string>

@@ -40,6 +40,9 @@ sealed interface NanoAnswer {
 interface LyricHighlightModel {
     suspend fun status(): NanoStatus
 
+    /** Why the last [status] said UNAVAILABLE, when AICore gave a reason (shown in Yoin Labs). */
+    val unavailableReason: String? get() = null
+
     suspend fun baseModelName(): String?
 
     /** Fetches the model when [status] says DOWNLOADABLE; true once it is on the device. */
@@ -59,6 +62,10 @@ class GeminiNanoLyricModel : LyricHighlightModel {
     private val lock = Mutex()
     private var client: GenerativeModel? = null
 
+    @Volatile
+    override var unavailableReason: String? = null
+        private set
+
     private fun client(): GenerativeModel = client ?: Generation.getClient(
         generationConfig {
             // Accuracy over speed: the answer is ~15 tokens, so FULL costs little more than FAST.
@@ -68,7 +75,10 @@ class GeminiNanoLyricModel : LyricHighlightModel {
 
     override suspend fun status(): NanoStatus = lock.withLock {
         try {
-            when (client().checkStatus()) {
+            val raw = client().checkStatus()
+            unavailableReason = if (raw == FeatureStatus.UNAVAILABLE) "FeatureStatus.UNAVAILABLE" else null
+            Log.i(TAG, "Gemini Nano status: $raw")
+            when (raw) {
                 FeatureStatus.AVAILABLE -> NanoStatus.AVAILABLE
                 FeatureStatus.DOWNLOADABLE -> NanoStatus.DOWNLOADABLE
                 FeatureStatus.DOWNLOADING -> NanoStatus.DOWNLOADING
@@ -76,9 +86,15 @@ class GeminiNanoLyricModel : LyricHighlightModel {
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
-            // No AICore at all (most devices) throws rather than answering UNAVAILABLE.
-            Log.i(TAG, "Gemini Nano unavailable: ${e.javaClass.simpleName} ${e.message}")
+        } catch (e: Throwable) {
+            // No AICore at all (most devices) throws rather than answering UNAVAILABLE. Throwable, not Exception:
+            // a linkage error here used to end the check silently, so Home never learned anything (11-09).
+            val reason = (e as? GenAiException)?.let { "GenAiException ${it.errorCode}" } ?: e.javaClass.simpleName
+            unavailableReason = listOfNotNull(reason, e.message?.take(120)).joinToString(": ")
+            Log.i(TAG, "Gemini Nano unavailable: $unavailableReason")
+            // A client that failed to set up is not reused: the next check builds a fresh one.
+            runCatching { client?.close() }
+            client = null
             NanoStatus.UNAVAILABLE
         }
     }
@@ -91,7 +107,7 @@ class GeminiNanoLyricModel : LyricHighlightModel {
             end is DownloadStatus.DownloadCompleted
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.i(TAG, "Gemini Nano download failed: ${e.javaClass.simpleName} ${e.message}")
             false
         }

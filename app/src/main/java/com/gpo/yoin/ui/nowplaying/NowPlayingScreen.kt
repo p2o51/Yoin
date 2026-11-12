@@ -1074,6 +1074,8 @@ private fun PlayingContent(
             onCastClick = onCastClick,
             backPreview = backPreview,
             onStageBack = onStageBack,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
             modifier = modifier.voteHighFrameRate(posturing),
         )
         NowPlayingPresentation.Tabletop -> TabletopPlayingContent(
@@ -2792,13 +2794,15 @@ private fun WidePlayingContent(
                             songId = state.songId,
                             coverArtUrl = state.coverArtUrl,
                             revealDirection = skipDirection,
-                            // NO shared element in Wide. A fillMaxWidth shared cover
-                            // resolves to an UNBOUNDED width in the shared-transition
-                            // lookahead and propagates Constraints.Infinity into the
-                            // shell bar's measurement — which crashes. Drop the
-                            // mini→cover morph here; the cover simply appears.
-                            sharedTransitionScope = null,
-                            animatedVisibilityScope = null,
+                            // The pill's cover grows into this one (PillMorph.Cover)
+                            // when the two columns open or close over the bar. It must
+                            // stay BOUNDED: a fillMaxWidth shared cover resolved to an
+                            // unbounded width in the shared-transition lookahead and
+                            // propagated Constraints.Infinity into the shell bar's
+                            // measurement, which crashed. The explicit size(coverSize)
+                            // below is that bound — keep it.
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
                             interactionSource = coverInteraction,
                             menu = coverMenu,
                             modifier = Modifier
@@ -3272,6 +3276,9 @@ private fun LandscapePlayingContent(
     backPreview: StageBackPreview = StageBackPreview.Rest,
     // The header arrow in Expanded steps the stage back, like system back.
     onStageBack: () -> Boolean = { false },
+    // The edge capsule's upright pill grows into the cover (PillMorph.Cover).
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val lyricsSearchBarState = rememberSearchBarState()
@@ -3439,9 +3446,11 @@ private fun LandscapePlayingContent(
                 songId = state.songId,
                 coverArtUrl = state.coverArtUrl,
                 revealDirection = skipDirection,
-                // Lookahead-safe: no shared element outside the phone column.
-                sharedTransitionScope = null,
-                animatedVisibilityScope = null,
+                // The pill's cover grows into this one. Bounded: the Box above
+                // sizes it, so the shared-transition lookahead never meets an
+                // unbounded constraint.
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
                 interactionSource = coverInteraction,
                 menu = coverMenu,
                 modifier = Modifier
@@ -4677,36 +4686,6 @@ private fun CoverTransitionOverlay(
 }
 
 @Composable
-private fun DockedHeaderText(
-    state: NowPlayingUiState.Playing,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.padding(vertical = 2.dp, horizontal = 4.dp)) {
-        Text(
-            text = when (state.activityContext) {
-                is ActivityContext.Album -> stringResource(R.string.np_dock_playing_from_album)
-                is ActivityContext.Playlist -> stringResource(R.string.np_dock_playing_from_playlist)
-                is ActivityContext.Artist -> stringResource(R.string.np_dock_playing_from_artist)
-                is ActivityContext.LikedSongs,
-                ActivityContext.None,
-                -> stringResource(R.string.np_dock_now_playing)
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = state.songTitle,
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
 internal fun StageTabs(
     selected: NowPlayingDetailPage,
     detailProgress: Float,
@@ -5793,15 +5772,12 @@ private val HeroOneLineGap = 12.dp
 private const val HeroStackSplit = 0.6f
 private const val HeroOneLineArtistShare = 0.4f
 
-/** Enlarged phone: the tab row grows to hold the lyric tools at its end. */
-private val EnlargedTabRowHeight = 44.dp
+/** Enlarged phone: the lyric tools at the end of the tab row. */
 private val EnlargedTabToolSize = 44.dp
 private val ShortTabToolSize = 40.dp
 
 private val WideColumnGap = 24.dp
 private val WideFramePadding = 24.dp
-
-/** BottomPills' default pill height, as the two-pane top bar sets them. */
 
 /** The standard rating column beside the two-pane cover (the side minus its gap). */
 private val DualPaneRatingColumn = 56.dp

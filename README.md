@@ -48,15 +48,15 @@ commit [`ec1dc15f`](https://github.com/p2o51/Yoin/commit/ec1dc15f03526272141c228
 
 Versions are taken from [`gradle/libs.versions.toml`](gradle/libs.versions.toml).
 
-- Kotlin 2.3.20, Android Gradle Plugin 9.1.0, minSdk 26, targetSdk 36
-- Jetpack Compose (BOM 2026.03.01), Material 3 1.5.0-alpha16 with the Expressive APIs
+- Kotlin 2.4.21, Android Gradle Plugin 9.2.1, minSdk 26, targetSdk 36, compileSdk 37
+- Jetpack Compose (BOM 2026.09.00), Material 3 1.5.0-alpha27 with the Expressive APIs
 - Navigation 3 1.1.2 for the detail column on large screens
-- Media3 1.10.0 with a `MediaSession` playback service
-- Room 2.8.4 for local data, kotlinx.serialization 1.8.0
-- Retrofit 2.11.0 and OkHttp 5.0.0-alpha.14, Coil 3.4.0 for images
+- Media3 1.11.1 with a `MediaSession` playback service
+- Room 2.8.5 for local data, kotlinx.serialization 1.12.0
+- Retrofit 3.0.0 and OkHttp 5.5.1, Coil 3.4.0 for images
 - Glance 1.2.0 for home-screen widgets
 - MVVM with `StateFlow`, manual dependency injection
-- Tests: JUnit 4, Robolectric 4.16.1, Turbine 1.2.0, MockK 1.13.16
+- Tests: JUnit 4, Robolectric 4.17, Turbine 1.2.1, MockK 1.14.11
 
 ```mermaid
 flowchart TD
@@ -97,7 +97,7 @@ Yoin 0.5 is in a closed test on Google Play for Android 8.0 and later. See [yoin
 
 ## Build
 
-You need JDK 17 or newer (Android Studio's bundled JBR works) and the Android SDK for API 36.
+You need JDK 17 or newer (Android Studio's bundled JBR works) and the Android SDK for API 37 (`compileSdk`).
 
 The project does not build without these:
 

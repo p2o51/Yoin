@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -38,6 +39,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
@@ -54,6 +56,9 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.home.edit.HomeEditController
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerActivity
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerViewModel
 import com.gpo.yoin.ui.settings.ProfileCard
 import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -71,10 +76,12 @@ private const val HomeLoadingIndicatorDelayMillis = 180L
 
 private val NoOtherProfileItems = MutableStateFlow(emptyList<OtherProfileItem>())
 private val NoticeAlreadySeen = MutableStateFlow(true)
+private val NoSpotifyElsewhere = MutableStateFlow<SpotifyElsewhere?>(null)
 private val NoLyricIntro = MutableStateFlow<LyricHighlightIntro?>(null)
 private val NoLyricHighlights = MutableStateFlow<List<HomeLyricHighlight>>(emptyList())
 private val NoLyricHighlightDevice = MutableStateFlow(false)
 private val NoNanoTestLog = MutableStateFlow<List<String>>(emptyList())
+private val NoMemoryLedger = MutableStateFlow<MemoryLedgerState?>(null)
 
 /** How Home's hold on the header avatar ends ([HomeAccountHold]). */
 private enum class HomeHoldEnd { HandBack, FadeAway, Release }
@@ -118,8 +125,12 @@ fun HomeScreen(
     otherProfiles: OtherProfilesViewModel? = null,
     // 「歌词一句」: the Gemini Nano lyric line (null = no section).
     lyricHighlights: LyricHighlightViewModel? = null,
+    // The Memories grid's ledger (null = no grid).
+    memoryLedger: MemoryLedgerViewModel? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val memoryLedgerState by (memoryLedger?.state ?: NoMemoryLedger).collectAsState()
+    val context = LocalContext.current
     val loadingReportsPressure by viewModel.loadingReportsPressure.collectAsState()
     val homeLayout by viewModel.homeLayout.collectAsState()
     // A section new since the last edit session waits in the tray (Q6a).
@@ -136,6 +147,20 @@ fun HomeScreen(
     LifecycleStartEffect(lyricHighlights) {
         lyricHighlights?.onHomeShown()
         onStopOrDispose { }
+    }
+    // Another signed-in Spotify account's playback: looked up each time the
+    // app comes to the front, shown 5 s (owner 2026-11-10), dropped on leaving.
+    val spotifyElsewhere by (otherProfiles?.spotifyElsewhere ?: NoSpotifyElsewhere).collectAsState()
+    LifecycleStartEffect(otherProfiles) {
+        otherProfiles?.peekSpotifyElsewhere()
+        onStopOrDispose { otherProfiles?.dismissSpotifyElsewhere() }
+    }
+    val spotifyElsewhereUp = spotifyElsewhereVisible(spotifyElsewhere, yoinPlaying = isPlaying)
+    // Its 5 s count only while the header can be seen: not under Loading
+    // (no header yet), nor behind Now Playing or the detail pane.
+    val spotifyElsewhereOnScreen = spotifyElsewhereUp && uiState is HomeUiState.Content && !homeCovered
+    SpotifyElsewhereTimer(spotifyElsewhere, spotifyElsewhereUp, spotifyElsewhereOnScreen) {
+        otherProfiles?.dismissSpotifyElsewhere()
     }
     // The item whose first tap asks before switching (the one-off notice).
     var confirmingItem by remember { mutableStateOf<OtherProfileItem?>(null) }
@@ -198,6 +223,15 @@ fun HomeScreen(
             onActivityArtistsShown = viewModel::onActivityArtistsShown,
             onFeedAtRestChanged = viewModel::onFeedAtRestChanged,
             onHideJbiCard = viewModel::hideJbiCard,
+            spotifyElsewhere = spotifyElsewhere,
+            spotifyElsewhereUp = spotifyElsewhereUp,
+            onSpotifyElsewhereClick = { elsewhere ->
+                // Nothing plays in Yoin while the pill is up, so the switch
+                // stops nothing: no notice. Spotify's own playback is picked
+                // up by the account once it is in use.
+                otherProfiles?.dismissSpotifyElsewhere()
+                accountSwitcher?.switchTo(elsewhere.profileId)
+            },
             otherProfileItems = otherProfileItems,
             onOtherProfileItemClick = { item ->
                 if (otherProfilesNoticeSeen) {
@@ -213,6 +247,8 @@ fun HomeScreen(
             lyricIntro = lyricIntro,
             onLyricIntroOptIn = { lyricHighlights?.optIn() },
             onLyricIntroDismiss = { lyricHighlights?.dismissIntro() },
+            memoryLedger = memoryLedgerState,
+            onOpenMemoryLedger = { context.startActivity(MemoryLedgerActivity.intent(context)) },
         )
     }
 }
@@ -265,6 +301,10 @@ fun HomeContent(
     accountNeedsReconnect: Boolean = false,
     accountQuickSwitch: HomeAccountQuickSwitch? = null,
     loadingReportsPressure: Boolean = true,
+    // Another Spotify account's playback in the header, whether it is up, a tap on it.
+    spotifyElsewhere: SpotifyElsewhere? = null,
+    spotifyElsewhereUp: Boolean = false,
+    onSpotifyElsewhereClick: (SpotifyElsewhere) -> Unit = {},
     // On Your Other Accounts' items, and a tap on one.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
@@ -275,6 +315,9 @@ fun HomeContent(
     lyricIntro: LyricHighlightIntro? = null,
     onLyricIntroOptIn: () -> Unit = {},
     onLyricIntroDismiss: () -> Unit = {},
+    // The Memories grid, and opening All Memories.
+    memoryLedger: MemoryLedgerState? = null,
+    onOpenMemoryLedger: () -> Unit = {},
 ) {
     ReportMotionPressure(
         tag = "home",
@@ -448,6 +491,9 @@ fun HomeContent(
                                 albumMemoryMarks = feed.albumMemoryMarks,
                                 playlists = feed.playlists,
                                 recentlyPlayed = feed.recentlyPlayed,
+                                spotifyElsewhere = spotifyElsewhere,
+                                spotifyElsewhereUp = spotifyElsewhereUp,
+                                onSpotifyElsewhereClick = onSpotifyElsewhereClick,
                                 otherProfileItems = otherProfileItems,
                                 onOtherProfileItemClick = onOtherProfileItemClick,
                                 lyricHighlights = lyricHighlights,
@@ -457,6 +503,8 @@ fun HomeContent(
                                 lyricIntro = lyricIntro,
                                 onLyricIntroOptIn = onLyricIntroOptIn,
                                 onLyricIntroDismiss = onLyricIntroDismiss,
+                                memoryLedger = memoryLedger,
+                                onOpenMemoryLedger = onOpenMemoryLedger,
                                 memoryPill = feed.memoryPill,
                                 homeCovered = homeCovered,
                                 sections = sections,

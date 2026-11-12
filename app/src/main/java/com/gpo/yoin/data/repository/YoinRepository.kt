@@ -1956,18 +1956,55 @@ class YoinRepository(
             .associateBy { MediaId(it.provider, it.songId) }
     }
 
+    private val ratingRetries = Mutex()
+
+    /**
+     * Sends again the ratings the active service hasn't taken: written offline, while its
+     * server was down, or just before a switch away ([pushRating] leaves those marked
+     * needsSync). Called when an account becomes active and when a network comes back
+     * (AppContainer.retryPendingRatings).
+     *
+     * One at a time behind [ratingPushes], like a fresh rating's own push, and never over a
+     * newer one: each row is read again right before it goes, and its flag is cleared by
+     * [com.gpo.yoin.data.local.LocalRatingDao.markSynced], which leaves a rating changed
+     * meanwhile alone.
+     *
+     * Ends early when nothing more will go through: the service keeps no ratings (Spotify and
+     * Apple Music: they stay local), the account changed, or [RATING_RETRY_MAX_FAILURES] sends
+     * in a row failed (still offline). One rating the server refuses for its own reasons (the
+     * song is gone there) is passed over, so it never holds the others back.
+     */
     suspend fun syncPendingRatings() {
-        val source = activeSource.value ?: return
-        val profileId = activeProfileId.value ?: return
-        val pending = database.localRatingDao()
-            .getRatingsNeedingSync(source.id, profileId)
-            .first()
-        for (rating in pending) {
-            if (rating.provider != source.id) continue
-            val trackId = MediaId(rating.provider, rating.songId)
-            source.writeActions().setRating(trackId, rating.serverRating).onSuccess {
-                database.localRatingDao().upsert(rating.copy(needsSync = false))
+        if (!ratingRetries.tryLock()) return
+        try {
+            val source = activeSource.value ?: return
+            val profileId = activeProfileId.value ?: return
+            val dao = database.localRatingDao()
+            var failuresInARow = 0
+            for (waiting in dao.getRatingsNeedingSync(source.id, profileId).first()) {
+                val goOn = ratingPushes.withLock {
+                    // The account moved on: these ratings are another server's now.
+                    if (activeProfileId.value != profileId || activeSource.value !== source) return@withLock false
+                    // A rating written since has its own push on the way.
+                    if (newestRatings.containsKey(RatingKey(waiting))) return@withLock true
+                    val row = dao.getRatings(listOf(waiting.songId), waiting.provider, profileId).firstOrNull()
+                    if (row == null || !row.needsSync) return@withLock true
+                    val error = source.writeActions()
+                        .setRating(MediaId(row.provider, row.songId), row.serverRating)
+                        .onSuccess { dao.markSynced(row.songId, row.provider, row.profileId, row.rating) }
+                        .exceptionOrNull()
+                    when (error) {
+                        null -> failuresInARow = 0
+                        is CancellationException -> throw error
+                        is UnsupportedOperationException -> return@withLock false
+                        else -> failuresInARow++
+                    }
+                    failuresInARow < RATING_RETRY_MAX_FAILURES
+                }
+                if (!goOn) return
             }
+        } finally {
+            ratingRetries.unlock()
         }
     }
 
@@ -3906,6 +3943,9 @@ private fun List<SongNoteKey>.toMediaIdSet(): Set<MediaId> =
 
 /** Well under SQLite's old 999-value limit, with room for the query's own values. */
 private const val NOTE_KEYS_PER_QUERY = 500
+
+/** Failed sends in a row after which a pass over the waiting ratings gives up (the server can't be reached). */
+private const val RATING_RETRY_MAX_FAILURES = 3
 
 /** Background detail refreshes in flight at once ([YoinRepository]'s revalidation). */
 private const val DETAIL_REVALIDATE_PARALLELISM = 2

@@ -6,7 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,6 +61,7 @@ class ArtistDetailActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalSharedTransitionApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
@@ -147,7 +148,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     onAddToPlaylist = null,
                 )
 
-                Box(modifier = Modifier.fillMaxSize()) {
+                DetailNowPlayingWindow(nowPlayingFrame, nowPlayingOpen) { nowPlayingMorph ->
                 ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                 ArtistDetailScreen(
                     uiState = uiState,
@@ -212,6 +213,8 @@ class ArtistDetailActivity : ComponentActivity() {
                     onArtistClick = { id -> openFromNowPlaying(DetailPageKind.Artist, id) },
                     onPlaylistClick = { id -> openFromNowPlaying(DetailPageKind.Playlist, id) },
                     panelMotion = nowPlayingPanelMotion,
+                    // The pill on this page's bar grows into the player's cover.
+                    sharedTransitionScope = nowPlayingMorph,
                 )
                 NowPlayingAccessories(
                     viewModel = nowPlayingViewModel,

@@ -135,6 +135,7 @@ import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.home.LocalMemoryBubbleShell
 import com.gpo.yoin.ui.home.LyricHighlightViewModel
 import com.gpo.yoin.ui.home.OtherProfilesViewModel
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerViewModel
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.rememberHomeEditController
 import com.gpo.yoin.ui.home.rememberMemoryBubbleShell
@@ -178,6 +179,7 @@ import com.gpo.yoin.ui.nowplaying.LocalNowPlayingPanelBeside
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingPanelMinContentWidth
 import com.gpo.yoin.ui.nowplaying.NowPlayingPresentation
+import com.gpo.yoin.ui.nowplaying.PillMorph
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
@@ -189,6 +191,8 @@ import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingStageProgress
+import com.gpo.yoin.ui.nowplaying.rememberPillMorph
+import com.gpo.yoin.ui.nowplaying.rememberShownNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberWindowWidthDp
 import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -455,8 +459,11 @@ private fun YoinShell(
     val npFrame = rememberNowPlayingFrame(nowPlayingViewModel, npPanelMinContent)
     val npPanelMotion = rememberNowPlayingPanelMotion()
     val npPanel = rememberNowPlayingPanelInset(npFrame, showNowPlaying, npPanelMotion)
-    val npSharesCover = npFrame.presentation == NowPlayingPresentation.Phone ||
-        npFrame.presentation == NowPlayingPresentation.Tabletop
+    // The bar's end of the pill morph: the same shown frame and open/close
+    // latch as NowPlayingOverlayHost, so the two ends never disagree.
+    val npShownFrame = rememberShownNowPlayingFrame(showNowPlaying, npFrame)
+    val npPillMorph = rememberPillMorph(showNowPlaying, npShownFrame.presentation)
+    val npSharesCover = npPillMorph != PillMorph.None
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
     )
@@ -892,6 +899,8 @@ private fun YoinShell(
     val otherProfiles: OtherProfilesViewModel = viewModel(factory = OtherProfilesViewModel.Factory(app.container, app))
     // Home's 「歌词一句」: the Gemini Nano lyric line, on devices that have Nano.
     val lyricHighlights: LyricHighlightViewModel = viewModel(factory = LyricHighlightViewModel.Factory(app.container))
+    // Home's Memories grid: every account's memories, kept fresh as they're written.
+    val memoryLedger: MemoryLedgerViewModel = viewModel(factory = MemoryLedgerViewModel.Factory(app.container))
     val switchFailedMessage by rememberUpdatedState(stringResource(R.string.settings_switch_failed))
     LaunchedEffect(accountSwitcher) {
         accountSwitcher.switchFailures.collect {
@@ -1042,6 +1051,7 @@ private fun YoinShell(
                                 accountSwitcher = accountSwitcher,
                                 otherProfiles = otherProfiles,
                                 lyricHighlights = lyricHighlights,
+                                memoryLedger = memoryLedger,
                                 isPlaying = isPlaying,
                                 activeSongId = currentTrack?.id?.toString(),
                                 // Something above Home owns the screen (Now
@@ -1598,13 +1608,15 @@ private fun YoinShell(
                             experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
                             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                         },
-                        // Only the full-window phone column (and Tabletop) takes the
-                        // mini-player → cover morph; the side panel, the enlarged
-                        // phone and the two-column player drop it. Leaving the mini
-                        // cover's shared element here would make it a no-peer
-                        // shared element, which the SharedTransitionLayout
-                        // lookahead measures with degenerate constraints — so the
-                        // shell's side is disabled exactly where NP's is.
+                        // The mini-player → player morph wherever the player covers
+                        // the bar (PillMorph): the phone column, the enlarged phone and
+                        // the two columns (opened where no panel fits, or closed from
+                        // their full state), and landscape; the side panel drops it, and
+                        // so does the bar moving for the corner toggle (rememberPillMorph).
+                        // Leaving the mini cover's shared element where NP has none
+                        // would make it a no-peer shared element, which the
+                        // SharedTransitionLayout lookahead measures with degenerate
+                        // constraints — so the shell's side follows NP's exactly.
                         sharedTransitionScope = if (npSharesCover) {
                             sharedTransitionScope
                         } else {
@@ -1615,6 +1627,7 @@ private fun YoinShell(
                         } else {
                             null
                         },
+                        morphPillText = npPillMorph == PillMorph.CoverAndText,
                     )
                 }
             }

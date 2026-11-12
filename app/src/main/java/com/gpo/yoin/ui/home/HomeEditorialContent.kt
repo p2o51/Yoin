@@ -115,6 +115,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.Album
@@ -157,6 +158,7 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.memories.ledger.MemoryLedgerState
 import com.gpo.yoin.ui.home.edit.AllHiddenKey
 import com.gpo.yoin.ui.home.edit.FooterEntryKey
 import com.gpo.yoin.ui.home.edit.GatedPlacementSpec
@@ -307,8 +309,16 @@ internal fun HomeEditorialContent(
     lyricIntro: LyricHighlightIntro? = null,
     onLyricIntroOptIn: () -> Unit = {},
     onLyricIntroDismiss: () -> Unit = {},
+    // The Memories grid (HomeMemoryLedger.kt; null = not loaded) and opening All Memories.
+    memoryLedger: MemoryLedgerState? = null,
+    onOpenMemoryLedger: () -> Unit = {},
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
+    // Another Spotify account's playback (HomeSpotifyElsewherePill), whether it
+    // is up (the Memories bubble keeps quiet meanwhile), and a tap on it.
+    spotifyElsewhere: SpotifyElsewhere? = null,
+    spotifyElsewhereUp: Boolean = false,
+    onSpotifyElsewhereClick: (SpotifyElsewhere) -> Unit = {},
     // Something above Home owns the screen (Now Playing, the detail column):
     // the Memories bubble keeps quiet.
     homeCovered: Boolean = false,
@@ -720,6 +730,7 @@ internal fun HomeEditorialContent(
         lyricHighlightAvailable,
         nanoTestLog.isNotEmpty(),
         lyricIntro != null,
+        memoryLedger,
     ) {
         derivedStateOf(structuralEqualityPolicy()) {
             homeFeedBlocks(
@@ -740,6 +751,7 @@ internal fun HomeEditorialContent(
                         HomeSection.OtherProfiles -> otherProfileItems.isNotEmpty()
                         HomeSection.LyricHighlight ->
                             lyricIntro != null || lyricHighlights.isNotEmpty() || nanoTestLog.isNotEmpty()
+                        HomeSection.MemoryGrid -> memoryLedger?.isEmpty == false
                     }
                 },
                 available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
@@ -912,6 +924,7 @@ internal fun HomeEditorialContent(
         recentlyPlayed,
         otherProfileItems,
         lyricHighlights,
+        memoryLedger,
         buildCoverArtUrl,
         stripShapes,
     ) {
@@ -927,6 +940,7 @@ internal fun HomeEditorialContent(
                 recentlyPlayed = recentlyPlayed,
                 otherProfileItems = otherProfileItems,
                 lyricHighlights = lyricHighlights,
+                memoryLedger = memoryLedger,
                 buildCoverArtUrl = buildCoverArtUrl,
                 shapes = stripShapes,
             )
@@ -1016,6 +1030,9 @@ internal fun HomeEditorialContent(
                         onNavigateToMemories = onNavigateToMemories,
                         memoriesHintProgress = memoriesHintProgress,
                         memoryPill = memoryPill,
+                        spotifyElsewhere = spotifyElsewhere,
+                        spotifyElsewhereUp = spotifyElsewhereUp,
+                        onSpotifyElsewhereClick = onSpotifyElsewhereClick,
                         // The pill surfaces on the feed's last launch beat.
                         memoryPillReveal = { firstReveal.payload },
                         extractBackdropColors = shouldExtractBackdropColors,
@@ -1303,6 +1320,23 @@ internal fun HomeEditorialContent(
                                             )
                                     },
                                 )
+
+                                // Every memory on a grid; a tap opens All Memories.
+                                HomeSection.MemoryGrid -> memoryLedger?.let { ledger ->
+                                    MemoryLedgerSection(
+                                        state = ledger,
+                                        extractBackdropColors = shouldExtractBackdropColors,
+                                        onOpen = onOpenMemoryLedger,
+                                        modifier = remember(firstReveal) {
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .stagedBeat(
+                                                    progress = { firstReveal.payload },
+                                                    rise = 16.dp,
+                                                )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -1349,7 +1383,8 @@ internal fun HomeEditorialContent(
                     // It speaks once the feed's launch reveal has landed.
                     revealProgress = { firstReveal.payload },
                     scrolledPx = { listState.seamScrolledPx() },
-                    covered = homeCovered,
+                    // Spotify's pill has the header for its 5 s: the bubble keeps quiet.
+                    covered = homeCovered || spotifyElsewhereUp,
                     extractBackdropColors = shouldExtractBackdropColors,
                     onOpenMemoryFocus = { sessionId -> onOpenMemoryFocusState.value(sessionId) },
                     onNavigateToMemories = onNavigateToMemories,
@@ -1557,6 +1592,7 @@ private fun homeStripCovers(
     recentlyPlayed: List<Album>,
     otherProfileItems: List<OtherProfileItem>,
     lyricHighlights: List<HomeLyricHighlight>,
+    memoryLedger: MemoryLedgerState?,
     buildCoverArtUrl: (String) -> String,
     shapes: HomeStripShapes,
 ): List<StripCover> {
@@ -1599,6 +1635,12 @@ private fun homeStripCovers(
         HomeSection.LyricHighlight -> lyricHighlights.take(count).map { card ->
             stripCover(resolveHomeCoverArtUrl(CoverRef.fromStorageKey(card.coverKey), buildCoverArtUrl), shapes.song)
         }
+        // The albums the latest memories are about, newest first.
+        HomeSection.MemoryGrid -> memoryLedger?.entries.orEmpty()
+            .mapNotNull { entry -> entry.album?.let { memoryLedger?.coverUrls?.get(it.key) } }
+            .distinct()
+            .take(count)
+            .map { url -> stripCover(url, shapes.album) }
     }
 }
 
@@ -1626,6 +1668,9 @@ private fun HomeContentHeader(
     bubbleController: MemoryBubbleController? = null,
     memoryPill: HomeMemoryPill? = null,
     memoryPillReveal: () -> Float = { 1f },
+    spotifyElsewhere: SpotifyElsewhere? = null,
+    spotifyElsewhereUp: Boolean = false,
+    onSpotifyElsewhereClick: (SpotifyElsewhere) -> Unit = {},
     extractBackdropColors: Boolean = false,
     onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
     // Landscape handset: a 28sp title (LandscapeHome).
@@ -1667,6 +1712,12 @@ private fun HomeContentHeader(
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
+                HomeSpotifyElsewherePill(
+                    elsewhere = spotifyElsewhere,
+                    visible = spotifyElsewhereUp,
+                    onClick = onSpotifyElsewhereClick,
+                    modifier = Modifier.then(iconSemantics),
+                )
             }
         } else {
             // The Memories entry takes whatever the title and Settings leave, and
@@ -1688,6 +1739,13 @@ private fun HomeContentHeader(
                         .then(iconSemantics),
                 )
                 HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
+                // Spotify's pill stands over the Memories entry for its 5 s.
+                HomeSpotifyElsewherePill(
+                    elsewhere = spotifyElsewhere,
+                    visible = spotifyElsewhereUp,
+                    onClick = onSpotifyElsewhereClick,
+                    modifier = Modifier.then(iconSemantics),
+                )
             }
         }
         Spacer(modifier = Modifier.width(2.dp))

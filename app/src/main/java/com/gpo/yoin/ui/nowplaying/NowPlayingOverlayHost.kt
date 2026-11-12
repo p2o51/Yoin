@@ -170,14 +170,13 @@ fun NowPlayingOverlayHost(
     // The frame this window gives Now Playing (断点交接 §3.4 / §14.1) — the
     // same resolution the host content beside a side panel reads.
     val liveFrame = rememberNowPlayingFrame(viewModel, panelMinContentWidth)
-    // The player leaves in the frame it was last SHOWN in: the shell can raise
-    // the panel floor (a detail column opening) in the same event that closes
-    // it, which would otherwise re-resolve the closing panel into the
-    // full-window two-column player for its whole exit.
-    val shownFrame = remember { arrayOfNulls<NowPlayingFrame>(1) }
-    if (expanded) shownFrame[0] = liveFrame
-    val frame = if (expanded) liveFrame else shownFrame[0] ?: liveFrame
+    // The player leaves in the frame it was last SHOWN in (see
+    // rememberShownNowPlayingFrame); the bar's morph gate reads the same.
+    val frame = rememberShownNowPlayingFrame(expanded, liveFrame)
     val presentation = frame.presentation
+    // The pill → cover morph for this open or close, as the bar computes it.
+    // Read only while the player enters or leaves — see coverMorph below.
+    val pillMorph = rememberPillMorph(expanded, presentation)
     val dualPaneNowPlaying = presentation == NowPlayingPresentation.DualPane
     val panelMode = presentation == NowPlayingPresentation.Panel
     // Medium or Wide full window: panel ⇄ Full (enlarged phone / two columns)
@@ -467,6 +466,18 @@ fun NowPlayingOverlayHost(
         modifier = Modifier.fillMaxSize(),
     ) {
         val npAvScope = this
+        // The cover's end of the pill morph. At rest it follows the shown
+        // presentation, so a cover toggled into a full state already carries
+        // its shared element (idle at rest) when a close starts — enabling it
+        // only in the close's first frame left the shared bounds nothing to
+        // animate from, and the cover jumped into the pill. While the player
+        // enters or leaves it takes the bar's latch, so a presentation change
+        // mid-transition drops the morph on both ends together.
+        val coverMorph = if (npAvScope.transition.currentState != npAvScope.transition.targetState) {
+            pillMorph
+        } else {
+            presentation.pillMorph
+        }
         // The player is gone (its exit finished): clear the dismiss pose and
         // the Full flag, so the next open starts as the panel from frame one.
         DisposableEffect(Unit) {
@@ -674,12 +685,10 @@ fun NowPlayingOverlayHost(
                         onSelectDevice = viewModel::selectDevice,
                         castState = castState,
                         onCastClick = { showCastDevicesSheet = true },
-                        // The pill → cover morph only where the phone column fills
-                        // the window; panel / enlarged / two-column bodies drop it
-                        // (bounded, lookahead-safe, and the pill folds away there).
+                        // The pill → cover morph wherever the player covers the bar
+                        // (PillMorph); the side panel opens beside it and drops it.
                         sharedTransitionScope = sharedTransitionScope.takeIf {
-                            presentation == NowPlayingPresentation.Phone ||
-                                presentation == NowPlayingPresentation.Tabletop
+                            coverMorph != PillMorph.None
                         },
                         animatedVisibilityScope = npAvScope,
                         // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,

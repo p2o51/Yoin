@@ -415,6 +415,9 @@ internal class SpotifyAppRemotePlayer(
         playModeWrite = null
         connectJob?.cancel()
         connectJob = null
+        // A silent retry still waiting out its delay would reconnect an account that was just left.
+        retryJob?.cancel()
+        retryJob = null
         replaceableOperationJob?.cancel()
         replaceableOperationJob = null
         pendingStart = null

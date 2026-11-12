@@ -11,7 +11,6 @@
     <string name="home_account_manage">Manage accounts</string>
     <string name="home_account_reconnect">Reconnect</string>
     <string name="home_account_reconnect_needed">Account needs reconnecting</string>
-    <string name="home_account_switch">Switch account</string>
     <string name="home_account_add">Add account</string>
     <string name="home_account_settings">Settings</string>
     <string name="home_edit_title">Edit Home</string>
@@ -33,7 +32,8 @@
     <string name="home_section_recently_played">Recently Played</string>
     <string name="home_section_your_playlists">Your Playlists</string>
     <string name="home_section_other_profiles">On Your Other Accounts</string>
-    <string name="home_section_lyric_highlight">In a Line</string>
+    <string name="home_section_lyric_highlight">Lyric Cards</string>
+    <string name="home_section_memory_grid">All Memories</string>
 
     <string name="home_section_activities_supporting">Your recent plays and visits</string>
     <string name="home_section_jump_back_in_supporting">Albums, songs and playlists</string>
@@ -42,7 +42,8 @@
     <string name="home_section_recently_played_supporting">Albums you played lately, on any device</string>
     <string name="home_section_your_playlists_supporting">Playlists in your library</string>
     <string name="home_section_other_profiles_supporting">Albums and playlists your other accounts play most</string>
-    <string name="home_section_lyric_highlight_supporting">One line from a song, picked on this phone by Gemini Nano</string>
+    <string name="home_section_lyric_highlight_supporting">Lyrics picked from your songs, tap to play from that line</string>
+    <string name="home_section_memory_grid_supporting">Every note and score, on a grid that grows with you</string>
 
     <string name="home_placeholder_activities">No recent activity</string>
     <string name="home_placeholder_jump_back_in">Nothing to jump back into</string>
@@ -52,6 +53,7 @@
     <string name="home_placeholder_your_playlists">No playlists in your library</string>
     <string name="home_placeholder_other_profiles">Nothing played on your other accounts lately</string>
     <string name="home_placeholder_lyric_highlight">Listen a while and Gemini Nano picks the first line</string>
+    <string name="home_placeholder_memory_grid">No memories yet</string>
 
     <string name="home_other_profiles_switch_title">Switch to %1$s?</string>
     <string name="home_other_profiles_switch_body">To play %1$s, Yoin switches to that account first. What\'s playing now stops.</string>
@@ -204,8 +206,12 @@
     <string name="home_cd_bubble_memories">Memories</string>
     <!-- Home bubble tips (owner 2026-10-17): one gesture or detail each, said between Memories. -->
     <!-- Tip page (ui/tips/TipScreen): "3 / 10" -->
-    <string name="home_tip_lyric_highlight_title">In a Line</string>
+    <string name="home_tip_labs_title">Yoin Labs</string>
+    <string name="home_tip_labs">Experimental features and the Gemini Nano model download are now in Settings &gt; Yoin Labs</string>
+    <string name="home_tip_lyric_highlight_title">Lyric Cards</string>
     <string name="home_tip_lyric_highlight">On phones with Gemini Nano, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up</string>
+    <string name="home_tip_memory_ledger_title">All Memories</string>
+    <string name="home_tip_memory_ledger">Tap All Memories on Home and tap a square on the grid to see just that time; switch between Timeline, Cards, and List below the grid on the right, with sorting in List</string>
     <string name="home_tip_memories_all_accounts_title">Memories across accounts</string>
     <string name="home_tip_memories_all_accounts">Memories includes all your accounts, and switches to that account first when you play or go to the album</string>
     <string name="home_tip_spotify_speakers_title">Connect more speakers</string>
@@ -243,4 +249,7 @@
     <string name="tip_read">Read</string>
     <string name="tip_next">Next</string>
     <string name="tip_done">Done</string>
+    <string name="home_spotify_elsewhere_cd">Playing on Spotify: %1$s, %2$s. Switch to Spotify</string>
+    <string name="home_tip_spotify_elsewhere_title">Switch to Spotify</string>
+    <string name="home_tip_spotify_elsewhere">While in another account, if Spotify is playing or paused on a song, tap the pill at the top of Home to switch to it</string>
 </resources>

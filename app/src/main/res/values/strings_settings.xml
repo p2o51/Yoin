@@ -25,9 +25,12 @@
     <!-- Settings shell -->
     <string name="settings_title">Settings</string>
     <string name="settings_section_features">Features</string>
-    <string name="settings_section_motion">Motion</string>
     <string name="settings_section_storage">Storage</string>
-    <string name="settings_section_about">About</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_section_sync_storage">Sync and storage</string>
+    <string name="settings_section_help_about">Help and about</string>
+    <string name="home_tip_settings_regrouped_title">Settings, regrouped</string>
+    <string name="home_tip_settings_regrouped">Settings is now grouped into Appearance, Sync and storage, and Help and about, with NeoDB under Sync and storage</string>
     <string name="settings_about_name" translatable="false">Yoin</string>
     <string name="settings_about_version">Version %1$s</string>
     <string name="settings_about_website">Website</string>
@@ -51,7 +54,6 @@
     <string name="settings_cd_account_options_card">Options for %1$s</string>
     <string name="settings_cd_manage_account">Manage account</string>
     <string name="settings_cd_switch_account">Switch to this account</string>
-    <string name="settings_account_in_use">In use</string>
     <string name="settings_account_reconnect">Reconnect</string>
     <string name="settings_account_credentials_missing">Credentials missing</string>
     <string name="settings_spotify_no_client_id">No Client ID</string>
@@ -232,13 +234,9 @@
     <string name="settings_apple_status_need_service">Connect your Apple Music account to Yoin.</string>
     <string name="settings_apple_status_authorize">Complete authorization in Apple Music.</string>
     <string name="settings_apple_auth_start">Connect your Apple Music library and playback to Yoin.</string>
-    <string name="settings_apple_status_no_token">Couldn\'t connect</string>
     <string name="settings_apple_status_cancelled">Couldn\'t connect</string>
     <string name="settings_apple_status_subscription">Couldn\'t connect</string>
     <string name="settings_apple_status_auth_failed">Couldn\'t connect</string>
-    <string name="settings_apple_status_connected_store">Connected</string>
-    <string name="settings_apple_retry">Retry</string>
-    <string name="settings_apple_status_timeout">Couldn\'t connect</string>
     <string name="settings_apple_status_failed">Couldn\'t connect</string>
 
     <!-- Cloud sync -->
@@ -272,7 +270,6 @@
     <string name="settings_sync_unrecognized">Google didn\'t recognize this build</string>
     <string name="settings_sync_fingerprint">%1$s\nSHA-1\n%2$s</string>
     <string name="settings_sync_reauth_body">Signed out of Google</string>
-    <string name="settings_sync_waiting_reconnect">Waiting for Google…</string>
     <string name="settings_sync_reconnect">Sign in</string>
     <string name="settings_sync_copy_removed_body">Drive copy removed</string>
     <string name="settings_sync_upload_again">Upload again</string>
@@ -405,4 +402,21 @@
         <item quantity="one">It was removed on this device from %1$s. Restore it here, or delete it on all your devices.</item>
         <item quantity="other">They were removed on this device from %1$s. Restore them here, or delete them on all your devices.</item>
     </plurals>
+    <!-- Yoin Labs (LabsPage.kt). Copy: Argon (Gemini), 2026-11-09. -->
+    <string name="settings_labs_title" translatable="false">Yoin Labs</string>
+    <string name="settings_labs_summary">Experimental features and Gemini Nano</string>
+    <string name="labs_intro">Experimental features we\'re trying out. They may change or be removed.</string>
+    <string name="labs_nano_section">On-device model</string>
+    <string name="labs_nano_name" translatable="false">Gemini Nano</string>
+    <string name="labs_nano_ready">Ready on this device</string>
+    <string name="labs_nano_downloadable">Supported, model not downloaded yet</string>
+    <string name="labs_nano_downloading">Downloading model…</string>
+    <string name="labs_nano_unsupported">Not supported on this phone</string>
+    <string name="labs_nano_checking">Checking…</string>
+    <string name="labs_nano_download">Download model</string>
+    <string name="labs_nano_check_again">Check again</string>
+    <string name="labs_nano_download_note">Downloaded by Android (AICore). It\'s a few GB, so Wi‑Fi is recommended.</string>
+    <string name="labs_features_section">Experimental features</string>
+    <string name="labs_lyrics_detail">Show lyrics picked on this phone on Home, and tap to play from that line</string>
+    <string name="labs_lyrics_no_nano">Lines you share or save on the lyrics page still show up on Home.</string>
 </resources>
