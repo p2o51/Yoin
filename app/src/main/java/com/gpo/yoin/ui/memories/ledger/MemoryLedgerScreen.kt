@@ -256,7 +256,13 @@ internal fun MemoryLedgerScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.graphicsLayer {
-                                alpha = handoffProgress(viewportTop, headlineTop, headlineHeight)
+                                // Once the headline's item has left the list it stops reporting where it is (its last,
+                                // half-way place would hold the title half faded): past it, the title is simply in.
+                                alpha = if (listState.firstVisibleItemIndex > 0) {
+                                    1f
+                                } else {
+                                    handoffProgress(viewportTop, headlineTop, headlineHeight)
+                                }
                                 translationY = (1f - alpha) * size.height * 0.5f
                             },
                         )
@@ -346,7 +352,8 @@ private fun LedgerBody(
                 lift = lift,
                 // A full-line item is given the whole width: let go of it first, or the cap does nothing.
                 modifier = gridItemModifier
-                    .wrapContentWidth(Alignment.Start)
+                    // Centred on a large screen, so the cap doesn't leave one side empty.
+                    .wrapContentWidth(if (layout.wide) Alignment.CenterHorizontally else Alignment.Start)
                     .widthIn(max = if (layout.wide) 760.dp else 640.dp)
                     .seamDissolve()
                     .onGloballyPositioned { lift.grid = it }
@@ -380,7 +387,7 @@ private fun LedgerBody(
                     large = layout.wide,
                     modifier = Modifier
                         .padding(top = 8.dp)
-                        .then(if (layout.wide) Modifier.wrapContentWidth(Alignment.Start).widthIn(max = 760.dp) else Modifier),
+                        .then(if (layout.wide) Modifier.wrapContentWidth().widthIn(max = 760.dp) else Modifier),
                 )
             }
             item("grid", span = full) { gridView(Modifier.padding(top = 24.dp)) }
