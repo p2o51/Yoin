@@ -677,6 +677,7 @@ class MemoriesViewModel(
                         geminiConfigDao = container.database.geminiConfigDao(),
                         cacheDao = container.database.memoryCopyCacheDao(),
                         activeProfileId = container.profileManager.activeProfileId,
+                        aiProviderStore = container.aiProviderStore,
                     )
                 },
                 sessionStore = container.experienceSessionStore,

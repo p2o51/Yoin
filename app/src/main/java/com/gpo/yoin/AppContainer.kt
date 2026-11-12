@@ -38,6 +38,8 @@ import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.integration.neodb.NeoDbRestoreGuard
 import com.gpo.yoin.data.integration.neodb.NeoDbTokenStore
 import com.gpo.yoin.data.integration.neodb.NeoDbVoicesService
+import com.gpo.yoin.data.local.AiProviderStore
+import com.gpo.yoin.data.local.FileAiProviderStore
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.LibraryRecentsSource
 import com.gpo.yoin.data.repository.RoomLibraryRecentsSource
@@ -786,8 +788,12 @@ class AppContainer(private val context: Context) {
             neoDbSyncService = neoDbSyncService,
             lyricsProviderRegistry = lyricsProviderRegistry,
             detailCacheStore = detailCacheStore,
+            aiProviderStore = aiProviderStore,
         )
     }
+
+    /** AI settings v2: service, tier and the non-Gemini keys (data/local/AiProviderStore). */
+    val aiProviderStore: AiProviderStore by lazy { FileAiProviderStore(context.applicationContext) }
 
     companion object {
         const val ProviderHttpCacheBytes: Long = 50L * 1024L * 1024L

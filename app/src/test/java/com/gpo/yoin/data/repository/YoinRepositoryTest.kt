@@ -1,5 +1,9 @@
 package com.gpo.yoin.data.repository
 
+import com.gpo.yoin.data.local.AiProviderStore
+import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.data.remote.ai.AiProviderPrefs
+import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.local.AlbumNoteDao
@@ -419,7 +423,7 @@ class YoinRepositoryTest {
         } returns listOf(canonicalRow(SongAboutEntry.CANON_CREATION_TIME, "2024"))
         coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
         coEvery {
-            geminiService.generateCanonicalAbout("key", "Fake Love", "Drake", "Certified Lover Boy", "English")
+            geminiService.generateCanonicalAbout(AiSettings.geminiOnly("key"), "Fake Love", "Drake", "Certified Lover Boy", "English")
         } returns listOf(
             GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_CREATION_TIME, "2024"),
             GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_LYRICIST, "Aubrey Graham"),
@@ -433,7 +437,7 @@ class YoinRepositoryTest {
 
         assertTrue(result is YoinRepository.AboutLoadResult.Success)
         coVerify(exactly = 1) {
-            geminiService.generateCanonicalAbout("key", "Fake Love", "Drake", "Certified Lover Boy", "English")
+            geminiService.generateCanonicalAbout(AiSettings.geminiOnly("key"), "Fake Love", "Drake", "Certified Lover Boy", "English")
         }
     }
 
@@ -444,7 +448,7 @@ class YoinRepositoryTest {
         } returns emptyList()
         coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
         coEvery {
-            geminiService.generateCanonicalAbout("key", "Fake Love", "Drake", "Certified Lover Boy", "English")
+            geminiService.generateCanonicalAbout(AiSettings.geminiOnly("key"), "Fake Love", "Drake", "Certified Lover Boy", "English")
         } returns listOf(
             GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_CREATION_TIME, "2024"),
             GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_LYRICIST, "Aubrey Graham"),
@@ -512,7 +516,7 @@ class YoinRepositoryTest {
     fun askAboutSong_normalizes_keys_and_persists_new_ask_row() = runTest {
         coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
         coEvery {
-            geminiService.askAboutSong("key", "Fake Love", "Drake", "CLB", "What does the chorus mean?", "English")
+            geminiService.askAboutSong(AiSettings.geminiOnly("key"), "Fake Love", "Drake", "CLB", "What does the chorus mean?", "English")
         } returns GeminiService.AskAnswer(
             title = "Chorus meaning",
             answer = "It's about betrayal.",
@@ -597,7 +601,7 @@ class YoinRepositoryTest {
         ).copy(titleText = "Chorus meaning")
         coEvery { songAboutEntryDao.get(any(), any(), any(), SongAboutEntry.KIND_ASK, any()) } returns row
         coEvery {
-            geminiService.askAboutSong("key", "Fake Love", "Drake", "CLB", "What does the chorus mean?", "English")
+            geminiService.askAboutSong(AiSettings.geminiOnly("key"), "Fake Love", "Drake", "CLB", "What does the chorus mean?", "English")
         } returns GeminiService.AskAnswer(title = "Who lied", answer = "A friend who faked it.")
         val captured = slot<SongAboutEntry>()
         coEvery { songAboutEntryDao.upsert(capture(captured)) } returns Unit
@@ -631,7 +635,7 @@ class YoinRepositoryTest {
             updatedAt = 1_000L,
         )
         coEvery { songAboutEntryDao.get(any(), any(), any(), SongAboutEntry.KIND_CANONICAL, any()) } returns row
-        coEvery { geminiService.generateCanonicalAbout("key", "Fake Love", "Drake", "CLB", "English") } returns listOf(
+        coEvery { geminiService.generateCanonicalAbout(AiSettings.geminiOnly("key"), "Fake Love", "Drake", "CLB", "English") } returns listOf(
             GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_LYRICIST, "Aubrey Graham"),
             GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_PRODUCER, "Vinylz, Frank Dukes"),
         )
@@ -747,7 +751,7 @@ class YoinRepositoryTest {
     fun generateAskTitle_returns_short_heading_for_loading_state() = runTest {
         coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
         coEvery {
-            geminiService.generateAskTitle("key", "Fake Love", "Drake", "CLB", "What does the chorus mean?", "English")
+            geminiService.generateAskTitle(AiSettings.geminiOnly("key"), "Fake Love", "Drake", "CLB", "What does the chorus mean?", "English")
         } returns "Chorus meaning"
 
         val result = repository.generateAskTitle(
@@ -860,7 +864,7 @@ class YoinRepositoryTest {
         } returns flowOf(GeminiConfig(apiKey = "key", targetLanguage = "Simplified Chinese"))
         coEvery {
             geminiService.translateLyricLines(
-                apiKey = "key",
+                ai = AiSettings.geminiOnly("key"),
                 title = "Fake Love",
                 artist = "Drake",
                 lines = listOf("Line one", "Line two"),
@@ -893,6 +897,65 @@ class YoinRepositoryTest {
         assertTrue(saved.translationsJson.contains("第二句"))
         assertTrue(!saved.translationsJson.contains("[1]"))
         assertTrue(!saved.translationsJson.contains("【2】"))
+    }
+
+    @Test
+    fun should_cacheTranslationUnderTheChosenModel_when_anotherServiceTranslates() = runTest {
+        val deepSeek = AiProviderPrefs(provider = AiProvider.DeepSeek, deepSeekKey = "sk")
+        val repository = YoinRepository(
+            activeSource = MutableStateFlow(source),
+            activeProfileId = MutableStateFlow("spotify-profile"),
+            database = database,
+            geminiService = geminiService,
+            songAboutEntryDao = songAboutEntryDao,
+            geminiConfigDao = geminiConfigDao,
+            lyricsCacheDao = lyricsCacheDao,
+            lyricsTranslationCacheDao = lyricsTranslationCacheDao,
+            songNoteDao = songNoteDao,
+            albumNoteDao = albumNoteDao,
+            albumRatingDao = albumRatingDao,
+            memoryCopyCacheDao = memoryCopyCacheDao,
+            neoDbSyncService = neoDbSyncService,
+            clock = { currentTime },
+            aiProviderStore = AiProviderStore.InMemory(deepSeek),
+        )
+        coEvery { lyricsTranslationCacheDao.get(any(), any(), any(), any(), any()) } returns null
+        // No Gemini key: the chosen service's own key is the one that counts.
+        coEvery {
+            geminiConfigDao.getConfig()
+        } returns flowOf(GeminiConfig(apiKey = "", targetLanguage = "Simplified Chinese"))
+        coEvery {
+            geminiService.translateLyricLines(
+                ai = AiSettings(deepSeek, geminiKey = ""),
+                title = "Fake Love",
+                artist = "Drake",
+                lines = listOf("Line one", "Line two"),
+                targetLanguage = "Simplified Chinese",
+            )
+        } returns mapOf(0 to "第一句", 1 to "第二句")
+        val captured = slot<LyricsTranslationCache>()
+        coEvery { lyricsTranslationCacheDao.upsert(capture(captured)) } returns Unit
+
+        val result = repository.translateLyrics(
+            trackId = MediaId.spotify("track-1"),
+            title = "Fake Love",
+            artist = "Drake",
+            lines = listOf("Line one", "Line two"),
+            currentLyricsProviderName = null,
+            currentLyricsProviderSongId = null,
+        )
+
+        assertTrue(result is YoinRepository.LyricsTranslationResult.Success)
+        coVerify(exactly = 1) {
+            lyricsTranslationCacheDao.get(
+                trackProvider = "spotify",
+                trackRawId = "track-1",
+                sourceHash = any(),
+                targetLanguage = "Simplified Chinese",
+                model = AiSettings.DEEPSEEK_MODEL,
+            )
+        }
+        assertEquals(AiSettings.DEEPSEEK_MODEL, captured.captured.model)
     }
 
     @Test
