@@ -265,7 +265,10 @@ final class AppModel {
         player.onEvent = { event in
             switch event {
             case .skippedAfterError(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't play \(track.title)"))
-            case .failed(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't reach the server for \(track.title)"))
+            case .failed(let track, let message):
+                // Spotify's app not being open isn't a server out of reach: the banner says what to do.
+                guard PlaybackFailure.isServerOutOfReach(message) else { break }
+                PlaylistActions.shared.show(String(localized: "Couldn't reach the server for \(track.title)"))
             case .queueFailed: PlaylistActions.shared.show(String(localized: "Couldn't play this queue"))
             case .queueEnded: break
             }
@@ -364,8 +367,9 @@ final class AppModel {
         let route = d.string(forKey: "serverRoute")
         let play = d.string(forKey: "serverPlay")
         // `-serverPlay` / `-serverRoute` without `-subsonicURL`: the saved
-        // account as it is, answering or not (offline cache QA).
-        guard url != nil || (session.isSignedIn && (route != nil || play != nil)) else { return }
+        // account as it is, answering or not (offline cache QA). With `-spotifyFake` they act on the
+        // stand-in Spotify account (its ids: `-serverPlay album:al00`).
+        guard url != nil || ((session.isSignedIn || SpotifyFake.isOn) && (route != nil || play != nil)) else { return }
         Task {
             if let url {
                 guard await profiles.connectSubsonic(baseUrl: url, username: user, password: pass,

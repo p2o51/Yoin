@@ -9,6 +9,12 @@ until Yoin comes back depends on where it plays and what the queue came from (pa
 | This iPhone | an album or playlist page | **Off by default since build 12** (`-spotifyContextStart YES` turns it on for QA): as a loose list below. When on, App Remote started the album or playlist as Spotify's own context (`play(contentItem, skipToTrackIndex:)`) with Yoin's shuffle and repeat. Spotify plays on through it. | App Remote's state names the song. Yoin follows it there while the queue still is that context. |
 | This iPhone | Home, Library, Search (a loose list) | Only the current song and the one next song Yoin enqueued. **Known limitation:** after that Spotify stops, or plays its own autoplay. | As before. |
 
+On a Mac (the iPad app there) there is no "this iPhone" row: the Mac's own Spotify app is a Connect
+device like the first row's, started and driven through the Web API by its id and handed the queue the
+same way (docs/qa-script.md, section 5). On an iPad, "this iPhone" reads "this iPad": its Spotify is the
+Tablet named iPad (`SpotifyThisDevice`), where before only a Smartphone named iPhone counted as here and
+an iPad took its own Spotify for another device.
+
 ## Why a loose list can't carry on on this iPhone
 
 - **App Remote can't do it.** It disconnects when iOS suspends Yoin (`SpotifyAudioOutput.background()`). Queueing more songs ahead (`enqueueTrackUri` in a loop) would fill the user's own Spotify queue. Nothing can take those songs back out, so they would play after every later start. That breaks the rule Android keeps: Yoin never touches Spotify's user queue.

@@ -155,6 +155,30 @@ Restart the fake between runs that write (a restore adds a playlist; a removal s
 stand-in account stays on the simulator after a fake launch; launched without the flag it would ask
 the real Spotify with dummy tokens and turn to "Sign in again": use a throwaway simulator.
 
+Another lane's fake may hold :4997: start yours with `--port <n>`, launch with `-spotifyFake
+http://127.0.0.1:<n>`, and give the UI tests `TEST_RUNNER_YOIN_QA_FAKE=http://127.0.0.1:<n>` (and
+`TEST_RUNNER_YOIN_QA_OUT=<dir>` for where the screenshots go).
+
+### The fake's Connect player (Spotify starts, without Spotify)
+
+The fake also keeps a silent Spotify Connect: the account's devices, the active one, the list a start
+handed it and a clock that runs through it. `-spotifyFakePlayer YES` beside `-spotifyFake` lets the
+Spotify output run its starts, reads and commands against it in a `-silentAudio YES` launch (without it
+a silent launch starts nothing, as always). App Remote stays off, so on an iPhone or iPad only the
+remote path (a device that is playing) can be seen; a Mac's whole path can (section 5).
+
+```sh
+python3 scripts/fake_spotify.py --device "QA Mac:Computer" --device "Pixel 11 Pro:Smartphone"
+curl -X POST 127.0.0.1:4997/_qa/devices -d '{"devices":[{"name":"QA Mac","type":"Computer"}]}'   # the list, replaced
+curl -X POST 127.0.0.1:4997/_qa/play -d '{"device":"Pixel 11 Pro","track":"tr0003","playing":true}'  # played in Spotify there
+curl -X POST 127.0.0.1:4997/_qa/stop     # nothing active
+curl -X POST 127.0.0.1:4997/_qa/reset    # no devices, nothing active, the command log empty
+curl 127.0.0.1:4997/_qa/player           # devices, the active one, its state, the commands it was sent
+```
+
+With `-spotifyFake`, `-serverPlay album:<id>` and `-serverRoute …` act on the stand-in account (its
+ids: `-serverPlay album:al00 -serverOpenNowPlaying YES`).
+
 ## 5. The iPad app on a Mac
 
 The same target runs on a Mac as "Designed for iPad". Rules that differ there hang on one flag,
@@ -170,3 +194,38 @@ The same target runs on a Mac as "Designed for iPad". Rules that differ there ha
   `-padWindowWidth 360 -padWindowHeight 480 -padWindowClass compact -screen home|np|album|library`.
 - Not checked on a real Mac window yet: that the system holds the drag at the floor, and what a window
   restored smaller than the floor does.
+
+### Spotify on a Mac
+
+No App Remote there (the desktop app doesn't speak it; `SpotifyRemote` is off on a Mac). A start reads
+`me/player`, then the account's devices when nothing plays, and goes (`SpotifyAudioOutput.macTarget`,
+the native Mac's `MacSpotifyOutput.decide`; 51, 2026-11-06):
+
+1. to the device that is playing, as its remote (Now Playing's Devices names it);
+2. else to this Mac's own Spotify app, by its device id (never named: Devices just says Devices);
+3. else nowhere: the banner says Spotify isn't open on this Mac, with Open Spotify (it opens `spotify:`,
+   nothing plays) and Retry. A paused or idle device elsewhere never takes the start, and no other
+   computer does.
+
+This Mac's device is the `Computer` whose name is the Mac's (`SpotifyThisDevice`). An iPad app can't
+read the computer's name, so it compares with the host name, both folded to plain letters and digits
+("51的Mac mini" and `51deMac-mini.local` agree), and with whatever UIKit calls the device.
+
+Stand-in run on the iPad (or iPhone) simulator; `-spotifyThisMac` names the Mac the fake lists:
+
+```sh
+python3 scripts/fake_spotify.py --port <n> &
+xcrun simctl launch $UDID com.gpo.yoin -silentAudio YES -platformMac YES -spotifyFake http://127.0.0.1:<n> \
+  -spotifyFakePlayer YES -spotifyThisMac "QA Mac" -serverPlay album:al00 [-serverOpenNowPlaying YES]
+```
+
+- no device named QA Mac in the fake: the banner; `_qa/player` shows no command (also with a phone
+  paused and active);
+- QA Mac listed: `PUT me/player/play device_id=qamac`, Now Playing runs on the fake's clock;
+- another device playing (`_qa/play`): the start goes to it, and the Devices pill reads its name.
+
+`YoinSpotifyQA/SpotifyQAUITests/testStartOnAMac` walks the three with real taps (banner, Retry after
+the device joins, the next song on the phone that started playing) and checks the fake's command log.
+
+Not checked on a real Mac: that the host name (or UIKit's name) matches the name Spotify lists the Mac
+under, that `spotify:` opens the desktop app from the iPad app, and everything against real Spotify.

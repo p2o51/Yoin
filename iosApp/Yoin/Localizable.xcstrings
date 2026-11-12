@@ -4440,12 +4440,12 @@
         }
       }
     },
-    "Open Spotify on this iPhone, then tap Play": {
+    "Open Spotify on this %@, then tap Play": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在此 iPhone 上打开 Spotify，然后点按播放"
+            "value": "在此 %@ 上打开 Spotify，然后点按播放"
           }
         }
       }
@@ -6175,12 +6175,38 @@
         }
       }
     },
-    "Spotify on %@ stopped the song. Retry plays it on this iPhone.": {
+    "Spotify on %@ stopped the song. Retry plays it on this %@.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Spotify on %1$@ stopped the song. Retry plays it on this %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的 Spotify 已停止播放。重试将在此 %2$@ 上播放。"
+          }
+        }
+      }
+    },
+    "Spotify on this Mac stopped the song": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 上的 Spotify 已停止播放。重试将在此 iPhone 上播放。"
+            "value": "此 Mac 上的 Spotify 已停止播放"
+          }
+        }
+      }
+    },
+    "Spotify isn't open on this Mac": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 上的 Spotify 未打开"
           }
         }
       }

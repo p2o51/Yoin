@@ -160,3 +160,15 @@ Stills: `/private/tmp/claude-501/-Users-gpo-Developer-Yoin/f43a50d2-67e0-4cc5-98
 | Landing / onboarding (Landing v3) | fresh install, `-landing YES` light + dark | static guide page | full flow recorded light and dark; Subsonic error + connected states; relaunch skips it; Settings › About › Welcome guide reruns it | done; Home preferences and scroll-edge steps not ported; Apple Music connect not tried on device |
 | Home Memories pull (ShellOverlayUp) | `-screen home`, real finger pull 550 pt, swipe up 300 pt, ⌃ Home pill | none | opens past half way or on a fling (RevealState rule), retreats on swipe up / pill / back | done; a 360 pt slow pull springs back by design |
 | Edit Home | long-press a section 0.9 s; footer Edit Home; `-homeEditScripted YES` | footer only | hold enters edit and lifts the section, release lands it (GestureState fallback when the hold is cancelled), the card under the finger does not open; reorder / hide / show / undo / reset recorded | done; dark and iPad not checked |
+
+## 2026-11-13 Spotify on a Mac (iPad Pro 13 and iPhone 17 Pro sims standing in with `-platformMac YES`, iOS 26.5, fake Spotify with its Connect player, `-silentAudio YES`)
+
+| Screen | Step (launch args) | What was wrong | Evidence | Status |
+|---|---|---|---|---|
+| Spotify start, Spotify not open here | `-spotifyFakePlayer YES -spotifyThisMac "QA Mac" -serverPlay album:al00`; the fake lists a paused Pixel and another computer | a Mac start went through App Remote and said "Open Spotify on this iPhone, then tap Play" | banner "Spotify isn't open on this Mac" with Open Spotify and Retry, light / dark / Chinese; `_qa/player` shows no command | fixed: `SpotifyAudioOutput.macTarget`, App Remote off on a Mac |
+| Spotify start, Spotify open here | the same with "QA Mac" listed (a Pixel paused and active) | — | one command, `PUT me/player/play device_id=qamac`, 100 songs handed; Now Playing runs on the fake's clock; Devices unnamed | done |
+| Spotify start, another device playing | `_qa/play` on the Pixel first | — | `PUT me/player/play device_id=pixel11pro`; the Devices pill reads Pixel 11 Pro | done |
+| Retry after opening Spotify | `YoinSpotifyQA/SpotifyQAUITests/testStartOnAMac` (taps a song, Retry, a second song) | — | passes; build/parity-shots/MAC-spotify-walk-* | done |
+| The same banner's toast | any held Spotify start | "Couldn't reach the server for …" showed beside "Open Spotify …" | no toast in the walk-through's shots | fixed: the toast is for servers |
+| A pause while a start lands (any Connect device) | unit test `SpotifyOnMacTests` (pause right after the start) | the read that showed the start landing flipped Yoin back to playing until the next read | test | fixed: that read is skipped once a held command went out |
+| A real Mac | — | — | compile only (`platform=macOS,variant=Designed for iPad`) | open: the Mac's name against Spotify's device name, `spotify:` opening the desktop app, real Spotify |

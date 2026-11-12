@@ -63,7 +63,8 @@ struct PlaybackFailure: Sendable, Equatable {
 
     /// What the banner offers for this failure (Android's typed connect failures, SpotifyConnectFailure):
     /// sign in again opens Settings, Spotify not running opens Spotify, Premium has nothing to retry.
-    enum Action: Equatable, Sendable { case retry, settings, openSpotify, none }
+    /// On a Mac, Spotify not being open offers both: Open Spotify (nothing plays), then Retry.
+    enum Action: Equatable, Sendable { case retry, settings, openSpotify, openSpotifyThenRetry, none }
 
     var action: Action { Self.action(for: message) }
 
@@ -72,15 +73,30 @@ struct PlaybackFailure: Sendable, Equatable {
         if message.hasPrefix(String(localized: "Reconnect Spotify in Settings")) || message == String(localized: "Sign in again") {
             return .settings
         }
-        if message == SpotifyFailureCopy.openSpotify { return .openSpotify }
+        if SpotifyThisDevice.words.contains(where: { message == SpotifyFailureCopy.openSpotify(on: $0) }) {
+            return .openSpotify
+        }
+        if message == SpotifyFailureCopy.notOpenOnMac { return .openSpotifyThenRetry }
         return .retry
+    }
+
+    /// Whether a held failure is also said as "Couldn't reach the server" (the toast): not when it is
+    /// the Spotify app that has to be opened, which the banner says itself.
+    static func isServerOutOfReach(_ message: String) -> Bool {
+        switch action(for: message) {
+        case .openSpotify, .openSpotifyThenRetry: false
+        case .retry, .settings, .none: true
+        }
     }
 }
 
 /// Spotify failure lines the banner tells apart (Android player_spotify_* strings).
 enum SpotifyFailureCopy {
     static var premium: String { String(localized: "Spotify Premium is required for in-app playback.") }
-    static var openSpotify: String { String(localized: "Open Spotify on this iPhone, then tap Play") }
+    /// Spotify's app on this [device] ("iPhone", "iPad": SpotifyThisDevice.word) isn't answering.
+    static func openSpotify(on device: String) -> String { String(localized: "Open Spotify on this \(device), then tap Play") }
+    /// A Mac: nothing plays anywhere and this Mac's Spotify app isn't among the account's devices.
+    static var notOpenOnMac: String { String(localized: "Spotify isn't open on this Mac") }
 }
 
 /// Things the engine did on its own that the UI may want to surface.

@@ -25,7 +25,8 @@ final class SpotifyBrokenConnectionTests: XCTestCase {
         app.remote = remote
         remote.bind(account: "p1")
         remote.token = { "tok" }
-        spotify = SpotifyAudioOutput(remote: remote)
+        // The stub's me/player names an iPhone: this device is one, whatever simulator runs the tests.
+        spotify = SpotifyAudioOutput(remote: remote, device: .phone)
         engine = PlayerEngine(output: spotify)
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [WebStub.self]
@@ -121,7 +122,7 @@ final class SpotifyBrokenConnectionTests: XCTestCase {
         XCTAssertEqual(app.plays, [], "Spotify plays A's copy: nothing is sent")
         XCTAssertTrue(SpotifyAudioOutput.landedHere(
             .init(deviceId: "x", deviceName: "iPhone", deviceType: "Smartphone", isPlaying: true,
-                  trackURI: "spotify:track:copy", linkedFromURI: uri(a)), wanted: uri(a)))
+                  trackURI: "spotify:track:copy", linkedFromURI: uri(a)), wanted: uri(a), this: .phone))
     }
 
     func test_should_readMeplayer_beforeSayingTheStartFailed() async throws {

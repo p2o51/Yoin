@@ -17,6 +17,11 @@ enum SpotifyFake {
 
     static var isOn: Bool { base != nil }
 
+    /// `-spotifyFakePlayer YES` beside `-spotifyFake`: the Spotify output runs its starts, reads and
+    /// commands against the fake's Connect player even in a `-silentAudio YES` launch. The fake makes
+    /// no sound and App Remote stays off, so nothing can be heard.
+    static var drivesPlayer: Bool { isOn && UserDefaults.standard.bool(forKey: "spotifyFakePlayer") }
+
     static let userId = "yoin-qa"
 
     /// Tokens for the stand-in account: every required scope, an expiry far away.

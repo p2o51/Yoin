@@ -98,7 +98,7 @@ struct SpotifyDevicesSheet: View {
         do {
             try await spotify.transfer(to: d.id)
             NotificationCenter.default.post(name: SpotifyPlayingDevice.transferred, object: nil,
-                                            userInfo: ["id": d.id, "name": d.name])
+                                            userInfo: ["id": d.id, "name": d.name, "type": d.type])
             dismiss()
         } catch {
             failure = SpotifySource.message(for: error)

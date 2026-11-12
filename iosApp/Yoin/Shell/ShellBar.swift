@@ -121,11 +121,11 @@ struct ShellBar: View {
         // say so over the bar, with Retry (the pill's play does the same).
         .overlay(alignment: .bottom) {
             if let failure = model.player.failure, pad != .nav {
-                PlaybackFailureBanner(failure: failure, scheme: scheme) {
+                PlaybackFailureBanner(failure: failure, scheme: scheme, openSpotify: Self.openSpotify) {
                     switch failure.action {
                     case .settings: model.openSettings()
-                    case .openSpotify: if let u = URL(string: "spotify:") { UIApplication.shared.open(u) }
-                    case .retry, .none: model.player.retry()
+                    case .openSpotify: Self.openSpotify()
+                    case .retry, .openSpotifyThenRetry, .none: model.player.retry()
                     }
                 }
                     .fixedSize(horizontal: false, vertical: true)
@@ -135,6 +135,11 @@ struct ShellBar: View {
         }
         .animation(Yoin.spatial, value: model.player.failure)
         .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
+    }
+
+    /// Brings the Spotify app up (on a Mac, the desktop app); nothing is played.
+    private static func openSpotify() {
+        if let u = URL(string: "spotify:") { UIApplication.shared.open(u) }
     }
 
     // MARK: Nav buttons
@@ -613,34 +618,33 @@ final class WashFront {
 
 /// A playback failure the engine is holding on (PlayerEngine.failure, Android
 /// "Playback unavailable" + its message): errorContainer, the message, and an
-/// explicit Retry that plays the song again from where it stopped.
+/// explicit Retry that plays the song again from where it stopped. Spotify not open on a Mac has two
+/// steps, Open Spotify then Retry (the native Mac's banner): beside the message where both fit, under
+/// it in a narrow window.
 struct PlaybackFailureBanner: View {
     var failure: PlaybackFailure
     var scheme: CoverScheme
+    var openSpotify: () -> Void = {}
     var retry: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Playback unavailable")
-                    .yoinRole(Tokens.type.titleSmall)
-                Text(failure.message)
-                    .yoinRole(Tokens.type.bodySmall)
-                    .lineLimit(2)
-            }
-            .foregroundStyle(scheme.onErrorContainer)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if failure.action != .none {
-            Button(action: retry) {
-                Text(actionLabel)
-                    .yoinRole(Tokens.type.labelLarge)
-                    .foregroundStyle(scheme.onError)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 40)
-                    .background(scheme.error, in: .capsule)
-                    .contentShape(.capsule)
-            }
-            .buttonStyle(PressScale())
+        Group {
+            if failure.action == .openSpotifyThenRetry {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        message
+                        steps
+                    }
+                    VStack(alignment: .trailing, spacing: 4) {
+                        message
+                        steps
+                    }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    message
+                    if failure.action != .none { filled(actionLabel, retry) }
+                }
             }
         }
         .padding(.leading, 16)
@@ -649,13 +653,57 @@ struct PlaybackFailureBanner: View {
         .background(scheme.errorContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityAction(named: Text(actionLabel), retry)
+        .accessibilityActions {
+            if failure.action == .openSpotifyThenRetry { Button("Open Spotify", action: openSpotify) }
+        }
+    }
+
+    private var message: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Playback unavailable")
+                .yoinRole(Tokens.type.titleSmall)
+            Text(failure.message)
+                .yoinRole(Tokens.type.bodySmall)
+                .lineLimit(2)
+        }
+        .foregroundStyle(scheme.onErrorContainer)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Open Spotify (it comes up, nothing plays), then Retry.
+    private var steps: some View {
+        HStack(spacing: 4) {
+            Button(action: openSpotify) {
+                Text("Open Spotify")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(scheme.onErrorContainer)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 40)
+                    .contentShape(.capsule)
+            }
+            .buttonStyle(PressScale())
+            filled("Retry", retry)
+        }
+    }
+
+    private func filled(_ label: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(scheme.onError)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 40)
+                .background(scheme.error, in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(PressScale())
     }
 
     private var actionLabel: LocalizedStringKey {
         switch failure.action {
         case .settings: "Settings"
         case .openSpotify: "Open Spotify"
-        case .retry, .none: "Retry"
+        case .retry, .openSpotifyThenRetry, .none: "Retry"
         }
     }
 }
