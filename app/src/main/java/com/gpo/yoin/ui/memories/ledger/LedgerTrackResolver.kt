@@ -47,7 +47,7 @@ internal class LedgerTrackResolver(
         .filter { !answers.containsKey(it.key) }
         .toList()
 
-    /** Asks for each of [wanted], a few at a time; returns whether any answer named an album. */
+    /** Asks for each of [wanted], a few at a time; returns whether any answer named an album or a song. */
     suspend fun resolve(wanted: List<Wanted>): Boolean {
         if (wanted.isEmpty()) return false
         val sources = HashMap<String, MusicSource?>()
@@ -68,7 +68,8 @@ internal class LedgerTrackResolver(
                         }
                         val answer = track?.toLedgerTrack() ?: Unknown
                         answers[want.key] = answer
-                        !answer.albumId.isNullOrBlank()
+                        // A name alone is news too: the song stops reading as unknown.
+                        !answer.albumId.isNullOrBlank() || !answer.title.isNullOrBlank()
                     }
                 }
             }.awaitAll()
