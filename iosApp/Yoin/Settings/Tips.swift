@@ -71,15 +71,15 @@ enum Tips {
         // Yoin Labs (Android #189); Argon's iOS wording.
         Tip(id: "Labs", icon: "sparkle", updated: "2026-11-10",
             title: "Yoin Labs",
-            text: "Experimental features are now in Settings > Yoin Labs, including the Lyric Cards toggle",
+            text: "Experimental features are now in Settings › Yoin Labs, including the Lyric Cards toggle",
             titleZhHans: "Yoin Labs",
-            textZhHans: "实验功能现在在 设置 > Yoin Labs，歌词卡片的开关也在那里"),
+            textZhHans: "实验功能现在在 设置 › Yoin Labs，歌词卡片的开关也在那里"),
         // Volume leveling (Android #139); Argon's iOS wording (the Subsonic account's page).
         Tip(id: "VolumeLeveling", icon: "equalizer", updated: "2026-11-10",
             title: "Volume leveling",
-            text: "In Settings > your Subsonic account > Volume leveling, turn on ReplayGain by track or by album to keep volume consistent",
+            text: "In Settings › your Subsonic account › Volume leveling, turn on ReplayGain by track or by album to keep volume consistent",
             titleZhHans: "音量平衡",
-            textZhHans: "设置 > 点开 Subsonic 账号 > 音量平衡，可按曲目或按专辑开启 ReplayGain，让歌曲音量一致"),
+            textZhHans: "设置 › 点开 Subsonic 账号 › 音量平衡，可按曲目或按专辑开启 ReplayGain，让歌曲音量一致"),
         // Home screen widgets (Widgets/, parity A-F10); Argon's wording (.argon/ios-widgets-tip), the widget
         // names as the gallery shows them.
         Tip(id: "HomeScreenWidgets", icon: "library", updated: "2026-11-07",

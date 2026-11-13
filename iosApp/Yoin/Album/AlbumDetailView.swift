@@ -1127,13 +1127,15 @@ struct AlbumDetailView: View {
 
     /// Android UnavailableTrackBadge: an 18 "?" circle in the cover's secondaryContainer, labelMedium onSecondaryContainer;
     /// a tap shows or hides the reason under the row. Kept in the heart's 36 slot so the row doesn't shift.
+    /// In dark, secondary / onSecondary (NotStreamedBadge.tone), which read on the dimmed row.
     private func notStreamedBadge(_ index: Int) -> some View {
-        Button { toggleNotStreamedReason(index) } label: {
+        let tone = NotStreamedBadge.tone(s, dark: colorScheme == .dark)
+        return Button { toggleNotStreamedReason(index) } label: {
             Text(verbatim: "?")
                 .yoinRole(Tokens.type.labelMedium)
-                .foregroundStyle(s.onSecondaryContainer)
+                .foregroundStyle(tone.ink)
                 .frame(width: 18, height: 18)
-                .background(s.secondaryContainer, in: .circle)
+                .background(tone.fill, in: .circle)
                 .frame(width: 36, height: 36)
                 .contentShape(.circle)
         }

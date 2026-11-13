@@ -266,6 +266,12 @@ private struct TipPage: View {
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+        // A tip taller than its page (a long line, a large text size) scrolls on until the date clears the
+        // buttons; its bar shows (the pager's is hidden) and flashes when the page comes to rest, so a line
+        // cut at the foot reads as more to scroll, not as text behind Read / Next.
+        .scrollIndicators(.automatic, axes: .vertical)
+        .scrollIndicatorsFlash(onAppear: true)
+        .scrollIndicatorsFlash(trigger: settled)
     }
 }
 

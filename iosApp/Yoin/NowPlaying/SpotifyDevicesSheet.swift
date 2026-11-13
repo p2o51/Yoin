@@ -81,7 +81,26 @@ struct SpotifyDevicesSheet: View {
         if d.isActive { return String(localized: "Playing here") }
         if d.spotifyOnly { return String(localized: "Switch through Spotify") }
         if d.remembered { return String(localized: "Recently used · may need waking in Spotify") }
-        return d.type
+        return typeLabel(d.type)
+    }
+
+    /// Spotify's device type in the app's language (Android shows an icon, no word, so there are no
+    /// Android strings for these); a type Spotify adds later shows as it comes.
+    static func typeLabel(_ type: String) -> String {
+        switch type {
+        case "Computer": String(localized: "Computer", comment: "A Spotify device type")
+        case "Smartphone": String(localized: "Smartphone", comment: "A Spotify device type")
+        case "Tablet": String(localized: "Tablet", comment: "A Spotify device type")
+        case "Speaker": String(localized: "Speaker", comment: "A Spotify device type")
+        case "TV": String(localized: "TV", comment: "A Spotify device type")
+        case "AVR": String(localized: "AVR", comment: "A Spotify device type: an AV receiver")
+        case "STB": String(localized: "STB", comment: "A Spotify device type: a set-top box")
+        case "GameConsole": String(localized: "GameConsole", comment: "A Spotify device type")
+        case "CastVideo": String(localized: "CastVideo", comment: "A Spotify device type: a Google Cast video device")
+        case "CastAudio": String(localized: "CastAudio", comment: "A Spotify device type: a Google Cast audio device")
+        case "Automobile": String(localized: "Automobile", comment: "A Spotify device type")
+        default: type
+        }
     }
 
     private var moreDevices: some View {

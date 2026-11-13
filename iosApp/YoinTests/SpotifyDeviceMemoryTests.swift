@@ -121,6 +121,12 @@ final class SpotifyDeviceMemoryTests: XCTestCase {
         var kitchen = device("k", "Kitchen")
         kitchen.remembered = true
         XCTAssertEqual(SpotifyDevicesSheet.detail(kitchen, moving: false), loc("Recently used · may need waking in Spotify"))
-        XCTAssertEqual(SpotifyDevicesSheet.detail(device("d", "Desk"), moving: false), "Speaker")
+        XCTAssertEqual(SpotifyDevicesSheet.detail(device("d", "Desk"), moving: false), loc("Speaker"))
+    }
+
+    func test_should_nameSpotifysDeviceType_when_known_and_passItThrough_when_not() {
+        XCTAssertEqual(SpotifyDevicesSheet.typeLabel("Smartphone"), loc("Smartphone"))
+        XCTAssertEqual(SpotifyDevicesSheet.typeLabel("GameConsole"), loc("GameConsole"))
+        XCTAssertEqual(SpotifyDevicesSheet.typeLabel("AudioDongle"), "AudioDongle")
     }
 }

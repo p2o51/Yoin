@@ -20,21 +20,30 @@ enum NotStreamedRow {
 }
 
 /// Android UnavailableTrackBadge: an 18 "?" circle in secondaryContainer, labelMedium onSecondaryContainer.
+/// In dark, secondaryContainer is a few tones off the dimmed row and the badge all but disappears, so it
+/// takes secondary / onSecondary there.
 struct NotStreamedBadge: View {
     var scheme: CoverScheme
     var action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let tone = Self.tone(scheme, dark: colorScheme == .dark)
         Button(action: action) {
             Text(verbatim: "?")
                 .yoinRole(Tokens.type.labelMedium)
-                .foregroundStyle(scheme.onSecondaryContainer)
+                .foregroundStyle(tone.ink)
                 .frame(width: 18, height: 18)
-                .background(scheme.secondaryContainer, in: .circle)
+                .background(tone.fill, in: .circle)
                 .contentShape(.circle)
         }
         .buttonStyle(PressScale())
         .accessibilityLabel("Why can't this play")
+    }
+
+    /// The badge's circle and its "?" (the album page's own badge uses them too).
+    static func tone(_ scheme: CoverScheme, dark: Bool) -> (fill: Color, ink: Color) {
+        dark ? (scheme.secondary, scheme.onSecondary) : (scheme.secondaryContainer, scheme.onSecondaryContainer)
     }
 }
 

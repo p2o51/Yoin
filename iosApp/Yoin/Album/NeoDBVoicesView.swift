@@ -285,10 +285,17 @@ enum NeoDBVoiceRows {
     }
 }
 
+private extension CoverScheme {
+    /// The spread's other bars and the avatar dots: secondaryContainer in light; in dark it sits a few tones
+    /// off the surface and all but disappears, so outline, which reads there and still stays under the accent.
+    func voicesQuietFill(dark: Bool) -> Color { dark ? outline : secondaryContainer }
+}
+
 /// Five columns, one per star count; the tallest in the accent. Then the average, small.
 private struct NeoDBVoicesSpread: View {
     var album: NeoDBAlbumVoices
     var scheme: CoverScheme
+    @Environment(\.colorScheme) private var colorScheme
     @State private var shown = false
 
     private static let barMax: CGFloat = 92
@@ -306,7 +313,7 @@ private struct NeoDBVoicesSpread: View {
                             // The bar stands in a slot of its own height, so the labels under it sit on one
                             // line in every column at any text size.
                             Self.barShape
-                                .fill(percent == top ? scheme.primary : scheme.secondaryContainer)
+                                .fill(percent == top ? scheme.primary : scheme.voicesQuietFill(dark: colorScheme == .dark))
                                 .frame(height: max(Self.barMax * (shown ? CGFloat(percent) / CGFloat(top) : 0), 3))
                                 .frame(height: Self.barMax, alignment: .bottom)
                             NeoDBGrade(rating: (i + 1) * 2, color: scheme.tertiary, size: 10)
@@ -378,6 +385,7 @@ private struct NeoDBVoicesReferences: View {
 private struct NeoDBVoiceCard: View {
     var voice: NeoDBVoice
     var scheme: CoverScheme
+    @Environment(\.colorScheme) private var colorScheme
     var lifted: Bool
     var unfolded: Bool
     var onTap: () -> Void
@@ -433,7 +441,7 @@ private struct NeoDBVoiceCard: View {
                 }
             }
             .frame(width: 20, height: 20)
-            .background(scheme.secondaryContainer)
+            .background(scheme.voicesQuietFill(dark: colorScheme == .dark))
             .clipShape(.circle)
             .accessibilityHidden(true)
             HStack(spacing: 6) {

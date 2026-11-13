@@ -9280,6 +9280,157 @@
           }
         }
       }
+    },
+    "Denied": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒绝"
+          }
+        }
+      }
+    },
+    "Restricted": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受限"
+          }
+        }
+      }
+    },
+    "Not connected": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未连接"
+          }
+        }
+      }
+    },
+    "Computer": {
+      "comment": "A Spotify device type",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑"
+          }
+        }
+      }
+    },
+    "Smartphone": {
+      "comment": "A Spotify device type",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机"
+          }
+        }
+      }
+    },
+    "Tablet": {
+      "comment": "A Spotify device type",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平板"
+          }
+        }
+      }
+    },
+    "Speaker": {
+      "comment": "A Spotify device type",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音箱"
+          }
+        }
+      }
+    },
+    "TV": {
+      "comment": "A Spotify device type",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电视"
+          }
+        }
+      }
+    },
+    "AVR": {
+      "comment": "A Spotify device type: an AV receiver",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "功放"
+          }
+        }
+      }
+    },
+    "STB": {
+      "comment": "A Spotify device type: a set-top box",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机顶盒"
+          }
+        }
+      }
+    },
+    "GameConsole": {
+      "comment": "A Spotify device type",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游戏机"
+          }
+        }
+      }
+    },
+    "CastVideo": {
+      "comment": "A Spotify device type: a Google Cast video device",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cast 视频设备"
+          }
+        }
+      }
+    },
+    "CastAudio": {
+      "comment": "A Spotify device type: a Google Cast audio device",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cast 音频设备"
+          }
+        }
+      }
+    },
+    "Automobile": {
+      "comment": "A Spotify device type",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "汽车"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -499,10 +499,10 @@ struct ServiceSetupView: View {
 
     private var appleStatusText: String {
         switch apple.authorization {
-        case .authorized: "Authorized"
-        case .denied: "Denied"
-        case .restricted: "Restricted"
-        case .notDetermined: "Not connected"
+        case .authorized: String(localized: "Authorized")
+        case .denied: String(localized: "Denied")
+        case .restricted: String(localized: "Restricted")
+        case .notDetermined: String(localized: "Not connected")
         }
     }
 
