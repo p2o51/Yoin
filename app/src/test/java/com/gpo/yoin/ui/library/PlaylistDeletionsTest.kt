@@ -206,9 +206,11 @@ class PlaylistDeletionsTest {
         val deletions = PlaylistDeletions(
             scope = CoroutineScope(mainDispatcherRule.dispatcher),
             currentProfileId = { profileId },
-            deletePlaylist = { id ->
-                sent += id
-                deleteAnswer()
+            deleterForCurrentAccount = {
+                { id ->
+                    sent += id
+                    deleteAnswer()
+                }
             },
             notices = notices,
             onDeleted = {

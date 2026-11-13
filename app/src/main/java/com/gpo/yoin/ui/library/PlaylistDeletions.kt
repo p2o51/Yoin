@@ -31,7 +31,8 @@ import kotlinx.coroutines.sync.withLock
 class PlaylistDeletions(
     private val scope: CoroutineScope,
     private val currentProfileId: () -> String?,
-    private val deletePlaylist: suspend (MediaId) -> Result<Unit>,
+    // YoinRepository.playlistDeleterForCurrentAccount: deletes on the account in use when asked, or not at all.
+    private val deleterForCurrentAccount: () -> suspend (MediaId) -> Result<Unit>,
     private val notices: AppNotices,
     // AppContainer.notifyPlaylistMutation: lists that read playlists read them again.
     private val onDeleted: () -> Unit = {},
@@ -68,9 +69,10 @@ class PlaylistDeletions(
     fun delete(id: MediaId) {
         val key = Key(currentProfileId(), id)
         if (key in _state.value.pending) return
+        val deleteOnThisAccount = deleterForCurrentAccount()
         _state.update { it.copy(pending = it.pending + key) }
         scope.launch {
-            val result = writes.withLock { send(key) }
+            val result = writes.withLock { send(key, deleteOnThisAccount) }
             if (result.isSuccess) {
                 val done = Done(seq.incrementAndGet(), key)
                 _state.update { it.copy(pending = it.pending - key, done = (it.done + done).takeLast(DONE_KEPT)) }
@@ -83,7 +85,7 @@ class PlaylistDeletions(
         }
     }
 
-    private suspend fun send(key: Key): Result<Unit> {
+    private suspend fun send(key: Key, deletePlaylist: suspend (MediaId) -> Result<Unit>): Result<Unit> {
         if (currentProfileId() != key.profileId) return Result.failure(IllegalStateException("Account changed"))
         return try {
             deletePlaylist(key.id)

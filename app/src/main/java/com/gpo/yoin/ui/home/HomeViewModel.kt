@@ -1327,7 +1327,10 @@ class HomeViewModel(
         }
 
         private fun splicePlaylists(read: Result<List<Playlist>>) {
-            val playlists = read.getOrNull() ?: return failed()
+            // A read out before a deletion landed still lists that playlist.
+            val playlists = read.getOrNull()
+                ?.filterNot { playlist -> renameKey(profileId, playlist.id) in deletedPlaylists }
+                ?: return failed()
             splice(filled = HomeNetworkBlock.Playlists) { latest ->
                 latest.copy(playlists = playlists.distinctBy { it.id }.take(HOME_PLAYLIST_LIMIT))
             }

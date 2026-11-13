@@ -247,7 +247,7 @@ class AppContainer(private val context: Context) {
         PlaylistDeletions(
             scope = applicationScope,
             currentProfileId = repository::currentProfileId,
-            deletePlaylist = repository::deletePlaylist,
+            deleterForCurrentAccount = repository::playlistDeleterForCurrentAccount,
             notices = appNotices,
             onDeleted = ::notifyPlaylistMutation,
         )
