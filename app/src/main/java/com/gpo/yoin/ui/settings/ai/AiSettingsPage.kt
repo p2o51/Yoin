@@ -145,11 +145,11 @@ internal fun AiSettingsPageBody(
             },
             chipModifier = providerModifier,
         )
-        TradeoffChart(provider = prefs.provider, tier = prefs.tier)
+        TradeoffChart(provider = prefs.provider, tier = prefs.activeTier)
 
         // Tiers ⇄ Custom is the page's one body swap: the two cross-fade and the page takes its new
-        // height on the spatial spring. The tiered services share a body, so picking among them
-        // swaps nothing.
+        // height on the spatial spring. The other services share a body, so picking among them
+        // swaps nothing; the tier choice folds away for a service with one tier (Qwen).
         val sizeSpring = YoinMotion.spatialSpring<IntSize>()
         AnimatedContent(
             targetState = prefs.provider,
@@ -165,32 +165,46 @@ internal fun AiSettingsPageBody(
             if (provider != AiProvider.Custom) {
                 // Everything here reads [provider], not the choice: on its way out for Custom this
                 // body still shows the service it was for.
-                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SectionLabel(stringResource(R.string.ai_tiers_label), Modifier.weight(1f))
-                            IconButton(onClick = {
-                                haptics.performClick()
-                                onOpenTiers()
-                            }) {
-                                Icon(
-                                    YoinSymbols.Info,
-                                    contentDescription = stringResource(R.string.ai_cd_tier_details),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                Column {
+                    AnimatedVisibility(
+                        visible = provider.tiers.size > 1,
+                        enter = expandVertically(YoinMotion.spatialSpring(), expandFrom = Alignment.Top) +
+                            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                        exit = shrinkVertically(YoinMotion.spatialSpring(), shrinkTowards = Alignment.Top) +
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+                    ) {
+                        // The gap to the key field folds away with the choice.
+                        Column(
+                            modifier = Modifier.padding(bottom = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                SectionLabel(stringResource(R.string.ai_tiers_label), Modifier.weight(1f))
+                                IconButton(onClick = {
+                                    haptics.performClick()
+                                    onOpenTiers()
+                                }) {
+                                    Icon(
+                                        YoinSymbols.Info,
+                                        contentDescription = stringResource(R.string.ai_cd_tier_details),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AiTier.entries.forEach { tier ->
-                                TierCard(
-                                    tier = tier,
-                                    selected = prefs.tier == tier,
-                                    onClick = {
-                                        haptics.performSegmentTick()
-                                        actions.setTier(tier)
-                                    },
-                                    modifier = Modifier.weight(1f).then(tierModifier(tier)),
-                                )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Both, whatever [provider] offers: this is only seen for a service
+                                // with two, and while it folds away it must not change.
+                                AiTier.entries.forEach { tier ->
+                                    TierCard(
+                                        tier = tier,
+                                        selected = prefs.tier == tier,
+                                        onClick = {
+                                            haptics.performSegmentTick()
+                                            actions.setTier(tier)
+                                        },
+                                        modifier = Modifier.weight(1f).then(tierModifier(tier)),
+                                    )
+                                }
                             }
                         }
                     }
@@ -380,7 +394,8 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
         val y by animateFloatAsState(yAxis.fraction(point) ?: 0f, spring, label = "dotY")
         Offset(x, y)
     }
-    val labels = measured.map { tierName(it.tier) }
+    // A service with one tier has no tier to name: its dot goes without.
+    val labels = measured.map { if (it.provider.tiers.size > 1) tierName(it.tier) else "" }
     // 0 = the name on the dot's right, 1 = on its left.
     val labelSides = measured.map { point ->
         val side by animateFloatAsState(
@@ -470,7 +485,7 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
                 if (chosen) drawCircle(color.copy(alpha = 0.18f), radius = 13.dp.toPx(), center = c)
                 drawCircle(scheme.surface, radius = (if (chosen) 9.5f else 7.5f).dp.toPx(), center = c)
                 drawCircle(color.copy(alpha = alpha), radius = (if (chosen) 7.5f else 5.5f).dp.toPx(), center = c)
-                if (point.provider == provider) {
+                if (point.provider == provider && labels[i].isNotEmpty()) {
                     val t = measurer.measure(
                         labels[i],
                         dotLabel.copy(fontWeight = if (chosen) FontWeight.Bold else FontWeight.Medium),

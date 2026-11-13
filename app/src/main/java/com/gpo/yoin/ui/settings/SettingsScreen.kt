@@ -1255,7 +1255,12 @@ private fun GeminiItem(
 ) {
     val ai = AiSettings(aiPrefs, geminiKey = apiKey)
     val provider = providerName(ai.provider)
-    val tier = if (ai.provider == AiProvider.Custom) ai.modelId else tierName(aiPrefs.tier)
+    // Beside the service: Custom's model, the tier where the service has two, nothing for one tier.
+    val detail = when {
+        ai.provider == AiProvider.Custom -> ai.modelId
+        ai.provider.tiers.size > 1 -> tierName(aiPrefs.activeTier)
+        else -> null
+    }
     FeaturePageRow(
         icon = YoinSymbols.Sparkle,
         title = stringResource(R.string.settings_gemini_title),
@@ -1263,7 +1268,10 @@ private fun GeminiItem(
         summaryContent = if (ai.isReady) {
             {
                 MetaLine(
-                    groups = listOf(MetaGroup.Plain(provider), MetaGroup.Plain(tier, muted = true)),
+                    groups = listOfNotNull(
+                        MetaGroup.Plain(provider),
+                        detail?.let { MetaGroup.Plain(it, muted = true) },
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

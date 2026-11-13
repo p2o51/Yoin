@@ -15,7 +15,8 @@ import kotlin.math.abs
  * zero. [costPer1000] is US$ for 1,000 About calls at list prices, tokens plus
  * search; Gemini's assumes the monthly 5,000 free searches, and 3.5
  * Flash-Lite's token price is a third party's figure. Qwen's is converted from
- * yuan at 7.1. DeepSeek's two-search tier was not run on this set.
+ * yuan at 7.1. DeepSeek's two-search tier was not run on this set. Qwen has
+ * one tier ([AiProvider.tiers]).
  */
 data class AiTierPoint(
     val provider: AiProvider,
@@ -56,7 +57,6 @@ object AiTierBenchmark {
         // Not run on the 500 songs: drawn as a hollow dot.
         AiTierPoint(AiProvider.DeepSeek, AiTier.Best, accuracy = null, seconds = null, costPer1000 = null),
         AiTierPoint(AiProvider.Qwen, AiTier.Good, accuracy = 81f, seconds = 4.9f, costPer1000 = 0.57f),
-        AiTierPoint(AiProvider.Qwen, AiTier.Best, accuracy = 76f, seconds = 9.9f, costPer1000 = 0.98f),
     )
 
     fun point(provider: AiProvider, tier: AiTier): AiTierPoint? =

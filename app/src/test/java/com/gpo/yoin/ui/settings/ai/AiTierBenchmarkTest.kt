@@ -87,13 +87,20 @@ class AiTierBenchmarkTest {
     }
 
     @Test
-    fun should_keepBothNamesOnTheRight_when_theTiersAreFarApart() {
-        val good = AiTierBenchmark.point(AiProvider.Qwen, AiTier.Good)!!
-        val best = AiTierBenchmark.point(AiProvider.Qwen, AiTier.Best)!!
-        val (x, y) = AiChartViews.first()
+    fun should_onlyHoldTiersTheirServiceOffers() {
+        AiTierBenchmark.points.forEach { point ->
+            assertTrue("${point.provider} ${point.tier}", point.tier in point.provider.tiers)
+        }
+        // Qwen has one tier, and it was measured.
+        assertTrue(AiTierBenchmark.point(AiProvider.Qwen, AiTier.Good)!!.measured)
+        assertNull(AiTierBenchmark.point(AiProvider.Qwen, AiTier.Best))
+    }
 
-        assertFalse(AiTierBenchmark.labelOnLeft(good, x, y))
-        assertFalse(AiTierBenchmark.labelOnLeft(best, x, y))
+    @Test
+    fun should_keepTheNameOnTheRight_when_theServiceHasOneTier() {
+        val qwen = AiTierBenchmark.point(AiProvider.Qwen, AiTier.Good)!!
+
+        AiChartViews.forEach { (x, y) -> assertFalse(AiTierBenchmark.labelOnLeft(qwen, x, y)) }
     }
 
     @Test
