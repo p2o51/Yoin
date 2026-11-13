@@ -202,6 +202,14 @@ The same target runs on a Mac as "Designed for iPad". Rules that differ there ha
   On the iPad simulator, `PadLayoutShotsUITests` drives it with the steps `rightclick:x,y`,
   `ctrlclick:x,y`, `click:x,y` and `hover:x,y` (`press:x,y,s` is a touch hold; on the simulator it
   plays the row instead of opening the sheet, with or without this change).
+- Hover (a pointer; never a finger, never on an iPhone; `Theme/PointerHover.swift`): song rows, the
+  expanded lyric lines, the bar's pill and the split handle wear the M3 hovered state layer (the
+  content colour at 8 %, on the effects spring); the seek bar's unplayed track deepens by the same
+  8 %. The split handle shows iPadOS's resize pointer (a vertical beam with an arrow either side;
+  SwiftUI's `columnResize` is macOS-only), and its region passes every touch to the drag. The
+  simulator's UI tests deliver no hover (`hover:x,y` changes nothing), so `-hoverPreview YES`
+  (debug, iPad) shows every hover state at once for screenshots. Not checked on a real pointer or
+  a real Mac: the hover itself, and what cursor the Mac draws for the handle's pointer style.
 
 ### Spotify on a Mac
 

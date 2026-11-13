@@ -297,6 +297,8 @@ struct ShellBar: View {
         } label: {
             // iPad too: Full Now Playing grows out of this pill and folds back into it (Android #190).
             PillContent(np: model.np)
+                // A pointer over the pill: the hovered state layer inside its glass.
+                .hoverLayer(in: Capsule())
                 .contentShape(.capsule)
                 // A right-click: the playing song's sheet, as the long press (the click never opens Now Playing).
                 .onSecondaryClick(perform: openPlayingSongMenu)

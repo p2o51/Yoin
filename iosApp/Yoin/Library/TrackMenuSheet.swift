@@ -47,16 +47,20 @@ private struct TrackRowGestures: ViewModifier {
     var context: TrackMenuContext
     var play: () -> Void
     @State private var pressing = false
+    @State private var hovered = false
     @State private var pressed = 0
 
     func body(content: Content) -> some View {
+        let layer = PointerHover.opacity(hovered: hovered || PointerHover.preview, pressed: pressing)
         content
             .background {
+                // The pressed tint, and the same 8 % under a pointer (iPad, the iPad app on a Mac).
                 RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous)
-                    .fill(Color.primary.opacity(pressing ? 0.08 : 0))
-                    .animation(Yoin.effects, value: pressing)
+                    .fill(Color.primary.opacity(layer))
+                    .animation(Yoin.effects, value: layer)
             }
             .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
+            .onPointerHover { hovered = $0 }
             // A right-click (pointer, the iPad app on a Mac): the same sheet, never a play.
             .onSecondaryClick { PlaylistActions.shared.openMenu(entry, context: context) }
             .onTapGesture(perform: play)
