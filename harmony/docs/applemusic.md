@@ -551,3 +551,93 @@ real player would use, so it was the test that counted all along (Risk 5 above).
     `dlopen` or `ostringstream`: no-go for option 2. Fall back to option 4.
 - **Separately, `hdc shell` can't be the test harness on this phone.** Any later native spike
   (Phases 1–2) also has to run inside a HAP.
+
+### Second run: inside the app process (2026-11-14, 08:40–08:48 JST)
+
+> Same phone (Mate 70 Air, `5ZGYD25B20051376`). The owner approved a test build of **Yoin itself**
+> (`com.gpo.yoin`, the only package with signing), installed with `hdc install -r` so the app's data
+> was kept. The phone stayed awake and locked state was never touched. No audio; no network calls are expected on these paths (static analysis, not logged): nothing
+> in the probe or in the two Apple calls it makes opens a socket.
+
+**How it ran.** Local branch `spike/am-probe` (commit `46c8d9aa6`, never pushed, code only):
+
+- `EntryAbility` checks the want parameter `yoinAmProbe`. Only then does it dynamic-`import`
+  `libmusickit_probe_napi.so` (declared through a types package in `entry/oh-package.json5`) and run
+  it on a TaskPool thread. A normal launch never loads the Apple libraries.
+- Seven files flat in `entry/libs/arm64-v8a/`: the probe, `libam.so`, the patched
+  `libappleMusicSDK.so` and `libc++_ndk1.so`, the NDK's OHOS `libc++_shared.so` (Flutter links its
+  libc++ statically, so the HAP had none and the probe needs one), and, in the later runs,
+  `libam_bridge.so` (below).
+- `flutter build hap --release` keeps extra files in `libs/` and packs them, but hvigor
+  `llvm-strip`s native libs by default. The spike sets `nativeLib.debugSymbol.strip: false` so the
+  patched Apple pair goes in byte-identical (SHA-256 checked inside the HAP).
+- Launch: `aa start -a EntryAbility -b com.gpo.yoin --ps yoinAmProbe "<flags>" --pb yoinQaSilent true`.
+  Results from `hilog -x | grep MusicKitProbe`. The crash backtraces come from hilog's
+  `DfxFaultLogger` lines (the shell can't list `/data/log/faultlog/faultlogger/`).
+- Note: `entry/libs/` is **not** git-ignored (only `libapp.so`, `libflutter.so` and
+  `libvmservice_snapshot.so` are). Anything copied there shows up as untracked.
+
+**Runs (each a cold start, `aa force-stop` in between):**
+
+| Run | Flags | Outcome |
+| --- | --- | --- |
+| 1–3 | `--canary --cxx --call-instance --decryptor` | Identical each time. Canary and dlopen pass, then SIGBUS (`BUS_ADRALN` at `0x7cf`) in the `--cxx` `stoi` test. |
+| 4 | `--canary --call-instance --decryptor` | `instance()` and `create(0)` pass. `create(7)` throws and the process dies the same way (SIGSEGV this time). |
+| 5, 6, 8 | `--canary --call-instance --bridge` | **Clean.** `PASS: 0 of 13 symbols missing`, `exit code 0`, ArkTS got the report back. |
+| 7 | `--canary --cxx --call-instance --bridge` | Same SIGBUS as 1–3 (the unbridged `--cxx` throw runs first). |
+
+### The five risks: answered
+
+| # | Risk | Result | Evidence |
+| --- | --- | --- | --- |
+| 1 | Canary slot `TPIDR_EL0+40` under musl | **Pass, with a caveat** | `stable` on every canary line of all 8 runs (main, 3 threads, the 2,000-round stress on two threads); stable after the Apple calls in runs 4, 5, 6 and 8 — runs 1–3 and 7 crashed in `--cxx` before any Apple call. Value `ffffffffffffffff` every time. The slot is offset `0x20` in the static TLS block of `/system/lib64/chipset-pub-sdk/libselinux.z.so` (module 3, after `libbegetutil` and `libsystemparam`), on every thread in every run. That block's `.tdata` is five 8-byte words, all `-1`, which matches libselinux's `procattr.c` per-thread `prev_*` context caches (`UNSET = (char *)-1`). They change only if that thread calls the `get/set*con` family, which the player's threads never do. Caveat: the owner of the slot is an accident of appspawn's preloaded libraries; re-run `--canary` after every OS update. |
+| 2 | NDK libc++ next to OHOS libc++ | **Fails across the boundary; solved by a bridge** | Every C++ ABI import of `libappleMusicSDK.so` binds to `libc++_ndk1.so` (`__cxa_throw`, `__cxa_allocate_exception`, `__cxa_begin_catch`, `__gxx_personality_v0`, `operator new/delete/new[]`, `typeinfo std::exception/runtime_error`, `__cxa_guard_acquire`, `__dynamic_cast`); none leak to OHOS libc++. But an exception that leaves Apple's frames crashes: `stoi` → `__cxa_throw` (libc++_ndk1, whose unwinder is private) → the catching frame's personality is OHOS `libc++_shared.so`'s `__gxx_personality_v0` → it calls a different `_Unwind_GetLanguageSpecificData` (here the probe's static libunwind copy) with the NDK unwinder's context → jump to `0x7cf`. Same path from `SVPastisDecryptor::SVPastisDecryptor` (run 4). **With `libam_bridge.so`** (C++ built with no runtime of its own, `-nostdlib++ -unwindlib=none`, linked to `libc++_ndk1.so`, so its personality, catch and typeinfo are NDK's), both throws are caught as `std::exception`: `stoi` gives `"stoi: no conversion"`, and `create(7)` gives Apple's own `SVError` text. Exceptions that Apple throws and catches inside its own code never reach OHOS frames, so they are not affected. |
+| 3 | `ios_base::Init` / `ostringstream` | **Pass** | All three `dlopen`s run Apple's static constructors without a crash. `create(7)`'s error message is built in an NDK `ostringstream` before the throw, and it comes out intact through the bridge: `"Unknown error. Pastis ERROR creating  AUDIO  decryptor"`. |
+| 4 | `dlopen` in the app namespace, all symbols resolved | **Pass** | `dlopen ok` for `libam.so`, `libc++_ndk1.so` and `libappleMusicSDK.so` by bare name from `/data/storage/el1/bundle/libs/arm64/` (BIND_NOW, so every import resolved), and all 13 symbols log `ok` in all 8 runs (the summary line `PASS: 0 of 13 symbols missing` is printed only in runs 5, 6 and 8, the ones that reached the end). Apple's log calls reach hilog through the shim (`SVAudioRendererNative`, private-formatted). |
+| 5 | `SVFootHillSessionCtrl::instance` and `SVDecryptorFactory::create` offline | **Pass** | `instance()` returns the same non-null pointer twice in runs 4, 5, 6 and 8 (the runs that got that far). `create(type=0)` returns null without throwing. `create(type=7)` with no session throws an `SVError` (caught in the bridge, process alive, canary unchanged after both calls). The code paths exercised make no network calls by static analysis; the logs carry no network evidence either way. |
+
+### Go / no-go (after the in-app run)
+
+- **Go for Phase 1 (the FootHill SPC/CKC round trip), personal builds only.** Nothing in Phase 0
+  is a blocker any more: the canary is stable, the libraries load and resolve in the app's own
+  namespace, Apple's runtime initialises, and Apple's objects can be created and fail cleanly.
+- **Hard rule from now on: every call into Apple's C++ goes through the bridge.** The host (NAPI,
+  OHOS libc++) calls only `extern "C"` functions of `libam_bridge.so`. Each one wraps its Apple call
+  in `try { … } catch (const std::exception &) { … } catch (...) { … }` and returns an error code
+  and message. No Apple exception may ever reach an OHOS frame. The `--cxx` and `--decryptor` flags
+  show what happens otherwise: the process dies.
+- Option 2's estimate stands (3–5 weeks), plus about a day for the bridge's type plumbing below.
+
+### What Phase 1 needs
+
+1. **The bridge has to speak `std::__ndk1`.** `generateSessionExchange(string const&,
+   shared_ptr<SVData> const&, string const&, string const&)` and `generateSessionContext(string
+   const&, string const&)` take NDK `std::string` and `shared_ptr` by reference. OHOS headers are
+   `std::__n1`, so the bridge can't build them today. Options, in order of preference:
+   - compile the bridge against the NDK's libc++ headers (`-nostdinc++`, `_LIBCPP_ABI_NAMESPACE=__ndk1`,
+     on the OHOS sysroot). Android NDK r27–r29 are installed on the Mac; their `basic_string` and
+     `shared_ptr` layouts match r20's stable ABI, but the headers' Android/bionic assumptions need a
+     check;
+   - or build the objects by hand through `libc++_ndk1.so`'s exported `basic_string` members
+     (`__init`, destructor), as `--cxx` already does for a short string, and `SVData`'s exported
+     constructor plus a hand-made `shared_ptr` control block.
+2. **Inputs, with the owner's account (no secrets in code, logs or the repo):** the developer token
+   (the existing token service), a MUT from the ArkWeb sign-in (so `AppleMusicSource` wiring and the
+   sign-in page come first), and a storefront. Then, for one `salableAdamId`: `webPlayback` → the
+   `cbcp` asset's `.m3u8`, its `EXT-X-KEY` `skd://` URI, `hls-key-cert-url` and
+   `hls-key-server-url`.
+3. **The round trip:** fetch the certificate → `SVData(cert)` → `generateSessionExchange(keyUri, cert,
+   adamId, …)` → SPC → `POST hls-key-server-url` (`{challenge, key-system: "com.apple.fps", uri,
+   adamId, isLibrary, user-initiated}` plus the three headers) → CKC → `generateSessionContext(keyUri,
+   ckc)`. Pass = a non-null context and `create(type=7)` returning a decryptor instead of throwing.
+   Decrypting one sample (`decryptSample`) in memory is the stretch goal. Nothing decrypted is
+   written anywhere.
+4. **Harness:** the same in-app hook (the `spike/am-probe` branch), since `hdc shell` can't exec.
+   The HTTP calls can be ArkTS (`@kit.NetworkKit`) passing bytes to the bridge, which keeps the
+   native side free of networking. The Apple calls run on our own thread (never the UI thread),
+   and that thread never calls libselinux.
+5. **Keep personal-only.** The Apple `.so` files stay in a scratch directory and in an untracked
+   `libs/` of a local branch, and the build that carries them never leaves the owner's devices.
+
+
+**Review notes (2026-11-14):** the two-runtime crash in runs 1–3, 4 and 7 went through the probe .so's own exported static libunwind (`unw_get_proc_info`, `_Unwind_GetLanguageSpecificData`), so the harness itself interposed an unwinder. The rule still stands — no Apple exception may reach an OHOS frame; catch everything in an NDK-built bridge — and Phase 1 must also make sure no module exports its own libunwind and must test exceptions on threads Apple creates, not only the two synchronous throw sites tested here.
