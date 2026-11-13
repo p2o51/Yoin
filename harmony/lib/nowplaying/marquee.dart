@@ -43,11 +43,23 @@ class _MarqueeState extends State<Marquee> with SingleTickerProviderStateMixin {
   double _lap = 0;
   Duration? _start;
 
+  /// The line's current scroll, for tests.
+  @visibleForTesting
+  double get debugOffset => _offset.value;
+
   @override
   void dispose() {
     _ticker.dispose();
     _offset.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Muted (a hidden flight slot): rest at the start of the line, and run
+    // the initial delay again once shown, as a freshly shown line does.
+    if (!TickerMode.valuesOf(context).enabled) _restart();
   }
 
   @override

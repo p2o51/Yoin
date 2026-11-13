@@ -167,6 +167,53 @@ void main() {
     expect(find.text('Library'), findsOneWidget);
   });
 
+  testWidgets('should_showBar_when_pageIsPushedOverBarlessPage', (tester) async {
+    await pump(tester, NowPlayingState.idle);
+    appNavigatorKey.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const ChromeBarSuppression(child: Scaffold(body: Text('search page'))),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Library'), findsNothing);
+
+    appNavigatorKey.currentState!.push(
+      MaterialPageRoute<void>(builder: (_) => const Scaffold(body: Text('detail page'))),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Library'), findsOneWidget, reason: 'the search page stays mounted under the detail page');
+
+    appNavigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('Library'), findsNothing, reason: 'back on the search page the bar leaves again');
+
+    appNavigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('Library'), findsOneWidget);
+  });
+
+  testWidgets('should_keepBarAway_when_menuOpensOverBarlessPage', (tester) async {
+    await pump(tester, NowPlayingState.idle);
+    appNavigatorKey.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const ChromeBarSuppression(child: Scaffold(body: Text('search page'))),
+      ),
+    );
+    await tester.pumpAndSettle();
+    showDialog<void>(context: appNavigatorKey.currentContext!, builder: (_) => const Text('menu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Library'), findsNothing);
+  });
+
+  test('should_notSuppress_when_barlessPageIsCoveredOrLeaving', () {
+    expect(barSuppressedFor(animation: AnimationStatus.completed, secondaryAnimation: AnimationStatus.dismissed), isTrue);
+    expect(barSuppressedFor(animation: AnimationStatus.forward, secondaryAnimation: AnimationStatus.dismissed), isTrue);
+    expect(barSuppressedFor(animation: AnimationStatus.completed, secondaryAnimation: AnimationStatus.reverse), isTrue);
+    expect(barSuppressedFor(animation: AnimationStatus.completed, secondaryAnimation: AnimationStatus.forward), isFalse);
+    expect(barSuppressedFor(animation: AnimationStatus.completed, secondaryAnimation: AnimationStatus.completed), isFalse);
+    expect(barSuppressedFor(animation: AnimationStatus.reverse, secondaryAnimation: AnimationStatus.dismissed), isFalse);
+  });
+
   testWidgets('should_closePlayerNotPopRoute_when_systemBack', (tester) async {
     await pump(tester, playingState(nowPlayingTracks(2), context: _album));
     appNavigatorKey.currentState!.push(

@@ -143,7 +143,9 @@ export class SystemSession {
       session.on('playNext', () => this.engine.next());
       session.on('playPrevious', () => this.engine.previous());
       session.on('seek', (time: number) => this.engine.seekTo(time));
-      session.on('setLoopMode', (mode: avSession.LoopMode) => this.applyLoopMode(mode));
+      // setLoopMode hands over the mode the card shows now; the app picks the next one (setTargetLoopMode,
+      // API 18, is the one that carries a target).
+      session.on('setLoopMode', (mode: avSession.LoopMode) => this.applyLoopMode(nextLoopMode(mode)));
     } catch (e) {
       // A half-wired session would ignore the user's keys: drop it and retry on the next snapshot.
       session.destroy().catch((err: BusinessError) => {
@@ -424,6 +426,22 @@ function toPlaybackState(s: EngineSnapshot): avSession.AVPlaybackState {
     state.isFavorite = s.favorite;
   }
   return state;
+}
+
+/**
+ * The 播控中心 loop button's cycle: the controller sends the mode it shows and the app advances. Follows the
+ * round play-mode button as the card can show it (repeat all → shuffle → repeat one → repeat all); repeat off,
+ * which only the split pill reaches, goes back to repeat all like a round-button tap does.
+ */
+function nextLoopMode(current: avSession.LoopMode): avSession.LoopMode {
+  switch (current) {
+    case avSession.LoopMode.LOOP_MODE_LIST:
+      return avSession.LoopMode.LOOP_MODE_SHUFFLE;
+    case avSession.LoopMode.LOOP_MODE_SHUFFLE:
+      return avSession.LoopMode.LOOP_MODE_SINGLE;
+    default:
+      return avSession.LoopMode.LOOP_MODE_LIST;
+  }
 }
 
 /** One system axis for two app axes: shuffle wins over repeat all / off; repeat one shows as SINGLE. */

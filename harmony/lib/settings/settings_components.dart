@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../detail/detail_page.dart';
 import '../theme/motion.dart';
+import '../theme/system_bars.dart';
 import '../theme/tokens.dart';
 import 'settings_metrics.dart';
 
@@ -114,6 +115,8 @@ class SettingsBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
+      // A transparent bar reads as dark to AppBar (light icons on a light page); follow the page instead.
+      systemOverlayStyle: yoinStatusBarStyle(Theme.of(context).brightness),
       scrolledUnderElevation: 0,
       elevation: 0,
       automaticallyImplyLeading: false,

@@ -101,18 +101,25 @@ class FlightSlot extends StatelessWidget {
     if (controller == null) return child;
     final key = pill ? controller.flightKeys.pill[element]! : controller.flightKeys.player[element]!;
     final hidden = controller.flightActive && controller.flightCanFly(element);
-    return Opacity(
-      opacity: hidden ? 0 : 1,
-      child: KeyedSubtree(key: key, child: child),
-    );
+    Widget slot = KeyedSubtree(key: key, child: child);
+    // A hidden text slot holds its marquee at the start of its line: the
+    // proxy draws the line unscrolled, so the slot must reappear unscrolled
+    // (the marquee restarts its initial delay from the handover). Always in
+    // the tree for text slots, so hiding never reshapes the subtree.
+    if (element != FlightElement.cover) slot = TickerMode(enabled: !hidden, child: slot);
+    return Opacity(opacity: hidden ? 0 : 1, child: slot);
   }
 }
 
 /// The flight layer, above everything: paints the proxies at the live
 /// rects of both slots, lerped by the controller's [NowPlayingOverlayController.flight]
-/// spring. Texts are laid out once at the player's size and scaled by
-/// height from their start edge (scaleToBounds FillHeight, CenterStart), so
-/// they never reflow; the cover lerps its rect and corner radius (4 → 16).
+/// spring. Each text is drawn twice, as Compose sharedBounds does: the pill's
+/// own line (pill style, laid out at the pill's size) and the player's line
+/// (hero style, laid out at the player's size), each scaled by height from
+/// its start edge (scaleToBounds FillHeight, CenterStart) so neither
+/// reflows, crossfading with the flight ([flightTextPoses]). At each end the
+/// proxy is that end's real text at scale 1, so the handover is invisible;
+/// the cover lerps its rect and corner radius (4 → 16).
 class FlightLayer extends StatefulWidget {
   const FlightLayer({super.key, required this.controller, required this.content});
 
@@ -213,8 +220,7 @@ class _FlightPainter extends CustomPainter {
   final TextDirection direction;
   final TextScaler scaler;
 
-  TextPainter? _title;
-  TextPainter? _artist;
+  final Map<FlightElement, ({TextPainter pill, TextPainter hero})> _painters = {};
 
   Rect? _rectOf(GlobalKey key, RenderBox self) {
     final last = controller.flightKeys.lastRects;
@@ -253,71 +259,128 @@ class _FlightPainter extends CustomPainter {
     }
 
     // Title and artist.
-    void text(
-      FlightElement element,
-      String value,
-      TextStyle pillStyle,
-      TextStyle heroStyle,
-      double heroScaleX,
-      TextPainter? cached,
-      void Function(TextPainter) store,
-    ) {
+    void text(FlightElement element, String value, TextStyle pillStyle, TextStyle heroStyle, double heroScaleX) {
       final from = _rectOf(keys.pill[element]!, self);
       final to = _rectOf(keys.player[element]!, self);
       if (from == null || to == null) return;
-      final painter =
-          cached ??
-          (TextPainter(
-            text: TextSpan(text: value, style: heroStyle),
-            maxLines: 1,
-            textDirection: direction,
-            textScaler: scaler,
-          )..layout());
-      store(painter);
-      final rect = Rect.lerp(from, to, t)!;
-      // Scale by height from the start edge; colour crosses with t.
-      final scale = rect.height / math.max(1, to.height);
-      final color = Color.lerp(pillStyle.color, heroStyle.color, t);
-      canvas.save();
-      canvas.clipRect(
-        Rect.fromLTWH(rect.left, rect.top - rect.height, math.max(rect.width, to.width * scale), rect.height * 3),
+      final painters = _painters[element] ??= (pill: _layout(value, pillStyle), hero: _layout(value, heroStyle));
+      final poses = flightTextPoses(
+        from: from,
+        to: to,
+        t: t,
+        pillSize: painters.pill.size,
+        heroSize: painters.hero.size,
+        heroScaleX: heroScaleX,
       );
-      canvas.translate(rect.left, rect.top + (rect.height - painter.height * scale) / 2);
-      canvas.scale(scale);
-      // Grow into the hero's resting horizontal scale from the start edge.
-      final sx = ui.lerpDouble(1, heroScaleX, t)!;
-      if (sx != 1) canvas.scale(sx, 1);
-      if (color != null && color != heroStyle.color) {
-        canvas.saveLayer(null, Paint()..colorFilter = ColorFilter.mode(color, BlendMode.srcIn));
-        painter.paint(canvas, Offset.zero);
-        canvas.restore();
-      } else {
-        painter.paint(canvas, Offset.zero);
-      }
-      canvas.restore();
+      _paintLine(canvas, painters.pill, poses.pill);
+      _paintLine(canvas, painters.hero, poses.hero);
     }
 
-    text(
-      FlightElement.title,
-      content.title,
-      content.pillTitleStyle,
-      content.heroTitleStyle,
-      content.heroTitleScaleX,
-      _title,
-      (p) => _title = p,
-    );
+    text(FlightElement.title, content.title, content.pillTitleStyle, content.heroTitleStyle, content.heroTitleScaleX);
     text(
       FlightElement.artist,
       content.artist,
       content.pillArtistStyle,
       content.heroArtistStyle,
       content.heroArtistScaleX,
-      _artist,
-      (p) => _artist = p,
     );
+  }
+
+  // The same layout as Marquee / Text: one line, the app's text scaler.
+  TextPainter _layout(String value, TextStyle style) => TextPainter(
+    text: TextSpan(text: value, style: style),
+    maxLines: 1,
+    textDirection: direction,
+    textScaler: scaler,
+  )..layout();
+
+  void _paintLine(Canvas canvas, TextPainter painter, FlightTextPose pose) {
+    if (pose.alpha <= 0) return;
+    canvas.save();
+    canvas.clipRect(pose.clip);
+    canvas.translate(pose.origin.dx, pose.origin.dy);
+    canvas.scale(pose.scaleX, pose.scale);
+    if (pose.alpha < 1) {
+      canvas.saveLayer(null, Paint()..color = Color.fromRGBO(0, 0, 0, pose.alpha));
+      painter.paint(canvas, Offset.zero);
+      canvas.restore();
+    } else {
+      painter.paint(canvas, Offset.zero);
+    }
+    canvas.restore();
   }
 
   @override
   bool shouldRepaint(_FlightPainter old) =>
       old.image != image || old.content != content || old.direction != direction || old.scaler != scaler;
+}
+
+/// Where one flying line is drawn: its text box's top-left [origin], its
+/// [scale] (height) and [scaleX] (height × the hero's horizontal rest
+/// scale), its [alpha] in the crossfade, and its [clip].
+@immutable
+final class FlightTextPose {
+  const FlightTextPose({
+    required this.origin,
+    required this.scale,
+    required this.scaleX,
+    required this.alpha,
+    required this.clip,
+  });
+
+  final Offset origin;
+  final double scale;
+  final double scaleX;
+  final double alpha;
+  final Rect clip;
+}
+
+/// The crossfade window of the two lines, in flight progress: the pill's
+/// line alone below [start], the player's alone above [end].
+const double flightTextFadeStart = 0.25;
+const double flightTextFadeEnd = 0.75;
+
+/// The two poses of one flying text at flight progress [t] (0 = pill, 1 =
+/// player) between the slots [from] and [to]. Each line is scaled from its
+/// own end's size, so at t = 0 the pill line sits exactly on the pill's
+/// text (scale 1, alpha 1, clipped like the pill's marquee) and at t = 1 the
+/// hero line sits exactly on the player's.
+({FlightTextPose pill, FlightTextPose hero}) flightTextPoses({
+  required Rect from,
+  required Rect to,
+  required double t,
+  required Size pillSize,
+  required Size heroSize,
+  double heroScaleX = 1,
+}) {
+  final rect = Rect.lerp(from, to, t)!;
+  final heroAlpha = ((t - flightTextFadeStart) / (flightTextFadeEnd - flightTextFadeStart)).clamp(0.0, 1.0);
+
+  Rect clipFor(double width) => Rect.fromLTWH(rect.left, rect.top - rect.height, width, rect.height * 3);
+
+  // The pill's line, scaled from the pill slot's height. A line that fits
+  // the pill is unclipped (a Text); one that overflows is clipped to the
+  // slot like the marquee.
+  final pillScale = rect.height / math.max(1, from.height);
+  final pillWidth = pillSize.width * pillScale;
+  final pill = FlightTextPose(
+    origin: Offset(rect.left, rect.top + (rect.height - pillSize.height * pillScale) / 2),
+    scale: pillScale,
+    scaleX: pillScale,
+    alpha: 1 - heroAlpha,
+    clip: clipFor(pillSize.width <= from.width + 0.5 ? math.max(rect.width, pillWidth) : rect.width),
+  );
+
+  // The player's line, scaled from the player slot's height, growing into
+  // the hero's resting horizontal scale.
+  final heroScale = rect.height / math.max(1, to.height);
+  final sx = ui.lerpDouble(1, heroScaleX, t)!;
+  final hero = FlightTextPose(
+    origin: Offset(rect.left, rect.top + (rect.height - heroSize.height * heroScale) / 2),
+    scale: heroScale,
+    scaleX: heroScale * sx,
+    alpha: heroAlpha,
+    clip: clipFor(math.max(rect.width, to.width * heroScale)),
+  );
+  return (pill: pill, hero: hero);
 }

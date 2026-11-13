@@ -27,7 +27,19 @@ final barSuppressionProvider = NotifierProvider<BarSuppression, Set<Object>>(Bar
 /// Whether the bar should be away because a bar-less page is up.
 final barSuppressedProvider = Provider<bool>((ref) => ref.watch(barSuppressionProvider).isNotEmpty);
 
-/// Wrap a bar-less pushed page: the bar leaves while it is mounted.
+/// Whether a bar-less page wants the bar away, from its route's two
+/// animations: not while it is leaving ([animation] reversing), and not while
+/// another page covers it ([secondaryAnimation] running forward or done). A
+/// page route only drives [secondaryAnimation] for a page pushed over it, so
+/// a menu or sheet above it keeps the bar away.
+bool barSuppressedFor({required AnimationStatus animation, required AnimationStatus secondaryAnimation}) {
+  if (animation == AnimationStatus.reverse) return false;
+  return secondaryAnimation == AnimationStatus.dismissed || secondaryAnimation == AnimationStatus.reverse;
+}
+
+/// Wrap a bar-less pushed page: the bar leaves while it is the top page.
+/// A detail page pushed over it (an album opened from search) has the bar,
+/// so the bar comes back as that page comes in and leaves again as it goes.
 class ChromeBarSuppression extends ConsumerStatefulWidget {
   const ChromeBarSuppression({super.key, required this.child});
 
@@ -41,29 +53,40 @@ class _ChromeBarSuppressionState extends ConsumerState<ChromeBarSuppression> {
   final Object _token = Object();
   late final BarSuppression _suppression = ref.read(barSuppressionProvider.notifier);
   Animation<double>? _routeAnimation;
+  Animation<double>? _secondaryAnimation;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final animation = ModalRoute.of(context)?.animation;
+    final route = ModalRoute.of(context);
+    final animation = route?.animation;
     if (!identical(animation, _routeAnimation)) {
       _routeAnimation?.removeStatusListener(_onRouteStatus);
       _routeAnimation = animation?..addStatusListener(_onRouteStatus);
     }
-    _sync(leaving: animation?.status == AnimationStatus.reverse);
+    final secondary = route?.secondaryAnimation;
+    if (!identical(secondary, _secondaryAnimation)) {
+      _secondaryAnimation?.removeStatusListener(_onRouteStatus);
+      _secondaryAnimation = secondary?..addStatusListener(_onRouteStatus);
+    }
+    _sync();
   }
 
-  /// The bar comes back as the page starts to leave, not after it has gone.
-  void _onRouteStatus(AnimationStatus status) => _sync(leaving: status == AnimationStatus.reverse);
+  /// The bar comes back as the page starts to leave (or to be covered), not after.
+  void _onRouteStatus(AnimationStatus _) => _sync();
 
-  void _sync({required bool leaving}) {
+  void _sync() {
+    final away = barSuppressedFor(
+      animation: _routeAnimation?.status ?? AnimationStatus.completed,
+      secondaryAnimation: _secondaryAnimation?.status ?? AnimationStatus.dismissed,
+    );
     // Provider writes can't happen during build; defer to after this frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (leaving) {
-        _suppression.remove(_token);
-      } else {
+      if (away) {
         _suppression.add(_token);
+      } else {
+        _suppression.remove(_token);
       }
     });
   }
@@ -71,6 +94,7 @@ class _ChromeBarSuppressionState extends ConsumerState<ChromeBarSuppression> {
   @override
   void dispose() {
     _routeAnimation?.removeStatusListener(_onRouteStatus);
+    _secondaryAnimation?.removeStatusListener(_onRouteStatus);
     final suppression = _suppression;
     final token = _token;
     WidgetsBinding.instance.addPostFrameCallback((_) => suppression.remove(token));

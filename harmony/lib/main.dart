@@ -13,6 +13,7 @@ import 'shell/app_chrome.dart';
 import 'shell/shell_screen.dart';
 import 'shell/shell_state.dart';
 import 'theme/playback_theme.dart';
+import 'theme/system_bars.dart';
 import 'ui/adaptive/yoin_window_info.dart';
 
 void main() {
@@ -58,7 +59,11 @@ class YoinApp extends ConsumerWidget {
       supportedLocales: const [Locale('en'), Locale('zh')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       navigatorKey: appNavigatorKey,
-      builder: (context, child) => YoinWindowScope.measured(child: AppChrome(child: child!)),
+      // Inside the theme (the builder's own context is above it), so the
+      // status-bar icons follow light / dark.
+      builder: (context, child) => Builder(
+        builder: (context) => YoinSystemBars(child: YoinWindowScope.measured(child: AppChrome(child: child!))),
+      ),
       home: const ShellScreen(),
     );
   }
