@@ -58,6 +58,8 @@ internal fun TipIllustration(
         contentAlignment = Alignment.Center,
     ) {
         when (tip) {
+            HomeBubbleTip.VolumeLeveling -> VolumeLevelingDemo(playing)
+            HomeBubbleTip.HomeScreenWidgets -> HomeScreenWidgetsDemo(playing)
             HomeBubbleTip.SpotifyElsewhere -> SpotifyElsewhereDemo(playing)
             HomeBubbleTip.Labs -> LabsDemo(playing)
             HomeBubbleTip.SettingsRegrouped -> SettingsGroupsDemo(playing)

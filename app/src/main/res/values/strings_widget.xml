@@ -20,4 +20,7 @@
         <item quantity="one">%d Year Ago</item>
         <item quantity="other">%d Years Ago</item>
     </plurals>
+    <!-- Tip: Gemini 4 Carbon's words (.argon/android-parity-tips, 2026-11-13), as given; the widget names as the system's list shows them. -->
+    <string name="home_tip_widgets_title">Home screen widgets</string>
+    <string name="home_tip_widgets">Long-press an empty area on your home screen, find Yoin in the widget list, and drag the Play or Memory widget onto the screen</string>
 </resources>
