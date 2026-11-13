@@ -210,6 +210,18 @@ The same target runs on a Mac as "Designed for iPad". Rules that differ there ha
   simulator's UI tests deliver no hover (`hover:x,y` changes nothing), so `-hoverPreview YES`
   (debug, iPad) shows every hover state at once for screenshots. Not checked on a real pointer or
   a real Mac: the hover itself, and what cursor the Mac draws for the handle's pointer style.
+- Drag and drop (`Library/YoinDrag.swift`, the native Mac's `MacDrag`): song rows (Library, Search,
+  album and playlist pages) and Library's album and playlist cells and playlist rows drag out as a
+  `com.gpo.yoin.item` (other apps get the title over the artist as plain text). Drops: Now Playing's
+  Queue pill and its wide-layout queue icon (after what's queued), the queue sheet (a row: right
+  before it), and a writable playlist's cell or row (the song sheet's Remove rule; "Added to …").
+  A drag from another account (or another run) drops nothing. The target wears M3's dragged state
+  layer (16 %, effects spring) while a drag is over it; `-dropPreview YES` (debug, iPad) lights every
+  target for screenshots. A pointer drags at once; a finger on a song row gets its long press (the
+  sheet) and never lifts it, while album and playlist cells lift after a hold. `PadLayoutShotsUITests`
+  drives it with `clickdrag:x,y,x2,y2` (pointer) and `lift:x,y,x2,y2` (touch). Checked on the iPad
+  simulator against the demo server: album cell → playlist cell (touch), song row → playlist cell
+  and song row → Queue pill (pointer). Not checked on a real Mac.
 
 ### Spotify on a Mac
 

@@ -2140,7 +2140,10 @@ struct NowPlayingView: View, Equatable {
     private var pills: some View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 2) {
-                pill("queue", String(localized: "Queue"), shape: AnyShape(Capsule())) { model.queueSheetOpen = true }
+                // Songs, albums or playlists dragged here (from the shell beside the panel) join the queue.
+                pill("queue", String(localized: "Queue"), shape: AnyShape(Capsule()), dropsToQueue: true) {
+                    model.queueSheetOpen = true
+                }
                 // Yoin as the remote of another Spotify device: the pill names it.
                 pill("devices", spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices") : String(localized: "Devices"),
                      shape: AnyShape(RoundedRectangle(cornerRadius: 20))) {
@@ -2156,7 +2159,15 @@ struct NowPlayingView: View, Equatable {
         }
     }
 
-    private func pill(_ icon: String, _ title: String, shape: AnyShape,
+    /// The pills' ink: the primary glass reads mid-tone in both modes, so onPrimary in light and white
+    /// in dark; a primary-container glass its on-colour; a neutral floor (Gemini, World) on-surface.
+    private var pillInk: Color {
+        lab.neutralTint("npPills") ? scheme.onSurface
+            : lab.style("npPills").role == .primaryContainer ? scheme.onPrimaryContainer
+            : colorScheme == .dark ? Color.white : scheme.onPrimary
+    }
+
+    private func pill(_ icon: String, _ title: String, shape: AnyShape, dropsToQueue: Bool = false,
                       action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
@@ -2167,13 +2178,13 @@ struct NowPlayingView: View, Equatable {
             // light; white in dark, where dark onPrimary (and, on glass,
             // onPrimaryContainer too) sank into it.
             // Gemini and World: a neutral glass floor, so on-surface ink.
-            .foregroundStyle(lab.neutralTint("npPills") ? scheme.onSurface
-                             : lab.style("npPills").role == .primaryContainer ? scheme.onPrimaryContainer
-                             : colorScheme == .dark ? Color.white : scheme.onPrimary)
+            .foregroundStyle(pillInk)
             // Same contrast shadow as PAUSE on glass; a solid pill needs none.
             .labContrast(lab.style("npPills").variant == .none ? "npPills" : "transportPrimary")
             .padding(.horizontal, 13.2)
             .frame(minWidth: 58, minHeight: 44)
+            // A drop target's dragged state layer sits between the glass and the label (fixed per pill).
+            .modifier(QueueDropLayer(enabled: dropsToQueue, shape: shape, ink: pillInk, model: model))
             .labGlass("npPills", scheme: scheme, brand: brand, auto: scheme.primary, in: shape)
         }
         .buttonStyle(PressScale())
@@ -3100,6 +3111,7 @@ extension NowPlayingView {
     private var wideActionIcons: some View {
         HStack(spacing: 4) {
             wideIcon("queue", label: String(localized: "Queue")) { model.queueSheetOpen = true }
+                .yoinDropTarget(in: Circle(), ink: scheme.onSurfaceVariant) { YoinDrag.queue($0, model: model) }
             wideIcon("devices", label: spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices")
                                                    : String(localized: "Devices")) {
                 if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
@@ -3204,6 +3216,22 @@ private struct SideClip: ViewModifier {
     func body(content: Content) -> some View {
         if on {
             content.mask { Rectangle().padding(.vertical, -reach) }
+        } else {
+            content
+        }
+    }
+}
+
+/// Now Playing's Queue pill as a drop target: the songs dropped on it join the queue (YoinDrag).
+private struct QueueDropLayer: ViewModifier {
+    var enabled: Bool
+    var shape: AnyShape
+    var ink: Color
+    var model: AppModel
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.yoinDropTarget(in: shape, ink: ink) { YoinDrag.queue($0, model: model) }
         } else {
             content
         }

@@ -46,6 +46,7 @@ private struct TrackRowGestures: ViewModifier {
     var entry: PlaylistEntry
     var context: TrackMenuContext
     var play: () -> Void
+    @Environment(AppModel.self) private var model
     @State private var pressing = false
     @State private var hovered = false
     @State private var pressed = 0
@@ -53,6 +54,8 @@ private struct TrackRowGestures: ViewModifier {
     func body(content: Content) -> some View {
         let layer = PointerHover.opacity(hovered: hovered || PointerHover.preview, pressed: pressing)
         content
+            // Dragged onto the queue or a playlist (a pointer at once; a finger after the long press).
+            .yoinDraggable { YoinDrag.song(entry, model: model) }
             .background {
                 // The pressed tint, and the same 8 % under a pointer (iPad, the iPad app on a Mac).
                 RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous)

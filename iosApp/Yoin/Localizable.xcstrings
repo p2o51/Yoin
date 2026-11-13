@@ -1021,6 +1021,34 @@
         }
       }
     },
+    "Added %lld songs to the queue": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Added %lld song to the queue"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Added %lld songs to the queue"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 %lld 首加入队列"
+          }
+        }
+      }
+    },
     "Added 1 song to the queue": {
       "localizations": {
         "zh-Hans": {

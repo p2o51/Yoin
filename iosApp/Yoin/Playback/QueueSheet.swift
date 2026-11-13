@@ -4,7 +4,8 @@ import SwiftUI
 /// "Playing from" over the source, then Now playing, Next in queue (songs the
 /// user queued, with Clear) and Next from: the source. Tap a row to play it,
 /// long-press and drag to reorder within its part, swipe to remove (the
-/// current song stays, Android rule).
+/// current song stays, Android rule). Songs, albums and playlists dragged in
+/// from elsewhere (YoinDrag) join the queue, before the row they land on.
 ///
 /// iOS: the sheet keeps the system's iOS 26 glass (no presentation
 /// background of our own), the same material as the Devices (AirPlay) sheet.
@@ -58,6 +59,12 @@ struct QueueSheet: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        // Songs, albums or playlists dropped on the sheet go after what's queued (the native Mac's rule);
+        // on a row, right before it.
+        .dropDestination(for: YoinDragItem.self) { items, _ in
+            YoinDrag.queue(items, model: model)
+            return true
+        }
         // The soft scroll edge drew a grey band along the sheet's bottom edge
         // over the glass; the sheet's own rounded edge already ends the list.
         .scrollEdgeEffectHidden(true, for: .bottom)
@@ -185,6 +192,7 @@ struct QueueSheet: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .yoinDropTarget(in: Rectangle(), ink: scheme.primary) { YoinDrag.queue($0, before: current ? nil : item.id, model: model) }
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets())
