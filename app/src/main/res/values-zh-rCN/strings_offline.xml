@@ -14,7 +14,7 @@
     <string name="settings_downloads_remove_all">删除全部下载</string>
     <string name="settings_downloads_remove_all_detail">本机所有账号的下载</string>
     <string name="settings_downloads_list">已下载</string>
-    <string name="settings_downloads_list_empty">在专辑或歌单的 ⋮ 菜单里点「下载」，或者长按一首歌下载。下载的内容存在本机，没网也能播放。</string>
+    <string name="settings_downloads_list_empty">还没有下载</string>
     <string name="settings_downloads_entry_songs">%1$d 首 · %2$s</string>
     <string name="settings_downloads_entry_progress">正在下载 %1$d / %2$d</string>
     <string name="settings_downloads_entry_failed">有些歌没下载成功</string>
