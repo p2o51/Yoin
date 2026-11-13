@@ -7,7 +7,9 @@ import YoinShared
  * screen; "Next" marks it read and moves to the next unread one, "Done" when it is the last, which closes
  * the page. Home's bubble only brings up unread tips (TipReadStore).
  *
- * A pushed page: the back circle, the edge swipe and Done all pop it.
+ * A pushed page: the back circle, the edge swipe and Done all pop it. Opened as a route (Home's bubble; on a
+ * wide iPad the column's root) they pop the path, which also closes the column; pushed from the Tips list
+ * they dismiss.
  */
 struct TipView: View {
     @Environment(AppModel.self) private var model
@@ -22,6 +24,8 @@ struct TipView: View {
     @State private var container = CGSize.zero
     @State private var readTaps = 0
     @State private var nextTaps = 0
+    /// The page's bottom safe area: on iPad it already holds the dock's clearance when the column pads it.
+    @State private var bottomInset: CGFloat = 0
 
     init(start: String) {
         self.start = start
@@ -53,6 +57,7 @@ struct TipView: View {
         .background(app.surface.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { container = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
         .environment(\.tipContainer, container)
     }
 
@@ -89,7 +94,7 @@ struct TipView: View {
 
     private var topBar: some View {
         HStack {
-            Button { dismiss() } label: {
+            Button { close() } label: {
                 YoinIcon("back", size: 22)
                     .foregroundStyle(app.onSurface)
                     .frame(width: 40, height: 40)
@@ -150,7 +155,7 @@ struct TipView: View {
                 if let next {
                     withAnimation(Yoin.standardDefaultSpatial) { position.scrollTo(id: next.id) }
                 } else {
-                    dismiss()
+                    close()
                 }
             } label: {
                 HStack(spacing: 8) {
@@ -172,8 +177,15 @@ struct TipView: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
-        // The phone's bar floats over the page's foot; iPad's column already keeps its dock clear.
-        .padding(.bottom, model.isPad ? 0 : ShellBarMetrics.clearance)
+        // The phone's bar floats over the page's foot. On iPad the dock does: a route's column pads the page
+        // clear of it, a page pushed from the Tips list keeps clear itself.
+        .padding(.bottom, model.isPad ? TipMetrics.padDockPadding(bottomInset: bottomInset) : ShellBarMetrics.clearance)
+    }
+
+    /// Back and Done: through the path when this page is the path's last entry (so a column it roots
+    /// closes, as the other column pages do), else the plain pop of a page pushed from the Tips list.
+    private func close() {
+        if TipMetrics.closesThroughPath(model.path, start: start) { model.back() } else { dismiss() }
     }
 }
 
@@ -187,6 +199,18 @@ enum TipMetrics {
     /// A tile turns and shrinks this much by the time its page has slid a whole page away.
     static let tileTurnDegrees: CGFloat = 40
     static let tileShrink: CGFloat = 0.2
+
+    /// iPad: what the buttons' row adds under itself so it ends above the dock's glass (the nav capsule
+    /// and the mini player, `PadDockMetrics.bottom + height` from the window's edge), given the page's
+    /// bottom safe area. A column that already pads the page past the dock needs nothing more.
+    static func padDockPadding(bottomInset: CGFloat) -> CGFloat {
+        max(0, PadDockMetrics.bottom + PadDockMetrics.height - bottomInset)
+    }
+
+    /// Whether the page was opened as a route (it is the path's last entry), so back pops the path.
+    static func closesThroughPath(_ path: [Route], start: String) -> Bool {
+        path.last == .tip(start)
+    }
 
     /// How far page [index] is from where the pager stands, −1…1 (0: on screen; positive once the pager
     /// has moved on past it).

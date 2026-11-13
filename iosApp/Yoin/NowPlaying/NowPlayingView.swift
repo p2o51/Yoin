@@ -2031,18 +2031,19 @@ struct NowPlayingView: View, Equatable {
                 HStack(alignment: .firstTextBaseline, spacing: Tokens.np.HERO_ONE_LINE_GAP.cg) {
                     routeLink(albumRoute(p), label: String(localized: "Go to album")) { heroTitle(p) }
                         .layoutPriority(1)
-                    routeLink(artistRoute(p), label: String(localized: "Go to artist")) {
-                        Text(p.album.artist)
-                            .font(.gsf(14.4, .medium))
-                            .foregroundStyle(scheme.onSurfaceVariant)
-                            .animation(Self.heroStretchSpring) {
-                                $0.scaleEffect(x: artistStretch(p), y: 1, anchor: .leading)
-                            }
+                    CappedWidth(cap: g.size.width * Tokens.np.HERO_ONE_LINE_ARTIST_SHARE.cg) {
+                        routeLink(artistRoute(p), label: String(localized: "Go to artist")) {
+                            Text(p.album.artist)
+                                .font(.gsf(14.4, .medium))
+                                .foregroundStyle(scheme.onSurfaceVariant)
+                                .animation(Self.heroStretchSpring) {
+                                    $0.scaleEffect(x: artistStretch(p), y: 1, anchor: .leading)
+                                }
+                        }
                     }
-                        .frame(maxWidth: g.size.width * Tokens.np.HERO_ONE_LINE_ARTIST_SHARE.cg, alignment: .leading)
                         // Its own width, capped (Android widthIn(max =)): a short name leaves the title the
-                        // row (as a frame that always took the cap, it cut "Slow Light" short beside "Mira Sol").
-                        .fixedSize(horizontal: true, vertical: false)
+                        // row (as a frame that always took the cap, it cut "Slow Light" short beside "Mira Sol"),
+                        // a long one is cut with an ellipsis at the cap.
                         // Measured first (capped); the title takes the rest.
                         .layoutPriority(2)
                         .npFade(open, contentFade)
@@ -3301,5 +3302,34 @@ private struct SideClip: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// Android's `widthIn(max =)`: the child at its own width up to [cap], cut (an ellipsis for text) past it.
+/// A `frame(maxWidth:)` takes the whole cap whenever more is offered; this reports the child's width.
+struct CappedWidth: Layout {
+    var cap: CGFloat
+
+    /// The width offered to the child: the parent's offer, never more than the cap (the cap when the
+    /// parent asks for an ideal size).
+    static func offer(_ proposed: CGFloat?, cap: CGFloat) -> CGFloat {
+        min(proposed ?? cap, cap)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let size = child.sizeThatFits(ProposedViewSize(width: Self.offer(proposal.width, cap: cap), height: proposal.height))
+        return CGSize(width: min(size.width, cap), height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+
+    /// The child's baselines, so the row's first-text-baseline alignment still reaches the name.
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
+                           subviews: Subviews, cache: inout ()) -> CGFloat? {
+        guard let child = subviews.first else { return nil }
+        return bounds.minY + child.dimensions(in: ProposedViewSize(width: bounds.width, height: bounds.height))[guide]
     }
 }
