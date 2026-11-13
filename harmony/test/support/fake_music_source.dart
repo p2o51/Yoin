@@ -2,7 +2,7 @@ import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/source/music_source.dart';
 
 /// A MusicSource for view-model tests: albums in memory, everything else unsupported.
-class FakeMusicSource implements MusicSource, MusicLibrary {
+class FakeMusicSource implements MusicSource, MusicLibrary, MusicPlayback {
   FakeMusicSource({this.albums = const [], this.failWith});
 
   final List<Album> albums;
@@ -25,9 +25,19 @@ class FakeMusicSource implements MusicSource, MusicLibrary {
   @override
   MusicWriteActions get writeActions => throw const UnsupportedSourceOperation('writeActions');
   @override
-  MusicPlayback get playback => throw const UnsupportedSourceOperation('playback');
+  MusicPlayback get playback => this;
   @override
-  String? resolveCoverUrl(CoverRef ref, {int? size}) => null;
+  String? resolveCoverUrl(CoverRef ref, {int? size}) => 'https://covers.test/${ref.storageKey}?size=$size';
+
+  final List<MediaId> nowPlayingReports = [];
+  final List<MediaId> submittedPlays = [];
+
+  @override
+  Future<PlaybackHandle> handleFor(Track track) async => DirectStream('https://stream.test/${track.id.rawId}');
+  @override
+  Future<void> reportNowPlaying(MediaId trackId) async => nowPlayingReports.add(trackId);
+  @override
+  Future<void> submitPlay(MediaId trackId, DateTime playedAt) async => submittedPlays.add(trackId);
   @override
   void dispose() => disposed = true;
 
