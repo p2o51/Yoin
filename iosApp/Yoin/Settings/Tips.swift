@@ -88,12 +88,13 @@ enum Tips {
             titleZhHans: "音量平衡",
             textZhHans: "设置 › 点开 Subsonic 账号 › 音量平衡，可按曲目或按专辑开启 ReplayGain，让歌曲音量一致"),
         // Home screen widgets (Widgets/, parity A-F10); Argon's wording (.argon/ios-widgets-tip), the widget
-        // names as the gallery shows them.
+        // names as the gallery shows them; the Chinese in Apple's terms, 主屏幕 and 小组件 (Carbon,
+        // .argon/ios-widgets-tip-apple, 2026-11-13; a wording change, so the day stays).
         Tip(id: "HomeScreenWidgets", icon: "library", updated: "2026-11-07",
             title: "Add Home Screen widgets",
             text: "Long-press an empty area on the Home Screen and tap Edit to add the Play and Memory widgets",
-            titleZhHans: "添加桌面小组件",
-            textZhHans: "长按主屏幕空白处，在左上角「编辑」里添加「播放」和「Memories」小组件"),
+            titleZhHans: "添加主屏幕小组件",
+            textZhHans: "长按主屏幕空白处，轻点左上角「编辑」，添加「播放」和「Memories」小组件"),
         // Android #162 (owner's wording, 2026-11-06). No person symbol in YoinSymbols yet: the artist one.
         Tip(id: "AccountQuickSwitch", icon: "artist", updated: "2026-11-06",
             title: "Switch accounts",
