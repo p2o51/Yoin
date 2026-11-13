@@ -145,4 +145,23 @@ final class AppleMusicNotStreamedTests: XCTestCase {
         XCTAssertEqual(start.startAt, 1)
         XCTAssertEqual(PlayableQueue.queueable(entries).map(\.track.id.rawId), ["1440857786", "1440857787"])
     }
+
+    // MARK: List rows (Library › Songs, search, playlists)
+
+    func test_should_explainInsteadOfPlaying_when_aRowsSongIsNotStreamed() {
+        var t = Track(id: MediaId(provider: AppleMusicMapping.provider, rawId: "1440857790"), number: 1,
+                      title: "Song", durationSec: 0, rating: nil)
+        XCTAssertEqual(NotStreamedRow.tap(t), .play)
+        t.notStreamed = true
+        XCTAssertEqual(NotStreamedRow.tap(t), .explain)
+    }
+
+    func test_should_openAndCloseOnlyThatRowsReason_when_toggled() {
+        var shown: Set<String> = []
+        NotStreamedRow.toggle("a", in: &shown)
+        NotStreamedRow.toggle("b", in: &shown)
+        XCTAssertEqual(shown, ["a", "b"])
+        NotStreamedRow.toggle("a", in: &shown)
+        XCTAssertEqual(shown, ["b"])
+    }
 }

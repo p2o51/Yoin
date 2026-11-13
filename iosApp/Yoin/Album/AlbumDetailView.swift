@@ -924,10 +924,14 @@ struct AlbumDetailView: View {
                             .modifier(bandBlur)
                     }
                     ForEach(Array(playlist.entries.enumerated()), id: \.offset) { i, e in
-                        playlistRow(e)
+                        playlistRow(e, index: i)
                             .modifier(bandBlur)
                             .trackRow(for: e, context: .playlist(playlist.id.rawId, index: i)) {
-                                model.play(playlist.entries, startAt: i)
+                                // A song Apple won't stream doesn't play here either: its tap says why.
+                                switch NotStreamedRow.tap(e.track) {
+                                case .play: model.play(playlist.entries, startAt: i)
+                                case .explain: toggleNotStreamedReason(i)
+                                }
                             }
                     }
                     playlistMeta(playlist)
@@ -1008,12 +1012,12 @@ struct AlbumDetailView: View {
     /// Shows or hides the reason under row [index] (a song Apple won't stream).
     private func toggleNotStreamedReason(_ index: Int) {
         withAnimation(Yoin.spatial) {
-            if notStreamedReasons.remove(index) == nil { notStreamedReasons.insert(index) }
+            NotStreamedRow.toggle(index, in: &notStreamedReasons)
         }
     }
 
     /// Android UnavailableTrackAlpha.
-    static let notStreamedAlpha = 0.55
+    static let notStreamedAlpha = NotStreamedRow.alpha
 
     private func trackRow(_ t: Track, index: Int) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1309,11 +1313,26 @@ struct AlbumDetailView: View {
     /// over PlaylistTrackCredit (a bodySmall MetaLine: artist, then the album
     /// muted to 60 %, 12 apart, no separator), 2 apart; the duration in
     /// labelLarge tabular. Padding 8 × 8, no number, no heart.
-    private func playlistRow(_ e: PlaylistEntry) -> some View {
+    private func playlistRow(_ e: PlaylistEntry, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            playlistRowLine(e, index: index)
+            // A song Apple won't stream: the reason under the row, indented to the title (8 + 44 + 12).
+            if e.track.notStreamed && notStreamedReasons.contains(index) {
+                NotStreamedReason(scheme: app, leading: 64, trailing: 8)
+            }
+        }
+        .clipped()
+    }
+
+    private func playlistRowLine(_ e: PlaylistEntry, index: Int) -> some View {
         HStack(spacing: 12) {
             CoverArt(palette: e.album.palette, cornerRadius: 0, seed: e.album.seed)
                 .frame(width: 44, height: 44)
                 .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
+                // Android SongListItem: the "?" on the cover's bottom-left corner.
+                .overlay(alignment: .bottomLeading) {
+                    if e.track.notStreamed { NotStreamedBadge(scheme: s) { toggleNotStreamedReason(index) } }
+                }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(e.track.title).lineLimit(1)
@@ -1337,6 +1356,7 @@ struct AlbumDetailView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
+        .opacity(e.track.notStreamed ? NotStreamedRow.alpha : 1)
         .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
     }
 
