@@ -97,7 +97,10 @@ class SpotifyMusicSource(
     private val savedAlbumDelta = SavedTrackDelta(clock)
     private val recentlyPlayedCache =
         SingleFlightValue<List<SpotifyPlayHistoryObject>>(RECENTLY_PLAYED_MAX_AGE_MS, clock)
-    private val playlistTrackOffsetsById = ConcurrentHashMap<String, List<Int>>()
+    // Per playlist, the songs Yoin lists in order: each one's raw offset in
+    // the playlist and its id, so a row index is trusted only while it still
+    // points at the same song ([resolvePlaylistContextOffset]).
+    private val playlistTrackOffsetsById = ConcurrentHashMap<String, List<ListedPlaylistEntry>>()
 
     /** The signed-in account's Spotify profile picture, if it has one. */
     suspend fun profilePictureUrl(): String? = apiClient.getMe().avatarUrl
@@ -214,7 +217,9 @@ class SpotifyMusicSource(
                     null
                 }
                 val indexedTracks = items?.toTracksWithPlaylistOffsets(savedTrackIds = knownSavedTrackIds())
-                playlistTrackOffsetsById[rawId] = indexedTracks.orEmpty().map { it.first }
+                playlistTrackOffsetsById[rawId] = indexedTracks.orEmpty().map { (offset, track) ->
+                    ListedPlaylistEntry(offset = offset, trackRawId = track.id.rawId)
+                }
                 playlist.toPlaylist(
                     tracks = indexedTracks.orEmpty().map { it.second },
                     canWrite = playlist.owner?.id == meId.await(),
@@ -432,7 +437,7 @@ class SpotifyMusicSource(
                 .map { (uri, refs) ->
                     SpotifyRemoveTrackItem(
                         uri = uri,
-                        positions = refs.map { offsets?.getOrNull(it.position) ?: it.position }.sorted(),
+                        positions = refs.map { offsets?.getOrNull(it.position)?.offset ?: it.position }.sorted(),
                     )
                 }
             val newSnapshot = apiClient.removeTracksFromPlaylist(
@@ -610,15 +615,19 @@ class SpotifyMusicSource(
      * Translate the visible row index in Yoin's filtered playlist view back
      * to Spotify's raw playlist offset. Returns null when the source no
      * longer has a trustworthy mapping (e.g. stale cache after a mutation),
-     * so callers can safely fall back to bare App Remote playback.
+     * so callers can safely fall back to bare App Remote playback. Also null
+     * when the song the source listed at that index is not [trackId]: the
+     * page's list has moved on from the last read (a row taken off while its
+     * removal is out), and the song's uri is the start to use.
      */
     fun resolvePlaylistContextOffset(
         playlistId: MediaId,
         visibleStartIndex: Int,
+        trackId: MediaId,
     ): Int? {
         val rawId = requireSpotify(playlistId).rawId
-        val offsets = playlistTrackOffsetsById[rawId] ?: return null
-        return offsets.getOrNull(visibleStartIndex)
+        val listed = playlistTrackOffsetsById[rawId]?.getOrNull(visibleStartIndex) ?: return null
+        return listed.offset.takeIf { trackId.provider == MediaId.PROVIDER_SPOTIFY && listed.trackRawId == trackId.rawId }
     }
 
     override fun resolveCoverUrl(ref: CoverRef, size: Int?): String? = when (ref) {
@@ -916,3 +925,6 @@ data class SpotifyPlayerQueue(
     val playing: Track?,
     val next: List<Track>,
 )
+
+/** A song a playlist read listed: its raw offset in the playlist and its Spotify id. */
+private data class ListedPlaylistEntry(val offset: Int, val trackRawId: String)
