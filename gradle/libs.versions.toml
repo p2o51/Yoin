@@ -30,7 +30,7 @@ castFramework = "22.0.0"
 playServicesAuth = "22.0.0"
 # Credential Manager account sheet in front of the Drive authorization
 credentials = "1.5.0"
-googleId = "1.1.1"
+googleId = "1.2.1"
 
 # Networking
 okhttp = "5.5.1"
