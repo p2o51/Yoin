@@ -355,6 +355,8 @@ struct ExpandedLyricsList: View {
                                    style: .continuous)
                 .fill(scheme.primaryContainer.opacity(picked ? 1 : 0))
         }
+        // A pointer over a line (it seeks, or picks in Select): the hovered state layer, off on a picked line.
+        .hoverLayer(in: RoundedRectangle(cornerRadius: 16, style: .continuous), ink: scheme.onSurface, enabled: !picked)
         .contentShape(.rect)
         .onTapGesture { onTap(i) }
         .animation(Yoin.effects, value: picked)

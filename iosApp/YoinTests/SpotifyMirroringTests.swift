@@ -11,9 +11,9 @@ final class SpotifyMirroringTests: XCTestCase {
 
     override func setUp() {
         MirrorStub.reset()
-        // This iPhone has the Spotify app (the simulator has none), and what a start says of the
-        // account stays out of the app's own cards.
-        spotify = SpotifyAudioOutput(issues: SpotifyIssues(), spotifyInstalled: { true })
+        // This iPhone has the Spotify app (the simulator has none), what a start says of the account
+        // stays out of the app's own cards, and it is an iPhone whatever simulator runs the tests.
+        spotify = SpotifyAudioOutput(issues: SpotifyIssues(), spotifyInstalled: { true }, device: .phone)
         engine = PlayerEngine(output: spotify)
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [MirrorStub.self]
@@ -136,7 +136,7 @@ final class SpotifyMirroringTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertFalse(engine.isPlaying)
         XCTAssertEqual(puts, ["/v1/me/player/play"])
-        XCTAssertEqual(engine.failure?.message, loc("Spotify on \("Pixel 11 Pro") stopped the song. Retry plays it on this iPhone."))
+        XCTAssertEqual(engine.failure?.message, loc("Spotify on \("Pixel 11 Pro") stopped the song. Retry plays it on this \("iPhone")."))
     }
 
     func test_should_showTheOtherSong_when_theDeviceStillPlaysItAtTheCheck() async throws {

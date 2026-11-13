@@ -207,14 +207,14 @@ final class SpotifyIssueTests: XCTestCase {
         XCTAssertEqual(SpotifyAudioOutput.refusal("Spotify Premium is required to use this feature"), .premiumRequired)
         XCTAssertEqual(SpotifyAudioOutput.refusal("PREMIUM_REQUIRED"), .premiumRequired)
         XCTAssertNil(SpotifyAudioOutput.refusal("The request failed."))
-        XCTAssertNil(SpotifyAudioOutput.refusal(SpotifyFailureCopy.openSpotify))
+        XCTAssertNil(SpotifyAudioOutput.refusal(SpotifyFailureCopy.openSpotify(on: "iPhone")))
         XCTAssertNil(SpotifyIssues.Issue(message: "Spotify Premium is required to use this feature"),
                      "only Yoin's own lines are an issue's message")
     }
 
     func test_should_offerInstallSpotify_andOpenItsStorePage() throws {
         XCTAssertEqual(PlaybackFailure.action(for: SpotifyFailureCopy.appMissing), .installSpotify)
-        XCTAssertEqual(PlaybackFailure.action(for: SpotifyFailureCopy.openSpotify), .openSpotify)
+        XCTAssertEqual(PlaybackFailure.action(for: SpotifyFailureCopy.openSpotify(on: "iPhone")), .openSpotify)
         XCTAssertEqual(SpotifyApp.storeURL(itemId: 123)?.absoluteString, "https://apps.apple.com/app/id123")
         XCTAssertNil(SpotifyApp.storeURL(itemId: 0))
         // The id is the Spotify SDK's own.

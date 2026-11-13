@@ -42,7 +42,7 @@ final class SpotifyWakeRaceTests: XCTestCase {
         engine.play(queue: [PlayableTrack(id: "a", provider: SpotifyMapping.provider, title: "A", artist: "", album: "",
                                           albumId: nil, durationSec: 200,
                                           streamURL: SpotifyAudioOutput.streamURL(trackId: "a"), coverURL: nil)])
-        engine.outputDidFail("Open Spotify on this iPhone, then tap Play", network: true)
+        engine.outputDidFail(SpotifyFailureCopy.openSpotify(on: "iPhone"), network: true)
         XCTAssertNotNil(engine.failure)
         XCTAssertFalse(engine.isPlaying)
         engine.outputDidRecover(playing: true)
@@ -58,17 +58,17 @@ final class SpotifyWakeRaceTests: XCTestCase {
         // 51's log, 23:02:07 to 23:03:36: App Remote connected but reported nothing while the song played.
         let here = SpotifySource.PlayerNow(deviceId: "ecfc", deviceName: "iPhone", deviceType: "Smartphone",
                                            isPlaying: true, trackURI: wanted)
-        XCTAssertTrue(SpotifyAudioOutput.landedHere(here, wanted: wanted))
+        XCTAssertTrue(SpotifyAudioOutput.landedHere(here, wanted: wanted, this: .phone))
         var other = here
         other.trackURI = "spotify:track:other"
-        XCTAssertFalse(SpotifyAudioOutput.landedHere(other, wanted: wanted))
+        XCTAssertFalse(SpotifyAudioOutput.landedHere(other, wanted: wanted, this: .phone))
         let pixel = SpotifySource.PlayerNow(deviceId: "7a3d", deviceName: "Pixel 11 Pro", deviceType: "Smartphone",
                                             isPlaying: true, trackURI: wanted)
-        XCTAssertFalse(SpotifyAudioOutput.landedHere(pixel, wanted: wanted))
-        XCTAssertFalse(SpotifyAudioOutput.landedHere(nil, wanted: wanted))
+        XCTAssertFalse(SpotifyAudioOutput.landedHere(pixel, wanted: wanted, this: .phone))
+        XCTAssertFalse(SpotifyAudioOutput.landedHere(nil, wanted: wanted, this: .phone))
         var paused = here
         paused.isPlaying = false
-        XCTAssertFalse(SpotifyAudioOutput.landedHere(paused, wanted: wanted))
+        XCTAssertFalse(SpotifyAudioOutput.landedHere(paused, wanted: wanted, this: .phone))
         // Read a few times a second apart: right after a wake the Web API may not list this iPhone yet.
         XCTAssertEqual(SpotifyAudioOutput.webChecks, 3)
         XCTAssertEqual(SpotifyAudioOutput.webCheckGapSec, 1)

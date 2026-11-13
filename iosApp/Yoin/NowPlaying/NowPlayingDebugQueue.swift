@@ -58,6 +58,9 @@ enum NowPlayingDebugQueue {
     /// pill does) holding those words. Tabs and stages: NowPlayingStageLaunch.
     static var compose: String? { UserDefaults.standard.string(forKey: "npCompose") }
 
+    /// `-npDevices YES`: opens Devices (a Spotify song's Connect devices, as its pill does).
+    static var devices: Bool { UserDefaults.standard.bool(forKey: "npDevices") }
+
     /// `-npEditNote YES`: opens the composer on the song's first note (the
     /// long-press menu's Edit), with `-npEditWords "…"` typed over it.
     static var editNote: Bool { UserDefaults.standard.bool(forKey: "npEditNote") }

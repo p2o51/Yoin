@@ -3,10 +3,20 @@ import SwiftUI
 /// Now Playing's Devices for a Spotify song (Android NowPlayingViewModel's Spotify Connect devices,
 /// Codex N17): the account's Connect devices from the Web API, the one playing marked; a tap moves
 /// playback there. The system route picker (AirPlay) is for Yoin's own audio, not the Spotify app's.
+///
+/// A speaker Spotify names without an id, or won't move to through the Web API (Sonos), is listed and
+/// opens the Spotify app to switch there: iOS has no output panel for another app's audio (Android
+/// opens its system output switcher). Devices seen before stay as recently used for 30 days
+/// (`SpotifyDeviceMemory`), and the list reads again when Yoin comes back (from Spotify, say).
 struct SpotifyDevicesSheet: View {
     var spotify: SpotifySource
+    /// The Spotify account's scope, the key its remembered devices are kept under (nil: none kept).
+    var scope: String?
     var scheme: CoverScheme
+    var memory = SpotifyDeviceMemory()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @State private var devices: [SpotifySource.Device]?
     @State private var failure: String?
     @State private var moving: String?
@@ -37,13 +47,21 @@ struct SpotifyDevicesSheet: View {
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(scheme.onSurfaceVariant)
                 }
+                // The Web API lists only devices online in Spotify's cloud; Sonos and Cast speakers
+                // wake only from Spotify's own picker (Android MoreDevicesRow, owner 2026-11-08).
+                if devices != nil { moreDevices.transition(.opacity) }
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .refreshable { await load() }
         .presentationDetents([.medium, .large])
         .presentationBackground(scheme.surfaceContainerLow)
         .task { await load() }
+        // Back from the Spotify app (a speaker picked there): read where it plays now.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await load() } }
+        }
         .animation(Yoin.effects, value: devices)
         .animation(Yoin.effects, value: failure)
     }
@@ -56,9 +74,53 @@ struct SpotifyDevicesSheet: View {
         return failed ? nil : String(localized: "No Spotify devices found. Open Spotify on the device you want to play on.")
     }
 
+    /// A row's second line (Android localizedForSheet): moving, playing, through Spotify, recently used,
+    /// else Spotify's type.
+    static func detail(_ d: SpotifySource.Device, moving: Bool) -> String {
+        if moving { return String(localized: "Moving…") }
+        if d.isActive { return String(localized: "Playing here") }
+        if d.spotifyOnly { return String(localized: "Switch through Spotify") }
+        if d.remembered { return String(localized: "Recently used · may need waking in Spotify") }
+        return d.type
+    }
+
+    private var moreDevices: some View {
+        Button(action: openSpotify) {
+            HStack(spacing: 16) {
+                // No speaker symbol in Yoin Symbols for iOS yet: Cast is the nearest.
+                YoinIcon("cast", size: 22)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("More devices…")
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(scheme.onSurface)
+                    Text("Sonos and other speakers, through Spotify. Yoin keeps control.")
+                        .yoinRole(Tokens.type.bodySmall)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(scheme.surfaceContainer, in: CloudSyncView.segment(0, 1))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The Spotify app, where its own picker reaches the speakers Yoin can't move to.
+    private func openSpotify() {
+        guard let url = URL(string: "spotify:") else { return }
+        openURL(url) { opened in
+            if !opened { failure = String(localized: "Couldn't open Spotify.") }
+        }
+    }
+
     private func row(_ d: SpotifySource.Device) -> some View {
         Button {
-            Task { await move(to: d) }
+            // Sonos and the like take no Web API transfer: the Spotify app does it.
+            if d.spotifyOnly { openSpotify() } else { Task { await move(to: d) } }
         } label: {
             HStack(spacing: 16) {
                 YoinIcon(d.isActive ? "equalizer" : "devices", size: 22)
@@ -67,7 +129,7 @@ struct SpotifyDevicesSheet: View {
                     Text(d.name)
                         .yoinRole(Tokens.type.bodyLarge)
                         .foregroundStyle(d.isActive ? scheme.primary : scheme.onSurface)
-                    Text(moving == d.id ? String(localized: "Moving…") : d.isActive ? String(localized: "Playing here") : d.type)
+                    Text(Self.detail(d, moving: moving == d.id))
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(scheme.onSurfaceVariant)
                 }
@@ -79,11 +141,20 @@ struct SpotifyDevicesSheet: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .disabled(d.isActive || moving != nil)
+        // The playing row keeps full strength (Android DeviceRow: alpha 1 when active); the others dim
+        // while a move is under way.
+        .allowsHitTesting(!d.isActive && moving == nil)
+        .opacity(moving != nil && moving != d.id && !d.isActive ? 0.6 : 1)
+        .animation(Yoin.effects, value: moving)
+        .accessibilityAddTraits(d.isActive ? .isSelected : [])
     }
 
     private func load() async {
-        do { devices = try await spotify.devices() } catch {
+        do {
+            let listed = try await spotify.sheetDevices()
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            devices = scope.map { memory.rows(listed, scope: $0, nowMs: now) } ?? listed
+        } catch {
             // A move's failure (said just before this reload) isn't replaced by an empty list.
             if devices?.isEmpty == false { return }
             devices = []
@@ -98,10 +169,16 @@ struct SpotifyDevicesSheet: View {
         do {
             try await spotify.transfer(to: d.id)
             NotificationCenter.default.post(name: SpotifyPlayingDevice.transferred, object: nil,
-                                            userInfo: ["id": d.id, "name": d.name])
+                                            userInfo: ["id": d.id, "name": d.name, "type": d.type])
             dismiss()
         } catch {
-            failure = SpotifySource.message(for: error)
+            if d.remembered {
+                // Asleep: Spotify only wakes a local speaker from its own picker.
+                failure = String(localized: "That speaker is asleep. Pick it once in Spotify (More devices), then Yoin can control it.")
+                openSpotify()
+            } else {
+                failure = SpotifySource.message(for: error)
+            }
             await load()
         }
     }

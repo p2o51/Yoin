@@ -36,8 +36,9 @@ enum AlbumNeoDBState: Equatable, Sendable {
         }
     }
 
-    /// The sheet shows the line only for these.
-    var isShown: Bool { self != .unknown && self != .idle && self != .pending }
+    /// The sheet shows the line once NeoDB's state is read, even with nothing to say: "What others say"
+    /// sits at its end (Android, owner 2026-11-09: the line stays for it).
+    var isShown: Bool { self != .unknown }
 }
 
 /// The rate sheet's NeoDB life (Android AlbumDetailViewModel's neoDb, owner R3 2026-10-06): opened → read
@@ -124,12 +125,14 @@ final class AlbumNeoDBSync {
 }
 
 /// The rate sheet's last line: "NeoDB" and its state. Signed out, the line is the sign-in action;
-/// a failure gets Retry.
+/// a failure gets Retry. At its end, "What others say" opens what other listeners wrote
+/// (NeoDBVoicesView), signed in or not (Android AlbumNeoDbLine).
 struct AlbumNeoDBLine: View {
     var state: AlbumNeoDBState
     var scheme: CoverScheme
     var onSignIn: () -> Void
     var onRetry: () -> Void
+    var onVoices: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -140,6 +143,8 @@ struct AlbumNeoDBLine: View {
                 .yoinRole(Tokens.type.bodyMedium)
                 .foregroundStyle(state == .signedOut ? scheme.primary : scheme.onSurfaceVariant)
                 .contentTransition(.opacity)
+                .accessibilityAddTraits(state == .signedOut ? .isButton : [])
+                .accessibilityAction { if state == .signedOut { onSignIn() } }
             if state == .failed {
                 Button("Retry", action: onRetry)
                     .yoinRole(Tokens.type.labelLarge)
@@ -151,14 +156,23 @@ struct AlbumNeoDBLine: View {
                     .transition(.opacity)
             }
             Spacer(minLength: 0)
+            Button(action: onVoices) {
+                Text("What others say")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(scheme.primary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 40)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(PressScale())
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 6)
         .frame(minHeight: 40)
         .contentShape(.rect)
         .onTapGesture { if state == .signedOut { onSignIn() } }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(state == .signedOut ? .isButton : [])
+        .accessibilityElement(children: .contain)
         .animation(Yoin.effects, value: state)
     }
 }

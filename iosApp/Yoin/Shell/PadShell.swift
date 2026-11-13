@@ -306,6 +306,13 @@ private struct PadColumns: View {
             .fill(Yoin.outline)
             .frame(width: dragStartShell == nil ? 4 : 6, height: dragStartShell == nil ? 48 : 64)
             .animation(Yoin.spatial, value: dragStartShell == nil)
+            // A pointer over the handle: the M3 hovered state layer around it (the held size's box).
+            .background {
+                RoundedRectangle(cornerRadius: Self.handleWidth / 2, style: .continuous)
+                    .fill(Yoin.ink.opacity(PointerHover.opacity(hovered: handleHovered || PointerHover.preview)))
+                    .frame(width: Self.handleWidth, height: 64 + Self.handleWidth)
+                    .animation(Yoin.effects, value: handleHovered)
+            }
             .frame(width: Self.handleWidth)
             .frame(maxHeight: .infinity)
             .contentShape(.rect.inset(by: -10))
@@ -318,10 +325,12 @@ private struct PadColumns: View {
                     withTransaction(t) { draggedShell = clampShell((dragStartShell ?? rest) + g.translation.width, w: w) }
                 }
                 .onEnded { _ in dragStartShell = nil })
-            .hoverEffect(.highlight)
+            // The column-resize pointer (beam with arrows either side); it passes every touch through.
+            .overlay { ColumnResizePointer { handleHovered = $0 } }
             .accessibilityLabel("Resize columns")
     }
 
+    @State private var handleHovered = false
     @State private var wide = false
     static let handleWidth: CGFloat = 12
 
@@ -441,6 +450,8 @@ private struct PadColumns: View {
             AllMemoriesView()
         case .labs:
             LabsView()
+        case .neoDBVoices(let album):
+            NeoDBVoicesView(album: album)
         }
     }
 }
@@ -463,7 +474,7 @@ private struct PadDetailPlay: View {
         case .album(let a): return a
         case .artist(let ref): return model.artistPage(ref).releases.first
         case .playlist(let id): return model.playlistInfo(id).asAlbum
-        case .settings, .tips, .allMemories, .labs: return nil
+        case .settings, .tips, .allMemories, .labs, .neoDBVoices: return nil
         case nil: return root
         }
     }

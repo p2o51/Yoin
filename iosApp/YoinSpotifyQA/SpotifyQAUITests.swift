@@ -6,16 +6,18 @@ import XCTest
 /// fails the step it belongs to.
 final class SpotifyQAUITests: XCTestCase {
     static let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["YOIN_QA_OUT"] ?? "/tmp/yoin-spotify-qa")
-    /// The fake's address (`TEST_RUNNER_YOIN_FAKE_SPOTIFY=http://127.0.0.1:<port>` for one on another port).
-    static let fake = ProcessInfo.processInfo.environment["YOIN_FAKE_SPOTIFY"] ?? "http://127.0.0.1:4997"
+    /// The fake's address (`TEST_RUNNER_YOIN_QA_FAKE=http://127.0.0.1:5013 xcodebuild test …`, or
+    /// `TEST_RUNNER_YOIN_FAKE_SPOTIFY=…`, for one on another port).
+    static let fake = ProcessInfo.processInfo.environment["YOIN_QA_FAKE"]
+        ?? ProcessInfo.processInfo.environment["YOIN_FAKE_SPOTIFY"] ?? "http://127.0.0.1:4997"
+    static let launchArguments = ["-silentAudio", "YES", "-spotifyFake", fake, "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
     var app: XCUIApplication!
 
     override func setUp() {
         continueAfterFailure = true
         try? FileManager.default.createDirectory(at: Self.out, withIntermediateDirectories: true)
         app = XCUIApplication()
-        app.launchArguments = ["-silentAudio", "YES", "-spotifyFake", Self.fake,
-                               "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = Self.launchArguments
         app.launch()
         sleep(3)
     }
@@ -87,7 +89,92 @@ final class SpotifyQAUITests: XCTestCase {
         return true
     }
 
+    // MARK: The fake's Connect player (scripts/fake_spotify.py, /_qa)
+
+    /// One request to the fake's QA controls; the answer's JSON.
+    @discardableResult
+    func qa(_ method: String, _ path: String, _ body: [String: Any]? = nil) -> [String: Any] {
+        var request = URLRequest(url: URL(string: Self.fake + "/_qa/" + path)!)
+        request.httpMethod = method
+        if let body { request.httpBody = try? JSONSerialization.data(withJSONObject: body) }
+        var answer: [String: Any] = [:]
+        let done = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            answer = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+            done.signal()
+        }.resume()
+        _ = done.wait(timeout: .now() + 5)
+        return answer
+    }
+
+    /// The commands the fake's player was sent, oldest first ("PUT me/player/play device_id=qamac").
+    var playerCommands: [String] { qa("GET", "player")["commands"] as? [String] ?? [] }
+
+    func element(containing text: String, timeout: TimeInterval = 8) -> XCUIElement? {
+        let q = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            for i in 0..<min(q.count, 12) {
+                let e = q.element(boundBy: i)
+                if e.exists, e.isHittable { return e }
+            }
+            usleep(300_000)
+        } while Date() < deadline
+        return nil
+    }
+
     // MARK: Walk-throughs
+
+    /// A Spotify start on a Mac (the iPad app there, stood in for by `-platformMac YES`): nothing plays and
+    /// Spotify isn't open here → the banner with Open Spotify and Retry and nothing sent, even with a phone
+    /// paused on the account; Spotify opened here → Retry plays on this Mac's device; a phone playing → the
+    /// next song plays there, and Now Playing names it.
+    func testStartOnAMac() {
+        app.terminate()
+        qa("POST", "reset")
+        let pixel: [String: Any] = ["name": "Pixel 11 Pro", "type": "Smartphone"]
+        let mac: [String: Any] = ["name": "QA Mac", "type": "Computer"]
+        qa("POST", "devices", ["devices": [pixel]])
+        qa("POST", "play", ["device": "Pixel 11 Pro", "track": "tr0003", "playing": false])
+        app.launchArguments = Self.launchArguments + ["-platformMac", "YES", "-spotifyFakePlayer", "YES",
+                                                     "-spotifyThisMac", "QA Mac"]
+        app.launch()
+        sleep(3)
+        openLibrary("Songs")
+        guard let first = element(beginning: "Harbor Silver") else { return XCTFail("no song row") }
+        first.tap()
+        guard let banner = element(containing: "Spotify isn't open on this Mac") else {
+            shot("mac-start-no-banner")
+            return XCTFail("no banner")
+        }
+        shot("mac-start-not-open")
+        XCTAssertTrue(banner.label.contains("Playback unavailable"))
+        XCTAssertEqual(playerCommands, [], "nothing goes to the paused phone, and no pause answers the failure")
+
+        // Spotify is opened on this Mac (its device joins the account's): Retry plays the song there.
+        qa("POST", "devices", ["devices": [pixel, mac]])
+        let frame = banner.frame
+        banner.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.width - 45, dy: frame.height - 28)).tap()
+        sleep(5)
+        shot("mac-start-retried")
+        XCTAssertNil(element(containing: "Spotify isn't open on this Mac", timeout: 1), "the banner goes once the song plays")
+        XCTAssertEqual(playerCommands, ["PUT me/player/play device_id=qamac"])
+        var state = qa("GET", "player")
+        XCTAssertEqual(state["active"] as? String, "qamac")
+        XCTAssertEqual((state["state"] as? [String: Any])?["is_playing"] as? Bool, true)
+
+        // The listener starts something on the phone: the next song tapped in Yoin plays there.
+        qa("POST", "play", ["device": "Pixel 11 Pro", "track": "tr0003", "playing": true])
+        guard let second = element(beginning: "Lanterns Distant") ?? element(beginning: "Rain Velvet") else {
+            return XCTFail("no second song row")
+        }
+        second.tap()
+        sleep(5)
+        state = qa("GET", "player")
+        XCTAssertEqual(state["active"] as? String, "pixel11pro")
+        XCTAssertEqual(playerCommands.last, "PUT me/player/play device_id=pixel11pro")
+        shot("mac-start-on-the-phone")
+    }
 
     func testLibrarySongsAndPlaylists() {
         openLibrary("Songs")

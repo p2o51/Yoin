@@ -477,6 +477,7 @@ struct LibraryView: View {
             .frame(width: side, alignment: isArtist ? .center : .leading)
         }
         .buttonStyle(PressScale())
+        .modifier(GridCellDrag(item: item, ink: scheme.primary))
     }
 
     private func open(_ item: LibraryItem) {
@@ -525,6 +526,12 @@ struct LibraryView: View {
                 sortRow.padding(.horizontal, 16)
                 ForEach(shown) { p in
                     PlaylistRow(item: p, scheme: scheme) { open(p) }
+                        // Dragged onto the queue; songs, albums and playlists dropped here go into it.
+                        .yoinDraggable { YoinDrag.playlist(p, model: model) }
+                        .yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous),
+                                        ink: scheme.primary, accepts: YoinDrag.accepts(p, model: model)) {
+                            YoinDrag.add($0, to: p, model: model)
+                        }
                         .transition(.opacity.animation(Yoin.effects))
                 }
             }
@@ -865,6 +872,36 @@ struct LibraryListRow<Art: View>: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Library's grid cell as a drag source and a drop target: an album or a playlist drags out (onto the
+/// queue or a playlist); a writable playlist takes songs, albums and playlists dropped on it, lit behind
+/// the tile (never on its cover). Artists do neither.
+private struct GridCellDrag: ViewModifier {
+    var item: LibraryItem
+    var ink: Color
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        switch item.kind {
+        case .album:
+            if let album = item.album {
+                content.yoinDraggable { YoinDrag.album(album, model: model) }
+            } else {
+                content
+            }
+        case .playlist:
+            content
+                .yoinDraggable { YoinDrag.playlist(item, model: model) }
+                .yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous)
+                                    .inset(by: -6),
+                                ink: ink, accepts: YoinDrag.accepts(item, model: model)) {
+                    YoinDrag.add($0, to: item, model: model)
+                }
+        case .artist:
+            content
+        }
     }
 }
 

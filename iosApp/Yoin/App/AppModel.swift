@@ -14,6 +14,9 @@ enum Route: Hashable {
     case allMemories
     /// Settings › Yoin Labs (#189).
     case labs
+    /// What others say on NeoDB about an album (Android NeoDbVoicesActivity, #192): from the rate sheet's
+    /// NeoDB line and the memory diary.
+    case neoDBVoices(Album)
 }
 
 enum ShellSection: Hashable {
@@ -249,6 +252,7 @@ final class AppModel {
         case "np-panel": npPanel = true
         case "settings": path = [.settings]
         case "labs": path = [.labs]
+        case "neodb-voices": path = [.neoDBVoices(Self.neoDBVoicesQAAlbum(library.albums()[0]))]
         case "artist", "artist-bottom": path = [.artist(ArtistRef("Mina Asahi"))]
         case "playlist", "playlist-list": path = [.playlist("pl1")]
         case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
@@ -295,9 +299,13 @@ final class AppModel {
             case .skippedAfterError(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't play \(track.title)"))
             case .failed(let track, let message):
                 // A start Spotify refused (no app here, no Premium) isn't the server: the banner says which.
-                let refused = SpotifyIssues.Issue(message: message) != nil
-                PlaylistActions.shared.show(refused ? String(localized: "Couldn't play \(track.title)")
-                                                    : String(localized: "Couldn't reach the server for \(track.title)"))
+                if SpotifyIssues.Issue(message: message) != nil {
+                    PlaylistActions.shared.show(String(localized: "Couldn't play \(track.title)"))
+                    break
+                }
+                // Spotify's app not being open isn't a server out of reach: the banner says what to do.
+                guard PlaybackFailure.isServerOutOfReach(message) else { break }
+                PlaylistActions.shared.show(String(localized: "Couldn't reach the server for \(track.title)"))
             case .queueFailed: PlaylistActions.shared.show(String(localized: "Couldn't play this queue"))
             case .queueEnded: break
             }
@@ -426,8 +434,9 @@ final class AppModel {
         let route = d.string(forKey: "serverRoute")
         let play = d.string(forKey: "serverPlay")
         // `-serverPlay` / `-serverRoute` without `-subsonicURL`: the saved
-        // account as it is, answering or not (offline cache QA).
-        guard url != nil || (session.isSignedIn && (route != nil || play != nil)) else { return }
+        // account as it is, answering or not (offline cache QA). With `-spotifyFake` they act on the
+        // stand-in Spotify account (its ids: `-serverPlay album:al00`).
+        guard url != nil || ((session.isSignedIn || SpotifyFake.isOn) && (route != nil || play != nil)) else { return }
         Task {
             if let url {
                 guard await profiles.connectSubsonic(baseUrl: url, username: user, password: pass,
@@ -496,7 +505,7 @@ final class AppModel {
         case .album(let a): return a
         case .artist(let ref): return artistPage(ref).releases.first
         case .playlist(let id): return playlistInfo(id).asAlbum
-        case .settings, .tips, .allMemories, .labs, nil: return nil
+        case .settings, .tips, .allMemories, .labs, .neoDBVoices, nil: return nil
         }
     }
 
@@ -575,6 +584,24 @@ final class AppModel {
         case .album(let album): open(album)
         default: path.append(route)
         }
+    }
+
+    /// What others say on NeoDB about [album] (Android NeoDbVoicesActivity.intent): pushed over whatever is
+    /// open, signed in or not.
+    func openNeoDBVoices(_ album: Album) {
+        if case .neoDBVoices(let open) = path.last, open.id == album.id { return }
+        path.append(.neoDBVoices(album))
+    }
+
+    /// `-screen neodb-voices`: the page on a mock album, or on `-neodbVoicesAlbum "Title|Artist"` (a real
+    /// album name, read from neodb.social signed out), in the mock album's colours.
+    static func neoDBVoicesQAAlbum(_ base: Album) -> Album {
+        guard let spec = UserDefaults.standard.string(forKey: "neodbVoicesAlbum") else { return base }
+        var album = base
+        let parts = spec.split(separator: "|", maxSplits: 1).map(String.init)
+        album.title = parts.first ?? base.title
+        album.artist = parts.count > 1 ? parts[1] : ""
+        return album
     }
 
     func openSettings(_ destination: SettingsDestination? = nil) {
@@ -785,7 +812,7 @@ final class AppModel {
             }
             if out.isEmpty { return page.mostPlayed }
             return Array(out.prefix(limit))
-        case .settings, .tips, .allMemories, .labs, nil:
+        case .settings, .tips, .allMemories, .labs, .neoDBVoices, nil:
             return []
         }
     }

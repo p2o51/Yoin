@@ -216,6 +216,9 @@ public struct WavyProgressBar: View {
     @State private var snapped: Double?
     @State private var captureTicks = 0
     @State private var crossTicks = 0
+    /// A pointer over the bar (iPad, the iPad app on a Mac): the unplayed track deepens by the M3
+    /// hovered state layer. A finger never sets it.
+    @State private var hovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(
@@ -284,6 +287,7 @@ public struct WavyProgressBar: View {
             .gesture(scrubGesture(width: width))
         }
         .frame(height: 40)
+        .onPointerHover { h in withAnimation(Yoin.effects) { hovered = h } }
         .sensoryFeedback(.selection, trigger: seekCount)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: captureTicks)
         .sensoryFeedback(.impact(weight: .medium), trigger: crossTicks)
@@ -329,7 +333,7 @@ public struct WavyProgressBar: View {
     private func bar(phase: CGFloat) -> some View {
         let p = CGFloat(displayed)
         let active = WavyActiveShape(progress: p, amplitude: amplitude, phase: phase, metrics: metrics)
-        let trackOpacity = buffered > displayed + 0.02 ? 0.20 : 0.14
+        let trackOpacity = Self.trackOpacity(buffered: buffered > displayed + 0.02, hovered: hovered || PointerHover.preview)
         ZStack {
             WavyTrackShape(progress: p, metrics: metrics)
                 .stroke(
@@ -349,6 +353,12 @@ public struct WavyProgressBar: View {
                 )
             }
         }
+    }
+
+    /// The unplayed track's alpha: 0.14, 0.20 where the song is buffered ahead, plus the hovered state
+    /// layer under a pointer.
+    static func trackOpacity(buffered: Bool, hovered: Bool) -> Double {
+        (buffered ? 0.20 : 0.14) + (hovered ? PointerHover.layer : 0)
     }
 
     private func stopDot(progress p: CGFloat) -> some View {

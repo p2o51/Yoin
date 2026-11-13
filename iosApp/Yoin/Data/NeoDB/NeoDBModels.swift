@@ -46,16 +46,185 @@ struct NeoDBItem: Decodable, Equatable, Sendable {
     var uuid: String?
     var displayTitle: String?
     var category: String?
+    // Catalog fields (search / item detail). Absent on shelf payloads.
+    var title: String?
+    var url: String?
+    var artist: [String]
+    var rating: Double?
+    var ratingCount: Int?
+    /// Five buckets, low to high, in percent.
+    var ratingDistribution: [Int]?
+    var externalResources: [ExternalResource]?
 
-    init(uuid: String? = nil, displayTitle: String? = nil, category: String? = nil) {
+    struct ExternalResource: Decodable, Equatable, Sendable {
+        var url: String
+
+        init(url: String = "") { self.url = url }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            url = (try? c.decodeIfPresent(String.self, forKey: .url)) ?? ""
+        }
+
+        private enum CodingKeys: String, CodingKey { case url }
+    }
+
+    init(uuid: String? = nil, displayTitle: String? = nil, category: String? = nil, title: String? = nil,
+         url: String? = nil, artist: [String] = [], rating: Double? = nil, ratingCount: Int? = nil,
+         ratingDistribution: [Int]? = nil, externalResources: [ExternalResource]? = nil) {
         self.uuid = uuid
         self.displayTitle = displayTitle
         self.category = category
+        self.title = title
+        self.url = url
+        self.artist = artist
+        self.rating = rating
+        self.ratingCount = ratingCount
+        self.ratingDistribution = ratingDistribution
+        self.externalResources = externalResources
     }
 
     private enum CodingKeys: String, CodingKey {
-        case uuid, category
+        case uuid, category, title, url, artist, rating
         case displayTitle = "display_title"
+        case ratingCount = "rating_count"
+        case ratingDistribution = "rating_distribution"
+        case externalResources = "external_resources"
+    }
+
+    /// Lenient: a catalog field of an unexpected shape reads as absent, never fails the item.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        uuid = try c.decodeIfPresent(String.self, forKey: .uuid)
+        displayTitle = try c.decodeIfPresent(String.self, forKey: .displayTitle)
+        category = try? c.decodeIfPresent(String.self, forKey: .category)
+        title = try? c.decodeIfPresent(String.self, forKey: .title)
+        url = try? c.decodeIfPresent(String.self, forKey: .url)
+        artist = ((try? c.decodeIfPresent([String].self, forKey: .artist)) ?? nil) ?? []
+        rating = (try? c.decodeIfPresent(Double.self, forKey: .rating)) ?? nil
+        ratingCount = (try? c.decodeIfPresent(Int.self, forKey: .ratingCount)) ?? nil
+        ratingDistribution = (try? c.decodeIfPresent([Int].self, forKey: .ratingDistribution)) ?? nil
+        externalResources = (try? c.decodeIfPresent([ExternalResource].self, forKey: .externalResources)) ?? nil
+    }
+}
+
+/// `GET /api/item/{uuid}/posts/` — everyone's posts on an item (short comments, reviews, marks). The posts
+/// are Mastodon-shaped; NeoDB's own meaning sits in `ext_neodb.relatedWith` (a Comment's text, a Rating's
+/// score, a Review's title and body), read loosely and interpreted by NeoDBVoicesParsing (Android
+/// `NeoDbPostPage`).
+struct NeoDBPostPage: Decodable, Equatable, Sendable {
+    var data: [NeoDBPost]
+    var pages: Int
+    var count: Int
+
+    init(data: [NeoDBPost] = [], pages: Int = 0, count: Int = 0) {
+        self.data = data
+        self.pages = pages
+        self.count = count
+    }
+
+    private enum CodingKeys: String, CodingKey { case data, pages, count }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        data = try c.decodeIfPresent([NeoDBPost].self, forKey: .data) ?? []
+        pages = (try? c.decodeIfPresent(Int.self, forKey: .pages)) ?? 0
+        count = (try? c.decodeIfPresent(Int.self, forKey: .count)) ?? 0
+    }
+}
+
+struct NeoDBPost: Decodable, Equatable, Sendable {
+    var id: String
+    var url: String?
+    var createdAt: String?
+    var sensitive: Bool
+    var spoilerText: String?
+    var account: NeoDBPostAccount?
+    var relatedWith: [[String: NeoDBLooseValue]]
+
+    init(id: String = "", url: String? = nil, createdAt: String? = nil, sensitive: Bool = false,
+         spoilerText: String? = nil, account: NeoDBPostAccount? = nil, relatedWith: [[String: NeoDBLooseValue]] = []) {
+        self.id = id
+        self.url = url
+        self.createdAt = createdAt
+        self.sensitive = sensitive
+        self.spoilerText = spoilerText
+        self.account = account
+        self.relatedWith = relatedWith
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, url, sensitive, account
+        case createdAt = "created_at"
+        case spoilerText = "spoiler_text"
+        case ext = "ext_neodb"
+    }
+
+    private enum ExtKeys: String, CodingKey { case relatedWith }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? ""
+        url = (try? c.decodeIfPresent(String.self, forKey: .url)) ?? nil
+        createdAt = (try? c.decodeIfPresent(String.self, forKey: .createdAt)) ?? nil
+        sensitive = (try? c.decodeIfPresent(Bool.self, forKey: .sensitive)) ?? false
+        spoilerText = (try? c.decodeIfPresent(String.self, forKey: .spoilerText)) ?? nil
+        account = (try? c.decodeIfPresent(NeoDBPostAccount.self, forKey: .account)) ?? nil
+        if let ext = try? c.nestedContainer(keyedBy: ExtKeys.self, forKey: .ext) {
+            relatedWith = (try? ext.decodeIfPresent([[String: NeoDBLooseValue]].self, forKey: .relatedWith)) ?? nil ?? []
+        } else {
+            relatedWith = []
+        }
+    }
+}
+
+struct NeoDBPostAccount: Decodable, Equatable, Sendable {
+    var acct: String?
+    var username: String?
+    var displayName: String?
+    var avatar: String?
+    var url: String?
+
+    init(acct: String? = nil, username: String? = nil, displayName: String? = nil, avatar: String? = nil,
+         url: String? = nil) {
+        self.acct = acct
+        self.username = username
+        self.displayName = displayName
+        self.avatar = avatar
+        self.url = url
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case acct, username, avatar, url
+        case displayName = "display_name"
+    }
+}
+
+/// One value inside `relatedWith`, read as kotlinx's `jsonPrimitive` reads it: a string or a number gives
+/// its text and, when it parses, a number; an object, an array or null give neither.
+struct NeoDBLooseValue: Decodable, Equatable, Sendable {
+    var string: String?
+    var double: Double?
+
+    init(string: String? = nil, double: Double? = nil) {
+        self.string = string
+        self.double = double
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() {
+            self.init()
+        } else if let b = try? c.decode(Bool.self) {
+            self.init(string: b ? "true" : "false")
+        } else if let n = try? c.decode(Double.self) {
+            let text = n == n.rounded() && abs(n) < 1e15 ? String(Int64(n)) : String(n)
+            self.init(string: text, double: n)
+        } else if let s = try? c.decode(String.self) {
+            self.init(string: s, double: Double(s.trimmingCharacters(in: .whitespaces)))
+        } else {
+            self.init()
+        }
     }
 }
 

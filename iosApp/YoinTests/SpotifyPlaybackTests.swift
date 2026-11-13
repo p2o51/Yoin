@@ -74,19 +74,19 @@ final class SpotifyPlaybackTests: XCTestCase {
         let asleep = SpotifySource.PlayerNow(deviceId: "7a3d", deviceName: "Pixel 11 Pro", deviceType: "Smartphone", isPlaying: false)
         let playing = SpotifySource.PlayerNow(deviceId: "7a3d", deviceName: "Pixel 11 Pro", deviceType: "Smartphone", isPlaying: true)
         let phone = SpotifySource.PlayerNow(deviceId: "ecfc", deviceName: "iPhone", deviceType: "Smartphone", isPlaying: true)
-        XCTAssertNil(SpotifyAudioOutput.remoteTarget(asleep))
-        XCTAssertEqual(SpotifyAudioOutput.remoteTarget(playing), "7a3d")
-        XCTAssertNil(SpotifyAudioOutput.remoteTarget(phone))
-        XCTAssertNil(SpotifyAudioOutput.remoteTarget(nil))
+        XCTAssertNil(SpotifyAudioOutput.remoteTarget(asleep, this: .phone))
+        XCTAssertEqual(SpotifyAudioOutput.remoteTarget(playing, this: .phone), "7a3d")
+        XCTAssertNil(SpotifyAudioOutput.remoteTarget(phone, this: .phone))
+        XCTAssertNil(SpotifyAudioOutput.remoteTarget(nil, this: .phone))
     }
 
     func test_should_driveTheOtherDevice_when_spotifyIsActiveOnAMacOrPixel() {
         let mac = SpotifySource.PlayerNow(deviceId: "m", deviceName: "51's MacBook", deviceType: "Computer", isPlaying: true)
         let pixel = SpotifySource.PlayerNow(deviceId: "p", deviceName: "Pixel Tablet", deviceType: "Tablet", isPlaying: false)
         let phone = SpotifySource.PlayerNow(deviceId: "i", deviceName: "51's iPhone Air", deviceType: "Smartphone", isPlaying: true)
-        XCTAssertFalse(SpotifyAudioOutput.isThisPhone(mac))
-        XCTAssertFalse(SpotifyAudioOutput.isThisPhone(pixel))
-        XCTAssertTrue(SpotifyAudioOutput.isThisPhone(phone))
+        XCTAssertFalse(SpotifyThisDevice.phone.matches(mac))
+        XCTAssertFalse(SpotifyThisDevice.phone.matches(pixel))
+        XCTAssertTrue(SpotifyThisDevice.phone.matches(phone))
     }
 
     func test_should_readSpotifysOwnSong_when_mirroringIt() {

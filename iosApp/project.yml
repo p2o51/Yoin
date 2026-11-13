@@ -83,6 +83,13 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.json]
         LSSupportsOpeningDocumentsInPlace: false
+        # Songs, albums and playlists dragged inside Yoin (Library/YoinDrag.swift; the native Mac's type).
+        # Other apps get their plain text.
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.gpo.yoin.item
+            UTTypeDescription: Yoin item
+            UTTypeConformsTo:
+              - public.data
         CFBundleDisplayName: Yoin
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -91,6 +98,10 @@ targets:
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
+        # A pointer's clicks arrive as indirect-pointer touches with their button mask (an iPad with a
+        # mouse or trackpad, the iPad app on a Mac). Without it they are plain direct touches and a
+        # right-click can't be told from a tap (Theme/SecondaryClick.swift).
+        UIApplicationSupportsIndirectInputEvents: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:

@@ -479,9 +479,26 @@ struct DiaryBlocks: View {
                 .animation(Yoin.spatial, value: card.fromOther)
                 .padding(.top, footer != nil ? MemoryDiaryTokens.goTop : 0)
             }
-            // No line on another account's memory: its NeoDB state is that account's.
-            DiaryNeoDBLine(album: card.album, scheme: scheme, interactive: interactive, otherAccount: card.fromOther)
-                .padding(.top, 8)
+            // No NeoDB line on another account's memory: its NeoDB state is that account's (DiaryNeoDBLine).
+            // NeoDB's state, and beside it "What others say" (Android, owner 2026-11-09: a test entry, signed
+            // in or not).
+            HStack(spacing: 0) {
+                if NeoDBAccount.shared.isSignedIn {
+                    DiaryNeoDBLine(album: card.album, scheme: scheme, interactive: interactive, otherAccount: card.fromOther)
+                }
+                Button { model.openNeoDBVoices(card.album) } label: {
+                    Text("What others say")
+                        .font(.gsf(13, .medium))
+                        .foregroundStyle(scheme.primary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 12)
+                        .frame(height: 48)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(PressScale())
+                .disabled(!interactive)
+            }
+            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
     }
