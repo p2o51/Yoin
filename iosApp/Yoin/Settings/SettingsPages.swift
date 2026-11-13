@@ -3,6 +3,8 @@ import SwiftUI
 /// A Settings page another screen can open straight to (Android SettingsScreen's initial feature page).
 enum SettingsDestination: Hashable, Sendable {
     case neodb
+    /// An account's own page (the account card's Reconnect, when it can't fix the account).
+    case account(String)
 }
 
 /// One of Settings' own pages: the large title, the ← in glass, the rows on surfaceBright (Android

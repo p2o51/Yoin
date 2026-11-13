@@ -173,5 +173,5 @@ Same as Album page 1 except:
   - Tapping the cover doesn't enter focus mode.
   - The title doesn't marquee.
   - Pressed pills don't widen.
-  - The Home cold-start mark animation, account switcher card and memory bubble are not built.
+  - The Home cold-start mark animation and memory bubble are not built. The account switcher card is built (Home/AccountSwitcherCard.swift); the picked row's avatar doesn't fly into the header on a switch (the card closes into the avatar).
 - **Line heights:** SwiftUI can't set line height directly. Fixed-height frames mimic it where the layout depends on it (hero title 44, artist 24, section title 28); multi-line text uses SwiftUI's natural leading.

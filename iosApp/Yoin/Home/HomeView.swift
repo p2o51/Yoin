@@ -24,6 +24,8 @@ struct HomeView: View {
     @State private var scroll = HomeScrollState()
     /// How far the window runs past Home's frame (status bar above, bottom bar below): Memories covers it.
     @State private var pageBleed = EdgeInsets()
+    /// The header avatar's target in the window: the account card grows out of it.
+    @State private var accountFrame: CGRect = .zero
 
     /// App-wide tokens follow the playing cover (design.md 颜色系统 3).
     private var scheme: CoverScheme { CoverScheme(seed: model.accent, dark: colorScheme == .dark) }
@@ -182,8 +184,31 @@ struct HomeView: View {
             let focus = pill?.recall.dropFirst().first?.albumId
             Task { await MemoriesScript.run(memories, focus: focus) }
             Task { await HomeEditScript.run() }
+            debugOpenAccountCard()
         }
         #endif
+    }
+
+    #if DEBUG
+    /// `-accountCardOpen home`: the account card, a beat after launch (QA screenshots).
+    private func debugOpenAccountCard() {
+        guard UserDefaults.standard.string(forKey: "accountCardOpen") == "home" else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            openAccountCard()
+            // `-accountCardPick <n>`: then the n-th other account's row, as a tap.
+            let n = UserDefaults.standard.integer(forKey: "accountCardPick") - 1
+            guard n >= 0 else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            let others = AccountCardLogic.split(model.profiles.profiles, active: model.profiles.activeId).others
+            if others.indices.contains(n) { model.accountCardPick(others[n]) }
+        }
+    }
+    #endif
+
+    private func openAccountCard() {
+        let edit = edit
+        model.openAccountCard(avatarTarget: accountFrame, reduced: reduceMotion) { edit.enter() }
     }
 
     private var feedScroll: some View {
@@ -391,17 +416,22 @@ struct HomeView: View {
                 .allowsHitTesting(edit.progress < 0.5)
             }
             HeaderActions(edit: edit, scheme: scheme) {
-                Button { if !AccountFan.shared.swallowsTap { model.openSettings() } } label: {
+                // A short tap: the account card grows out of the avatar (Android HomeAccountSwitcher).
+                Button { if !AccountFan.shared.swallowsTap { openAccountCard() } } label: {
                     // 32 dp avatar in a 48 dp target: the account in use (its shape, service colour and
                     // letter); with none, the mock's (profile 0 = Cookie6Sided).
                     HeaderAccountAvatar(profile: model.profiles.active,
                                         shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
                                         fallback: BackdropColors(model.playback.album.palette).accent.mix(with: scheme.primary, by: 0.5),
-                                        onFallback: scheme.onPrimary, ring: scheme.surfaceContainer)
+                                        onFallback: scheme.onPrimary, ring: scheme.surfaceContainer,
+                                        needsReconnect: model.activeNeedsReconnect, error: scheme.error)
+                        // Up there as the card while it is open: steps aside in the same frame.
+                        .opacity(AccountSwitcher.shared.shown ? 0 : 1)
                 }
                 .buttonStyle(.plain)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { accountFrame = $0 }
                 .accessibilityLabel("Account")
-                .accessibilityValue(model.profiles.active?.spokenAccount ?? "")
+                .accessibilityValue(model.headerAccountValue)
                 // Hold and slide onto another account (Android #162).
                 .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
             }

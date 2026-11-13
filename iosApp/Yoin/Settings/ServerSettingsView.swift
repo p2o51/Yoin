@@ -129,6 +129,7 @@ struct ServerSettingsView: View {
         model.settingsDestination = nil
         switch d {
         case .neodb: neodbOpen = true
+        case .account(let id): setup = ServiceSetupRequest(profileId: id)
         }
     }
 

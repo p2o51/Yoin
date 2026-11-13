@@ -178,6 +178,9 @@ struct HeaderAccountAvatar: View {
     var fallback: Color
     var onFallback: Color
     var ring: Color
+    /// The account needs its owner (Android HomeAccountReconnectDot): a dot on the avatar's corner.
+    var needsReconnect = false
+    var error: Color = .red
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -196,6 +199,10 @@ struct HeaderAccountAvatar: View {
         .background(tone?.accent ?? fallback, in: AvatarShape(index: profile == nil ? 0 : shape))
         .padding(1.5)
         .background(ring, in: AvatarShape(index: profile == nil ? 0 : shape))
+        .overlay(alignment: .topTrailing) {
+            AccountReconnectDot(visible: needsReconnect && profile != nil, ring: ring, color: error)
+                .offset(x: 1, y: -1)
+        }
         .frame(width: 48, height: 48)
         .animation(Yoin.spatial, value: shape)
         .animation(Yoin.effects, value: profile?.id)

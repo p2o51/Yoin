@@ -21,6 +21,9 @@ struct LibraryView: View {
     @Environment(\.zoomNamespace) private var zoomNS
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The header avatar's target in the window: the account card grows out of it.
+    @State private var accountFrame: CGRect = .zero
     @State private var width: CGFloat = 370
     @State private var position = ScrollPosition()
     @State private var metrics = ScrollMetrics()
@@ -328,17 +331,33 @@ struct LibraryView: View {
 
     private var accountButton: some View {
             // The account Library is reading, as on Home (Android: 资料库也要显示当前的账号).
-            Button { if !AccountFan.shared.swallowsTap { model.openSettings() } } label: {
+            // A short tap: the account card, minus Home's own Edit Home (Android HomeAccountSwitcherHost).
+            Button { if !AccountFan.shared.swallowsTap { openAccountCard() } } label: {
                 HeaderAccountAvatar(profile: model.profiles.active,
                                     shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
                                     fallback: scheme.primary, onFallback: scheme.onPrimary,
-                                    ring: scheme.surfaceContainer)
+                                    ring: scheme.surfaceContainer,
+                                    needsReconnect: model.activeNeedsReconnect, error: scheme.error)
+                    .opacity(AccountSwitcher.shared.shown ? 0 : 1)
             }
             .buttonStyle(.plain)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { accountFrame = $0 }
+            #if DEBUG
+            // `-accountCardOpen library`: the card, a beat after Library shows (QA screenshots).
+            .task {
+                guard UserDefaults.standard.string(forKey: "accountCardOpen") == "library" else { return }
+                try? await Task.sleep(for: .seconds(3))
+                openAccountCard()
+            }
+            #endif
             .accessibilityLabel("Account")
-            .accessibilityValue(model.profiles.active?.spokenAccount ?? "")
+            .accessibilityValue(model.headerAccountValue)
             // Hold and slide onto another account (Android #162).
             .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
+    }
+
+    private func openAccountCard() {
+        model.openAccountCard(avatarTarget: accountFrame, reduced: reduceMotion, editHome: nil)
     }
 
     // MARK: Chips
