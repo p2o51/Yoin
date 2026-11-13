@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/activity/activity.dart';
 import '../data/profile/profile.dart';
 import '../data/profile/profile_repository.dart';
 import '../data/source/music_source.dart';
@@ -47,4 +48,13 @@ final activeSourceProvider = FutureProvider<MusicSource?>((ref) async {
   final source = ref.watch(musicSourceFactoryProvider)(credentials);
   ref.onDispose(source.dispose);
   return source;
+});
+
+/// The active account's activity log (plays and visits). null with no account.
+final activityLogProvider = FutureProvider<ActivityLog?>((ref) async {
+  // Rebuilt with the active source, i.e. when the account changes.
+  await ref.watch(activeSourceProvider.future);
+  final profile = await ref.watch(profileRepositoryProvider).activeProfile();
+  if (profile == null) return null;
+  return StoredActivityLog(ref.watch(keyValueStoreProvider), profileId: profile.id);
 });

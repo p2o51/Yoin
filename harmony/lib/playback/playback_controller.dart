@@ -7,6 +7,7 @@ import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../platform/playback/playback_engine.dart';
 import 'now_playing_state.dart';
+import 'playback_context.dart';
 
 /// The one way the app plays music (Android PlaybackManager). Screens call
 /// these methods; nothing else talks to [PlaybackEngine].
@@ -28,7 +29,12 @@ class PlaybackController extends Notifier<NowPlayingState> {
   }
 
   /// Replaces the queue with [tracks] and plays from [startIndex].
-  Future<void> playTracks(List<Track> tracks, {int startIndex = 0}) async {
+  /// [context] is where the play started (album, playlist …).
+  Future<void> playTracks(
+    List<Track> tracks, {
+    int startIndex = 0,
+    PlaybackContext context = const NoPlaybackContext(),
+  }) async {
     if (tracks.isEmpty) return;
     final source = await ref.read(activeSourceProvider.future);
     if (source == null) return;
@@ -52,6 +58,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
       sampledAtMs: DateTime.now().millisecondsSinceEpoch,
       clearDuration: true,
       clearError: true,
+      context: context,
     );
     await _engine.setQueue(items, startIndex: playableStart);
   }
@@ -70,6 +77,16 @@ class PlaybackController extends Notifier<NowPlayingState> {
   }
 
   Future<void> stop() => _engine.stop();
+
+  /// Shuffle × repeat (Android's six play modes). Implemented engine-side.
+  Future<void> setPlayMode({required bool shuffle, required RepeatMode repeat}) =>
+      throw UnimplementedError('setPlayMode: playback chain task');
+
+  /// Hearts / unhearts the current track: optimistic, reverted if the source write fails.
+  Future<void> toggleFavorite() => throw UnimplementedError('toggleFavorite: playback chain task');
+
+  /// Sets the current track's rating (0 clears): optimistic, reverted on failure.
+  Future<void> setRating(int rating) => throw UnimplementedError('setRating: playback chain task');
 
   Future<EngineItem?> _itemFor(MusicSource source, Track track) async {
     final handle = await source.playback.handleFor(track);

@@ -1,5 +1,6 @@
 import '../data/model/model.dart';
 import '../platform/playback/playback_engine.dart';
+import 'playback_context.dart';
 
 enum RepeatMode { off, all, one }
 
@@ -21,6 +22,7 @@ final class NowPlayingState {
     this.shuffle = false,
     this.repeat = RepeatMode.off,
     this.errorMessage,
+    this.context = const NoPlaybackContext(),
   });
 
   static const idle = NowPlayingState();
@@ -40,6 +42,9 @@ final class NowPlayingState {
   final bool shuffle;
   final RepeatMode repeat;
   final String? errorMessage;
+
+  /// Where the current queue came from.
+  final PlaybackContext context;
 
   Track? get current => index >= 0 && index < queue.length ? queue[index] : null;
   bool get hasQueue => current != null;
@@ -71,6 +76,7 @@ final class NowPlayingState {
     RepeatMode? repeat,
     String? errorMessage,
     bool clearError = false,
+    PlaybackContext? context,
   }) =>
       NowPlayingState(
         queue: queue ?? this.queue,
@@ -83,5 +89,6 @@ final class NowPlayingState {
         shuffle: shuffle ?? this.shuffle,
         repeat: repeat ?? this.repeat,
         errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+        context: context ?? this.context,
       );
 }

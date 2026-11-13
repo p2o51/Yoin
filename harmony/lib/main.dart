@@ -8,7 +8,9 @@ import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
 import 'platform/playback/channel_playback_engine.dart';
 import 'platform/storage/channel_stores.dart';
+import 'shell/app_chrome.dart';
 import 'shell/shell_screen.dart';
+import 'shell/shell_state.dart';
 import 'theme/theme.dart';
 import 'ui/adaptive/yoin_window_info.dart';
 
@@ -46,7 +48,8 @@ class YoinApp extends StatelessWidget {
       themeMode: ThemeMode.system,
       supportedLocales: const [Locale('en'), Locale('zh')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      builder: (context, child) => YoinWindowScope.measured(child: child!),
+      navigatorKey: appNavigatorKey,
+      builder: (context, child) => YoinWindowScope.measured(child: AppChrome(child: child!)),
       home: const ShellScreen(),
     );
   }
