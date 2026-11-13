@@ -666,7 +666,7 @@ class PlaybackManager(
                         ?: context.getString(R.string.player_play_failed),
                 )
                 Log.w(TAG, "play failed for ${tracks[startIndex].id}", error)
-                PlayTrace.log("play failed ${tracks[startIndex].id.rawId} ${error.javaClass.simpleName}: ${error.message}")
+                PlayTrace.log("play failed ${tracks[startIndex].id.rawId} ${error.javaClass.simpleName}: ${PlayTrace.maskHosts(error.message)}")
             }
         }
     }
@@ -1005,7 +1005,7 @@ class PlaybackManager(
 
     private val playerListener = object : Player.Listener {
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-            PlayTrace.log("player error ${error.errorCodeName}: ${error.message} cause=${error.cause?.javaClass?.simpleName}")
+            PlayTrace.log("player error ${error.errorCodeName}: ${PlayTrace.maskHosts(error.message)} cause=${error.cause?.javaClass?.simpleName}")
             syncState()
         }
 
@@ -1597,7 +1597,7 @@ class PlaybackManager(
                     .onFailure { e ->
                         if (e is CancellationException) throw e
                         Log.w(TAG, "Spotify start $attempt failed: ${e.javaClass.simpleName}: ${e.message}")
-                        PlayTrace.log("spotify start $attempt failed ${e.javaClass.simpleName}: ${e.message}")
+                        PlayTrace.log("spotify start $attempt failed ${e.javaClass.simpleName}: ${PlayTrace.maskHosts(e.message)}")
                         failure = e
                     }
                     .isSuccess

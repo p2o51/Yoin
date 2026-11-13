@@ -31,11 +31,22 @@ class PlayTraceTest {
     }
 
     @Test
-    fun should_keepOnlyHostEndpointAndSafeParams_when_describingAStreamUrl() {
+    fun should_keepOnlyEndpointAndSafeParams_when_describingAStreamUrl() {
         val out = PlayTrace.describe(
             "https://music.example.com/rest/stream.view?u=alice&t=deadbeef&s=salt&v=1.16.1&c=Yoin&id=42&maxBitRate=320&format=mp3",
         )
-        assertEquals("https://music.example.com/…/stream.view?id=42&maxBitRate=320&format=mp3", out)
+        assertEquals("https://…/stream.view?id=42&maxBitRate=320&format=mp3", out)
+    }
+
+    @Test
+    fun should_maskHostAndIp_when_errorMessageNamesTheServer() {
+        val resolve = PlayTrace.maskHosts("Unable to resolve host \"music.example.com\": No address associated with hostname")
+        assertEquals("Unable to resolve host \"…\": No address associated with hostname", resolve)
+        val connect = PlayTrace.maskHosts("failed to connect to music.example.com/203.0.113.4 (port 443) after 10000ms")
+        assertEquals("failed to connect to …/… (port 443) after 10000ms", connect)
+        val v6 = PlayTrace.maskHosts("failed to connect to /[2001:db8::1]:4533 and http://navidrome:4533/rest/ping")
+        assertFalse(v6, v6.contains("2001:db8") || v6.contains("navidrome"))
+        assertEquals("", PlayTrace.maskHosts(null))
     }
 
     @Test

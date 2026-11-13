@@ -17,8 +17,8 @@ import java.util.concurrent.Executors
  * [CAPACITY] lines of playback commands, starts per provider, Spotify start failures, player errors
  * and the local decoder's formats, kept in memory and in cacheDir/playtrace.log so a log survives
  * a relaunch. Nothing leaves the phone unless the user shares the export. Callers log paths,
- * statuses and ids only; [redact] cuts anything shaped like a token or a Subsonic credential, and
- * [describe] is how a stream URL may be logged.
+ * statuses and ids only; [redact] cuts anything shaped like a token or a Subsonic credential,
+ * [describe] is how a stream URL may be logged and [maskHosts] is how an error message may be.
  */
 object PlayTrace {
     const val CAPACITY = 2000
@@ -73,11 +73,26 @@ object PlayTrace {
         .replace(credentialPattern, "$1…")
         .replace(userInfoPattern, "$1…@")
 
+    private val authorityPattern = Regex("""(://)[^/\s?#"]+""")
+    private val hostPattern = Regex(
+        """\[[0-9a-fA-F:.]+]|\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b""",
+    )
+
+    /**
+     * An error message as it may be logged: a URL's authority, a host name and an IPv4 / IPv6 literal
+     * become "…", so a network failure ("Unable to resolve host …", "failed to connect to …") never
+     * names the user's server. Dotted names that are not hosts are cut as well.
+     */
+    fun maskHosts(s: String?): String = s.orEmpty()
+        .replace(authorityPattern, "$1…")
+        .replace(hostPattern, "…")
+
     private val safeQuery = setOf("id", "maxBitRate", "format", "timeOffset", "estimateContentLength")
 
     /**
-     * A stream URL as it may be logged (iOS AVAudioOutput.describe): scheme, host, the endpoint and
-     * the song / delivery parameters, never the credentials (`u`, `t`, `s`, `p`, `apiKey`) or anything unknown.
+     * A stream URL as it may be logged (iOS AVAudioOutput.describe): scheme, the endpoint and the
+     * song / delivery parameters, never the server's address, the credentials (`u`, `t`, `s`, `p`,
+     * `apiKey`) or anything unknown.
      */
     fun describe(url: String): String {
         val uri = runCatching { URI(url) }.getOrNull() ?: return "<url>"
@@ -85,7 +100,7 @@ object PlayTrace {
             .filter { it.substringBefore('=') in safeQuery }
             .joinToString("&")
         val endpoint = uri.path.orEmpty().split('/').lastOrNull { it.isNotEmpty() }.orEmpty()
-        return "${uri.scheme.orEmpty()}://${uri.host.orEmpty()}/…/$endpoint" + if (items.isEmpty()) "" else "?$items"
+        return "${uri.scheme.orEmpty()}://…/$endpoint" + if (items.isEmpty()) "" else "?$items"
     }
 }
 
