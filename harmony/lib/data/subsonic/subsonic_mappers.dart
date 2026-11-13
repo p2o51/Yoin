@@ -85,6 +85,7 @@ Track? trackFromJson(SubsonicJson j) {
     genre: _str(j['genre']),
     userRating: _int(j['userRating']),
     isStarred: _starred(j['starred']),
+    starredAt: _text(j['starred']),
     // When the file came onto the server (Child.created, ISO-8601).
     addedAt: _text(j['created']),
     audioFormat: audioFormatFromJson(j),
@@ -150,6 +151,7 @@ Album? albumFromJson(SubsonicJson j) {
     year: _int(j['year']),
     genre: _str(j['genre']),
     isStarred: _starred(j['starred']),
+    starredAt: _text(j['starred']),
     tracks: discTrackOrder([for (final s in _objs(j['song'])) ?trackFromJson(s)]),
     // When the album came onto the server (AlbumID3.created).
     addedAt: _text(j['created']),

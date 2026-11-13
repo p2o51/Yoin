@@ -38,8 +38,8 @@ passwords are machine-local, so don't commit that block.
   Google Sans Flex; `color_scheme.dart` + `mcu2025/` colours.
 - `lib/data/` — models, `MusicSource`, Subsonic, profiles. `lib/platform/` — ArkTS channel clients.
 - `lib/app/providers.dart` — Riverpod dependency graph. Conventions for agents: `AGENTS.md`.
-- `lib/shell/` — the shell and the floating bar (idle pose so far).
-- `lib/settings/` — Subsonic account setup.
+- `lib/shell/` — the shell, the window chrome and the one floating bar.
+- `lib/settings/` — Settings (account list) and Subsonic account setup.
 - `lib/home/`, `lib/library/` — pages.
 - `ohos/` — the HarmonyOS host (EntryAbility = FlutterAbility). ArkTS modules go here.
 
@@ -47,7 +47,10 @@ passwords are machine-local, so don't commit that block.
 
 - Colour: SPEC_2025 is ported in `lib/theme/mcu2025/` and golden-tested against Android's vendored
   Kotlin MCU (generators in `test/theme/fixtures/generator/`). Only the 2025 variants are ported.
-- Bar: only the idle pose (nothing playing). No press bulge, no Now Playing pill yet.
+- Settings: only the account list (switch / remove / add Subsonic). Pages with no place for the
+  bar (Settings, setup, full-screen search) wrap themselves in `ChromeBarSuppression`.
+- Hearts: one owner, `favoriteOverridesProvider` (`lib/app/providers.dart`); rows, Now Playing and
+  the system heart all write through it.
 - Back: HarmonyOS side-swipe back has no progress API; system back commits through the same
   controller (Android's three-button path). Write this into the predictive-back skill before
   the first overlay.

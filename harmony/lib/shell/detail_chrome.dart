@@ -23,18 +23,24 @@ class DetailChrome extends Notifier<List<(Object, DetailPlayActions)>> {
 
   void put(Object token, DetailPlayActions actions) {
     final i = state.indexWhere((e) => identical(e.$1, token));
-    state = i < 0 ? [...state, (token, actions)] : [...state]..[i] = (token, actions);
+    state = i < 0 ? [...state, (token, actions)] : ([...state]..[i] = (token, actions));
   }
 
-  void remove(Object token) => state = [for (final e in state) if (!identical(e.$1, token)) e];
+  void remove(Object token) {
+    // A page disposed with the whole ProviderScope (app teardown) removes
+    // itself after the notifier is gone: nothing left to remove.
+    if (!ref.mounted) return;
+    state = [
+      for (final e in state)
+        if (!identical(e.$1, token)) e,
+    ];
+  }
 }
 
 final detailChromeProvider = NotifierProvider<DetailChrome, List<(Object, DetailPlayActions)>>(DetailChrome.new);
 
 /// The actions the bar should show now, or null on the shell (nav pose).
-final topDetailActionsProvider = Provider<DetailPlayActions?>(
-  (ref) => ref.watch(detailChromeProvider).lastOrNull?.$2,
-);
+final topDetailActionsProvider = Provider<DetailPlayActions?>((ref) => ref.watch(detailChromeProvider).lastOrNull?.$2);
 
 /// Wrap a detail page's body: registers [actions] while mounted (null =
 /// still loading, nothing to play yet) and removes them when the page goes.

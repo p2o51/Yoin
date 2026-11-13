@@ -171,6 +171,7 @@ void main() {
       expect(album.year, 2024);
       expect(album.genre, 'Rock');
       expect(album.isStarred, isTrue);
+      expect(album.starredAt, '2024-01-01T00:00:00Z');
       expect(album.addedAt, '2023-05-02T10:00:00.000Z');
       expect(album.releaseType, ReleaseType.album);
       expect(album.version, 'Deluxe');
@@ -231,6 +232,7 @@ void main() {
       expect(t.genre, 'Jazz');
       expect(t.userRating, 5);
       expect(t.isStarred, isTrue);
+      expect(t.starredAt, '2024-01-15T10:30:00Z');
       expect(t.addedAt, '2023-02-03T04:05:06Z');
       final f = t.audioFormat!;
       expect(f.suffix, 'flac');

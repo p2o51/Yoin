@@ -8,10 +8,11 @@ import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
 import 'platform/playback/channel_playback_engine.dart';
 import 'platform/storage/channel_stores.dart';
+import 'playback/playback_controller.dart';
 import 'shell/app_chrome.dart';
 import 'shell/shell_screen.dart';
 import 'shell/shell_state.dart';
-import 'theme/theme.dart';
+import 'theme/playback_theme.dart';
 import 'ui/adaptive/yoin_window_info.dart';
 
 void main() {
@@ -35,17 +36,25 @@ void main() {
   );
 }
 
-class YoinApp extends StatelessWidget {
+class YoinApp extends ConsumerWidget {
   const YoinApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // The playback chain lives as long as the app, with or without a bar or
+    // player on screen: scrobbling, play history, rehydrating the queue and
+    // the system's "open Now Playing" all run in it.
+    ref.listen(playbackControllerProvider, (_, _) {});
+    // The playing cover themes the whole app, in ONE cut (no theme tween:
+    // owner 2026-11-04); equal schemes keep the same ThemeData instance.
+    final seed = ref.watch(playbackThemeProvider.select((t) => t.seed));
     return MaterialApp(
       title: 'Yoin',
       debugShowCheckedModeBanner: false,
-      theme: yoinTheme(Brightness.light),
-      darkTheme: yoinTheme(Brightness.dark),
+      theme: playbackThemeData(seed, Brightness.light),
+      darkTheme: playbackThemeData(seed, Brightness.dark),
       themeMode: ThemeMode.system,
+      themeAnimationDuration: Duration.zero,
       supportedLocales: const [Locale('en'), Locale('zh')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       navigatorKey: appNavigatorKey,

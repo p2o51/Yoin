@@ -70,6 +70,7 @@ final class Track {
     this.genre,
     this.userRating,
     this.isStarred = false,
+    this.starredAt,
     this.addedAt,
     this.audioFormat,
   });
@@ -90,10 +91,17 @@ final class Track {
   /// 1–5 stars where the source supports rating, else null.
   final int? userRating;
   final bool isStarred;
+
+  /// When the user starred it (Subsonic `starred`, ISO-8601); null when not
+  /// starred or unknown. Recently Added sorts by it (Android addedAt).
+  final String? starredAt;
+
+  /// When it came onto the server (Subsonic `created`).
   final String? addedAt;
   final AudioFormat? audioFormat;
 
-  Track copyWith({bool? isStarred, int? userRating}) => Track(
+  /// [clearUserRating] drops the rating (a null [userRating] keeps it).
+  Track copyWith({bool? isStarred, int? userRating, bool clearUserRating = false}) => Track(
         id: id,
         title: title,
         artist: artist,
@@ -106,8 +114,9 @@ final class Track {
         discNumber: discNumber,
         year: year,
         genre: genre,
-        userRating: userRating ?? this.userRating,
+        userRating: clearUserRating ? null : (userRating ?? this.userRating),
         isStarred: isStarred ?? this.isStarred,
+        starredAt: starredAt,
         addedAt: addedAt,
         audioFormat: audioFormat,
       );
@@ -128,6 +137,7 @@ final class Album {
     this.genre,
     this.isStarred = false,
     this.tracks = const [],
+    this.starredAt,
     this.addedAt,
     this.releaseType,
     this.version,
@@ -146,6 +156,11 @@ final class Album {
 
   /// Filled by getAlbum; list calls leave it empty.
   final List<Track> tracks;
+
+  /// When the user starred it (Subsonic `starred`); null when not starred.
+  final String? starredAt;
+
+  /// When it came onto the server (Subsonic `created`).
   final String? addedAt;
   final ReleaseType? releaseType;
   final String? version;

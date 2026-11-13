@@ -12,3 +12,9 @@ class NowPlayingOpenRequests extends Notifier<int> {
 }
 
 final nowPlayingOpenRequestsProvider = NotifierProvider<NowPlayingOpenRequests, int>(NowPlayingOpenRequests.new);
+
+/// How long an open request waits for a track when it arrives before the
+/// queue does (UI re-created while the music played on: the queue is still
+/// being rebuilt from the native host). Android NOW_PLAYING_REQUEST_TTL, and
+/// the native host's OPEN_REQUEST_TTL_MS.
+const nowPlayingOpenRequestTtl = Duration(seconds: 30);

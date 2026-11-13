@@ -8,6 +8,7 @@ import 'package:yoin/main.dart';
 import 'package:yoin/platform/storage/stores.dart';
 
 import 'support/fake_music_source.dart';
+import 'support/fake_playback_engine.dart';
 
 double _pageOpacity(WidgetTester tester, Type page) => tester
     .widget<Opacity>(find.ancestor(of: find.byType(page), matching: find.byType(Opacity)).first)
@@ -21,6 +22,7 @@ void main() {
         keyValueStoreProvider.overrideWithValue(store),
         secretStoreProvider.overrideWithValue(store),
         musicSourceFactoryProvider.overrideWithValue((_) => FakeMusicSource()),
+        playbackEngineProvider.overrideWithValue(FakePlaybackEngine()),
       ],
       child: const YoinApp(),
     ));

@@ -11,25 +11,24 @@ import {
   StreamHandler
 } from '@ohos/flutter_ohos';
 import { common } from '@kit.AbilityKit';
-import { EngineListener, EngineSnapshot, PlaybackEngine } from './PlaybackEngine';
+import { EngineRepeat } from './PlaybackEngine';
+import { YoinPlaybackHost } from './PlaybackHost';
 import { QueueItem } from './QueueItem';
-import { SystemSession } from './SystemSession';
 
 const METHOD_CHANNEL = 'yoin/playback';
 const EVENT_CHANNEL = 'yoin/playback/events';
 
 /**
- * Serves `yoin/playback` (commands) and `yoin/playback/events` (state stream) for Dart's `ChannelPlaybackEngine`.
- * The ability context (not the application context) is needed: AVSession and continuous tasks are tied to a UIAbility.
+ * Serves `yoin/playback` (commands) and `yoin/playback/events` (state and system events) for Dart's
+ * `ChannelPlaybackEngine`. Playback itself lives in the process-level [YoinPlaybackHost], so a Flutter engine
+ * detach (ability destroyed, engine re-created) only unplugs the channels: the music, the AVSession and the
+ * continuous task carry on.
  */
 export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHandler, StreamHandler {
   private context: common.UIAbilityContext;
-  private engine: PlaybackEngine | null = null;
-  private session: SystemSession | null = null;
   private methodChannel: MethodChannel | null = null;
   private eventChannel: EventChannel | null = null;
   private sink: EventSink | null = null;
-  private listener: EngineListener = (s: EngineSnapshot) => this.send(s);
 
   constructor(context: common.UIAbilityContext) {
     this.context = context;
@@ -40,10 +39,7 @@ export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHand
   }
 
   onAttachedToEngine(binding: FlutterPluginBinding): void {
-    const engine = new PlaybackEngine();
-    engine.addListener(this.listener);
-    this.engine = engine;
-    this.session = new SystemSession(this.context, engine);
+    YoinPlaybackHost.bind(this.context);
     this.methodChannel = new MethodChannel(binding.getBinaryMessenger(), METHOD_CHANNEL);
     this.methodChannel.setMethodCallHandler(this);
     this.eventChannel = new EventChannel(binding.getBinaryMessenger(), EVENT_CHANNEL);
@@ -54,19 +50,12 @@ export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHand
     this.methodChannel?.setMethodCallHandler(null);
     this.methodChannel = null;
     this.eventChannel = null;
-    this.sink = null;
-    this.session?.release();
-    this.session = null;
-    this.engine?.release();
-    this.engine = null;
+    this.unplug();
   }
 
   onMethodCall(call: MethodCall, result: MethodResult): void {
-    const engine = this.engine;
-    if (engine === null) {
-      result.error('detached', 'playback engine is not attached', null);
-      return;
-    }
+    const host = YoinPlaybackHost.bind(this.context);
+    const engine = host.engine;
     try {
       switch (call.method) {
         case 'setQueue':
@@ -74,8 +63,41 @@ export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHand
             QueueItem.listFrom(call.argument('items')),
             numberArg(call, 'startIndex', 0),
             numberArg(call, 'startPositionMs', 0),
-            boolArg(call, 'playWhenReady', true));
+            boolArg(call, 'playWhenReady', true),
+            repeatArg(call),
+            optionalBool(call, 'shuffle'),
+            optionalNumber(call, 'revision'));
           break;
+        case 'insert':
+          engine.insert(numberArg(call, 'at', 0), QueueItem.listFrom(call.argument('items')),
+            numberArg(call, 'revision', 0));
+          break;
+        case 'removeAt':
+          engine.removeAt(numberArg(call, 'index', -1), numberArg(call, 'revision', 0));
+          break;
+        case 'move':
+          engine.move(numberArg(call, 'from', -1), numberArg(call, 'to', -1), numberArg(call, 'revision', 0));
+          break;
+        case 'setRepeat': {
+          const repeat = repeatArg(call);
+          if (repeat !== null) {
+            engine.setRepeat(repeat);
+          }
+          break;
+        }
+        case 'setShuffle':
+          engine.setShuffle(boolArg(call, 'shuffle', false));
+          break;
+        case 'setFavorite': {
+          const id: Any = call.argument('id');
+          if (typeof id === 'string') {
+            engine.setFavorite(id as string, optionalBool(call, 'favorite'));
+          }
+          break;
+        }
+        case 'getSnapshot':
+          result.success(host.snapshotMap());
+          return;
         case 'play':
           engine.play();
           break;
@@ -110,31 +132,19 @@ export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHand
   /** The first event is the current state, so a late listener never waits for the next change. */
   onListen(args: Any, events: EventSink): void {
     this.sink = events;
-    const engine = this.engine;
-    if (engine !== null) {
-      this.send(engine.snapshot());
-    }
+    YoinPlaybackHost.bind(this.context).attachSink(events);
   }
 
   onCancel(args: Any): void {
-    this.sink = null;
+    this.unplug();
   }
 
-  private send(s: EngineSnapshot): void {
+  private unplug(): void {
     const sink = this.sink;
-    if (sink === null) {
-      return;
+    this.sink = null;
+    if (sink !== null) {
+      YoinPlaybackHost.current()?.detachSink(sink);
     }
-    const map: Map<string, Any> = new Map();
-    map.set('phase', s.phase);
-    map.set('isPlaying', s.isPlaying);
-    map.set('index', s.index);
-    map.set('currentId', s.currentId);
-    map.set('positionMs', s.positionMs);
-    map.set('sampledAtMs', s.sampledAtMs);
-    map.set('durationMs', s.durationMs);
-    map.set('errorMessage', s.errorMessage);
-    sink.success(map);
   }
 }
 
@@ -146,4 +156,22 @@ function numberArg(call: MethodCall, key: string, fallback: number): number {
 function boolArg(call: MethodCall, key: string, fallback: boolean): boolean {
   const v: Any = call.argument(key);
   return typeof v === 'boolean' ? v as boolean : fallback;
+}
+
+function optionalBool(call: MethodCall, key: string): boolean | null {
+  const v: Any = call.argument(key);
+  return typeof v === 'boolean' ? v as boolean : null;
+}
+
+function optionalNumber(call: MethodCall, key: string): number | null {
+  const v: Any = call.argument(key);
+  return typeof v === 'number' ? v as number : null;
+}
+
+function repeatArg(call: MethodCall): EngineRepeat | null {
+  const v: Any = call.argument('repeat');
+  if (v === 'off' || v === 'one' || v === 'all') {
+    return v as EngineRepeat;
+  }
+  return null;
 }

@@ -361,6 +361,18 @@ abstract final class SearchTokens {
 }
 
 
+/// Settings' account list (HarmonyOS v1; the Kotlin side has no Settings
+/// tokens yet — add these there when it follows).
+abstract final class SettingsTokens {
+  static const double pagePadding = 16;
+  static const double sectionTop = 8;
+  static const double sectionLabelInset = 8;
+  static const double sectionLabelGap = 12;
+  static const double rowPadding = 16;
+  static const double rowGap = 2;
+}
+
+
 /// Corner radii (Shape.kt YoinArtworkShapes / YoinContainerShapes).
 abstract final class ShapeTokens {
   static const double thumb = 4;

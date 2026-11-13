@@ -1,0 +1,99 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../data/model/model.dart';
+import 'detail_cache.dart';
+
+/// One playlist row: a stable per-entry key so the same song twice is two rows.
+final class PlaylistEntry {
+  const PlaylistEntry(this.rowKey, this.track);
+  final String rowKey;
+  final Track track;
+}
+
+sealed class PlaylistDetailState {
+  const PlaylistDetailState();
+}
+
+final class PlaylistDetailLoading extends PlaylistDetailState {
+  const PlaylistDetailLoading();
+}
+
+final class PlaylistDetailError extends PlaylistDetailState {
+  const PlaylistDetailError({required this.notFound});
+  final bool notFound;
+}
+
+final class PlaylistDetailContent extends PlaylistDetailState {
+  PlaylistDetailContent(this.playlist)
+    : entries = [for (final (i, t) in playlist.tracks.indexed) PlaylistEntry('row-$i', t)];
+
+  final Playlist playlist;
+  final List<PlaylistEntry> entries;
+
+  List<Track> get tracks => playlist.tracks;
+
+  /// songCount, else the rows.
+  int get trackCount => playlist.songCount ?? tracks.length;
+  int get totalDurationSec => playlist.durationSec ?? tracks.fold(0, (sum, t) => sum + (t.durationSec ?? 0));
+
+  /// The hero cover: the playlist's own cover id (Subsonic maps it to the
+  /// playlist id), else the first track's cover or album id.
+  CoverRef? get heroCover => playlistHeroCover(playlist);
+
+  /// The cover the play context carries.
+  CoverRef? get contextCover => heroCover;
+}
+
+CoverRef? playlistHeroCover(Playlist playlist) {
+  if (playlist.coverArt case final cover?) return cover;
+  final first = playlist.tracks.firstOrNull;
+  if (first == null) return null;
+  return first.coverArt ?? (first.albumId == null ? null : CoverSourceRelative(first.albumId!.rawId));
+}
+
+/// Up to two covers to fan behind the hero (Android playlistSleeveCovers):
+/// the rows' own album covers in playlist order, distinct, not the hero's.
+List<CoverRef> playlistSleeveCovers(Playlist playlist, {int max = 2}) {
+  final hero = playlistHeroCover(playlist);
+  final out = <CoverRef>[];
+  for (final t in playlist.tracks) {
+    final cover = t.coverArt ?? (t.albumId == null ? null : CoverSourceRelative(t.albumId!.rawId));
+    if (cover == null || cover == hero || out.contains(cover)) continue;
+    out.add(cover);
+    if (out.length == max) break;
+  }
+  return out;
+}
+
+class PlaylistDetailNotifier extends Notifier<PlaylistDetailState> {
+  PlaylistDetailNotifier(this.playlistId);
+
+  final MediaId playlistId;
+  int _generation = 0;
+
+  @override
+  PlaylistDetailState build() {
+    _load(ref.watch(detailCacheProvider));
+    return const PlaylistDetailLoading();
+  }
+
+  Future<void> retry() async {
+    state = const PlaylistDetailLoading();
+    await _load(ref.read(detailCacheProvider));
+  }
+
+  Future<void> _load(DetailCache cache) async {
+    final gen = ++_generation;
+    try {
+      final playlist = await cache.playlist(playlistId);
+      if (!ref.mounted || gen != _generation) return;
+      state = playlist == null ? const PlaylistDetailError(notFound: true) : PlaylistDetailContent(playlist);
+    } catch (_) {
+      if (!ref.mounted || gen != _generation) return;
+      state = const PlaylistDetailError(notFound: false);
+    }
+  }
+}
+
+final playlistDetailProvider = NotifierProvider.autoDispose
+    .family<PlaylistDetailNotifier, PlaylistDetailState, MediaId>(PlaylistDetailNotifier.new);

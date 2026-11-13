@@ -14,6 +14,10 @@ export class QueueItem {
   album: string | undefined = undefined;
   artworkUri: string | undefined = undefined;
   durationMs: number | undefined = undefined;
+  /** Dart's per-entry id (the same song queued twice is two entries). */
+  entryId: string | undefined = undefined;
+  /** Opaque to native (the full Dart Track as JSON); echoed by getSnapshot. */
+  extra: string | undefined = undefined;
 
   /** Parses one item map; returns null when the required `id`/`uri` are missing so a bad entry cannot crash the queue. */
   static fromMap(value: Any): QueueItem | null {
@@ -34,6 +38,8 @@ export class QueueItem {
     item.album = readString(map, 'album');
     item.artworkUri = readString(map, 'artworkUri');
     item.durationMs = readNumber(map, 'durationMs');
+    item.entryId = readString(map, 'entryId');
+    item.extra = readString(map, 'extra');
     const headers: Any = map.get('headers');
     if (headers instanceof Map) {
       (headers as Map<Any, Any>).forEach((v: Any, k: Any) => {
@@ -46,7 +52,7 @@ export class QueueItem {
     return item;
   }
 
-  /** Parses the `items` list of `setQueue`, dropping malformed entries. */
+  /** Parses the `items` list of `setQueue` / `insert`, dropping malformed entries. */
   static listFrom(value: Any): QueueItem[] {
     const out: QueueItem[] = [];
     if (value instanceof Array) {
@@ -58,6 +64,20 @@ export class QueueItem {
       });
     }
     return out;
+  }
+
+  /** What `getSnapshot` echoes (no stream URL or headers: they carry credentials). */
+  toMap(): Map<string, Any> {
+    const map: Map<string, Any> = new Map();
+    map.set('id', this.id);
+    map.set('title', this.title);
+    map.set('artist', this.artist ?? null);
+    map.set('album', this.album ?? null);
+    map.set('artworkUri', this.artworkUri ?? null);
+    map.set('durationMs', this.durationMs ?? null);
+    map.set('entryId', this.entryId ?? null);
+    map.set('extra', this.extra ?? null);
+    return map;
   }
 }
 
