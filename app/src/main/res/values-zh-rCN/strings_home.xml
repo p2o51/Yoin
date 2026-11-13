@@ -185,6 +185,8 @@
     <string name="home_cd_bubble_latest_by">Memories。最新：%1$s，%2$s</string>
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
+    <string name="home_tip_continue_on_title">在平板上接着听</string>
+    <string name="home_tip_continue_on">手机播歌时，点平板任务栏里的 Yoin，选「在这里继续」接着播</string>
     <string name="home_tip_labs_title">Yoin Labs</string>
     <string name="home_tip_labs">实验功能、Gemini Nano 模型下载与诊断，现在都在 设置 &gt; Yoin Labs</string>
     <string name="home_tip_lyric_highlight_title">歌词卡片</string>

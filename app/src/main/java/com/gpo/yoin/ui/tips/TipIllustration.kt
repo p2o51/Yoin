@@ -59,6 +59,7 @@ internal fun TipIllustration(
     ) {
         when (tip) {
             HomeBubbleTip.AiServices -> AiServicesDemo(playing)
+            HomeBubbleTip.ContinueOn -> ContinueOnDemo(playing)
             HomeBubbleTip.SpotifyElsewhere -> SpotifyElsewhereDemo(playing)
             HomeBubbleTip.Labs -> LabsDemo(playing)
             HomeBubbleTip.SettingsRegrouped -> SettingsGroupsDemo(playing)

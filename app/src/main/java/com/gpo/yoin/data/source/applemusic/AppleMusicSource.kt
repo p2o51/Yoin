@@ -710,6 +710,14 @@ class AppleMusicSource(
     }
 
     // Library membership is not an Apple Music favorite. Unsupported mutations never fake success.
+    // One song by id, a catalog or a library one: what a Continue On hand-off reads its queue back with.
+    override suspend fun getTrack(id: MediaId): Track? {
+        if (id.provider != this.id) return null
+        val library = id.rawId.startsWith("library:")
+        val query = if (library) mapOf("include" to "catalog,albums,artists") else mapOf("include" to "albums,artists")
+        return regionalTracks(page(path("songs", id), query).resources().songTracks()).firstOrNull()
+    }
+
     override suspend fun getStarred() = Starred()
     override suspend fun getRandomSongs(size: Int) = emptyList<Track>()
     override suspend fun getLyrics(trackId: MediaId): Lyrics? = null

@@ -617,6 +617,17 @@ class AppContainer(private val context: Context) {
         ExperienceSessionStore()
     }
 
+    /** Android 17's Continue On: hands playback to another device and takes it from one (docs/continue-on.md). */
+    val continueOn: com.gpo.yoin.player.continueon.ContinueOn by lazy {
+        com.gpo.yoin.player.continueon.ContinueOn(
+            context = context,
+            playback = playbackManager,
+            profiles = profileManager,
+            accountKey = { profile -> cloudSync.accountKeys.of(profile) },
+            requestNowPlaying = experienceSessionStore::requestNowPlaying,
+        )
+    }
+
     /** The mini player's progress between position ticks, shared by every window's pill. */
     val playbackProgressSmoother: com.gpo.yoin.ui.component.PlaybackProgressSmoother by lazy {
         com.gpo.yoin.ui.component.PlaybackProgressSmoother { playbackManager.playbackState.value.duration }

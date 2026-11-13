@@ -206,6 +206,8 @@
     <string name="home_cd_bubble_memories">Memories</string>
     <!-- Home bubble tips (owner 2026-10-17): one gesture or detail each, said between Memories. -->
     <!-- Tip page (ui/tips/TipScreen): "3 / 10" -->
+    <string name="home_tip_continue_on_title">Continue on tablet</string>
+    <string name="home_tip_continue_on">Tap Yoin in your tablet\'s taskbar and choose Continue here to pick up from your phone</string>
     <string name="home_tip_labs_title">Yoin Labs</string>
     <string name="home_tip_labs">Experimental features, Gemini Nano model download, and diagnostics are now in Settings &gt; Yoin Labs</string>
     <string name="home_tip_lyric_highlight_title">Lyric Cards</string>

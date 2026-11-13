@@ -1,11 +1,33 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.player.continueon.ContinueOnWindows
 import com.gpo.yoin.ui.home.HomeBubbleTip
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TipReadStoreTest {
+    private val android17 = HomeBubbleTip.available(sdk = ContinueOnWindows.API)
+    private val android16 = HomeBubbleTip.available(sdk = ContinueOnWindows.API - 1)
+
+    @Test
+    fun should_leaveOutTheContinueOnTip_when_androidHasNoContinueOn() {
+        assertEquals(HomeBubbleTip.entries.toList(), android17)
+        assertEquals(HomeBubbleTip.entries - HomeBubbleTip.ContinueOn, android16)
+        // Neither the bubble nor "Next" on the tip's page comes to it.
+        assertFalse(HomeBubbleTip.ContinueOn in emptySet<HomeBubbleTip>().unreadTips(android16))
+        assertEquals(HomeBubbleTip.ContinueOn, emptySet<HomeBubbleTip>().unreadTips(android17).first())
+        assertEquals(HomeBubbleTip.SpotifyElsewhere, nextUnreadTip(HomeBubbleTip.Name, emptySet(), android16))
+        assertEquals(HomeBubbleTip.ContinueOn, nextUnreadTip(HomeBubbleTip.Name, emptySet(), android17))
+    }
+
+    @Test
+    fun should_callEveryTipRead_when_theOnlyUnreadOneIsNotForThisAndroid() {
+        val read = HomeBubbleTip.entries.toSet() - HomeBubbleTip.ContinueOn
+        assertEquals(emptyList<HomeBubbleTip>(), read.unreadTips(android16))
+        assertNull(nextUnreadTip(HomeBubbleTip.Name, read, android16))
+    }
 
     @Test
     fun should_goToTheNextUnreadTip_when_currentIsRead() {
@@ -32,7 +54,7 @@ class TipReadStoreTest {
         store.setRead(HomeBubbleTip.PlayModes, true)
         store.setRead(HomeBubbleTip.Name, false)
         assertEquals(setOf(HomeBubbleTip.PlayModes), store.read.value)
-        assertEquals(HomeBubbleTip.entries - HomeBubbleTip.PlayModes, store.read.value.unreadTips())
+        assertEquals(android17 - HomeBubbleTip.PlayModes, store.read.value.unreadTips(android17))
         store.setAllUnread()
         assertEquals(emptySet<HomeBubbleTip>(), store.read.value)
     }

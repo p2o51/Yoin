@@ -23,15 +23,19 @@ internal interface TipReadStore {
     fun setAllUnread()
 }
 
-/** The tips still unread, in the bubble's order. */
-internal fun Set<HomeBubbleTip>.unreadTips(): List<HomeBubbleTip> = HomeBubbleTip.entries.filterNot { it in this }
+/** The tips still unread, in the bubble's order: of [tips], the ones this device can use. */
+internal fun Set<HomeBubbleTip>.unreadTips(tips: List<HomeBubbleTip> = HomeBubbleTip.available()): List<HomeBubbleTip> =
+    tips.filterNot { it in this }
 
 /**
  * After [current] is read, the next unread tip after it (wrapping); null once
- * every tip is read.
+ * every one of [tips] is read.
  */
-internal fun nextUnreadTip(current: HomeBubbleTip, read: Set<HomeBubbleTip>): HomeBubbleTip? {
-    val tips = HomeBubbleTip.entries
+internal fun nextUnreadTip(
+    current: HomeBubbleTip,
+    read: Set<HomeBubbleTip>,
+    tips: List<HomeBubbleTip> = HomeBubbleTip.available(),
+): HomeBubbleTip? {
     val start = tips.indexOf(current)
     return (1 until tips.size)
         .map { tips[(start + it) % tips.size] }
