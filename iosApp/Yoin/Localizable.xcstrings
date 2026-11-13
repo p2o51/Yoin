@@ -2,6 +2,16 @@
   "sourceLanguage": "en",
   "strings": {
     "": {},
+    "Couldn't open Spotify.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开 Spotify。"
+          }
+        }
+      }
+    },
     "Help and about": {
       "localizations": {
         "zh-Hans": {
@@ -12,12 +22,62 @@
         }
       }
     },
+    "More devices…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多设备…"
+          }
+        }
+      }
+    },
+    "Recently used · may need waking in Spotify": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近用过 · 可能要先在 Spotify 里唤醒"
+          }
+        }
+      }
+    },
+    "Sonos and other speakers, through Spotify. Yoin keeps control.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 Spotify 选 Sonos 等音响，选完 Yoin 接着控制。"
+          }
+        }
+      }
+    },
+    "Switch through Spotify": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 Spotify 切换"
+          }
+        }
+      }
+    },
     "Sync and storage": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "同步与存储"
+          }
+        }
+      }
+    },
+    "That speaker is asleep. Pick it once in Spotify (More devices), then Yoin can control it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台音响睡着了。先在 Spotify 里选它一次（更多设备），Yoin 就能接着控制。"
           }
         }
       }

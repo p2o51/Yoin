@@ -23,6 +23,8 @@ devices until some are given, so a start answers 404 as Spotify does with nothin
 
     python3 iosApp/scripts/fake_spotify.py --device "QA Mac:Computer" --device "Pixel 11 Pro:Smartphone"
     curl -X POST 127.0.0.1:4997/_qa/devices -d '{"devices":[{"name":"QA Mac","type":"Computer"}]}'
+    # a Sonos: no id, refuses transfers, missing from the list ("hidden") while me/player names it
+    curl -X POST 127.0.0.1:4997/_qa/devices -d '{"devices":[{"name":"Living Room","type":"Speaker","noId":true,"restricted":true,"hidden":true}]}'
     curl -X POST 127.0.0.1:4997/_qa/play -d '{"device":"Pixel 11 Pro","track":"tr0003","playing":true}'
     curl -X POST 127.0.0.1:4997/_qa/stop        # nothing active (204 from me/player)
     curl -X POST 127.0.0.1:4997/_qa/reset       # no devices, nothing active, the command log empty
@@ -148,9 +150,18 @@ class Player:
         for spec in specs:
             name, kind = spec.get("name", "Device"), spec.get("type", "Computer")
             did = spec.get("id") or re.sub(r"[^a-z0-9]", "", name.lower())[:12] or uuid.uuid4().hex[:8]
-            self.devices.append({"id": did, "name": name, "type": kind})
+            self.devices.append({"id": did, "name": name, "type": kind, "no_id": bool(spec.get("noId")),
+                                 "restricted": bool(spec.get("restricted")), "hidden": bool(spec.get("hidden"))})
         if self.active and not self.device(self.active):
             self.active, self.playing = None, False
+
+    @staticmethod
+    def wire(d, active):
+        """A device as Spotify answers it: a speaker on the local network (Sonos) may come with no id
+        ("noId") and refuse Web API transfers ("restricted")."""
+        return {"id": None if d["no_id"] else d["id"], "name": d["name"], "type": d["type"], "is_active": active,
+                "is_private_session": False, "is_restricted": d["restricted"],
+                "volume_percent": 60, "supports_volume": True}
 
     def settle(self):
         """Moves the clock on: through the handed list, stopping at 0 when it runs out."""
@@ -183,8 +194,7 @@ class Player:
         if not d:
             return None
         item = TRACKS[self.tracks[self.index]] if self.tracks else None
-        return {"device": dict(d, is_active=True, is_private_session=False, is_restricted=False,
-                               volume_percent=60, supports_volume=True),
+        return {"device": Player.wire(d, True),
                 "is_playing": self.playing and item is not None, "progress_ms": self.base_ms if item else 0,
                 "item": item, "currently_playing_type": "track", "shuffle_state": self.shuffle,
                 "repeat_state": self.repeat, "timestamp": int(time.time() * 1000), "context": None}
@@ -358,9 +368,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "me/player/devices":
             with PLAYER.lock:
+                # A "hidden" one is missing from the list while me/player still names it (a Sonos it plays on).
                 return self.reply(200, {"devices": [
-                    dict(d, is_active=d["id"] == PLAYER.active, is_private_session=False, is_restricted=False,
-                         volume_percent=60, supports_volume=True) for d in PLAYER.devices]})
+                    Player.wire(d, d["id"] == PLAYER.active) for d in PLAYER.devices if not d["hidden"]]})
 
         if path == "me/player":
             with PLAYER.lock:
@@ -519,8 +529,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "me/player":  # transfer
                 ids = body.get("device_ids") or []
                 d = p.device(ids[0]) if ids else None
-                if not d:
+                if not d or d["no_id"]:
                     return self.error(404, "Device not found")
+                if d["restricted"]:
+                    return self.error(403, "Player command failed: Restriction violated")
                 p.settle()
                 p.active = d["id"]
                 if body.get("play") and p.tracks:

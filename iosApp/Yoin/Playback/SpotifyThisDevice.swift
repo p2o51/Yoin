@@ -69,9 +69,10 @@ struct SpotifyThisDevice: Equatable, Sendable {
     func matches(_ d: SpotifySource.Device) -> Bool { matches(name: d.name, type: d.type) }
 
     /// This device in the account's Connect list; with several named alike, the active one
-    /// (Android pickLocalSpotifyDevice). Never another device of the same type.
+    /// (Android pickLocalSpotifyDevice). Never another device of the same type, nor one Spotify
+    /// names without an id (a transfer can't name it).
     func pick(_ devices: [SpotifySource.Device]) -> SpotifySource.Device? {
-        let mine = devices.filter(matches)
+        let mine = devices.filter { $0.hasId && matches($0) }
         return mine.first(where: \.isActive) ?? mine.first
     }
 

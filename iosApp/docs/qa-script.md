@@ -179,6 +179,13 @@ curl 127.0.0.1:4997/_qa/player           # devices, the active one, its state, t
 With `-spotifyFake`, `-serverPlay album:<id>` and `-serverRoute …` act on the stand-in account (its
 ids: `-serverPlay album:al00 -serverOpenNowPlaying YES`).
 
+A device spec may add `"noId": true` (Spotify names it with `id: null`), `"restricted": true` (a
+transfer answers 403) and `"hidden": true` (missing from `me/player/devices` while `me/player` names
+it): together, a Sonos Spotify plays on. `-npDevices YES` opens Now Playing's Devices. The sheet lists
+that speaker first with Switch through Spotify (a tap opens `spotify:`), keeps every device it has
+seen for 30 days as Recently used, and reads the list again when Yoin comes back to the front.
+Two launches show it: one with `Kitchen` listed, then `_qa/devices` without it and the Sonos playing.
+
 ## 5. The iPad app on a Mac
 
 The same target runs on a Mac as "Designed for iPad". Rules that differ there hang on one flag,

@@ -267,7 +267,7 @@ struct NowPlayingView: View, Equatable {
                 .animation(Yoin.effects, value: model.queueSheetOpen)
         }
         .sheet(isPresented: $spotifyDevicesOpen) {
-            if let spotify = model.store.spotify { SpotifyDevicesSheet(spotify: spotify, scheme: scheme).reportsSheetRise() }
+            if let spotify = model.store.spotify { SpotifyDevicesSheet(spotify: spotify, scope: model.store.spotifyAccount?.scope, scheme: scheme).reportsSheetRise() }
         }
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet().reportsSheetRise()
@@ -328,7 +328,8 @@ struct NowPlayingView: View, Equatable {
         .task {
             guard !panel, NowPlayingStageLaunch.page != nil || NowPlayingStageLaunch.stage != nil
                     || NowPlayingStageLaunch.focusDemo || NowPlayingStageLaunch.shortFocus
-                    || NowPlayingDebugQueue.compose != nil || NowPlayingDebugQueue.editNote else { return }
+                    || NowPlayingDebugQueue.compose != nil || NowPlayingDebugQueue.editNote
+                    || NowPlayingDebugQueue.devices else { return }
             try? await Task.sleep(for: .seconds(4))
             if let page = NowPlayingStageLaunch.page { withAnimation(Yoin.spatial) { tab = page.rawValue } }
             if let s = NowPlayingStageLaunch.stage { withAnimation(Yoin.stageSettle) { stage = s } }
@@ -341,6 +342,7 @@ struct NowPlayingView: View, Equatable {
             }
             // `-npShortFocus YES`: the short focus (with `-screen np-short`).
             if NowPlayingStageLaunch.shortFocus { withAnimation(Yoin.spatial) { shortFocus = true } }
+            if NowPlayingDebugQueue.devices, model.store.spotify != nil { spotifyDevicesOpen = true }
             if let words = NowPlayingDebugQueue.compose {
                 startWriting()
                 draft = words
