@@ -121,9 +121,12 @@ class HomeViewModel(
     private val playlistRenames: Flow<YoinRepository.PlaylistRename> = emptyFlow(),
 ) : ViewModel() {
 
-    // The names playlists were renamed to while Home was up, by MediaId
-    // string: Jump Back In's pools a load still holds were read before.
+    // The names playlists were renamed to while Home was up, by account and
+    // MediaId string ([renameKey]): Jump Back In's pools a load still holds
+    // were read before. Two accounts on one provider can share a raw id.
     private val renamedPlaylists = mutableMapOf<String, String>()
+
+    private fun renameKey(profileId: String?, id: MediaId): String = "${profileId.orEmpty()}|$id"
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -281,7 +284,7 @@ class HomeViewModel(
     private fun observePlaylistRenames() {
         viewModelScope.launch {
             playlistRenames.collect { rename ->
-                renamedPlaylists[rename.id.toString()] = rename.name
+                renamedPlaylists[renameKey(rename.profileId, rename.id)] = rename.name
                 val providerId = rename.id.provider
                 val profileId = rename.profileId
                 if (!matchesCurrentScope(providerId, profileId)) return@collect
@@ -2343,7 +2346,7 @@ class HomeViewModel(
         return HomeWidgetCard(
             stableId = "grid-playlist:$id",
             entityType = MemoryEntityType.PLAYLIST,
-            title = renamedPlaylists[id.toString()] ?: name,
+            title = renamedPlaylists[renameKey(activeProfileId.value, id)] ?: name,
             subtitle = subtitle,
             subtitleText = subtitleText,
             coverArtUrl = coverArtUrl,
