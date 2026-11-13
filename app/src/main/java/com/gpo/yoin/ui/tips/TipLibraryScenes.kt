@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -332,6 +335,29 @@ internal fun KeyboardShortcutsDemo(playing: Boolean) {
     var song by remember { mutableIntStateOf(0) }
     var searching by remember { mutableStateOf(false) }
     var pressed by remember { mutableStateOf<DemoKey?>(null) }
+    val grid = rememberLazyGridState()
+    val density = LocalDensity.current
+    // The keys' row as measured (the keycaps and the room under them for the bar),
+    // and the tray's height around it: settled on the grid's rows as they lie.
+    var keysPx by remember { mutableIntStateOf(0) }
+    val trayPx = remember { Animatable(0f) }
+    val traySpring = YoinMotion.spatialSpring<Float>()
+    LaunchedEffect(grid, density) {
+        snapshotFlow {
+            val info = grid.layoutInfo
+            keycapTrayHeightPx(
+                rows = info.visibleItemsInfo.map { it.offset.y..(it.offset.y + it.size.height) },
+                gridEndPx = info.viewportEndOffset,
+                keysPx = keysPx,
+                roomPx = with(density) { KeycapTrayPadding.roundToPx() },
+                gapPx = with(density) { KeycapTrayRowGap.roundToPx() },
+            )
+        }.collect { target ->
+            if (target <= 0) return@collect
+            // The first height is the tray as it opens; a later one (the grid moved) springs.
+            if (trayPx.value <= 0f) trayPx.snapTo(target.toFloat()) else trayPx.animateTo(target.toFloat(), traySpring)
+        }
+    }
     val album = DemoAlbums[0]
     val cover = demoCoverUrl(album)
     val track = remember(cover, song) { demoTrack(song, album, cover) }
@@ -370,22 +396,36 @@ internal fun KeyboardShortcutsDemo(playing: Boolean) {
         delay(500)
     }) {
         DemoLibraryPage(
-            gridState = rememberLazyGridState(),
+            gridState = grid,
             onSearch = { searching = true },
             nowPlaying = track,
             playing = !paused,
             underBar = {
                 // The keys' own tray, filled, from the phone's bottom edge up past
                 // the album grid's last row: the bar sits on it, the keys above the bar.
+                // Its top edge falls between two rows of the grid, never across one.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .then(
+                            if (trayPx.value > 0f) {
+                                Modifier.height(with(density) { trayPx.value.toDp() })
+                            } else {
+                                Modifier.padding(top = KeycapTrayPadding)
+                            },
+                        )
+                        .background(
+                            MaterialTheme.colorScheme.surfaceContainer,
+                            RoundedCornerShape(topStart = KeycapTrayCorner, topEnd = KeycapTrayCorner),
+                        ),
+                ) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .background(
-                            MaterialTheme.colorScheme.surfaceContainer,
-                            RoundedCornerShape(topStart = KeycapTrayCorner, topEnd = KeycapTrayCorner),
-                        )
-                        .padding(top = KeycapTrayPadding, bottom = KeycapLift),
+                        .onSizeChanged { keysPx = it.height }
+                        .padding(bottom = KeycapLift),
                     horizontalArrangement = Arrangement.spacedBy(KeycapGap, Alignment.CenterHorizontally),
                 ) {
                     DemoKey.entries.forEach { key ->
@@ -396,6 +436,7 @@ internal fun KeyboardShortcutsDemo(playing: Boolean) {
                             modifier = Modifier.demoTarget(key.name),
                         )
                     }
+                }
                 }
             },
         )
@@ -723,6 +764,33 @@ private val KeycapLift = 132.dp
 /** The keycaps' tray: its top corners and the room above the keys. */
 private val KeycapTrayCorner = 28.dp
 private val KeycapTrayPadding = 16.dp
+
+/** The tray's edge sits this far above a row it would have crossed (half the grid's row gap). */
+private val KeycapTrayRowGap = 8.dp
+
+/**
+ * The keycap tray's height in px, so its top edge falls between two rows of
+ * the album grid, never across one. [rows] are the grid's items, top to bottom
+ * in px from the same origin as [gridEndPx] (the grid's bottom edge, where the
+ * tray's bottom is); [keysPx] is the keys' row with the room under it for the
+ * bar. The tray holds [roomPx] above the keys; where its edge would cross a
+ * row, it covers that row too, its edge [gapPx] above it. 0 before the keys
+ * are measured.
+ */
+internal fun keycapTrayHeightPx(
+    rows: List<IntRange>,
+    gridEndPx: Int,
+    keysPx: Int,
+    roomPx: Int,
+    gapPx: Int,
+): Int {
+    if (keysPx <= 0) return 0
+    val natural = keysPx + roomPx
+    val edge = gridEndPx - natural
+    val crossed = rows.filter { it.first < edge && it.last > edge }
+    if (crossed.isEmpty()) return natural
+    return gridEndPx - crossed.minOf { it.first } + gapPx
+}
 private val KeycapGap = 12.dp
 private val KeycapInnerGap = 4.dp
 private val KeycapMinSize = 40.dp
