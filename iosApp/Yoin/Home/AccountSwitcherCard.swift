@@ -14,9 +14,10 @@ import UIKit
  * Closing runs the same p back into the avatar; a trip elsewhere (Settings, an account's page, the feedback
  * form) waits until the card is back in it. Reduce Motion: the card fades where it sits (effects spring).
  *
- * Surface: tonal surfaceContainer with the Settings rows on surfaceBright, not glass: nothing moves under
- * the card while it is up (glass-layers.md R1), and covers aren't involved. The page under it gets
- * Android's 0.32 scrim.
+ * Surface: the song sheet's (SheetSurface in Library/TrackMenuSheet.swift; owner 2026-11-13: the two
+ * should be one material): the sheet's Liquid Glass and corner, the rows in the sheet's translucent
+ * segments. The avatar's colour tints the glass as it grows and is gone by p 0.4. The page under it steps
+ * back as under a sheet (SheetRise, on the same p): scale, dim and blur, no scrim of its own.
  *
  * Back: no system back on the shell; ✕, a tap outside and VoiceOver's escape close it.
  */
@@ -24,10 +25,9 @@ import UIKit
 /// The card's numbers (Android dp, in points), its pure decisions and its morph. Pure (AccountSwitcherCardTests).
 enum AccountCardLogic {
     static let maxWidth: CGFloat = 420
-    static let corner: CGFloat = 28
+    static var corner: CGFloat { SheetSurface.corner }
     static let bigAvatar: CGFloat = 72
     static let rowAvatar: CGFloat = 40
-    static let scrimAlpha = 0.32
     /// M3's disabled list-item content opacity: the accounts waiting out a switch.
     static let dimmedAlpha = 0.38
     /// The header avatar's drawn size inside its 48 target (HeaderAccountAvatar: 32 + the 1.5 ring).
@@ -91,7 +91,7 @@ enum AccountCardLogic {
                width: lerp(a.width, b.width, t), height: lerp(a.height, b.height, t))
     }
 
-    /// The surface at p: from the avatar's bounds and roundness (a circle) to the card's (28).
+    /// The surface at p: from the avatar's bounds and roundness (a circle) to the card's (the sheet's).
     static func surface(from: CGRect, to: CGRect, p: CGFloat) -> (rect: CGRect, corner: CGFloat) {
         (lerp(from, to, p), lerp(from.width / 2, corner, p))
     }
@@ -243,7 +243,8 @@ struct AccountSwitcherLayer: View {
                 let p = min(max(s.progress, 0), 1)
                 let active = model.profiles.active
                 ZStack {
-                    Color.black.opacity(AccountCardLogic.scrimAlpha * p)
+                    // A tap outside closes it; the page itself steps back (SheetRise), as under a sheet.
+                    Color.clear
                         .ignoresSafeArea()
                         .contentShape(Rectangle())
                         .onTapGesture { if s.takesInput { s.close() } }
@@ -256,7 +257,6 @@ struct AccountSwitcherLayer: View {
                         }
                         .modifier(AccountCardMorph(
                             p: s.progress, from: from, to: cardRect, reduced: s.reduced,
-                            surface: app.surfaceContainer,
                             seed: active.map { $0.service.tone(dark: colorScheme == .dark).accent } ?? app.primary))
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
@@ -274,9 +274,10 @@ private struct AccountCardMorph: ViewModifier, @preconcurrency Animatable {
     var from: CGRect
     var to: CGRect
     var reduced: Bool
-    var surface: Color
     /// The avatar's own colour, which the surface starts in: the avatar grows into the card.
     var seed: Color
+    /// The world behind steps back on this card's p, as it does under a sheet.
+    @State private var riseSource = RiseSource()
 
     var animatableData: CGFloat {
         get { p }
@@ -290,17 +291,28 @@ private struct AccountCardMorph: ViewModifier, @preconcurrency Animatable {
         // In the card's own space.
         let local = r.offsetBy(dx: -to.minX, dy: -to.minY)
         let shape = RoundedRectangle(cornerRadius: max(corner, 0), style: .continuous)
-        let fill = reduced ? surface : seed.mix(with: surface, by: Double(min(max(p * 2.5, 0), 1)))
+        // The avatar's colour over the glass, gone by p 0.4.
+        let seedAlpha = reduced ? 0 : 1 - Double(min(max(p * 2.5, 0), 1))
         content
             .opacity(measured ? (reduced ? Double(p) : AccountCardLogic.contentAlpha(Double(p))) : 0)
             .background(alignment: .topLeading) {
-                shape.fill(fill)
+                shape.fill(seed.opacity(seedAlpha))
+                    .glassEffect(SheetSurface.glass, in: shape)
                     .frame(width: max(local.width, 0), height: max(local.height, 0))
                     .offset(x: local.minX, y: local.minY)
                     .opacity(measured ? (reduced ? Double(p) : 1) : 0)
             }
             .clipShape(InsetRoundedShape(rect: local, corner: corner))
+            .onChange(of: measured ? p : 0, initial: true) { _, v in
+                SheetRise.shared.report(riseSource.id, min(max(v, 0), 1))
+            }
+            .onDisappear { SheetRise.shared.report(riseSource.id, nil) }
     }
+}
+
+/// One identity per card for SheetRise's sources.
+private final class RiseSource {
+    var id: ObjectIdentifier { ObjectIdentifier(self) }
 }
 
 /// A rounded rect at [rect] inside the view (the clip of a growing card).
@@ -358,7 +370,7 @@ private struct AccountCardContent: View {
                 .accessibilityLabel("Close")
             }
             if let active {
-                AccountAvatar(profile: active, shape: shapes[active.id] ?? 0, ring: app.surfaceContainer,
+                AccountAvatar(profile: active, shape: shapes[active.id] ?? 0, ring: app.surfaceContainerHigh,
                               size: AccountCardLogic.bigAvatar)
                     .padding(.top, 4)
                     .accessibilityHidden(true)
@@ -386,9 +398,10 @@ private struct AccountCardContent: View {
             Color.clear.frame(height: 12)
             segments(yoinItems.map(\.view), ids: yoinItems.map(\.id))
         }
-        .padding(.horizontal, 12)
+        // The song sheet's margins (TrackMenuBody: 16 in, 16 under).
+        .padding(.horizontal, 16)
         .padding(.top, 8)
-        .padding(.bottom, 12)
+        .padding(.bottom, 16)
     }
 
     private var yoinItems: [(id: String, view: AnyView)] {
@@ -445,29 +458,25 @@ private struct AccountCardContent: View {
         .buttonStyle(PressScale())
     }
 
-    /// Rows as Settings' segments: 20 outer / 4 inner corners, 2 apart, on surfaceBright. A picked account
+    /// Rows as the song sheet's segments: 20 outer / 4 inner corners, 2 apart, in its translucent fill. A picked account
     /// detaches (all corners round) and fills with its service's colour.
     private func segments(_ rows: [AnyView], ids: [String]) -> some View {
         VStack(spacing: 2) {
             ForEach(rows.indices, id: \.self) { i in
                 let id = ids[i]
                 let picked = switcher.picked == id
-                let fill = picked ? (profiles.profile(id)?.service.tone(dark: colorScheme == .dark).container ?? app.surfaceBright)
-                                  : app.surfaceBright
+                let fill = picked ? (profiles.profile(id)?.service.tone(dark: colorScheme == .dark).container ?? rowFill)
+                                  : rowFill
                 rows[i]
                     .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                    .background(fill, in: segment(i, rows.count, detached: picked))
+                    .background(fill, in: SheetSurface.segment(i, rows.count, detached: picked))
                     .animation(Yoin.effects, value: picked)
             }
         }
     }
 
-    private func segment(_ i: Int, _ count: Int, detached: Bool) -> UnevenRoundedRectangle {
-        let top: CGFloat = detached || i == 0 ? 20 : 4
-        let bottom: CGFloat = detached || i == count - 1 ? 20 : 4
-        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
-                                      bottomTrailingRadius: bottom, topTrailingRadius: top, style: .continuous)
-    }
+    /// The song sheet's row fill (SheetSurface).
+    private var rowFill: Color { SheetSurface.rowFill(app, dark: colorScheme == .dark) }
 
     /// Another account: avatar, name, service line (or why it can't be used now).
     private func accountRow(_ p: Profile, shape: Int) -> some View {
@@ -476,7 +485,7 @@ private struct AccountCardContent: View {
         let needsSignIn = profiles.needsSignIn(p)
         return Button { model.accountCardPick(p) } label: {
             HStack(spacing: 12) {
-                AccountAvatar(profile: p, shape: shape, ring: picked ? tone.container : app.surfaceBright,
+                AccountAvatar(profile: p, shape: shape, ring: picked ? tone.container : app.surfaceContainerHigh,
                               size: AccountCardLogic.rowAvatar)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(p.title)

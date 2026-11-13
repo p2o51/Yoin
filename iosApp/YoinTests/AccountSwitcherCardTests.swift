@@ -69,7 +69,7 @@ final class AccountSwitcherCardTests: XCTestCase {
         XCTAssertEqual(start.corner, 17.5)
         let end = AccountCardLogic.surface(from: avatar, to: card, p: 1)
         XCTAssertEqual(end.rect, card)
-        XCTAssertEqual(end.corner, 28)
+        XCTAssertEqual(end.corner, SheetSurface.corner)
         let mid = AccountCardLogic.surface(from: avatar, to: card, p: 0.5)
         XCTAssertEqual(mid.rect.midX, (avatar.midX + card.midX) / 2, accuracy: 0.001)
     }

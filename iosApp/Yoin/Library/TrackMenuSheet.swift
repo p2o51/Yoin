@@ -395,9 +395,29 @@ struct TrackMenuSheet: View {
     }
 
     /// Settings segments: 20 outer, 4 inner.
-    static func segment(_ i: Int, _ count: Int) -> UnevenRoundedRectangle {
-        let top: CGFloat = i == 0 ? 20 : 4
-        let bottom: CGFloat = i == count - 1 ? 20 : 4
+    static func segment(_ i: Int, _ count: Int) -> UnevenRoundedRectangle { SheetSurface.segment(i, count) }
+}
+
+/// The song sheet's surface, shared with the surfaces that should read as the same object (the account
+/// card, Home/AccountSwitcherCard.swift; owner 2026-11-13: "if the two differ it weakens the unity"):
+/// the system sheet's Liquid Glass, its corner, and the rows on it.
+enum SheetSurface {
+    /// The sheet's material: plain Liquid Glass, no tint (what iOS 26 draws under a sheet at a detent).
+    static let glass: Glass = .regular
+    /// The system sheet's corner as iOS 26 draws it at a height detent, on the iPhone (its top corners)
+    /// and on the iPad (the form sheet): 36. Read off the simulator, since the system gives no number; a
+    /// surface away from the screen's edges can't be concentric with them.
+    static let corner: CGFloat = 36
+
+    /// surfaceContainerHigh, thinned so the sheet's glass still reads through.
+    static func rowFill(_ scheme: CoverScheme, dark: Bool) -> Color {
+        scheme.surfaceContainerHigh.opacity(dark ? 0.55 : 0.7)
+    }
+
+    /// Settings segments: 20 outer, 4 inner; [detached] rounds every corner (a row lifted out of its group).
+    static func segment(_ i: Int, _ count: Int, detached: Bool = false) -> UnevenRoundedRectangle {
+        let top: CGFloat = detached || i == 0 ? 20 : 4
+        let bottom: CGFloat = detached || i == count - 1 ? 20 : 4
         return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
                                       bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular)
     }
@@ -581,9 +601,7 @@ struct TrackMenuBody<Player: View>: View {
     /// surfaceContainerHigh, thinned so the sheet's glass still reads through.
     private var rowFill: Color { Self.rowFill(scheme, dark: colorScheme == .dark) }
 
-    static func rowFill(_ scheme: CoverScheme, dark: Bool) -> Color {
-        scheme.surfaceContainerHigh.opacity(dark ? 0.55 : 0.7)
-    }
+    static func rowFill(_ scheme: CoverScheme, dark: Bool) -> Color { SheetSurface.rowFill(scheme, dark: dark) }
 }
 
 /// A switch row of the song sheet (Android TrackMenuToggleRow): Now Playing's Keep screen on.
