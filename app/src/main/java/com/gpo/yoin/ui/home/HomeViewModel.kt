@@ -37,6 +37,7 @@ import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.spotify.SpotifyPortraitPassEnd
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.ui.library.PlaylistDeletions
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
@@ -119,6 +120,9 @@ class HomeViewModel(
     // YoinRepository.playlistRenames: a playlist renamed on its page reaches
     // the Activities, Jump Back In and Your Playlists ([observePlaylistRenames]).
     private val playlistRenames: Flow<YoinRepository.PlaylistRename> = emptyFlow(),
+    // PlaylistDeletions.state: a playlist the service deleted leaves the
+    // Activities, Jump Back In and Your Playlists ([observePlaylistDeletions]).
+    private val playlistDeletions: StateFlow<PlaylistDeletions.State> = MutableStateFlow(PlaylistDeletions.State()),
 ) : ViewModel() {
 
     // The names playlists were renamed to while Home was up, by account and
@@ -127,6 +131,11 @@ class HomeViewModel(
     private val renamedPlaylists = mutableMapOf<String, String>()
 
     private fun renameKey(profileId: String?, id: MediaId): String = "${profileId.orEmpty()}|$id"
+
+    // The playlists deleted while Home was up, by [renameKey]: Jump Back In's
+    // pools a load still holds were read before.
+    private val deletedPlaylists = mutableSetOf<String>()
+    private var deletionsSeen = playlistDeletions.value.lastSeq
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -273,6 +282,34 @@ class HomeViewModel(
         observeMemorySignals()
         observeRediscoverRemovals()
         observePlaylistRenames()
+        observePlaylistDeletions()
+    }
+
+    /**
+     * A playlist the service deleted (PlaylistDeletions): the feed up drops
+     * it wherever it shows it (an Activities row, a Jump Back In card, Your
+     * Playlists), without reading Home again. The rows on disk went too
+     * (YoinRepository.deletePlaylist). One still on its way out stays: a
+     * refusal must not cost Home anything.
+     */
+    private fun observePlaylistDeletions() {
+        viewModelScope.launch {
+            playlistDeletions.collect { state ->
+                val gone = state.doneAfter(deletionsSeen)
+                deletionsSeen = state.lastSeq
+                for (key in gone) {
+                    deletedPlaylists += renameKey(key.profileId, key.id)
+                    val providerId = key.id.provider
+                    if (!matchesCurrentScope(providerId, key.profileId)) continue
+                    val scopeKey = homeScopeKey(providerId, key.profileId)
+                    val latest = contentOf(scopeKey) ?: continue
+                    val next = latest.withoutPlaylist(key.id)
+                    if (next == latest) continue
+                    keep(scopeKey, providerId, key.profileId, next)
+                    emit(next, key.profileId)
+                }
+            }
+        }
     }
 
     /**
@@ -2072,6 +2109,7 @@ class HomeViewModel(
             .filterNot { card -> card.jbiHideKey() in hidden }
             .sortedBy { card -> card.coverArtUrl == null }
         val playlistPool = pools?.playlists.orEmpty()
+            .filterNot { playlist -> renameKey(activeProfileId.value, playlist.id) in deletedPlaylists }
             .map { playlist -> playlist.toWidgetCard() }
             .filterNot { card -> card.jbiHideKey() in hidden }
             .sortedBy { card -> card.coverArtUrl == null }
@@ -2497,6 +2535,7 @@ class HomeViewModel(
                 snapshotStore = container.homeSnapshotStore,
                 jbiHiddenStore = container.jbiHiddenStore,
                 playlistRenames = container.repository.playlistRenames,
+                playlistDeletions = container.playlistDeletions.state,
             ) as T
     }
 
@@ -2881,5 +2920,25 @@ internal fun HomeUiState.Content.withPlaylistName(id: MediaId, name: String): Ho
         activities = activities.map { if (it.isIt()) it.copy(title = name) else it },
         widgetGrid = widgetGrid.map { if (it.target == target) it.copy(title = name) else it },
         playlists = playlists.map { if (it.id == id) it.copy(name = name) else it },
+    )
+}
+
+/**
+ * This feed without [id], which its service deleted: its Activities rows, its
+ * Jump Back In cards and its place in Your Playlists. The same content when
+ * none shows it.
+ */
+internal fun HomeUiState.Content.withoutPlaylist(id: MediaId): HomeUiState.Content {
+    val target = HomeWidgetTarget.PlaylistDetail(id.toString())
+    fun ActivityEvent.isIt(): Boolean = entityType == ActivityEntityType.PLAYLIST.name &&
+        provider == id.provider &&
+        MediaId.storedRawId(provider, entityId) == id.rawId
+    if (activities.none { it.isIt() } && widgetGrid.none { it.target == target } && playlists.none { it.id == id }) {
+        return this
+    }
+    return copy(
+        activities = activities.filterNot { it.isIt() },
+        widgetGrid = widgetGrid.filterNot { it.target == target },
+        playlists = playlists.filterNot { it.id == id },
     )
 }

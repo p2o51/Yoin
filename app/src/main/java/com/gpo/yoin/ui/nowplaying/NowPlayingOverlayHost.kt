@@ -67,6 +67,7 @@ import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.QueueEditActions
+import com.gpo.yoin.ui.component.ShowAppNotices
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.showYoinSnackbar
 import com.gpo.yoin.ui.detail.ScrapbookFocusRequest
@@ -821,14 +822,18 @@ private const val PanelBackTravelFraction = 0.35f
  * Hoisted separately from the overlay because the sheet also serves non-NP
  * entry points (Library rows); every window that mounts
  * [NowPlayingOverlayHost] should mount this beside it, last in its root Box.
+ * [showAppNotices]: the window's app notices (AppNotices) ride this snackbar
+ * too — for a window whose only snackbar this is (the album and artist pages).
  */
 @Composable
 fun BoxScope.NowPlayingAccessories(
     viewModel: NowPlayingViewModel,
     container: AppContainer,
+    showAppNotices: Boolean = false,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    if (showAppNotices) ShowAppNotices(container.appNotices, snackbarHostState)
 
     LaunchedEffect(viewModel, context) {
         viewModel.addToPlaylistMessages.collect { message ->

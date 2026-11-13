@@ -30,4 +30,12 @@ interface HomeGridPoolDao {
             "AND itemType = 'playlist' AND itemId = :itemId",
     )
     suspend fun renamePlaylist(profileId: String, provider: String, itemId: String, title: String)
+
+    /** A playlist deleted on [profileId]'s account: Jump Back In's pooled row of it goes. */
+    @Query(
+        "DELETE FROM home_grid_pool_cache " +
+            "WHERE profileId = :profileId AND provider = :provider " +
+            "AND itemType = 'playlist' AND itemId = :itemId",
+    )
+    suspend fun deletePlaylist(profileId: String, provider: String, itemId: String)
 }

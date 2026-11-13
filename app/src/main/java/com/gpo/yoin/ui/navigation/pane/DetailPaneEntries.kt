@@ -357,8 +357,8 @@ internal fun PlaylistPaneEntry(
     val content = uiState as? PlaylistDetailUiState.Content
     val currentOnMessage by rememberUpdatedState(onMessage)
     val currentOnBack by rememberUpdatedState(onBack)
-    // Rename/delete/remove outcomes surface on the shell's snackbar; a
-    // successful delete leaves the column.
+    // Rename/remove outcomes surface on the shell's snackbar. Delete leaves
+    // the column at once; its outcome is an app notice, which the shell shows.
     LaunchedEffect(viewModel) {
         viewModel.messages.collect { message -> currentOnMessage(message.asString(context)) }
     }

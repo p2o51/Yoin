@@ -42,6 +42,9 @@ class PlaylistDetailViewModel(
     private val onPlaylistMutated: () -> Unit = {},
     // "Back up" (PlaylistBackupService.backUp): reads the playlist whole and saves a backup.
     private val backUpPlaylist: (suspend (MediaId) -> PlaylistBackupRecord)? = null,
+    // "Delete" (PlaylistDeletions.delete): takes the playlist off the lists and
+    // tells the service after, past this page's life.
+    private val deletePlaylist: (MediaId) -> Unit = {},
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PlaylistDetailUiState>(PlaylistDetailUiState.Loading)
@@ -63,10 +66,19 @@ class PlaylistDetailViewModel(
 
     private val _deleted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     /**
-     * Fires after a successful `deletePlaylist`. UI pops the detail route
-     * back to the Library / Home surface it came from.
+     * Fires as Delete is confirmed: the page closes the way its back button
+     * closes it, back to the Library / Home surface it came from.
      */
     val deleted: SharedFlow<Unit> = _deleted.asSharedFlow()
+
+    private val _takesNotices = MutableStateFlow(true)
+
+    /**
+     * Whether the page shows the app's notices: not once Delete closes it, so
+     * the deletion's own notice is shown by the window it reveals. Turned off
+     * before the deletion is handed over, so no answer can come first.
+     */
+    val takesNotices: StateFlow<Boolean> = _takesNotices.asStateFlow()
 
     /** One entry of the playlist; [key] is [PlaylistSong.rowKey]. */
     private class Entry(val key: String, val track: Track)
@@ -233,22 +245,18 @@ class PlaylistDetailViewModel(
     }
 
     /**
-     * Delete waits for the service before the page leaves: the page's
-     * snackbar leaves with it, so a refusal afterwards would have nowhere to
-     * be said.
+     * Delete, as iOS's PlaylistActions.delete: the page closes at once and the
+     * playlist leaves the Library at once; the service is told after
+     * ([deletePlaylist]), and the app's notice — shown by whichever window is
+     * in front by then — says whether it took it. A refusal brings the
+     * playlist back in the Library.
      */
     fun delete() {
-        viewModelScope.launch {
-            repository.deletePlaylist(MediaId.parse(playlistId))
-                .onSuccess {
-                    onPlaylistMutated()
-                    _messages.tryEmit(UiText.Res(R.string.detail_playlist_deleted))
-                    _deleted.tryEmit(Unit)
-                }
-                .onFailure {
-                    _messages.tryEmit(it.message?.let(UiText::Raw) ?: UiText.Res(R.string.detail_playlist_error_delete))
-                }
-        }
+        if (!_takesNotices.value) return
+        val id = MediaId.parseOrNull(playlistId) ?: return
+        _takesNotices.value = false
+        deletePlaylist(id)
+        _deleted.tryEmit(Unit)
     }
 
     /**
@@ -422,6 +430,7 @@ class PlaylistDetailViewModel(
                 repository = container.repository,
                 onPlaylistMutated = container::notifyPlaylistMutation,
                 backUpPlaylist = container.playlistBackupService::backUp,
+                deletePlaylist = container.playlistDeletions::delete,
             ) as T
     }
 }

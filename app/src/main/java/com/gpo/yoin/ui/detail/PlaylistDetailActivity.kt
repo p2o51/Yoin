@@ -35,6 +35,7 @@ import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.continueon.ContinueOnWindows
 import com.gpo.yoin.ui.common.asString
+import com.gpo.yoin.ui.component.ShowAppNotices
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
@@ -54,7 +55,8 @@ import com.gpo.yoin.ui.settings.backup.PlaylistBackupActivity
  * Standalone Activity for a playlist detail page. Unlike the shell-hosted
  * version, it owns its OWN [NowPlayingViewModel] + AddToPlaylist sheet +
  * snackbar (the shell's instances live in another window now). Delete leaves
- * through the page's normal back-collapse choreography.
+ * at once through the page's normal back-collapse choreography; its outcome
+ * is an app notice (AppNotices), shown by the window it reveals.
  */
 class PlaylistDetailActivity : ComponentActivity() {
     private val detailLaunchGate = DetailActivityLaunchGate()
@@ -111,7 +113,10 @@ class PlaylistDetailActivity : ComponentActivity() {
                 val snackbarHostState = remember { SnackbarHostState() }
                 val isPlaying by rememberDetailIsPlaying(app.container)
 
-                // Rename/delete/remove outcomes surface as snackbars.
+                // The app's notices while this page is in front; not once Delete
+                // closes it: the deletion's notice is the revealed window's.
+                ShowAppNotices(app.container.appNotices, snackbarHostState, takesNotices = viewModel.takesNotices)
+                // Rename/remove outcomes surface as snackbars.
                 LaunchedEffect(viewModel) {
                     viewModel.messages.collect { message ->
                         snackbarHostState.showSnackbar(message.asString(context), duration = SnackbarDuration.Short)
