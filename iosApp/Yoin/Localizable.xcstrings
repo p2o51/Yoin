@@ -8768,6 +8768,106 @@
           }
         }
       }
+    },
+    "Song names": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲名"
+          }
+        }
+      }
+    },
+    "As Apple Music shows them": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 Apple Music 显示"
+          }
+        }
+      }
+    },
+    "Names from your own storefront": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用你所在地区商店的名字"
+          }
+        }
+      }
+    },
+    "In their original language": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按歌曲原地区"
+          }
+        }
+      }
+    },
+    "A Japanese song keeps its Japanese name, a Korean one its Korean name": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日语歌显示日文原名，韩语歌显示韩文原名"
+          }
+        }
+      }
+    },
+    "As China mainland names them": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按中国大陆"
+          }
+        }
+      }
+    },
+    "Names from Apple Music's China mainland storefront": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 Apple Music 中国大陆商店的名字"
+          }
+        }
+      }
+    },
+    "As Japan names them": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按日本"
+          }
+        }
+      }
+    },
+    "Names from Apple Music's Japan storefront": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 Apple Music 日本商店的名字"
+          }
+        }
+      }
+    },
+    "Songs and albums from this account. A song the other storefront doesn't carry keeps the name it has.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于这个账号里的歌曲和专辑。那个商店没有的歌，会保留现在的名字。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

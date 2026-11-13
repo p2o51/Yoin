@@ -592,6 +592,7 @@ final class ProfileManager {
             if switchingTo == id { switchingTo = nil }
             if failure?.profileId == id { failure = nil }
             SpotifyIssues.shared.forget(id)
+            AppleMusicNameRegionStore.shared.remove(id)
             if store.remove(id) {
                 endPlayback()
                 settle(store.active)

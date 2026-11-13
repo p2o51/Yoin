@@ -143,6 +143,8 @@ final class LibraryStore {
             _ = sources.active
             _ = appleMusic.authorization
             _ = spotifyAccount?.scope
+            // Another name region: what was read carries the old names (Android forgetDetails).
+            _ = AppleMusicNameRegionStore.shared.regions
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -224,7 +226,7 @@ final class LibraryStore {
         flushScrobbles()
         flushRatings()
         // The last feed paints at once (Android's Home snapshot); the load below replaces it.
-        let gen = generation, epoch = diskEpoch, scope = historyScope
+        let gen = generation, epoch = diskEpoch, scope = diskScope
         homePhase = .loading
         if homeLists == nil, let codec, let hit = await disk.read(DetailCacheDTO.Home.self, scope: scope, kind: .home, id: ""),
            gen == generation, homeLists == nil {
@@ -764,7 +766,7 @@ final class LibraryStore {
         fetch: @escaping @MainActor () async throws -> D?
     ) async {
         await once(key, force: force) { [self] in
-            let gen = generation, epoch = diskEpoch, scope = historyScope
+            let gen = generation, epoch = diskEpoch, scope = diskScope
             var storedAt: Date?
             if !inMemory(), let codec, let hit = await disk.read(D.self, scope: scope, kind: kind, id: id) {
                 guard gen == generation else { return }
@@ -797,7 +799,7 @@ final class LibraryStore {
     private func persist<D: Codable & Sendable>(_ value: D?, kind: DetailDiskCache.Kind, id: String, epoch: Int,
                                                 scope: String? = nil) {
         guard let value, isReal else { return }
-        let scope = scope ?? historyScope
+        let scope = scope ?? diskScope
         let disk = disk
         Task.detached(priority: .utility) { await disk.write(value, scope: scope, kind: kind, id: id, epoch: epoch) }
     }
@@ -813,7 +815,7 @@ final class LibraryStore {
     /// begun before it can't write the old one back.
     private func dropFromDisk(_ kind: DetailDiskCache.Kind, _ id: String) {
         diskEpoch += 1
-        let epoch = diskEpoch, scope = historyScope, disk = disk
+        let epoch = diskEpoch, scope = diskScope, disk = disk
         Task.detached(priority: .utility) { await disk.remove(scope: scope, kind: kind, id: id, epoch: epoch) }
     }
 
@@ -1046,7 +1048,7 @@ final class LibraryStore {
         favoritesStale = false
         // The starred artists and albums paint from disk too (Codex F04: offline, only the songs came back).
         if favoriteArtists.isEmpty, favoriteAlbums.isEmpty, let codec {
-            let scope = historyScope, gen = generation
+            let scope = diskScope, gen = generation
             let artists = await disk.read([DetailCacheDTO.Item].self, scope: scope, kind: .list, id: "favoriteArtists")
             let albums = await disk.read([DetailCacheDTO.Album].self, scope: scope, kind: .list, id: "favoriteAlbums")
             if gen == generation, favoriteArtists.isEmpty, favoriteAlbums.isEmpty {
@@ -1529,6 +1531,16 @@ final class LibraryStore {
         if spotify != nil, let scope = spotifyAccount?.scope { return scope }
         // The account's scope (`Profile.subsonicScope`), steady across an edit of how its address is written.
         return session.scope ?? ""
+    }
+
+    /// Whose stored pages and lists these are: [historyScope], and for Apple Music under another name
+    /// region that region too, so a page stored under one region's names never paints under another's
+    /// (Android forgets an account's details when its region changes).
+    var diskScope: String {
+        let scope = historyScope
+        guard apple != nil else { return scope }
+        let region = appleMusic.nameRegion()
+        return region == .off ? scope : "\(scope)|names:\(region.key)"
     }
 
     /// The song the last play row was written for (Android
