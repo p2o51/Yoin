@@ -28,7 +28,11 @@ struct Tip: Identifiable, Hashable, Sendable {
 
 enum Tips {
     /// The tips, in the order the bubble goes through them. Left out (iOS has no such thing): Android's
-    /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line).
+    /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line), ScreenCorners (the system draws
+    /// them) and SettingsRegrouped (iOS never shipped the old Settings). Not yet, each waits for its feature:
+    /// AiServices (the AI services page), MemoriesAllAccounts (every account's memories in the deck),
+    /// SpotifySpeakers (speakers without an id), ContinueOn (Handoff), and MemoryLedger's and Labs' 11-12 days
+    /// (Android's pixel bar and wide columns; Gemini Nano diagnostics, which iOS has no counterpart for).
     static let all: [Tip] = [
         // Home's Spotify pill (HomeSpotifyElsewhere.swift; Android PR #197, owner 2026-11-10); Argon's wording.
         // No swap symbol in YoinSymbols yet: the music note.
@@ -105,11 +109,14 @@ enum Tips {
             text: "Long-press the cover in Now Playing for Song options and quick actions",
             titleZhHans: "歌曲菜单",
             textZhHans: "正在播放里长按封面，打开歌曲菜单与快捷操作"),
-        Tip(id: "SongMenu", icon: "queue", updated: "2026-11-04",
+        // Android moved it to 11-07 when Library's song rows got the sheet (c1c717d25, 803294971); iOS's Library
+        // and search rows already open it on a long-press (LibraryView, SearchView `.trackRow`), and its pages
+        // leave search first (TrackMenuSheet.leaveOverlays). Android's line as given.
+        Tip(id: "SongMenu", icon: "queue", updated: "2026-11-07",
             title: "Song quick actions",
-            text: "Long-press a song in an album or playlist to play next, queue, favorite, or share",
+            text: "Long-press a song in an album, playlist, or Library to play next, queue, favorite, or share",
             titleZhHans: "长按歌曲操作",
-            textZhHans: "长按专辑或歌单里的歌，下一首播放、加入队列、收藏或分享"),
+            textZhHans: "长按专辑、歌单或资料库里的歌，下一首播放、加入队列、收藏或分享"),
         Tip(id: "PlayModes", icon: "shuffle", updated: "2026-10-21",
             title: "Shuffle and repeat",
             text: "Tap to switch shuffle and repeat; long-press to split them and toggle repeat off",
