@@ -87,6 +87,8 @@ struct HomeView: View {
                     }
             }
                 .modifier(IslandPush(bubble: bubble))
+                // Under the push, not on the feed: the band the island opens keeps Home's own colour.
+                .background(pageBackground)
                 .modifier(MemoriesHomeBehind(presentation: memories))
             // Spotify's pill has the header for its 5 s: the bubble keeps quiet.
             MemoryBubbleOverlay(bubble: bubble, memories: memories, pill: pill, scheme: scheme, scroll: scroll,
@@ -262,11 +264,14 @@ struct HomeView: View {
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             scroll.scrolled = y
         }
-        .background(
-            LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
-                           startPoint: .top, endPoint: .bottom)
+    }
+
+    /// The page's wash. It stays where it is while the island pushes the feed down (51 2026-11-13:
+    /// it rode the feed, and the band it left above showed the window's bare white).
+    private var pageBackground: some View {
+        LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
+                       startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
-        )
     }
 
     // MARK: Sections (the account's layout, Android HomeSection catalog)
