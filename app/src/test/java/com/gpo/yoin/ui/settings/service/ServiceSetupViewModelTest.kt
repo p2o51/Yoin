@@ -120,9 +120,24 @@ class ServiceSetupViewModelTest {
 
         viewModel.saveSubsonicProfile("music.home:4533", "qa", "pw")
 
-        val status = viewModel.uiState.first { it.subsonic.status is SubsonicStatus.Failed }.subsonic.status
-        assertEquals(SubsonicStatus.Failed(UiText.Res(R.string.settings_setup_check_address)), status)
+        val form = viewModel.uiState.first { it.subsonic.addressError != null }.subsonic
+        assertEquals(UiText.Res(R.string.settings_setup_check_address), form.addressError)
         coVerify(exactly = 0) { profileManager.create(any(), any()) }
+    }
+
+    @Test
+    fun should_sayTheAddressIsInvalidUnderTheAddressAndClearIt_when_theAddressIsEdited() = runTest {
+        val viewModel = viewModel(ServiceSetupRequest(SetupService.Subsonic))
+
+        viewModel.testSubsonicConnection("music.home:4533", "qa", "pw")
+        val failed = viewModel.uiState.first { it.subsonic.addressError != null }.subsonic
+        assertEquals(UiText.Res(R.string.settings_setup_check_address), failed.addressError)
+        // Not in the status line under the password.
+        assertEquals(SubsonicStatus.Idle, failed.status)
+
+        viewModel.onSubsonicAddressChanged()
+
+        assertEquals(null, viewModel.uiState.first { it.subsonic.addressError == null }.subsonic.addressError)
     }
 
     @Test
