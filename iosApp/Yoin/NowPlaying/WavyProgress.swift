@@ -204,6 +204,9 @@ public struct WavyProgressBar: View {
     /// transport row is 0 tall and transparent; Android stageControlsLive),
     /// the wave's frame clock and the glide stop; they resume as it returns.
     public var live: Bool
+    /// A scrub acted out from outside (the tip page's demo phone, whose script drags no real finger): the
+    /// bar shows it as a finger's, magnetized, with its bubble. Nil in the app.
+    public var actedScrub: Double?
 
     @State private var shown: Double
     @State private var amplitude: CGFloat
@@ -234,10 +237,12 @@ public struct WavyProgressBar: View {
         noteAnchors: [Double] = [],
         noteInk: Color = .white,
         live: Bool = true,
+        actedScrub: Double? = nil,
         onScrubbing: @escaping (Bool) -> Void = { _ in },
         onSeek: @escaping (Double) -> Void
     ) {
         self.live = live
+        self.actedScrub = actedScrub.map { min(max($0, 0), 1) }
         self.noteAnchors = noteAnchors.map { min(max($0, 0), 1) }.sorted()
         self.noteInk = noteInk
         self.progress = progress
@@ -255,10 +260,13 @@ public struct WavyProgressBar: View {
         _amplitude = State(initialValue: isPlaying ? 1 : 0)
     }
 
-    private var displayed: Double { scrub ?? shown }
+    /// The scrub on show: the finger's, else the acted one.
+    private var shownScrub: Double? { scrub ?? actedScrub.map(magnetized) }
+
+    private var displayed: Double { shownScrub ?? shown }
 
     private var wantsWave: Bool {
-        isPlaying && !(flattensWhileScrubbing && scrub != nil)
+        isPlaying && !(flattensWhileScrubbing && shownScrub != nil)
     }
 
     private var waveMoves: Bool { isPlaying && !reduceMotion && live }
@@ -275,7 +283,7 @@ public struct WavyProgressBar: View {
                 .frame(width: width, height: metrics.height)
                 .frame(maxHeight: .infinity, alignment: .bottom)
 
-                if let s = scrub {
+                if let s = shownScrub {
                     bubble(for: s)
                         .alignmentGuide(.leading) { d in
                             -min(max(s * width - d.width / 2, 0), max(width - d.width, 0))

@@ -61,6 +61,8 @@ struct PhoneShell: View {
                             ServerSettingsView()
                         case .tips(let focus):
                             TipsView(focus: focus)
+                        case .tip(let id):
+                            TipView(start: id)
                         case .allMemories:
                             AllMemoriesView()
                         case .labs:

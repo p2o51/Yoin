@@ -36,9 +36,10 @@ extension View {
     /// A song row of a list (Android SongListItem / AlbumTrackRow combinedClickable): the
     /// whole row plays on a tap and opens the song's sheet on a long press, and wears the
     /// pressed tint while a finger is on it.
+    /// [menu]: what the long press does in place of the song's sheet (the tip page's demo phone raises its own).
     func trackRow(for entry: PlaylistEntry, context: TrackMenuContext = .library,
-                  play: @escaping () -> Void) -> some View {
-        modifier(TrackRowGestures(entry: entry, context: context, play: play))
+                  play: @escaping () -> Void, menu: (() -> Void)? = nil) -> some View {
+        modifier(TrackRowGestures(entry: entry, context: context, play: play, menu: menu))
     }
 }
 
@@ -47,9 +48,14 @@ private struct TrackRowGestures: ViewModifier {
     var context: TrackMenuContext
     var play: () -> Void
     @Environment(AppModel.self) private var model
+    var menu: (() -> Void)?
     @State private var pressing = false
     @State private var hovered = false
     @State private var pressed = 0
+
+    private func openMenu() {
+        if let menu { menu() } else { PlaylistActions.shared.openMenu(entry, context: context) }
+    }
 
     func body(content: Content) -> some View {
         let layer = PointerHover.opacity(hovered: hovered || PointerHover.preview, pressed: pressing)
@@ -65,15 +71,15 @@ private struct TrackRowGestures: ViewModifier {
             .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
             .onPointerHover { hovered = $0 }
             // A right-click (pointer, the iPad app on a Mac): the same sheet, never a play.
-            .onSecondaryClick { PlaylistActions.shared.openMenu(entry, context: context) }
+            .onSecondaryClick { openMenu() }
             .onTapGesture(perform: play)
             .onLongPressGesture(minimumDuration: 0.4) {
                 pressed += 1
-                PlaylistActions.shared.openMenu(entry, context: context)
+                openMenu()
             } onPressingChanged: { pressing = $0 }
             .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
             .accessibilityAddTraits(.isButton)
-            .accessibilityAction(named: "More") { PlaylistActions.shared.openMenu(entry, context: context) }
+            .accessibilityAction(named: "More") { openMenu() }
     }
 }
 
@@ -140,8 +146,6 @@ struct TrackMenuSheet: View {
     @State private var tapped = 0
     /// The song's public link (Spotify, Apple Music), read as the sheet opens.
     @State private var link: URL?
-    /// The top-row button under the finger (it widens, its corners squeeze).
-    @State private var pressedQuick: String?
     /// Queue buttons just tapped: their icon turns into a check for a moment.
     @State private var doneQuick: Set<String> = []
 
@@ -152,29 +156,11 @@ struct TrackMenuSheet: View {
                      : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
     }
 
-    private struct Row: Identifiable {
-        var id: String { label }
-        var label: String
-        var icon: String
-        var share: String? = nil
-        var action: () -> Void = {}
-    }
+    private typealias Row = TrackMenuRow
+    private typealias Quick = TrackMenuQuick
 
     private var hasAlbum: Bool { !track.album.id.rawId.hasPrefix("song:") && !track.album.id.rawId.isEmpty }
     private var artist: String { track.track.artist ?? track.album.artist }
-
-    /// One button of the top row (Android TrackMenuQuickAction).
-    private struct Quick: Identifiable {
-        var id: String
-        var label: String
-        var icon: String
-        /// Drawn selected (Favorite on): the tonal fill, rounded to a pill.
-        var checked = false
-        var share: String? = nil
-        /// Leaves the sheet (Add to playlist opens a sheet of its own).
-        var closes = false
-        var action: () -> Void = {}
-    }
 
     /// The song's title and artist, then its public link on the next line where it has one (Android
     /// detailShareText).
@@ -339,21 +325,20 @@ struct TrackMenuSheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
-                header
-                quickRow
-                ForEach(Array(groups.enumerated()), id: \.offset) { _, rows in
-                    VStack(spacing: 2) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
-                            rowView(row, shape: Self.segment(i, rows.count))
-                        }
-                    }
-                }
+            TrackMenuBody(track: track, scheme: app, quick: quick, groups: groups,
+                          onQuick: { q in
+                              tapped += 1
+                              q.action()
+                              if q.closes { dismiss() }
+                          },
+                          onShare: { tapped += 1 },
+                          onRow: { row in
+                              tapped += 1
+                              row.action()
+                              dismiss()
+                          }) {
                 if context.kind == .nowPlaying { keepScreenOnRow }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 24)
-            .padding(.bottom, 16)
             .task(id: track.track.id) { await loadLink() }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { new in
                 // Sub-point differences from the estimate don't re-size the sheet.
@@ -372,7 +357,7 @@ struct TrackMenuSheet: View {
     /// header 56 + 4, groups 12 apart, the top row 76, rows 56 two apart,
     /// Keep screen on 56), so the sheet presents at its final detent.
     private var estimatedHeight: CGFloat {
-        var h: CGFloat = 24 + headerHeight + 4 + 12 + Self.quickHeight
+        var h: CGFloat = 24 + headerHeight + 4 + 12 + TrackMenuBody<EmptyView>.quickHeight
         for rows in groups { h += 12 + CGFloat(rows.count) * 56 + CGFloat(max(rows.count - 1, 0)) * 2 }
         if context.kind == .nowPlaying { h += 12 + 56 }
         return h + 16
@@ -387,8 +372,100 @@ struct TrackMenuSheet: View {
         return max(56, text)
     }
 
+    /// Now Playing's player section: Keep screen on (the whole row toggles).
+    private var keepScreenOnRow: some View {
+        TrackMenuToggleRow(label: String(localized: "Keep screen on"), icon: "light_mode", scheme: app,
+                           isOn: Binding(get: { keepScreenOn }, set: { on in
+                               keepScreenOn = on
+                               UIApplication.shared.isIdleTimerDisabled = on && model.npExpanded
+                               tapped += 1
+                           }))
+    }
+
+    /// ButtonGroupDefaults.connected*ButtonShapes: ends full outside, 8 inside
+    /// (4 pressed); ToggleButtonDefaults.checkedShape: full all round.
+    static func quickShape(_ i: Int, _ count: Int, pressed: Bool, checked: Bool) -> UnevenRoundedRectangle {
+        let full = TrackMenuBody<EmptyView>.quickHeight / 2
+        let inner: CGFloat = checked ? full : (pressed ? 4 : 8)
+        let leading = i == 0 ? full : inner
+        let trailing = i == count - 1 ? full : inner
+        return UnevenRoundedRectangle(topLeadingRadius: leading, bottomLeadingRadius: leading,
+                                      bottomTrailingRadius: trailing, topTrailingRadius: trailing,
+                                      style: .continuous)
+    }
+
+    /// Settings segments: 20 outer, 4 inner.
+    static func segment(_ i: Int, _ count: Int) -> UnevenRoundedRectangle {
+        let top: CGFloat = i == 0 ? 20 : 4
+        let bottom: CGFloat = i == count - 1 ? 20 : 4
+        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
+                                      bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular)
+    }
+}
+
+/// One button of the song sheet's top row (Android TrackMenuQuickAction).
+struct TrackMenuQuick: Identifiable {
+    var id: String
+    var label: String
+    var icon: String
+    /// Drawn selected (Favorite on): the tonal fill, rounded to a pill.
+    var checked = false
+    var share: String? = nil
+    /// Leaves the sheet (Add to playlist opens a sheet of its own).
+    var closes = false
+    var action: () -> Void = {}
+}
+
+/// One list row of the song sheet (Android TrackMenuRow).
+struct TrackMenuRow: Identifiable {
+    var id: String { label }
+    var label: String
+    var icon: String
+    var share: String? = nil
+    var action: () -> Void = {}
+}
+
+/// The song sheet as drawn (Android TrackMenuSheetBody): the song, the top row of one-tap actions, the row
+/// groups, then [player] (Now Playing's Keep screen on). TrackMenuSheet fills it from the account in use;
+/// the tip page's demo phone fills it with a made-up song (Tips/TipSongSheet.swift).
+struct TrackMenuBody<Player: View>: View {
+    var track: PlaylistEntry
+    var scheme: CoverScheme
+    var quick: [TrackMenuQuick]
+    var groups: [[TrackMenuRow]]
+    var onQuick: (TrackMenuQuick) -> Void
+    /// The Share button was tapped (the system's share sheet is its own).
+    var onShare: () -> Void = {}
+    var onRow: (TrackMenuRow) -> Void
+    @ViewBuilder var player: () -> Player
+
+    @Environment(\.colorScheme) private var colorScheme
+    /// The top-row button under the finger (it widens, its corners squeeze).
+    @State private var pressedQuick: String?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            header
+            quickRow
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, rows in
+                VStack(spacing: 2) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                        rowView(row, shape: TrackMenuSheet.segment(i, rows.count))
+                            // For the tip page's demo touch (nothing outside a demo phone).
+                            .demoTarget("menuRow.\(row.icon)")
+                    }
+                }
+            }
+            player()
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 24)
+        .padding(.bottom, 16)
+    }
+
     /// TrackMenuHeader: 56 Thumb, 16, titleMedium SemiBold over bodyMedium, then the file's format tags.
     private var header: some View {
+        let artist = track.track.artist ?? track.album.artist
         let tags = track.track.formatTags
         return HStack(spacing: 16) {
             CoverArt(palette: track.album.palette, cornerRadius: 0, seed: track.album.seed)
@@ -397,11 +474,16 @@ struct TrackMenuSheet: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(track.track.title).lineLimit(1)
                     .yoinRole(Tokens.type.titleMedium, weight: .semibold)
-                    .foregroundStyle(app.onSurface)
+                    .foregroundStyle(scheme.onSurface)
                 if !artist.isEmpty {
                     Text(artist).lineLimit(1)
                         .yoinRole(Tokens.type.bodyMedium)
-                        .foregroundStyle(app.onSurfaceVariant)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                }
+                // The file's own format (Subsonic); what is playing shows on Now Playing.
+                if !tags.isEmpty {
+                    FormatTagRow(tags: tags, container: scheme.secondaryContainer, content: scheme.onSecondaryContainer)
+                        .padding(.top, 4)
                 }
                 // The file's own format (Subsonic); what is playing shows on Now Playing.
                 if !tags.isEmpty {
@@ -432,36 +514,32 @@ struct TrackMenuSheet: View {
         .animation(Yoin.spatialFast, value: pressedQuick)
     }
 
-    private static let quickHeight: CGFloat = 76
+    static var quickHeight: CGFloat { 76 }
 
     @ViewBuilder
-    private func quickButton(_ q: Quick, index: Int, count: Int) -> some View {
+    private func quickButton(_ q: TrackMenuQuick, index: Int, count: Int) -> some View {
         let pressed = pressedQuick == q.id
-        let shape = Self.quickShape(index, count, pressed: pressed, checked: q.checked)
+        let shape = TrackMenuSheet.quickShape(index, count, pressed: pressed, checked: q.checked)
         let style = QuickPress { down in
             if down { pressedQuick = q.id } else if pressedQuick == q.id { pressedQuick = nil }
         }
         let label = quickContent(q)
-            .background(q.checked ? app.primaryContainer : rowFill, in: shape)
+            .background(q.checked ? scheme.primaryContainer : rowFill, in: shape)
             .contentShape(shape)
             .animation(Yoin.spatialFast, value: pressed)
             .animation(Yoin.spatialFast, value: q.checked)
         if let text = q.share {
             ShareLink(item: text) { label }
                 .buttonStyle(style)
-                .simultaneousGesture(TapGesture().onEnded { tapped += 1 })
+                .simultaneousGesture(TapGesture().onEnded { onShare() })
         } else {
-            Button {
-                tapped += 1
-                q.action()
-                if q.closes { dismiss() }
-            } label: { label }
+            Button { onQuick(q) } label: { label }
                 .buttonStyle(style)
                 .accessibilityAddTraits(q.checked ? .isSelected : [])
         }
     }
 
-    private func quickContent(_ q: Quick) -> some View {
+    private func quickContent(_ q: TrackMenuQuick) -> some View {
         VStack(spacing: 6) {
             YoinIcon(q.icon, size: 24)
                 .contentTransition(.symbolEffect(.replace))
@@ -470,37 +548,21 @@ struct TrackMenuSheet: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
         }
-        .foregroundStyle(q.checked ? app.onPrimaryContainer : app.onSurface)
+        .foregroundStyle(q.checked ? scheme.onPrimaryContainer : scheme.onSurface)
         .padding(.horizontal, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(Yoin.effects, value: q.checked)
     }
 
-    /// ButtonGroupDefaults.connected*ButtonShapes: ends full outside, 8 inside
-    /// (4 pressed); ToggleButtonDefaults.checkedShape: full all round.
-    static func quickShape(_ i: Int, _ count: Int, pressed: Bool, checked: Bool) -> UnevenRoundedRectangle {
-        let full = quickHeight / 2
-        let inner: CGFloat = checked ? full : (pressed ? 4 : 8)
-        let leading = i == 0 ? full : inner
-        let trailing = i == count - 1 ? full : inner
-        return UnevenRoundedRectangle(topLeadingRadius: leading, bottomLeadingRadius: leading,
-                                      bottomTrailingRadius: trailing, topTrailingRadius: trailing,
-                                      style: .continuous)
-    }
-
     @ViewBuilder
-    private func rowView(_ row: Row, shape: UnevenRoundedRectangle) -> some View {
+    private func rowView(_ row: TrackMenuRow, shape: UnevenRoundedRectangle) -> some View {
         if let text = row.share {
             ShareLink(item: text) { rowContent(row) }
                 .buttonStyle(.plain)
                 .background(rowFill, in: shape)
                 .contentShape(shape)
         } else {
-            Button {
-                tapped += 1
-                row.action()
-                dismiss()
-            } label: { rowContent(row) }
+            Button { onRow(row) } label: { rowContent(row) }
                 .buttonStyle(PressScale())
                 .background(rowFill, in: shape)
                 .contentShape(shape)
@@ -508,12 +570,12 @@ struct TrackMenuSheet: View {
     }
 
     /// TrackMenuRowContent: 56 tall, 20 in, icon onSurfaceVariant, 16, bodyLarge.
-    private func rowContent(_ row: Row) -> some View {
+    private func rowContent(_ row: TrackMenuRow) -> some View {
         HStack(spacing: 16) {
-            YoinIcon(row.icon, size: 24).foregroundStyle(app.onSurfaceVariant)
+            YoinIcon(row.icon, size: 24).foregroundStyle(scheme.onSurfaceVariant)
             Text(row.label)
                 .yoinRole(Tokens.type.bodyLarge)
-                .foregroundStyle(app.onSurface)
+                .foregroundStyle(scheme.onSurface)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 20)
@@ -521,35 +583,35 @@ struct TrackMenuSheet: View {
         .contentShape(.rect)
     }
 
-    /// Now Playing's player section: Keep screen on (the whole row toggles).
-    private var keepScreenOnRow: some View {
+    /// surfaceContainerHigh, thinned so the sheet's glass still reads through.
+    private var rowFill: Color { Self.rowFill(scheme, dark: colorScheme == .dark) }
+
+    static func rowFill(_ scheme: CoverScheme, dark: Bool) -> Color {
+        scheme.surfaceContainerHigh.opacity(dark ? 0.55 : 0.7)
+    }
+}
+
+/// A switch row of the song sheet (Android TrackMenuToggleRow): Now Playing's Keep screen on.
+struct TrackMenuToggleRow: View {
+    var label: String
+    var icon: String
+    var scheme: CoverScheme
+    @Binding var isOn: Bool
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
         HStack(spacing: 16) {
-            YoinIcon("light_mode", size: 24).foregroundStyle(app.onSurfaceVariant)
-            Toggle(isOn: Binding(get: { keepScreenOn }, set: { on in
-                keepScreenOn = on
-                UIApplication.shared.isIdleTimerDisabled = on && model.npExpanded
-                tapped += 1
-            })) {
-                Text("Keep screen on")
+            YoinIcon(icon, size: 24).foregroundStyle(scheme.onSurfaceVariant)
+            Toggle(isOn: $isOn) {
+                Text(label)
                     .yoinRole(Tokens.type.bodyLarge)
-                    .foregroundStyle(app.onSurface)
+                    .foregroundStyle(scheme.onSurface)
             }
-            .tint(app.primary)
+            .tint(scheme.primary)
         }
         .padding(.horizontal, 20)
         .frame(minHeight: 56)
-        .background(rowFill, in: Self.segment(0, 1))
-    }
-
-    /// surfaceContainerHigh, thinned so the sheet's glass still reads through.
-    private var rowFill: Color { app.surfaceContainerHigh.opacity(colorScheme == .dark ? 0.55 : 0.7) }
-
-    /// Settings segments: 20 outer, 4 inner.
-    static func segment(_ i: Int, _ count: Int) -> UnevenRoundedRectangle {
-        let top: CGFloat = i == 0 ? 20 : 4
-        let bottom: CGFloat = i == count - 1 ? 20 : 4
-        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
-                                      bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular)
+        .background(TrackMenuBody<EmptyView>.rowFill(scheme, dark: colorScheme == .dark), in: TrackMenuSheet.segment(0, 1))
     }
 }
 

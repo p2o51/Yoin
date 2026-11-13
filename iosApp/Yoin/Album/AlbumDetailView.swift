@@ -40,18 +40,23 @@ struct AlbumDetailView: View {
     /// covers fanned behind its own (the sleeves), a Length / Owner / Description block instead of the emblem,
     /// thumb-led track rows, and no scrapbook page.
     private var routePlaylist: PlaylistInfo?
+    /// The tip page's demo phone (Tips/TipAlbumScenes.swift): [album] as given, its track list pulled up and
+    /// staying there. Nothing is read from the account, played, opened or written; a row's hold is the demo's.
+    private var demo: AlbumPageDemo?
 
-    init(album: Album, padColumn: Bool = false, playlist: PlaylistInfo? = nil) {
+    init(album: Album, padColumn: Bool = false, playlist: PlaylistInfo? = nil, demo: AlbumPageDemo? = nil) {
         routeAlbum = album
         self.padColumn = padColumn
         routePlaylist = playlist
+        self.demo = demo
+        if demo != nil { _p = State(initialValue: 1) }
     }
 
     /// The page's album / playlist as the store has it now (a server album's
     /// tracks arrive after the push; the mock is the route's own).
     private var playlist: PlaylistInfo? { routePlaylist.map { model.playlistInfo($0.id.rawId) } }
-    private var album: Album { playlist?.asAlbum ?? model.resolved(routeAlbum) }
-    private var isMock: Bool { routeAlbum.id.provider == "mock" }
+    private var album: Album { demo != nil ? routeAlbum : playlist?.asAlbum ?? model.resolved(routeAlbum) }
+    private var isMock: Bool { routeAlbum.id.provider == "mock" || demo != nil }
 
     /// Shown in iPad's detail column (any page there, the column's root or pushed on it).
     @Environment(\.inPadColumn) private var inPadColumn
@@ -182,7 +187,7 @@ struct AlbumDetailView: View {
     /// is one plain scrolling list whose first row is the cover (240) beside the hero's blocks (Last Play,
     /// the emblem, the review); no hero ⇄ list pull. Albums only; playlists keep their sleeves.
     private func isOverview(_ w: CGFloat) -> Bool {
-        playlist == nil && (Self.opensOnList(width: w) || padColumn || inPadColumn)
+        demo == nil && playlist == nil && (Self.opensOnList(width: w) || padColumn || inPadColumn)
     }
 
     /// The overview's content width: the page less its 16 margins, capped at Android's feed width (720).
@@ -199,6 +204,15 @@ struct AlbumDetailView: View {
     static let axisInStart: CGFloat = 0.3
 
     var body: some View {
+        if demo != nil {
+            // The demo phone: the page as drawn, without the app's sheet, pushes, loads and edge-swipe gate.
+            pageView.background(Yoin.surface)
+        } else {
+            routed
+        }
+    }
+
+    private var pageView: some View {
         GeometryReader { geo in
             let w = geo.size.width
             // A short container (a tablet column in landscape) also caps the cover by height, so the
@@ -218,16 +232,18 @@ struct AlbumDetailView: View {
                 ZStack(alignment: .topLeading) {
                     if let playlist {
                         sleeves(playlist, w: w, side: side)
-                    } else {
+                    } else if demo == nil {
                         butterfly(w: w, side: side, band: band)
                     }
                     // Shared axis Y (51, 2026-11-07): the dense titles rise out
                     // and are gone before the list rises in after them, one
                     // short travel each, never a cross-fade in place.
-                    hero(w: w, side: side, band: band)
-                        .opacity((1 - smooth(p, 0, Self.axisOutEnd)) * heroFade)
-                        .offset(y: -e * Self.axisTravel)
-                        .allowsHitTesting(e < 0.5)
+                    if demo == nil {
+                        hero(w: w, side: side, band: band)
+                            .opacity((1 - smooth(p, 0, Self.axisOutEnd)) * heroFade)
+                            .offset(y: -e * Self.axisTravel)
+                            .allowsHitTesting(e < 0.5)
+                    }
                     trackList(w: w)
                         .opacity(smooth(p, Self.axisInStart, 1))
                         .offset(y: (1 - e) * Self.axisTravel)
@@ -258,7 +274,7 @@ struct AlbumDetailView: View {
                 cover(w: w, side: side, band: band)
                     .zIndex(coverFlies ? 0.5 : 1.5)
                 // Page 1: the scrapbook, scrolling under the header (albums only).
-                if playlist == nil {
+                if playlist == nil, demo == nil {
                     Group {
                     AlbumScrapbookView(album: album, plays: plays,
                                        settled: page >= 1 && pageBase == nil && !pageMoving,
@@ -300,6 +316,7 @@ struct AlbumDetailView: View {
             .gesture(axisPan(width: w, travel: pullTravel))
             .onAppear {
                 pageWidth = w
+                guard demo == nil else { return }
                 // A tablet column, or a page at least 600 wide, opens on the track list: on an Android tablet
                 // every album page shows its songs (Medium page / Wide column: AlbumMediumOverview,
                 // AlbumWideOverview), never the flowing titles alone. A pull down still shows the hero.
@@ -324,10 +341,15 @@ struct AlbumDetailView: View {
                 pullSpring.stop()
                 AlbumPopGate.release(by: gateID)
             }
-            .onChange(of: offFirstPage) { _, off in AlbumPopGate.set(off, by: gateID) }
+            .onChange(of: offFirstPage) { _, off in if demo == nil { AlbumPopGate.set(off, by: gateID) } }
             .onChange(of: w) { _, now in pageWidth = now }
             .onChange(of: p) { was, now in bandTicks(from: was, to: now) }
         }
+    }
+
+    /// The page in the app: its bar hidden, its rate sheet, its pushes, its loads.
+    private var routed: some View {
+        pageView
         .toolbar(.hidden, for: .navigationBar)
         .background(Yoin.surface)
         .sheet(isPresented: $rating) {
@@ -442,7 +464,7 @@ struct AlbumDetailView: View {
         let glass: Glass = tinted
             ? .regular.tint(dark ? s.surfaceContainerHighest.opacity(0.7) : s.primaryContainer.opacity(0.6)).interactive()
             : .regular.tint(.white.opacity(0.18 * mix)).interactive()
-        return Button { model.back() } label: {
+        return Button { if demo == nil { model.back() } } label: {
             YoinIcon("back", size: 22)
                 .foregroundStyle(onSpectrum ? .white : base)
                 .animation(Yoin.effects, value: onSpectrum)
@@ -492,7 +514,7 @@ struct AlbumDetailView: View {
                             Text(playlist.owner).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                             Text("Playlist").yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
                         } else {
-                            Button { model.openArtist(album.artist, id: album.artistId) } label: {
+                            Button { if demo == nil { model.openArtist(album.artist, id: album.artistId) } } label: {
                                 Text(album.artist).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                             }
                             .buttonStyle(.plain)
@@ -555,7 +577,7 @@ struct AlbumDetailView: View {
                     let active = 1 - min(1, abs(pageFrac - CGFloat(i)))
                     let on: Color = white ? .white : s.secondary
                     let off: Color = white ? .white.opacity(0.4) : app.onSurfaceVariant.opacity(0.3)
-                    Button { settlePage(to: CGFloat(i), velocity: 0) } label: {
+                    Button { if demo == nil { settlePage(to: CGFloat(i), velocity: 0) } } label: {
                         Circle()
                             .fill(off.mix(with: on, by: active, in: .perceptual))
                             .frame(width: 8, height: 8)
@@ -631,7 +653,7 @@ struct AlbumDetailView: View {
             r.offsetBy(dx: -f * w, dy: 0)
         }
         return Button {
-            if e > 0.5 {
+            if e > 0.5, demo == nil {
                 AlbumPullHaptics.armed(expanding: false)
                 settlePull(to: 0, velocity: 0)
             }
@@ -955,6 +977,13 @@ struct AlbumDetailView: View {
                             .padding(.bottom, 6)
                             .modifier(bandBlur)
                     }
+                    if let demo {
+                        // The demo's row: its own tint under a finger, its hold the demo's, no play.
+                        trackRow(t, index: i)
+                            .trackRow(for: PlaylistEntry(album: album, track: t), context: .album(), play: {},
+                                      menu: { demo.onLongPress(i) })
+                            .demoTarget("row\(i)")
+                    } else {
                     trackRow(t, index: i).modifier(bandBlur)
                         .trackRow(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
                             // Page 2, scrolled to the song's piece (Android onViewInScrapbook).
@@ -964,8 +993,9 @@ struct AlbumDetailView: View {
                             // A song Apple won't stream doesn't play: its tap says why (Android AlbumTrackRow).
                             if t.notStreamed { toggleNotStreamedReason(i) } else { playAlbum(from: i) }
                         }
+                    }
                 }
-                if !isOverview(w) {
+                if !isOverview(w), demo == nil {
                     linerNotes
                         .padding(.horizontal, 8)
                         .padding(.top, 28)
@@ -997,7 +1027,8 @@ struct AlbumDetailView: View {
         // The header's room as a bar, so the blur variant's soft scroll edge
         // runs under it (spectrum and glass cover it themselves).
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .scrollEdgeEffectHidden(topBar != 2 && topBar != 4, for: .top)
+        // (Not on the demo phone: the system draws the edge at the window's scale, over the phone's rim.)
+        .scrollEdgeEffectHidden((topBar != 2 && topBar != 4) || demo != nil, for: .top)
         .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent + bandFade) }
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top <= 1 } action: { _, top in
             listAtTop = top
@@ -1111,7 +1142,8 @@ struct AlbumDetailView: View {
     }
 
     private func hasNote(_ t: Track) -> Bool {
-        !isMock && !NotesStore.shared.notes(provider: t.id.provider, trackId: t.id.rawId).isEmpty
+        if let demo { return demo.notedTrack == t.number }
+        return !isMock && !NotesStore.shared.notes(provider: t.id.provider, trackId: t.id.rawId).isEmpty
     }
 
     /// Apple Music has no heart: its row button is library membership
@@ -1139,8 +1171,8 @@ struct AlbumDetailView: View {
 
     /// The heart ring (Android AlbumCircleToggle).
     private func heartButton(_ t: Track) -> some View {
-        let liked = model.store.isStarred(t)
-        return Button { withAnimation(Yoin.effects) { model.store.toggleStar(t) } } label: {
+        let liked = demo != nil ? t.starred : model.store.isStarred(t)
+        return Button { if demo == nil { withAnimation(Yoin.effects) { model.store.toggleStar(t) } } } label: {
             YoinIcon(liked ? "favorite_filled" : "favorite", size: 16)
                 .foregroundStyle(liked ? s.onPrimary : app.onSurfaceVariant)
                 .frame(width: 28, height: 28)
@@ -1580,6 +1612,8 @@ struct AlbumDetailView: View {
     private func axisPan(width: CGFloat, travel: CGFloat) -> AlbumAxisPan {
         AlbumAxisPan(
             claims: { axis, d in
+                // The demo phone's page stays as it is (and leaves a sideways drag to the tips pager).
+                guard demo == nil else { return false }
                 switch axis {
                 case .horizontal:
                     guard playlist == nil else { return false }
@@ -1726,6 +1760,14 @@ struct AlbumDetailView: View {
 /// the navigation controller's view (the same place as its own, so the very
 /// edge reaches it as it reaches the back swipe) drives the album's pager
 /// instead: a right swipe from the edge turns the album back to page 1.
+/// What the tip page's demo phone asks of an album page (`AlbumDetailView(album:demo:)`).
+struct AlbumPageDemo {
+    /// The track (by its number) drawn with the note mark; nil: none.
+    var notedTrack: Int? = nil
+    /// A row was held (its index).
+    var onLongPress: (Int) -> Void
+}
+
 extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     private static let albumEdgeName = "yoin.albumEdgePager"
 

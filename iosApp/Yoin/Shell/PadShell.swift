@@ -446,6 +446,8 @@ private struct PadColumns: View {
             ServerSettingsView()
         case .tips(let focus):
             TipsView(focus: focus)
+        case .tip(let id):
+            TipView(start: id)
         case .allMemories:
             AllMemoriesView()
         case .labs:
@@ -474,7 +476,7 @@ private struct PadDetailPlay: View {
         case .album(let a): return a
         case .artist(let ref): return model.artistPage(ref).releases.first
         case .playlist(let id): return model.playlistInfo(id).asAlbum
-        case .settings, .tips, .allMemories, .labs, .neoDBVoices: return nil
+        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices: return nil
         case nil: return root
         }
     }

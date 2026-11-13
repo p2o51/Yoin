@@ -35,47 +35,67 @@ struct LabsView: View {
 
     var body: some View {
         SettingsPage(title: "Yoin Labs") { app, row in
-            Text("Experimental features we're trying out. They may change or be removed.")
-                .yoinRole(Tokens.type.bodyMedium)
-                .foregroundStyle(app.onSurfaceVariant)
-                .padding(.horizontal, 8)
-            section(app, String(localized: "On-device model")) { modelCard(app, row) }
-            section(app, String(localized: "Experimental features")) { featuresCard(app, row) }
+            LabsBody(status: processor.status,
+                     optedIn: Binding(get: { store.optedIn },
+                                      set: { on in withAnimation(Yoin.effects) { processor.setOptedIn(on) } }),
+                     app: app, row: row,
+                     onOpenSettings: {
+                         if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                     },
+                     onCheckAgain: { withAnimation(Yoin.effects) { _ = processor.checkNow() } })
         }
         .onAppear { processor.checkNow() }
     }
+}
 
-    private func modelCard(_ app: CoverScheme, _ row: Color) -> some View {
+/// The Labs page's body (Android LabsPageBody), over what it is given: the tip page's demo phone shows it
+/// with a model that is ready and a switch of its own.
+struct LabsBody: View {
+    var status: OnDeviceModelStatus?
+    @Binding var optedIn: Bool
+    var app: CoverScheme
+    var row: Color
+    var onOpenSettings: () -> Void
+    var onCheckAgain: () -> Void
+
+    var body: some View {
+        Text("Experimental features we're trying out. They may change or be removed.")
+            .yoinRole(Tokens.type.bodyMedium)
+            .foregroundStyle(app.onSurfaceVariant)
+            .padding(.horizontal, 8)
+        section(String(localized: "On-device model")) { modelCard }
+        section(String(localized: "Experimental features")) { featuresCard }
+    }
+
+    private var modelCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Apple Intelligence").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
-                    Text(LabsCopy.status(processor.status)).yoinRole(Tokens.type.bodyMedium)
+                    Text(LabsCopy.status(status)).yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurfaceVariant).contentTransition(.opacity)
                 }
                 Spacer()
             }
             HStack(spacing: 10) {
-                if processor.status == .notEnabled || processor.status == .notReady {
-                    Button("Open Settings") {
-                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                    }
-                    .buttonStyle(.glassProminent)
+                if status == .notEnabled || status == .notReady {
+                    Button("Open Settings", action: onOpenSettings)
+                        .buttonStyle(.glassProminent)
                 }
-                Button("Check again") { withAnimation(Yoin.effects) { _ = processor.checkNow() } }
+                Button("Check again", action: onCheckAgain)
                     .buttonStyle(.glass)
             }
             Text("Managed and downloaded by the system. Yoin reads lyrics on this device only while open, offline.")
                 .yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(row, in: RoundedRectangle(cornerRadius: 20))
     }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(row, in: RoundedRectangle(cornerRadius: 20))
-                }
 
-    private func featuresCard(_ app: CoverScheme, _ row: Color) -> some View {
+    private var featuresCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Toggle(isOn: Binding(get: { store.optedIn }, set: { on in withAnimation(Yoin.effects) { processor.setOptedIn(on) } })) {
+            Toggle(isOn: $optedIn) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Lyric Cards").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
                     Text("Show lyrics picked on this device on Home, and tap to play from that line")
@@ -83,18 +103,19 @@ struct LabsView: View {
                 }
             }
             .tint(app.primary)
-            .disabled(processor.status == .unsupported)
-            if processor.status != .available {
+            .disabled(status == .unsupported)
+            .demoTarget("labs-switch")
+            if status != .available {
                 Text("Lines you share or save on the lyrics page still show up on Home.")
                     .yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant)
             }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(row, in: RoundedRectangle(cornerRadius: 20))
     }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(row, in: RoundedRectangle(cornerRadius: 20))
-                }
 
-    private func section<C: View>(_ app: CoverScheme, _ title: String, @ViewBuilder _ content: () -> C) -> some View {
+    private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).yoinRole(Tokens.type.labelLarge).foregroundStyle(app.primary).padding(.horizontal, 8)
                 .accessibilityAddTraits(.isHeader)

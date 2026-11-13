@@ -57,6 +57,7 @@ How to read a clip quickly:
 | album, album-list, album-pullup-mid, album-page-mid/held, album-scrapbook | `-screen album`, `album-list -listScroll 160`, `album-mid`, `album -pageFrac 0.5`, `album-scrapbook -pageHold 1,0.75`, `album-scrapbook` | band, back circle legible at every p, cover flight |
 | album-listscroll (rec) | `-screen album-list -listAutoScroll YES` | band blur over moving rows |
 | artist, playlist, settings, landing | `-screen artist` / `playlist` / `settings` / `landing` | explicit back, header breathing |
+| tips, tip | `-screen tips` (Settings › About › Tips), `-screen tip -tip LyricHighlight` (that tip's page; ids in Settings/Tips.swift, demos in Tips/TipIllustration.swift) | the demo phone loops (the touch dot taps, holds, drags; the scene answers), steps aside for 5 s once touched; the pager turns from a swipe that starts on the phone; Read / Next clear the bar; a tip without a demo opens on its title |
 | np, np-short, np-touch, np-airplay, np-panel | `-screen np…` | lyrics under transport, held rating lift |
 | np-about/note/lyrics-full (rec), np-about-tab, np-note-tab, np-focus (rec), np-short-focus, np-compose | `-npTab …`, `-npFocus YES`, `-npShortFocus YES`, `-npCompose words` (these fire 4 s after launch) | stage transition, tab switch |
 | np-queue, song-menu | `-screen np-queue`, `-screen song-menu` | sheet content, depth behind (recede/dim/blur, no black) |

@@ -130,13 +130,17 @@ final class SpotifyElsewhereWatch {
 struct SpotifyElsewherePill: View {
     var elsewhere: SpotifyElsewhere
     var scheme: CoverScheme
+    /// A made-up cover, for the tip page's demo phone (no image is fetched).
+    var demoCover: CoverPalette? = nil
     var onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 8) {
                 Group {
-                    if let url = elsewhere.coverURL {
+                    if let demoCover {
+                        CoverArt(palette: demoCover, cornerRadius: 0)
+                    } else if let url = elsewhere.coverURL {
                         RemoteCover(ref: CoverRef(url: url), placeholder: scheme.surfaceContainerHighest)
                     } else {
                         scheme.surfaceContainerHighest

@@ -8,12 +8,14 @@ struct HomeMemoryLedgerSection: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     var state: LedgerState
+    /// In place of opening All Memories (the tip page's demo phone).
+    var onOpen: (() -> Void)? = nil
 
     var body: some View {
         let s = scheme ?? .brand(dark: false)
         VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(HomeSection.memoryGrid.title)
-            Button { homeTap(edit) { model.path.append(.allMemories) } } label: {
+            Button { homeTap(edit) { if let onOpen { onOpen() } else { model.path.append(.allMemories) } } } label: {
                 VStack(alignment: .leading, spacing: 12) {
                     // What you wrote leads; with only scores so far, the scores.
                     let wrote = state.stats.writings > 0

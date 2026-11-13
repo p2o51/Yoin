@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Settings › About › Tips (Android TipsPage): every tip, read ones checked; a tap marks one read or unread.
-/// Once something is read, one more row marks them all unread, so Home's bubble brings them up again.
-/// [focus] is the tip the bubble opened it on: scrolled to, lit for a moment, and marked read.
+/// Settings › About › Tips (Android TipsPage): every tip, read ones checked; a tap opens it on its own page
+/// (Tips/TipView.swift), where it is marked read. Once something is read, one more row marks them all unread,
+/// so Home's bubble brings them up again. [focus] is a tip to open the list on: scrolled to, lit for a moment,
+/// and marked read.
 struct TipsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
@@ -78,7 +79,7 @@ struct TipsView: View {
 
     private func row(_ tip: Tip) -> some View {
         let read = store.isRead(tip)
-        return Button { store.setRead(tip, !read) } label: {
+        return NavigationLink { TipView(start: tip.id) } label: {
             HStack(alignment: .top, spacing: 16) {
                 YoinIcon(tip.icon, size: 22)
                     .foregroundStyle(app.onSecondaryContainer)
@@ -112,7 +113,6 @@ struct TipsView: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityValue(read ? String(localized: "Read") : String(localized: "Unread"))
-        .accessibilityHint(read ? String(localized: "Mark as unread") : String(localized: "Mark as read"))
     }
 
     private var topBar: some View {

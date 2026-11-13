@@ -28,7 +28,11 @@ struct Tip: Identifiable, Hashable, Sendable {
 
 enum Tips {
     /// The tips, in the order the bubble goes through them. Left out (iOS has no such thing): Android's
-    /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line).
+    /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line), ScreenCorners (the system draws
+    /// them) and SettingsRegrouped (iOS never shipped the old Settings). Not yet, each waits for its feature:
+    /// AiServices (the AI services page), MemoriesAllAccounts (every account's memories in the deck),
+    /// SpotifySpeakers (speakers without an id), ContinueOn (Handoff), and MemoryLedger's and Labs' 11-12 days
+    /// (Android's pixel bar and wide columns; Gemini Nano diagnostics, which iOS has no counterpart for).
     static let all: [Tip] = [
         // All Memories (Home grid + page, Android #186 / #178 / #202): Android's line and day (Argon's copy for
         // the wide layout and the pixel bar), first in the list as on Android.
@@ -113,11 +117,14 @@ enum Tips {
             text: "Long-press the cover in Now Playing for Song options and quick actions",
             titleZhHans: "歌曲菜单",
             textZhHans: "正在播放里长按封面，打开歌曲菜单与快捷操作"),
-        Tip(id: "SongMenu", icon: "queue", updated: "2026-11-04",
+        // Android moved it to 11-07 when Library's song rows got the sheet (c1c717d25, 803294971); iOS's Library
+        // and search rows already open it on a long-press (LibraryView, SearchView `.trackRow`), and its pages
+        // leave search first (TrackMenuSheet.leaveOverlays). Android's line as given.
+        Tip(id: "SongMenu", icon: "queue", updated: "2026-11-07",
             title: "Song quick actions",
-            text: "Long-press a song in an album or playlist to play next, queue, favorite, or share",
+            text: "Long-press a song in an album, playlist, or Library to play next, queue, favorite, or share",
             titleZhHans: "长按歌曲操作",
-            textZhHans: "长按专辑或歌单里的歌，下一首播放、加入队列、收藏或分享"),
+            textZhHans: "长按专辑、歌单或资料库里的歌，下一首播放、加入队列、收藏或分享"),
         Tip(id: "PlayModes", icon: "shuffle", updated: "2026-10-21",
             title: "Shuffle and repeat",
             text: "Tap to switch shuffle and repeat; long-press to split them and toggle repeat off",
@@ -176,6 +183,18 @@ enum Tips {
     /// The tips still unread, in the bubble's order.
     static func unread(_ read: Set<String>, in tips: [Tip] = all) -> [Tip] {
         tips.filter { !read.contains($0.id) }
+    }
+
+    /// After [current] is read, the next unread tip after it (wrapping); nil once every other tip is read
+    /// (Android `nextUnreadTip`): the tip page's Next goes there, and reads Done when there is none.
+    static func nextUnread(after current: String, read: Set<String>, in tips: [Tip] = all) -> Tip? {
+        guard let start = tips.firstIndex(where: { $0.id == current }) else { return unread(read, in: tips).first }
+        return (1..<tips.count).lazy.map { tips[(start + $0) % tips.count] }.first { !read.contains($0.id) }
+    }
+
+    /// The tip page's place in the list: Android `tip_position`, "3 / 19".
+    static func positionLine(index: Int, total: Int) -> String {
+        String(localized: "\(index + 1) / \(total)")
     }
 
     // MARK: Read store encoding

@@ -123,8 +123,8 @@ class AccountDescriptorSyncAdapter(
 }
 
 /**
- * The kinds this platform applies (Android's allowlist; setting keys iOS has no such setting for,
- * spotify_client_id and seam_top_style, it doesn't apply); a device without an adapter for a
+ * The kinds this platform applies (Android's allowlist; the one setting key iOS has no such setting for,
+ * seam_top_style, it doesn't apply); a device without an adapter for a
  * kind or key keeps those records opaquely and republishes them unchanged (SyncEngine.mergeRecord /
  * outgoingFiles), so nothing is lost on the way.
  */

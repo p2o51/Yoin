@@ -21,9 +21,24 @@ struct AllMemoriesView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     private let source = MemoryLedgerSource.shared
-    @AppStorage("memoryLedgerView") private var viewRaw = LedgerView.timeline.rawValue
-    @AppStorage("memoryLedgerSort") private var sortRaw = LedgerSort.recent.rawValue
-    @State private var selected: Int?
+    /// The tip page's demo phone (Tips/TipMemoryLedgerScene.swift): made-up memories and a cell the demo
+    /// picks; nothing is loaded, opened, lifted or remembered.
+    var demo: AllMemoriesDemo? = nil
+    @AppStorage("memoryLedgerView") private var savedView = LedgerView.timeline.rawValue
+    @AppStorage("memoryLedgerSort") private var savedSort = LedgerSort.recent.rawValue
+    @State private var demoView = LedgerView.timeline.rawValue
+    @State private var demoSort = LedgerSort.recent.rawValue
+    @State private var ownSelected: Int?
+
+    /// The view and sort last chosen; the demo's are its own and forgotten.
+    private var viewChoice: Binding<String> { demo == nil ? $savedView : $demoView }
+    private var sortChoice: Binding<String> { demo == nil ? $savedSort : $demoSort }
+    private var viewRaw: String { viewChoice.wrappedValue }
+    private var sortRaw: String { sortChoice.wrappedValue }
+    private var selection: Binding<Int?> { demo?.selected ?? $ownSelected }
+    private var selected: Int? { selection.wrappedValue }
+    /// What the page shows: the demo's memories, else the ledger's.
+    private var ledger: LedgerState? { demo?.state ?? source.state }
     /// Going to another account's album asks once before switching (the notice Home's shelf shares).
     @State private var switchGate = AccountSwitchGate()
     /// Where the grid's squares are and how far the page has scrolled: the squares that rise into the top bar.
@@ -52,7 +67,7 @@ struct AllMemoriesView: View {
                     .foregroundStyle(app.onSurface)
                     .padding(.top, 8)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MemoryGridLift.space)) } action: { headline = $0 }
-                if let state = source.state, !state.isEmpty {
+                if let state = ledger, !state.isEmpty {
                     content(state)
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
@@ -78,18 +93,19 @@ struct AllMemoriesView: View {
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { lift.viewport = $0; pageWidth = $0.width }
         .overlay {
-            if let state = source.state, !state.isEmpty {
+            if demo == nil, let state = source.state, !state.isEmpty {
                 MemoryGridLiftLayer(lift: lift, pixels: MemoryGridLiftMath.pixels(state.grid),
                                     paint: MemoryGridPaint(covers: state.covers, faint: app.onSurface.opacity(0.07)))
             }
         }
-        .safeAreaBar(edge: .top) {
-            LedgerTopBar(lift: lift, headline: headline, lifts: !(source.state?.isEmpty ?? true),
-                         onSurface: app.onSurface) { dismiss() }
-        }
+        .modifier(TopBar(plain: demo != nil) {
+            LedgerTopBar(lift: lift, headline: headline, lifts: demo == nil && !(source.state?.isEmpty ?? true),
+                         onSurface: app.onSurface) { if let demo { demo.onBack() } else { dismiss() } }
+        })
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .task {
+            guard demo == nil else { return }
             source.reload()
             // Album pages a mark needs to be named (a scored song never played here): loaded, then read again.
             if await model.store.hydrateMemoryAlbums() { source.reload() }
@@ -139,12 +155,14 @@ struct AllMemoriesView: View {
         MemoryGridView(grid: state.grid, covers: state.covers, placement: .page,
                        faint: app.onSurface.opacity(0.07), outline: app.primary, label: app.onSurfaceVariant,
                        selected: selected, onCell: { i in
-            withAnimation(Yoin.spatial) { selected = selected == i ? nil : i }
-        }, lift: lift)
+            withAnimation(Yoin.spatial) { selection.wrappedValue = selected == i ? nil : i }
+        }, lift: demo == nil ? lift : nil)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MemoryGridLift.space)) } action: { lift.grid = $0 }
         // The real grid steps aside the moment its copies take off, so no square shows twice; under Reduce
-        // Motion nothing flies, so it fades out over the scroll the bar fades in over.
-        .modifier(MemoryGridStepAside(lift: lift))
+        // Motion nothing flies, so it fades out over the scroll the bar fades in over. Nothing rises on the
+        // demo phone.
+        .modifier(MemoryGridStepAside(lift: lift, still: demo != nil))
+        .demoTarget("ledgerGrid")
         .padding(16)
         .background(app.surfaceContainerLow, in: .rect(cornerRadius: 28))
         .frame(maxWidth: layout.gridMaxWidth)
@@ -204,7 +222,7 @@ struct AllMemoriesView: View {
         HStack {
             if view == .list {
                 Menu {
-                    Picker("Sort", selection: $sortRaw) {
+                    Picker("Sort", selection: sortChoice) {
                         Text("Recent").tag(LedgerSort.recent.rawValue)
                         Text("Highest score").tag(LedgerSort.score.rawValue)
                         Text("Name").tag(LedgerSort.name.rawValue)
@@ -221,7 +239,7 @@ struct AllMemoriesView: View {
                 .transition(.opacity)
             }
             Spacer()
-            Picker("View", selection: $viewRaw) {
+            Picker("View", selection: viewChoice) {
                 Text("Timeline").tag(LedgerView.timeline.rawValue)
                 Text("Cards").tag(LedgerView.cards.rawValue)
                 Text("List").tag(LedgerView.list.rawValue)
@@ -639,7 +657,7 @@ struct AllMemoriesView: View {
     /// and the first time ever the notice asks before switching, on the tapped card ([anchor]), since a
     /// switch stops what is playing.
     private func open(_ album: LedgerAlbum?, _ state: LedgerState, from anchor: String) {
-        guard let album else { return }
+        guard let album, demo == nil else { return }
         if state.isOther(album.account) {
             guard let p = state.profile(album.account) else { return }
             switchGate.request(from: anchor, account: p.name, subject: album.name, opensAlbum: true) {
@@ -736,10 +754,36 @@ private struct LedgerTopBar: View {
 /// copies fly), faded out as the bar fades in. Its own view, so a scroll frame re-reads only this.
 private struct MemoryGridStepAside: ViewModifier {
     let lift: MemoryGridLift
+    var still = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        content.opacity(MemoryGridLiftMath.realGridOpacity(progress: lift.progress, lifting: lift.lifting,
+        content.opacity(still ? 1 : MemoryGridLiftMath.realGridOpacity(progress: lift.progress, lifting: lift.lifting,
                                                            reduced: reduceMotion))
     }
+}
+
+/// The page's top bar: a safe-area bar, so the list blurs out under it. On the demo phone ([plain]) a plain
+/// inset: the system draws that blur at the window's scale, over the phone's rim and the page around it.
+private struct TopBar<Bar: View>: ViewModifier {
+    var plain: Bool
+    @ViewBuilder var bar: () -> Bar
+
+    func body(content: Content) -> some View {
+        if plain {
+            content
+                .scrollEdgeEffectHidden(true, for: .all)
+                .safeAreaInset(edge: .top, spacing: 0) { bar() }
+        } else {
+            content.safeAreaBar(edge: .top) { bar() }
+        }
+    }
+}
+
+/// What the tip page's demo phone shows All Memories with.
+struct AllMemoriesDemo {
+    var state: LedgerState
+    /// The cell the list is narrowed to; the demo's touch sets it.
+    var selected: Binding<Int?>
+    var onBack: () -> Void
 }
