@@ -25,8 +25,8 @@ settings:
     DEVELOPMENT_TEAM: M75T74PTC4
     CODE_SIGN_STYLE: Automatic
     # One version for the app and its widget extension (they must match); a new build bumps this line only.
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "31"
+    MARKETING_VERSION: "0.6.0"
+    CURRENT_PROJECT_VERSION: "32"
 targets:
   Yoin:
     type: application
