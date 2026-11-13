@@ -7,6 +7,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -45,7 +46,28 @@ class RevealState internal constructor(
 
     private var settleJob: Job? = null
 
+    // Where the settle in flight is heading, null while none runs. Snapshot
+    // state so a snapshotFlow can see the reveal come to rest; it changes at
+    // release and landing only, never per frame.
+    private var _settleTarget by mutableStateOf<Float?>(null)
+
     val fraction: Float get() = _fraction
+
+    /** The endpoint a settle in flight is heading for (0f open, 1f closed), or null. */
+    val settleTarget: Float? get() = _settleTarget
+
+    /**
+     * The endpoint the reveal rests at — 0f fully open, 1f closed — or null
+     * while a settle is in flight or it sits in between. A finger holding it
+     * at an endpoint counts as resting there.
+     */
+    val restingEndpoint: Float?
+        get() = when {
+            _settleTarget != null -> null
+            isFullyExpanded -> 0f
+            _fraction >= 1f - VisibilityEpsilon -> 1f
+            else -> null
+        }
 
     /** Surface has any visible portion (including overshoot). */
     val isVisible: Boolean get() = _fraction < 1f - VisibilityEpsilon
@@ -63,6 +85,7 @@ class RevealState internal constructor(
         if (containerPx <= 0f) return
         settleJob?.cancel()
         settleJob = null
+        _settleTarget = null
         val raw = _fraction - deltaPx / containerPx
         _fraction = applyRubberBand(raw, rubberBandCoefficient)
     }
@@ -74,14 +97,25 @@ class RevealState internal constructor(
      * newer settle) interrupts the animation, the calling coroutine is
      * cancelled — the gesture owns the fraction from that point on, so
      * post-settle work must not run as if the settle completed.
+     *
+     * [onOpen] runs synchronously the moment the release decides to open
+     * (target 0f), before the spring starts — like [settleDismiss]'s onCommit.
+     * Whatever it commits must not wait for the landing: the next touch can
+     * cancel the spring and carry the reveal the rest of the way by hand.
      */
-    suspend fun settle(velocityPxPerSec: Float, containerPx: Float): Float {
+    suspend fun settle(
+        velocityPxPerSec: Float,
+        containerPx: Float,
+        onOpen: () -> Unit = {},
+    ): Float {
         val velocityFractionPerSec = if (containerPx > 0f) {
             -velocityPxPerSec / containerPx
         } else {
             0f
         }
         val target = chooseTarget(_fraction, velocityFractionPerSec)
+        _settleTarget = target
+        if (target <= 0f) onOpen()
         animateInternal(target, velocityFractionPerSec)
         return target
     }
@@ -114,6 +148,7 @@ class RevealState internal constructor(
             flickBackPxPerSec = rule.flickBackPxPerSec,
         )
         val velocityFractionPerSec = if (containerPx > 0f) dismissVelocityPxPerSec / containerPx else 0f
+        _settleTarget = target
         if (target >= 1f) onCommit()
         animateInternal(
             target = target,
@@ -135,6 +170,7 @@ class RevealState internal constructor(
     fun snapTo(target: Float) {
         settleJob?.cancel()
         settleJob = null
+        _settleTarget = null
         _fraction = target.coerceIn(0f, 1f)
     }
 
@@ -149,22 +185,31 @@ class RevealState internal constructor(
         spec: AnimationSpec<Float> = settleSpec,
     ) {
         settleJob?.cancel()
+        val clamped = target.coerceIn(0f, 1f)
+        _settleTarget = clamped
         settleJob = scope.launch {
+            val owner = coroutineContext[Job]
             try {
                 animate(
                     initialValue = _fraction,
-                    targetValue = target.coerceIn(0f, 1f),
+                    targetValue = clamped,
                     initialVelocity = 0f,
                     animationSpec = spec,
                 ) { value, _ -> _fraction = value }
             } catch (_: CancellationException) {
                 // Drag or another settle preempted; leave fraction at last value.
+            } finally {
+                if (settleJob === owner) {
+                    settleJob = null
+                    _settleTarget = null
+                }
             }
         }
     }
 
     private suspend fun animateInternal(target: Float, initialVelocity: Float) {
         settleJob?.cancel()
+        _settleTarget = target
         // Register the calling coroutine as the settle owner so dragBy can
         // cancel a suspend-path animation the same way it cancels a
         // launchAnimateTo one — otherwise the spring keeps writing _fraction
@@ -181,7 +226,10 @@ class RevealState internal constructor(
                 animationSpec = settleSpec,
             ) { value, _ -> _fraction = value }
         } finally {
-            if (settleJob === owner) settleJob = null
+            if (settleJob === owner) {
+                settleJob = null
+                _settleTarget = null
+            }
         }
     }
 

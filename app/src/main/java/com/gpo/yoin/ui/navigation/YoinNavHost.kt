@@ -130,6 +130,7 @@ import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
 import com.gpo.yoin.ui.experience.hasChromeHandoff
 import com.gpo.yoin.ui.experience.hasDetailPane
 import com.gpo.yoin.ui.experience.rememberEdgeSplitSide
+import com.gpo.yoin.ui.experience.reconcileMemoriesSurface
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.home.AccountSwitcherViewModel
@@ -1092,19 +1093,36 @@ private fun YoinShell(
     // gesture settle a tap-open read as a cut (2026-11-12). Drags and back
     // cancels keep RevealState's own settle.
     val memoriesRideSpec = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    // A gesture settle already heading for the surface's endpoint keeps the
+    // ride (Home commits at release, before its spring lands): one settle
+    // owner, and the fling's velocity is kept.
     LaunchedEffect(homeSurface) {
         when (homeSurface) {
-            HomeSurface.Memories -> if (memoriesReveal.fraction > 0.001f) {
+            HomeSurface.Memories -> if (memoriesReveal.fraction > 0.001f && memoriesReveal.settleTarget != 0f) {
                 // Opening from closed mounts the whole deck in this frame: let
                 // its first layout and raster land before the spring's clock
                 // starts, or the spring covers most of the screen in one frame.
                 if (memoriesReveal.fraction >= 0.999f) awaitSteadyFrames()
                 memoriesReveal.launchAnimateTo(this, 0f, memoriesRideSpec)
             }
-            HomeSurface.Feed, HomeSurface.Edit -> if (memoriesReveal.fraction < 0.999f) {
+            HomeSurface.Feed, HomeSurface.Edit -> if (memoriesReveal.fraction < 0.999f && memoriesReveal.settleTarget != 1f) {
                 memoriesReveal.launchAnimateTo(this, 1f, memoriesRideSpec)
             }
         }
+    }
+    // Safety net: the reveal and the surface the back resolver reads never stay
+    // out of step. Reacts only when the reveal comes to rest somewhere new
+    // (drop(1): not the state it mounted in) — never on a surface change, so a
+    // back that sets Feed while the page still sits open is not undone. State
+    // only: the reveal is already where the surface says, so no ride starts.
+    LaunchedEffect(memoriesReveal) {
+        snapshotFlow { memoriesReveal.restingEndpoint }
+            .drop(1)
+            .collect { restedAt ->
+                if (restedAt == null || homeEdit.isEditing) return@collect
+                val live = experienceSessionStore.state.value.homeSurface
+                reconcileMemoriesSurface(live, restedAt)?.let(experienceSessionStore::setHomeSurface)
+            }
     }
     // Consistency heal: whatever replaced the Edit surface ends the session —
     // without writing the surface back over it. Reads the live surface, not
