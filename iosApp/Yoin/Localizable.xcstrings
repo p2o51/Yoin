@@ -477,10 +477,28 @@
     },
     "%lld ratings": {
       "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld rating"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld ratings"
+                }
+              }
+            }
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 首歌打过分"
+            "value": "%lld 人打过分"
           }
         }
       }
@@ -8642,6 +8660,150 @@
           "stringUnit": {
             "state": "translated",
             "value": "一周内不显示"
+          }
+        }
+      }
+    },
+    "What others say": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "别人怎么说"
+          }
+        }
+      }
+    },
+    "What others say on NeoDB": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NeoDB 上别人怎么说"
+          }
+        }
+      }
+    },
+    "%lld comments in all": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld comment in all"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld comments in all"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共 %lld 条"
+          }
+        }
+      }
+    },
+    "%lld stars: %lld%%": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 星：%2$lld%%"
+          }
+        }
+      }
+    },
+    "neoDBVoices.review": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长评"
+          }
+        }
+      }
+    },
+    "Folded by the writer. Tap to read": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作者折叠了这条，点开看"
+          }
+        }
+      }
+    },
+    "No one on NeoDB has written about this album yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NeoDB 上还没有人写过这张专辑。"
+          }
+        }
+      }
+    },
+    "NeoDB doesn't have this album.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NeoDB 上没找到这张专辑。"
+          }
+        }
+      }
+    },
+    "Search NeoDB": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 NeoDB 搜索"
+          }
+        }
+      }
+    },
+    "Couldn't reach NeoDB.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连不上 NeoDB。"
+          }
+        }
+      }
+    },
+    "See all on NeoDB": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 NeoDB 里看全部"
+          }
+        }
+      }
+    },
+    "Douban": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "豆瓣"
           }
         }
       }

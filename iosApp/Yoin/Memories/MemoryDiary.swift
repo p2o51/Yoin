@@ -471,8 +471,25 @@ struct DiaryBlocks: View {
                 .disabled(!interactive)
                 .padding(.top, footer != nil ? MemoryDiaryTokens.goTop : 0)
             }
-            DiaryNeoDBLine(album: card.album, scheme: scheme, interactive: interactive)
-                .padding(.top, 8)
+            // NeoDB's state, and beside it "What others say" (Android, owner 2026-11-09: a test entry, signed
+            // in or not).
+            HStack(spacing: 0) {
+                if NeoDBAccount.shared.isSignedIn {
+                    DiaryNeoDBLine(album: card.album, scheme: scheme, interactive: interactive)
+                }
+                Button { model.openNeoDBVoices(card.album) } label: {
+                    Text("What others say")
+                        .font(.gsf(13, .medium))
+                        .foregroundStyle(scheme.primary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 12)
+                        .frame(height: 48)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(PressScale())
+                .disabled(!interactive)
+            }
+            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
     }

@@ -1215,7 +1215,7 @@ struct AlbumRateSheet: View {
                 reviewField
                 if neoState.isShown {
                     AlbumNeoDBLine(state: neoState, scheme: scheme, onSignIn: openNeoDBSettings,
-                                   onRetry: { Task { await neo.retry(album) } })
+                                   onRetry: { Task { await neo.retry(album) } }, onVoices: openNeoDBVoices)
                         .transition(.opacity)
                 }
             }
@@ -1258,6 +1258,12 @@ struct AlbumRateSheet: View {
     private func openNeoDBSettings() {
         dismiss()
         model?.openSettings(.neodb)
+    }
+
+    /// What others say on NeoDB: the sheet goes, the page is pushed over the album.
+    private func openNeoDBVoices() {
+        dismiss()
+        model?.openNeoDBVoices(album)
     }
 
     /// AlbumReviewField: a borderless field on surfaceContainerHigh, 28

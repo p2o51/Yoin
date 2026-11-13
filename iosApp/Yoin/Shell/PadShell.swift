@@ -450,6 +450,8 @@ private struct PadColumns: View {
             AllMemoriesView()
         case .labs:
             LabsView()
+        case .neoDBVoices(let album):
+            NeoDBVoicesView(album: album)
         }
     }
 }
@@ -472,7 +474,7 @@ private struct PadDetailPlay: View {
         case .album(let a): return a
         case .artist(let ref): return model.artistPage(ref).releases.first
         case .playlist(let id): return model.playlistInfo(id).asAlbum
-        case .settings, .tips, .allMemories, .labs: return nil
+        case .settings, .tips, .allMemories, .labs, .neoDBVoices: return nil
         case nil: return root
         }
     }

@@ -379,7 +379,9 @@ final class NeoDBTests: XCTestCase {
         XCTAssertEqual(AlbumNeoDBState.of(configured: true, record: record(rating: 8), pending: flags(rating: true)), .pending)
         XCTAssertEqual(AlbumNeoDBState.of(configured: true, record: record(review: ""), pending: flags(review: true)), .pending)
         XCTAssertEqual(AlbumNeoDBState.pending.label, "")
-        XCTAssertFalse(AlbumNeoDBState.pending.isShown)
+        // The line still shows, for "What others say" at its end (Android, owner 2026-11-09).
+        XCTAssertTrue(AlbumNeoDBState.pending.isShown)
+        XCTAssertFalse(AlbumNeoDBState.unknown.isShown)
     }
 
     func test_should_readSynced_when_theRowIsCleanAndHasSomething() {

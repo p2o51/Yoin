@@ -65,6 +65,8 @@ struct PhoneShell: View {
                             AllMemoriesView()
                         case .labs:
                             LabsView()
+                        case .neoDBVoices(let album):
+                            NeoDBVoicesView(album: album)
                         }
                     }
             }
