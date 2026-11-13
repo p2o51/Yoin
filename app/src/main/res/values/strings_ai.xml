@@ -34,6 +34,7 @@
     <string name="ai_search_key">%1$s key</string>
     <string name="ai_get_search_key">Get a %1$s key</string>
     <string name="ai_models_error">Couldn\'t fetch models: %1$s</string>
+    <string name="ai_answer_language">Answer language</string>
     <string name="ai_try">Try a song</string>
     <string name="ai_tiers_title">%1$s tiers</string>
     <string name="ai_row_model">Model</string>

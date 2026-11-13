@@ -72,7 +72,6 @@
     <string name="settings_gemini_title">AI features</string>
     <string name="settings_gemini_title_page">AI features</string>
     <string name="settings_gemini_summary_empty">Song info, Ask Gemini, translation and Memory titles</string>
-    <string name="settings_gemini_answer_in">Answer in %1$s</string>
 
     <string name="settings_neodb_title" translatable="false">NeoDB</string>
     <string name="settings_neodb_title_page" translatable="false">NeoDB</string>
