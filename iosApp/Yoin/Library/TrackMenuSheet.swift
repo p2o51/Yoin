@@ -24,10 +24,13 @@ struct TrackMenuContext {
 
 extension View {
     /// Long-press opens the song's sheet from the bottom (owner 2026-10-17:
-    /// a bottom sheet, never a dropdown). Presented by the root host, so it
+    /// a bottom sheet, never a dropdown); so does a secondary click. Presented by the root host, so it
     /// rides over Now Playing and pushed pages alike.
-    func trackMenu(for entry: PlaylistEntry, context: TrackMenuContext = .library) -> some View {
-        modifier(TrackMenuTrigger(entry: entry, context: context))
+    /// [secondaryClick] false: the host attaches `onSecondaryClick` itself, inside its own tap
+    /// (a tap outside it would take the click first).
+    func trackMenu(for entry: PlaylistEntry, context: TrackMenuContext = .library,
+                   secondaryClick: Bool = true) -> some View {
+        modifier(TrackMenuTrigger(entry: entry, context: context, secondaryClick: secondaryClick))
     }
 
     /// A song row of a list (Android SongListItem / AlbumTrackRow combinedClickable): the
@@ -54,6 +57,8 @@ private struct TrackRowGestures: ViewModifier {
                     .animation(Yoin.effects, value: pressing)
             }
             .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
+            // A right-click (pointer, the iPad app on a Mac): the same sheet, never a play.
+            .onSecondaryClick { PlaylistActions.shared.openMenu(entry, context: context) }
             .onTapGesture(perform: play)
             .onLongPressGesture(minimumDuration: 0.4) {
                 pressed += 1
@@ -68,16 +73,24 @@ private struct TrackRowGestures: ViewModifier {
 private struct TrackMenuTrigger: ViewModifier {
     var entry: PlaylistEntry
     var context: TrackMenuContext
+    var secondaryClick: Bool
     @State private var pressed = 0
 
     func body(content: Content) -> some View {
-        content
-            .onLongPressGesture(minimumDuration: 0.4) {
-                pressed += 1
-                PlaylistActions.shared.openMenu(entry, context: context)
+        // Fixed per call site, so the branch never changes a view's identity.
+        Group {
+            if secondaryClick {
+                content.onSecondaryClick { PlaylistActions.shared.openMenu(entry, context: context) }
+            } else {
+                content
             }
-            .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
-            .accessibilityAction(named: "More") { PlaylistActions.shared.openMenu(entry, context: context) }
+        }
+        .onLongPressGesture(minimumDuration: 0.4) {
+            pressed += 1
+            PlaylistActions.shared.openMenu(entry, context: context)
+        }
+        .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
+        .accessibilityAction(named: "More") { PlaylistActions.shared.openMenu(entry, context: context) }
     }
 }
 

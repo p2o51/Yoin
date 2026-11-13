@@ -298,6 +298,8 @@ struct ShellBar: View {
             // iPad too: Full Now Playing grows out of this pill and folds back into it (Android #190).
             PillContent(np: model.np)
                 .contentShape(.capsule)
+                // A right-click: the playing song's sheet, as the long press (the click never opens Now Playing).
+                .onSecondaryClick(perform: openPlayingSongMenu)
         }
         .buttonStyle(.plain)
         .simultaneousGesture(longPress(.pill, openPlayingSongMenu))

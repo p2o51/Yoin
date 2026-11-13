@@ -793,11 +793,16 @@ struct NowPlayingView: View, Equatable {
                 .matchedGeometryEffect(id: panel ? "np.cover.panel" : "np.cover", in: npNamespace, isSource: open)
                 .npFade(open, presenceFade)
                 .npMorphAnchor(.cover)
+                // A right-click: the song's sheet, inside the cover's tap so it never focuses the artwork.
+                .onSecondaryClick {
+                    PlaylistActions.shared.openMenu(PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
+                }
                 .modifier(CoverStageEffect(dock: dock, tappable: tappable,
                                            label: stage == .focus ? String(localized: "Show lyrics and rating") : String(localized: "Focus artwork"),
                                            onTap: onTap))
                 // Android NowPlayingCoverMenu: long-press = the song's sheet (+ Keep screen on).
-                .trackMenu(for: PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
+                .trackMenu(for: PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying,
+                           secondaryClick: false)
             VStack(spacing: 0) {
                 RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld,
                           gestureKey: engineTrack.map(NowPlayingData.key) ?? "mock") { down in

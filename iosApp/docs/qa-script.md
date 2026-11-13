@@ -194,6 +194,14 @@ The same target runs on a Mac as "Designed for iPad". Rules that differ there ha
   `-padWindowWidth 360 -padWindowHeight 480 -padWindowClass compact -screen home|np|album|library`.
 - Not checked on a real Mac window yet: that the system holds the drag at the floor, and what a window
   restored smaller than the floor does.
+- Right-click (a mouse's right button, a two-finger click, Control-click; iPad with a pointer too) on a
+  song row, the Now Playing cover or the mini player opens the song's sheet, the one the long press
+  opens, and never plays, opens Now Playing or focuses the cover (`Theme/SecondaryClick.swift`,
+  `onSecondaryClick`; attach it inside the view's tap). Touch is unchanged. Albums, playlists and
+  artists have no long-press actions on Android or iOS, so a right-click there does what a click does.
+  On the iPad simulator, `PadLayoutShotsUITests` drives it with the steps `rightclick:x,y`,
+  `ctrlclick:x,y`, `click:x,y` and `hover:x,y` (`press:x,y,s` is a touch hold; on the simulator it
+  plays the row instead of opening the sheet, with or without this change).
 
 ### Spotify on a Mac
 
