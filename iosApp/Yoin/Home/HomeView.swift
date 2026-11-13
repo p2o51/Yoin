@@ -190,7 +190,8 @@ struct HomeView: View {
                     let shown = edit.order.filter { edit.isEditing || hasContent($0, feed) }
                     ForEach(Array(shown.enumerated()), id: \.element) { i, section in
                         HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed),
-                                      rows: rowsHandle(section, feed)) {
+                                      rows: rowsHandle(section, feed),
+                                      lyricCount: section == .lyricHighlight && !lyricCards.isEmpty) {
                             sectionView(section, feed)
                         }
                     }
@@ -284,7 +285,8 @@ struct HomeView: View {
             case .recentlyPlayed: recentlyPlayed(feed)
             case .yourPlaylists: yourPlaylists(feed.playlists)
             case .otherProfiles: OtherAccountsShelf(items: otherAccounts)
-            case .lyricHighlight: HomeLyricCardsSection(cards: lyricCards)
+            // As many cards as its dots say (Android lyricCards: two to four).
+            case .lyricHighlight: HomeLyricCardsSection(cards: Array(lyricCards.prefix(edit.rowsOf(.lyricHighlight).lyricCards)))
             case .memoryGrid:
                 if let state = MemoryLedgerSource.shared.state { HomeMemoryLedgerSection(state: state) }
             }

@@ -23,6 +23,48 @@ extension HomeSection {
     /// Activities and Jump Back In take row presets (Android `supportsRows`); the others' phone
     /// shelves have no rows.
     var supportsRows: Bool { self == .activities || self == .jumpBackIn }
+
+    /// Stores a preset (Android `takesPresets`): the [supportsRows] sections, plus Lyric Cards, whose
+    /// preset is how many cards it shows and which picks it with its own dots, not the row resize.
+    var takesPresets: Bool { supportsRows || self == .lyricHighlight }
+}
+
+extension HomeRowPreset {
+    /// Lyric Cards' preset as a number of cards (Android `lyricCards`, owner 2026-11-08: two to four,
+    /// four by default). XL is never written; a stored one reads as four.
+    var lyricCards: Int {
+        switch self {
+        case .s: 2
+        case .m: 3
+        case .l, .xl: 4
+        }
+    }
+
+    /// The preset written for [count] Lyric Cards (Android `presetFor`): 2 = S, 3 = M, 4 = L.
+    static func lyricCards(_ count: Int) -> HomeRowPreset {
+        switch count {
+        case ...HomeLyricCount.min: .s
+        case HomeLyricCount.min + 1: .m
+        default: .l
+        }
+    }
+}
+
+/// Lyric Cards' count handle (Android HomeLyricCountHandle): pulled down 40 pt the dots open; from
+/// there each 36 pt down adds a card and up takes one away, two to four.
+enum HomeLyricCount {
+    static let min = 2
+    static let max = 4
+    /// Pulled this far down, the dots are fully open.
+    static let revealDistance: CGFloat = 40
+    /// The finger's travel from one count to the next.
+    static let stepDistance: CGFloat = 36
+
+    /// The count [travel] pt past where the dots finished opening, from [start]: whole steps only
+    /// (toward zero, as Kotlin's toInt), so the pull that opens the dots never counts.
+    static func count(start: Int, travel: CGFloat) -> Int {
+        Swift.min(Swift.max(start + Int(travel / stepDistance), min), max)
+    }
 }
 
 /// The settings bag as Android reads it (HomeSectionState.fromPref / config()): a readable `rows`
@@ -62,9 +104,9 @@ extension HomeLayout {
         sections.first { $0.section == section }.map(\.rows) ?? .default
     }
 
-    /// [section] at [rows]. Unchanged for a section without presets, absent, or already there.
+    /// [section] at [rows]. Unchanged for a section that takes no presets, absent, or already there.
     func withRows(_ section: HomeSection, _ rows: HomeRowPreset) -> HomeLayout {
-        guard section.supportsRows, sections.contains(where: { $0.section == section && $0.rows != rows }) else { return self }
+        guard section.takesPresets, sections.contains(where: { $0.section == section && $0.rows != rows }) else { return self }
         var next = self
         next.sections = sections.map { s in
             var s = s

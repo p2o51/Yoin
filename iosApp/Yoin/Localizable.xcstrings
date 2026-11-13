@@ -461,6 +461,16 @@
         }
       }
     },
+    "%lld cards": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 段"
+          }
+        }
+      }
+    },
     "%lld rows": {
       "localizations": {
         "zh-Hans": {

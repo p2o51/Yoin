@@ -381,6 +381,10 @@ final class AppModel {
             }
             // `-historySeed demo`: backdated plays, ratings and a note (Data/History/HistoryDebugSeed.swift).
             if let seed = d.string(forKey: "historySeed") { await store.seedHistory(seed) }
+            #if DEBUG
+            // `-lyricHighlightSeed YES`: four Lyric Cards for the account (the simulator has no on-device model).
+            if d.bool(forKey: "lyricHighlightSeed") { await seedLyricHighlights() }
+            #endif
             // Screenshots of server pages: `-serverRoute album:<id>` (artist:, playlist:),
             // `-serverPlay album:<id>` starts that album (pair with -silentAudio YES).
             try? await Task.sleep(for: .milliseconds(300))

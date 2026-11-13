@@ -123,3 +123,40 @@ final class LyricHighlightStore {
         try? data.write(to: fileURL, options: .atomic)
     }
 }
+
+#if DEBUG
+extension AppModel {
+    /// Debug builds: four Lyric Cards on the signed-in account's first albums, with placeholder lines,
+    /// the intro answered, so Home's section and its count handle can be screenshotted on a simulator.
+    func seedLyricHighlights() async {
+        guard let account = profiles.active.flatMap(MemoryLedgerSource.account(of:)) else { return }
+        await store.loadHome(force: false)
+        // A sign-in's reset can drop the lists just loaded: wait for them.
+        for _ in 0..<40 where store.homeLists == nil { try? await Task.sleep(for: .milliseconds(250)) }
+        guard let lists = store.homeLists else { return }
+        var ids: [String] = []
+        for a in lists.newest + lists.recent + lists.random where !ids.contains(a.id.rawId) { ids.append(a.id.rawId) }
+        let lines = [
+            "Leave the porch light on,\nI'm walking home the long way",
+            "We drew a map in the frost\nand followed it till morning",
+            "Every station on the dial\nis playing something blue",
+            "Hold the note a little longer,\nthe tide is coming in",
+        ]
+        let lyricStore = LyricHighlightStore.shared
+        let now = LyricHighlightProcessor.nowMs
+        var seeded = 0
+        for id in ids.prefix(8) where seeded < lines.count {
+            await store.loadAlbum(id)
+            guard let album = store.album(id), let track = album.tracks.dropFirst().first ?? album.tracks.first else { continue }
+            lyricStore.save(LyricHighlightRow(
+                provider: account.provider, scope: account.scope, songId: track.id.rawId, title: track.title,
+                artist: track.artist ?? album.artist, album: album.title, albumId: album.id.rawId, coverKey: nil,
+                durationMs: Int64(track.durationSec) * 1000, text: lines[seeded], startMs: 30_000,
+                fingerprint: nil, model: seeded == 1 ? LyricHighlightStore.userPick : "debug-seed",
+                attemptedAt: now, lastShownAt: nil))
+            seeded += 1
+        }
+        lyricStore.introSeen = true
+    }
+}
+#endif
