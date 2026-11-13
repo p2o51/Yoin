@@ -75,6 +75,10 @@
 	<string>Yoin plays and shows your Apple Music library.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Yoin streams music from servers on your local network.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.gpo.yoin.playing</string>
+	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>google_sans_flex_400.ttf</string>

@@ -64,6 +64,11 @@ struct RootView: View {
             if url.isFileURL { SpotoolfyInbox.shared.receive(url, landingOpen: model.landing != nil); return }
             _ = CloudSync.handle(url: url)
         }
+        // Handoff from another of the listener's Apple devices: the song it was playing (App/PlayingHandoff.swift).
+        .onContinueUserActivity(HandoffPlaying.activityType) { activity in
+            guard let h = HandoffPlaying(userInfo: activity.userInfo) else { return }
+            Task { await model.continueHandoff(h) }
+        }
         .task {
             let profiles = model.profiles
             CloudSync.shared.start { profiles.syncAccounts }
@@ -71,6 +76,8 @@ struct RootView: View {
             PlaylistBackups.shared.start(library: model.store)
             // Home screen widgets: a new snapshot whenever what they show changes.
             WidgetPublisher.shared.start(model)
+            // Handoff: the loaded song, offered to the listener's other Apple devices.
+            PlayingHandoff.shared.start(model)
         }
         .preferredColorScheme(GlassLab.shared.colorScheme)
         .overlay {

@@ -324,9 +324,10 @@ final class TipDemoTests: XCTestCase {
 
     func test_should_haveAScene_when_aTipAndroidActsOutExistsHere() {
         // Every tip but the Memories deck's two (PullForMemories, MemoriesAllAccounts: no demo deck yet), the
-        // Devices sheet's (SpotifySpeakers) and the two iOS-only ones (docs/fidelity/tips.md, Without a scene).
+        // Devices sheet's (SpotifySpeakers), Handoff's (ContinueOn: the system's offer, no Yoin card) and the
+        // two iOS-only ones (docs/fidelity/tips.md, Without a scene).
         let without = Tips.all.map(\.id).filter { !TipIllustration.has($0) }
-        XCTAssertEqual(Set(without), ["PullForMemories", "MemoriesAllAccounts", "SpotifySpeakers",
+        XCTAssertEqual(Set(without), ["PullForMemories", "MemoriesAllAccounts", "SpotifySpeakers", "ContinueOn",
                                       "VolumeLeveling", "HomeScreenWidgets"])
     }
 

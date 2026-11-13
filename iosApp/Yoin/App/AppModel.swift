@@ -735,7 +735,9 @@ final class AppModel {
     /// wins over the page on screen, which is otherwise what the queue plays from.
     /// A [startAt] names the song the listener picked; without one (Play, Shuffle) the list starts at its
     /// first song. Songs Apple Music won't stream stay out of the queue (PlayableQueue.start).
-    func play(_ entries: [PlaylistEntry], startAt: Int? = nil, shuffle: Bool = false, from: PlayingFrom? = nil) {
+    /// [startSec] and [paused]: a Handoff's spot in the song, and whether it waits for Play (App/PlayingHandoff).
+    func play(_ entries: [PlaylistEntry], startAt: Int? = nil, shuffle: Bool = false, from: PlayingFrom? = nil,
+              startSec: Double = 0, paused: Bool = false) {
         startGeneration += 1
         let (entries, startAt) = PlayableQueue.start(entries, startAt: startAt ?? 0, explicitStart: startAt != nil)
         let tracks = entries.compactMap(store.playable)
@@ -744,7 +746,8 @@ final class AppModel {
                                      playlistTitle: { playlistInfo($0).title })
         playbackSystem.spotifyOutput?.contextPlan = spotifyContext(entries, tracks: tracks)
         if shuffle { player.setShuffle(true) }
-        player.play(queue: tracks, startAt: shuffle ? Int.random(in: 0..<tracks.count) : min(startAt, tracks.count - 1))
+        player.play(queue: tracks, startAt: shuffle ? Int.random(in: 0..<tracks.count) : min(startAt, tracks.count - 1),
+                    startSec: startSec, paused: paused)
     }
 
     /// The album or playlist page a Spotify queue starts from, as Spotify's own context (C-F1): this

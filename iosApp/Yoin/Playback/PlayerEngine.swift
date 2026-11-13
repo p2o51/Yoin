@@ -131,8 +131,9 @@ final class PlayerEngine {
 
     // MARK: Starting
 
-    /// Replaces the queue with [tracks] and plays [startAt].
-    func play(queue tracks: [PlayableTrack], startAt: Int = 0) {
+    /// Replaces the queue with [tracks] and plays [startAt], from [startSec] into it; [paused] loads it
+    /// without playing (a Handoff from a device that was paused: Android play(startPaused)).
+    func play(queue tracks: [PlayableTrack], startAt: Int = 0, startSec: Double = 0, paused: Bool = false) {
         guard !tracks.isEmpty else { stop(); return }
         let start = min(max(startAt, 0), tracks.count - 1)
         let items = tracks.map { QueueItem($0) }
@@ -146,7 +147,7 @@ final class PlayerEngine {
             currentIndex = start
         }
         consecutiveFailures = 0
-        loadCurrent(play: true)
+        loadCurrent(play: !paused, startSec: max(0, startSec))
     }
 
     /// Takes [tracks] as the queue without starting anything (Add to queue on an empty player:
@@ -465,6 +466,8 @@ final class PlayerEngine {
             isPlaying = true
             output.play()
         } else {
+            // The output may still be running from the song before (AVQueuePlayer keeps its rate).
+            if isPlaying { output.pause() }
             isPlaying = false
         }
         onStateChange?()

@@ -9441,6 +9441,26 @@
           }
         }
       }
+    },
+    "This account isn't on this device yet. Add it in Settings to continue here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台设备还没有添加这个账号。在设置里添加后就能在这里继续。"
+          }
+        }
+      }
+    },
+    "Couldn't load this song here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台读不到这首歌。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

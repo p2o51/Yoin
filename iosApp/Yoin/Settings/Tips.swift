@@ -30,8 +30,8 @@ enum Tips {
     /// The tips, in the order the bubble goes through them. Left out (iOS has no such thing): Android's
     /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line), ScreenCorners (the system draws
     /// them) and SettingsRegrouped (iOS never shipped the old Settings). Not yet, each waits for its feature:
-    /// AiServices (the AI services page), ContinueOn (Handoff), and Labs' 11-12 day (Gemini Nano
-    /// diagnostics, which iOS has no counterpart for).
+    /// AiServices (the AI services page) and Labs' 11-12 day (Gemini Nano diagnostics, which iOS has no
+    /// counterpart for).
     static let all: [Tip] = [
         // All Memories (Home grid + page, Android #186 / #178 / #202): Android's line and day (Argon's copy for
         // the wide layout and the pixel bar), first in the list as on Android.
@@ -47,6 +47,13 @@ enum Tips {
             text: "While in another account, if Spotify is playing or paused on a song, tap the pill at the top of Home to switch to it",
             titleZhHans: "切换到 Spotify",
             textZhHans: "在其他账号下，已登录的 Spotify 有歌正在播放或暂停时，点首页顶部的胶囊即可切换过去"),
+        // Handoff of the playing song (App/PlayingHandoff.swift; Android's ContinueOn, where it is the tablet's
+        // taskbar); Argon's iOS wording. No demo: the offer is the system's App Switcher and Dock.
+        Tip(id: "ContinueOn", icon: "devices", updated: "2026-11-13",
+            title: "Continue on another device",
+            text: "With Handoff on for the same Apple ID, tap Yoin at the bottom of the App Switcher on iPhone or in the Dock on iPad and Mac to pick up where your other device left off",
+            titleZhHans: "在另一台设备上接着听",
+            textZhHans: "登录同一 Apple ID 并开启「接力」后，在 iPhone 的 App 切换器底部或 iPad、Mac 的程序坞点 Yoin，从另一台设备放到的位置接着播"),
         // Lyric Cards with Apple Intelligence (Android #180); Argon's iOS wording.
         Tip(id: "LyricHighlight", icon: "lyrics", updated: "2026-11-10",
             title: "Lyric Cards",
