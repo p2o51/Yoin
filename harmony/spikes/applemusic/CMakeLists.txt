@@ -27,3 +27,9 @@ target_link_options(am PRIVATE -nostdlib++ -Wl,--exclude-libs,ALL -Wl,--no-undef
 # The probe: dlopens the patched libraries from a directory and resolves the native entry points.
 add_executable(musickit_probe probe/musickit_probe.cpp)
 target_link_libraries(musickit_probe PRIVATE dl pthread)
+
+# The same probe as a NAPI module, for a personal test HAP: HarmonyOS won't exec native files
+# from /data/local/tmp under `hdc shell`, and the app's namespace is the one that counts anyway.
+add_library(musickit_probe_napi SHARED probe/napi_probe.cpp probe/musickit_probe.cpp)
+target_compile_definitions(musickit_probe_napi PRIVATE MUSICKIT_PROBE_NO_MAIN)
+target_link_libraries(musickit_probe_napi PRIVATE ace_napi.z dl pthread)

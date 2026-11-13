@@ -431,3 +431,123 @@ ArkWeb sign-in page is a separate 2–4 days, and it is worth doing whatever the
    personal builds. If it fails on the canary or the C++ runtime, settle on option 4.
 5. **Distribution flag.** If option 2 goes ahead, confirm that it stays out of any build that leaves
    your devices.
+
+## Phase 0 results (device)
+
+> 2026-11-14, Mate 70 Air (`SUP-AL90`, HongMeng Kernel 1.13.0, API 26), over `hdc`. The phone was
+> not unlocked and Yoin was not launched. Nothing was installed. `/data/local/tmp/yoin_am/` was
+> created, used and deleted.
+
+**Result: none of the five device risks could be measured from `hdc shell`.** HarmonyOS refuses to
+execute any native file from `/data/local/tmp`. The probe has to run inside an app process instead
+(see "Next step" below).
+
+### What happened
+
+1. The four files plus the OHOS `libc++_shared.so` the probe links against were pushed with
+   `hdc file send`. On the device, their SHA-256 hashes matched the Mac copies.
+2. Running the probe was refused before the loader started:
+
+   ```
+   $ LD_LIBRARY_PATH=/data/local/tmp/yoin_am ./musickit_probe /data/local/tmp/yoin_am --canary
+   /bin/sh: ./musickit_probe: Permission denied
+   EXIT=126
+   ```
+
+   - The file was `-rwxr-xr-x shell shell u:object_r:data_local_tmp:s0`.
+   - `/data` is mounted `nosuid,nodev`, not `noexec`. The refusal therefore comes from the security
+     policy on the `data_local_tmp` label, not from the mount.
+   - No denial line shows up in `hilog`, and `dmesg` is closed to the shell.
+3. **Self-signing doesn't help.** The SDK's `toolchains/lib/binary-sign-tool.jar` (`sign -selfSign 1`)
+   self-signed all five ELFs and reported `Self-sign elf success`. The signing left the program
+   headers alone: only the RELRO `p_align` and `e_shoff` changed. The probe was still refused, with
+   the same `Permission denied`.
+4. **The directory itself is the gate.** A copy of the system's own signed `/system/bin/toybox`,
+   placed in the same directory, is refused too:
+
+   ```
+   -rwxr-xr-x 1 shell shell u:object_r:data_local_tmp:s0  494296 ... /data/local/tmp/yoin_am/tb
+   /bin/sh: /data/local/tmp/yoin_am/tb: Permission denied
+   EXIT=126
+   ```
+
+   The only executable files under `/data/local/tmp` are DevEco's `debugserver/`, which carries a
+   different label (`lldb_server_file`). The shell can't relabel files, and copying into that
+   directory would mean going around the policy, so it wasn't tried.
+
+### The five risks: status after this run
+
+| # | Risk | Status | What the static analysis adds |
+| --- | --- | --- | --- |
+| 1 | Bionic canary slot `TPIDR_EL0+40` under musl | **Not measured** | Unchanged: 494 functions read it. `SVDecryptorFactory::create` is one of them (`mrs x28, TPIDR_EL0; ldr x8, [x28, #40]` … `bl __stack_chk_fail`). |
+| 2 | NDK libc++ next to OHOS libc++ (`__cxa_throw`, …) | **Not measured** | `SVPastisDecryptor`'s constructor `__cxa_throw`s an `SVError` (derived from `std::runtime_error`) when no FootHill context exists, and the factory has cleanup landing pads (`_Unwind_Resume`). That makes it a natural, network-free test of a throw through Apple's own frames. It is wired up as `--decryptor`. |
+| 3 | `ios_base::Init` / locale in NDK libc++ | **Not measured** | The same no-context path builds an NDK `ostringstream` (`ios_base::init`, `locale::locale()`, `__put_character_sequence`). `--decryptor` therefore also drives `use_facet`, not just the load-time initialiser. |
+| 4 | `dlopen` of the patched set, symbols resolved | **Not measured** on the device | The compile-time check still holds: zero unresolved imports. |
+| 5 | FootHill / decryptor constructors | **Not measured** | Static analysis says both are safe to call offline. `SVFootHillSessionCtrl::instance()` is a lazy `new(160)` that zeroes three `unordered_map`s, with no I/O. `SVDecryptorFactory::create` builds a `SVPastisDecryptor` only for types 5 and 7. Other types log through `__android_log_print` and return null. The Pastis constructor looks the key URI up in the session map and, with no session, throws (see 2). Nothing in either path touches the network or Apple's servers. |
+
+### Probe changes (in `spikes/applemusic/`, compile-checked with `-Werror`)
+
+- **`--canary` reports more.** It now also says which module's static TLS block holds `tp+40`, using
+  `dl_iterate_phdr` and `dlpi_tls_data`. It re-reads the slot after `dlopen`, and runs 2,000 rounds
+  of errno-setting `open`, `malloc`, `snprintf` and `free` on the main thread and on a new thread,
+  checking that the word never changes.
+- **New flag `--cxx`.** It reads the Apple pair's GOT and PLT entries and prints which library each
+  C++ ABI import is actually bound to: `__cxa_throw`, `__cxa_allocate_exception`,
+  `__cxa_begin_catch`, `__gxx_personality_v0`, `_Unwind_Resume`, `operator new/delete/new[]`,
+  `typeinfo std::exception/runtime_error`, `__cxa_guard_acquire` and `__dynamic_cast`. It then
+  throws `std::invalid_argument` from NDK `std::__ndk1::stoi("abc")` and catches it in OHOS-libc++
+  code.
+- **New flag `--decryptor`.** It calls `SVDecryptorFactory::create` with type 0 (log path only) and
+  type 7, using the dummy key URI `skd://yoin-probe/no-session`, and catches whatever comes back.
+- **`--call-instance`** now calls `instance()` twice and checks that the same pointer comes back.
+- **The probe body is now `RunMusicKitProbe()`**, which writes to `g_out`. The executable is a
+  two-line `main`, and the new `probe/napi_probe.cpp` builds `libmusickit_probe_napi.so` from the
+  same code.
+
+### Next step: run it in an app process (needs the owner)
+
+The NAPI module is the only way to get these answers on HarmonyOS. It is also the namespace the
+real player would use, so it was the test that counted all along (Risk 5 above). It needs a
+**separate personal test HAP**, never Yoin itself:
+
+1. Create an empty Native C++ project in DevEco, signed with the owner's debug certificate.
+2. Put four files flat in `entry/libs/arm64-v8a/`: `libmusickit_probe_napi.so` (from the CMake
+   target of the same name), `libam.so`, and the patched `libc++_ndk1.so` and
+   `libappleMusicSDK.so`. Don't add a second `libc++_shared.so`: the HAP's own one stands in for
+   Flutter's.
+3. In the page:
+
+   ```ts
+   import probe from 'libmusickit_probe_napi.so';
+   const report: string = probe.run('--canary --cxx --call-instance --decryptor');
+   ```
+
+4. Every line also goes to hilog. If Apple's code aborts the app, the lines up to the crash are
+   still there: `hdc shell hilog -x | grep MusicKitProbe`, plus the FaultLogger crash file for the
+   backtrace.
+5. Pass means:
+   - `dlopen ok` three times and `PASS: 0 of 13 symbols missing`.
+   - Every canary line reads `stable`, including both stress lines.
+   - In `--cxx`, every C++ ABI import binds to one runtime, with no mix of `libc++_shared.so` and
+     `libc++_ndk1.so` for the throw, catch and personality trio. The `stoi` throw is caught as
+     `std::exception`.
+   - `instance()` returns the same non-null pointer twice.
+   - `create(type=7)` throws through Apple's frames and is caught here, rather than aborting. Type 0
+     returns null.
+6. Run it two or three times, cold-starting the app each time, and compare the canary value and the
+   TLS module that holds it.
+
+### Go / no-go
+
+- **Building the native Apple Music player (option 2): no-go for now.** It isn't refuted, but
+  Phase 0 is still open. None of the five device risks has evidence yet, and the 3–5 week build
+  shouldn't start on compile-time evidence alone.
+- **Go for the next half-day.** Run the NAPI probe in a throwaway personal HAP, as above. That run
+  decides the matter:
+  - All pass: go for Phase 1 (the FootHill SPC/CKC round trip), personal builds only.
+  - Canary `CHANGED`, or a crash in `__stack_chk_fail`: no-go unless the 494 canary loads are
+    binary-patched.
+  - Abort in the unwinder or personality on the `create(7)` throw, or a crash in libc++ during
+    `dlopen` or `ostringstream`: no-go for option 2. Fall back to option 4.
+- **Separately, `hdc shell` can't be the test harness on this phone.** Any later native spike
+  (Phases 1–2) also has to run inside a HAP.
