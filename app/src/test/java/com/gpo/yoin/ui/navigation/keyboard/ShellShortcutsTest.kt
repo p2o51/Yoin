@@ -206,4 +206,50 @@ class ShellShortcutsTest {
             assertFalse(shortcut.name, shortcut.keepsKeyWhenIdle)
         }
     }
+
+    @Test
+    fun should_togglePlayback_when_theWindowAteSpacesPressToLeaveTouchMode() {
+        assertEquals(
+            ShellKeyRoute.Shortcut(ShellShortcut.PlayPause, onRelease = true),
+            shellKeyRoute(space(down = false), heldKeyCode = null, typing = false, pressTaken = true),
+        )
+    }
+
+    @Test
+    fun should_leaveTheTakenRelease_when_aTextFieldNowTakesTheKeyboard() {
+        assertEquals(
+            ShellKeyRoute.Window,
+            shellKeyRoute(space(down = false), heldKeyCode = null, typing = true, pressTaken = true),
+        )
+    }
+
+    @Test
+    fun should_leaveATakenEnterOrDpadToTheWindow_when_released() {
+        listOf(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_DPAD_DOWN).forEach { keyCode ->
+            assertEquals(
+                ShellKeyRoute.Window,
+                shellKeyRoute(
+                    ShellKeyEvent(keyCode, down = false),
+                    heldKeyCode = null,
+                    typing = false,
+                    pressTaken = true,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun should_seeAPressAsTaken_when_itsReleaseComesUnseenAfterLeavingTouchMode() {
+        assertTrue(pressTakenByTouchMode(releaseDownTime = 1_000, pressSeen = false, leftTouchModeAt = 1_002))
+        assertTrue(pressTakenByTouchMode(releaseDownTime = 1_000, pressSeen = false, leftTouchModeAt = 1_000))
+    }
+
+    @Test
+    fun should_notSeeAPressAsTaken_when_itReachedTheShellOrTouchModeWasLeftBeforeIt() {
+        // The press got here: its release is an ordinary one.
+        assertFalse(pressTakenByTouchMode(releaseDownTime = 1_000, pressSeen = true, leftTouchModeAt = 1_002))
+        // Touch mode was left by an earlier key; this press went somewhere else (another window).
+        assertFalse(pressTakenByTouchMode(releaseDownTime = 1_000, pressSeen = false, leftTouchModeAt = 900))
+        assertFalse(pressTakenByTouchMode(releaseDownTime = 1_000, pressSeen = false, leftTouchModeAt = null))
+    }
 }
