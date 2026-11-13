@@ -46,6 +46,13 @@ class CoverSwapLayers {
   }
 
   void clear() => _layers.clear();
+
+  /// Whether [layer]'s first frame snaps in instead of revealing: a memory
+  /// cache hit (Correction 3), or the very first image, which has nothing
+  /// under it to dissolve from (ArtworkSwap.kt: `settled == null` snaps).
+  /// Revealing a first image on the slow NP spring showed the empty cover
+  /// box for most of a second right after the player opened.
+  static bool revealsInstantly(CoverSwapLayer layer, {required bool synchronous}) => synchronous || !layer.hasBase;
 }
 
 @immutable
@@ -74,6 +81,7 @@ class CoverSwap extends ConsumerStatefulWidget {
     required this.radius,
     required this.spring,
     this.requestSize,
+    this.fallbackRequestSize,
   });
 
   final CoverRef cover;
@@ -83,6 +91,12 @@ class CoverSwap extends ConsumerStatefulWidget {
 
   /// Pixel size to ask the server for; defaults to [size] × device pixel ratio.
   final int? requestSize;
+
+  /// Another decode of the same cover that is likely already in memory (Now
+  /// Playing passes the pill's). Drawn under the first image until that one
+  /// has a frame, so a cold load never shows an empty box where the flying
+  /// cover just landed.
+  final int? fallbackRequestSize;
 
   /// The NP cover's spring (1.0 / 45).
   static final artworkDissolve = YoinSprings.of(MotionTokens.artworkDissolve);
@@ -95,6 +109,9 @@ class _CoverSwapState extends ConsumerState<CoverSwap> with TickerProviderStateM
   final _stack = CoverSwapLayers();
   final _alphas = <int, SpringValue>{};
   int? _cacheWidth;
+
+  /// Some layer has drawn a frame: the fallback is no longer needed.
+  bool _shownOnce = false;
 
   @override
   void dispose() {
@@ -151,10 +168,10 @@ class _CoverSwapState extends ConsumerState<CoverSwap> with TickerProviderStateM
 
   void _onFrame(CoverSwapLayer layer, bool synchronous) {
     final alpha = _alphas[layer.id];
+    _shownOnce = true;
     // Only the top layer reveals; a frozen layer under it stays put.
     if (alpha == null || alpha.value >= 1 || _stack.top?.id != layer.id) return;
-    // A memory-cache hit snaps (Correction 3).
-    if (synchronous) {
+    if (CoverSwapLayers.revealsInstantly(layer, synchronous: synchronous)) {
       alpha.snapTo(1);
     } else {
       alpha.animateTo(1);
@@ -169,6 +186,10 @@ class _CoverSwapState extends ConsumerState<CoverSwap> with TickerProviderStateM
     final url = source?.resolveCoverUrl(widget.cover, size: px);
     if (url != null) _sync(url, px);
     final cacheWidth = _cacheWidth ?? px;
+    final fallbackPx = widget.fallbackRequestSize;
+    final fallbackUrl = _shownOnce || fallbackPx == null || fallbackPx == px
+        ? null
+        : source?.resolveCoverUrl(widget.cover, size: fallbackPx);
     return SizedBox.square(
       dimension: widget.size,
       child: ClipRSuperellipse(
@@ -178,6 +199,14 @@ class _CoverSwapState extends ConsumerState<CoverSwap> with TickerProviderStateM
           child: Stack(
             fit: StackFit.expand,
             children: [
+              if (fallbackUrl != null)
+                Image.network(
+                  fallbackUrl,
+                  fit: BoxFit.cover,
+                  cacheWidth: fallbackPx,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => const SizedBox.expand(),
+                ),
               for (final layer in _stack.layers)
                 KeyedSubtree(
                   key: ValueKey(layer.id),

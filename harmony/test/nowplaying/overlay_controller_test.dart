@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/nowplaying/overlay_controller.dart';
 
@@ -129,5 +130,35 @@ void main() {
     expect(c.flightActive, isFalse);
     await tester.pumpAndSettle();
     expect(c.fade.value, closeTo(1, 0.001));
+  });
+  testWidgets('should_keepBarComposed_when_barSettledButFlightStillLanding', (tester) async {
+    await setUpController(tester);
+    c.openPlayer();
+    // The bar's spring (standard default) settles well before the flight's
+    // (expressive slow); the pill must stay composed as the flight's source.
+    var sawBarSettledMidFlight = false;
+    for (var i = 0; i < 120 && c.flightActive; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (!c.bar.isAnimating && c.bar.value >= 0.999 && c.flightActive) {
+        sawBarSettledMidFlight = true;
+        expect(c.barComposed, isTrue, reason: 'the flight still reads the pill slot');
+      }
+    }
+    expect(sawBarSettledMidFlight, isTrue, reason: 'the bar spring settles before the flight');
+    await tester.pumpAndSettle();
+    expect(c.flightActive, isFalse);
+    expect(c.barComposed, isFalse);
+  });
+
+  testWidgets('should_forgetLastRects_when_newFlightStarts', (tester) async {
+    await setUpController(tester);
+    final key = c.flightKeys.pill.values.first;
+    c.flightKeys.lastRects[key] = const Rect.fromLTWH(0, 0, 10, 10);
+    c.openPlayer();
+    expect(c.flightKeys.lastRects, isEmpty);
+    c.flightKeys.lastRects[key] = const Rect.fromLTWH(0, 0, 10, 10);
+    c.close();
+    expect(c.flightKeys.lastRects, isNotEmpty, reason: 'a reversed flight keeps its measurements');
+    await tester.pumpAndSettle();
   });
 }

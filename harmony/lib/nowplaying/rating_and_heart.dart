@@ -7,6 +7,8 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'haptics.dart';
 import 'nowplaying_strings.dart';
+import '../ui/component/expressive/expressive_shapes.dart';
+import '../ui/component/expressive/expressive_surface_button.dart';
 
 /// "7.4", a full 10 shows "10" (RatingFormat.kt).
 String formatRating(double rating) => rating >= 10 ? '10' : rating.toStringAsFixed(1);
@@ -228,41 +230,42 @@ class _FavoriteHeartState extends State<FavoriteHeart> with TickerProviderStateM
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final strings = NowPlayingStrings.of(context);
-    return Semantics(
-      button: true,
-      label: widget.starred ? strings.cdRemoveFavorite : strings.cdAddFavorite,
-      excludeSemantics: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _tap,
-        child: SizedBox.square(
-          dimension: 48,
-          child: Center(
-            child: AnimatedBuilder(
-              animation: Listenable.merge([_on.animation, _scale]),
-              builder: (context, _) {
-                final on = _on.value.clamp(0.0, 1.0);
-                return Transform.scale(
-                  scale: _scale.value,
-                  child: Container(
-                    width: NowPlayingTokens.heartSize,
-                    height: NowPlayingTokens.heartSize,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Color.lerp(colors.tertiaryContainer, colors.tertiary, on),
-                    ),
-                    child: Icon(
-                      widget.starred ? YoinSymbols.favoriteFilled : YoinSymbols.favorite,
-                      size: 24,
-                      color: Color.lerp(colors.onTertiaryContainer, colors.onTertiary, on),
-                    ),
+    // 44 dp circle inside a 48 dp touch target (minimumTouchTarget); the
+    // squish scales the circle, its ripple and glyph together (graphicsLayer
+    // before clip in FavoriteButton). Round, no press morph.
+    return SizedBox.square(
+      dimension: _heartTouchTarget,
+      child: Center(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_on.animation, _scale]),
+          builder: (context, _) {
+            final on = _on.value.clamp(0.0, 1.0);
+            final content = Color.lerp(colors.onTertiaryContainer, colors.onTertiary, on)!;
+            return Transform.scale(
+              scale: _scale.value,
+              child: SizedBox.square(
+                dimension: NowPlayingTokens.heartSize,
+                child: ExpressiveSurfaceButton(
+                  shapes: const InteractionShapes.fixed(CornerRadii.full),
+                  height: NowPlayingTokens.heartSize,
+                  color: Color.lerp(colors.tertiaryContainer, colors.tertiary, on)!,
+                  contentColor: content,
+                  semanticLabel: widget.starred ? strings.cdRemoveFavorite : strings.cdAddFavorite,
+                  onTap: _tap,
+                  child: Icon(
+                    widget.starred ? YoinSymbols.favoriteFilled : YoinSymbols.favorite,
+                    size: _heartGlyph,
+                    color: content,
                   ),
-                );
-              },
-            ),
-          ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
 }
+
+const double _heartTouchTarget = 48;
+const double _heartGlyph = 24;

@@ -28,6 +28,8 @@ final class BarGeometryInput {
     this.libraryPress = 0,
     this.pillPress = 0,
     this.detailPose = 0,
+    this.centered = false,
+    this.promotedCount = 0,
   });
 
   /// The row's width inside the surface's padding (window − 2 × 16 − 2 × 10 on a phone).
@@ -49,11 +51,19 @@ final class BarGeometryInput {
 
   /// 0 = nav pose, 1 = a detail page's pose (Play split + pill).
   final double detailPose;
+
+  /// The centred bar (Medium / Wide): in the detail pose the Play split
+  /// stretches and the pill is [BarTokens.detailPillWidth] wide.
+  final bool centered;
+
+  /// Page actions pulled out of the ▾ menu into round buttons beside the
+  /// split (the centred bar promotes Shuffle); 0 on the portrait bar.
+  final int promotedCount;
 }
 
 /// Widths of one bar frame (the phone subset of resolveBarGeometry: morph 0,
 /// pane 0, navOnly 0, edit 0, plus the detail pose of library spec D8).
-/// Row = [home slot][gap][pill][library slot = gap + library button].
+/// Row = [home / split slot][gap][extras slot][pill][library slot = gap + library button].
 @immutable
 final class BarGeometry {
   const BarGeometry({
@@ -62,6 +72,10 @@ final class BarGeometry {
     required this.pillWidth,
     required this.librarySlotWidth,
     required this.libraryWidth,
+    required this.extrasSlotWidth,
+    required this.splitDetailWidth,
+    required this.navAlpha,
+    required this.splitAlpha,
     required this.labelAlpha,
     required this.pillAlpha,
     required this.composePill,
@@ -77,6 +91,17 @@ final class BarGeometry {
   /// Gap + Library button; 0 in detail pose.
   final double librarySlotWidth;
   final double libraryWidth;
+
+  /// The promoted extras after the split, each with its trailing gap; 0 in nav pose.
+  final double extrasSlotWidth;
+
+  /// The split's width at rest in the detail pose.
+  final double splitDetailWidth;
+
+  /// Home / Library fade out over the first 60 % of the pose change, the
+  /// split and its extras fade in over the last 60 % (YoinButtonGroup).
+  final double navAlpha;
+  final double splitAlpha;
 
   /// Home / Library labels (idle tail).
   final double labelAlpha;
@@ -103,17 +128,23 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
   final homeRest = i.buttonHeight * aspect(selection, i.homePress);
   final libRest = i.buttonHeight * aspect(1 - selection, i.libraryPress);
 
-  // In the detail pose there is no idle half: the pill is always there (it
-  // shows "Nothing playing" when nothing is).
+  // The idle halves (idleWeight): the detail pose replaces the left slot
+  // with the split and drops the right one, so it needs no factor of its own.
   final detail = _clamp01(i.detailPose);
-  final idle = _clamp01(i.idle) * (1 - detail);
+  final idle = _clamp01(i.idle);
   final idleHalf = math.max(0.0, (i.innerWidth - 2 * gap) / 2);
   final homeW = lerpDouble(homeRest, idleHalf, idle)!;
   final libW = lerpDouble(libRest, idleHalf, idle)!;
 
-  final splitW = lerpDouble(homeW, BarTokens.splitWidth, detail)!;
+  // CenteredBar detail pose: [Play split (stretches)] [extras…] [pill 200].
+  final extrasWidth = (i.buttonHeight + gap) * math.max(0, i.promotedCount);
+  final splitDetailW = i.centered
+      ? math.max(BarTokens.splitWidth, i.innerWidth - BarTokens.detailPillWidth - gap - extrasWidth)
+      : BarTokens.splitWidth;
+  final splitW = lerpDouble(homeW, splitDetailW, detail)!;
+  final extrasSlot = lerpDouble(0, extrasWidth, detail)!;
   final librarySlot = lerpDouble(gap + libW, 0, detail)!;
-  final pillW = math.max(0.0, i.innerWidth - splitW - gap - librarySlot);
+  final pillW = math.max(0.0, i.innerWidth - splitW - gap - extrasSlot - librarySlot);
 
   return BarGeometry(
     homeWidth: homeW,
@@ -121,8 +152,13 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
     pillWidth: pillW,
     librarySlotWidth: librarySlot,
     libraryWidth: libW,
+    extrasSlotWidth: extrasSlot,
+    splitDetailWidth: splitDetailW,
+    navAlpha: _clamp01(1 - detail / 0.6),
+    splitAlpha: _clamp01((detail - 0.4) / 0.6),
     labelAlpha: _clamp01((idle - 0.55) / 0.45),
-    pillAlpha: _clamp01(1 - idle / 0.5),
-    composePill: idle < 0.995,
+    // Any detail pose shows the pill whole ("Nothing playing" when idle).
+    pillAlpha: detail > 0.005 ? 1 : _clamp01(1 - idle / 0.5),
+    composePill: idle < 0.995 || detail > 0.005,
   );
 }

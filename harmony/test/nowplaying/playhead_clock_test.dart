@@ -61,6 +61,17 @@ void main() {
     clock.dispose();
   });
 
+  test('should_holdTheFront_when_noSampleArrivesPastTheLead', () {
+    var now = 0;
+    final clock = PlayheadClock(now: () => now);
+    clock.update(const Playhead(entryId: 'e', positionMs: 1000, sampledAtMs: 0, isPlaying: true, durationMs: 60000));
+    now = 1500;
+    expect(clock.positionMs(), 2500);
+    now = 10000;
+    expect(clock.positionMs(), 1000 + playheadMaxLeadMs);
+    clock.dispose();
+  });
+
   test('should_shareOneWavePhase_when_sameInstant', () {
     final clock = PlayheadClock(now: () => 1500);
     expect(clock.wavePhase(), closeTo(3.14159, 1e-4));

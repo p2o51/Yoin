@@ -21,6 +21,13 @@ class FlightKeys {
   final Map<FlightElement, GlobalKey> player = {
     for (final e in FlightElement.values) e: GlobalKey(debugLabel: 'player.$e'),
   };
+
+  /// Each slot's last measured rect during this flight. A slot that leaves
+  /// the tree mid-flight (the bar unmounting, a relayout) keeps its end of
+  /// the flight where it was last seen instead of dropping the proxy: both
+  /// real slots are hidden while the flight is active, so a dropped proxy is
+  /// a visible blink.
+  final Map<GlobalKey, Rect> lastRects = {};
 }
 
 /// What the flying proxies draw (the pill's content, captured at flight start).
@@ -34,6 +41,8 @@ final class FlightContent {
     required this.pillArtistStyle,
     required this.heroTitleStyle,
     required this.heroArtistStyle,
+    this.heroTitleScaleX = 1,
+    this.heroArtistScaleX = 1,
   });
 
   final String title;
@@ -43,6 +52,37 @@ final class FlightContent {
   final TextStyle pillArtistStyle;
   final TextStyle heroTitleStyle;
   final TextStyle heroArtistStyle;
+
+  /// The hero texts' resting horizontal scale (heroRestScale): the proxies
+  /// grow into it so the landing matches the real text.
+  final double heroTitleScaleX;
+  final double heroArtistScaleX;
+
+  @override
+  bool operator ==(Object other) =>
+      other is FlightContent &&
+      other.title == title &&
+      other.artist == artist &&
+      other.coverUrl == coverUrl &&
+      other.pillTitleStyle == pillTitleStyle &&
+      other.pillArtistStyle == pillArtistStyle &&
+      other.heroTitleStyle == heroTitleStyle &&
+      other.heroArtistStyle == heroArtistStyle &&
+      other.heroTitleScaleX == heroTitleScaleX &&
+      other.heroArtistScaleX == heroArtistScaleX;
+
+  @override
+  int get hashCode => Object.hash(
+    title,
+    artist,
+    coverUrl,
+    pillTitleStyle,
+    pillArtistStyle,
+    heroTitleStyle,
+    heroArtistStyle,
+    heroTitleScaleX,
+    heroArtistScaleX,
+  );
 }
 
 /// One element's slot: measured by [keyFor], hidden while the proxy flies.
@@ -177,16 +217,17 @@ class _FlightPainter extends CustomPainter {
   TextPainter? _artist;
 
   Rect? _rectOf(GlobalKey key, RenderBox self) {
+    final last = controller.flightKeys.lastRects;
     RenderObject? box;
     try {
       box = key.currentContext?.findRenderObject();
     } on FlutterError {
-      return null; // The slot is leaving the tree this frame.
+      return last[key]; // The slot is leaving the tree this frame.
     }
-    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    if (box is! RenderBox || !box.attached || !box.hasSize) return last[key];
     final topLeft = self.globalToLocal(box.localToGlobal(Offset.zero));
     final bottomRight = self.globalToLocal(box.localToGlobal(box.size.bottomRight(Offset.zero)));
-    return Rect.fromPoints(topLeft, bottomRight);
+    return last[key] = Rect.fromPoints(topLeft, bottomRight);
   }
 
   @override
@@ -217,6 +258,7 @@ class _FlightPainter extends CustomPainter {
       String value,
       TextStyle pillStyle,
       TextStyle heroStyle,
+      double heroScaleX,
       TextPainter? cached,
       void Function(TextPainter) store,
     ) {
@@ -242,6 +284,9 @@ class _FlightPainter extends CustomPainter {
       );
       canvas.translate(rect.left, rect.top + (rect.height - painter.height * scale) / 2);
       canvas.scale(scale);
+      // Grow into the hero's resting horizontal scale from the start edge.
+      final sx = ui.lerpDouble(1, heroScaleX, t)!;
+      if (sx != 1) canvas.scale(sx, 1);
       if (color != null && color != heroStyle.color) {
         canvas.saveLayer(null, Paint()..colorFilter = ColorFilter.mode(color, BlendMode.srcIn));
         painter.paint(canvas, Offset.zero);
@@ -252,12 +297,21 @@ class _FlightPainter extends CustomPainter {
       canvas.restore();
     }
 
-    text(FlightElement.title, content.title, content.pillTitleStyle, content.heroTitleStyle, _title, (p) => _title = p);
+    text(
+      FlightElement.title,
+      content.title,
+      content.pillTitleStyle,
+      content.heroTitleStyle,
+      content.heroTitleScaleX,
+      _title,
+      (p) => _title = p,
+    );
     text(
       FlightElement.artist,
       content.artist,
       content.pillArtistStyle,
       content.heroArtistStyle,
+      content.heroArtistScaleX,
       _artist,
       (p) => _artist = p,
     );

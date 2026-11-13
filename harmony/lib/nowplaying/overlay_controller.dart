@@ -123,8 +123,12 @@ class NowPlayingOverlayController extends ChangeNotifier {
   /// Drag fraction, rotating the chevron 180°.
   double get dismissFraction => (dragDy.value / nowPlayingDismissDistance).clamp(0.0, 1.0);
 
-  /// The bar may be composed (it isn't while the player is fully up).
-  bool get barComposed => bar.value < 0.999 || bar.isAnimating;
+  /// The bar may be composed (it isn't while the player is fully up). It
+  /// stays composed, invisible, until the shared flight has landed: the pill
+  /// is the flight's source slot, and dropping it mid-flight left both ends
+  /// hidden with nothing to paint — the cover, title and artist blinked out
+  /// for a few frames right before the player settled.
+  bool get barComposed => bar.value < 0.999 || bar.isAnimating || _flightActive;
 
   Listenable get motion => Listenable.merge([open.animation, fade.animation, dragDy.animation, bar.animation]);
 
@@ -235,6 +239,8 @@ class NowPlayingOverlayController extends ChangeNotifier {
   }
 
   void _startFlight({required bool toPlayer}) {
+    // A new flight measures afresh (the window may have changed since).
+    if (!_flightActive) flightKeys.lastRects.clear();
     _flightActive = true;
     flight.animateTo(
       toPlayer ? 1 : 0,

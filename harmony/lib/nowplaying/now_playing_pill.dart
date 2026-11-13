@@ -287,8 +287,11 @@ class _PillCover extends StatelessWidget {
   }
 }
 
-/// The progress wash: a rect to the playback front whose right edge is a
-/// 20-segment sine travelling with the app-wide wave clock.
+/// The progress wash (NowPlayingPill.kt drawWithContent): from the top-left
+/// corner to the front on the top edge, then down a 20-segment sine edge
+/// (x = front + sin(phase + y/h·2π)·4 dp·amplitude) and back along the
+/// bottom; primary @ 25 %, clipped by the stadium, phase from the app-wide
+/// wave clock.
 class _WashPainter extends CustomPainter {
   _WashPainter({required this.clock, required this.amplitude, required this.color})
     : super(repaint: Listenable.merge([clock, amplitude.animation]));
@@ -305,7 +308,9 @@ class _WashPainter extends CustomPainter {
     final x = size.width * front;
     final phase = clock.wavePhase(now);
     final amp = PillMetrics.waveAmplitude * amplitude.value.clamp(0.0, 1.5);
-    final path = Path()..moveTo(0, 0);
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(x, 0);
     for (var i = 0; i <= PillMetrics.waveSegments; i++) {
       final f = i / PillMetrics.waveSegments;
       path.lineTo(x + math.sin(phase + f * 2 * math.pi) * amp, f * size.height);

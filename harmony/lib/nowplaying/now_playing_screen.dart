@@ -469,6 +469,8 @@ class _StageCover extends StatelessWidget {
                 size: edge,
                 radius: radius,
                 requestSize: px,
+                // The pill's decode (in memory): under a cold first load.
+                fallbackRequestSize: (pillCoverRequestDp * MediaQuery.devicePixelRatioOf(context)).round(),
                 spring: CoverSwap.artworkDissolve,
               );
             },
@@ -478,6 +480,16 @@ class _StageCover extends StatelessWidget {
     );
   }
 }
+
+/// The hero's horizontal breathing scale (title, artist): held > playing >
+/// paused, gentler under reduced motion. The shared flight lands on the
+/// same values so the hand-over to the real text doesn't jump.
+({double title, double artist}) heroRestScale({required bool playing, bool held = false, bool reduced = false}) =>
+    held
+    ? (title: reduced ? 1.02 : 1.05, artist: reduced ? 1.015 : 1.04)
+    : playing
+    ? (title: reduced ? 1.01 : 1.03, artist: reduced ? 1.008 : 1.02)
+    : (title: reduced ? 0.99 : 0.97, artist: reduced ? 0.992 : 0.98);
 
 /// Chevron + "PLAYING FROM …". The chevron turns 180° with the drag and 90°
 /// with the stage (Expanded: points back).
@@ -610,8 +622,18 @@ class _Hero extends StatefulWidget {
 }
 
 class _HeroState extends State<_Hero> with TickerProviderStateMixin {
-  late final SpringValue _title = SpringValue(vsync: this, initial: 1, spring: YoinSprings.slowSpatial);
-  late final SpringValue _artist = SpringValue(vsync: this, initial: 1, spring: YoinSprings.slowSpatial);
+  // Mounted at rest (no 1 → 0.97 squeeze while the shared flight lands on it:
+  // the flight draws the same rest scale, so the hand-over is seamless).
+  late final SpringValue _title = SpringValue(
+    vsync: this,
+    initial: heroRestScale(playing: widget.isPlaying).title,
+    spring: YoinSprings.slowSpatial,
+  );
+  late final SpringValue _artist = SpringValue(
+    vsync: this,
+    initial: heroRestScale(playing: widget.isPlaying).artist,
+    spring: YoinSprings.slowSpatial,
+  );
 
   @override
   void initState() {
@@ -646,20 +668,9 @@ class _HeroState extends State<_Hero> with TickerProviderStateMixin {
     final spring = reduced ? YoinSprings.standardFastSpatial : YoinSprings.slowSpatial;
     _title.spring = spring;
     _artist.spring = spring;
-    _title.animateTo(
-      held
-          ? (reduced ? 1.02 : 1.05)
-          : playing
-          ? (reduced ? 1.01 : 1.03)
-          : (reduced ? 0.99 : 0.97),
-    );
-    _artist.animateTo(
-      held
-          ? (reduced ? 1.015 : 1.04)
-          : playing
-          ? (reduced ? 1.008 : 1.02)
-          : (reduced ? 0.992 : 0.98),
-    );
+    final target = heroRestScale(playing: playing, held: held, reduced: reduced);
+    _title.animateTo(target.title);
+    _artist.animateTo(target.artist);
   }
 
   @override

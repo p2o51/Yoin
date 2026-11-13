@@ -8,6 +8,7 @@ import '../app/providers.dart';
 import '../nowplaying/flight.dart';
 import '../nowplaying/now_playing_overlay.dart';
 import '../nowplaying/now_playing_pill.dart';
+import '../nowplaying/now_playing_screen.dart' show heroRestScale;
 import '../nowplaying/overlay_controller.dart';
 import '../nowplaying/player_snapshot.dart';
 import '../playback/system_requests.dart';
@@ -151,7 +152,8 @@ class _ChromeBar extends ConsumerWidget {
     final actions = ref.watch(topDetailActionsProvider);
     final navBottom = MediaQuery.paddingOf(context).bottom;
     return AnimatedBuilder(
-      animation: Listenable.merge([controller.bar.animation, away.animation]),
+      // The controller too: the flight landing releases the bar (barComposed).
+      animation: Listenable.merge([controller, controller.bar.animation, away.animation]),
       builder: (context, child) {
         // Not composed while the player is fully up (its wave stops ticking)
         // or while a bar-less page has sent it away.
@@ -192,6 +194,7 @@ class _Flight extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final track = ref.watch(playerSnapshotProvider.select((s) => s.track));
+    final playing = ref.watch(playerSnapshotProvider.select((s) => s.playWhenReady));
     final source = ref.watch(activeSourceProvider).value;
     if (track == null) return const SizedBox.shrink();
     final colors = Theme.of(context).colorScheme;
@@ -201,6 +204,7 @@ class _Flight extends ConsumerWidget {
     final url = cover == null ? null : source?.resolveCoverUrl(cover, size: (pillCoverRequestDp * dpr).round());
     controller.coverCanFly = url != null;
     final artistBase = text.titleMedium!;
+    final rest = heroRestScale(playing: playing, reduced: MediaQuery.disableAnimationsOf(context));
     return FlightLayer(
       controller: controller,
       content: FlightContent(
@@ -217,6 +221,8 @@ class _Flight extends ConsumerWidget {
           height: (artistBase.height ?? 1.5) / 0.9,
           color: colors.onSurfaceVariant,
         ),
+        heroTitleScaleX: rest.title,
+        heroArtistScaleX: rest.artist,
       ),
     );
   }

@@ -23,8 +23,20 @@ final class PlayheadAnchor {
   final int atMs;
   final bool isPlaying;
 
-  int positionAt(int nowMs) => isPlaying ? positionMs + math.max(0, nowMs - atMs) : positionMs;
+  /// Extrapolated at the song's real rate, never more than [playheadMaxLeadMs]
+  /// past the anchor: a buffering stall the engine still calls playing
+  /// holds the front instead of running it on.
+  int positionAt(int nowMs) => isPlaying ? positionMs + (nowMs - atMs).clamp(0, playheadMaxLeadMs) : positionMs;
 }
+
+/// The engine's position sample period (PlaybackEngine.ets TICK_MS).
+const int engineSampleMs = 1000;
+
+/// How far the drawn front may run past its anchor (PlaybackProgressSmoother
+/// MaxLeadMs, "two ticks and a bit"): Android's 600 ms is two 250 ms ticks
+/// plus 100 ms; the HarmonyOS engine samples once a second, so two of its
+/// ticks plus the same 600 ms of slack keep the front moving between samples.
+const int playheadMaxLeadMs = 2 * engineSampleMs + smootherMaxLagMs;
 
 /// How far a new sample may sit behind the drawn front and still be absorbed
 /// instead of stepping the playhead back (PlaybackProgressSmoother MaxLeadMs).

@@ -11,7 +11,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
     // Mid-spring: the detail is on stage but still travelling in.
-    final mid = tester.widget<Transform>(find.ancestor(of: find.text('detail'), matching: find.byType(Transform)).first);
+    final mid = tester.widget<Transform>(
+      find.ancestor(of: find.text('detail'), matching: find.byType(Transform)).first,
+    );
     expect(mid.transform.getTranslation().x, greaterThan(0));
 
     await tester.pumpAndSettle();

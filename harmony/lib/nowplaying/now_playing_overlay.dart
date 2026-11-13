@@ -69,14 +69,16 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
                 AnimatedBuilder(
                   animation: controller.motion,
                   builder: (context, child) {
-                    final moving = controller.isMoving;
-                    Widget player = child!;
-                    if (moving) {
-                      player = ClipRSuperellipse(
-                        borderRadius: BorderRadius.circular(screenCornerFallback),
-                        child: player,
-                      );
-                    }
+                    // The clip is always in the tree and only switched off
+                    // at rest: wrapping the player on the first moving frame
+                    // and unwrapping it on the settle frame changed the
+                    // tree's shape, so the whole player subtree was
+                    // reparented (re-laid out, re-rastered) at both ends.
+                    final player = ClipRSuperellipse(
+                      borderRadius: BorderRadius.circular(screenCornerFallback),
+                      clipBehavior: controller.isMoving ? Clip.antiAlias : Clip.none,
+                      child: child,
+                    );
                     return IgnorePointer(
                       ignoring: !controller.expanded,
                       child: Opacity(

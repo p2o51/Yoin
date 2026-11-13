@@ -6,6 +6,9 @@ import '../nowplaying/haptics.dart';
 import '../nowplaying/nowplaying_strings.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/expressive/expressive_shapes.dart';
+import '../ui/component/expressive/expressive_split_button.dart';
+import '../ui/component/expressive/expressive_surface_button.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import 'bar_geometry.dart';
@@ -120,6 +123,8 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
         ? (window.width - 2 * BarTokens.centeredHorizontalMargin).clamp(0.0, BarTokens.centeredMaxWidth)
         : window.width - 2 * BarTokens.horizontalMargin;
     final innerWidth = (barWidth - 2 * rowPadding).clamp(0.0, double.infinity);
+    // The centred bar promotes Shuffle out of the ▾ menu into its own button.
+    final promoted = centered && _lastActions?.onShuffle != null ? 1 : 0;
 
     final bar = Container(
       width: barWidth,
@@ -150,6 +155,8 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
               libraryPress: _libraryPress.value,
               pillPress: _pillPress.value,
               detailPose: _detail.value,
+              centered: centered,
+              promotedCount: promoted,
             ),
           );
           final colorSelection = _selectionColor.value.clamp(0.0, 1.0);
@@ -163,11 +170,11 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (detail < 0.999)
+                    if (g.navAlpha > 0)
                       IgnorePointer(
                         ignoring: detail > 0.5,
                         child: Opacity(
-                          opacity: (1 - detail).clamp(0.0, 1.0),
+                          opacity: g.navAlpha,
                           child: _BarButton(
                             icon: colorSelection > 0.5 ? YoinSymbols.homeFilled : YoinSymbols.home,
                             label: strings.barLabelHome,
@@ -182,18 +189,18 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                           ),
                         ),
                       ),
-                    if (detail > 0.001 && actions != null)
+                    if (g.splitAlpha > 0 && actions != null)
                       IgnorePointer(
                         ignoring: detail < 0.5,
                         child: Opacity(
-                          opacity: detail,
-                          // Laid out at its own width while the slot morphs; the slot clips it.
+                          opacity: g.splitAlpha,
+                          // Laid out at its resting width while the slot morphs; the slot clips it.
                           child: ClipRect(
                             child: OverflowBox(
                               alignment: AlignmentDirectional.centerStart,
-                              minWidth: BarTokens.splitWidth,
-                              maxWidth: BarTokens.splitWidth,
-                              child: _PlaySplit(actions: actions, height: buttonHeight),
+                              minWidth: g.splitDetailWidth,
+                              maxWidth: g.splitDetailWidth,
+                              child: _PlaySplit(actions: actions, height: buttonHeight, shuffleInMenu: promoted == 0),
                             ),
                           ),
                         ),
@@ -202,6 +209,39 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                 ),
               ),
               const SizedBox(width: BarTokens.itemGap),
+              // EXTRAS (centred detail pose): Shuffle as its own round button, each with its trailing gap.
+              if (g.extrasSlotWidth > 0.5 && actions?.onShuffle != null)
+                SizedBox(
+                  width: g.extrasSlotWidth,
+                  height: buttonHeight,
+                  child: ClipRect(
+                    child: OverflowBox(
+                      alignment: AlignmentDirectional.centerStart,
+                      minWidth: buttonHeight + BarTokens.itemGap,
+                      maxWidth: buttonHeight + BarTokens.itemGap,
+                      child: Opacity(
+                        opacity: g.splitAlpha,
+                        child: IgnorePointer(
+                          ignoring: detail < 0.5,
+                          child: Row(
+                            children: [
+                              _BarExtraButton(
+                                icon: YoinSymbols.shuffle,
+                                label: npStrings.playMenuShuffle,
+                                size: buttonHeight,
+                                onTap: () {
+                                  YoinHaptics.click();
+                                  actions!.onShuffle!();
+                                },
+                              ),
+                              const SizedBox(width: BarTokens.itemGap),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               SizedBox(
                 width: g.pillWidth,
                 height: buttonHeight,
@@ -231,13 +271,14 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                       minWidth: g.libraryWidth,
                       maxWidth: g.libraryWidth,
                       child: Opacity(
-                        opacity: (1 - detail).clamp(0.0, 1.0),
+                        opacity: g.navAlpha,
                         child: _BarButton(
                           icon: colorSelection < 0.5 ? YoinSymbols.libraryFilled : YoinSymbols.library,
                           label: strings.barLabelLibrary,
                           semantics: npStrings.barCdLibrary,
                           labelAlpha: g.labelAlpha,
                           selection: 1 - colorSelection,
+                          ripple: false,
                           onPress: (down) => _libraryPress.animateTo(down ? 1 : 0),
                           onTap: () {
                             YoinHaptics.click();
@@ -270,7 +311,9 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
   }
 }
 
-/// A Home / Library button: stadium, container lerp(surfaceContainerHighest
+/// A Home / Library button: stadium (FilledIconButton's filledShape / the
+/// 28 dp extraLarge corner at 48 dp — no press morph outside Home edit, which
+/// v1 doesn't have), the 24 dp glyph, container lerp(surfaceContainerHighest
 /// → primaryContainer, selection); the label fades in over the idle tail.
 class _BarButton extends StatelessWidget {
   const _BarButton({
@@ -281,6 +324,7 @@ class _BarButton extends StatelessWidget {
     required this.selection,
     required this.onPress,
     required this.onTap,
+    this.ripple = true,
   });
 
   final IconData icon;
@@ -292,6 +336,10 @@ class _BarButton extends StatelessWidget {
   final double selection;
   final ValueChanged<bool> onPress;
   final VoidCallback onTap;
+
+  /// Home is a FilledIconButton (ripple); Library a Surface with
+  /// `indication = null` (YoinButtonGroup LibraryButton): no ripple.
+  final bool ripple;
 
   @override
   Widget build(BuildContext context) {
@@ -309,6 +357,8 @@ class _BarButton extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
+          splashFactory: ripple ? null : NoSplash.splashFactory,
+          highlightColor: ripple ? null : Colors.transparent,
           onTapDown: (_) => onPress(true),
           onTapUp: (_) => onPress(false),
           onTapCancel: () => onPress(false),
@@ -340,13 +390,22 @@ class _BarButton extends StatelessWidget {
 }
 
 /// The detail pose's Play split button (PlaySplitButton.kt): [▶ Play][▾],
-/// 2 dp apart, in the page's colours (springing as the cover scheme
-/// resolves); ▾ opens a menu with Shuffle play and rotates 180° while open.
+/// the real M3 split (SplitButtonDefaults geometry, shape morphs and checked
+/// circle via [ExpressiveSplitButton]), as tall as the bar's buttons and
+/// [BarTokens.splitWidth] wide, in the page's colours (springing as the cover
+/// scheme resolves). ▾ opens the Play menu and folds over while it is open.
+/// Android's menu is Shuffle play + the page's own items (Go to artist,
+/// Share…); DetailPlayActions carries only Shuffle in v1.
 class _PlaySplit extends StatefulWidget {
-  const _PlaySplit({required this.actions, required this.height});
+  const _PlaySplit({required this.actions, required this.height, this.shuffleInMenu = true});
 
   final DetailPlayActions actions;
   final double height;
+
+  /// False when the bar shows Shuffle as its own button (centred detail
+  /// pose): an action pulled out of the menu never stays in it too. With no
+  /// page items in v1 the menu is then empty, so ▾ is left out.
+  final bool shuffleInMenu;
 
   @override
   State<_PlaySplit> createState() => _PlaySplitState();
@@ -354,8 +413,10 @@ class _PlaySplit extends StatefulWidget {
 
 class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
   late final SpringValue _color = SpringValue(vsync: this, initial: 1, spring: YoinSprings.defaultEffects);
-  late final SpringValue _hinge = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardDefaultSpatial);
   bool _menuOpen = false;
+
+  /// The ▾ glyph's context: the menu anchors to the trailing half around it.
+  BuildContext? _anchorContext;
   Color? _fromContainer;
   Color? _fromContent;
   Color? _toContainer;
@@ -377,29 +438,34 @@ class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
   /// The ▾ menu (PlaySplitButton.kt: YoinDropdownMenu). It is a route on
   /// the app Navigator (the bar sits above it), so system back closes the
   /// menu instead of popping the detail page under it.
-  Future<void> _openMenu(BuildContext buttonContext, VoidCallback onShuffle) async {
+  Future<void> _openMenu(VoidCallback onShuffle) async {
     final navigatorContext = appNavigatorKey.currentContext;
-    if (_menuOpen || navigatorContext == null) return;
+    final glyphContext = _anchorContext;
+    if (_menuOpen || navigatorContext == null || glyphContext == null || !glyphContext.mounted) return;
     final strings = NowPlayingStrings.of(context);
-    _menuOpen = true;
-    _hinge.animateTo(1);
+    // The trailing half: the glyph's rect widened by its padding, as tall as the split.
+    final glyph = globalRectOf(glyphContext);
+    final split = globalRectOf(context);
+    final anchor = Rect.fromLTRB(
+      glyph.left - _splitTrailingPadding,
+      split.top,
+      glyph.right + _splitTrailingPadding,
+      split.bottom,
+    );
+    setState(() => _menuOpen = true);
     final chosen = await showYoinDropdownMenu<_SplitMenuItem>(
       context: navigatorContext,
-      anchor: globalRectOf(buttonContext),
-      items: [
-        YoinMenuItem(value: _SplitMenuItem.shuffle, label: strings.playMenuShuffle, icon: YoinSymbols.shuffle),
-      ],
+      anchor: anchor,
+      items: [YoinMenuItem(value: _SplitMenuItem.shuffle, label: strings.playMenuShuffle, icon: YoinSymbols.shuffle)],
     );
-    _menuOpen = false;
     if (!mounted) return;
-    _hinge.animateTo(0);
+    setState(() => _menuOpen = false);
     if (chosen == _SplitMenuItem.shuffle) onShuffle();
   }
 
   @override
   void dispose() {
     _color.dispose();
-    _hinge.dispose();
     super.dispose();
   }
 
@@ -411,79 +477,52 @@ class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
     _toContent = widget.actions.playContent ?? colors.onPrimary;
     _fromContainer ??= _toContainer;
     _fromContent ??= _toContent;
-    final onShuffle = widget.actions.onShuffle;
+    final onShuffle = widget.shuffleInMenu ? widget.actions.onShuffle : null;
     return AnimatedBuilder(
-      animation: Listenable.merge([_color.animation, _hinge.animation]),
+      animation: _color.animation,
       builder: (context, _) {
         final t = _color.value.clamp(0.0, 1.0);
         final container = Color.lerp(_fromContainer, _toContainer, t)!;
         final content = Color.lerp(_fromContent, _toContent, t)!;
-        const inner = Radius.circular(BarTokens.splitInnerCorner);
-        final outer = Radius.circular(widget.height / 2);
-        return Row(
-          children: [
-            Expanded(
-              child: Material(
-                color: container,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.horizontal(left: outer, right: onShuffle == null ? outer : inner),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () {
-                    YoinHaptics.click();
-                    widget.actions.onPlay();
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(YoinSymbols.playFilled, size: 20, color: content),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            strings.playLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.clip,
-                            softWrap: false,
-                            style: Theme.of(context).textTheme.titleMedium!.copyWith(color: content),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (onShuffle != null) ...[
-              const SizedBox(width: BarTokens.splitGap),
-              Builder(
-                builder: (buttonContext) => Semantics(
-                  button: true,
-                  label: strings.playCdMore,
-                  excludeSemantics: true,
-                  child: Material(
-                    color: container,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.horizontal(left: inner, right: outer),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: () => _openMenu(buttonContext, onShuffle),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        child: Transform.rotate(
-                          angle: 3.141592653589793 * _hinge.value,
-                          child: Icon(YoinSymbols.chevronDown, size: 20, color: content),
-                        ),
-                      ),
-                    ),
-                  ),
+        return ExpressiveSplitButton(
+          height: widget.height,
+          containerColor: container,
+          contentColor: content,
+          // compact = true (YoinButtonGroup): 16 / 14 dp content padding.
+          leadingPadding: _splitLeadingPadding,
+          trailingPadding: _splitTrailingPadding,
+          onLeadingTap: () {
+            YoinHaptics.click();
+            widget.actions.onPlay();
+          },
+          leading: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(YoinSymbols.playFilled, size: M3eSplitButtonTokens.leadingIconSize, color: content),
+              const SizedBox(width: _buttonIconSpacing),
+              Flexible(
+                child: Text(
+                  strings.playLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.clip,
+                  softWrap: false,
+                  style: Theme.of(context).textTheme.titleMedium!.copyWith(color: content),
                 ),
               ),
             ],
-          ],
+          ),
+          onTrailingTap: onShuffle == null
+              ? null
+              // TrailingButton(onCheckedChange): no haptic of its own on Android.
+              : () => _openMenu(onShuffle),
+          trailingChecked: _menuOpen,
+          trailingSemanticLabel: strings.playCdMore,
+          trailing: Builder(
+            builder: (anchorContext) {
+              _anchorContext = anchorContext;
+              return ExpandChevron(expanded: _menuOpen, color: content);
+            },
+          ),
         );
       },
     );
@@ -491,3 +530,41 @@ class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
 }
 
 enum _SplitMenuItem { shuffle }
+
+/// A promoted page action as a round tonal button (YoinButtonGroup
+/// BarExtraButton: FilledTonalIconButton, surfaceContainerHighest /
+/// onSurfaceVariant, 22 dp glyph, the bar's button height square).
+class _BarExtraButton extends StatelessWidget {
+  const _BarExtraButton({required this.icon, required this.label, required this.size, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final double size;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox.square(
+      dimension: size,
+      child: ExpressiveSurfaceButton(
+        shapes: const InteractionShapes.fixed(CornerRadii.full),
+        height: size,
+        color: colors.surfaceContainerHighest,
+        contentColor: colors.onSurfaceVariant,
+        semanticLabel: label,
+        onTap: onTap,
+        child: Icon(icon, size: _extraIconSize, color: colors.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+const double _extraIconSize = 22;
+
+/// PlaySplitButton(compact = true): the halves' horizontal content padding.
+const double _splitLeadingPadding = 16;
+const double _splitTrailingPadding = 14;
+
+/// ButtonDefaults.IconSpacing.
+const double _buttonIconSpacing = 8;

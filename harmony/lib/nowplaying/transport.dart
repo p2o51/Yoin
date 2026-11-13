@@ -7,6 +7,8 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'haptics.dart';
 import 'nowplaying_strings.dart';
+import '../ui/component/expressive/expressive_shapes.dart';
+import '../ui/component/expressive/expressive_surface_button.dart';
 import '../playback/play_mode.dart';
 import 'playhead_clock.dart';
 import 'wave_progress_bar.dart';
@@ -117,7 +119,6 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
                 _RoundKey(
                   icon: YoinSymbols.skipPreviousFilled,
                   semantics: NowPlayingStrings.of(context).cdSkipPrevious,
-                  secondary: true,
                   onTap: () {
                     YoinHaptics.tick();
                     widget.onPrevious();
@@ -238,14 +239,15 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
     final style = _wordStyle(context, playing);
     final word = playing ? strings.pauseWord : strings.playWord;
     final scaler = MediaQuery.textScalerOf(context);
-    final measured = strings.isEnglish
-        ? (TextPainter(
-            text: TextSpan(text: word, style: style),
-            textDirection: TextDirection.ltr,
-            textScaler: scaler,
-            maxLines: 1,
-          )..layout()).width
-        : NowPlayingTokens.controlSize * 0.5;
+    // np_transport_*_word is untranslatable: every locale measures the
+    // English word, so the pill is the same size whether it spells the word
+    // or shows the glyph in its box (PlaybackControls.kt wordTargetWidth).
+    final measured = (TextPainter(
+      text: TextSpan(text: word, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout()).width;
     final reduce = MediaQuery.disableAnimationsOf(context);
     if (!_boxReady || reduce) {
       _box.snapTo(measured);
@@ -261,7 +263,8 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
     return AnimatedBuilder(
       animation: Listenable.merge([_box.animation, _pad.animation, _stretch.animation, _glyph.animation]),
       builder: (context, _) {
-        final playNatural = _box.value + 2 * _pad.value;
+        // FilledTonalButton's intrinsic width never drops below ButtonDefaults.MinWidth.
+        final playNatural = math.max(M3eButtonTokens.minWidth, _box.value + 2 * _pad.value);
         final (playW, nextW) = transportKeyWidths(
           playNatural,
           NowPlayingTokens.controlSize,
@@ -272,7 +275,7 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
           mainAxisSize: MainAxisSize.min,
           children: [
             _PressKey(
-              width: math.max(NowPlayingTokens.controlSize, playW),
+              width: math.max(0.0, playW),
               color: colors.primary,
               semantics: playing ? strings.cdPause : strings.cdPlay,
               onPressed: (down) {
@@ -284,32 +287,43 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
                 YoinHaptics.click();
                 widget.onPlayPause();
               },
+              // The word's box carries the pill's width; the content is centred
+              // in it. English lays the word out at its own width (unbounded)
+              // and stretches it in X from its own leading edge; every other
+              // locale shows the glyph, swelling in X and Y about its centre.
               child: SizedBox(
                 width: _box.value,
-                child: Transform.scale(
-                  scaleX: _stretch.value,
-                  alignment: AlignmentDirectional.centerStart,
-                  child: strings.isEnglish
-                      ? Text(word, style: style, maxLines: 1, softWrap: false, overflow: TextOverflow.visible)
-                      : Stack(
+                child: strings.isEnglish
+                    ? OverflowBox(
+                        minWidth: 0,
+                        maxWidth: double.infinity,
+                        child: Transform.scale(
+                          scaleX: _stretch.value,
+                          alignment: Alignment.centerLeft,
+                          child: Text(word, style: style, maxLines: 1, softWrap: false),
+                        ),
+                      )
+                    : Transform.scale(
+                        scale: _stretch.value,
+                        child: Stack(
                           alignment: Alignment.center,
                           children: [
                             Opacity(
                               opacity: (1 - _glyph.value).clamp(0.0, 1.0),
-                              child: Icon(YoinSymbols.playFilled, size: 28, color: colors.onPrimary),
+                              child: Icon(YoinSymbols.playFilled, size: _iconSize, color: colors.onPrimary),
                             ),
                             Opacity(
                               opacity: _glyph.value.clamp(0.0, 1.0),
-                              child: Icon(YoinSymbols.pauseFilled, size: 28, color: colors.onPrimary),
+                              child: Icon(YoinSymbols.pauseFilled, size: _iconSize, color: colors.onPrimary),
                             ),
                           ],
                         ),
-                ),
+                      ),
               ),
             ),
             const SizedBox(width: NowPlayingTokens.transportGap),
             _PressKey(
-              width: math.max(40, nextW),
+              width: math.max(0.0, nextW),
               color: colors.primary,
               semantics: strings.cdSkipNext,
               onPressed: (down) => widget.onPressed(down ? TransportKey.next : TransportKey.none),
@@ -317,7 +331,7 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
                 YoinHaptics.tick();
                 widget.onNext();
               },
-              child: Icon(YoinSymbols.skipNextFilled, size: 28, color: colors.onPrimary),
+              child: Icon(YoinSymbols.skipNextFilled, size: _iconSize, color: colors.onPrimary),
             ),
           ],
         );
@@ -326,6 +340,9 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
   }
 }
 
+/// One key of the PLAY | NEXT group: a filled stadium (FilledTonalButton
+/// with shapes.extraLarge / FilledIconButton's round filledShape — neither
+/// morphs on press; the group's width exchange is the press response).
 class _PressKey extends StatelessWidget {
   const _PressKey({
     required this.width,
@@ -344,59 +361,49 @@ class _PressKey extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: semantics,
-    excludeSemantics: true,
-    child: SizedBox(
-      width: width,
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
+    child: ExpressiveSurfaceButton(
+      shapes: const InteractionShapes.fixed(CornerRadii.full),
       height: NowPlayingTokens.controlSize,
-      child: Material(
-        color: color,
-        shape: const StadiumBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          onTapDown: (_) => onPressed(true),
-          onTapUp: (_) => onPressed(false),
-          onTapCancel: () => onPressed(false),
-          child: Center(child: child),
-        ),
-      ),
+      color: color,
+      contentColor: Theme.of(context).colorScheme.onPrimary,
+      semanticLabel: semantics,
+      onPressChanged: onPressed,
+      onTap: onTap,
+      child: child,
     ),
   );
 }
 
+/// PREVIOUS: FilledIconButton (round, no press morph) in secondary / onSecondary.
 class _RoundKey extends StatelessWidget {
-  const _RoundKey({required this.icon, required this.semantics, required this.onTap, this.secondary = false});
+  const _RoundKey({required this.icon, required this.semantics, required this.onTap});
 
   final IconData icon;
   final String semantics;
   final VoidCallback onTap;
-  final bool secondary;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Semantics(
-      button: true,
-      label: semantics,
-      excludeSemantics: true,
-      child: SizedBox.square(
-        dimension: NowPlayingTokens.controlSize,
-        child: Material(
-          color: secondary ? colors.secondary : colors.primary,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: Icon(icon, size: 28, color: secondary ? colors.onSecondary : colors.onPrimary),
-          ),
-        ),
+    return SizedBox.square(
+      dimension: NowPlayingTokens.controlSize,
+      child: ExpressiveSurfaceButton(
+        shapes: const InteractionShapes.fixed(CornerRadii.full),
+        height: NowPlayingTokens.controlSize,
+        color: colors.secondary,
+        contentColor: colors.onSecondary,
+        semanticLabel: semantics,
+        onTap: onTap,
+        child: Icon(icon, size: _iconSize, color: colors.onSecondary),
       ),
     );
   }
 }
+
+/// controlIconSize = controlSize × 0.5 (56 → 28).
+const double _iconSize = NowPlayingTokens.controlSize * 0.5;
 
 /// The round play-mode key: tertiaryContainer at repeat-all, lit (primary)
 /// otherwise; Off modes draw the repeat glyph with a slash drawn in on the
@@ -461,49 +468,55 @@ class _PlayModeButtonState extends State<PlayModeButton> with TickerProviderStat
       label: strings.cdPlayMode,
       value: _state(strings),
       excludeSemantics: true,
-      child: GestureDetector(
-        onTap: () {
-          YoinHaptics.tick();
-          widget.onTap();
-        },
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_lit.animation, _slash.animation]),
-          builder: (context, _) {
-            final lit = _lit.value.clamp(0.0, 1.0);
-            final container = Color.lerp(colors.tertiaryContainer, colors.primary, lit)!;
-            final content = Color.lerp(colors.onTertiaryContainer, colors.onPrimary, lit)!;
-            return Container(
-              width: NowPlayingTokens.controlSize,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_lit.animation, _slash.animation]),
+        builder: (context, _) {
+          final lit = _lit.value.clamp(0.0, 1.0);
+          final container = Color.lerp(colors.tertiaryContainer, colors.primary, lit)!;
+          final content = Color.lerp(colors.onTertiaryContainer, colors.onPrimary, lit)!;
+          // A circle (clip(CircleShape) + combinedClickable: ripple, no press morph).
+          return SizedBox.square(
+            dimension: NowPlayingTokens.controlSize,
+            child: ExpressiveSurfaceButton(
+              shapes: const InteractionShapes.fixed(CornerRadii.full),
               height: NowPlayingTokens.controlSize,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: container),
-              child: CustomPaint(
-                foregroundPainter: _SlashPainter(
-                  progress: _slash.value.clamp(0.0, 1.0),
-                  color: content,
-                  halo: container,
-                ),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Icon(glyph, size: 28, color: content),
-                    // Shuffle + repeat one: Android has a dedicated symbol; v1 badges a "1".
-                    if (mode == PlayMode.shuffleRepeatOne)
-                      Positioned(
-                        right: 10,
-                        bottom: 9,
-                        child: Text(
-                          '1',
-                          style: Theme.of(
-                            context,
-                          ).textTheme.labelSmall!.copyWith(color: content, fontWeight: FontWeight.w700),
+              color: container,
+              contentColor: content,
+              onTap: () {
+                YoinHaptics.tick();
+                widget.onTap();
+              },
+              child: SizedBox.square(
+                dimension: NowPlayingTokens.controlSize,
+                child: CustomPaint(
+                  foregroundPainter: _SlashPainter(
+                    progress: _slash.value.clamp(0.0, 1.0),
+                    color: content,
+                    halo: container,
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(glyph, size: 28, color: content),
+                      // Shuffle + repeat one: Android has a dedicated symbol; v1 badges a "1".
+                      if (mode == PlayMode.shuffleRepeatOne)
+                        Positioned(
+                          right: 10,
+                          bottom: 9,
+                          child: Text(
+                            '1',
+                            style: Theme.of(
+                              context,
+                            ).textTheme.labelSmall!.copyWith(color: content, fontWeight: FontWeight.w700),
+                          ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
     );
   }

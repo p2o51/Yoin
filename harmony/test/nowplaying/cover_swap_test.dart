@@ -37,4 +37,12 @@ void main() {
     expect(s.push('a'), isNull);
     expect(s.layers, hasLength(1));
   });
+  test('should_snapFirstImage_when_nothingUnderIt', () {
+    final s = CoverSwapLayers();
+    final first = s.push('a')!;
+    final second = s.push('b')!;
+    expect(CoverSwapLayers.revealsInstantly(first, synchronous: false), isTrue, reason: 'no base: snaps');
+    expect(CoverSwapLayers.revealsInstantly(second, synchronous: false), isFalse, reason: 'dissolves over a');
+    expect(CoverSwapLayers.revealsInstantly(second, synchronous: true), isTrue, reason: 'memory hit snaps');
+  });
 }
