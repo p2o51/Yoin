@@ -19,6 +19,10 @@ import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.memory.MemoryLedgerView
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
+import com.gpo.yoin.ui.home.AccountSwitcherViewModel
+import com.gpo.yoin.ui.memories.MemoryOtherProfile
+import com.gpo.yoin.ui.memories.MemorySwitchNotice
+import com.gpo.yoin.ui.memories.rememberMemorySwitchGate
 
 /**
  * All Memories (owner 2026-11-08), opened from Home's Memories grid.
@@ -38,16 +42,33 @@ class MemoryLedgerActivity : ComponentActivity() {
                 // The view picked last time, kept on this device.
                 val viewState = rememberSaveable { mutableStateOf(storedView()) }
                 LaunchedEffect(viewState.value) { storeView(viewState.value) }
+                // Another account's album switches there first; the first time, the one-off notice asks
+                // (the same notice and flag as the Memories deck and Home's other-accounts shelf).
+                val switchGate = rememberMemorySwitchGate()
+                val accountSwitcher: AccountSwitcherViewModel =
+                    viewModel(factory = AccountSwitcherViewModel.Factory(container))
                 MemoryLedgerScreen(
                     state = state,
                     onBackClick = { finish() },
                     onOpenAlbum = { album ->
-                        // Only the account in use's albums open here (the screen doesn't offer the rest).
-                        startActivity(AlbumDetailActivity.intent(this, album.mediaId.toString()))
+                        val open = { startActivity(AlbumDetailActivity.intent(this, album.mediaId.toString())) }
+                        val owner = state?.profile(album.profileId)
+                        if (owner == null || owner.id == state?.activeProfileId) {
+                            open()
+                        } else {
+                            switchGate.request(
+                                owner = MemoryOtherProfile(owner.id, owner.name, owner.shape, owner.kind),
+                                subject = album.name,
+                                opensAlbum = true,
+                            ) {
+                                accountSwitcher.switchTo(owner.id, onLanded = open)
+                            }
+                        }
                     },
                     viewState = viewState,
                     modifier = Modifier.fillMaxSize(),
                 )
+                MemorySwitchNotice(switchGate)
             }
         }
     }
