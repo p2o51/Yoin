@@ -56,7 +56,7 @@
     <string name="ai_note_gemini">The first 5,000 searches each month are free; after that, about $25 per 1,000 songs. A free key without billing can\'t search and gets error 429.</string>
     <string name="ai_note_deepseek">Works in mainland China without a proxy. Search uses the same key and is charged per call.</string>
     <string name="ai_note_qwen">Works in mainland China without a proxy. Search uses the same key and is charged per call.</string>
-    <string name="ai_tiers_source">Speed from a 500-song test, accuracy checked on 109 of them; cost at current prices.</string>
+    <string name="ai_tiers_source">Speed and accuracy from a 500-song test; cost at current prices.</string>
     <string name="ai_try_song">Song</string>
     <string name="ai_try_artist">Artist</string>
     <string name="ai_try_album">Album</string>

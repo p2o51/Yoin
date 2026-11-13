@@ -50,7 +50,7 @@
     <string name="ai_note_gemini">每月前 5,000 次搜索免费，超出后每千首约 $25。没开结算的免费密钥不能搜索，会报 429。</string>
     <string name="ai_note_deepseek">国内可以直接用，不需要代理。搜索用同一个密钥，按次收费。</string>
     <string name="ai_note_qwen">国内可以直接用，不需要代理。搜索用同一个密钥，按次收费。</string>
-    <string name="ai_tiers_source">速度来自 500 首歌的测试，准确核对了其中 109 首，花费按当前价格算。</string>
+    <string name="ai_tiers_source">速度和准确来自 500 首歌的测试，花费按当前价格算。</string>
     <string name="ai_try_song">歌名</string>
     <string name="ai_try_artist">艺人</string>
     <string name="ai_try_album">专辑</string>
