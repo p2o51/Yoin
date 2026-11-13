@@ -8,10 +8,11 @@ import com.gpo.yoin.data.remote.ai.AiTier
  *
  * Source: the 500-song benchmark of 2026-11-13 (499 songs after duplicates),
  * About prompt in Simplified Chinese, no thinking. [seconds] is the median over
- * all of them. [accuracy] comes from 109 of them checked against search
- * results by one judge model: (right + half of partly right) over the release
- * date, lyricist, composer and producer fields, an empty field counting as
- * zero. [costPer1000] is US$ for 1,000 About calls at list prices, tokens plus
+ * all of them. [accuracy] is the mean of two scores a Gemini agent gave every
+ * answer against reference answers: the five fields (release date, place,
+ * lyricist, composer, producer; fields no public source settles left out, an
+ * empty field counting as zero) and the review paragraph's factuality.
+ * [costPer1000] is US$ for 1,000 About calls at list prices, tokens plus
  * search; Gemini's assumes the monthly 5,000 free searches, and 3.5
  * Flash-Lite's token price is a third party's figure. Qwen's is converted from
  * yuan at 7.1. DeepSeek's two-search tier was not run on this set. Qwen has
@@ -50,12 +51,12 @@ data class AiTierPoint(
 
 object AiTierBenchmark {
     val points: List<AiTierPoint> = listOf(
-        AiTierPoint(AiProvider.Gemini, AiTier.Good, accuracy = 94f, seconds = 2.8f, costPer1000 = 0.54f),
-        AiTierPoint(AiProvider.Gemini, AiTier.Best, accuracy = 93f, seconds = 2.6f, costPer1000 = 0.95f, costEstimated = true),
+        AiTierPoint(AiProvider.Gemini, AiTier.Good, accuracy = 95f, seconds = 2.8f, costPer1000 = 0.54f),
+        AiTierPoint(AiProvider.Gemini, AiTier.Best, accuracy = 95f, seconds = 2.6f, costPer1000 = 0.95f, costEstimated = true),
         AiTierPoint(AiProvider.DeepSeek, AiTier.Good, accuracy = 92f, seconds = 3.7f, costPer1000 = 2.89f),
         // Not run on the 500 songs: drawn as a hollow dot.
         AiTierPoint(AiProvider.DeepSeek, AiTier.Best, accuracy = null, seconds = null, costPer1000 = null),
-        AiTierPoint(AiProvider.Qwen, AiTier.Good, accuracy = 81f, seconds = 4.9f, costPer1000 = 0.57f),
+        AiTierPoint(AiProvider.Qwen, AiTier.Good, accuracy = 83f, seconds = 4.9f, costPer1000 = 0.57f),
     )
 
     fun point(provider: AiProvider, tier: AiTier): AiTierPoint? =
