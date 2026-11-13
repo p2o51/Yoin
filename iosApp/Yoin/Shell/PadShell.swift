@@ -185,7 +185,18 @@ private struct PadColumns: View {
             // the space left beside the Now Playing panel: beside the panel the two columns share what is
             // left, each at least a phone column (the panel only opens there when 744 is left).
             if model.padWidth >= 840 {
-                wideColumns(w: w)
+                // Settings in two panes takes the whole window over the columns (Android's Settings
+                // list-detail, I27); the columns keep their pages under it.
+                ZStack {
+                    wideColumns(w: w)
+                        .accessibilityHidden(settingsIndex != nil)
+                    if let settingsIndex {
+                        SettingsSplitView(tail: settingsTail(settingsIndex)) { AnyView(destination($0)) }
+                            .background(Yoin.surface.ignoresSafeArea())
+                            .transition(.move(edge: .trailing))
+                    }
+                }
+                .animation(Yoin.spatial, value: settingsIndex != nil)
             } else {
                 NavigationStack(path: path) {
                     shellContent
@@ -239,8 +250,31 @@ private struct PadColumns: View {
 
     private var columnContent: ColumnContent? {
         if let album = model.padSelection { return .album(album) }
-        if let first = model.path.first { return .route(first) }
+        if let first = columnPath.first { return .route(first) }
         return nil
+    }
+
+    /// Where `.settings` sits in the path while Settings is up in two panes (a wide window).
+    private var settingsIndex: Int? {
+        guard active, model.settingsSplitShown else { return nil }
+        return model.path.firstIndex(of: .settings)
+    }
+
+    /// The path the columns show: up to Settings while it is up in two panes (its pages are its own).
+    private var columnPath: [Route] {
+        guard let settingsIndex else { return model.path }
+        return Array(model.path[..<settingsIndex])
+    }
+
+    /// The columns' path written back, Settings and what is on it kept.
+    private func setColumnPath(_ new: [Route]) {
+        if let settingsIndex { model.path = new + model.path[settingsIndex...] } else { model.path = new }
+    }
+
+    /// The two-pane Settings' page side: the routes pushed after `.settings`.
+    private func settingsTail(_ index: Int) -> Binding<[Route]> {
+        Binding(get: { Array(model.path.dropFirst(index + 1)) },
+                set: { tail in model.path = Array(model.path.prefix(index + 1)) + tail })
     }
 
     private var columnWanted: Bool { active && columnContent != nil }
@@ -407,8 +441,8 @@ private struct PadColumns: View {
     /// The column's stack above its root page (`model.path` after the first).
     private var tailPath: Binding<[Route]> {
         guard active else { return .constant([]) }
-        return Binding(get: { Array(model.path.dropFirst()) },
-                       set: { tail in model.path = Array(model.path.prefix(1)) + tail })
+        return Binding(get: { Array(columnPath.dropFirst()) },
+                       set: { tail in setColumnPath(Array(columnPath.prefix(1)) + tail) })
     }
 
     @ViewBuilder
@@ -421,7 +455,7 @@ private struct PadColumns: View {
     }
 
     private var path: Binding<[Route]> {
-        active ? Binding(get: { model.path }, set: { model.path = $0 }) : .constant([])
+        active ? Binding(get: { columnPath }, set: { setColumnPath($0) }) : .constant([])
     }
 
     /// A page pushed over the shell (no detail column): it keeps its last row clear of the Play split,

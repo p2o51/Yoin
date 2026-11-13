@@ -76,7 +76,8 @@ extension AppModel {
         let step = ShellBackOrder.step(
             searchActive: searchActive,
             fullNowPlaying: npExpanded,
-            pageCoversShell: !wideColumn && !path.isEmpty,
+            // Two-pane Settings covers the whole window, as a pushed page does.
+            pageCoversShell: settingsSplitShown || (!wideColumn && !path.isEmpty),
             panelOpen: isPad && npPanel,
             columnOpen: wideColumn && (padSelection != nil || !path.isEmpty),
             memoriesOpen: section == .home && memories.isOpen,

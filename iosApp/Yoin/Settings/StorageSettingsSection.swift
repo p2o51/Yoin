@@ -14,6 +14,8 @@ struct StorageSettingsSection: View {
     /// The NeoDB page, opened by its row (and by Settings for "Sign in to sync").
     @Binding var neodbOpen: Bool
     @State private var neodb = NeoDBAccount.shared
+    /// The two-pane Settings' list: NeoDB's row picks its page beside it.
+    @Environment(\.settingsList) private var list
 
     @State private var bytes: Int64?
     @State private var clearing = false
@@ -28,11 +30,11 @@ struct StorageSettingsSection: View {
                 .accessibilityAddTraits(.isHeader)
             VStack(spacing: 2) {
                 CloudSyncEntryRow(app: app, row: row, shape: CloudSyncView.segment(0, 3))
-                Button { neodbOpen = true } label: {
+                Button { if let list { list.pick(.neodb) } else { neodbOpen = true } } label: {
                     SettingsRowLabel(title: "NeoDB", summary: neodbSummary, app: app, trailing: "chevron_right")
                 }
                 .buttonStyle(.plain)
-                .background(row, in: CloudSyncView.segment(1, 3))
+                .settingsSegment(1, 3, row: row, app: app, picked: list?.picked == .neodb)
                 // Downloads (Subsonic only) are on the Subsonic account's page (SubsonicAccountSettings).
                 cacheRow
                     .background(row, in: CloudSyncView.segment(2, 3))

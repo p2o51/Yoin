@@ -19,6 +19,8 @@ struct ServerSettingsView: View {
     @State private var setup: ServiceSetupRequest?
     /// Settings › Sync and storage › NeoDB, open (also straight from the scrapbook's "Sign in to sync").
     @State private var neodbOpen = false
+    /// The two-pane Settings' list (a wide iPad window): page rows pick the page beside it.
+    @Environment(\.settingsList) private var list
 
     private var apple: AppleMusicSource { model.appleMusic }
     private var active: ActiveSource { model.sources.active }
@@ -26,8 +28,9 @@ struct ServerSettingsView: View {
         model.isIdle ? .brand(dark: colorScheme == .dark)
                      : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
     }
-    /// Pixel's rule: page surfaceContainer, rows surfaceBright.
-    private var page: Color { app.surfaceContainer }
+    /// Pixel's rule: page surfaceContainer, rows surfaceBright; the two-pane list steps down to
+    /// surfaceDim, the page beside it keeps surfaceContainer (Android SettingsColors `listPane`).
+    private var page: Color { list == nil ? app.surfaceContainer : app.surfaceDim }
     private var row: Color { app.surfaceBright }
 
     var body: some View {
@@ -39,8 +42,8 @@ struct ServerSettingsView: View {
                     .padding(.horizontal, 8)
                     .padding(.top, 8)
                 AccountsSection(app: app, row: row,
-                                onAdd: { setup = ServiceSetupRequest() },
-                                onManage: { setup = ServiceSetupRequest(profileId: $0.id) })
+                                onAdd: { open(.addAccount) { setup = ServiceSetupRequest() } },
+                                onManage: { p in open(.account(p.id)) { setup = ServiceSetupRequest(profileId: p.id) } })
                 // 51 2026-11-09 (Android #191): Features / Sync and storage / Help and about, every row a page.
                 featuresGroup
                 StorageSettingsSection(app: app, row: row, neodbOpen: $neodbOpen)
@@ -65,7 +68,7 @@ struct ServerSettingsView: View {
         // `-settingsOpenSetup add|active|apple` (QA screenshots): Add account, the account in use's page, or
         // the Apple Music account's page (its Song names group; no MusicKit sign-in on a simulator).
         .task {
-            guard let open = UserDefaults.standard.string(forKey: "settingsOpenSetup") else { return }
+            guard list == nil, let open = UserDefaults.standard.string(forKey: "settingsOpenSetup") else { return }
             try? await Task.sleep(for: .milliseconds(900))
             setup = ServiceSetupRequest(profileId: open == "active" ? model.profiles.activeId
                                         : open == "apple" ? ProfileStore.appleMusicId : nil)
@@ -83,7 +86,8 @@ struct ServerSettingsView: View {
 
     private var topBar: some View {
         HStack {
-            Button { model.back() } label: {
+            // The two-pane list's ← closes Settings, whatever the page beside it has pushed.
+            Button { if list == nil { model.back() } else { model.closeSettings() } } label: {
                 YoinIcon("back", size: 22)
                     .foregroundStyle(app.onSurface)
                     .frame(width: 40, height: 40)
@@ -99,8 +103,15 @@ struct ServerSettingsView: View {
         .padding(.vertical, 4)
     }
 
+    /// A row in a group: what it shows, and the page it opens (its pick in the two-pane list).
+    private struct Row {
+        var pane: SettingsPane?
+        var view: AnyView
+        init(_ view: some View, pane: SettingsPane? = nil) { self.view = AnyView(view); self.pane = pane }
+    }
+
     /// Group label (labelLarge primary, 8 in) over its rows as segments.
-    private func group(_ title: String, rows: () -> [AnyView]) -> some View {
+    private func group(_ title: String, rows: () -> [Row]) -> some View {
         let items = rows()
         return VStack(alignment: .leading, spacing: 8) {
             Text(title)
@@ -110,24 +121,36 @@ struct ServerSettingsView: View {
                 .accessibilityAddTraits(.isHeader)
             VStack(spacing: 2) {
                 ForEach(items.indices, id: \.self) { i in
-                    items[i]
+                    items[i].view
                         .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                        .background(row, in: segment(i, items.count))
+                        .settingsSegment(i, items.count, row: row, app: app,
+                                         picked: items[i].pane != nil && items[i].pane == list?.picked)
                 }
             }
         }
     }
 
-    private func segment(_ i: Int, _ count: Int) -> UnevenRoundedRectangle {
-        let top: CGFloat = i == 0 ? 20 : 4
-        let bottom: CGFloat = i == count - 1 ? 20 : 4
-        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
-                                      bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular)
+    /// A page row: in the two-pane list it picks `pane`; otherwise `push` pushes the page.
+    private func open(_ pane: SettingsPane, push: () -> Void) {
+        if let list { list.pick(pane) } else { push() }
     }
 
-    /// Another screen asked for one of the pages (AppModel.openSettings(_:)): opened once.
+    /// A row that opens one of Settings' pages: pushed, or picked beside the two-pane list.
+    private func pageRow(_ title: String, summary: String? = nil, pane: SettingsPane,
+                         @ViewBuilder destination: @escaping () -> some View) -> Row {
+        if let list {
+            return Row(Button { list.pick(pane) } label: {
+                SettingsRowLabel(title: title, summary: summary, app: app, trailing: "chevron_right")
+            }
+            .buttonStyle(.plain), pane: pane)
+        }
+        return Row(SettingsNavRow(title: title, summary: summary, app: app, destination: destination), pane: pane)
+    }
+
+    /// Another screen asked for one of the pages (AppModel.openSettings(_:)): opened once. The two-pane
+    /// Settings takes it itself (SettingsSplitView).
     private func takeDestination() {
-        guard let d = model.settingsDestination else { return }
+        guard list == nil, let d = model.settingsDestination else { return }
         model.settingsDestination = nil
         switch d {
         case .neodb: neodbOpen = true
@@ -140,14 +163,12 @@ struct ServerSettingsView: View {
     /// Features: AI features and Yoin Labs (Android #189 #191).
     private var featuresGroup: some View {
         group(String(localized: "Features")) {
-            [AnyView(SettingsNavRow(title: String(localized: "AI features"), summary: geminiSummary, app: app) {
-                SettingsPage(title: String(localized: "AI features")) { app, row in
-                    GeminiSettingsSection(app: app, row: row, page: true)
-                }
-            }),
-             AnyView(SettingsNavRow(title: "Yoin Labs", summary: String(localized: "Experimental features"), app: app) {
+            [pageRow(String(localized: "AI features"), summary: geminiSummary, pane: .aiFeatures) {
+                AIFeaturesPage()
+             },
+             pageRow("Yoin Labs", summary: String(localized: "Experimental features"), pane: .labs) {
                 LabsView()
-             })]
+             }]
         }
     }
 
@@ -162,25 +183,25 @@ struct ServerSettingsView: View {
     /// version; the website and privacy policy inside), Open source licenses; and iOS's Export log.
     private var aboutGroup: some View {
         group(String(localized: "Help and about")) {
-            [AnyView(TipsEntryRow(app: app)),
-             AnyView(Button { model.openWelcomeGuide() } label: {
+            [Row(TipsEntryRow(app: app), pane: .tips),
+             Row(Button { model.openWelcomeGuide() } label: {
                 SettingsRowLabel(title: String(localized: "Welcome guide"), app: app)
              }
              .buttonStyle(.plain)),
-             AnyView(aboutLink(String(localized: "Docs"), AboutLinks.docs(language: AboutLinks.currentLanguage))),
-             AnyView(aboutLink(String(localized: "Send feedback"), AboutLinks.feedback)),
+             Row(aboutLink(String(localized: "Docs"), AboutLinks.docs(language: AboutLinks.currentLanguage))),
+             Row(aboutLink(String(localized: "Send feedback"), AboutLinks.feedback)),
              // Playback diagnostics, shared from the phone (Spotify issues away from the Mac).
-             AnyView(ShareLink(item: PlayTraceExport(), preview: SharePreview("Yoin log")) {
+             Row(ShareLink(item: PlayTraceExport(), preview: SharePreview("Yoin log")) {
                 SettingsRowLabel(title: String(localized: "Export log"), summary: String(localized: "Playback diagnostics"),
                                  app: app, trailing: "share")
              }
              .buttonStyle(.plain)),
-             AnyView(SettingsNavRow(title: "Yoin", summary: String(localized: "Version \(AboutLinks.versionName())"), app: app) {
+             pageRow("Yoin", summary: String(localized: "Version \(AboutLinks.versionName())"), pane: .about) {
                 AboutYoinView()
-             }),
-             AnyView(SettingsNavRow(title: String(localized: "Open source licenses"), app: app) {
+             },
+             pageRow(String(localized: "Open source licenses"), pane: .licenses) {
                 OpenSourceLicensesView()
-             })]
+             }]
         }
     }
 

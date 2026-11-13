@@ -49,6 +49,9 @@ final class AppModel {
     }
     /// A Settings page to open on arrival (the scrapbook's "Sign in to sync" → NeoDB); taken once.
     var settingsDestination: SettingsDestination?
+    /// The pages pushed on the two-pane Settings' page side, topmost last: ⌘[ pops the topmost
+    /// (SettingsPaneBack). Its root page isn't here; ⌘[ then closes Settings.
+    @ObservationIgnored var settingsPanePops: [SettingsPanePop] = []
     var padSelection: Album? {
         // An album picked into the column, also the one already there, is the newest step (Android openPane).
         didSet { noteBackSurface(.column, open: padSelection != nil || !path.isEmpty) }
@@ -521,6 +524,13 @@ final class AppModel {
     /// the bar starts its detail → shell morph with the pop instead of when
     /// the pop finishes.
     func back() {
+        // iPad, two-pane Settings (wide window): a page pushed on the page side pops, then a route pushed
+        // there, then Settings closes.
+        if settingsSplitShown, let index = path.firstIndex(of: .settings) {
+            if let top = settingsPanePops.last { top.pop(); return }
+            if path.count > index + 1 { path.removeLast() } else { closeSettings() }
+            return
+        }
         // iPad: the album picked into the detail column is the column's root; its ← closes the column.
         if path.isEmpty, isPad, padSelection != nil {
             withAnimation(Yoin.spatial) { padSelection = nil }
@@ -615,7 +625,21 @@ final class AppModel {
     func openSettings(_ destination: SettingsDestination? = nil) {
         settingsDestination = destination
         if path.last == .settings { return }
+        // Two-pane Settings already up with a page pushed on its side: the destination is picked there.
+        if settingsSplitShown, path.contains(.settings) { return }
         path.append(.settings)
+    }
+
+    /// iPad: Settings takes the whole window in two panes (a wide window; SettingsSplitLayout).
+    var settingsSplitShown: Bool {
+        isPad && SettingsSplitLayout.splits(window: padWidth) && path.contains(.settings)
+    }
+
+    /// Settings and whatever was opened on it close; the page under it stays (the list's ←).
+    func closeSettings() {
+        guard let index = path.firstIndex(of: .settings) else { return }
+        settingsPanePops.removeAll()
+        withAnimation(Yoin.spatial) { path.removeSubrange(index...) }
     }
 
     // MARK: Pages' data (server when signed in, else the mock)

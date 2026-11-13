@@ -104,6 +104,7 @@ struct TipView: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
+            .settingsPaneBack()
             Spacer()
             Text(Tips.positionLine(index: tips.firstIndex(of: current) ?? 0, total: tips.count))
                 .yoinRole(Tokens.type.labelLarge)

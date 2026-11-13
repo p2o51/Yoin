@@ -17,8 +17,11 @@ struct CloudSyncEntryRow: View {
         #endif
     }()
 
+    /// The two-pane Settings' list: the row picks Cloud sync beside it.
+    @Environment(\.settingsList) private var list
+
     var body: some View {
-        Button { open = true } label: {
+        Button { if let list { list.pick(.cloudSync) } else { open = true } } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Cloud sync")
@@ -34,7 +37,7 @@ struct CloudSyncEntryRow: View {
             }
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .background(row, in: shape)
+            .settingsSegment(shape, row: row, app: app, picked: list?.picked == .cloudSync)
             .contentShape(shape)
         }
         .buttonStyle(PressScale())
@@ -399,6 +402,7 @@ struct CloudSyncView: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
+            .settingsPaneBack()
             Spacer()
         }
         .padding(.leading, 8)

@@ -127,6 +127,7 @@ struct TipsView: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
+            .settingsPaneBack()
             Spacer()
         }
         .padding(.leading, 8)
@@ -138,26 +139,35 @@ struct TipsView: View {
 struct TipsEntryRow: View {
     var app: CoverScheme
     private let store = TipReadStore.shared
+    /// The two-pane Settings' list: the row picks Tips beside it.
+    @Environment(\.settingsList) private var list
 
     var body: some View {
-        NavigationLink { TipsView(focus: nil) } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Tips")
-                        .yoinRole(Tokens.type.bodyLarge)
-                        .foregroundStyle(app.onSurface)
-                    Text(Tips.readSummary(read: store.read.count, total: Tips.all.count))
-                        .yoinRole(Tokens.type.bodyMedium)
-                        .foregroundStyle(app.onSurfaceVariant)
-                }
-                Spacer(minLength: 16)
-                YoinIcon("chevron_right", size: 20).foregroundStyle(app.onSurfaceVariant)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .contentShape(.rect)
+        if let list {
+            Button { list.pick(.tips) } label: { label }
+                .buttonStyle(.plain)
+        } else {
+            NavigationLink { TipsView(focus: nil) } label: { label }
+                .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    private var label: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Tips")
+                    .yoinRole(Tokens.type.bodyLarge)
+                    .foregroundStyle(app.onSurface)
+                Text(Tips.readSummary(read: store.read.count, total: Tips.all.count))
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+            }
+            Spacer(minLength: 16)
+            YoinIcon("chevron_right", size: 20).foregroundStyle(app.onSurfaceVariant)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .contentShape(.rect)
     }
 }

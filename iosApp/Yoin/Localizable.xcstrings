@@ -9431,6 +9431,16 @@
           }
         }
       }
+    },
+    "Use this account": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用此账号"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
