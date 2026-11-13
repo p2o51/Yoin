@@ -19,6 +19,8 @@ struct MemoryGridView: View {
     var label: Color = .secondary
     var selected: Int? = nil
     var onCell: ((Int) -> Void)? = nil
+    /// All Memories: where the squares sit, so they can rise into the top bar (MemoryGridLift).
+    var lift: MemoryGridLift? = nil
 
     /// The cells shown: on Home a month grid keeps its last six.
     private var shown: ArraySlice<MemoryGridCell> {
@@ -46,10 +48,7 @@ struct MemoryGridView: View {
         return shown.flatMap { $0.marks.map(\.album) }.filter { seen.insert($0.key).inserted }
     }
 
-    private func colors(_ album: LedgerAlbum) -> BackdropColors {
-        if let p = covers[album.key] { return BackdropColors(p) }
-        return BackdropColors(Self.fallback(album.key))
-    }
+    private var paint: MemoryGridPaint { MemoryGridPaint(covers: covers, faint: faint) }
 
     /// A muted colour of the album's own, picked from its key, so cells don't all wait in one grey.
     static func fallback(_ key: String) -> CoverPalette {
@@ -67,12 +66,12 @@ struct MemoryGridView: View {
         let cells = Array(shown)
         return GeometryReader { geo in
             let cell = (geo.size.width - gap * CGFloat(columns - 1)) / CGFloat(columns)
-            Canvas { ctx, _ in
-                let radius = cell * 0.18
+            Canvas { [paint] ctx, _ in
+                let radius = cell * MemoryGridPaint.wallRadius
                 for (i, item) in cells.enumerated() {
                     let (c, r) = columnMajor ? (i / rows, i % rows) : (i % columns, i / columns)
                     let rect = CGRect(x: CGFloat(c) * (cell + gap), y: CGFloat(r) * (cell + gap), width: cell, height: cell)
-                    drawCell(item, in: rect, radius: radius, ctx: ctx)
+                    paint.drawCell(item, in: rect, radius: radius, ctx: ctx)
                     if i == selected {
                         let path = Path(roundedRect: rect.insetBy(dx: -2, dy: -2), cornerRadius: radius + 2)
                         ctx.stroke(path, with: .color(outline), lineWidth: 2)
@@ -89,36 +88,12 @@ struct MemoryGridView: View {
             }, isEnabled: onCell != nil)
         }
         .aspectRatio(CGFloat(columns) / CGFloat(rows), contentMode: .fit)
+        // Where the wall sits in the page, for the squares that rise into the top bar.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MemoryGridLift.space)) } action: { frame in
+            lift?.wall = .init(frame: frame, columns: columns, rows: rows, columnMajor: columnMajor, gap: gap)
+        }
         .accessibilityElement()
         .accessibilityLabel(Text("Memories grid"))
-    }
-
-    private func drawCell(_ cell: MemoryGridCell, in rect: CGRect, radius: CGFloat, ctx: GraphicsContext) {
-        guard !cell.future else { return }
-        switch cell.marks.count {
-        case 0: ctx.fill(Path(roundedRect: rect, cornerRadius: radius), with: .color(faint))
-        case 1: drawMark(cell.marks[0], in: rect, radius: radius, ctx: ctx)
-        default: drawSplit(colors(cell.marks[0].album).base, colors(cell.marks[1].album).base, in: rect, radius: radius, ctx: ctx)
-        }
-    }
-
-    private func drawMark(_ mark: MemoryGridMark, in rect: CGRect, radius: CGFloat, ctx: GraphicsContext) {
-        let c = colors(mark.album)
-        if mark.wrote { drawSplit(c.base, c.accent, in: rect, radius: radius, ctx: ctx) }
-        else { ctx.fill(Path(roundedRect: rect, cornerRadius: radius), with: .color(c.base)) }
-    }
-
-    /// [first] top-left of the diagonal (top-right to bottom-left), [second] bottom-right.
-    private func drawSplit(_ first: Color, _ second: Color, in rect: CGRect, radius: CGFloat, ctx: GraphicsContext) {
-        var clipped = ctx
-        clipped.clip(to: Path(roundedRect: rect, cornerRadius: radius))
-        clipped.fill(Path(rect), with: .color(second))
-        var tri = Path()
-        tri.move(to: rect.origin)
-        tri.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        tri.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        tri.closeSubpath()
-        clipped.fill(tri, with: .color(first))
     }
 
     // MARK: Months
@@ -134,6 +109,9 @@ struct MemoryGridView: View {
                     ForEach(row, id: \.offset) { i, cell in
                         VStack(spacing: 4) {
                             quad(cell, outlined: selected == offset + i)
+                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MemoryGridLift.space)) } action: {
+                                    lift?.quads[offset + i] = $0
+                                }
                             Text(cell.start.formatted(.dateTime.month(.abbreviated)))
                                 .homeType(Tokens.type.labelSmall)
                                 .foregroundStyle(label)
@@ -152,13 +130,13 @@ struct MemoryGridView: View {
     }
 
     private func quad(_ cell: MemoryGridCell, outlined: Bool) -> some View {
-        Canvas { ctx, size in
-            let gap: CGFloat = 2
+        Canvas { [paint] ctx, size in
+            let gap = MemoryGridPaint.quadGap
             let q = (size.width - gap) / 2
-            let radius = q * 0.16
+            let radius = q * MemoryGridPaint.quadRadius
             for i in 0..<4 {
                 let rect = CGRect(x: CGFloat(i % 2) * (q + gap), y: CGFloat(i / 2) * (q + gap), width: q, height: q)
-                if i < cell.marks.count { drawMark(cell.marks[i], in: rect, radius: radius, ctx: ctx) }
+                if i < cell.marks.count { paint.drawMark(cell.marks[i], in: rect, radius: radius, ctx: ctx) }
                 else { ctx.fill(Path(roundedRect: rect, cornerRadius: radius), with: .color(faint)) }
             }
             if outlined {
@@ -167,5 +145,51 @@ struct MemoryGridView: View {
             }
         }
         .aspectRatio(1, contentMode: .fit)
+    }
+}
+
+/// How the grid paints a cell: shared by the grid and its squares in flight to the top bar.
+struct MemoryGridPaint {
+    var covers: [String: CoverPalette]
+    var faint: Color
+
+    /// A wall cell's corner, of its side; a month quad's album square's; the gap inside a quad.
+    static let wallRadius: CGFloat = 0.18
+    static let quadRadius: CGFloat = 0.16
+    static let quadGap: CGFloat = 2
+
+    func colors(_ album: LedgerAlbum) -> BackdropColors {
+        BackdropColors(covers[album.key] ?? MemoryGridView.fallback(album.key))
+    }
+
+    func drawCell(_ cell: MemoryGridCell, in rect: CGRect, radius: CGFloat, ctx: GraphicsContext,
+                  colors: ((LedgerAlbum) -> BackdropColors)? = nil) {
+        guard !cell.future else { return }
+        let of = colors ?? self.colors
+        switch cell.marks.count {
+        case 0: ctx.fill(Path(roundedRect: rect, cornerRadius: radius), with: .color(faint))
+        case 1: drawMark(cell.marks[0], in: rect, radius: radius, ctx: ctx, colors: of)
+        default: drawSplit(of(cell.marks[0].album).base, of(cell.marks[1].album).base, in: rect, radius: radius, ctx: ctx)
+        }
+    }
+
+    func drawMark(_ mark: MemoryGridMark, in rect: CGRect, radius: CGFloat, ctx: GraphicsContext,
+                  colors: ((LedgerAlbum) -> BackdropColors)? = nil) {
+        let c = (colors ?? self.colors)(mark.album)
+        if mark.wrote { drawSplit(c.base, c.accent, in: rect, radius: radius, ctx: ctx) }
+        else { ctx.fill(Path(roundedRect: rect, cornerRadius: radius), with: .color(c.base)) }
+    }
+
+    /// [first] top-left of the diagonal (top-right to bottom-left), [second] bottom-right.
+    func drawSplit(_ first: Color, _ second: Color, in rect: CGRect, radius: CGFloat, ctx: GraphicsContext) {
+        var clipped = ctx
+        clipped.clip(to: Path(roundedRect: rect, cornerRadius: radius))
+        clipped.fill(Path(rect), with: .color(second))
+        var tri = Path()
+        tri.move(to: rect.origin)
+        tri.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        tri.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        tri.closeSubpath()
+        clipped.fill(tri, with: .color(first))
     }
 }

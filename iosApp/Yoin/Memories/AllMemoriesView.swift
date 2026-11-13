@@ -6,7 +6,8 @@ import YoinShared
  * top (a tap on a cell shows just that stretch; a second tap clears it), then one button switching three
  * views, no filters: Timeline (by month, an album one card a month, song notes between), Cards (every album
  * and noted song once, two a row) and List (a line each, sorted Recent / Highest score / Name). Every
- * account's memories count; another account's are marked "From …" (#178). A pushed page.
+ * account's memories count; another account's are marked "From …" (#178). A pushed page. As the page scrolls
+ * past the grid, its squares rise into the top bar (MemoryGridLift) and come home on the way back.
  */
 struct AllMemoriesView: View {
     @Environment(AppModel.self) private var model
@@ -18,6 +19,9 @@ struct AllMemoriesView: View {
     @State private var selected: Int?
     /// Going to another account's album asks once before switching (the notice Home's shelf shares).
     @State private var switchGate = AccountSwitchGate()
+    /// Where the grid's squares are and how far the page has scrolled: the squares that rise into the top bar.
+    @State private var lift = MemoryGridLift()
+    @State private var scrollPosition = ScrollPosition(edge: .top)
 
     private var app: CoverScheme {
         model.isIdle ? .brand(dark: colorScheme == .dark)
@@ -50,6 +54,18 @@ struct AllMemoriesView: View {
             .animation(Yoin.spatial, value: viewRaw)
             .animation(Yoin.spatial, value: sortRaw)
             .animation(Yoin.spatial, value: selected)
+            .coordinateSpace(.named(MemoryGridLift.space))
+        }
+        .scrollPosition($scrollPosition)
+        .onScrollGeometryChange(for: CGPoint.self) { CGPoint(x: $0.contentOffset.y, y: $0.contentInsets.top) } action: { _, g in
+            lift.scrolled(y: g.x, insetTop: g.y)
+        }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { lift.viewport = $0 }
+        .overlay {
+            if let state = source.state, !state.isEmpty {
+                MemoryGridLiftLayer(lift: lift, pixels: MemoryGridLiftMath.pixels(state.grid),
+                                    paint: MemoryGridPaint(covers: state.covers, faint: app.onSurface.opacity(0.07)))
+            }
         }
         .safeAreaBar(edge: .top) { topBar }
         .background(app.surfaceContainer.ignoresSafeArea())
@@ -59,6 +75,23 @@ struct AllMemoriesView: View {
             // Album pages a mark needs to be named (a scored song never played here): loaded, then read again.
             if await model.store.hydrateMemoryAlbums() { source.reload() }
             #if DEBUG
+            // `-allMemoriesShotScroll 260`: scrolled that far down (the grid rising into the top bar);
+            // `-allMemoriesShotScrollSweep YES` scrolls down past the grid and back, slowly, for a recording.
+            let d = UserDefaults.standard
+            if d.object(forKey: "allMemoriesShotScroll") != nil {
+                try? await Task.sleep(for: .seconds(1.5))
+                scrollPosition.scrollTo(y: d.double(forKey: "allMemoriesShotScroll"))
+            }
+            if d.bool(forKey: "allMemoriesShotScrollSweep") {
+                try? await Task.sleep(for: .seconds(2))
+                for pass in [Array(stride(from: 0, through: 520, by: 4)), Array(stride(from: 520, through: 0, by: -4))] {
+                    for y in pass {
+                        scrollPosition.scrollTo(y: CGFloat(y))
+                        try? await Task.sleep(for: .milliseconds(16))
+                    }
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
             // `-allMemoriesShotSwitch YES`: taps the first card kept on another account (the switch notice).
             if UserDefaults.standard.bool(forKey: "allMemoriesShotSwitch"), let state = source.state,
                let card = firstOtherCard(state) {
@@ -80,9 +113,12 @@ struct AllMemoriesView: View {
         stats(state)
         MemoryGridView(grid: state.grid, covers: state.covers, placement: .page,
                        faint: app.onSurface.opacity(0.07), outline: app.primary, label: app.onSurfaceVariant,
-                       selected: selected) { i in
+                       selected: selected, onCell: { i in
             withAnimation(Yoin.spatial) { selected = selected == i ? nil : i }
-        }
+        }, lift: lift)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MemoryGridLift.space)) } action: { lift.grid = $0 }
+        // The real grid steps aside the moment its copies take off, so no square shows twice.
+        .opacity(lift.lifting ? 0 : 1)
         .padding(16)
         .background(app.surfaceContainerLow, in: .rect(cornerRadius: 28))
         controls
