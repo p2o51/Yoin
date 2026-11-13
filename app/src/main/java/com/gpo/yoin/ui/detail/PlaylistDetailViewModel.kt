@@ -262,14 +262,23 @@ class PlaylistDetailViewModel(
         val content = _uiState.value as? PlaylistDetailUiState.Content ?: return
         if (!content.canRemoveSongs || entries.none { it.key == rowKey } || !removing.add(rowKey)) return
         publish()
+        // The account the tap was made on: a removal still queued after a
+        // switch would otherwise go to the same ids on the other account.
+        val profileId = repository.currentProfileId()
         // The row is already off the page, so the write is not dropped when
         // the page closes under it (as the song sheet's Favorite).
         viewModelScope.launch(NonCancellable) {
-            removals.withLock { removeEntry(rowKey) }
+            removals.withLock { removeEntry(rowKey, profileId) }
         }
     }
 
-    private suspend fun removeEntry(rowKey: String) {
+    private suspend fun removeEntry(rowKey: String, profileId: String?) {
+        if (repository.currentProfileId() != profileId) {
+            // Another account since the tap: the playlist is not this one.
+            removing -= rowKey
+            publish()
+            return
+        }
         val position = entries.indexOfFirst { it.key == rowKey }
         val entry = entries.getOrNull(position)
         if (entry == null) {
