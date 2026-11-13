@@ -2,7 +2,6 @@ package com.gpo.yoin.ui.settings.ai
 
 import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.data.remote.ai.AiTier
-import kotlin.math.abs
 
 /**
  * The numbers behind the AI page's chart and the tier page.
@@ -61,26 +60,6 @@ object AiTierBenchmark {
 
     fun point(provider: AiProvider, tier: AiTier): AiTierPoint? =
         points.firstOrNull { it.provider == provider && it.tier == tier }
-
-    /**
-     * Whether [point]'s name sits on the left of its dot in the view ([x], [y]). Names go on the
-     * right; when a service's two tiers land so close that both names there would run into each
-     * other (Gemini's are 0.2 s and one point apart), the dot further left takes the left side.
-     */
-    fun labelOnLeft(point: AiTierPoint, x: AiAxis, y: AiAxis): Boolean {
-        val twin = points.firstOrNull { it.provider == point.provider && it.tier != point.tier && it.measured }
-            ?: return false
-        val px = x.fraction(point) ?: return false
-        val py = y.fraction(point) ?: return false
-        val tx = x.fraction(twin) ?: return false
-        val ty = y.fraction(twin) ?: return false
-        if (abs(px - tx) >= LABEL_CLASH_X || abs(py - ty) >= LABEL_CLASH_Y) return false
-        return px < tx || (px == tx && point.tier == AiTier.Good)
-    }
-
-    // Fractions of the plot: about a name's width and height on a phone.
-    private const val LABEL_CLASH_X = 0.16f
-    private const val LABEL_CLASH_Y = 0.12f
 }
 
 /** One of the chart's axes. Every axis reads "better" toward the top / right. */

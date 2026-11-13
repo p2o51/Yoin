@@ -3,7 +3,6 @@ package com.gpo.yoin.ui.settings.ai
 import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.data.remote.ai.AiTier
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -73,20 +72,6 @@ class AiTierBenchmarkTest {
     }
 
     @Test
-    fun should_putOneNameOnTheLeft_when_aServicesTwoTiersNearlyTouch() {
-        val good = AiTierBenchmark.point(AiProvider.Gemini, AiTier.Good)!!
-        val best = AiTierBenchmark.point(AiProvider.Gemini, AiTier.Best)!!
-
-        AiChartViews.forEach { (x, y) ->
-            val left = listOf(good, best).filter { AiTierBenchmark.labelOnLeft(it, x, y) }
-            assertEquals("$x / $y", 1, left.size)
-            // The one further left carries it.
-            val other = if (left.single() === good) best else good
-            assertTrue(x.fraction(left.single())!! <= x.fraction(other)!!)
-        }
-    }
-
-    @Test
     fun should_onlyHoldTiersTheirServiceOffers() {
         AiTierBenchmark.points.forEach { point ->
             assertTrue("${point.provider} ${point.tier}", point.tier in point.provider.tiers)
@@ -94,20 +79,5 @@ class AiTierBenchmarkTest {
         // Qwen has one tier, and it was measured.
         assertTrue(AiTierBenchmark.point(AiProvider.Qwen, AiTier.Good)!!.measured)
         assertNull(AiTierBenchmark.point(AiProvider.Qwen, AiTier.Best))
-    }
-
-    @Test
-    fun should_keepTheNameOnTheRight_when_theServiceHasOneTier() {
-        val qwen = AiTierBenchmark.point(AiProvider.Qwen, AiTier.Good)!!
-
-        AiChartViews.forEach { (x, y) -> assertFalse(AiTierBenchmark.labelOnLeft(qwen, x, y)) }
-    }
-
-    @Test
-    fun should_keepTheNameOnTheRight_when_theOtherTierIsUntested() {
-        val deepSeek = AiTierBenchmark.point(AiProvider.DeepSeek, AiTier.Good)!!
-        val (x, y) = AiChartViews.first()
-
-        assertFalse(AiTierBenchmark.labelOnLeft(deepSeek, x, y))
     }
 }

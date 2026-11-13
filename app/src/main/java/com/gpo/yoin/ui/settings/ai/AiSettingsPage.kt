@@ -7,6 +7,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,6 +51,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -56,6 +60,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -68,9 +73,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toSize
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
@@ -396,15 +403,6 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
     }
     // A service with one tier has no tier to name: its dot goes without.
     val labels = measured.map { if (it.provider.tiers.size > 1) tierName(it.tier) else "" }
-    // 0 = the name on the dot's right, 1 = on its left.
-    val labelSides = measured.map { point ->
-        val side by animateFloatAsState(
-            if (AiTierBenchmark.labelOnLeft(point, xAxis, yAxis)) 1f else 0f,
-            spring,
-            label = "labelSide",
-        )
-        side
-    }
     val axisLabel = mapOf(
         AiAxis.Speed to stringResource(R.string.ai_axis_speed),
         AiAxis.Cost to stringResource(R.string.ai_axis_cost),
@@ -422,80 +420,126 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
     val iconTurn by animateFloatAsState(turns * 180f, YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive), label = "flipTurn")
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(200.dp)) {
-            val left = 52.dp.toPx()
-            val right = size.width - 8.dp.toPx()
-            val top = 8.dp.toPx()
-            val bottom = size.height - 34.dp.toPx()
-            val gridColor = scheme.outlineVariant
-            for (i in 0..4) {
-                val gx = left + (right - left) * i / 4f
-                val gy = top + (bottom - top) * i / 4f
-                drawLine(gridColor, Offset(gx, top), Offset(gx, bottom), 1.dp.toPx())
-                drawLine(gridColor, Offset(left, gy), Offset(right, gy), 1.dp.toPx())
-            }
-            fun at(f: Offset) = Offset(left + f.x * (right - left), bottom - f.y * (bottom - top))
-
-            // Axis ends: worst at the origin, best at the far end.
-            drawEnd(measurer, axisValue(xAxis, worst = true), small, Offset(left, bottom + 4.dp.toPx()), alignEnd = false)
-            drawEnd(measurer, axisValue(xAxis, worst = false), small, Offset(right, bottom + 4.dp.toPx()), alignEnd = true)
-            drawEnd(measurer, axisValue(yAxis, worst = true), small, Offset(left - 6.dp.toPx(), bottom - 12.dp.toPx()), alignEnd = true)
-            drawEnd(measurer, axisValue(yAxis, worst = false), small, Offset(left - 6.dp.toPx(), top), alignEnd = true)
-            val xText = measurer.measure("${axisLabel.getValue(xAxis)} →", axisStyle)
-            drawText(xText, topLeft = Offset((left + right - xText.size.width) / 2f, bottom + 16.dp.toPx()))
-            val gutter = left - 6.dp.toPx()
-            val yText = measurer.measure("↑${axisLabel.getValue(yAxis)}", axisStyle)
-            if (yText.size.width <= gutter) {
-                drawText(yText, topLeft = Offset(gutter - yText.size.width, (top + bottom - yText.size.height) / 2f))
-            } else {
-                // Too long to sit beside the plot (「More accurate」): it runs up the axis instead,
-                // written like the x label, so its arrow still points at the better end.
-                val along = measurer.measure("${axisLabel.getValue(yAxis)} →", axisStyle)
-                val centre = Offset(along.size.height / 2f, (top + bottom) / 2f)
-                val unturned = Offset(centre.x - along.size.width / 2f, centre.y - along.size.height / 2f)
-                rotate(degrees = -90f, pivot = centre) { drawText(along, topLeft = unturned) }
-            }
-
-            untested.forEachIndexed { i, point ->
-                val mine = point.provider == provider
-                val chosen = mine && point.tier == tier
-                // Top left: the one corner no measured tier comes near in any view.
-                val c = Offset(left + (14 + i * 18).dp.toPx(), top + 14.dp.toPx())
-                drawCircle(
-                    color = providerColor(point.provider, dark).copy(alpha = if (mine) 1f else 0.45f),
-                    radius = (if (chosen) 7.5f else 5.5f).dp.toPx(),
-                    center = c,
-                    style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))),
-                )
-                if (mine && i == untested.lastIndex) {
-                    val t = measurer.measure(untestedText, small)
-                    drawText(t, topLeft = Offset(c.x + 14.dp.toPx(), c.y - t.size.height / 2f))
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().height(200.dp)) {
+            val density = LocalDensity.current
+            val plot = density.chartPlot(Size(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat()))
+            // The names are measured here, not while drawing: where each goes depends on its size.
+            // Every service's names have a place worked out, so picking a service shows its names
+            // where they belong rather than sliding them there.
+            val labelLayouts = measured.mapIndexed { i, point ->
+                labels[i].takeIf { it.isNotEmpty() }?.let {
+                    val weight = if (point.tier == tier) FontWeight.Bold else FontWeight.Medium
+                    measurer.measure(it, dotLabel.copy(fontWeight = weight))
                 }
             }
+            val untestedLayout = measurer.measure(untestedText, small)
+            val labelTargets = with(density) {
+                val dots = measured.map { point ->
+                    Offset(
+                        plot.left + (xAxis.fraction(point) ?: 0f) * plot.width,
+                        plot.bottom - (yAxis.fraction(point) ?: 0f) * plot.height,
+                    )
+                }
+                val hollow = untested.indices.map { untestedCentre(plot, it) }
+                val obstacles = hollow.map { Rect(it, 7.5.dp.toPx()) } +
+                    listOfNotNull(
+                        hollow.lastOrNull()?.let { c ->
+                            Rect(
+                                Offset(c.x + 14.dp.toPx(), c.y - untestedLayout.size.height / 2f),
+                                untestedLayout.size.toSize(),
+                            )
+                        },
+                    )
+                val targets = Array(measured.size) { Offset.Zero }
+                measured.indices.filter { labelLayouts[it] != null }
+                    .groupBy { measured[it].provider }
+                    .values
+                    .forEach { group ->
+                        val placed = AiChartLabels.place(
+                            plot = plot,
+                            dots = dots,
+                            dotRadius = 9.5.dp.toPx(),
+                            gap = 10.dp.toPx(),
+                            obstacles = obstacles,
+                            labels = group.map { it to labelLayouts[it]!!.size.toSize() },
+                        )
+                        group.forEachIndexed { k, i -> targets[i] = placed[k] }
+                    }
+                targets
+            }
+            val labelSpring = YoinMotion.defaultSpatialSpec<Offset>(role = YoinMotionRole.Expressive)
+            val labelOffsets = measured.indices.map { i ->
+                val at by animateOffsetAsState(labelTargets[i], labelSpring, label = "labelAt")
+                at
+            }
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val chart = chartPlot(size)
+                val left = chart.left
+                val right = chart.right
+                val top = chart.top
+                val bottom = chart.bottom
+                val gridColor = scheme.outlineVariant
+                for (i in 0..4) {
+                    val gx = left + (right - left) * i / 4f
+                    val gy = top + (bottom - top) * i / 4f
+                    drawLine(gridColor, Offset(gx, top), Offset(gx, bottom), 1.dp.toPx())
+                    drawLine(gridColor, Offset(left, gy), Offset(right, gy), 1.dp.toPx())
+                }
+                fun at(f: Offset) = Offset(left + f.x * (right - left), bottom - f.y * (bottom - top))
 
-            // The chosen tier last: two tiers can overlap, and the chosen one stays whole.
-            val drawOrder = measured.indices.sortedBy { measured[it].provider == provider && measured[it].tier == tier }
-            drawOrder.forEach { i ->
-                val point = measured[i]
-                val mine = provider == AiProvider.Custom || point.provider == provider
-                val chosen = point.provider == provider && point.tier == tier
-                val alpha = if (mine) 1f else 0.3f
-                val color = providerColor(point.provider, dark)
-                val c = at(positions[i])
-                if (chosen) drawCircle(color.copy(alpha = 0.18f), radius = 13.dp.toPx(), center = c)
-                drawCircle(scheme.surface, radius = (if (chosen) 9.5f else 7.5f).dp.toPx(), center = c)
-                drawCircle(color.copy(alpha = alpha), radius = (if (chosen) 7.5f else 5.5f).dp.toPx(), center = c)
-                if (point.provider == provider && labels[i].isNotEmpty()) {
-                    val t = measurer.measure(
-                        labels[i],
-                        dotLabel.copy(fontWeight = if (chosen) FontWeight.Bold else FontWeight.Medium),
+                // Axis ends: worst at the origin, best at the far end.
+                drawEnd(measurer, axisValue(xAxis, worst = true), small, Offset(left, bottom + 4.dp.toPx()), alignEnd = false)
+                drawEnd(measurer, axisValue(xAxis, worst = false), small, Offset(right, bottom + 4.dp.toPx()), alignEnd = true)
+                drawEnd(measurer, axisValue(yAxis, worst = true), small, Offset(left - 6.dp.toPx(), bottom - 12.dp.toPx()), alignEnd = true)
+                drawEnd(measurer, axisValue(yAxis, worst = false), small, Offset(left - 6.dp.toPx(), top), alignEnd = true)
+                val xText = measurer.measure("${axisLabel.getValue(xAxis)} →", axisStyle)
+                drawText(xText, topLeft = Offset((left + right - xText.size.width) / 2f, bottom + 16.dp.toPx()))
+                val gutter = left - 6.dp.toPx()
+                val yText = measurer.measure("↑${axisLabel.getValue(yAxis)}", axisStyle)
+                if (yText.size.width <= gutter) {
+                    drawText(yText, topLeft = Offset(gutter - yText.size.width, (top + bottom - yText.size.height) / 2f))
+                } else {
+                    // Too long to sit beside the plot (「More accurate」): it runs up the axis instead,
+                    // written like the x label, so its arrow still points at the better end.
+                    val along = measurer.measure("${axisLabel.getValue(yAxis)} →", axisStyle)
+                    val centre = Offset(along.size.height / 2f, (top + bottom) / 2f)
+                    val unturned = Offset(centre.x - along.size.width / 2f, centre.y - along.size.height / 2f)
+                    rotate(degrees = -90f, pivot = centre) { drawText(along, topLeft = unturned) }
+                }
+
+                untested.forEachIndexed { i, point ->
+                    val mine = point.provider == provider
+                    val chosen = mine && point.tier == tier
+                    // Top left: the one corner no measured tier comes near in any view.
+                    val c = untestedCentre(chart, i)
+                    drawCircle(
+                        color = providerColor(point.provider, dark).copy(alpha = if (mine) 1f else 0.45f),
+                        radius = (if (chosen) 7.5f else 5.5f).dp.toPx(),
+                        center = c,
+                        style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f))),
                     )
-                    val onRight = c.x + 10.dp.toPx()
-                    val onLeft = c.x - 10.dp.toPx() - t.size.width
-                    drawText(
-                        t,
-                        topLeft = Offset(onRight + (onLeft - onRight) * labelSides[i], c.y - t.size.height / 2f),
-                    )
+                    if (mine && i == untested.lastIndex) {
+                        drawText(
+                            untestedLayout,
+                            topLeft = Offset(c.x + 14.dp.toPx(), c.y - untestedLayout.size.height / 2f),
+                        )
+                    }
+                }
+
+                // The chosen tier last: two tiers can overlap, and the chosen one stays whole.
+                val drawOrder = measured.indices.sortedBy { measured[it].provider == provider && measured[it].tier == tier }
+                drawOrder.forEach { i ->
+                    val point = measured[i]
+                    val mine = provider == AiProvider.Custom || point.provider == provider
+                    val chosen = point.provider == provider && point.tier == tier
+                    val alpha = if (mine) 1f else 0.3f
+                    val color = providerColor(point.provider, dark)
+                    val c = at(positions[i])
+                    if (chosen) drawCircle(color.copy(alpha = 0.18f), radius = 13.dp.toPx(), center = c)
+                    drawCircle(scheme.surface, radius = (if (chosen) 9.5f else 7.5f).dp.toPx(), center = c)
+                    drawCircle(color.copy(alpha = alpha), radius = (if (chosen) 7.5f else 5.5f).dp.toPx(), center = c)
+                    val name = labelLayouts[i]
+                    if (point.provider == provider && name != null) drawText(name, topLeft = c + labelOffsets[i])
                 }
             }
         }
@@ -532,6 +576,14 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
         }
     }
 }
+
+/** The chart's plot in a canvas of [size]: room for the y values on the left and the x axis below. */
+private fun Density.chartPlot(size: Size): Rect =
+    Rect(left = 52.dp.toPx(), top = 8.dp.toPx(), right = size.width - 8.dp.toPx(), bottom = size.height - 34.dp.toPx())
+
+/** Where the [index]th untested tier's hollow dot sits: along the plot's top left corner. */
+private fun Density.untestedCentre(plot: Rect, index: Int): Offset =
+    Offset(plot.left + (14 + index * 18).dp.toPx(), plot.top + 14.dp.toPx())
 
 private fun DrawScope.drawEnd(
     measurer: androidx.compose.ui.text.TextMeasurer,
