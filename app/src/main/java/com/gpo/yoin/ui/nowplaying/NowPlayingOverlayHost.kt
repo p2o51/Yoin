@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
@@ -792,7 +793,7 @@ private fun PanelToggleButton(
             haptics.performClick()
             onClick()
         },
-        modifier = Modifier.size(44.dp),
+        modifier = Modifier.size(44.dp).handPointer(),
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,

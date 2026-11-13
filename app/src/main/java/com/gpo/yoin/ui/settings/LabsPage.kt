@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -111,7 +112,7 @@ internal fun LabsPageBody(
                                 NanoStatus.DOWNLOADABLE -> FilledTonalButton(onClick = {
                                     haptics.performContextClick()
                                     onDownload()
-                                }) { Text(stringResource(R.string.labs_nano_download)) }
+                                }, modifier = Modifier.handPointer()) { Text(stringResource(R.string.labs_nano_download)) }
                                 NanoStatus.DOWNLOADING, null -> CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 3.dp,
@@ -119,7 +120,7 @@ internal fun LabsPageBody(
                                 NanoStatus.UNAVAILABLE -> TextButton(onClick = {
                                     haptics.performContextClick()
                                     onCheckAgain()
-                                }) { Text(stringResource(R.string.labs_nano_check_again)) }
+                                }, modifier = Modifier.handPointer()) { Text(stringResource(R.string.labs_nano_check_again)) }
                                 NanoStatus.AVAILABLE -> Unit
                             }
                         },
@@ -176,7 +177,7 @@ internal fun LabsPageBody(
                                 checked = state.lyricsOn && nanoHere,
                                 onCheckedChange = null,
                                 enabled = nanoHere,
-                                modifier = switchModifier,
+                                modifier = switchModifier.handPointer(enabled = nanoHere),
                             )
                         },
                     )

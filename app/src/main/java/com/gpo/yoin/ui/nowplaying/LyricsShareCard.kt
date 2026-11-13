@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
@@ -416,7 +417,8 @@ internal fun LyricsShareSheet(
                         shape = YoinShapeTokens.Full,
                         modifier = Modifier
                             .weight(1f)
-                            .height(56.dp),
+                            .height(56.dp)
+                            .handPointer(enabled = lines.isNotEmpty() && saveStatus != SaveStatus.Saving),
                     ) {
                         AnimatedContent(
                             targetState = saveStatus,
@@ -475,7 +477,8 @@ internal fun LyricsShareSheet(
                     shape = YoinShapeTokens.Full,
                     modifier = Modifier
                         .weight(1f)
-                        .height(56.dp),
+                        .height(56.dp)
+                        .handPointer(enabled = !sharing && lines.isNotEmpty()),
                 ) {
                     Icon(imageVector = YoinSymbols.Share, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
@@ -800,7 +803,8 @@ private fun ButtonGroupScope.LyricsShareFormatButton(
         modifier = modifier
             .fillMaxHeight()
             .animateWidth(interactionSource)
-            .semantics { selected = isSelected },
+            .semantics { selected = isSelected }
+            .handPointer(),
         interactionSource = interactionSource,
         shape = YoinShapeTokens.Full,
         colors = ButtonDefaults.filledTonalButtonColors(
@@ -865,6 +869,7 @@ private fun LyricsCardToneSwatch(
     Box(
         modifier = Modifier
             .size(SwatchTouchSize)
+            .handPointer()
             .selectable(
                 selected = selected,
                 interactionSource = null,

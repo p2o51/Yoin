@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.audioFormatTags
 import com.gpo.yoin.ui.component.AudioFormatTagRow
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -512,7 +513,8 @@ private fun TrackMenuQuickRow(actions: List<TrackMenuQuickAction>, onClick: (Tra
                         modifier = Modifier
                             .weight(1f)
                             .animateWidth(interaction)
-                            .heightIn(min = TrackMenuQuickHeight),
+                            .heightIn(min = TrackMenuQuickHeight)
+                            .handPointer(),
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
@@ -581,7 +583,7 @@ internal fun TrackMenuRowItem(
         onClick = onClick,
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().handPointer(),
     ) {
         TrackMenuRowContent(label = label, icon = icon)
     }
@@ -627,6 +629,7 @@ internal fun TrackMenuToggleRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
+            .handPointer()
             .toggleable(
                 value = checked,
                 role = Role.Switch,
@@ -637,7 +640,7 @@ internal fun TrackMenuToggleRow(
             ),
     ) {
         TrackMenuRowContent(label = label, icon = icon) {
-            Switch(checked = checked, onCheckedChange = null)
+            Switch(checked = checked, onCheckedChange = null, modifier = Modifier.handPointer())
         }
     }
 }

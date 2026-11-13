@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -492,14 +493,14 @@ internal fun LyricHighlightIntroCard(
                 ) {
                     when (intro) {
                         is LyricHighlightIntro.Supported -> {
-                            TextButton(onClick = onDismiss, enabled = homeEditInteractive()) {
+                            TextButton(onClick = onDismiss, enabled = homeEditInteractive(), modifier = Modifier.handPointer(enabled = homeEditInteractive())) {
                                 Text(stringResource(R.string.home_lyric_intro_not_now))
                             }
-                            Button(onClick = onOptIn, enabled = homeEditInteractive()) {
+                            Button(onClick = onOptIn, enabled = homeEditInteractive(), modifier = Modifier.handPointer(enabled = homeEditInteractive())) {
                                 Text(stringResource(R.string.home_lyric_intro_turn_on))
                             }
                         }
-                        LyricHighlightIntro.Unsupported -> Button(onClick = onDismiss, enabled = homeEditInteractive()) {
+                        LyricHighlightIntro.Unsupported -> Button(onClick = onDismiss, enabled = homeEditInteractive(), modifier = Modifier.handPointer(enabled = homeEditInteractive())) {
                             Text(stringResource(R.string.home_lyric_intro_got_it))
                         }
                     }

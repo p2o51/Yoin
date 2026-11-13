@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -580,6 +582,7 @@ internal fun HomeAccountButton(
     val (fan, fanGesture) = rememberHomeAccountFan(quickSwitch, enabled = enabled && !hidden, state = fanState)
     val identity = card.provider.serviceIdentity
     val label = stringResource(R.string.home_account_cd, card.title)
+    val avatarInteraction = remember { MutableInteractionSource() }
     // No ripple: the avatar itself grows into the switcher, which is the feedback
     // (a ripple would also be left pressed under the dialog window).
     Box(
@@ -587,10 +590,11 @@ internal fun HomeAccountButton(
             .size(48.dp)
             // Ahead of the tap: once a hold is long enough it is the fan's, up and all.
             .then(fanGesture)
+            .pointerPressPreview(avatarInteraction, CircleShape, enabled = enabled && !hidden)
             .clickable(
                 enabled = enabled && !hidden,
                 role = Role.Button,
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = avatarInteraction,
                 indication = null,
             ) {
                 haptics.performContextClick()
@@ -1498,7 +1502,7 @@ private fun HomeAccountCard(
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     active?.let { card -> AccountServiceLine(card) }
                 }
-                IconButton(onClick = gated(onClose)) {
+                IconButton(onClick = gated(onClose), modifier = Modifier.handPointer()) {
                     Icon(YoinSymbols.Close, contentDescription = stringResource(R.string.home_account_close))
                 }
             }
@@ -1545,7 +1549,7 @@ private fun HomeAccountCard(
                         modifier = Modifier.padding(end = 8.dp)
                     )
                 }
-                OutlinedButton(onClick = gated(onManageAccounts)) {
+                OutlinedButton(onClick = gated(onManageAccounts), modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.home_account_manage))
                 }
             }
@@ -1637,6 +1641,7 @@ private fun AccountRow(
             .fillMaxWidth()
             .testTag(homeAccountRowTag(card.id))
             .semantics { homeAccountRowColor = segmentColor }
+            .handPointer(enabled = enabled)
             .clickable(enabled = enabled, role = Role.Button) {
                 haptics.performClick()
                 onClick(avatarBounds)
@@ -1705,7 +1710,7 @@ private fun HomeAccountReconnectButton(reconnecting: Boolean, onClick: () -> Uni
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "reconnectLabel"
     )
-    FilledTonalButton(onClick = onClick, modifier = modifier.testTag(HOME_ACCOUNT_RECONNECT_TAG)) {
+    FilledTonalButton(onClick = onClick, modifier = modifier.testTag(HOME_ACCOUNT_RECONNECT_TAG).handPointer()) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 text = stringResource(R.string.home_account_reconnect),

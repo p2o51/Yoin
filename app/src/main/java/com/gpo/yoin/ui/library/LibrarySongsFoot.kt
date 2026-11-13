@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.library
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
@@ -146,7 +147,7 @@ private fun LibrarySongsFoot(failed: Boolean, onRetry: () -> Unit, modifier: Mod
                         haptics.performTick()
                         onRetry()
                     },
-                    modifier = Modifier.minimumTouchTarget()
+                    modifier = Modifier.minimumTouchTarget().handPointer()
                 ) {
                     Icon(
                         imageVector = YoinSymbols.Refresh,

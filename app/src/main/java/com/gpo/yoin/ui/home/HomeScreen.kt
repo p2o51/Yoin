@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -551,10 +552,10 @@ fun HomeContent(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                TextButton(onClick = onRetry) {
+                                TextButton(onClick = onRetry, modifier = Modifier.handPointer()) {
                                     Text(stringResource(R.string.home_error_retry))
                                 }
-                                TextButton(onClick = onNavigateToSettings) {
+                                TextButton(onClick = onNavigateToSettings, modifier = Modifier.handPointer()) {
                                     Text(stringResource(R.string.home_error_settings))
                                 }
                             }

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.togetherWith
@@ -249,6 +250,7 @@ private fun CornerExamples(radius: Float, playing: Boolean) {
                     .clip(RoundedCornerShape(corner))
                     .background(scheme.surface)
                     .border(2.dp, scheme.onSecondaryContainer.copy(alpha = 0.35f), RoundedCornerShape(corner))
+                    .handPointer()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                         haptics.performClick()
                         index = (index + 1) % CornerExample.entries.size

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
@@ -118,6 +119,7 @@ fun AboutFullscreenPane(
                 )
                 TextButton(
                     onClick = { context.startActivity(SettingsActivity.intent(context)) },
+                    modifier = Modifier.handPointer(),
                 ) { Text(stringResource(R.string.np_about_open_settings)) }
             }
             is AboutUiState.Error -> Column(
@@ -132,7 +134,7 @@ fun AboutFullscreenPane(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
-                TextButton(onClick = onRetryCanonical) { Text(stringResource(R.string.np_about_retry)) }
+                TextButton(onClick = onRetryCanonical, modifier = Modifier.handPointer()) { Text(stringResource(R.string.np_about_retry)) }
             }
             is AboutUiState.Ready -> ReadyContent(
                 entries = state.entries,

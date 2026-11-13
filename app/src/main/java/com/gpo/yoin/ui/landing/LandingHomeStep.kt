@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector2D
@@ -281,7 +282,7 @@ private fun SectionRow(
                     color = scheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = state.enabled, onCheckedChange = onEnabled)
+            Switch(checked = state.enabled, onCheckedChange = onEnabled, modifier = Modifier.handPointer())
         }
     }
 }

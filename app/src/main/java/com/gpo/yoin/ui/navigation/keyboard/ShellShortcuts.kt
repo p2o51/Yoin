@@ -5,8 +5,12 @@ import android.view.KeyEvent
 /**
  * The shell's keyboard shortcuts for a tablet keyboard or a desktop window:
  * iOS's set (YoinCommands.swift: Controls and Go), with Ctrl where iOS uses
- * ⌘ and Alt where it uses ⌥. Android has no menu bar — the system's shortcut
- * list (Meta + /) shows them. Esc is the platform's own back key already.
+ * ⌘ and Alt where it uses ⌥. Meta (⌘ on a Mac keyboard, the launcher key on
+ * the Pixel Tablet's) cannot stand in for Ctrl: the window manager keeps every
+ * Meta chord for the system (PhoneWindowManager, "Reserve all the META
+ * modifier combos for system behavior"), so no app is sent one. Android has no
+ * menu bar — the system's shortcut list (Meta + /) shows them, with Ctrl. Esc
+ * is the platform's own back key already.
  */
 enum class ShellShortcut {
     PlayPause,
@@ -55,8 +59,9 @@ val ShellShortcut.chord: ShortcutChord
 
 /**
  * The shortcut a key press means, or null. Modifiers must match exactly
- * (Ctrl+Shift+→ is not Next), and any press with Meta held belongs to the
- * system's own shortcuts.
+ * (Ctrl+Shift+→ is not Next). A chord with Meta is never one: the system keeps
+ * them all, and on Android 17 (Pixel Tablet, 2026-11-13) it sends the app
+ * neither the Meta key nor any key pressed while it is held.
  */
 fun shellShortcutFor(
     keyCode: Int,

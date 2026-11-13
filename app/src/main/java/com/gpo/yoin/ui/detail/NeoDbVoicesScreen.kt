@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -239,7 +240,7 @@ private fun VoicesMessage(text: String, action: String, onAction: () -> Unit) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = onAction) { Text(action) }
+        TextButton(onClick = onAction, modifier = Modifier.handPointer()) { Text(action) }
     }
 }
 
@@ -325,7 +326,7 @@ private fun VoicesContent(
             ) {
                 when {
                     state.loadingMore -> YoinLoadingIndicator(size = 32.dp)
-                    state.moreFailed -> TextButton(onClick = onLoadMore) {
+                    state.moreFailed -> TextButton(onClick = onLoadMore, modifier = Modifier.handPointer()) {
                         Text(stringResource(R.string.detail_retry))
                     }
                     state.voices.isNotEmpty() -> Text(
@@ -436,6 +437,7 @@ private fun References(
                 shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 onClick = { onOpenUrl(ref.url) },
+                modifier = Modifier.handPointer(),
             ) {
                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp).widthIn(min = 72.dp)) {
                     Row(verticalAlignment = Alignment.Bottom) {
@@ -478,6 +480,7 @@ private fun VoiceCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
             .background(if (lifted) scheme.surfaceContainerHigh else scheme.surfaceContainer)
+            .handPointer()
             .clickable {
                 haptics.performClick()
                 if (folded) onUnfold() else onOpen()
@@ -611,7 +614,7 @@ private fun WaysOut(
                 },
                 shapes = ButtonDefaults.shapes(),
                 // The gap to the row below is the button's own, so it opens and closes with it.
-                modifier = Modifier.padding(bottom = WaysOutGap).fillMaxWidth().height(52.dp),
+                modifier = Modifier.padding(bottom = WaysOutGap).fillMaxWidth().height(52.dp).handPointer(),
             ) { Text(stringResource(R.string.neodb_voices_open_neodb)) }
         }
         Row {
@@ -660,7 +663,7 @@ private fun OtherWayOut(label: String, onClick: () -> Unit, modifier: Modifier =
             onClick()
         },
         shapes = ButtonDefaults.shapes(),
-        modifier = modifier,
+        modifier = modifier.handPointer(),
     ) { Text(label, maxLines = 1) }
 }
 

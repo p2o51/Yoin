@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.component.handPointer
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
@@ -276,7 +277,7 @@ private fun DemoWidgetListTile(
         onClick = onClick,
         shape = YoinContainerShapes.Panel,
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = modifier,
+        modifier = modifier.handPointer(),
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f).padding(bottom = 8.dp)) { preview() }

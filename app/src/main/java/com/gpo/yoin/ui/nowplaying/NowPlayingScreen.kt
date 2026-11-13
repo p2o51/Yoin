@@ -1,4 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import android.os.SystemClock
 import com.gpo.yoin.ui.component.AudioFormatTagRow
 import androidx.compose.animation.AnimatedContent
@@ -662,7 +664,7 @@ private fun LaunchingContent(
     ) {
         IconButton(
             onClick = onDismiss,
-            modifier = Modifier.align(Alignment.Start),
+            modifier = Modifier.align(Alignment.Start).handPointer(),
         ) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
@@ -740,7 +742,7 @@ private fun ConnectErrorContent(
     ) {
         IconButton(
             onClick = onDismiss,
-            modifier = Modifier.align(Alignment.Start),
+            modifier = Modifier.align(Alignment.Start).handPointer(),
         ) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
@@ -787,7 +789,7 @@ private fun ConnectErrorContent(
             // The way out sits on the page itself: the shell snackbar that also
             // offers it is hidden behind Now Playing and gone after a few seconds.
             Spacer(modifier = Modifier.height(20.dp))
-            FilledTonalButton(onClick = onOpenSpotify) {
+            FilledTonalButton(onClick = onOpenSpotify, modifier = Modifier.handPointer()) {
                 Text(text = stringResource(R.string.shell_snackbar_open_spotify))
             }
         }
@@ -2192,6 +2194,7 @@ private fun CompactPlayingContent(
                                     .fillMaxSize()
                                     // Not the run-on: the transport's gaps stay the transport's.
                                     .padding(bottom = focusLyricOverflow)
+                                    .handPointer()
                                     .clickable(
                                         interactionSource = pagerClickSource,
                                         indication = null,
@@ -2928,6 +2931,7 @@ private fun WidePlayingContent(
                                                     scaleX = route.scaleX
                                                     transformOrigin = TransformOrigin(0f, 0.5f)
                                                 }
+                                                .pointerPressPreview(route.interactionSource)
                                                 .noRippleClickable(
                                                     interactionSource = route.interactionSource,
                                                     onClick = route.onClick,
@@ -2949,6 +2953,7 @@ private fun WidePlayingContent(
                                         scaleX = route.scaleX
                                         transformOrigin = TransformOrigin(0f, 0.5f)
                                     }
+                                    .pointerPressPreview(route.interactionSource)
                                     .noRippleClickable(
                                         interactionSource = route.interactionSource,
                                         onClick = route.onClick,
@@ -3656,6 +3661,7 @@ private fun LandscapePlayingContent(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .handPointer()
                         .clickable(interactionSource = pagerClickSource, indication = null) {
                             onDetailPageChange(NowPlayingDetailPage.Lyrics)
                             onStageModeChange(NowPlayingStageMode.Expanded)
@@ -3802,7 +3808,7 @@ private fun LandscapePlayingContent(
                     // Expanded: the explicit back steps the stage back, the
                     // same destination as system back (AGENTS.md).
                     onClick = { if (!expanded || !onStageBack()) onDismiss() },
-                    modifier = Modifier.size(LandscapeHeaderHeight),
+                    modifier = Modifier.size(LandscapeHeaderHeight).handPointer(),
                 ) {
                     Icon(
                         imageVector = YoinSymbols.ChevronDown,
@@ -4230,6 +4236,7 @@ private fun TabletopPlayingContent(
                                         scaleX = route.scaleX
                                         transformOrigin = TransformOrigin(0f, 0.5f)
                                     }
+                                    .pointerPressPreview(route.interactionSource)
                                     .noRippleClickable(
                                         interactionSource = route.interactionSource,
                                         onClick = route.onClick,
@@ -4258,6 +4265,7 @@ private fun TabletopPlayingContent(
                                                 scaleX = route.scaleX
                                                 transformOrigin = TransformOrigin(0f, 0.5f)
                                             }
+                                            .pointerPressPreview(route.interactionSource)
                                             .noRippleClickable(
                                                 interactionSource = route.interactionSource,
                                                 onClick = route.onClick,
@@ -4309,7 +4317,8 @@ private fun TabletopPlayingContent(
                                 WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
                             ),
                         )
-                        .padding(4.dp),
+                        .padding(4.dp)
+                        .handPointer(),
                 ) {
                     Icon(
                         imageVector = YoinSymbols.ChevronDown,
@@ -4446,7 +4455,7 @@ private fun WideTopBar(
         modifier = modifier.heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
+        IconButton(onClick = onBack, modifier = Modifier.handPointer()) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
                 contentDescription = stringResource(R.string.np_cd_wide_close),
@@ -4520,7 +4529,7 @@ internal fun StageTopBar(
             .padding(start = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
+        IconButton(onClick = onBack, modifier = Modifier.handPointer()) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
                 contentDescription = if (stageMode == NowPlayingStageMode.Compact) {
@@ -4555,6 +4564,7 @@ internal fun StageTopBar(
                         scaleX = coverScale
                         scaleY = coverScale
                     }
+                    .pointerPressPreview(interactionSource)
                     .noRippleClickable(
                         interactionSource = interactionSource,
                         onClick = onEnterImmersive,
@@ -4792,6 +4802,7 @@ private fun CompactTextTabs(
                         scaleX = stretch
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
+                    .pointerPressPreview(interaction)
                     .clickable(
                         interactionSource = interaction,
                         indication = null,
@@ -5029,6 +5040,7 @@ internal fun OneLineLyricRow(
     Box(
         modifier = modifier
             .semantics(mergeDescendants = true) { role = Role.Button }
+            .pointerPressPreview(interaction)
             .noRippleClickable(interactionSource = interaction) {
                 haptics.performClick()
                 onExpand()
@@ -5363,6 +5375,7 @@ internal fun CompactBottomHero(
                         scaleX = routeInteraction.scaleX
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
+                    .pointerPressPreview(routeInteraction.interactionSource)
                     .noRippleClickable(
                         interactionSource = routeInteraction.interactionSource,
                         onClick = routeInteraction.onClick,
@@ -5397,6 +5410,7 @@ internal fun CompactBottomHero(
                         scaleX = routeInteraction.scaleX
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
+                    .pointerPressPreview(routeInteraction.interactionSource)
                     .noRippleClickable(
                         interactionSource = routeInteraction.interactionSource,
                         onClick = routeInteraction.onClick,
@@ -5924,6 +5938,7 @@ private fun PlayingFromLabel(
                         scaleX = interaction.scaleX
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
+                    .pointerPressPreview(interaction.interactionSource)
                     .noRippleClickable(
                         interactionSource = interaction.interactionSource,
                         onClick = interaction.onClick,
@@ -6059,6 +6074,7 @@ internal fun FavoriteButton(
                 }
                 .clip(CircleShape)
                 .background(heartContainerColor)
+                .handPointer()
                 .combinedClickable(
                     interactionSource = interactionSource,
                     indication = ripple(),

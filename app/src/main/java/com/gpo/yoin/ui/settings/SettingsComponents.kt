@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -296,7 +297,7 @@ internal fun SettingsItem(
     }
     if (onClick != null) {
         Surface(
-            modifier = modifier.fillMaxWidth(),
+            modifier = modifier.fillMaxWidth().handPointer(),
             onClick = {
                 haptics.performClick()
                 onClick()
@@ -425,7 +426,7 @@ internal fun SecretTextField(
                         haptics.performTick()
                         visible = !visible
                     },
-                    modifier = Modifier.requiredSize(44.dp),
+                    modifier = Modifier.requiredSize(44.dp).handPointer(),
                 ) {
                     Icon(
                         imageVector = if (visible) YoinSymbols.VisibilityOff else YoinSymbols.Visibility,

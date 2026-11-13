@@ -110,7 +110,7 @@ fun YoinDropdownMenuItem(
             }
         },
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.handPointer(enabled = enabled),
         leadingIcon = leadingIcon,
         trailingIcon = trailingIcon,
         enabled = enabled,

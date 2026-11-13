@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -145,6 +146,7 @@ private fun ServiceTile(
                 role = Role.Checkbox
                 this.selected = selected
             }
+            .handPointer()
             .clickable {
                 haptics.performToggle(!selected)
                 onClick()

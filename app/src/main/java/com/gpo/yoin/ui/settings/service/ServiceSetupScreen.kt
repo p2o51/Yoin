@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings.service
 
+import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.SeamTop
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -602,14 +603,15 @@ private fun SubsonicConnectGroup(
                     OutlinedButton(
                         onClick = { onTest(serverUrl, username, password) },
                         enabled = filled && !form.isBusy,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).handPointer(enabled = filled && !form.isBusy),
                     ) { Text(stringResource(R.string.settings_setup_test)) }
                     Button(
                         onClick = { onSave(serverUrl, username, password) },
                         enabled = canSubmit,
                         modifier = Modifier
                             .weight(1f)
-                            .testTag("subsonic_connect"),
+                            .testTag("subsonic_connect")
+                            .handPointer(enabled = canSubmit),
                     ) {
                         Text(
                             stringResource(
@@ -788,7 +790,8 @@ private fun SpotifyConnectGroup(
                     enabled = hasClientId && state.canAddProfile,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("spotify_connect"),
+                        .testTag("spotify_connect")
+                        .handPointer(enabled = hasClientId && state.canAddProfile),
                 ) {
                     Text(
                         stringResource(
@@ -852,7 +855,7 @@ private fun SpotifyDeveloperGroup(
                 CopyRow(SpotifyAuthConfig.REDIRECT_URI)
                 CopyRow(SpotifyAuthConfig.APP_REMOTE_REDIRECT_URI)
                 val context = LocalContext.current
-                OutlinedButton(onClick = { ConnectGuide.openSpotify(context) }) {
+                OutlinedButton(onClick = { ConnectGuide.openSpotify(context) }, modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.landing_spotify_open))
                 }
                 ExpressiveTextField(
@@ -868,6 +871,7 @@ private fun SpotifyDeveloperGroup(
                 Button(
                     onClick = { onSaveClientId(draft) },
                     enabled = draft.isNotBlank() && draft.trim() != clientId,
+                    modifier = Modifier.handPointer(enabled = draft.isNotBlank() && draft.trim() != clientId),
                 ) { Text(stringResource(R.string.settings_setup_client_save)) }
             }
         }

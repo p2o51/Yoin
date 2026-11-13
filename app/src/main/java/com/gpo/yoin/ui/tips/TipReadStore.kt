@@ -1,12 +1,8 @@
 package com.gpo.yoin.ui.tips
 
 import android.content.Context
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.edit
-import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.home.HomeBubbleTip
 import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -120,18 +116,3 @@ internal class InMemoryTipReadStore(initial: Set<HomeBubbleTip> = emptySet()) : 
 
 /** Null = the app's shared store; harnesses and tests provide their own. */
 internal val LocalTipReadStore = staticCompositionLocalOf<TipReadStore?> { null }
-
-/**
- * What the account in use can do (YoinRepository.capabilities), provided at
- * each window's root: a tip that needs something else is left out of the
- * bubble, the reader and Settings › Tips ([HomeBubbleTip.available]). Null
- * (previews, harnesses) leaves none out.
- */
-internal val LocalTipCapabilities = compositionLocalOf<Set<Capability>?> { null }
-
-/** The tips this device and the account in use can use, in the bubble's order. */
-@Composable
-internal fun rememberAvailableTips(): List<HomeBubbleTip> {
-    val capabilities = LocalTipCapabilities.current
-    return remember(capabilities) { HomeBubbleTip.available(capabilities = capabilities) }
-}

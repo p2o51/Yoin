@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -464,7 +465,7 @@ fun PlaylistDetailScreen(
                                         // Only the stamp is a button; the resting cover is just a picture.
                                         .then(
                                             if (docked) {
-                                                Modifier.clickable(
+                                                Modifier.handPointer().clickable(
                                                     role = Role.Button,
                                                     onClickLabel = showCoverLabel,
                                                 ) { expanded = false }
@@ -676,10 +677,11 @@ fun PlaylistDetailScreen(
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
+                    modifier = Modifier.handPointer(),
                 ) { Text(stringResource(R.string.detail_playlist_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
+                TextButton(onClick = { showDeleteConfirm = false }, modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.detail_playlist_cancel_delete))
                 }
             },
@@ -774,6 +776,7 @@ private fun PlaylistTopHeader(
                     onClick = {},
                     enabled = false,
                     colors = IconButtonDefaults.iconButtonColors(disabledContentColor = Color.White),
+                    modifier = Modifier.handPointer(enabled = false),
                 ) {
                     Icon(imageVector = YoinSymbols.MoreVertical, contentDescription = null)
                 }
@@ -785,6 +788,7 @@ private fun PlaylistTopHeader(
                         haptics.performTick()
                         showOverflow = true
                     },
+                    modifier = Modifier.handPointer(),
                 ) {
                     Icon(
                         imageVector = YoinSymbols.MoreVertical,
@@ -927,10 +931,11 @@ private fun RenamePlaylistDialog(
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.trim().isNotEmpty() && name.trim() != initialName,
+                modifier = Modifier.handPointer(enabled = name.trim().isNotEmpty() && name.trim() != initialName),
             ) { Text(stringResource(R.string.detail_playlist_rename_confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.detail_playlist_cancel_rename)) }
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.detail_playlist_cancel_rename)) }
         },
     )
 }
@@ -1501,6 +1506,7 @@ private fun PlaylistTrackRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(YoinContainerShapes.ListRow)
+            .handPointer()
             .combinedClickable(
                 onClick = {
                     haptics.performClick()

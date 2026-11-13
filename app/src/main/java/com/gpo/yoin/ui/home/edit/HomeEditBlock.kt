@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home.edit
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.hoverable
@@ -726,7 +727,7 @@ private fun BoxScope.HomeEditBadges(
                     onClick = { controller.hide(section) },
                     enabled = motion.inputEditing,
                     colors = hideColors,
-                    modifier = Modifier.size(HideButtonSize),
+                    modifier = Modifier.size(HideButtonSize).handPointer(enabled = motion.inputEditing),
                 ) {
                     Icon(
                         imageVector = YoinSymbols.VisibilityOff,
