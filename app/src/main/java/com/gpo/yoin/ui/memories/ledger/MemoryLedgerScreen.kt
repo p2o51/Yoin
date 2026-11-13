@@ -56,7 +56,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -631,42 +630,19 @@ private fun sortLabel(sort: MemoryLedgerSort): String = stringResource(
     },
 )
 
-/** A small drawn mark per view (Yoin Symbols has none): a spine with stops, four tiles, three lines. */
+/** The view switches' marks: a spine with stops, staggered cards, bulleted rows. */
 @Composable
 private fun ViewGlyph(view: MemoryLedgerView, tint: Color) {
-    Canvas(Modifier.size(18.dp)) {
-        val s = size.width
-        val stroke = 1.8.dp.toPx()
-        when (view) {
-            MemoryLedgerView.Timeline -> {
-                drawLine(tint, Offset(s * 0.25f, s * 0.1f), Offset(s * 0.25f, s * 0.9f), stroke)
-                drawCircle(tint, s * 0.11f, Offset(s * 0.25f, s * 0.3f))
-                drawCircle(tint, s * 0.11f, Offset(s * 0.25f, s * 0.72f))
-                drawLine(tint, Offset(s * 0.48f, s * 0.3f), Offset(s * 0.92f, s * 0.3f), stroke)
-                drawLine(tint, Offset(s * 0.48f, s * 0.72f), Offset(s * 0.78f, s * 0.72f), stroke)
-            }
-            MemoryLedgerView.Cards -> {
-                val gap = s * 0.12f
-                val w = (s - gap) / 2f
-                val r = CornerRadius(s * 0.1f)
-                drawRoundRect(tint, Offset(0f, 0f), Size(w, s * 0.55f), r, style = Stroke(stroke))
-                drawRoundRect(tint, Offset(w + gap, 0f), Size(w, s * 0.35f), r, style = Stroke(stroke))
-                drawRoundRect(tint, Offset(0f, s * 0.55f + gap), Size(w, s * 0.45f - gap), r, style = Stroke(stroke))
-                drawRoundRect(
-                    tint,
-                    Offset(w + gap, s * 0.35f + gap),
-                    Size(w, s * 0.65f - gap),
-                    r,
-                    style = Stroke(stroke),
-                )
-            }
-            MemoryLedgerView.List -> {
-                listOf(0.22f, 0.5f, 0.78f).forEach { y ->
-                    drawLine(tint, Offset(s * 0.08f, s * y), Offset(s * 0.92f, s * y), stroke)
-                }
-            }
-        }
-    }
+    Icon(
+        imageVector = when (view) {
+            MemoryLedgerView.Timeline -> YoinSymbols.ViewTimeline
+            MemoryLedgerView.Cards -> YoinSymbols.ViewCards
+            MemoryLedgerView.List -> YoinSymbols.ViewList
+        },
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(18.dp),
+    )
 }
 
 private fun cellLabel(cell: MemoryGridCell, scale: MemoryGridScale): String {
