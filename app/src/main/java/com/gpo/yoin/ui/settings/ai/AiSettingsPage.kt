@@ -83,6 +83,7 @@ import com.gpo.yoin.data.remote.ai.AiThinking
 import com.gpo.yoin.data.remote.ai.AiTier
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.keepInViewAboveKeyboard
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -200,7 +201,7 @@ internal fun AiSettingsPageBody(
                             onValueChange = { actions.setKey(provider, it) },
                             label = stringResource(R.string.ai_key_label),
                             placeholder = if (provider == AiProvider.Gemini) "AIza…" else "sk-…",
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
                         )
                         val (linkText, url) = keyLink(provider)
                         TextButton(onClick = { onOpenLink(url) }) {
@@ -580,14 +581,14 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
             },
             label = stringResource(R.string.ai_custom_url),
             placeholder = if (prefs.customFormat == AiApiFormat.OpenAi) "https://api.openai.com/v1" else "https://api.anthropic.com",
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
         )
         SecretTextField(
             value = prefs.customKey,
             onValueChange = { actions.setKey(AiProvider.Custom, it) },
             label = stringResource(R.string.ai_key_label),
             placeholder = "sk-…",
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
         )
         // The model field and the rows that come and go under it. They bring their own gaps, so a
         // row opening or closing moves what is below it the whole way, with no jump at either end.
@@ -617,7 +618,7 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
                         ) { Text(stringResource(R.string.ai_custom_pull)) }
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
             )
             val chips = modelChips(state.models.ids, model)
             Column(modifier = Modifier.fillMaxWidth().animateContentSize(YoinMotion.spatialSpring())) {
@@ -722,7 +723,7 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
                             onValueChange = { actions.setSearchKey(keyService, it) },
                             label = stringResource(R.string.ai_search_key, name),
                             placeholder = "",
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
                         )
                     }
                     TextButton(onClick = { onOpenLink(searchKeyUrl(keyService)) }) {
