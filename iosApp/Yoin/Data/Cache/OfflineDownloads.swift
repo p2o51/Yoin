@@ -40,7 +40,7 @@ final class OfflineDownloads {
 
         var label: String {
             switch self {
-            case .original: "Original"
+            case .original: String(localized: "Original")
             case .kbps320: "320 kbps"
             case .kbps192: "192 kbps"
             case .kbps128: "128 kbps"

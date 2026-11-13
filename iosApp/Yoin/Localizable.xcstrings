@@ -9461,6 +9461,36 @@
           }
         }
       }
+    },
+    "Auto": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        }
+      }
+    },
+    "Original": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原始"
+          }
+        }
+      }
+    },
+    "Wired %@   Bluetooth %@   Speaker %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有线 %1$@　蓝牙 %2$@　扬声器 %3$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

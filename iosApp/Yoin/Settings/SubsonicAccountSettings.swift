@@ -126,7 +126,7 @@ struct SubsonicAccountSettings: View {
                     Text(network.title)
                         .yoinRole(Tokens.type.bodyLarge)
                         .foregroundStyle(app.onSurface)
-                    Text(selected(network).label)
+                    Text(selected(network).localizedLabel)
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(app.onSurfaceVariant)
                         .contentTransition(.opacity)
@@ -143,7 +143,7 @@ struct SubsonicAccountSettings: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(network.title)
-        .accessibilityValue(selected(network).label)
+        .accessibilityValue(selected(network).localizedLabel)
     }
 
     private func qualityChoice(_ choice: StreamQuality, for network: QualityNetwork) -> some View {
@@ -165,11 +165,11 @@ struct SubsonicAccountSettings: View {
                 .frame(width: 20, height: 20)
                 .padding(.horizontal, 2)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(choice.label)
+                    Text(choice.localizedLabel)
                         .yoinRole(Tokens.type.titleMedium)
                         .foregroundStyle(app.onSurface)
                     if choice == .auto_ {
-                        Text(AudioOutputKind.companion.autoDetail)
+                        Text(AudioOutputKind.localizedAutoDetail)
                             .yoinRole(Tokens.type.bodyMedium)
                             .foregroundStyle(app.onSurfaceVariant)
                     }
@@ -205,5 +205,24 @@ struct SubsonicAccountSettings: View {
                 }
             }
         }
+    }
+}
+
+extension StreamQuality {
+    /// The shared label in the listener's language (Android strings_stream_quality.xml): Auto and Original
+    /// are words, the kbps choices read the same everywhere.
+    var localizedLabel: String {
+        switch self {
+        case .auto_: String(localized: "Auto")
+        case .original: String(localized: "Original")
+        default: label
+        }
+    }
+}
+
+extension AudioOutputKind {
+    /// What Auto picks on each output (Android settings_stream_quality_auto_detail), in the listener's language.
+    static var localizedAutoDetail: String {
+        String(localized: "Wired \(AudioOutputKind.wired.autoQuality.localizedLabel)   Bluetooth \(AudioOutputKind.bluetooth.autoQuality.localizedLabel)   Speaker \(AudioOutputKind.speaker.autoQuality.localizedLabel)")
     }
 }
