@@ -30,11 +30,22 @@ Screenshots: `iosApp/screenshots/iphone-np.png`, `-dark`, `-short`, `-touch`, `-
 
 ## Not matched
 
-- Lyric lines stay single-line (`lineLimit(1)`); Android wraps long lines. The iOS scroll offset
-  is computed from fixed line heights, so wrapping would need measured rows.
 - Short screens: Android shows only the current line; iOS lets the next line run on under the
   transport (owner's "lyrics under the transport" decision).
 - `-screen np-short` puts the height the 700 pt reference wouldn't have between transport and
   hero (debug comparison only).
-- Android-only affordances not ported here: spine marquee beside a height-capped cover,
-  TrackLibraryButton, Cast button, play-mode split, PLAY/PAUSE width morph.
+- Not ported: the spine marquee beside a height-capped cover, and Android's Cast button (the
+  Devices pill opens AirPlay instead, or Spotify's Connect devices for a Spotify song).
+
+Since ported (were listed here before):
+
+- Lyric lines wrap, as on Android (`LyricLinesView`, NowPlayingLyrics.swift): each row is
+  measured and the list scrolls by the measured rows above the active one. Only the one-line
+  modes (short screens' one-line row, focus) keep `lineLimit(1)`.
+- TrackLibraryButton: for an Apple Music song the heart becomes add to library, + / ✓
+  (`heartIsLibrary`, NowPlayingView.swift).
+- Play-mode split: the play-mode circle splits into shuffle | repeat on a long press
+  (Android PlayModeButton; NowPlayingView.swift).
+- PLAY/PAUSE width morph: one spring reshapes the pill (word box and side padding 16 ⇄ 24)
+  while the word swaps weight and stretch; the pill and NEXT trade 15 % of their width on a
+  press (`transport`, NowPlayingView.swift).
