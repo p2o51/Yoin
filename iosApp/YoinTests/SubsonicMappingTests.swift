@@ -122,6 +122,20 @@ final class SubsonicMappingTests: XCTestCase {
         XCTAssertTrue(page.starred)
     }
 
+    /// An artist the server lists without albums (a track artist only): still a page, so the artist
+    /// screen leaves its loading blocks and the discography reads "No releases".
+    func test_should_buildAPageWithoutReleases_when_theArtistHasNoAlbums() {
+        let artist = ArtistInfo(ref: MediaRef(provider: provider, rawId: "ar-guest"), id: "ar-guest", name: "Guest",
+                                albumCount: KotlinInt(int: 0), coverArtId: "ar-guest", starred: false, starredAt: nil,
+                                albums: [])
+        let page = mapping.artistPage(artist, loadedAlbums: [])
+        XCTAssertEqual(page.id, MediaId(provider: provider, rawId: "ar-guest"))
+        XCTAssertEqual(page.name, "Guest")
+        XCTAssertTrue(page.releases.isEmpty)
+        XCTAssertTrue(page.mostPlayed.isEmpty)
+        XCTAssertEqual(page.palette, mapping.palette(coverId: "ar-guest"), "the artist's own image colours the page")
+    }
+
     func test_should_fill_shelves_without_repeats_when_building_home() {
         func al(_ i: Int, plays: Int? = nil, rating: Double? = nil) -> Album {
             Album(id: MediaId(provider: "subsonic", rawId: "a\(i)"), title: "A\(i)", artist: "X", year: 2020,

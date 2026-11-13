@@ -75,7 +75,9 @@ struct SubsonicMapping {
                      disc: Self.int(s.disc),
                      bitRateKbps: Self.int(s.bitRate),
                      credits: s.artists.map { ArtistCredit(name: $0.name, id: $0.id) },
-                     suffix: s.suffix,
+                     // No suffix: the MIME type's codec stands in (Android subsonicAudioFormat).
+                     suffix: s.suffix.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                         ?? SongFormat.codec(mime: s.contentType),
                      audio: s.audio.map(Self.audio))
     }
 

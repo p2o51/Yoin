@@ -73,6 +73,7 @@ Pass of 2026-11-04. Checked on the iPhone Air simulator, light and dark, with `-
 | Chip colours | on secondaryContainer / onSecondaryContainer, off surfaceContainerHigh / onSurfaceVariant, effects spring (ExpressiveComponents.kt:493-512) | Same | Same |
 | Chip labels | All, Albums, Singles & EPs, Compilations (values/strings_detail.xml:122-125) | Same | Same |
 | Chips → rows | 8 (ArtistDetailScreen.kt:622) | 8 | 8 |
+| No releases | "No releases" / 无发行作品 under the header's 8 gap: bodyMedium 14/20, onSurfaceVariant, padding 8 × 8; the header still counts "0 releases", no chips (ArtistDetailScreen.kt:1046-1053; values/strings_detail.xml:127) | Blank under the header | Same as Android; fades in and out with the effects spring (`-artistDemo empty`) |
 | Row | padding end 8, top/bottom 8, clip ListRow 12 (ArtistDetailScreen.kt:697-706) | Same, literal 12 | Same, `Tokens.shape.LIST_ROW` |
 | Year column | 48 wide, start 8, labelLarge tabular onSurfaceVariant, only on a year's first row (ArtistDetailScreen.kt:708-721, 686) | 48 / 8, 14 Medium | labelLarge, 20 line box |
 | Cover | 56 (ArtistDetailScreen.kt:722-733) | 56 `EntityBackdrop` | Same (iOS bare-cover rule) |
@@ -86,7 +87,6 @@ Pass of 2026-11-04. Checked on the iPhone Air simulator, light and dark, with `-
 ## Not matched
 
 - Page background: Android `ExpressivePageBackground` (accent + playback reaction); iOS keeps its cover-tinted gradient.
-- Discography empty state ("No releases") is not ported; the mock always has releases.
 - Show all is only reachable with more than 8 releases; the mock artist has 5, so it was not seen on screen.
 - Medium/Expanded and landscape heroes (`ArtistWideHero`, `ArtistLandscapeHero`) are out of this Compact pass.
 - `-screen artist-bottom` now scrolls to the end with `ScrollPosition` after layout; `defaultScrollAnchor(.bottom)` settled short of it.

@@ -62,11 +62,13 @@ struct ServerSettingsView: View {
         }
         .onChange(of: model.settingsDestination) { takeDestination() }
         #if DEBUG
-        // `-settingsOpenSetup add|active` (QA screenshots): Add account, or the account in use's page.
+        // `-settingsOpenSetup add|active|apple` (QA screenshots): Add account, the account in use's page, or
+        // the Apple Music account's page (its Song names group; no MusicKit sign-in on a simulator).
         .task {
             guard let open = UserDefaults.standard.string(forKey: "settingsOpenSetup") else { return }
             try? await Task.sleep(for: .milliseconds(900))
-            setup = ServiceSetupRequest(profileId: open == "active" ? model.profiles.activeId : nil)
+            setup = ServiceSetupRequest(profileId: open == "active" ? model.profiles.activeId
+                                        : open == "apple" ? ProfileStore.appleMusicId : nil)
         }
         // `-openWelcomeGuide YES` (QA): About › Welcome guide, a beat after the page opens.
         .task {

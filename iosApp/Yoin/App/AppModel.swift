@@ -35,12 +35,21 @@ final class AppModel {
         // a push, HomeView): Memories goes with it, unseen.
         didSet { if section != .home { memories.snapClosed() } }
     }
-    var path: [Route] = []
+    var path: [Route] = [] {
+        // A page shown on the stack is the newest step entered (in the iPad's column, Android's pushPane).
+        didSet {
+            if path.count > oldValue.count { noteBackSurface(.column, open: true) }
+            else if path.isEmpty, padSelection == nil { noteBackSurface(.column, open: false) }
+        }
+    }
     /// A Settings page to open on arrival (the scrapbook's "Sign in to sync" → NeoDB); taken once.
     var settingsDestination: SettingsDestination?
-    var padSelection: Album?
+    var padSelection: Album? {
+        // An album picked into the column, also the one already there, is the newest step (Android openPane).
+        didSet { noteBackSurface(.column, open: padSelection != nil || !path.isEmpty) }
+    }
     var isPad = false
-    var npExpanded = false
+    var npExpanded = false { didSet { noteNowPlayingSurface() } }
     /// Home's Memories bubble is out of the Dynamic Island (or the notch): the soft status-bar
     /// band steps aside so the island's black meets the screen's top without a haze.
     var islandOut = false
@@ -54,7 +63,11 @@ final class AppModel {
     /// Home's Memories overlay (ShellOverlayUp): one reveal progress.
     let memories = MemoriesPresentation()
     /// iPad: Now Playing as a right-hand inspector panel (Closed → Panel → Full).
-    var npPanel = false
+    var npPanel = false { didSet { noteNowPlayingSurface() } }
+    /// The side-by-side surfaces in the order they opened, oldest first: ⌘[ closes the newest
+    /// (ShellBackOrder, Android #200).
+    @ObservationIgnored var backRecency: [ShellBackSurface] = []
+    @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024
     /// Screenshot aid: resolve the NP budget as a short (~700 dp) Android phone.
@@ -206,12 +219,27 @@ final class AppModel {
         profiles.useFakeSpotify()
         #endif
         observeSpotifyAccount()
+        memories.onOpenChange = { [weak self] open in self?.noteBackSurface(.memories, open: open) }
+        #if DEBUG
+        if let order = UserDefaults.standard.string(forKey: "backOrderDemo") {
+            Task { @MainActor [weak self] in if let self { await QAProbe.backOrderDemo(order, self) } }
+        }
+        #endif
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
         case "library-albums", "library-songs", "library-scroller", "library-artists", "library-playlists",
              "library-favorites": section = .library
-        case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom": path = [.album(library.albums()[0])]
+        case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom":
+            var album = library.albums()[0]
+            #if DEBUG
+            // `-notStreamedDemo YES`: the mock album's third and fourth songs as Apple Music songs Apple won't
+            // stream; `open` also opens the third one's reason.
+            if UserDefaults.standard.string(forKey: "notStreamedDemo") != nil {
+                for i in [2, 3] where album.tracks.indices.contains(i) { album.tracks[i].notStreamed = true }
+            }
+            #endif
+            path = [.album(album)]
         case "np", "np-touch": npExpanded = true
         case "np-queue": npExpanded = true; queueSheetOpen = true
         case "np-airplay": npExpanded = true
@@ -265,7 +293,11 @@ final class AppModel {
         player.onEvent = { event in
             switch event {
             case .skippedAfterError(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't play \(track.title)"))
-            case .failed(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't reach the server for \(track.title)"))
+            case .failed(let track, let message):
+                // A start Spotify refused (no app here, no Premium) isn't the server: the banner says which.
+                let refused = SpotifyIssues.Issue(message: message) != nil
+                PlaylistActions.shared.show(refused ? String(localized: "Couldn't play \(track.title)")
+                                                    : String(localized: "Couldn't reach the server for \(track.title)"))
             case .queueFailed: PlaylistActions.shared.show(String(localized: "Couldn't play this queue"))
             case .queueEnded: break
             }
@@ -289,12 +321,18 @@ final class AppModel {
         // Downloads the system finished or held while Yoin was away arrive before the queue moves on.
         BackgroundTransfers.shared.reconnect(overMobileData: OfflineDownloads.shared.overMobileData)
         OfflineDownloads.shared.pump()
-        // Waiting plays go out when the network comes back or the app comes to the front.
-        store.scrobbles.onReachable = { [weak store] in store?.flushScrobbles() }
+        // Waiting plays and ratings go out when the network comes back or the app comes to the front.
+        store.scrobbles.onReachable = { [weak store] in
+            store?.flushScrobbles()
+            store?.flushRatings()
+        }
         store.scrobbles.watchNetwork()
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                                queue: .main) { [weak store] _ in
-            MainActor.assumeIsolated { store?.flushScrobbles() }
+            MainActor.assumeIsolated {
+                store?.flushScrobbles()
+                store?.flushRatings()
+            }
         }
         watchPlaybackReports()
         Task { await profiles.fillSpotifyAvatars() }
@@ -307,6 +345,7 @@ final class AppModel {
         #if DEBUG
         signInFromLaunchArguments()
         runProfilesScript()
+        runSpotifyIssueDemo()
         // `-landingReset YES`: forget that the landing was seen (QA of the first-run gate).
         if UserDefaults.standard.bool(forKey: "landingReset") { DefaultsLandingStore().reset() }
         #endif
@@ -360,6 +399,21 @@ final class AppModel {
         }
     }
 
+    /// `-spotifyIssueDemo install|premium` (with `-spotifyFake`): the stand-in account's QA Mix is
+    /// started as a tap on its first song would. install: the simulator has no Spotify app, so the
+    /// start is refused as on a phone without it. premium: the refusal a free account gets (there
+    /// is none to test with) is reported for it.
+    private func runSpotifyIssueDemo() {
+        guard let demo = UserDefaults.standard.string(forKey: "spotifyIssueDemo") else { return }
+        Task {
+            for _ in 0..<40 where store.spotify == nil { try? await Task.sleep(for: .milliseconds(250)) }
+            await store.loadPlaylist("pl_owned")
+            guard let p = store.playlist("pl_owned"), !p.entries.isEmpty else { return }
+            play(p.entries)
+            if demo == "premium" { playbackSystem.spotifyOutput?.demoRefuse(.premiumRequired) }
+        }
+    }
+
     /// Debug builds: `-subsonicURL http://127.0.0.1:4979 -subsonicUser demo
     /// -subsonicPass demo` signs in on launch (the screen's own path, minus
     /// typing). `-subsonicSignOut YES` signs out. Never in release builds.
@@ -403,6 +457,12 @@ final class AppModel {
                     try? await Task.sleep(for: .seconds(1))
                     let d = player.progress.durationSec > 0 ? player.progress.durationSec : player.currentTrack?.durationSec ?? 0
                     player.seek(to: max(0, d - fromEnd))
+                }
+                // `-serverRating 8.4`: the playing song rated as a released drag would (rating outbox QA: with
+                // the server off it stays owed, and goes out when the account or the network is back).
+                if d.object(forKey: "serverRating") != nil, let t = player.currentTrack {
+                    NowPlayingData.shared.dragRating(d.double(forKey: "serverRating"), t)
+                    NowPlayingData.shared.commitRating(t, client: session.client)
                 }
             }
             guard let route else { return }
@@ -533,6 +593,15 @@ final class AppModel {
 
     func artistPage(_ ref: ArtistRef) -> ArtistPage {
         if store.isReal, let id = ref.id {
+            #if DEBUG
+            // `-artistDemo empty` (with `-serverRoute artist:<id>`): the loaded page as an
+            // artist without releases, for the discography's "No releases" line.
+            if UserDefaults.standard.string(forKey: "artistDemo") == "empty", var page = store.artistPage(id) {
+                page.releases = []
+                page.mostPlayed = []
+                return page
+            }
+            #endif
             return store.artistPage(id)
                 ?? ArtistPage(id: MediaId(provider: store.provider, rawId: id), name: ref.name,
                               starred: false, palette: store.placeholderPalette(coverId: nil),
@@ -605,8 +674,11 @@ final class AppModel {
     /// remembered play mode (Codex F03; Android PlaybackManager keeps it across starts).
     /// [from]: the source of a start that isn't a page's own (Android's activityContext argument); it
     /// wins over the page on screen, which is otherwise what the queue plays from.
-    func play(_ entries: [PlaylistEntry], startAt: Int = 0, shuffle: Bool = false, from: PlayingFrom? = nil) {
+    /// A [startAt] names the song the listener picked; without one (Play, Shuffle) the list starts at its
+    /// first song. Songs Apple Music won't stream stay out of the queue (PlayableQueue.start).
+    func play(_ entries: [PlaylistEntry], startAt: Int? = nil, shuffle: Bool = false, from: PlayingFrom? = nil) {
         startGeneration += 1
+        let (entries, startAt) = PlayableQueue.start(entries, startAt: startAt ?? 0, explicitStart: startAt != nil)
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
         playingFrom = PlayingFrom.of(named: from, page: path.last ?? padSelection.map({ .album($0) }),
@@ -668,8 +740,9 @@ final class AppModel {
 
     /// Play next (stacked so the list keeps its order) or Add to queue.
     /// [done] says whether the songs really went in (the sheet only says so then).
+    /// Songs Apple Music won't stream are left out (PlayableQueue.queueable).
     func enqueue(_ entries: [PlaylistEntry], next: Bool, done: (@MainActor (Bool) -> Void)? = nil) {
-        let tracks = entries.compactMap(store.playable)
+        let tracks = PlayableQueue.queueable(entries).compactMap(store.playable)
         guard !tracks.isEmpty else { done?(false); return }
         // Spotify plays its own song: Yoin's queue isn't what plays next, Spotify's is. Add to queue
         // goes into Spotify's queue; Play next (Android hides it on Spotify) and other services' songs

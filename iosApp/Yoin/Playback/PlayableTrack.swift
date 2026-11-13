@@ -20,8 +20,8 @@ struct PlayableTrack: Identifiable, Hashable, Sendable {
     /// The file's own bit rate as the server lists it (Subsonic), for
     /// [StreamDelivery.plan]; nil = unknown or not a stream.
     var sourceKbps: Int? = nil
-    /// The quality tag Now Playing shows after the artist ("FLAC 24/96"); nil when unknown.
-    var qualityTag: String? = nil
+    /// The format tags Now Playing shows after the artist (["FLAC 16/44.1", "5.1"]); empty when unknown.
+    var formatTags: [String] = []
 }
 
 /// A queue slot. The same track can sit in the queue twice, so lists and
@@ -62,13 +62,15 @@ struct PlaybackFailure: Sendable, Equatable {
     var network: Bool
 
     /// What the banner offers for this failure (Android's typed connect failures, SpotifyConnectFailure):
-    /// sign in again opens Settings, Spotify not running opens Spotify, Premium has nothing to retry.
-    enum Action: Equatable, Sendable { case retry, settings, openSpotify, none }
+    /// sign in again opens Settings, Spotify not running opens Spotify, no Spotify app opens its App
+    /// Store page, Premium has nothing to retry.
+    enum Action: Equatable, Sendable { case retry, settings, openSpotify, installSpotify, none }
 
     var action: Action { Self.action(for: message) }
 
     static func action(for message: String) -> Action {
         if message == SpotifyFailureCopy.premium { return .none }
+        if message == SpotifyFailureCopy.appMissing { return .installSpotify }
         if message.hasPrefix(String(localized: "Reconnect Spotify in Settings")) || message == String(localized: "Sign in again") {
             return .settings
         }
@@ -81,6 +83,8 @@ struct PlaybackFailure: Sendable, Equatable {
 enum SpotifyFailureCopy {
     static var premium: String { String(localized: "Spotify Premium is required for in-app playback.") }
     static var openSpotify: String { String(localized: "Open Spotify on this iPhone, then tap Play") }
+    /// No Spotify app on this device (player_spotify_app_missing).
+    static var appMissing: String { String(localized: "Install the Spotify app to play Spotify tracks.") }
 }
 
 /// Things the engine did on its own that the UI may want to surface.

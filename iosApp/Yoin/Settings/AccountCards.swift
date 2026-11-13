@@ -91,6 +91,8 @@ struct AccountsSection: View {
         if profiles.switchingTo == p.id { return .busy(String(localized: "Connecting")) }
         if profiles.needsSignIn(p) { return .problem(String(localized: "Sign in again")) }
         if profiles.failure?.profileId == p.id { return .problem(String(localized: "Couldn't switch")) }
+        // Install Spotify / Premium required (Android SpotifyProviderStatus on a Spotify card).
+        if p.service == .spotify, let issue = SpotifyIssues.shared.issue(for: p.id) { return .problem(issue.label) }
         if p.service == .appleMusic, !model.appleMusic.isAuthorized, model.appleMusic.authorization != .notDetermined {
             return .problem(String(localized: "Access off"))
         }

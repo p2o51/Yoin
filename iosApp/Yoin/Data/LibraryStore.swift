@@ -56,6 +56,8 @@ final class LibraryStore {
     @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "library")
     /// Subsonic plays waiting for the server, and when each song started (its submission's time).
     @ObservationIgnored let scrobbles: ScrobbleOutbox = .shared
+    @ObservationIgnored let ratingOutbox: RatingOutbox = .shared
+    @ObservationIgnored private var flushingRatings = false
     @ObservationIgnored private var scrobbleStarts: [String: Int64] = [:]
     /// What the server's now-playing view was last told (Playback/PlaybackReport.swift).
     @ObservationIgnored var playbackReports = PlaybackReportTracker()
@@ -141,6 +143,8 @@ final class LibraryStore {
             _ = sources.active
             _ = appleMusic.authorization
             _ = spotifyAccount?.scope
+            // Another name region: what was read carries the old names (Android forgetDetails).
+            _ = AppleMusicNameRegionStore.shared.regions
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -218,10 +222,11 @@ final class LibraryStore {
     func loadHome(force: Bool = false) async {
         guard force || homePhase == .idle || homePhase == .failed else { return }
         guard isReal else { return }
-        // A launch or an account: plays left over from before go out now.
+        // A launch or an account: plays and ratings left over from before go out now.
         flushScrobbles()
+        flushRatings()
         // The last feed paints at once (Android's Home snapshot); the load below replaces it.
-        let gen = generation, epoch = diskEpoch, scope = historyScope
+        let gen = generation, epoch = diskEpoch, scope = diskScope
         homePhase = .loading
         if homeLists == nil, let codec, let hit = await disk.read(DetailCacheDTO.Home.self, scope: scope, kind: .home, id: ""),
            gen == generation, homeLists == nil {
@@ -761,7 +766,7 @@ final class LibraryStore {
         fetch: @escaping @MainActor () async throws -> D?
     ) async {
         await once(key, force: force) { [self] in
-            let gen = generation, epoch = diskEpoch, scope = historyScope
+            let gen = generation, epoch = diskEpoch, scope = diskScope
             var storedAt: Date?
             if !inMemory(), let codec, let hit = await disk.read(D.self, scope: scope, kind: kind, id: id) {
                 guard gen == generation else { return }
@@ -794,7 +799,7 @@ final class LibraryStore {
     private func persist<D: Codable & Sendable>(_ value: D?, kind: DetailDiskCache.Kind, id: String, epoch: Int,
                                                 scope: String? = nil) {
         guard let value, isReal else { return }
-        let scope = scope ?? historyScope
+        let scope = scope ?? diskScope
         let disk = disk
         Task.detached(priority: .utility) { await disk.write(value, scope: scope, kind: kind, id: id, epoch: epoch) }
     }
@@ -810,7 +815,7 @@ final class LibraryStore {
     /// begun before it can't write the old one back.
     private func dropFromDisk(_ kind: DetailDiskCache.Kind, _ id: String) {
         diskEpoch += 1
-        let epoch = diskEpoch, scope = historyScope, disk = disk
+        let epoch = diskEpoch, scope = diskScope, disk = disk
         Task.detached(priority: .utility) { await disk.remove(scope: scope, kind: kind, id: id, epoch: epoch) }
     }
 
@@ -1043,7 +1048,7 @@ final class LibraryStore {
         favoritesStale = false
         // The starred artists and albums paint from disk too (Codex F04: offline, only the songs came back).
         if favoriteArtists.isEmpty, favoriteAlbums.isEmpty, let codec {
-            let scope = historyScope, gen = generation
+            let scope = diskScope, gen = generation
             let artists = await disk.read([DetailCacheDTO.Item].self, scope: scope, kind: .list, id: "favoriteArtists")
             let albums = await disk.read([DetailCacheDTO.Album].self, scope: scope, kind: .list, id: "favoriteAlbums")
             if gen == generation, favoriteArtists.isEmpty, favoriteAlbums.isEmpty {
@@ -1359,18 +1364,62 @@ final class LibraryStore {
         }
     }
 
-    /// Writes a track's rating (Yoin's 0–10; the server gets 0–5).
+    /// Sends a track's rating to the server (Yoin's 0–10 as 0–5 stars), after the caller stored it in
+    /// `LocalRatings`: the newest stored value goes, and the song stays owed to the account
+    /// (`RatingOutbox`) until the server has it, so a rating given offline goes out again later.
     func setRating(_ track: Track, rating: Double?) async -> Bool {
-        guard let client, track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return false }
-        do {
-            try await client.setRating(id: track.id.rawId, rating: Int32(SubsonicMapping.serverRating(rating)))
-            dropAlbums(containing: track.id.rawId) { $0.rating = rating }
-            return true
-        } catch {
-            log.error("rating failed: \(ServerSession.message(for: error), privacy: .public)")
+        guard track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC, let scope = session.scope else { return false }
+        let entry = RatingOutbox.Entry(scope: scope, songId: track.id.rawId)
+        ratingOutbox.mark(entry)
+        guard let client else { return false }
+        let ratings = ratings
+        let outcome = await ratingOutbox.push(entry, next: {
+            RatingOutbox.next(entry, ratings: ratings, activeScope: session.scope)
+        }, send: { stars in
+            try await client.setRating(id: entry.songId, rating: stars)
+        })
+        guard outcome != .kept else {
+            log.error("rating kept for later: \(entry.songId, privacy: .public)")
             return false
         }
+        dropAlbums(containing: track.id.rawId) { $0.rating = rating }
+        return true
     }
+
+    /// Sends the account's ratings its server hasn't taken (Android `syncPendingRatings`), oldest first,
+    /// one at a time, each with its newest value: when an account becomes active, when the network comes
+    /// back and when the app comes to the front. A rating the server refuses stays and doesn't hold the
+    /// others back; three failures in a row (still offline) end the run.
+    func flushRatings() {
+        guard !flushingRatings, let client, let scope = session.scope, !ratingOutbox.waiting(for: scope).isEmpty
+        else { return }
+        flushingRatings = true
+        let ratings = ratings
+        Task {
+            defer { flushingRatings = false }
+            var failuresInARow = 0
+            for entry in ratingOutbox.waiting(for: scope) {
+                guard session.scope == scope, ratingOutbox.isPending(entry) else { continue }
+                let outcome = await ratingOutbox.push(entry, next: {
+                    RatingOutbox.next(entry, ratings: ratings, activeScope: session.scope)
+                }, send: { stars in
+                    try await client.setRating(id: entry.songId, rating: stars)
+                })
+                if outcome == .kept {
+                    failuresInARow += 1
+                    guard failuresInARow < Self.ratingRetryMaxFailures, session.scope == scope else {
+                        log.info("ratings kept for later")
+                        return
+                    }
+                } else {
+                    failuresInARow = 0
+                }
+            }
+        }
+    }
+
+    /// Android RATING_RETRY_MAX_FAILURES.
+    nonisolated static let ratingRetryMaxFailures = 3
 
     // MARK: Playback
 
@@ -1408,7 +1457,7 @@ final class LibraryStore {
         t.starred = isStarred(e.track)
         t.userRating = e.track.rating.map { SubsonicMapping.serverRating($0) }
         t.sourceKbps = e.track.bitRateKbps
-        t.qualityTag = e.track.qualityTag
+        t.formatTags = e.track.formatTags
         ReplayGainSettings.shared.remember(e.track.audio, songId: e.track.id.rawId)
         return t
     }
@@ -1482,6 +1531,16 @@ final class LibraryStore {
         if spotify != nil, let scope = spotifyAccount?.scope { return scope }
         // The account's scope (`Profile.subsonicScope`), steady across an edit of how its address is written.
         return session.scope ?? ""
+    }
+
+    /// Whose stored pages and lists these are: [historyScope], and for Apple Music under another name
+    /// region that region too, so a page stored under one region's names never paints under another's
+    /// (Android forgets an account's details when its region changes).
+    var diskScope: String {
+        let scope = historyScope
+        guard apple != nil else { return scope }
+        let region = appleMusic.nameRegion()
+        return region == .off ? scope : "\(scope)|names:\(region.key)"
     }
 
     /// The song the last play row was written for (Android

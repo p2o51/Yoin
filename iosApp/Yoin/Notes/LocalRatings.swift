@@ -149,6 +149,12 @@ final class LocalRatings {
     /// A row exists for the song (rated, or cleared and kept for sync).
     func hasRow(key: String) -> Bool { visibleRow(key) != nil }
 
+    /// [scope]'s row for the song, whichever account is in use (the rating outbox sends an account's
+    /// waiting ratings only while it is in use, and reads them under its own scope).
+    func row(scope: String?, provider: String, songId: String) -> Row? {
+        rows[Self.storageKey(scope: scope, provider: provider, songId: songId)]
+    }
+
     func set(_ rating: Double, provider: String, songId: String) {
         store(rating, provider: provider, songId: songId, time: Self.nowMs, keepOnFailure: true)
         Self.onLocalChange?()

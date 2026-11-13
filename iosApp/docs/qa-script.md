@@ -70,6 +70,12 @@ How to read a clip quickly:
 | srv-memories-other | the same sign-in + `-historySeed demo -profilesScript "wait:8000;add:http://localhost:4995,spare;wait:3000;seed:demo;wait:5000;memories:open;wait:3500;memories:other;wait:1500"` (+ `;memories:diary`, `;memories:album` with `-homeOtherProfilesSwitchNoticeSeen NO`) | two accounts with memories (spare in use): the deck turned to demo's card, "From demo" under its buttons, read-only; Go to album asks through the switch notice |
 | srv-lyric-count | the same sign-in + `-historySeed demo -lyricHighlightSeed YES -homeLyricCountShot 3` (or `-homeLyricCountSet 2`) | Edit Home with Lyric Cards moved first and its dots held open at 3 beside the ⌟ (label "3 cards", dots 2–3 filled, 3 larger); with `-homeLyricCountSet 2` the shelf drops to two cards, one Undo step. By hand: hold the ⌟ and pull down 40 pt to open, then each 36 pt down / up is a card more / less with a tick, release keeps it |
 | account-card, account-card-reconnect, account-card-switch | two accounts (`-profilesScript "wait:6000;add:http://localhost:4995,spare;wait:3000;switch:0"` after the demo sign-in, once), then `-accountCardOpen home` / `library` (+ `-accountCardForceReconnect YES`, `-accountCardPick 1`) | the header avatar's short tap: the card grows out of the avatar (its colour, then surfaceContainer), contents late; the account in use, Manage accounts, the other accounts, Add account, Settings, Send feedback, Edit Home (Home only); with Reconnect forced, the dot on the header avatar and Reconnect beside Manage accounts; a pick colours its row, the card goes back into the avatar and the header shows the new account |
+| format tags (not in the driver) | the srv args + `-serverRoute playlist:pl-commute -playlistDemo menu` (song sheet) or `-serverPlay album:al-field -serverOpenNowPlaying YES` (Now Playing); `-formatDemo flac,0,16,44100,6` (suffix, kbps, depth, Hz, channels) makes every song claim that format | a block per tag under the sheet's artist and after Now Playing's artist ("FLAC 16/44.1", "5.1"; the demo server's own songs read "WAV 44.1"); no row without tags (`-screen song-menu`) |
+| Spotify can't play here (not in the driver) | `-spotifyFake <url> -spotifyIssueDemo install` or `premium`, with `-screen settings` for the card and `-settingsOpenSetup active` for the account's page (§4; the demo starts QA Mix's first song) | install: the simulator has no Spotify app, so the start is held with "Install the Spotify app to play Spotify tracks." and an Install Spotify button (it opens Spotify's App Store page; on a simulator Safari, which can't show it), the Spotify card's pill and its page's Status say "Install Spotify". premium: the same with "Spotify Premium is required for in-app playback.", no button, and "Premium required" on that account only. The toast sits above the phone's banner, not on it |
+| artist without releases (not in the driver) | the srv args + `-serverRoute artist:ar-kiri -artistDemo empty` (the loaded page with its releases taken away; the demo server has no such artist) | "Discography" with "0 releases", then "No releases" in the muted body colour; no chips, no year in the header |
+| ratings the server missed (not in the driver) | your own demo server on a spare port (`demo_subsonic.py 4997`): sign in with the srv args on that port and `-serverPlay album:al-field`; stop that server; relaunch with `-serverPlay album:al-field -serverRating 8.4` (the playing song rated as a released drag) | `Library/Application Support/Yoin/pending-ratings.json` in the app container lists the song under that account; start the server again and bring Yoin to the front (or relaunch): its log shows `/rest/setRating.view`, `getSong` reads 4 stars, and the file is gone |
+| scrapbook Notes tab (not in the driver) | the srv args + `-screen album-scrapbook -serverRoute album:al-field -scrapNotesDemo rows` (or `all`, `edit`, `draft`, `plain`, `plain-draft`, `loading`); it chooses timed lyrics for the first song in the lyrics store and adds three notes to it | the first song's sheet opens on Notes: each note under its line with three lines either side, "· · ·" between passages, All lyrics ⇄ Notes only; a tap on a line: New note / Play from; on a note: Edit / Play from; the editor's buttons above the keyboard; `plain`: the notes alone with New note under them; `loading`: "Loading lyrics…" only while there are no notes |
+| Start fresh put off (not in the driver) | `-screen settings -syncOpenPage YES -syncDemo fresh-held` (a stand-in state, no Drive: iosApp/docs/cloud-sync-ios.md) | Accounts: "demo" reads "Paused", and 4 s after launch "Changes waiting to upload" fades in under it while Keep syncing as before / Start fresh and the groups below slide down on the spring; both buttons stay |
 
 ## 2. Hand pass (light and dark, iPhone then iPad)
 
@@ -129,7 +135,8 @@ NP panel.
 Debug builds only. `scripts/fake_spotify.py` is an in-memory Spotify Web API (no network, no covers,
 no audio); `-spotifyFake <url>` signs in a stand-in account (`yoin-qa`, "Yoin QA") with dummy tokens
 that never expire and points every Web API call at it. App Remote and the Spotify app are never
-touched: a play start fails quietly. Always pair it with `-silentAudio YES`.
+touched: a play start goes nowhere, and on a simulator (no Spotify app) it is held with the Install
+Spotify banner, as on a phone without Spotify. Always pair it with `-silentAudio YES`.
 
 ```sh
 python3 scripts/fake_spotify.py                      # :4997; Ctrl-C to stop (state resets on restart)
@@ -148,9 +155,11 @@ Walk-throughs (UI tests in `YoinSpotifyQA`, its own scheme, never part of the Yo
 Songs to the foot and Playlists, Search Library | Spotify with the Playlists filter reading three
 pages, an owned playlist's ⋮ (Cloud backup, Rename, Delete), the followed one (no ⋮, the "Spotify only
 shows…" line, 25 tracks), a song's Add to playlist (owned + collaborative only), removing the first
-"Satellite Quiet" from QA Mix (the server keeps the second), and Settings › Cloud sync › Playlist cloud
-backup with Spotify as source and restore destination. Each step writes a screenshot and the element
-tree to `/tmp/yoin-spotify-qa` (`YOIN_QA_OUT` to change).
+"Satellite Quiet" from QA Mix (the server keeps the second), Settings › Cloud sync › Playlist cloud
+backup with Spotify as source and restore destination, and the Install Spotify banner with its card
+and its button (`testInstallSpotifyWhenTheAppIsMissing`; the button's step needs the network). Each
+step writes a screenshot and the element tree to `/tmp/yoin-spotify-qa` (`TEST_RUNNER_YOIN_QA_OUT` to
+change; `TEST_RUNNER_YOIN_FAKE_SPOTIFY=http://127.0.0.1:<port>` for a fake on another port).
 
 ```sh
 python3 scripts/fake_spotify.py &

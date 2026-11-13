@@ -53,6 +53,37 @@ struct CookieBadge: View {
     }
 }
 
+/// Format tags as small tonal blocks ("FLAC 24/96", "5.1"), one block each, no separators (Android
+/// AudioFormatTagRow: labelSmall with tabular figures, 6 × 1 inside a 6-corner block, 4 apart, in
+/// secondaryContainer). VoiceOver reads the row as one "Audio format FLAC 16/44.1 5.1".
+struct FormatTagRow: View {
+    var tags: [String]
+    var container: Color
+    var content: Color
+
+    /// A tag's block: labelSmall's 16 line and 1 above and below.
+    static let height: CGFloat = Tokens.type.labelSmall.lineHeight.cg + 2
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(tags, id: \.self) { tag in
+                Text(tag)
+                    .font(.gsf(Tokens.type.labelSmall.size.cg, Font.Weight(gsf: Tokens.type.labelSmall.weight)).monospacedDigit())
+                    .tracking(Tokens.type.labelSmall.letterSpacing.cg)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .foregroundStyle(content)
+                    .padding(.horizontal, 6)
+                    .frame(height: Self.height)
+                    .background(container, in: .rect(cornerRadius: 6, style: .continuous))
+                    .transition(.opacity)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Audio format \(tags.joined(separator: " "))"))
+    }
+}
+
 /// The bar's accent-style selection: a subtle pill inside the glass (grey on
 /// light glass, light on dark), under accent-colored text.
 struct SelectionPill: View {

@@ -63,13 +63,23 @@ struct Track: Identifiable, Hashable, Sendable {
     /// Every credited artist with the page each opens, when the service names more than one (Android
     /// Track.artistCredits); empty = just [artist].
     var credits: [ArtistCredit] = []
-    /// The file's format (Subsonic `suffix`: "flac", "mp3") and audio facts (OpenSubsonic), for the quality
-    /// tag and volume leveling.
+    /// The file's format (Subsonic `suffix`: "flac", "mp3") and audio facts (OpenSubsonic), for the format
+    /// tags and volume leveling.
     var suffix: String? = nil
     var audio: TrackAudio? = nil
+    /// An Apple Music song Apple lists but doesn't stream here (yet): a pre-release track, one the
+    /// storefront holds back, or a library song whose catalog song was pulled (Android
+    /// `appleMusicCatalogUnavailable`). Its row is dimmed with the reason, and it never goes into a queue.
+    var notStreamed: Bool = false
 
-    /// "FLAC 24/96", "MP3 320", "5.1"; nil when the server says nothing.
-    var qualityTag: String? { QualityTag.label(suffix: suffix, bitRateKbps: bitRateKbps, audio: audio) }
+    /// The file's own format, codec first: ["FLAC 24/96"], ["MP3 320"], ["FLAC 16/44.1", "5.1"]; empty when
+    /// the server says nothing (Spotify, Apple Music).
+    var formatTags: [String] {
+        #if DEBUG
+        if let demo = SongFormat.demo { return FormatTags.tags(demo) }
+        #endif
+        return FormatTags.tags(.subsonic(suffix: suffix, bitRateKbps: bitRateKbps, audio: audio))
+    }
 }
 
 enum ReleaseKind: String, Hashable, Sendable {

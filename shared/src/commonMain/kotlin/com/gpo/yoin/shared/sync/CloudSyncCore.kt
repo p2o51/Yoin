@@ -292,17 +292,28 @@ class CloudSyncCore(
     @Throws(Throwable::class)
     suspend fun keepAccountAsBefore(localProfileId: String) = accountAction { binder.keepAsBefore(localProfileId) }
 
+    /**
+     * "Start fresh as this account" for a paused account. Returns how many changes of the old account
+     * are still not uploaded: above zero nothing was done (the account stays paused, its rows stay on
+     * this device) and the user asks again once they are up. 0 = done, or there was nothing to do.
+     */
     @Throws(Throwable::class)
-    suspend fun startFreshAccount(localProfileId: String) = run {
+    suspend fun startFreshAccount(localProfileId: String): Int = run {
         ensureInitialized()
         // Publish anything still pending for the old account first, so nothing of it is lost.
         if (engine().hasPendingChanges()) runCycle(force = true)
-        mutex.withLock {
-            val plan = binder.prepareStartFresh(localProfileId) ?: return@withLock
+        val notUploaded = mutex.withLock {
+            val plan = binder.prepareStartFresh(localProfileId) ?: return@withLock 0
+            // The cycle above didn't get them up (offline, a Drive error). The purge deletes every row
+            // that matches its last captured state, uploaded or not, and then forgets that state, so
+            // completeStartFresh's own pending check could no longer stop it: leave the account as it is.
+            if (plan.pendingChanges > 0) return@withLock plan.pendingChanges
             engine().purgeScopeLocally(plan.oldScope, localProfileId)
             binder.completeStartFresh(plan)
+            0
         }
         runCycle(force = true)
+        notUploaded
     }
 
     /** Delete another device's files from Drive (it re-uploads if it is still alive). */

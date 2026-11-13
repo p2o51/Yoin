@@ -47,7 +47,11 @@ struct ServiceSetupView: View {
     private var editing: Profile? { request.profileId.flatMap(profiles.profile) }
     private var adding: Bool { request.profileId == nil }
     private var isActive: Bool { editing != nil && editing?.id == profiles.activeId }
-    private var shown: Profile.Service { editing?.service ?? service }
+    /// An Apple Music account's page asked for while the account isn't (yet, or any more) in the list
+    /// still reads as Apple Music's (the remove's dismissal, `-settingsOpenSetup apple`).
+    private var shown: Profile.Service {
+        editing?.service ?? (request.profileId == ProfileStore.appleMusicId ? .appleMusic : service)
+    }
     private var appleAdded: Bool { profiles.profile(ProfileStore.appleMusicId) != nil }
 
     private var app: CoverScheme {
@@ -69,7 +73,7 @@ struct ServiceSetupView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                Text(editing?.title ?? String(localized: "Add account"))
+                Text(editing?.title ?? (adding ? String(localized: "Add account") : shown.name))
                     .yoinRole(Tokens.type.displaySmall)
                     .foregroundStyle(app.onSurface)
                     .padding(.horizontal, 8)
@@ -364,6 +368,14 @@ struct ServiceSetupView: View {
     // MARK: Apple Music
 
     private var appleGroups: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            appleConnectionGroup
+            // The account's own choices, under its connection (Android appleMusicAccountContent).
+            if let id = request.profileId { nameRegionGroup(id) }
+        }
+    }
+
+    private var appleConnectionGroup: some View {
         group("Apple Music") {
             var rows: [AnyView] = [AnyView(infoRow(String(localized: "Status"), appleStatusText, ink: appleStatusInk))]
             if apple.isAuthorized, let sub = apple.subscription {
@@ -374,6 +386,76 @@ struct ServiceSetupView: View {
                 rows.append(AnyView(actionRow(String(localized: "Open Settings"), ink: app.primary, action: openSystemSettings)))
             }
             return rows
+        }
+    }
+
+    /// Android AppleMusicNameRegionGroup: which storefront the account's songs and albums are named from.
+    private func nameRegionGroup(_ profileId: String) -> some View {
+        let selected = AppleMusicNameRegionStore.shared.region(profileId)
+        return VStack(alignment: .leading, spacing: 8) {
+            group(String(localized: "Song names")) {
+                AppleMusicNameRegion.allCases.map { region in
+                    AnyView(nameRegionRow(region, selected: region == selected) {
+                        AppleMusicNameRegionStore.shared.set(region, for: profileId)
+                    })
+                }
+            }
+            Text("Songs and albums from this account. A song the other storefront doesn't carry keeps the name it has.")
+                .yoinRole(Tokens.type.bodySmall)
+                .foregroundStyle(app.onSurfaceVariant)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
+        }
+        .sensoryFeedback(.selection, trigger: selected)
+        .animation(Yoin.effects, value: selected)
+    }
+
+    private func nameRegionRow(_ region: AppleMusicNameRegion, selected: Bool, onSelect: @escaping () -> Void) -> some View {
+        Button {
+            if !selected { onSelect() }
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().strokeBorder(selected ? app.primary : app.onSurfaceVariant, lineWidth: 2)
+                    Circle().fill(app.primary).padding(5).scaleEffect(selected ? 1 : 0.01).opacity(selected ? 1 : 0)
+                }
+                .frame(width: 20, height: 20)
+                .animation(Yoin.spatial, value: selected)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.title(region))
+                        .yoinRole(Tokens.type.titleMedium)
+                        .foregroundStyle(app.onSurface)
+                    Text(Self.summary(region))
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(app.onSurfaceVariant)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    static func title(_ region: AppleMusicNameRegion) -> String {
+        switch region {
+        case .off: String(localized: "As Apple Music shows them")
+        case .original: String(localized: "In their original language")
+        case .mainlandChina: String(localized: "As China mainland names them")
+        case .japan: String(localized: "As Japan names them")
+        }
+    }
+
+    static func summary(_ region: AppleMusicNameRegion) -> String {
+        switch region {
+        case .off: String(localized: "Names from your own storefront")
+        case .original: String(localized: "A Japanese song keeps its Japanese name, a Korean one its Korean name")
+        case .mainlandChina: String(localized: "Names from Apple Music's China mainland storefront")
+        case .japan: String(localized: "Names from Apple Music's Japan storefront")
         }
     }
 
@@ -445,9 +527,11 @@ struct ServiceSetupView: View {
             if let p = editing {
                 group(String(localized: "Spotify")) {
                     let tokens = profiles.store.spotify(p.id)
+                    // What the account's card says (Android ServiceSetupViewModel.accountIssue).
+                    let issue = needsSpotifySignIn ? String(localized: "Sign in again") : SpotifyIssues.shared.issue(for: p.id)?.label
                     return [AnyView(infoRow(String(localized: "Account"), tokens?.displayName ?? tokens?.userId ?? String(localized: "Not signed in"))),
-                            AnyView(infoRow(String(localized: "Status"), needsSpotifySignIn ? String(localized: "Sign in again") : String(localized: "Connected"),
-                                            ink: needsSpotifySignIn ? app.error : app.primary))]
+                            AnyView(infoRow(String(localized: "Status"), issue ?? String(localized: "Connected"),
+                                            ink: issue != nil ? app.error : app.primary))]
                 }
             }
             group(String(localized: "Developer setup")) { [AnyView(clientIdRow)] }
@@ -629,6 +713,8 @@ struct ServiceSetupView: View {
                     .yoinRole(Tokens.type.bodyMedium)
                     .foregroundStyle(ink ?? app.onSurfaceVariant)
                     .lineLimit(2)
+                    .contentTransition(.opacity)
+                    .animation(Yoin.effects, value: value)
             }
         }
         .padding(.horizontal, 16)

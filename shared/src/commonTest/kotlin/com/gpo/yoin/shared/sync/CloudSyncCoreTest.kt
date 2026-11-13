@@ -25,16 +25,29 @@ class CloudSyncCoreTest {
         var failCreates = false
         /** Files whose download returns bytes that are not a sync file. */
         val corrupt = mutableSetOf<String>()
+        /** Google can't be reached: every request fails before it does anything. */
+        var offline = false
         private var nextId = 0
         private var nextVersion = 1L
 
+        private fun reach() {
+            if (offline) throw SyncTransportException.Network("offline")
+        }
+
+        private fun listed() = files.values.map {
+            RemoteFile(it.id, it.name, it.version, null, it.bytes.size.toLong(), it.props)
+        }
+
         fun transport(): SyncTransport = object : SyncTransport {
-            override suspend fun list() = files.values.map {
-                RemoteFile(it.id, it.name, it.version, null, it.bytes.size.toLong(), it.props)
+            override suspend fun list(): List<RemoteFile> {
+                reach()
+                return listed()
             }
 
-            override suspend fun download(fileId: String) =
-                if (fileId in corrupt) "not a sync file".encodeToByteArray() else files[fileId]?.bytes
+            override suspend fun download(fileId: String): ByteArray? {
+                reach()
+                return if (fileId in corrupt) "not a sync file".encodeToByteArray() else files[fileId]?.bytes
+            }
 
             override suspend fun create(
                 fileId: String,
@@ -43,30 +56,39 @@ class CloudSyncCoreTest {
                 mimeType: String,
                 bytes: ByteArray,
             ): RemoteFile {
+                reach()
                 if (fileId in files) throw SyncTransportException.AlreadyExists(fileId)
                 if (failCreates) throw SyncTransportException.Network("create failed")
                 writes++
                 files[fileId] = File(fileId, name, appProperties, bytes, nextVersion++)
-                return list().first { it.id == fileId }
+                return listed().first { it.id == fileId }
             }
 
             override suspend fun update(fileId: String, bytes: ByteArray): RemoteFile? {
+                reach()
                 val file = files[fileId] ?: return null
                 writes++
                 file.bytes = bytes
                 file.version = nextVersion++
-                return list().first { it.id == fileId }
+                return listed().first { it.id == fileId }
             }
 
             override suspend fun delete(fileId: String): Boolean {
+                reach()
                 writes++
                 files.remove(fileId)
                 return true
             }
 
-            override suspend fun generateIds(count: Int) = List(count) { "id-${nextId++}" }
+            override suspend fun generateIds(count: Int): List<String> {
+                reach()
+                return List(count) { "id-${nextId++}" }
+            }
 
-            override suspend fun about() = GoogleAccountInfo("perm-1", "me@example.com", "Me")
+            override suspend fun about(): GoogleAccountInfo {
+                reach()
+                return GoogleAccountInfo("perm-1", "me@example.com", "Me")
+            }
         }
     }
 
@@ -256,5 +278,80 @@ class CloudSyncCoreTest {
         ios.syncNow()
         assertEquals("from Android", iosDomain.note("n1")?.content)
         assertTrue(!ios.currentState().readOnly)
+    }
+
+    /** Android CloudSyncManager.startFreshAccount: no purge while the old account's rows are not in the Drive. */
+    @Test
+    fun should_putOffStartFresh_when_theOldAccountsChangesAreNotUploaded() = runTest {
+        val (core, domain) = device("iPhone", readOnly = false)
+        domain.putNote(note("n1", "uploaded"))
+        assertNull(core.enable("token"))
+        val writes = drive.writes
+
+        // A note written while Google can't be reached: captured, waiting to upload.
+        drive.offline = true
+        domain.putNote(note("n2", "not uploaded yet"))
+        now += CloudSyncCore.LOCAL_DEBOUNCE_MS
+        core.localChanged()
+        assertEquals(CloudSyncPhase.Offline, core.currentState().phase)
+        assertTrue(core.currentState().pendingChanges)
+
+        // The profile signs in as someone else: its account pauses.
+        domain.profileList[0] = profile.copy(subsonicUsername = "someone-else")
+        core.localChanged()
+        assertEquals(SyncAccountStatus.AccountChanged, core.currentState().accounts.single().status)
+
+        // Start fresh while the upload still fails: put off, and nothing of the old account is touched.
+        assertEquals(1, core.startFreshAccount("p"))
+        assertEquals("uploaded", domain.note("n1")?.content)
+        assertEquals("not uploaded yet", domain.note("n2")?.content)
+        assertEquals(SyncAccountStatus.AccountChanged, core.currentState().accounts.single().status)
+        assertTrue(core.currentState().pendingChanges)
+        assertEquals(writes, drive.writes)
+
+        // Google answers again: asked once more, the note goes up first and the account starts fresh.
+        drive.offline = false
+        now += 1_000
+        assertEquals(0, core.startFreshAccount("p"))
+        assertTrue(drive.writes > writes)
+        assertNull(domain.note("n1"))
+        assertNull(domain.note("n2"))
+        assertEquals(SyncAccountStatus.Syncing, core.currentState().accounts.single().status)
+        assertTrue(!core.currentState().pendingChanges)
+
+        // The Drive kept the old account's rows: a device still signed in as it gets both notes.
+        val (peer, peerDomain) = device("Pixel Tablet", readOnly = false)
+        now += 1_000
+        assertNull(peer.enable("token"))
+        assertEquals("uploaded", peerDomain.note("n1")?.content)
+        assertEquals("not uploaded yet", peerDomain.note("n2")?.content)
+    }
+
+    @Test
+    fun should_startFreshAtOnce_when_everythingOfTheOldAccountIsUploaded() = runTest {
+        val (core, domain) = device("iPhone", readOnly = false)
+        domain.putNote(note("n1", "uploaded"))
+        assertNull(core.enable("token"))
+        domain.profileList[0] = profile.copy(subsonicUsername = "someone-else")
+        now += 1_000
+        core.syncNow()
+        assertEquals(SyncAccountStatus.AccountChanged, core.currentState().accounts.single().status)
+
+        assertEquals(0, core.startFreshAccount("p"))
+
+        assertNull(domain.note("n1"))
+        assertEquals(SyncAccountStatus.Syncing, core.currentState().accounts.single().status)
+    }
+
+    @Test
+    fun should_doNothing_when_startFreshIsAskedForAnAccountThatIsNotPaused() = runTest {
+        val (core, domain) = device("iPhone", readOnly = false)
+        domain.putNote(note("n1", "uploaded"))
+        assertNull(core.enable("token"))
+
+        assertEquals(0, core.startFreshAccount("p"))
+
+        assertEquals("uploaded", domain.note("n1")?.content)
+        assertEquals(SyncAccountStatus.Syncing, core.currentState().accounts.single().status)
     }
 }

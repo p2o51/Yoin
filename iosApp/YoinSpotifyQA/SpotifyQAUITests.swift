@@ -6,13 +6,15 @@ import XCTest
 /// fails the step it belongs to.
 final class SpotifyQAUITests: XCTestCase {
     static let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["YOIN_QA_OUT"] ?? "/tmp/yoin-spotify-qa")
+    /// The fake's address (`TEST_RUNNER_YOIN_FAKE_SPOTIFY=http://127.0.0.1:<port>` for one on another port).
+    static let fake = ProcessInfo.processInfo.environment["YOIN_FAKE_SPOTIFY"] ?? "http://127.0.0.1:4997"
     var app: XCUIApplication!
 
     override func setUp() {
         continueAfterFailure = true
         try? FileManager.default.createDirectory(at: Self.out, withIntermediateDirectories: true)
         app = XCUIApplication()
-        app.launchArguments = ["-silentAudio", "YES", "-spotifyFake", "http://127.0.0.1:4997",
+        app.launchArguments = ["-silentAudio", "YES", "-spotifyFake", Self.fake,
                                "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         sleep(3)
@@ -223,5 +225,26 @@ final class SpotifyQAUITests: XCTestCase {
             if let go = element(label, timeout: 2) { go.tap(); sleep(4); break }
         }
         shot("settings-backup-restore-done")
+    }
+
+    /// A start with no Spotify app (the simulator has none): the banner offers Install Spotify, the
+    /// account's card says the same, and the button leaves Yoin for Spotify's App Store page (Safari
+    /// on a simulator). Needs the network for that last step only.
+    func testInstallSpotifyWhenTheAppIsMissing() {
+        app.terminate()
+        app.launchArguments += ["-screen", "settings", "-spotifyIssueDemo", "install"]
+        app.launch()
+        guard let banner = element(beginning: "Playback unavailable", timeout: 15) else { return XCTFail("no banner") }
+        XCTAssertTrue(banner.label.contains("Install the Spotify app to play Spotify tracks."), banner.label)
+        XCTAssertNotNil(element(beginning: "Yoin QA, Spotify, Install Spotify", timeout: 5), "the card's pill")
+        shot("install-spotify")
+        // The banner's own button (on the phone it sat outside the bar's touchable bounds once).
+        let button = app.buttons["Install Spotify"]
+        guard button.waitForExistence(timeout: 5) else { return XCTFail("no Install Spotify button") }
+        button.tap()
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15), "Install Spotify opened nothing")
+        sleep(3)
+        shot("install-spotify-store")
     }
 }

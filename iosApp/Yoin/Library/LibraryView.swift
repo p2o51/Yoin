@@ -100,6 +100,8 @@ struct LibraryView: View {
     /// The grid's visible height: the scroll view less its top bar (header, chips) and bottom inset, and the
     /// grid's top padding (Android: maxHeight − 8 − the floating bar's padding).
     @State private var gridViewport: CGFloat = 0
+    /// The song rows (by occurrence key) whose "Apple Music doesn't stream" reason is open.
+    @State private var notStreamedReasons: Set<String> = []
     private var cell: CGFloat { LibraryGrid.cell(width: width, columns: columns) }
 
     /// Android librarySortOptions: only orders the data can back (see `LibrarySortOptions`).
@@ -615,11 +617,20 @@ struct LibraryView: View {
     /// minus any heart taken off here since (FavoritesStore, shared with NP).
     private var songEntries: [PlaylistEntry] {
         if filter == .favorites { return favoriteEntries }
-        guard model.store.isReal else {
+        var entries: [PlaylistEntry]
+        if model.store.isReal {
+            entries = model.store.songs
+        } else {
             guard LaunchConfig.demoContent else { return [] }
-            return model.library.albums().flatMap { a in a.tracks.prefix(3).map { PlaylistEntry(album: a, track: $0) } }
+            entries = model.library.albums().flatMap { a in a.tracks.prefix(3).map { PlaylistEntry(album: a, track: $0) } }
         }
-        return model.store.songs
+        #if DEBUG
+        // `-notStreamedDemo YES|open`: the third song as one Apple won't stream (`open` opens its reason).
+        if UserDefaults.standard.string(forKey: "notStreamedDemo") != nil, entries.indices.contains(2) {
+            entries[2].track.notStreamed = true
+        }
+        #endif
+        return entries
     }
 
     private var favoriteEntries: [PlaylistEntry] {
@@ -710,15 +721,29 @@ struct LibraryView: View {
         // arrivals, removals (a heart taken off) and pages move, not cut.
         let keyed = LibraryGrid.occurrenceKeys(entries.map { "\($0.track.id)" })
         LazyVStack(spacing: 0) {
-            ForEach(Array(zip(keyed, entries.indices)), id: \.0) { _, i in
+            ForEach(Array(zip(keyed, entries.indices)), id: \.0) { key, i in
                 let e = entries[i]
+                let explain = { withAnimation(Yoin.spatial) { NotStreamedRow.toggle(key, in: &notStreamedReasons) } }
                 LibrarySongRow(album: e.album, track: e.track, current: model.playback.track.id == e.track.id,
-                               scheme: scheme)
-                    .trackRow(for: e) { model.play(entries, startAt: i) }
+                               scheme: scheme, reasonShown: notStreamedReasons.contains(key), explain: explain)
+                    .trackRow(for: e) {
+                        // A song Apple won't stream doesn't play: its tap says why (Android SongListItem).
+                        switch NotStreamedRow.tap(e.track) {
+                        case .play: model.play(entries, startAt: i)
+                        case .explain: explain()
+                        }
+                    }
                     .transition(.opacity.animation(Yoin.effects))
             }
         }
         .animation(Yoin.spatial, value: keyed)
+        #if DEBUG
+        .onChange(of: keyed.count, initial: true) {
+            if UserDefaults.standard.string(forKey: "notStreamedDemo") == "open", keyed.indices.contains(2) {
+                notStreamedReasons.insert(keyed[2])
+            }
+        }
+        #endif
     }
 
     // MARK: Server load states
@@ -1539,6 +1564,10 @@ struct LibrarySongRow: View {
     var horizontalPadding: CGFloat = Tokens.library.ROW_PADDING_H.cg
     /// Search results of a service that adds to a library: the + / ✓ at the row's end (Android SearchSongRow).
     var libraryAdd: LibraryAddControl? = nil
+    /// A song Apple won't stream ([Track.notStreamed]): whether its reason is open under the row, and what
+    /// its "?" does (the list keeps the state, so the row's tap and the "?" toggle the same reason).
+    var reasonShown: Bool = false
+    var explain: () -> Void = {}
 
     /// What the + / ✓ shows and does for this row.
     struct LibraryAddControl {
@@ -1553,10 +1582,27 @@ struct LibrarySongRow: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            line
+            // Android SongListItem: UnavailableTrackReason under the row, indented to the title, 16 from the end.
+            if track.notStreamed && reasonShown {
+                NotStreamedReason(scheme: scheme,
+                                  leading: horizontalPadding + Tokens.library.ROW_THUMB.cg + Tokens.library.ROW_GAP.cg,
+                                  trailing: horizontalPadding)
+            }
+        }
+        .clipped()
+    }
+
+    private var line: some View {
         HStack(spacing: Tokens.library.ROW_GAP.cg) {
             CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                 .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
                 .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
+                // Android SongListItem: the "?" on the cover's bottom-left corner.
+                .overlay(alignment: .bottomLeading) {
+                    if track.notStreamed { NotStreamedBadge(scheme: scheme, action: explain) }
+                }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
                     if current {
@@ -1582,7 +1628,8 @@ struct LibrarySongRow: View {
                 .monospacedDigit()
                 .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(scheme.onSurfaceVariant)
-            if let libraryAdd {
+            // Android SearchSongRow: no + / ✓ on a song Apple won't stream.
+            if let libraryAdd, !track.notStreamed {
                 SongLibraryButton(membership: libraryAdd.membership, working: libraryAdd.working, scheme: scheme,
                                   action: libraryAdd.add)
                     .padding(.trailing, -8)
@@ -1590,6 +1637,7 @@ struct LibrarySongRow: View {
         }
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
+        .opacity(track.notStreamed ? NotStreamedRow.alpha : 1)
         .contentShape(.rect)
         .overlay(alignment: .bottomLeading) { addedFeedback }
     }

@@ -25,7 +25,8 @@ final class SpotifyBrokenConnectionTests: XCTestCase {
         app.remote = remote
         remote.bind(account: "p1")
         remote.token = { "tok" }
-        spotify = SpotifyAudioOutput(remote: remote)
+        // The fake Spotify app is installed (the simulator has none: canOpenURL would say so).
+        spotify = SpotifyAudioOutput(remote: remote, issues: SpotifyIssues(), spotifyInstalled: { true })
         engine = PlayerEngine(output: spotify)
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [WebStub.self]

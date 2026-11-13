@@ -4019,16 +4019,6 @@
         }
       }
     },
-    "No notes on this song yet": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这首歌还没有笔记"
-          }
-        }
-      }
-    },
     "No notes yet": {
       "localizations": {
         "zh-Hans": {
@@ -8452,16 +8442,6 @@
         }
       }
     },
-    "Format %@": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "音频格式 %@"
-          }
-        }
-      }
-    },
     "Controls": {
       "localizations": {
         "zh-Hans": {
@@ -8648,6 +8628,363 @@
           "stringUnit": {
             "state": "translated",
             "value": "账号需要重新连接"
+          }
+        }
+      }
+    },
+    "Install Spotify": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装 Spotify"
+          }
+        }
+      }
+    },
+    "Install the Spotify app to play Spotify tracks.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请安装 Spotify 应用以播放 Spotify 曲目。"
+          }
+        }
+      }
+    },
+    "No releases": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无发行作品"
+          }
+        }
+      }
+    },
+    "Premium required": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 Premium"
+          }
+        }
+      }
+    },
+    "Audio format %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音频格式 %@"
+          }
+        }
+      }
+    },
+    "Quality": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音质"
+          }
+        }
+      }
+    },
+    "Server rating": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器评分"
+          }
+        }
+      }
+    },
+    "Genre": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "流派"
+          }
+        }
+      }
+    },
+    "Year": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "年份"
+          }
+        }
+      }
+    },
+    "Disc %lld, track %lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$lld 碟 第 %2$lld 首"
+          }
+        }
+      }
+    },
+    "%lld kbps": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld kbps"
+          }
+        }
+      }
+    },
+    "%@ kHz": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kHz"
+          }
+        }
+      }
+    },
+    "%lld-bit": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld-bit"
+          }
+        }
+      }
+    },
+    "All lyrics": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开全部歌词"
+          }
+        }
+      }
+    },
+    "Notes only": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只看笔记"
+          }
+        }
+      }
+    },
+    "Loading lyrics…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载歌词…"
+          }
+        }
+      }
+    },
+    "No notes yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有笔记。"
+          }
+        }
+      }
+    },
+    "New note": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建笔记"
+          }
+        }
+      }
+    },
+    "A note at %@…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 记一笔…"
+          }
+        }
+      }
+    },
+    "A note…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记一笔…"
+          }
+        }
+      }
+    },
+    "Note deleted": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除笔记"
+          }
+        }
+      }
+    },
+    "Playing from %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 %@ 开始播放"
+          }
+        }
+      }
+    },
+    "Edit note": {
+      "comment": "The scrapbook note menu's Edit",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改"
+          }
+        }
+      }
+    },
+    "Apple Music doesn't stream this song in your region yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music 暂未在你所在的地区提供这首歌的播放。"
+          }
+        }
+      }
+    },
+    "Why can't this play": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法播放的原因"
+          }
+        }
+      }
+    },
+    "Song names": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲名"
+          }
+        }
+      }
+    },
+    "As Apple Music shows them": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 Apple Music 显示"
+          }
+        }
+      }
+    },
+    "Names from your own storefront": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用你所在地区商店的名字"
+          }
+        }
+      }
+    },
+    "In their original language": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按歌曲原地区"
+          }
+        }
+      }
+    },
+    "A Japanese song keeps its Japanese name, a Korean one its Korean name": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日语歌显示日文原名，韩语歌显示韩文原名"
+          }
+        }
+      }
+    },
+    "As China mainland names them": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按中国大陆"
+          }
+        }
+      }
+    },
+    "Names from Apple Music's China mainland storefront": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 Apple Music 中国大陆商店的名字"
+          }
+        }
+      }
+    },
+    "As Japan names them": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按日本"
+          }
+        }
+      }
+    },
+    "Names from Apple Music's Japan storefront": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 Apple Music 日本商店的名字"
+          }
+        }
+      }
+    },
+    "Songs and albums from this account. A song the other storefront doesn't carry keeps the name it has.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于这个账号里的歌曲和专辑。那个商店没有的歌，会保留现在的名字。"
           }
         }
       }

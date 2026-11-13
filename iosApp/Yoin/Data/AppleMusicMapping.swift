@@ -76,6 +76,8 @@ struct AMSong: Hashable, Sendable {
     /// The song's ISRC, upper case: a catalog song's own, or its library entry's catalog version's
     /// (Android AppleMusicSong.isrc). nil where Apple names none (an import).
     var isrc: String? = nil
+    /// Apple lists the song but won't stream it (Android AppleMusicSong.catalogUnavailable): see [Track.notStreamed].
+    var catalogUnavailable: Bool = false
 
     /// Catalog id, else `library:<id>` (Android `Track.id`).
     var rawId: String { catalogId ?? AppleMusicMapping.libraryPrefix + resourceId }
@@ -220,7 +222,9 @@ enum AppleMusicMapping {
         let a = AppleMusicJSON.attributes(r)
         let isLibrary = type == "library-songs"
         let play = a["playParams"] as? AppleMusicJSON.Object
-        let catalog = AppleMusicJSON.related(r, "catalog")?.first
+        // There only when the request included it, and then empty when Apple has no catalog song.
+        let catalogRelationship = AppleMusicJSON.related(r, "catalog")
+        let catalog = catalogRelationship?.first
         let catalogId: String? = isLibrary
             ? (catalog?["id"] as? String ?? AppleMusicJSON.string(play, "catalogId"))
             : id
@@ -247,7 +251,21 @@ enum AppleMusicMapping {
                 ?? AppleMusicJSON.string(catalogAttributes?["artwork"] as? AppleMusicJSON.Object, "url")),
             genre: genre(a["genreNames"] as? [String]),
             releaseDate: AppleMusicJSON.string(a, "releaseDate"),
-            isrc: isrc(AppleMusicJSON.string(a, "isrc") ?? AppleMusicJSON.string(catalogAttributes, "isrc")))
+            isrc: isrc(AppleMusicJSON.string(a, "isrc") ?? AppleMusicJSON.string(catalogAttributes, "isrc")),
+            // A library song whose catalog song is gone (the relationship answered empty, but it still names
+            // a catalog id; an import names none and stays an import), or a catalog song Apple won't stream.
+            catalogUnavailable: isLibrary && catalogRelationship?.isEmpty == true
+                && catalogId.map(isCatalogSongId) == true
+                || (isLibrary ? catalog : r).map(isUnreleased) == true)
+    }
+
+    /// A catalog song Apple lists but won't stream yet: an album's pre-release tracks, or one the storefront
+    /// holds back. Apple sends its full attributes (`url`, the page it would open) with no `playParams` (and no
+    /// length). MusicKit leaves such an id out of a queue without a word (Android), so it is kept out. A
+    /// resource without its attributes says nothing either way (Android AppleMusicSong.isUnreleased).
+    static func isUnreleased(_ song: AppleMusicJSON.Object) -> Bool {
+        guard let attributes = song["attributes"] as? AppleMusicJSON.Object else { return false }
+        return AppleMusicJSON.string(attributes, "url") != nil && attributes["playParams"] == nil
     }
 
     /// An ISRC as the backups and lookups spell it: trimmed, upper case; nil when blank.
@@ -362,7 +380,8 @@ enum AppleMusicMapping {
               rating: nil,
               artist: s.artist == albumArtist ? nil : s.artist,
               disc: s.disc,
-              credits: s.credits)
+              credits: s.credits,
+              notStreamed: s.catalogUnavailable)
     }
 
     static func album(_ a: AMAlbum) -> Album {

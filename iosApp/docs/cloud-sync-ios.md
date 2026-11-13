@@ -29,6 +29,8 @@ Swift (`iosApp/Yoin/Data/Sync`, `Data/Memories`, `Settings/CloudSyncView.swift`)
 
 Not synced from iOS yet (kept and re-published unchanged, so nothing is lost): home layout, settings, AI lyric translations, playlist backups. Each account in the account list (`Data/Profiles.swift`) is a sync profile: every Subsonic server + user (the one migrated from the single-server build keeps `ios-subsonic`), every Spotify account (its identity is the Spotify user id, `spotify:v1:<id>`, so the same user binds to the same `s-…` scope as on Android; its rows live under `spotify|<id>`; Codex N08), and `ios-applemusic` (Apple Music only after "Start syncing" / "Link", as on Android). `SyncDomainBridge` reads and writes an account that isn't in use through `AccountScope.reading`, without switching. A different Subsonic server under the same profile pauses the binding ("Paused": keep syncing as before / start fresh).
 
+Start fresh removes the old account's synced rows from this device, so it waits for them to be in the Drive (Android `CloudSyncManager.startFreshAccount`): `CloudSyncCore.startFreshAccount` runs a cycle first, and when the old account still has changes that didn't upload (offline, a Drive error, the read-only first pull) it changes nothing and returns their count. The account stays "Paused" with both buttons and reads "Changes waiting to upload" under it (`CloudSyncFreshHold`) until they are up or the account is no longer paused; Start fresh is then asked again.
+
 ## Safety with a real account
 
 - First cycle after turning on (and after switching Google accounts) is read-only: it pulls every peer file, maps it into the iOS stores and saves every appDataFolder file (raw bytes + `manifest.json` with ids, versions, appProperties) under `Application Support/Yoin/sync-backups/<time>/`. Nothing is written to Drive. Only when the mapping had no failures and the backup is on disk does the next cycle become two-way (`ios_two_way` in the store).
@@ -40,7 +42,7 @@ Not synced from iOS yet (kept and re-published unchanged, so nothing is lost): h
 
 - `app/src/test/.../data/sync/SyncGoldenFixtureTest.kt` runs Android's real adapters and engine on a seeded Room DB and writes `iosApp/YoinTests/Fixtures/sync-golden.json` (+ the Kotlin mirror `shared/src/commonTest/.../golden/AndroidSyncGolden.kt`).
 - `AndroidGoldenCompatTest` (JVM and iOS simulator): the shared codec re-encodes Android's files byte for byte and recomputes the same content hashes; shared adapters over the same rows produce exactly Android's records; a device joining from Android's files restores every row and republishes Android's records unchanged (including kinds it has no adapter for).
-- Android's own sync tests ported to `shared/src/commonTest`: SyncEngineTest (43), SnapshotCodecTest, AccountFingerprintsTest, AccountBinderTest, plus Ktor Drive client tests and CloudSyncCoreTest (read-only first pull, reset elsewhere). `./gradlew :shared:allTests`.
+- Android's own sync tests ported to `shared/src/commonTest`: SyncEngineTest (43), SnapshotCodecTest, AccountFingerprintsTest, AccountBinderTest, plus Ktor Drive client tests and CloudSyncCoreTest (read-only first pull, reset elsewhere, Start fresh put off while the old account's changes are not uploaded). `./gradlew :shared:allTests`.
 
 ## Fake Drive QA (no Google)
 
@@ -51,4 +53,4 @@ xcrun simctl launch <sim> com.gpo.yoin -subsonicURL http://127.0.0.1:4977 -subso
   -syncDebugBaseURL http://127.0.0.1:8765/ -syncDebugToken x -syncDebugAutoEnable YES
 ```
 
-Debug builds only: `-syncDebugBaseURL` / `-syncDebugToken` point sync at the fake Drive with a fixed token; `-syncDebugAutoEnable YES` turns it on at launch; `-syncOpenPage YES` (with `-screen settings`) opens the Cloud sync page; `-syncDebugGoogleSignIn YES` starts the real Google sign-in at launch. In zsh, expand a variable of arguments with `${=A}`.
+Debug builds only: `-syncDebugBaseURL` / `-syncDebugToken` point sync at the fake Drive with a fixed token; `-syncDebugAutoEnable YES` turns it on at launch; `-syncOpenPage YES` (with `-screen settings`) opens the Cloud sync page; `-syncDebugGoogleSignIn YES` starts the real Google sign-in at launch; `-syncDemo fresh-held` (with `-screen settings -syncOpenPage YES`, no Drive at all) shows the page with one paused account whose Start fresh comes back put off 4 s after launch. In zsh, expand a variable of arguments with `${=A}`.

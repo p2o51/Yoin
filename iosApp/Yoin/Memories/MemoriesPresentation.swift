@@ -21,7 +21,14 @@ final class MemoriesPresentation {
     /// A drag holds q (Home's pull or Memories' own drag).
     private(set) var dragging = false
     /// Where the spring is going (0 open, 1 closed).
-    private(set) var target: CGFloat = 1 { didSet { updateMounted() } }
+    private(set) var target: CGFloat = 1 {
+        didSet {
+            updateMounted()
+            if (target == 0) != (oldValue == 0) { onOpenChange?(target == 0) }
+        }
+    }
+    /// Opened or closed (where the spring is going): the shell's back order notes it (ShellBackOrder).
+    @ObservationIgnored var onOpenChange: ((Bool) -> Void)?
     /// Opened (or opening) on a memory: the deck stops on this album.
     private(set) var focusAlbumId: String?
     /// Bumped on every open, so the deck rebuilds its pool (Android: a focus

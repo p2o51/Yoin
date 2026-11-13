@@ -412,6 +412,16 @@ struct ArtistDetailView: View {
                 .padding(.top, 12)
             }
             Spacer().frame(height: 8)
+            if releases.isEmpty {
+                // Android detail_artist_no_releases (ArtistDetailScreen.kt:1046):
+                // bodyMedium in onSurfaceVariant, 8 × 8 padding. Only a loaded
+                // page gets here; a loading one draws `pendingBody`.
+                Text("No releases")
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+                    .padding(8)
+                    .transition(.opacity)
+            }
             ForEach(Array(visible.enumerated()), id: \.element.id) { i, r in
                 releaseRow(r, firstOfYear: i == 0 || visible[i - 1].year != r.year, latest: r.id == releases.first?.id)
             }
@@ -432,6 +442,8 @@ struct ArtistDetailView: View {
             }
         }
         .animation(Yoin.spatial, value: kindFilter)
+        // A revalidated page that gained or lost its releases: the line fades.
+        .animation(Yoin.effects, value: releases.isEmpty)
     }
 
     private func chip(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
