@@ -24,7 +24,7 @@ lifecycleCompose = "2.9.0"
 
 # Media
 media3 = "1.11.1"
-castFramework = "22.0.0"
+castFramework = "23.0.0"
 
 # Google authorization (Drive appDataFolder cloud sync)
 playServicesAuth = "22.0.0"
