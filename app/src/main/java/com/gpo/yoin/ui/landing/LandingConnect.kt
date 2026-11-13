@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.ui.component.handPointer
 import android.app.Application
 import android.content.ClipboardManager
 import android.content.Context
@@ -194,7 +195,8 @@ private fun ServiceCta(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 12.dp)
-            .height(56.dp),
+            .height(56.dp)
+            .handPointer(),
     ) {
         when {
             done -> {
@@ -394,7 +396,7 @@ internal fun SpotifyConnectScene(
                     focusManager.clearFocus()
                     ConnectGuide.openSpotify(context)
                 },
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = 8.dp).handPointer(),
             ) {
                 Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -553,6 +555,7 @@ private fun RedirectUris(open: Boolean, onToggle: () -> Unit) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .handPointer()
                     .clickable(role = Role.Button, onClick = onToggle)
                     .padding(horizontal = 14.dp)
                     .height(48.dp),
@@ -651,7 +654,7 @@ internal fun CopyRow(text: String) {
                 copied = true
             },
             contentPadding = PaddingValues(horizontal = 12.dp),
-            modifier = Modifier.height(32.dp),
+            modifier = Modifier.height(32.dp).handPointer(),
         ) {
             Icon(if (copied) YoinSymbols.Check else YoinSymbols.Copy, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
@@ -749,6 +752,7 @@ internal fun AppleConnectScene(
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .padding(start = 6.dp, top = 8.dp)
+                            .handPointer()
                             .clickable(role = Role.Button) { uriHandler.openUri(AppleDeveloperProgramUrl) },
                     )
                 }
@@ -802,6 +806,7 @@ internal fun TokenOption(
             .fillMaxWidth()
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceBright)
+            .handPointer()
             .clickable(role = Role.RadioButton) {
                 if (!selected) haptics.performContextClick()
                 onClick()
@@ -810,7 +815,7 @@ internal fun TokenOption(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        RadioButton(selected = selected, onClick = null)
+        RadioButton(selected = selected, onClick = null, modifier = Modifier.handPointer())
         Column(modifier = Modifier.weight(1f)) {
             Text(stringResource(title), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Text(stringResource(body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

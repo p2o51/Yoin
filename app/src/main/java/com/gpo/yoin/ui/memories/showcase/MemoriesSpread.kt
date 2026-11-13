@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories.showcase
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.expandVertically
@@ -487,7 +488,7 @@ private fun SpreadExhibit(
                         .background(tones.button)
                         .then(
                             if (interactive) {
-                                Modifier.clickable(role = Role.Button) {
+                                Modifier.handPointer().clickable(role = Role.Button) {
                                     haptics.performClick()
                                     onOpenAlbum()
                                 }

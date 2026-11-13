@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.settings.applemusic
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
@@ -79,7 +80,7 @@ fun AppleMusicValidationContent(state: AppleMusicValidationUiState, onConnect: (
         Button(
             onClick = { onConnect(endpoint) },
             enabled = !state.busy && endpoint.startsWith("https://"),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().handPointer(enabled = !state.busy && endpoint.startsWith("https://"))
         ) {
             Text(stringResource(appleMusicConnectLabel(state)))
         }

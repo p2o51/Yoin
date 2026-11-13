@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.memories.ledger
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import android.text.format.DateFormat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
@@ -56,7 +58,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -581,6 +582,7 @@ private fun <T> LedgerMenuButton(
                 .height(36.dp)
                 .clip(RoundedCornerShape(18.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .handPointer()
                 .clickable(role = Role.DropdownList) { expanded = true }
                 .padding(start = 10.dp, end = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -631,42 +633,19 @@ private fun sortLabel(sort: MemoryLedgerSort): String = stringResource(
     },
 )
 
-/** A small drawn mark per view (Yoin Symbols has none): a spine with stops, four tiles, three lines. */
+/** The view switches' marks: a spine with stops, staggered cards, bulleted rows. */
 @Composable
 private fun ViewGlyph(view: MemoryLedgerView, tint: Color) {
-    Canvas(Modifier.size(18.dp)) {
-        val s = size.width
-        val stroke = 1.8.dp.toPx()
-        when (view) {
-            MemoryLedgerView.Timeline -> {
-                drawLine(tint, Offset(s * 0.25f, s * 0.1f), Offset(s * 0.25f, s * 0.9f), stroke)
-                drawCircle(tint, s * 0.11f, Offset(s * 0.25f, s * 0.3f))
-                drawCircle(tint, s * 0.11f, Offset(s * 0.25f, s * 0.72f))
-                drawLine(tint, Offset(s * 0.48f, s * 0.3f), Offset(s * 0.92f, s * 0.3f), stroke)
-                drawLine(tint, Offset(s * 0.48f, s * 0.72f), Offset(s * 0.78f, s * 0.72f), stroke)
-            }
-            MemoryLedgerView.Cards -> {
-                val gap = s * 0.12f
-                val w = (s - gap) / 2f
-                val r = CornerRadius(s * 0.1f)
-                drawRoundRect(tint, Offset(0f, 0f), Size(w, s * 0.55f), r, style = Stroke(stroke))
-                drawRoundRect(tint, Offset(w + gap, 0f), Size(w, s * 0.35f), r, style = Stroke(stroke))
-                drawRoundRect(tint, Offset(0f, s * 0.55f + gap), Size(w, s * 0.45f - gap), r, style = Stroke(stroke))
-                drawRoundRect(
-                    tint,
-                    Offset(w + gap, s * 0.35f + gap),
-                    Size(w, s * 0.65f - gap),
-                    r,
-                    style = Stroke(stroke),
-                )
-            }
-            MemoryLedgerView.List -> {
-                listOf(0.22f, 0.5f, 0.78f).forEach { y ->
-                    drawLine(tint, Offset(s * 0.08f, s * y), Offset(s * 0.92f, s * y), stroke)
-                }
-            }
-        }
-    }
+    Icon(
+        imageVector = when (view) {
+            MemoryLedgerView.Timeline -> YoinSymbols.ViewTimeline
+            MemoryLedgerView.Cards -> YoinSymbols.ViewCards
+            MemoryLedgerView.List -> YoinSymbols.ViewList
+        },
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(18.dp),
+    )
 }
 
 private fun cellLabel(cell: MemoryGridCell, scale: MemoryGridScale): String {
@@ -817,6 +796,7 @@ private fun TimelineAlbumCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = if (masonry) 12.dp else 16.dp)
+            .pointerPressPreview(interaction)
             .noRippleClickable(interaction) {
                 onOpen(item.album)
             },
@@ -1011,6 +991,7 @@ private fun GridCard(enabled: Boolean, onClick: () -> Unit, content: @Composable
             .seamDissolve()
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .pointerPressPreview(interaction, enabled = enabled)
             .noRippleClickable(interaction, enabled = enabled, onClick = onClick)
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1046,6 +1027,7 @@ private fun LedgerListRow(item: MemoryLedgerItem, state: MemoryLedgerState, onOp
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
+            .pointerPressPreview(interaction, enabled = album != null)
             .noRippleClickable(interaction, enabled = album != null) {
                 album?.let(onOpen)
             }
@@ -1118,6 +1100,7 @@ private fun NoteCard(entry: MemoryLedgerEntry, state: MemoryLedgerState, onClick
             .seamDissolve()
             .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .pointerPressPreview(interaction, enabled = opens)
             .noRippleClickable(interaction, enabled = opens, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),

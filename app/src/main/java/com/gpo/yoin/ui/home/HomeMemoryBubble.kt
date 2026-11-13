@@ -92,7 +92,6 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.tips.LocalTipReadStore
 import com.gpo.yoin.ui.tips.SharedPrefsTipReadStore
 import com.gpo.yoin.ui.tips.TipActivity
-import com.gpo.yoin.ui.tips.rememberAvailableTips
 import com.gpo.yoin.ui.tips.unreadTips
 import com.gpo.yoin.ui.component.YoinArmTransform
 import com.gpo.yoin.ui.component.YoinMark
@@ -841,8 +840,6 @@ internal fun MemoryBubbleOverlay(
     val context = LocalContext.current
     val store = LocalMemoryBubbleSeenStore.current ?: remember(context) { SharedPrefsMemoryBubbleSeenStore(context) }
     val tipStore = LocalTipReadStore.current ?: remember(context) { SharedPrefsTipReadStore.get(context) }
-    // The tips the account in use can use, read as the bubble picks its line.
-    val currentTips by rememberUpdatedState(rememberAvailableTips())
     val idleMs = LocalMemoryBubbleIdleMs.current
     val dwellMs = LocalMemoryBubbleDwellMs.current
     val chatterDwellMs = LocalMemoryBubbleChatterDwellMs.current
@@ -886,7 +883,7 @@ internal fun MemoryBubbleOverlay(
     // Null: every tip read and no memory to recall — it stays quiet.
     val nextIdleSay: () -> BubbleSay? = {
         val shownPill = currentPill
-        val unread = tipStore.read.value.unreadTips(currentTips)
+        val unread = tipStore.read.value.unreadTips()
         val sayMemory = idleTurns % 2 == 0
         idleTurns += 1
         val memory = (sayMemory || unread.isEmpty()) && shownPill.hasSomethingToSay()

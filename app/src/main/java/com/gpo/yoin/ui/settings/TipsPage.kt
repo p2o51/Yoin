@@ -24,7 +24,6 @@ import com.gpo.yoin.ui.tips.LocalTipReadStore
 import com.gpo.yoin.ui.tips.SharedPrefsTipReadStore
 import com.gpo.yoin.ui.tips.TipActivity
 import com.gpo.yoin.ui.tips.TipReadStore
-import com.gpo.yoin.ui.tips.rememberAvailableTips
 import androidx.compose.runtime.CompositionLocalProvider
 
 @Composable
@@ -37,7 +36,7 @@ private fun rememberTipReadStore(): TipReadStore {
 @Composable
 internal fun tipsReadSummary(): String {
     val read by rememberTipReadStore().read.collectAsState()
-    val tips = rememberAvailableTips()
+    val tips = remember { HomeBubbleTip.available() }
     val readCount = tips.count { it in read }
     return if (readCount >= tips.size) {
         stringResource(R.string.settings_tips_all_read)
@@ -57,7 +56,7 @@ internal fun TipsPageContent(modifier: Modifier = Modifier) {
     val haptics = rememberYoinHaptics()
     val store = rememberTipReadStore()
     val read by store.read.collectAsState()
-    val tips = rememberAvailableTips()
+    val tips = remember { HomeBubbleTip.available() }
     Column(modifier = modifier) {
         SettingsSegments {
             tips.forEach { tip ->

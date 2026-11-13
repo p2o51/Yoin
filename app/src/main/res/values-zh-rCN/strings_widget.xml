@@ -16,6 +16,6 @@
     <plurals name="widget_last_heard_years">
         <item quantity="other">%d 年前</item>
     </plurals>
-    <string name="home_tip_widgets_title">桌面小组件</string>
-    <string name="home_tip_widgets">长按桌面空白处，在小组件列表里找到 Yoin，把「播放」或「Memories」拖到桌面上</string>
+    <string name="home_tip_widgets_title">桌面微件</string>
+    <string name="home_tip_widgets">长按桌面空白处，在微件列表里找到 Yoin，把「播放」或「Memories」拖到桌面上</string>
 </resources>

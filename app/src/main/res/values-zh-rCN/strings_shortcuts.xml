@@ -17,6 +17,6 @@
     <string name="shortcut_library">资料库</string>
     <string name="shortcut_all_memories">全部回忆</string>
     <string name="home_tip_keyboard_shortcuts_title">键盘快捷键</string>
-    <string name="home_tip_keyboard_shortcuts">用外接键盘控制播放与切换页面，按搜索键（或 Windows 键）+ / 查看全部快捷键</string>
+    <string name="home_tip_keyboard_shortcuts">用外接键盘控制播放与切换页面，按启动器键（Mac 键盘上是 ⌘）+ / 查看全部快捷键</string>
     <string name="shortcut_key_space">空格</string>
 </resources>

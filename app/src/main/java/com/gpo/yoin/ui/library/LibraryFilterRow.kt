@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.library
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.animateColorAsState
@@ -358,7 +359,8 @@ private fun LibraryToggleChip(
         modifier = modifier
             .semantics { role = Role.Checkbox }
             .heightIn(min = ChipHeight)
-            .elasticPress(interactionSource),
+            .elasticPress(interactionSource)
+            .handPointer(),
         shape = RoundedCornerShape(18.dp),
         color = containerColor,
         contentColor = contentColor,
@@ -386,7 +388,8 @@ private fun LibraryClearFilterChip(onClick: () -> Unit, modifier: Modifier = Mod
         onClick = onClick,
         modifier = modifier
             .size(ChipHeight)
-            .elasticPress(interactionSource),
+            .elasticPress(interactionSource)
+            .handPointer(),
         interactionSource = interactionSource,
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,

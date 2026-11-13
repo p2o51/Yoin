@@ -19,6 +19,6 @@
     <string name="shortcut_all_memories">All Memories</string>
     <!-- Home tip (copy: Gemini 4 Carbon, as given) and its demo's keycap. -->
     <string name="home_tip_keyboard_shortcuts_title">Keyboard shortcuts</string>
-    <string name="home_tip_keyboard_shortcuts">Control playback and navigate with a keyboard; press Search (or Windows) + / to see all shortcuts</string>
+    <string name="home_tip_keyboard_shortcuts">Control playback and navigate with a keyboard; press Launcher key (⌘ on a Mac keyboard) + / to see all shortcuts</string>
     <string name="shortcut_key_space">Space</string>
 </resources>

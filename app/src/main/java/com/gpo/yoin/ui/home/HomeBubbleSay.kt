@@ -5,7 +5,6 @@ import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.gpo.yoin.R
-import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.player.continueon.ContinueOnWindows
 import com.gpo.yoin.symbols.YoinSymbols
 import java.time.LocalDate
@@ -37,11 +36,8 @@ internal sealed interface BubbleSay {
  * A wording change alone keeps the day. The copy itself is Gemini's (owner
  * 2026-11-06: one short line per tip, written by Gemini, never by Claude).
  *
- * A tip about something only a newer Android has names it in [minSdk]; one
- * about something only some accounts can use names the [Capability] it needs
- * in [requires] (owner 2026-11-13). The bubble, the reader and Settings go by
- * [available], never by all entries. A tip left out stays read or unread as
- * it was: the account in use only decides which ones show.
+ * A tip about something only a newer Android has names it in [minSdk]; the
+ * bubble, the reader and Settings go by [available], never by all entries.
  */
 internal enum class HomeBubbleTip(
     @StringRes val title: Int,
@@ -49,10 +45,9 @@ internal enum class HomeBubbleTip(
     val updated: LocalDate,
     private val symbol: () -> ImageVector,
     private val minSdk: Int = 0,
-    private val requires: Capability? = null,
 ) {
     KeyboardShortcuts(R.string.home_tip_keyboard_shortcuts_title, R.string.home_tip_keyboard_shortcuts, day(2026, 11, 13), { YoinSymbols.Keyboard }),
-    VolumeLeveling(R.string.home_tip_volume_leveling_title, R.string.home_tip_volume_leveling, day(2026, 11, 13), { YoinSymbols.VolumeUp }, requires = Capability.REPLAY_GAIN),
+    VolumeLeveling(R.string.home_tip_volume_leveling_title, R.string.home_tip_volume_leveling, day(2026, 11, 13), { YoinSymbols.VolumeUp }),
     HomeScreenWidgets(R.string.home_tip_widgets_title, R.string.home_tip_widgets, day(2026, 11, 13), { YoinSymbols.Library }),
     LibraryRefresh(R.string.home_tip_library_refresh_title, R.string.home_tip_library_refresh, day(2026, 11, 13), { YoinSymbols.Refresh }),
     MemoryLedger(R.string.home_tip_memory_ledger_title, R.string.home_tip_memory_ledger, day(2026, 11, 12), { YoinSymbols.Memory }),
@@ -68,7 +63,7 @@ internal enum class HomeBubbleTip(
     AccountQuickSwitch(R.string.home_tip_account_quick_switch_title, R.string.home_tip_account_quick_switch, day(2026, 11, 6), { YoinSymbols.Person }),
     MiniPlayerMenu(R.string.home_tip_mini_player_menu_title, R.string.home_tip_mini_player_menu, day(2026, 11, 4), { YoinSymbols.PlayCircle }),
     FocusCover(R.string.home_tip_focus_cover_title, R.string.home_tip_focus_cover, day(2026, 11, 3), { YoinSymbols.OpenInFull }),
-    Downloads(R.string.home_tip_downloads_title, R.string.home_tip_downloads, day(2026, 11, 4), { YoinSymbols.Download }, requires = Capability.OFFLINE_DOWNLOAD),
+    Downloads(R.string.home_tip_downloads_title, R.string.home_tip_downloads, day(2026, 11, 4), { YoinSymbols.Download }),
     EditHome(R.string.home_tip_edit_home_title, R.string.home_tip_edit_home, day(2026, 10, 17), { YoinSymbols.DragHandle }),
     PullForMemories(R.string.home_tip_pull_memories_title, R.string.home_tip_pull_memories, day(2026, 10, 17), { YoinSymbols.Memory }),
     CoverMenu(R.string.home_tip_cover_menu_title, R.string.home_tip_cover_menu, day(2026, 11, 4), { YoinSymbols.Album }),
@@ -84,17 +79,8 @@ internal enum class HomeBubbleTip(
     val icon: ImageVector get() = symbol()
 
     companion object {
-        /**
-         * The tips a device on Android [sdk] and the account in use, which can
-         * do [capabilities], can use, in the bubble's order. Null
-         * [capabilities] (previews, the tip demos) leaves none out for the account.
-         */
-        fun available(
-            sdk: Int = Build.VERSION.SDK_INT,
-            capabilities: Set<Capability>? = null,
-        ): List<HomeBubbleTip> = entries.filter { tip ->
-            sdk >= tip.minSdk && (capabilities == null || tip.requires == null || tip.requires in capabilities)
-        }
+        /** The tips a device on Android [sdk] can use, in the bubble's order. */
+        fun available(sdk: Int = Build.VERSION.SDK_INT): List<HomeBubbleTip> = entries.filter { sdk >= it.minSdk }
     }
 }
 

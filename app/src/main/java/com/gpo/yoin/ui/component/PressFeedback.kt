@@ -24,6 +24,10 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -31,12 +35,13 @@ import androidx.compose.ui.layout.layout
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
+/** A clickable without a ripple; a mouse or trackpad pointer over it is the hand ([handPointer]). */
 internal fun Modifier.noRippleClickable(
     interactionSource: MutableInteractionSource,
     enabled: Boolean = true,
     onClickLabel: String? = null,
     onClick: () -> Unit,
-): Modifier = clickable(
+): Modifier = handPointer(enabled).clickable(
     interactionSource = interactionSource,
     indication = null,
     enabled = enabled,
@@ -109,6 +114,35 @@ internal fun Modifier.hoverHighlight(
             )
         }
     }
+}
+
+/**
+ * The hand pointer over something a click acts on (owner 2026-11-13), the
+ * way a desktop shows a link or a button. Only a mouse, trackpad or stylus
+ * shows a pointer, so touch is unchanged. Put it next to the control's
+ * clickable, with the same [enabled]: a control that can't be clicked keeps
+ * the arrow.
+ */
+internal fun Modifier.handPointer(enabled: Boolean = true): Modifier =
+    if (enabled) pointerHoverIcon(PointerIcon.Hand) else this
+
+/**
+ * The pointer's preview of a press for a control whose clickable draws no
+ * ripple (`indication = null`): the hand pointer and the hover wash
+ * ([hoverHighlight]) M3's hover state layer gives the controls that do. Pass
+ * the clickable's [interactionSource]. [shape] is the wash's outline; the
+ * default fills the bounds, for a chain that clips before it. [color] defaults
+ * to the content color. A control that already lifts under the pointer
+ * ([elasticPress]) needs only [handPointer].
+ */
+internal fun Modifier.pointerPressPreview(
+    interactionSource: InteractionSource,
+    shape: Shape = RectangleShape,
+    color: Color = Color.Unspecified,
+    enabled: Boolean = true,
+): Modifier = composed {
+    val wash = color.takeOrElse { LocalContentColor.current }
+    handPointer(enabled).then(if (enabled) Modifier.hoverHighlight(interactionSource, shape, wash) else Modifier)
 }
 
 /** The pointer over a handle that drags sideways, such as the column divider. */

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -128,6 +129,7 @@ internal fun SpotifySpeakersDemo(playing: Boolean) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .then(if (name == DemoSonosName) Modifier.demoTarget("living-room") else Modifier)
+                                .handPointer()
                                 .clickable {
                                     if (name == DemoSonosName) onSonos = true
                                     panelOpen = false

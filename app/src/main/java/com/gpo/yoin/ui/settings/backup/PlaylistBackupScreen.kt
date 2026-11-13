@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.settings.backup
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.component.seamDissolveViewport
@@ -306,7 +307,8 @@ private fun LazyListScope.backupBody(
                 shapes = ButtonDefaults.shapes(),
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 56.dp),
+                    .heightIn(min = 56.dp)
+                    .handPointer(enabled = backup.trackCount > 0),
             ) {
                 Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text(stringResource(R.string.playlist_backup_restore), style = MaterialTheme.typography.titleMedium)
@@ -320,7 +322,7 @@ private fun LazyListScope.backupBody(
                     },
                     enabled = !backingUp,
                     shapes = ButtonDefaults.shapes(),
-                    modifier = Modifier.heightIn(min = 56.dp),
+                    modifier = Modifier.heightIn(min = 56.dp).handPointer(enabled = !backingUp),
                 ) {
                     if (backingUp) {
                         YoinLoadingIndicator(size = 24.dp)
@@ -548,6 +550,7 @@ private fun BackupOverflow(onDelete: () -> Unit) {
                 haptics.performClick()
                 expanded = true
             },
+            modifier = Modifier.handPointer(),
         ) {
             Icon(YoinSymbols.MoreVertical, contentDescription = stringResource(R.string.playlist_backup_cd_more))
         }
@@ -578,10 +581,11 @@ private fun DeleteBackupDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.playlist_backup_delete)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.playlist_backup_cancel)) }
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.playlist_backup_cancel)) }
         },
     )
 }
@@ -781,6 +785,7 @@ private fun VersionRow(
                 },
                 shapes = ButtonDefaults.shapes(),
                 contentPadding = PaddingValues(horizontal = 14.dp),
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.playlist_backup_restore)) }
         },
     )

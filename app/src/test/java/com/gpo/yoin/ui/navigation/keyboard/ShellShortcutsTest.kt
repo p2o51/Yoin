@@ -55,9 +55,34 @@ class ShellShortcutsTest {
     }
 
     @Test
-    fun should_leaveTheKeyToTheSystem_when_metaIsHeld() {
-        assertNull(press(KeyEvent.KEYCODE_K, ctrl = true, meta = true))
-        assertNull(press(KeyEvent.KEYCODE_SPACE, meta = true))
+    fun should_leaveEveryChordToTheSystem_when_metaIsHeld() {
+        // The window manager keeps every Meta chord (PhoneWindowManager), so none may be a shortcut,
+        // whether Meta stands in for Ctrl (⌘K) or comes on top of the chord.
+        ShellShortcut.entries.forEach { shortcut ->
+            val chord = shortcut.chord
+            assertNull(press(chord.keyCode, alt = chord.alt, shift = chord.shift, meta = true))
+            assertNull(
+                press(chord.keyCode, ctrl = chord.ctrl, alt = chord.alt, shift = chord.shift, meta = true),
+            )
+        }
+        assertNull(press(KeyEvent.KEYCODE_SLASH, meta = true))
+        assertNull(press(KeyEvent.KEYCODE_TAB, meta = true))
+    }
+
+    @Test
+    fun should_routeToTheWindow_when_aMetaChordArrives() {
+        listOf(KeyEvent.KEYCODE_K, KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_DPAD_RIGHT).forEach {
+            assertEquals(
+                ShellKeyRoute.Window,
+                shellKeyRoute(ShellKeyEvent(it, down = true, meta = true), heldKeyCode = null, typing = false),
+            )
+            // What the Pixel Tablet does send for ⌘K: only the key's release, after Meta's, with no
+            // modifier and its press never seen. It is no shortcut either.
+            assertEquals(
+                ShellKeyRoute.Window,
+                shellKeyRoute(ShellKeyEvent(it, down = false), heldKeyCode = null, typing = false),
+            )
+        }
     }
 
     @Test

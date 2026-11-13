@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -729,7 +730,7 @@ private fun AlbumDetailContent(
                         // Only the stamp is a button; the resting cover is just a picture.
                         .then(
                             if (docked) {
-                                Modifier.clickable(
+                                Modifier.handPointer().clickable(
                                     role = Role.Button,
                                     onClickLabel = showCoverLabel,
                                 ) {
@@ -1545,7 +1546,7 @@ private fun AlbumHeroComment(
                 albumLastPlayLabels(at, LocalContext.current.resources).first
             }
             Column(
-                modifier = Modifier.clickable(
+                modifier = Modifier.handPointer(enabled = interactive).clickable(
                     enabled = interactive,
                     role = Role.Button,
                     onClickLabel = stringResource(R.string.detail_album_cd_edit_comment),
@@ -1573,7 +1574,7 @@ private fun AlbumHeroComment(
             FilledTonalIconButton(
                 onClick = onEditComment,
                 enabled = interactive,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(40.dp).handPointer(enabled = interactive),
             ) {
                 Icon(
                     imageVector = YoinSymbols.Edit,

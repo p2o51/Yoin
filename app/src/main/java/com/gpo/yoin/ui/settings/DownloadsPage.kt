@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -100,7 +101,7 @@ internal fun DownloadsPageContent(modifier: Modifier = Modifier) {
                         haptics.performContextClick()
                         downloads.settingsStore.setOverMobileData(!settings.overMobileData)
                     },
-                    trailing = { Switch(checked = settings.overMobileData, onCheckedChange = null) },
+                    trailing = { Switch(checked = settings.overMobileData, onCheckedChange = null, modifier = Modifier.handPointer()) },
                 )
             }
         }
@@ -150,10 +151,11 @@ internal fun DownloadsPageContent(modifier: Modifier = Modifier) {
                         downloads.removeAll()
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.handPointer(),
                 ) { Text(stringResource(R.string.settings_downloads_remove_all_confirm)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmRemoveAll = false }) {
+                TextButton(onClick = { confirmRemoveAll = false }, modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.settings_downloads_cancel))
                 }
             },
@@ -225,6 +227,7 @@ private fun DownloadEntryRow(entry: OfflineEntry, downloads: OfflineDownloads) {
                     haptics.performReject()
                     downloads.removeLater(collection.key) {}
                 },
+                modifier = Modifier.handPointer(),
             ) {
                 Icon(YoinSymbols.Close, contentDescription = stringResource(R.string.settings_downloads_entry_remove))
             }
@@ -237,13 +240,14 @@ private fun ChoiceRow(label: String, detail: String?, selected: Boolean, onClick
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .handPointer()
             .clickable(role = Role.RadioButton, onClick = onClick)
             .heightIn(min = SettingsRowMinHeight)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(SettingsRowIconGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(horizontal = 8.dp))
+        RadioButton(selected = selected, onClick = null, modifier = Modifier.padding(horizontal = 8.dp).handPointer())
         Column(modifier = Modifier.weight(1f).seamFade(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(text = label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             if (detail != null) {

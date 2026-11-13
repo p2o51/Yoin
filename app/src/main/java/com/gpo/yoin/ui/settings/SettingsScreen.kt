@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.ClipData
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -760,7 +761,8 @@ private fun ProfileAccountRow(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("account_row_${card.id}"),
+                .testTag("account_row_${card.id}")
+                .handPointer(),
             shape = LocalSettingsRowShape.current,
             color = Color.Transparent,
             onClick = {
@@ -805,7 +807,7 @@ private fun ProfileAccountRow(
                             haptics.performTick()
                             menuOpen = true
                         },
-                        modifier = Modifier.minimumTouchTarget(),
+                        modifier = Modifier.minimumTouchTarget().handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.MoreVertical,
@@ -863,6 +865,7 @@ private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
                     haptics.performClick()
                     onAddAccount()
                 },
+                modifier = Modifier.handPointer(),
             ) {
                 Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -931,7 +934,7 @@ private fun ProfileCardTile(
                     onTap()
                     true
                 }
-            },
+            }.handPointer(),
         shape = YoinContainerShapes.Card,
         color = containerColor,
         contentColor = contentColor,
@@ -958,7 +961,7 @@ private fun ProfileCardTile(
                             haptics.performTick()
                             menuOpen = true
                         },
-                        modifier = Modifier.minimumTouchTarget(),
+                        modifier = Modifier.minimumTouchTarget().handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.MoreVertical,
@@ -1083,7 +1086,8 @@ private fun AddAccountTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
             .width(112.dp)
             .fillMaxHeight()
             .testTag("add_account")
-            .seamDissolve(),
+            .seamDissolve()
+            .handPointer(),
         shape = YoinContainerShapes.Card,
         color = settingsSurfaces().row,
         contentColor = MaterialTheme.colorScheme.primary,
@@ -1198,10 +1202,11 @@ private fun ServiceChoiceRow(
     val haptics = rememberYoinHaptics()
     val enabled = onClick != null
     Surface(
-        modifier = Modifier
+        modifier = (Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
-            .alpha(if (enabled) 1f else 0.5f),
+            .alpha(if (enabled) 1f else 0.5f))
+            .handPointer(enabled = enabled),
         onClick = {
             haptics.performClick()
             onClick?.invoke()
@@ -1347,7 +1352,7 @@ private fun NeoDbItem(
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = { onOpenSignIn(draftInstance) }) {
+            Button(onClick = { onOpenSignIn(draftInstance) }, modifier = Modifier.handPointer()) {
                 Text(
                     stringResource(
                         if (signedIn) R.string.settings_neodb_sign_in_again else R.string.settings_neodb_sign_in,
@@ -1360,6 +1365,7 @@ private fun NeoDbItem(
                         draftToken = ""
                         onClearToken()
                     },
+                    modifier = Modifier.handPointer(),
                 ) { Text(stringResource(R.string.settings_neodb_sign_out)) }
             }
         }
@@ -1374,7 +1380,7 @@ private fun NeoDbItem(
             label = "neoDbManualToken",
         ) { manual ->
             if (!manual) {
-                TextButton(onClick = { showManualToken = true }) {
+                TextButton(onClick = { showManualToken = true }, modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.settings_neodb_use_token))
                 }
             } else {
@@ -1389,6 +1395,7 @@ private fun NeoDbItem(
                     OutlinedButton(
                         onClick = { onSaveConfig(draftInstance, draftToken) },
                         enabled = draftToken.isNotBlank() && draftToken.trim() != accessToken.trim(),
+                        modifier = Modifier.handPointer(enabled = draftToken.isNotBlank() && draftToken.trim() != accessToken.trim()),
                     ) { Text(stringResource(R.string.settings_neodb_save_token)) }
                 }
             }
@@ -1969,6 +1976,7 @@ private fun CacheItem(cacheSizeBytes: Long, onClearCache: () -> Unit) {
                     onClearCache()
                 },
                 enabled = cacheSizeBytes > 0,
+                modifier = Modifier.handPointer(enabled = cacheSizeBytes > 0),
             ) { Text(stringResource(R.string.settings_storage_clear)) }
         },
     )
@@ -2043,7 +2051,7 @@ private fun ProfileSwitchOverlay(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Button(onClick = onDismissError) { Text(stringResource(R.string.settings_switch_ok)) }
+                        Button(onClick = onDismissError, modifier = Modifier.handPointer()) { Text(stringResource(R.string.settings_switch_ok)) }
                     }
                     ProfileManager.SwitchState.Idle -> Unit
                 }
@@ -2086,9 +2094,10 @@ private fun DeleteProfileDialog(
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.settings_remove_confirm)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_remove_cancel)) } },
+        dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.settings_remove_cancel)) } },
     )
 }
 

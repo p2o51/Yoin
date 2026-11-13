@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.library
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -546,6 +548,7 @@ fun LibraryContent(
                                             haptics.performReject()
                                             onRetry()
                                         },
+                                        modifier = Modifier.handPointer(),
                                     ) {
                                         Text(stringResource(R.string.library_error_retry))
                                     }
@@ -554,6 +557,7 @@ fun LibraryContent(
                                             haptics.performContextClick()
                                             onNavigateToSettings()
                                         },
+                                        modifier = Modifier.handPointer(),
                                     ) {
                                         Text(stringResource(R.string.library_error_settings))
                                     }
@@ -767,6 +771,7 @@ private fun LibraryContentBody(
                             haptics.performTick()
                             scope.launch { searchBarState.animateToCollapsed() }
                         },
+                        modifier = Modifier.handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.Back,
@@ -786,6 +791,7 @@ private fun LibraryContentBody(
                             haptics.performTick()
                             textFieldState.setTextAndPlaceCursorAtEnd("")
                         },
+                        modifier = Modifier.handPointer(),
                     ) {
                         Icon(
                             imageVector = YoinSymbols.Close,
@@ -881,7 +887,7 @@ private fun LibraryContentBody(
                                 haptics.performContextClick()
                                 onNavigateToSettings()
                             },
-                            modifier = Modifier.minimumTouchTarget(),
+                            modifier = Modifier.minimumTouchTarget().handPointer(),
                         ) {
                             Icon(
                                 imageVector = YoinSymbols.Settings,
@@ -1301,7 +1307,7 @@ private fun LibraryWideHeaderRow(
                     haptics.performContextClick()
                     onNavigateToSettings()
                 },
-                modifier = Modifier.minimumTouchTarget(),
+                modifier = Modifier.minimumTouchTarget().handPointer(),
             ) {
                 Icon(
                     imageVector = YoinSymbols.Settings,
@@ -1430,7 +1436,7 @@ private fun ArtistGridItem(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     Column(
-        modifier = modifier.noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+        modifier = modifier.pointerPressPreview(interactionSource).noRippleClickable(interactionSource = interactionSource, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // The shared artwork: its fallback icon on a failed load, and the retry
@@ -1483,7 +1489,7 @@ private fun ArtistListItem(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().handPointer(),
         shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
@@ -1934,7 +1940,7 @@ private fun RandomMixHeader(
                 haptics.performTick()
                 onReshuffle()
             },
-            modifier = Modifier.minimumTouchTarget(),
+            modifier = Modifier.minimumTouchTarget().handPointer(),
         ) {
             Icon(
                 imageVector = YoinSymbols.Shuffle,
@@ -2070,7 +2076,7 @@ private fun PlaylistsTabContent(
                     .padding(
                         end = 16.dp,
                         bottom = floatingBottomGroupContentPadding(),
-                    ),
+                    ).handPointer(),
             )
         }
     }
@@ -2109,10 +2115,11 @@ private fun CreatePlaylistDialog(
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.trim().isNotEmpty(),
+                modifier = Modifier.handPointer(enabled = name.trim().isNotEmpty()),
             ) { Text(stringResource(R.string.library_playlist_create)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_playlist_cancel)) }
+            TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.library_playlist_cancel)) }
         },
     )
 }
@@ -2126,7 +2133,7 @@ private fun PlaylistListItem(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().handPointer(),
         shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
@@ -2317,7 +2324,7 @@ private fun AlbumListItem(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().handPointer(),
         shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
@@ -2481,6 +2488,7 @@ private fun SearchResultsContent(
                         haptics.performReject()
                         onRetrySearch()
                     },
+                    modifier = Modifier.handPointer(),
                 ) {
                     Text(stringResource(R.string.library_search_retry))
                 }

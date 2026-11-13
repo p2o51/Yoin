@@ -167,6 +167,7 @@ fun DevicesSheet(
                         onRefresh()
                     },
                     enabled = !loading,
+                    modifier = Modifier.handPointer(enabled = !loading),
                 ) {
                     if (loading) {
                         CircularProgressIndicator(
