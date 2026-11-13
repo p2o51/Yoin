@@ -5,6 +5,7 @@ import com.gpo.yoin.ui.home.HomeBubbleTip
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TipReadStoreTest {
@@ -17,9 +18,10 @@ class TipReadStoreTest {
         assertEquals(HomeBubbleTip.entries - HomeBubbleTip.ContinueOn, android16)
         // Neither the bubble nor "Next" on the tip's page comes to it.
         assertFalse(HomeBubbleTip.ContinueOn in emptySet<HomeBubbleTip>().unreadTips(android16))
-        assertEquals(HomeBubbleTip.ContinueOn, emptySet<HomeBubbleTip>().unreadTips(android17).first())
-        assertEquals(HomeBubbleTip.SpotifyElsewhere, nextUnreadTip(HomeBubbleTip.Name, emptySet(), android16))
-        assertEquals(HomeBubbleTip.ContinueOn, nextUnreadTip(HomeBubbleTip.Name, emptySet(), android17))
+        assertTrue(HomeBubbleTip.ContinueOn in emptySet<HomeBubbleTip>().unreadTips(android17))
+        // ContinueOn sits by its day (11-08), after SettingsRegrouped; the tip after that is LyricHighlight.
+        assertEquals(HomeBubbleTip.LyricHighlight, nextUnreadTip(HomeBubbleTip.SettingsRegrouped, emptySet(), android16))
+        assertEquals(HomeBubbleTip.ContinueOn, nextUnreadTip(HomeBubbleTip.SettingsRegrouped, emptySet(), android17))
     }
 
     @Test
