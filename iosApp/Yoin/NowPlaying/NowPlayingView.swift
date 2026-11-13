@@ -612,10 +612,14 @@ struct NowPlayingView: View, Equatable {
             topBar(p, docked: expanded)
                 .frame(height: topBarH)
                 .npFade(open, contentFade)
+            // A height-capped cover leaves a band between it and the rating
+            // column: the spine reads the song there (Android spineBand).
+            let spineBand = NowPlayingSpine.band(stageWidth: stageWidth, cover: restCover, ratingColumn: ratingColumn)
             coverRow(expanded ? restCover : coverH, retreat: stage != .compact || short != nil,
                      dock: expanded && restCover > 0 ? CoverDock(cover: restCover, topBar: NowPlayingExpanded.topBar) : nil,
                      tappable: focusOffered || shortOffer != nil || stage != .compact,
-                     ratingColumn: ratingColumn) {
+                     ratingColumn: ratingColumn,
+                     spine: spineBand >= NowPlayingSpine.minWidth ? SpineSlot(band: spineBand, length: restCover) : nil) {
                 coverTapped(focusOffered: focusOffered, shortOffered: shortOffer != nil)
             }
             // Short focus centres the grown cover.
@@ -780,9 +784,10 @@ struct NowPlayingView: View, Equatable {
     /// ratingRetreatProgress); `dock`: expanded flies the cover into the top bar.
     private func coverRow(_ cover: CGFloat, retreat: Bool, dock: CoverDock?, tappable: Bool,
                           ratingColumn: CGFloat = Tokens.np.PHONE_RATING_COLUMN.cg,
+                          spine: SpineSlot? = nil,
                           onTap: @escaping () -> Void) -> some View {
         let p = model.playback
-        return HStack(alignment: .top, spacing: retreat ? 0 : Tokens.np.RATING_GAP.cg) {
+        return HStack(alignment: .top, spacing: 0) {
             CoverArt(palette: p.album.palette, cornerRadius: 0, seed: p.album.seed)
                 .frame(width: cover, height: cover)
                 // ContinuousRoundedCornerShape(16dp), smoothing 0.6 ≈ Apple's continuous corners.
@@ -798,6 +803,17 @@ struct NowPlayingView: View, Equatable {
                                            onTap: onTap))
                 // Android NowPlayingCoverMenu: long-press = the song's sheet (+ Keep screen on).
                 .trackMenu(for: PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
+            if let spine {
+                // It fades with the rating's retreat (Android 1 − ratingRetreatProgress)
+                // and its slot folds with the rating column's.
+                spineView(p, slot: spine)
+                    .frame(width: spine.band, height: spine.length, alignment: .leading)
+                    .opacity(retreat ? 0 : 1)
+                    .allowsHitTesting(!retreat)
+                    .frame(width: retreat ? 0 : spine.band, alignment: .leading)
+                    .npFade(open, contentFade)
+            }
+            Spacer().frame(width: retreat ? 0 : Tokens.np.RATING_GAP.cg)
             VStack(spacing: 0) {
                 RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld,
                           gestureKey: engineTrack.map(NowPlayingData.key) ?? "mock") { down in
@@ -839,6 +855,35 @@ struct NowPlayingView: View, Equatable {
             NowPlayingFocusField(scheme: scheme, size: cover, on: stage == .focus)
                 .npFade(open, contentFade)
         }
+    }
+
+    /// The spine's facts (Android spineItems): the cached About credits (never
+    /// a Gemini request) and, on Subsonic, the server's own record of the song.
+    private func spineView(_ p: PlaybackSnapshot, slot: SpineSlot) -> some View {
+        let items: [SpineItem]
+        let key: String
+        if let t = engineTrack {
+            items = NowPlayingSpine.items(entries: SongAboutLoader.shared.store.entries(AboutSong(t).key),
+                                          facts: data.spineFacts(t), album: t.album, artist: t.artist,
+                                          title: t.title, labels: .localized)
+            key = NowPlayingData.key(t)
+        } else {
+            var entries: [SongAboutStore.Entry] = []
+            #if DEBUG
+            entries = SongAboutDemo.rows() ?? []
+            #endif
+            items = NowPlayingSpine.items(entries: entries, facts: nil, album: p.album.title,
+                                          artist: p.track.artist ?? p.album.artist, title: p.track.title,
+                                          labels: .localized)
+            key = "\(p.album.title)\u{0}\(p.track.title)"
+        }
+        return NowPlayingSpineView(items: items, songKey: key, length: slot.length, band: slot.band,
+                                   ink: scheme.onSurfaceVariant)
+            // The server's facts, without asking Gemini (About's page asks it).
+            .task(id: engineTrack.map(NowPlayingData.key)) {
+                guard let t = engineTrack else { return }
+                await data.loadServerFacts(t, client: model.session.client)
+            }
     }
 
     /// The engine's song: this device's (or a synced) rating, nil = never

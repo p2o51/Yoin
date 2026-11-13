@@ -18,6 +18,8 @@ struct SongFacts: Equatable {
     var facts: [Fact]
     /// False when the server couldn't be asked: ask again next time.
     var complete = true
+    /// What the Now Playing spine reads from the server's record (Subsonic only).
+    var spine: SpineSourceFacts?
 
     /// From the queue entry alone (Apple Music, or the server unreachable).
     init(_ t: PlayableTrack, complete: Bool = true) {
@@ -59,6 +61,7 @@ struct SongFacts: Equatable {
         if let plays = s.playCount?.intValue { Self.add(&f, "Plays", String(plays)) }
         Self.add(&f, "Last played", s.played.flatMap(Self.date))
         facts = f
+        spine = SpineSourceFacts(s)
     }
 
     private static func add(_ f: inout [Fact], _ label: String, _ value: String?) {

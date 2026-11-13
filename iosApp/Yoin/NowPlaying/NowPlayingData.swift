@@ -285,6 +285,13 @@ final class NowPlayingData {
         AboutState.compose(server: about[Self.key(t)] ?? .loading, song: AboutSong(t))
     }
 
+    /// The server's facts the Now Playing spine reads (Subsonic `getSong`); nil until they arrive and
+    /// for every other provider.
+    func spineFacts(_ t: PlayableTrack) -> SpineSourceFacts? {
+        if case .ready(let f)? = about[Self.key(t)] { return f.spine }
+        return nil
+    }
+
     /// Gemini's About (when a key is saved; once per song, cached) alongside
     /// the server's facts.
     func loadAbout(_ t: PlayableTrack, client: SubsonicClient?) async {
@@ -292,6 +299,11 @@ final class NowPlayingData {
         let gemini = Task { await SongAboutLoader.shared.ensure(title: title, artist: artist, album: album) }
         await loadFacts(t, client: client)
         await gemini.value
+    }
+
+    /// The server's facts alone, for the spine: never a Gemini request.
+    func loadServerFacts(_ t: PlayableTrack, client: SubsonicClient?) async {
+        await loadFacts(t, client: client)
     }
 
     /// The song's facts: the server's full record where there is one, else
