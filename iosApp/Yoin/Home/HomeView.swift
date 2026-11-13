@@ -143,6 +143,10 @@ struct HomeView: View {
             await OtherAccountMemories.shared.reload(model: model)
         }
         .onChange(of: model.profiles.activeId) { spotifyElsewhere.reset() }
+        .onChange(of: spotifyElsewhereOnScreen, initial: true) { _, on in spotifyElsewhere.setOnScreen(on) }
+        #if DEBUG
+        .task { await SpotifyElsewhereSeed.run(spotifyElsewhere, model: model) }
+        #endif
         // Yoin starts playing: the pill has nothing to offer.
         .onChange(of: model.playback.isPlaying) { _, playing in if playing { spotifyElsewhere.dismiss() } }
         .onChange(of: model.store.homeScope) { _, scope in edit.load(scope: scope) }
@@ -336,6 +340,14 @@ struct HomeView: View {
 
     private var spotifyElsewhereUp: Bool {
         SpotifyElsewhere.visible(spotifyElsewhere.shown, yoinPlaying: model.playback.isPlaying)
+    }
+
+    /// The header can be seen: the pill's 5 s run only then (Android 8cd973e6c).
+    private var spotifyElsewhereOnScreen: Bool {
+        SpotifyElsewhere.headerOnScreen(
+            feedLoaded: feed != nil, sceneActive: scenePhase == .active,
+            nowPlaying: model.npExpanded || model.np.mounted, detailColumn: model.isPad && model.padSelection != nil,
+            pushed: !model.path.isEmpty, search: model.searchActive, memories: memories.mounted)
     }
 
     private var header: some View {
