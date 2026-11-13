@@ -98,6 +98,10 @@ targets:
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
+        # A pointer's clicks arrive as indirect-pointer touches with their button mask (an iPad with a
+        # mouse or trackpad, the iPad app on a Mac). Without it they are plain direct touches and a
+        # right-click can't be told from a tap (Theme/SecondaryClick.swift).
+        UIApplicationSupportsIndirectInputEvents: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:

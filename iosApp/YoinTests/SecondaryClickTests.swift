@@ -23,4 +23,11 @@ final class SecondaryClickTests: XCTestCase {
         XCTAssertTrue(SecondaryClickRecognizer.isClick(from: .zero, to: CGPoint(x: 6, y: 8)))
         XCTAssertFalse(SecondaryClickRecognizer.isClick(from: .zero, to: CGPoint(x: 8, y: 8)))
     }
+
+    /// Without the opt-in a pointer click is a direct touch with no button mask, and the recognizer
+    /// (which needs `.indirectPointer` and `.secondary`) never fires.
+    func test_should_optIntoIndirectInputEvents_when_appBundleBuilt() {
+        let value = Bundle.main.object(forInfoDictionaryKey: "UIApplicationSupportsIndirectInputEvents")
+        XCTAssertEqual(value as? Bool, true)
+    }
 }
