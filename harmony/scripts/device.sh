@@ -14,6 +14,8 @@ cd "$(dirname "$0")/.."
 source "$HOME/Developer/flutter_ohos/ohos-env.sh"
 DEVICE="${DEVICE:-5ZGYD25B20051376}"
 BUNDLE=com.gpo.yoin
+# QA launches play muted (night rule). SOUND=1 scripts/device.sh launch for audible playback.
+QA_PARAMS=(); [ "${SOUND:-0}" = 1 ] || QA_PARAMS=(--pb yoinQaSilent true)
 SHOTS="${SHOTS:-/tmp/yoin-harmony-shots}"
 h() { hdc -t "$DEVICE" "$@"; }
 case "${1:-}" in
@@ -21,10 +23,10 @@ case "${1:-}" in
     flutter build hap --release
     h install -r build/ohos/hap/entry-default-signed.hap
     h shell aa force-stop "$BUNDLE" >/dev/null || true
-    h shell aa start -a EntryAbility -b "$BUNDLE" ;;
+    h shell aa start -a EntryAbility -b "$BUNDLE" "${QA_PARAMS[@]}" ;;
   launch)
     h shell aa force-stop "$BUNDLE" >/dev/null || true
-    h shell aa start -a EntryAbility -b "$BUNDLE" ;;
+    h shell aa start -a EntryAbility -b "$BUNDLE" "${QA_PARAMS[@]}" ;;
   shot)
     mkdir -p "$SHOTS"; name="${2:-shot}"
     h shell snapshot_display -f "/data/local/tmp/$name.jpeg" >/dev/null

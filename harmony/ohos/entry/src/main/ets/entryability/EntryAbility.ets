@@ -3,6 +3,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { FlutterAbility, FlutterEngine } from '@ohos/flutter_ohos';
 import { GeneratedPluginRegistrant } from '../plugins/GeneratedPluginRegistrant';
+import { setQaSilent } from '../yoin/playback/PlaybackEngine';
 import { YoinPlaybackHost } from '../yoin/playback/PlaybackHost';
 import YoinPlaybackPlugin from '../yoin/playback/PlaybackPlugin';
 import { YOIN_ACTION_KEY, YOIN_ACTION_OPEN_NOW_PLAYING } from '../yoin/playback/SystemSession';
@@ -23,6 +24,7 @@ export default class EntryAbility extends FlutterAbility {
   /** Cold start from Yoin's 播控中心 / lock-screen card: open Now Playing once Dart listens. */
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     super.onCreate(want, launchParam)
+    applyQaFlags(want)
     if (wantsNowPlaying(want)) {
       YoinPlaybackHost.bind(this.context).requestOpenNowPlaying()
     }
@@ -31,6 +33,7 @@ export default class EntryAbility extends FlutterAbility {
   /** EntryAbility is a singleton: a card tap while running arrives here. */
   onNewWant(want: Want, launchParams: AbilityConstant.LaunchParam): void {
     super.onNewWant(want, launchParams)
+    applyQaFlags(want)
     if (wantsNowPlaying(want)) {
       YoinPlaybackHost.bind(this.context).requestOpenNowPlaying()
     }
@@ -57,4 +60,12 @@ export default class EntryAbility extends FlutterAbility {
 function wantsNowPlaying(want: Want): boolean {
   const params = want.parameters
   return params !== undefined && params[YOIN_ACTION_KEY] === YOIN_ACTION_OPEN_NOW_PLAYING
+}
+
+/** QA launches (scripts/device.sh) pass yoinQaSilent=true: play muted. Absent = normal sound. */
+function applyQaFlags(want: Want): void {
+  const params = want.parameters
+  if (params !== undefined && params['yoinQaSilent'] === true) {
+    setQaSilent(true)
+  }
 }

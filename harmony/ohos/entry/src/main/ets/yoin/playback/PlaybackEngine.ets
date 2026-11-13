@@ -14,6 +14,21 @@ const TICK_MS = 1000;
 /** Volume while another app holds shared focus and asks us to duck (Media3's ducked multiplier). */
 const DUCK_VOLUME = 0.2;
 
+/**
+ * QA only: when the app is launched with want parameter `yoinQaSilent: true`
+ * (scripts/device.sh does this), every player outputs at volume 0 so device
+ * tests never make sound (night rule; iOS uses -silentAudio the same way).
+ */
+let qaSilent = false;
+
+export function setQaSilent(silent: boolean): void {
+  qaSilent = silent;
+}
+
+function outVolume(volume: number): number {
+  return qaSilent ? 0 : volume;
+}
+
 /** Mirrors Dart's `PlaybackPhase` names exactly (they are sent by name). */
 export type EnginePhase = 'idle' | 'loading' | 'ready' | 'ended' | 'error';
 
@@ -558,6 +573,7 @@ export class PlaybackEngine {
       }
       case 'prepared': {
         this.phase = 'ready';
+        p.setVolume(outVolume(1.0));
         if (p.duration > 0) {
           this.durationMs = p.duration;
         }
@@ -649,12 +665,12 @@ export class PlaybackEngine {
         break;
       case audio.InterruptHint.INTERRUPT_HINT_DUCK:
         if (p !== null) {
-          p.setVolume(DUCK_VOLUME);
+          p.setVolume(outVolume(DUCK_VOLUME));
         }
         break;
       case audio.InterruptHint.INTERRUPT_HINT_UNDUCK:
         if (p !== null) {
-          p.setVolume(1.0);
+          p.setVolume(outVolume(1.0));
         }
         break;
       default:
