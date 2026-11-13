@@ -105,6 +105,11 @@ sealed interface LibraryUiState {
         val canAddToLibrary: Boolean = false,
         /** Visible inside full-screen search, above the shell's snackbar layer. */
         val libraryActionFeedback: Map<MediaId, LibraryActionFeedback> = emptyMap(),
+        /**
+         * A pull on the view is being answered ([LibraryViewModel.pullRefresh]):
+         * the pull indicator stays down. The lists stay on screen meanwhile.
+         */
+        val isRefreshing: Boolean = false,
     ) : LibraryUiState
 
     data class Error(val message: UiText, val diagnostics: String? = null) : LibraryUiState

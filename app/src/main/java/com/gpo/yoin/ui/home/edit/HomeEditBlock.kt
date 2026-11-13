@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onPlaced
@@ -85,6 +86,7 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
+import com.gpo.yoin.ui.component.GrabPointer
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.smoothstep
@@ -741,6 +743,7 @@ private fun BoxScope.HomeEditBadges(
                     modifier = Modifier
                         .size(BadgeTouch)
                         .testTag(homeEditHandleTag(section))
+                        .then(if (controller.isEditing) Modifier.pointerHoverIcon(GrabPointer) else Modifier)
                         .homeEditHandle(deps.targets, section)
                         .graphicsLayer {
                             val local = badgeLocal(motion.ripple(section))

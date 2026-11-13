@@ -1,7 +1,14 @@
 package com.gpo.yoin.ui.tips
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -18,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,6 +34,7 @@ import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -283,6 +292,201 @@ internal fun LibrarySearchDemo(playing: Boolean) {
     }
 }
 
+/**
+ * Pull Library down from the top: the view is read again, and the real pull
+ * indicator turns under the chips meanwhile. The phone has no service behind
+ * it, so a pull — the dot's, or the user's — reads for a moment and is done.
+ */
+@Composable
+internal fun LibraryRefreshDemo(playing: Boolean) {
+    var refreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshing) {
+        if (refreshing) {
+            delay(DemoRefreshMs)
+            refreshing = false
+        }
+    }
+    DemoPhone(playing = playing, script = {
+        refreshing = false
+        delay(300)
+        moveTo("libraryBody", fy = 0.3f)
+        drag(at("libraryBody", fy = 0.3f).x, at("libraryBody", fy = 0.55f).y, ms = 700) {}
+        refreshing = true
+        lift()
+        delay(DemoRefreshMs + 1_200)
+    }) {
+        DemoLibraryPage(
+            gridState = rememberLazyGridState(),
+            onSearch = {},
+            isRefreshing = refreshing,
+            onRefresh = { refreshing = true },
+        )
+    }
+}
+
+/**
+ * Keyboard shortcuts: Space pauses and plays the mini player, Ctrl + → moves
+ * it to the next song, Ctrl + K opens search — a keyboard's keys as keycaps
+ * on a tray of their own that the bar sits on, pressed by the dot (or the user).
+ */
+@Composable
+internal fun KeyboardShortcutsDemo(playing: Boolean) {
+    var paused by remember { mutableStateOf(false) }
+    var song by remember { mutableIntStateOf(0) }
+    var searching by remember { mutableStateOf(false) }
+    var pressed by remember { mutableStateOf<DemoKey?>(null) }
+    val grid = rememberLazyGridState()
+    val density = LocalDensity.current
+    // The keys' row as measured (the keycaps and the room under them for the bar),
+    // and the tray's height around it: settled on the grid's rows as they lie.
+    var keysPx by remember { mutableIntStateOf(0) }
+    val trayPx = remember { Animatable(0f) }
+    val traySpring = YoinMotion.spatialSpring<Float>()
+    LaunchedEffect(grid, density) {
+        snapshotFlow {
+            val info = grid.layoutInfo
+            keycapTrayHeightPx(
+                rows = info.visibleItemsInfo.map { it.offset.y..(it.offset.y + it.size.height) },
+                gridEndPx = info.viewportEndOffset,
+                keysPx = keysPx,
+                roomPx = with(density) { KeycapTrayPadding.roundToPx() },
+                gapPx = with(density) { KeycapTrayRowGap.roundToPx() },
+            )
+        }.collect { target ->
+            if (target <= 0) return@collect
+            // The first height is the tray as it opens; a later one (the grid moved) springs.
+            if (trayPx.value <= 0f) trayPx.snapTo(target.toFloat()) else trayPx.animateTo(target.toFloat(), traySpring)
+        }
+    }
+    val album = DemoAlbums[0]
+    val cover = demoCoverUrl(album)
+    val track = remember(cover, song) { demoTrack(song, album, cover) }
+    val press: (DemoKey) -> Unit = { key ->
+        when (key) {
+            DemoKey.Space -> paused = !paused
+            DemoKey.Next -> song += 1
+            DemoKey.Search -> searching = true
+        }
+    }
+    DemoPhone(playing = playing, script = {
+        paused = false
+        song = 0
+        searching = false
+        delay(300)
+        DemoKey.entries.forEach { key ->
+            moveTo(key.name)
+            tap {
+                pressed = key
+                press(key)
+            }
+            pressed = null
+            delay(if (key == DemoKey.Search) 1_600 else 900)
+        }
+        moveTo("searchBack")
+        tap { searching = false }
+        delay(600)
+        // Space again: the bar plays on.
+        moveTo(DemoKey.Space.name)
+        tap {
+            pressed = DemoKey.Space
+            press(DemoKey.Space)
+        }
+        pressed = null
+        lift()
+        delay(500)
+    }) {
+        DemoLibraryPage(
+            gridState = grid,
+            onSearch = { searching = true },
+            nowPlaying = track,
+            playing = !paused,
+            underBar = {
+                // The keys' own tray, filled, from the phone's bottom edge up past
+                // the album grid's last row: the bar sits on it, the keys above the bar.
+                // Its top edge falls between two rows of the grid, never across one.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .then(
+                            if (trayPx.value > 0f) {
+                                Modifier.height(with(density) { trayPx.value.toDp() })
+                            } else {
+                                Modifier.padding(top = KeycapTrayPadding)
+                            },
+                        )
+                        .background(
+                            MaterialTheme.colorScheme.surfaceContainer,
+                            RoundedCornerShape(topStart = KeycapTrayCorner, topEnd = KeycapTrayCorner),
+                        ),
+                ) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .onSizeChanged { keysPx = it.height }
+                        .padding(bottom = KeycapLift),
+                    horizontalArrangement = Arrangement.spacedBy(KeycapGap, Alignment.CenterHorizontally),
+                ) {
+                    DemoKey.entries.forEach { key ->
+                        DemoKeycaps(
+                            key = key,
+                            pressed = pressed == key,
+                            onPress = { press(key) },
+                            modifier = Modifier.demoTarget(key.name),
+                        )
+                    }
+                }
+                }
+            },
+        )
+        DemoLibrarySearch(visible = searching, onClose = { searching = false })
+    }
+}
+
+/** The three chords the demo presses (ShellShortcut: PlayPause, Next, Search). */
+private enum class DemoKey { Space, Next, Search }
+
+/** One chord as a keyboard's keycaps side by side; pressing either presses the chord. */
+@Composable
+private fun DemoKeycaps(key: DemoKey, pressed: Boolean, onPress: () -> Unit, modifier: Modifier = Modifier) {
+    val labels = when (key) {
+        DemoKey.Space -> listOf(stringResource(R.string.shortcut_key_space))
+        DemoKey.Next -> listOf("Ctrl", "→")
+        DemoKey.Search -> listOf("Ctrl", "K")
+    }
+    val scheme = MaterialTheme.colorScheme
+    val container by animateColorAsState(
+        if (pressed) scheme.primaryContainer else scheme.surfaceContainerHighest,
+        YoinMotion.fastEffectsSpec(),
+        label = "keycap",
+    )
+    val content by animateColorAsState(
+        if (pressed) scheme.onPrimaryContainer else scheme.onSurface,
+        YoinMotion.fastEffectsSpec(),
+        label = "keycapText",
+    )
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(KeycapInnerGap)) {
+        labels.forEach { label ->
+            Surface(
+                onClick = onPress,
+                shape = MaterialTheme.shapes.small,
+                color = container,
+                contentColor = content,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = KeycapMinSize, minHeight = KeycapMinSize)
+                        .wrapContentSize()
+                        .padding(horizontal = 10.dp),
+                )
+            }
+        }
+    }
+}
+
 /** Scroll Library: the cards sink under the tide line below its header. */
 @Composable
 internal fun ScrollEdgeDemo(playing: Boolean) {
@@ -312,10 +516,13 @@ private fun BoxScope.DemoLibraryPage(
     nowPlaying: Track? = null,
     playing: Boolean = false,
     onMiniPlayerLongPress: (() -> Unit)? = null,
+    underBar: @Composable BoxScope.() -> Unit = {},
+    isRefreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
 ) {
     val albums = demoLibraryAlbums()
     var tab by remember { mutableStateOf(LibraryTab.All) }
-    val state = remember(albums, tab) {
+    val state = remember(albums, tab, isRefreshing) {
         val items = buildList<LibraryItem> {
             albums.forEachIndexed { i, album ->
                 add(LibraryItem.AlbumItem(album))
@@ -333,6 +540,7 @@ private fun BoxScope.DemoLibraryPage(
             searchResults = null,
             isSearching = false,
             allItems = items,
+            isRefreshing = isRefreshing,
         )
     }
     LibraryContent(
@@ -346,6 +554,7 @@ private fun BoxScope.DemoLibraryPage(
         onPlaylistClick = {},
         onSongClick = {},
         onRetry = {},
+        onRefresh = onRefresh,
         coverArtUrlBuilder = null,
         allGridState = gridState,
         modifier = Modifier.matchParentSize().demoTarget("libraryBody"),
@@ -366,6 +575,7 @@ private fun BoxScope.DemoLibraryPage(
                 }
             },
     )
+    underBar()
     YoinButtonGroup(
         selectedSection = YoinSection.LIBRARY,
         currentTrackId = nowPlaying?.id?.toString(),
@@ -542,5 +752,45 @@ private const val MiniPlayerProgress = 0.35f
 /** The collapsed search pill's band under the status bar. */
 private val SearchPillBand = 64.dp
 
+/** How long a pull on the demo phone "reads" before the indicator goes. */
+private const val DemoRefreshMs = 1_400L
+
 /** How far the scroll-edge demo scrolls Library. */
 private val ScrollTravel = 360.dp
+
+/** The keycaps sit this far above the phone's bottom edge, clear of the bar. */
+private val KeycapLift = 132.dp
+
+/** The keycaps' tray: its top corners and the room above the keys. */
+private val KeycapTrayCorner = 28.dp
+private val KeycapTrayPadding = 16.dp
+
+/** The tray's edge sits this far above a row it would have crossed (half the grid's row gap). */
+private val KeycapTrayRowGap = 8.dp
+
+/**
+ * The keycap tray's height in px, so its top edge falls between two rows of
+ * the album grid, never across one. [rows] are the grid's items, top to bottom
+ * in px from the same origin as [gridEndPx] (the grid's bottom edge, where the
+ * tray's bottom is); [keysPx] is the keys' row with the room under it for the
+ * bar. The tray holds [roomPx] above the keys; where its edge would cross a
+ * row, it covers that row too, its edge [gapPx] above it. 0 before the keys
+ * are measured.
+ */
+internal fun keycapTrayHeightPx(
+    rows: List<IntRange>,
+    gridEndPx: Int,
+    keysPx: Int,
+    roomPx: Int,
+    gapPx: Int,
+): Int {
+    if (keysPx <= 0) return 0
+    val natural = keysPx + roomPx
+    val edge = gridEndPx - natural
+    val crossed = rows.filter { it.first < edge && it.last > edge }
+    if (crossed.isEmpty()) return natural
+    return gridEndPx - crossed.minOf { it.first } + gapPx
+}
+private val KeycapGap = 12.dp
+private val KeycapInnerGap = 4.dp
+private val KeycapMinSize = 40.dp

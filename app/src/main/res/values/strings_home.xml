@@ -240,6 +240,8 @@
     <string name="home_tip_note_moments">Notes written in Now Playing stay pinned to that exact second</string>
     <string name="home_tip_library_search_title">Quick search</string>
     <string name="home_tip_library_search">Long-press Library in the bar to search right away</string>
+    <string name="home_tip_library_refresh_title">Refresh Library</string>
+    <string name="home_tip_library_refresh">Pull down at the top of Library to refresh the current view</string>
     <string name="home_tip_keep_screen_on_title">Keep screen on</string>
     <string name="home_tip_keep_screen_on">Keep screen on is in the cover\'s long-press menu</string>
     <string name="home_tip_scroll_edge_title">Scroll edge</string>

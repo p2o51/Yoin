@@ -219,6 +219,8 @@
     <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
     <string name="home_tip_library_search_title">快速搜索</string>
     <string name="home_tip_library_search">长按底栏的资料库，直接搜索</string>
+    <string name="home_tip_library_refresh_title">刷新资料库</string>
+    <string name="home_tip_library_refresh">在资料库顶部往下拉，刷新正在看的内容</string>
     <string name="home_tip_keep_screen_on_title">屏幕常亮</string>
     <string name="home_tip_keep_screen_on">屏幕常亮在封面的长按菜单里</string>
     <string name="home_tip_scroll_edge_title">滚动边缘</string>

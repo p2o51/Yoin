@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.navigation
 
 import android.content.Context
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.PredictiveBackHandler
@@ -161,6 +162,10 @@ import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
 import com.gpo.yoin.ui.navigation.back.rememberShellBarChromeMorph
 import com.gpo.yoin.ui.navigation.back.noteShellSurface
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
+import com.gpo.yoin.ui.navigation.keyboard.ShellShortcut
+import com.gpo.yoin.ui.navigation.keyboard.ShellShortcutHost
+import com.gpo.yoin.ui.navigation.keyboard.ShellShortcutSink
+import com.gpo.yoin.ui.navigation.keyboard.isAvailable
 import com.gpo.yoin.ui.navigation.pane.DetailColumnsLayout
 import com.gpo.yoin.ui.navigation.pane.DetailPaneCloseHandler
 import com.gpo.yoin.ui.navigation.pane.DetailPaneDivider
@@ -680,6 +685,41 @@ private fun YoinShell(
         homeEdit.snapExit()
         onNavigateToSettings(focusSection)
     }
+    // The bar's taps, which the keyboard shortcuts take as well.
+    val showHomeFeed: () -> Unit = {
+        experienceSessionStore.setSelectedSection(YoinSection.HOME)
+        experienceSessionStore.setHomeSurface(HomeSurface.Feed)
+        // LaunchedEffect(homeSurface) handles the close animation.
+    }
+    val openNowPlayingFromShell: () -> Unit = {
+        dismissMemoriesIfActive()
+        if (homeEdit.isEditing && !nowPlayingCoversHome(npFrame.presentation)) {
+            // The side panel leaves Home in view: animate out
+            // of edit, then open once P has settled.
+            shellScope.launch {
+                homeEdit.commitAndExitAndAwait()
+                experienceSessionStore.setNowPlayingExpanded(true)
+            }
+        } else {
+            homeEdit.snapExit()
+            experienceSessionStore.setNowPlayingExpanded(true)
+        }
+    }
+    val showLibraryHome: () -> Unit = {
+        libraryViewModel.showLibraryHome()
+        experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
+        experienceSessionStore.setHomeSurface(HomeSurface.Feed)
+    }
+    val openLibrarySearch: () -> Unit = {
+        val scope = when (app.container.repository.currentProviderId()) {
+            MediaId.PROVIDER_SPOTIFY -> LibrarySearchScope.SpotifyGlobal
+            MediaId.PROVIDER_APPLE_MUSIC -> LibrarySearchScope.AppleMusicGlobal
+            else -> LibrarySearchScope.CurrentLibrary
+        }
+        libraryViewModel.openSearchShortcut(scope)
+        experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
+        experienceSessionStore.setHomeSurface(HomeSurface.Feed)
+    }
     // Flip the bar to detail chrome the moment the tap lands — the nav→split
     // morph IS the tap feedback; the detail window's delayed slide then lands
     // on its own identical bar (see detail_bar_handoff_enter.xml). The flag
@@ -690,6 +730,75 @@ private fun YoinShell(
     // wrong split→nav scrub on the detail's back), so skip it.
     val shellContext = LocalContext.current
     val shellHostActivity = remember(shellContext) { shellContext.findActivityOrNull() }
+    // Keyboard shortcuts (tablet keyboard, desktop window): the shell window
+    // reads the keys, and the shell answers them here with what its own taps
+    // do. Back goes through the dispatcher, so whoever the resolver gave back
+    // to answers it, exactly as a system back would.
+    val shellShortcutSink = ShellShortcutSink { shortcut ->
+        val track = playbackManager.playbackState.value.currentTrack
+        // A Now Playing that covers the window: the Go keys and Search close it first.
+        val closeCoveringNowPlaying = {
+            if (showNowPlaying && !npPanel.panelOpen) {
+                nowPlayingViewModel.setStageMode(NowPlayingStageMode.Compact)
+                experienceSessionStore.setNowPlayingExpanded(false)
+            }
+        }
+        val available = shortcut.isAvailable(
+            hasTrack = track != null,
+            nowPlayingOpen = showNowPlaying,
+            canLike = track != null && ServiceFeatureCatalog.forProvider(track.id.provider).supportsFavorites,
+            canGoBack = shellBackOwner != ShellBackOwner.None,
+        )
+        if (!available) return@ShellShortcutSink false
+        when (shortcut) {
+            ShellShortcut.PlayPause -> nowPlayingViewModel.togglePlayPause()
+            ShellShortcut.Next -> nowPlayingViewModel.skipNext()
+            ShellShortcut.Previous -> nowPlayingViewModel.skipPrevious()
+            ShellShortcut.Shuffle -> {
+                val mode = playbackManager.playbackState.value.playMode
+                nowPlayingViewModel.setPlayMode(mode.withShuffle(!mode.shuffle))
+            }
+            ShellShortcut.Like -> nowPlayingViewModel.toggleFavoriteOfPlaying()
+            ShellShortcut.NowPlaying -> if (showNowPlaying) {
+                nowPlayingViewModel.setStageMode(NowPlayingStageMode.Compact)
+                experienceSessionStore.setNowPlayingExpanded(false)
+            } else {
+                openNowPlayingFromShell()
+            }
+            ShellShortcut.Search -> {
+                closeCoveringNowPlaying()
+                homeEdit.snapExit()
+                openLibrarySearch()
+            }
+            ShellShortcut.Back -> (shellHostActivity as? ComponentActivity)?.onBackPressedDispatcher?.onBackPressed()
+                ?: return@ShellShortcutSink false
+            ShellShortcut.Settings -> navigateToSettingsFromShell(null)
+            ShellShortcut.Home -> {
+                closeCoveringNowPlaying()
+                showHomeFeed()
+            }
+            ShellShortcut.Library -> {
+                closeCoveringNowPlaying()
+                homeEdit.snapExit()
+                showLibraryHome()
+            }
+            ShellShortcut.AllMemories -> {
+                // Memories never opens over edit mode (as Home's own way in).
+                if (homeEdit.isEditing) return@ShellShortcutSink false
+                closeCoveringNowPlaying()
+                experienceSessionStore.setSelectedSection(YoinSection.HOME)
+                experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+            }
+        }
+        true
+    }
+    val currentShellShortcutSink by rememberUpdatedState(shellShortcutSink)
+    DisposableEffect(shellHostActivity) {
+        val host = shellHostActivity as? ShellShortcutHost
+        val sink = ShellShortcutSink { currentShellShortcutSink.perform(it) }
+        host?.shellShortcutSink = sink
+        onDispose { if (host?.shellShortcutSink === sink) host.shellShortcutSink = null }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     var detailLaunchPending by remember { mutableStateOf(false) }
     var detailLaunchSawPause by remember { mutableStateOf(false) }
@@ -1620,43 +1729,13 @@ private fun YoinShell(
                         connectionErrorMessage = playbackConnectionError,
                         playbackProgress = playbackProgress,
                         isPlaying = isPlaying,
-                        onHomeClick = {
-                            experienceSessionStore.setSelectedSection(YoinSection.HOME)
-                            experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-                            // LaunchedEffect(homeSurface) handles the close animation.
-                        },
+                        onHomeClick = showHomeFeed,
                         onNowPlayingLongClick = {
                             miniMenuSongIdState = currentTrack?.id?.toString()
                         },
-                        onNowPlayingClick = {
-                            dismissMemoriesIfActive()
-                            if (homeEdit.isEditing && !nowPlayingCoversHome(npFrame.presentation)) {
-                                // The side panel leaves Home in view: animate out
-                                // of edit, then open once P has settled.
-                                shellScope.launch {
-                                    homeEdit.commitAndExitAndAwait()
-                                    experienceSessionStore.setNowPlayingExpanded(true)
-                                }
-                            } else {
-                                homeEdit.snapExit()
-                                experienceSessionStore.setNowPlayingExpanded(true)
-                            }
-                        },
-                        onLibraryClick = {
-                            libraryViewModel.showLibraryHome()
-                            experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
-                            experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-                        },
-                        onLibraryLongClick = {
-                            val scope = when (app.container.repository.currentProviderId()) {
-                                MediaId.PROVIDER_SPOTIFY -> LibrarySearchScope.SpotifyGlobal
-                                MediaId.PROVIDER_APPLE_MUSIC -> LibrarySearchScope.AppleMusicGlobal
-                                else -> LibrarySearchScope.CurrentLibrary
-                            }
-                            libraryViewModel.openSearchShortcut(scope)
-                            experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
-                            experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-                        },
+                        onNowPlayingClick = openNowPlayingFromShell,
+                        onLibraryClick = showLibraryHome,
+                        onLibraryLongClick = openLibrarySearch,
                         // The mini-player → player morph wherever the player covers
                         // the bar (PillMorph): the phone column, the enlarged phone and
                         // the two columns (opened where no panel fits, or closed from

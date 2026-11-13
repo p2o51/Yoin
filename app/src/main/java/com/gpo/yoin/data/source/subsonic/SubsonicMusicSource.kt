@@ -18,6 +18,7 @@ import com.gpo.yoin.data.remote.SubsonicApi
 import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.remote.SubsonicResponse
 import com.gpo.yoin.data.remote.SubsonicResponseBody
+import com.gpo.yoin.data.remote.serverName
 import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicLibrary
@@ -353,6 +354,13 @@ class SubsonicMusicSource(
      * from having a non-blank URL — the real test is [MusicLibrary.ping].
      */
     val isConfigured: Boolean get() = credentials.serverUrl.isNotBlank()
+
+    /**
+     * One ping, answered with what the server calls itself ("Navidrome 0.64.2",
+     * [serverName]); null from a plain Subsonic server. Fails as
+     * [MusicLibrary.ping] does when the server isn't reached or refuses the sign-in.
+     */
+    suspend fun pingServerName(): String? = unwrap(api.ping()).serverName
 
     private fun MediaId.requireSubsonic(): String {
         require(provider == MediaId.PROVIDER_SUBSONIC) {

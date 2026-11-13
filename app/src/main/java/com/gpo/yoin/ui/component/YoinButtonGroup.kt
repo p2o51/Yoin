@@ -747,10 +747,17 @@ private fun LibraryButton(
     val libraryDescription = stringResource(R.string.cmp_bar_cd_library)
     val doneLabel = stringResource(R.string.cmp_bar_label_done)
     val doneDescription = stringResource(R.string.cmp_bar_cd_done)
+    val shape = rememberBarEditPressShape(
+        rest = MaterialTheme.shapes.extraLarge,
+        interactionSource = interactionSource,
+        active = editing,
+    )
     Surface(
         modifier = modifier
             .width(width)
             .fillMaxHeight()
+            // No ripple here, so the hover wash Home's button gets from its own.
+            .hoverHighlight(interactionSource, shape, contentColor)
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -758,11 +765,7 @@ private fun LibraryButton(
                 onLongClick = onLongClick,
             )
             .then(if (editing) Modifier.semantics { contentDescription = doneDescription } else Modifier),
-        shape = rememberBarEditPressShape(
-            rest = MaterialTheme.shapes.extraLarge,
-            interactionSource = interactionSource,
-            active = editing,
-        ),
+        shape = shape,
         color = containerColor,
         contentColor = contentColor,
         tonalElevation = 0.dp,

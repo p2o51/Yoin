@@ -4,4 +4,6 @@
     <string name="settings_volume_leveling_off">关</string>
     <string name="settings_volume_leveling_track">按曲目</string>
     <string name="settings_volume_leveling_album">按专辑</string>
+    <string name="home_tip_volume_leveling_title">音量平衡</string>
+    <string name="home_tip_volume_leveling">设置 › 点开 Subsonic 账号 › 音量平衡，按曲目或按专辑开启 ReplayGain，让歌曲音量一致</string>
 </resources>

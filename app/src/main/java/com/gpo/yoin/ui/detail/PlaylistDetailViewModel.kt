@@ -15,6 +15,8 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.diagnosticReport
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -166,22 +168,75 @@ class PlaylistDetailViewModel(
         )
     }
 
+    // Renames reach the service one after another, in the order they were
+    // made. Each ends with the name the service then holds, which is what the
+    // next one goes back to if it is refused.
+    private var renaming: Deferred<String?>? = null
+
+    // Renames made and not yet answered. While any is out, a read of the
+    // playlist keeps the name on the page: it is the latest one asked for.
+    private var renamesOut = 0
+
+    /**
+     * Rename: the page wears the new name at once and the service is told
+     * after (as iOS's PlaylistActions.rename). If it refuses, the name it
+     * still holds comes back and the page's snackbar says so.
+     */
     fun rename(name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
-        viewModelScope.launch {
-            repository.renamePlaylist(MediaId.parse(playlistId), trimmed)
-                .onSuccess {
-                    onPlaylistMutated()
-                    _messages.tryEmit(UiText.Res(R.string.detail_playlist_renamed))
-                    loadPlaylist() // refresh name + snapshot
-                }
-                .onFailure {
-                    _messages.tryEmit(it.message?.let(UiText::Raw) ?: UiText.Res(R.string.detail_playlist_error_rename))
-                }
+        fun shownName() = (_uiState.value as? PlaylistDetailUiState.Content)?.playlistName
+        fun showName(shown: String) {
+            val content = _uiState.value as? PlaylistDetailUiState.Content ?: return
+            _uiState.value = content.copy(playlistName = shown)
+        }
+        val before = shownName()
+        if (trimmed == before) return
+        showName(trimmed)
+        // With a rename still out, the name on the page is that one's, not the service's.
+        val earlier = renaming?.takeIf { it.isActive }
+        // The account the rename was made on. A queued one whose turn comes
+        // after a switch is not sent: the same id on the new account is
+        // another playlist.
+        val profileId = repository.currentProfileId()
+        renamesOut++
+        // The page already wears the name, so the write is not dropped when
+        // the page closes under it (as the song sheet's Favorite).
+        renaming = viewModelScope.async(kotlinx.coroutines.NonCancellable) {
+            val held = if (earlier != null) earlier.await() else before
+            val result = if (repository.currentProfileId() != profileId) {
+                Result.failure(IllegalStateException())
+            } else {
+                runCatching { repository.renamePlaylist(MediaId.parse(playlistId), trimmed) }
+                    .getOrElse { Result.failure(it) }
+            }
+            renamesOut--
+            result
+                .fold(
+                    onSuccess = {
+                        onPlaylistMutated()
+                        _messages.tryEmit(UiText.Res(R.string.detail_playlist_renamed))
+                        loadPlaylist() // refresh name + snapshot
+                        trimmed
+                    },
+                    onFailure = {
+                        // Only while this name is still the one on the page: a
+                        // later rename, or a read since, is not undone.
+                        if (held != null && shownName() == trimmed) showName(held)
+                        _messages.tryEmit(
+                            it.message?.let(UiText::Raw) ?: UiText.Res(R.string.detail_playlist_error_rename),
+                        )
+                        held
+                    },
+                )
         }
     }
 
+    /**
+     * Delete waits for the service before the page leaves: the page's
+     * snackbar leaves with it, so a refusal afterwards would have nowhere to
+     * be said.
+     */
     fun delete() {
         viewModelScope.launch {
             repository.deletePlaylist(MediaId.parse(playlistId))
@@ -324,7 +379,11 @@ class PlaylistDetailViewModel(
         )
         _uiState.value = PlaylistDetailUiState.Content(
             playlistId = playlist.id.toString(),
-            playlistName = playlist.name,
+            playlistName = if (renamesOut > 0) {
+                (_uiState.value as? PlaylistDetailUiState.Content)?.playlistName ?: playlist.name
+            } else {
+                playlist.name
+            },
             owner = playlist.owner.orEmpty(),
             comment = playlist.comment,
             isPublic = null,

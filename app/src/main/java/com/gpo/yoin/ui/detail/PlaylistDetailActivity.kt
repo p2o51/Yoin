@@ -36,6 +36,7 @@ import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.continueon.ContinueOnWindows
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.YoinSnackbarHost
+import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.TakeNowPlayingRequests
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.navigation.trackCoverArtId
@@ -307,7 +308,13 @@ class PlaylistDetailActivity : ComponentActivity() {
                         hostState = snackbarHostState,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 24.dp, start = 12.dp, end = 12.dp),
+                            // Clear of the window's bar (its reserve), as the album and
+                            // artist pages' notices sit (NowPlayingAccessories).
+                            .padding(
+                                bottom = LocalShellChromeInsets.current.calculateBottomPadding(),
+                                start = 12.dp,
+                                end = 12.dp,
+                            ),
                     )
                 }
             }

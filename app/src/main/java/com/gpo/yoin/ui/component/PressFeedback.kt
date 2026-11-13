@@ -19,7 +19,11 @@ import androidx.compose.ui.unit.dp
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.ScrollableState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -42,15 +46,20 @@ internal fun Modifier.noRippleClickable(
 
 /**
  * Animated press feedback using standard spring physics (no overshoot)
- * to avoid layout shape edge clipping.
+ * to avoid layout shape edge clipping. Under a mouse, trackpad or stylus
+ * pointer the content also lifts a little toward it ([HoverLiftScale], as
+ * iPad's `.hoverEffect(.lift)`), on the same spring. The clickable that
+ * shares [interactionSource] reports the hover; a finger never hovers, so
+ * touch looks exactly as before.
  */
 internal fun Modifier.elasticPress(
     interactionSource: InteractionSource,
     pressedScale: Float = 0.97f,
 ): Modifier = composed {
     val isPressed by interactionSource.collectIsPressedAsState()
+    val isHovered by interactionSource.collectIsHoveredAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) pressedScale else 1f,
+        targetValue = pressHoverScale(pressed = isPressed, hovered = isHovered, pressedScale = pressedScale),
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
         label = "elasticPressScale",
     )
@@ -59,6 +68,59 @@ internal fun Modifier.elasticPress(
         scaleY = scale
     }
 }
+
+/** How far a card lifts under a hovering pointer: quiet, a third of the press. */
+internal const val HoverLiftScale = 1.01f
+
+/** The alpha of the hover wash a control without a ripple draws, M3's hover state layer. */
+internal const val HoverHighlightAlpha = 0.08f
+
+/** [elasticPress]'s resting scale: a press wins over a hover. */
+internal fun pressHoverScale(pressed: Boolean, hovered: Boolean, pressedScale: Float): Float = when {
+    pressed -> pressedScale
+    hovered -> HoverLiftScale
+    else -> 1f
+}
+
+/**
+ * Hover feedback for a control that draws no ripple (its clickable passes
+ * `indication = null`): under a mouse, trackpad or stylus pointer a wash of
+ * [color] at [HoverHighlightAlpha] fades in over it in [shape], on the effects
+ * spring, the way M3's hover state layer does on the buttons beside it. A
+ * finger never hovers, so touch looks exactly as before.
+ */
+internal fun Modifier.hoverHighlight(
+    interactionSource: InteractionSource,
+    shape: Shape,
+    color: Color,
+): Modifier = composed {
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val wash by animateFloatAsState(
+        targetValue = if (isHovered) HoverHighlightAlpha else 0f,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "hoverHighlight",
+    )
+    drawWithContent {
+        drawContent()
+        if (wash > 0f) {
+            drawOutline(
+                outline = shape.createOutline(size, layoutDirection, this),
+                color = color.copy(alpha = color.alpha * wash),
+            )
+        }
+    }
+}
+
+/** The pointer over a handle that drags sideways, such as the column divider. */
+internal val HorizontalResizePointer: PointerIcon =
+    PointerIcon(android.view.PointerIcon.TYPE_HORIZONTAL_DOUBLE_ARROW)
+
+/** The pointer over a handle that drags up and down, such as Home's rows handle. */
+internal val VerticalResizePointer: PointerIcon =
+    PointerIcon(android.view.PointerIcon.TYPE_VERTICAL_DOUBLE_ARROW)
+
+/** The pointer over a handle that picks something up to move it, such as a queue row's grip. */
+internal val GrabPointer: PointerIcon = PointerIcon(android.view.PointerIcon.TYPE_GRAB)
 
 internal fun Modifier.minimumTouchTarget(
     minSize: Dp = 44.dp,
