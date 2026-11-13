@@ -142,8 +142,9 @@ struct AllMemoriesView: View {
             withAnimation(Yoin.spatial) { selected = selected == i ? nil : i }
         }, lift: lift)
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MemoryGridLift.space)) } action: { lift.grid = $0 }
-        // The real grid steps aside the moment its copies take off, so no square shows twice.
-        .opacity(lift.lifting ? 0 : 1)
+        // The real grid steps aside the moment its copies take off, so no square shows twice; under Reduce
+        // Motion nothing flies, so it fades out over the scroll the bar fades in over.
+        .modifier(MemoryGridStepAside(lift: lift))
         .padding(16)
         .background(app.surfaceContainerLow, in: .rect(cornerRadius: 28))
         .frame(maxWidth: layout.gridMaxWidth)
@@ -253,9 +254,14 @@ struct AllMemoriesView: View {
                 ForEach(rows) { row in timelineRow(row, state, masonry: false) }
             }
         } else {
-            LedgerMasonry(columns: layout.columns, spacing: layout.gutter) {
-                ForEach(rows) { row in
-                    timelineRow(row, state, masonry: true).layoutValue(key: LedgerFullLine.self, value: row.isFullLine)
+            // A masonry per month, in a lazy stack: only the months near the screen are built.
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(LedgerLazy.segments(rows, isFullLine: \.isFullLine), id: \.[0].id) { segment in
+                    LedgerMasonry(columns: layout.columns, spacing: layout.gutter) {
+                        ForEach(segment) { row in
+                            timelineRow(row, state, masonry: true).layoutValue(key: LedgerFullLine.self, value: row.isFullLine)
+                        }
+                    }
                 }
             }
         }
@@ -309,14 +315,24 @@ struct AllMemoriesView: View {
     // MARK: Cards and List
 
     /// Every album and noted song once, in as many lanes as fit, each to the shortest lane (a masonry).
+    /// Each lane is a lazy stack, so only the cards near the screen are built; a card goes to the lane that is
+    /// shortest by the cards' estimated heights.
     private func cards(_ items: [LedgerItem], _ state: LedgerState) -> some View {
-        LedgerMasonry(columns: layout.lanes, spacing: layout.gutter, rowSpacing: 12) {
-            ForEach(items) { item in
-                switch item {
-                case .album: albumCard(item, state, anchor: item.id)
-                case .song(_, _, _, _, _, let note, _, _):
-                    if let note { songNoteCard(note, state, anchor: item.id) } else { songLine(item, state) }
+        let n = max(layout.lanes, 1)
+        let width = max((contentWidth - layout.gutter * CGFloat(n - 1)) / CGFloat(n), 0)
+        let lanes = LedgerLazy.lanes(items.map { $0.estimatedCardHeight(width: width) }, count: n, spacing: 12)
+        return HStack(alignment: .top, spacing: layout.gutter) {
+            ForEach(lanes.indices, id: \.self) { l in
+                LazyVStack(spacing: 12) {
+                    ForEach(lanes[l].map { items[$0] }) { item in
+                        switch item {
+                        case .album: albumCard(item, state, anchor: item.id)
+                        case .song(_, _, _, _, _, let note, _, _):
+                            if let note { songNoteCard(note, state, anchor: item.id) } else { songLine(item, state) }
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .top)
             }
         }
     }
@@ -713,5 +729,17 @@ private struct LedgerTopBar: View {
         .animation(Yoin.effects, value: formed)
         .padding(.leading, 8)
         .padding(.vertical, 4)
+    }
+}
+
+/// The page's grid while it rises into the bar: gone once its copies take off, or, under Reduce Motion (no
+/// copies fly), faded out as the bar fades in. Its own view, so a scroll frame re-reads only this.
+private struct MemoryGridStepAside: ViewModifier {
+    let lift: MemoryGridLift
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.opacity(MemoryGridLiftMath.realGridOpacity(progress: lift.progress, lifting: lift.lifting,
+                                                           reduced: reduceMotion))
     }
 }

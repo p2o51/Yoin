@@ -65,6 +65,12 @@ enum MemoryGridLiftMath {
         return min(max((barBottom - gridTop) / gridHeight, 0), 1)
     }
 
+    /// The page's own grid while it rises: hidden once its copies take off (so no square shows twice), or,
+    /// under Reduce Motion where nothing flies and the bar fades in at `progress`, faded out the other way.
+    static func realGridOpacity(progress: CGFloat, lifting: Bool, reduced: Bool) -> Double {
+        reduced ? Double(1 - min(max(progress, 0), 1)) : (lifting ? 0 : 1)
+    }
+
     /// Square `i` of `n`'s way from the grid to the bar: oldest first, close together so they rise as one flock.
     static func flight(_ i: Int, of n: Int, at p: CGFloat) -> CGFloat {
         let lag = 0.1 * CGFloat(i) / CGFloat(max(n, 1))

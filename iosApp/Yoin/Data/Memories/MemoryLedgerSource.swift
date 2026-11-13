@@ -87,8 +87,8 @@ final class MemoryLedgerSource {
     /// so this ends), and what a pass named shows at once.
     func resolveSongs(model: AppModel = .shared) async {
         let resolver = LedgerTrackResolver.shared
-        while let state {
-            let wanted = LedgerTrackResolver.pending(state.entries, asked: Set(resolver.answers.keys))
+        while let state, !Task.isCancelled {
+            let wanted = LedgerTrackResolver.pending(state.entries, asked: resolver.asked)
             guard !wanted.isEmpty else { return }
             let pass = await resolver.resolve(wanted) { [weak self] want in
                 guard let self, let client = self.client(for: want.account, model: model) else {
@@ -96,22 +96,26 @@ final class MemoryLedgerSource {
                 }
                 return try await Self.song(want.songId, client: client)
             }
+            if Task.isCancelled { return }
             if pass.found { reload(model: model) }
             if pass.answered == 0 { return }
         }
     }
 
-    /// A Subsonic account's own server, kept for the process (any account, not only the one in use).
-    @ObservationIgnored private var clients: [String: SubsonicClient] = [:]
+    /// A Subsonic account's own server, kept for the process (any account, not only the one in use), with the
+    /// sign-in it was made from: an edited sign-in (a new password) gets a new client and the old one closes.
+    @ObservationIgnored private var clients: [String: (signIn: ServerSession.Account, client: SubsonicClient)] = [:]
 
     private func client(for account: LedgerAccount, model: AppModel) -> SubsonicClient? {
         guard account.provider == AccountScope.subsonicProvider,
               let p = model.profiles.profiles.first(where: { Self.account(of: $0) == account }),
               let signIn = model.profiles.signIn(p.id) else { return nil }
-        let key = "\(p.id)|\(signIn.baseUrl)|\(signIn.username)"
-        if let c = clients[key] { return c }
+        if let kept = clients[p.id] {
+            if kept.signIn == signIn { return kept.client }
+            kept.client.close()
+        }
         let c = SubsonicClient(baseUrl: signIn.baseUrl, username: signIn.username, password: signIn.password)
-        clients[key] = c
+        clients[p.id] = (signIn, c)
         return c
     }
 

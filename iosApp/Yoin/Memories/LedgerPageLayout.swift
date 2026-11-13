@@ -86,6 +86,62 @@ struct LedgerMasonry: Layout {
     }
 }
 
+/// Keeping the long views lazy (a long-time user has hundreds of cards). The timeline is cut at its full-line
+/// rows: a full line already starts every column level, so a masonry per stretch lays out exactly as one over
+/// the whole page, and each stretch (a month) is built only when it scrolls near. The cards have no full lines,
+/// so each card is dealt to the lane that is shortest by its estimated height and every lane is a lazy stack.
+enum LedgerLazy {
+    /// [items] cut before each full-line item: a month's header and its cards, a run of quiet months.
+    static func segments<T>(_ items: [T], isFullLine: (T) -> Bool) -> [[T]] {
+        var out: [[T]] = []
+        for item in items {
+            if isFullLine(item) || out.isEmpty { out.append([item]) } else { out[out.count - 1].append(item) }
+        }
+        return out
+    }
+
+    /// Each item's index in its lane: in order, to the lane shortest so far by [heights] (the first on a tie).
+    static func lanes(_ heights: [CGFloat], count: Int, spacing: CGFloat) -> [[Int]] {
+        let n = max(count, 1)
+        var tops = Array(repeating: CGFloat(0), count: n)
+        var out = Array(repeating: [Int](), count: n)
+        for (i, h) in heights.enumerated() {
+            let lane = tops.indices.min { tops[$0] < tops[$1] } ?? 0
+            out[lane].append(i)
+            tops[lane] += h + spacing
+        }
+        return out
+    }
+
+    /// Roughly how many lines [text] takes at [width] in a [size] pt face: Latin about half an em a
+    /// character, CJK and the rest a whole em.
+    static func lines(_ text: String?, width: CGFloat, size: CGFloat, max: Int) -> Int {
+        guard let text, !text.isEmpty, width > 0 else { return 0 }
+        var total = 0
+        for paragraph in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let ems = paragraph.unicodeScalars.reduce(CGFloat(0)) { $0 + ($1.isASCII ? 0.5 : 1) }
+            total += Swift.max(1, Int((ems * size / width).rounded(.up)))
+        }
+        return Swift.min(total, max)
+    }
+}
+
+extension LedgerItem {
+    /// The Cards view's card for this item, roughly (`AllMemoriesView` albumCard, songNoteCard, songLine), at
+    /// a lane [width]: enough to deal cards to lanes, not to place them.
+    func estimatedCardHeight(width: CGFloat) -> CGFloat {
+        switch self {
+        case .album(_, _, _, let review, let songs, _):
+            let reviewLines = LedgerLazy.lines(review, width: width - 28, size: 14, max: 4)
+            return 28 + 60 + (reviewLines > 0 ? 8 + CGFloat(reviewLines) * 20 : 0) + CGFloat(min(songs.count, 3)) * 26
+        case .song(_, _, _, _, _, let note, _, _):
+            guard let note else { return 64 }
+            let lines = LedgerLazy.lines(note.text, width: width - 24, size: 14, max: 6)
+            return 24 + CGFloat(lines) * 20 + (lines > 0 ? 6 : 0) + 22
+        }
+    }
+}
+
 /// A dashed rule, as About's receipt draws it (Android `DashedRule`: 1 pt, 4 on, 3 off).
 struct LedgerDashedRule: View {
     var color: Color

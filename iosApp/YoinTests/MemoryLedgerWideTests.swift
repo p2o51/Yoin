@@ -157,4 +157,109 @@ final class MemoryLedgerWideTests: XCTestCase {
         XCTAssertEqual(one.rects.map(\.minY), [0, 15])
         XCTAssertEqual(one.height, 25)
     }
+    // MARK: Review fixes: lazy views, the resolver's passes, the grid under Reduce Motion
+
+    func test_should_cutBeforeEachFullLine_when_theTimelineIsSegmented() {
+        let rows: [(String, Bool)] = [("a", false), ("m1", true), ("x", false), ("y", false), ("q", true), ("m2", true), ("z", false)]
+        let segs = LedgerLazy.segments(rows) { $0.1 }.map { $0.map(\.0) }
+        XCTAssertEqual(segs, [["a"], ["m1", "x", "y"], ["q"], ["m2", "z"]])
+        XCTAssertEqual(LedgerLazy.segments([(String, Bool)]()) { $0.1 }.count, 0)
+    }
+
+    func test_should_layOutLikeOneMasonry_when_eachSegmentIsItsOwn() {
+        // A full line starts every column level, so stacking the segments' masonries gives the whole one's heights.
+        let items: [(fullLine: Bool, height: (CGFloat) -> CGFloat)] = [
+            (true, { _ in 10 }), (false, { _ in 100 }), (false, { _ in 40 }), (false, { _ in 30 }),
+            (true, { _ in 20 }), (false, { _ in 5 }), (false, { _ in 60 }), (false, { _ in 7 }),
+        ]
+        let whole = LedgerMasonry.arrange(width: 210, columns: 2, spacing: 10, rowSpacing: 0, items: items)
+        let stacked = LedgerLazy.segments(items) { $0.fullLine }
+            .map { LedgerMasonry.arrange(width: 210, columns: 2, spacing: 10, rowSpacing: 0, items: $0).height }
+            .reduce(0, +)
+        XCTAssertEqual(stacked, whole.height)
+    }
+
+    func test_should_dealEachCardToTheShortestLane_when_lanesAreAssigned() {
+        XCTAssertEqual(LedgerLazy.lanes([100, 40, 30, 20, 50], count: 2, spacing: 10), [[0, 4], [1, 2, 3]])
+        XCTAssertEqual(LedgerLazy.lanes([1, 1, 1], count: 1, spacing: 0), [[0, 1, 2]])
+        XCTAssertEqual(LedgerLazy.lanes([1, 1, 1, 1], count: 3, spacing: 0), [[0, 3], [1], [2]])
+    }
+
+    func test_should_estimateTallerCards_when_theyHoldMore() {
+        let a = LedgerAlbum(account: sub, albumId: "a", name: "A", artist: "", coverKey: nil)
+        let bare = LedgerItem.album(album: a, title: nil, score: nil, review: nil, songs: [], at: 0)
+        let full = LedgerItem.album(album: a, title: nil, score: 8, review: String(repeating: "words ", count: 60),
+                                    songs: [.init(title: "s", score: 7, at: 0), .init(title: "t", score: 6, at: 0), .init(title: "u", score: 5, at: 0),
+                                            .init(title: "v", score: 4, at: 0)], at: 0)
+        XCTAssertGreaterThan(full.estimatedCardHeight(width: 180), bare.estimatedCardHeight(width: 180))
+        // The review is capped at four lines and the songs at three, as the card draws them.
+        let expected: CGFloat = 28 + 60 + 8 + 80 + 78  // padding, top row, review gap, 4 lines, 3 songs
+        XCTAssertEqual(full.estimatedCardHeight(width: 180), expected)
+        XCTAssertEqual(LedgerLazy.lines("abcd", width: 14, size: 14, max: 9), 2)
+        XCTAssertEqual(LedgerLazy.lines("一二", width: 14, size: 14, max: 9), 2)
+        XCTAssertEqual(LedgerLazy.lines("a\nb", width: 100, size: 14, max: 9), 2)
+        XCTAssertEqual(LedgerLazy.lines(nil, width: 100, size: 14, max: 9), 0)
+    }
+
+    func test_should_fadeTheRealGridAgainstTheBar_when_reduceMotionIsOn() {
+        XCTAssertEqual(MemoryGridLiftMath.realGridOpacity(progress: 0.05, lifting: true, reduced: true), 0.95, accuracy: 1e-9)
+        XCTAssertEqual(MemoryGridLiftMath.realGridOpacity(progress: 1, lifting: true, reduced: true), 0)
+        XCTAssertEqual(MemoryGridLiftMath.realGridOpacity(progress: 0, lifting: false, reduced: true), 1)
+        // Squares in flight stand in for it: hidden at once.
+        XCTAssertEqual(MemoryGridLiftMath.realGridOpacity(progress: 0.05, lifting: true, reduced: false), 0)
+        XCTAssertEqual(MemoryGridLiftMath.realGridOpacity(progress: 0, lifting: false, reduced: false), 1)
+    }
+
+    func test_should_notAskASongTwice_when_aSecondPassStartsWhileTheFirstIsAsking() async {
+        let resolver = LedgerTrackResolver()
+        let w = LedgerTrackResolver.Wanted(account: sub, songId: "s1")
+        let box = Box()
+        let first = Task { @MainActor in
+            await resolver.resolve([w]) { _ in
+                box.calls += 1
+                await withCheckedContinuation { box.release = $0 }
+                return LedgerTrack(title: "T", albumId: "al", albumName: "Al", artist: nil, coverKey: nil)
+            }
+        }
+        while box.release == nil { await Task.yield() }
+        XCTAssertEqual(resolver.asked, [w.key])
+        XCTAssertTrue(LedgerTrackResolver.pending(
+            [LedgerEntry(id: "1", kind: .trackRating, at: now, account: sub, album: nil, songId: "s1", score: 7)],
+            asked: resolver.asked).isEmpty)
+        let second = await resolver.resolve([w]) { _ in box.calls += 1; return nil }
+        XCTAssertEqual(second.answered, 0)
+        box.release?.resume()
+        let pass = await first.value
+        XCTAssertEqual(pass, .init(answered: 1, found: true))
+        XCTAssertEqual(box.calls, 1)
+        XCTAssertTrue(resolver.inFlight.isEmpty)
+    }
+
+    func test_should_stopAndLeaveSongsUnanswered_when_thePassIsCancelled() async {
+        let resolver = LedgerTrackResolver()
+        let wanted = (1...8).map { LedgerTrackResolver.Wanted(account: sub, songId: "s\($0)") }
+        let box = Box()
+        let task = Task { @MainActor in
+            await resolver.resolve(wanted) { _ in
+                box.calls += 1
+                try await Task.sleep(for: .seconds(30))
+                return nil
+            }
+        }
+        while box.calls < LedgerTrackResolver.parallel { await Task.yield() }
+        task.cancel()
+        let pass = await task.value
+        // The first batch's lookups were cancelled with it; no later batch was asked, nothing counts as answered.
+        XCTAssertEqual(box.calls, LedgerTrackResolver.parallel)
+        XCTAssertEqual(pass.answered, 0)
+        XCTAssertTrue(resolver.answers.isEmpty)
+        XCTAssertTrue(resolver.inFlight.isEmpty)
+    }
+}
+
+/// Counts and a held lookup, shared with the resolver's main-actor closures.
+@MainActor
+private final class Box {
+    var calls = 0
+    var release: CheckedContinuation<Void, Never>?
 }

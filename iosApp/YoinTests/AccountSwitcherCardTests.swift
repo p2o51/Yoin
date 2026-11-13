@@ -7,6 +7,12 @@ final class AccountSwitcherCardTests: XCTestCase {
         Profile(id: id, service: service, baseUrl: nil, username: nil, createdAt: 0)
     }
 
+    func test_should_sayTheSwitchFailed_when_thePickedAccountIsNotInUseAfterIt() {
+        XCTAssertFalse(AccountCardLogic.switchFailed(picked: "b", activeAfter: "b"))
+        XCTAssertTrue(AccountCardLogic.switchFailed(picked: "b", activeAfter: "a"))
+        XCTAssertTrue(AccountCardLogic.switchFailed(picked: "b", activeAfter: nil))
+    }
+
     func test_should_centreTheCardSixteenInAndCapItAt420_when_laidOut() {
         XCTAssertEqual(AccountCardLogic.cardWidth(available: 402), 370)
         XCTAssertEqual(AccountCardLogic.cardWidth(available: 1032), 420)

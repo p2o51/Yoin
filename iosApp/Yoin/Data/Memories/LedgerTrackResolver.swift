@@ -36,6 +36,11 @@ final class LedgerTrackResolver {
 
     /// Every song asked about while the process lives (`unknown` when the server doesn't know it).
     private(set) var answers: [String: LedgerTrack] = [:]
+    /// Songs being asked about now: a second pass (the page left and opened again) doesn't ask them twice.
+    private(set) var inFlight: Set<String> = []
+
+    /// What a new pass mustn't ask: answered, or being asked.
+    var asked: Set<String> { Set(answers.keys).union(inFlight) }
 
     /// The answers that name something, for the ledger's lookup (a copy: the lookup runs off the main actor).
     var known: [String: LedgerTrack] { answers.filter { $0.value != Self.unknown } }
@@ -57,17 +62,27 @@ final class LedgerTrackResolver {
         var failed = Set<LedgerAccount>()
         var answered = 0, found = false
         var queue = wanted[...]
-        while !queue.isEmpty {
-            let batch = queue.prefix(Self.parallel).filter { !failed.contains($0.account) }
+        // The page gone (its task cancelled): no further batch, and the lookups in flight are cancelled too.
+        while !queue.isEmpty, !Task.isCancelled {
+            let batch = queue.prefix(Self.parallel).filter { !failed.contains($0.account) && !inFlight.contains($0.key) }
             queue = queue.dropFirst(min(Self.parallel, queue.count))
+            for w in batch { inFlight.insert(w.key) }
             // Each lookup its own task, so a batch's songs are asked at once.
             let tasks = batch.map { w in
                 Task { @MainActor () -> (Wanted, LedgerTrack??) in
                     do { return (w, .some(try await ask(w))) } catch { return (w, nil) }
                 }
             }
-            var results: [(Wanted, LedgerTrack??)] = []
-            for t in tasks { results.append(await t.value) }
+            let results = await withTaskCancellationHandler {
+                var results: [(Wanted, LedgerTrack??)] = []
+                for t in tasks { results.append(await t.value) }
+                return results
+            } onCancel: {
+                for t in tasks { t.cancel() }
+            }
+            for w in batch { inFlight.remove(w.key) }
+            // A cancelled lookup isn't the account failing: left unanswered for the next pass.
+            if Task.isCancelled { break }
             for (w, result) in results {
                 guard let answer = result else { failed.insert(w.account); continue }
                 let track = answer ?? Self.unknown
@@ -80,6 +95,6 @@ final class LedgerTrackResolver {
     }
 
     #if DEBUG
-    func forgetAll() { answers = [:] }
+    func forgetAll() { answers = [:]; inFlight = [] }
     #endif
 }

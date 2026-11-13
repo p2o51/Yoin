@@ -59,6 +59,9 @@ enum AccountCardLogic {
         return needsSignIn ? .settings : .switchTo(p.id)
     }
 
+    /// A picked account that isn't the one in use once its switch has run: the switch didn't land.
+    static func switchFailed(picked: String, activeAfter: String?) -> Bool { activeAfter != picked }
+
     /// An account row's content alpha: while one is picked, the others wait dimmed.
     static func rowAlpha(_ id: String, picked: String?) -> Double {
         guard let picked, picked != id else { return 1 }
@@ -196,7 +199,16 @@ extension AppModel {
             guard switcher.takesInput else { return }
             UISelectionFeedbackGenerator().selectionChanged()
             let profiles = profiles
-            switcher.beginSwitch(to: id) { Task { await profiles.switchTo(id) } }
+            // A switch that doesn't land (the server doesn't answer, another switch is running) says so, as
+            // Android's switchFailures snackbar does; the card has gone back into the avatar by then.
+            switcher.beginSwitch(to: id) {
+                Task {
+                    await profiles.switchTo(id)
+                    if AccountCardLogic.switchFailed(picked: id, activeAfter: profiles.activeId) {
+                        PlaylistActions.shared.show(String(localized: "Couldn't switch account"))
+                    }
+                }
+            }
         case .settings:
             if switcher.takesInput { switcher.close { [self] in openSettings() } }
         case .none: break
