@@ -35,12 +35,21 @@ final class AppModel {
         // a push, HomeView): Memories goes with it, unseen.
         didSet { if section != .home { memories.snapClosed() } }
     }
-    var path: [Route] = []
+    var path: [Route] = [] {
+        // A page shown on the stack is the newest step entered (in the iPad's column, Android's pushPane).
+        didSet {
+            if path.count > oldValue.count { noteBackSurface(.column, open: true) }
+            else if path.isEmpty, padSelection == nil { noteBackSurface(.column, open: false) }
+        }
+    }
     /// A Settings page to open on arrival (the scrapbook's "Sign in to sync" → NeoDB); taken once.
     var settingsDestination: SettingsDestination?
-    var padSelection: Album?
+    var padSelection: Album? {
+        // An album picked into the column, also the one already there, is the newest step (Android openPane).
+        didSet { noteBackSurface(.column, open: padSelection != nil || !path.isEmpty) }
+    }
     var isPad = false
-    var npExpanded = false
+    var npExpanded = false { didSet { noteNowPlayingSurface() } }
     /// Home's Memories bubble is out of the Dynamic Island (or the notch): the soft status-bar
     /// band steps aside so the island's black meets the screen's top without a haze.
     var islandOut = false
@@ -54,7 +63,11 @@ final class AppModel {
     /// Home's Memories overlay (ShellOverlayUp): one reveal progress.
     let memories = MemoriesPresentation()
     /// iPad: Now Playing as a right-hand inspector panel (Closed → Panel → Full).
-    var npPanel = false
+    var npPanel = false { didSet { noteNowPlayingSurface() } }
+    /// The side-by-side surfaces in the order they opened, oldest first: ⌘[ closes the newest
+    /// (ShellBackOrder, Android #200).
+    @ObservationIgnored var backRecency: [ShellBackSurface] = []
+    @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024
     /// Screenshot aid: resolve the NP budget as a short (~700 dp) Android phone.
@@ -206,6 +219,12 @@ final class AppModel {
         profiles.useFakeSpotify()
         #endif
         observeSpotifyAccount()
+        memories.onOpenChange = { [weak self] open in self?.noteBackSurface(.memories, open: open) }
+        #if DEBUG
+        if let order = UserDefaults.standard.string(forKey: "backOrderDemo") {
+            Task { @MainActor [weak self] in if let self { await QAProbe.backOrderDemo(order, self) } }
+        }
+        #endif
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library

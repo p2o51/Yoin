@@ -66,11 +66,43 @@ extension AppModel {
         if isPad { openNowPlayingOnPad() } else { setNowPlaying(expanded: true) }
     }
 
-    /// ⌘[: whatever is in front goes first (search, Now Playing), then the pushed page.
+    /// ⌘[ (Android #200, ShellBackOrder): whatever covers the window goes first (search, Full Now
+    /// Playing, a page pushed over the shell), then the surfaces beside one another close newest first:
+    /// the Now Playing side panel, the detail column (its stack, then the column), Memories.
     func backFromKeyboard() {
-        if searchActive { withAnimation(Yoin.spatial) { searchActive = false }; return }
-        if npExpanded { setNowPlaying(expanded: false); return }
-        if !path.isEmpty { back(); return }
-        if isPad, padSelection != nil { withAnimation(Yoin.spatial) { padSelection = nil } }
+        let wideColumn = isPad && padWidth >= 840
+        let step = ShellBackOrder.step(
+            searchActive: searchActive,
+            fullNowPlaying: npExpanded,
+            pageCoversShell: !wideColumn && !path.isEmpty,
+            panelOpen: isPad && npPanel,
+            columnOpen: wideColumn && (padSelection != nil || !path.isEmpty),
+            memoriesOpen: section == .home && memories.isOpen,
+            staleSelection: isPad && padSelection != nil,
+            recency: backRecency
+        )
+        switch step {
+        case .closeSearch: withAnimation(Yoin.spatial) { searchActive = false }
+        case .closeFullNowPlaying: setNowPlaying(expanded: false)
+        case .popPage, .column: back()
+        case .closePanel: withAnimation(Yoin.spatial) { npPanel = false }
+        case .closeMemories: memories.close()
+        case .clearSelection: withAnimation(Yoin.spatial) { padSelection = nil }
+        case .none: break
+        }
+    }
+
+    /// The opening order of the side-by-side surfaces (ShellBackOrder.noted).
+    func noteBackSurface(_ surface: ShellBackSurface, open: Bool) {
+        backRecency = ShellBackOrder.noted(backRecency, surface, open: open)
+    }
+
+    /// Now Playing is one surface whether it is the panel or Full: noted when it opens or closes. Going
+    /// Full from the panel (the panel steps aside a frame first) notes it again, as entering it further.
+    func noteNowPlayingSurface() {
+        let open = npPanel || npExpanded
+        guard open != nowPlayingNoted else { return }
+        nowPlayingNoted = open
+        noteBackSurface(.nowPlaying, open: open)
     }
 }

@@ -372,6 +372,8 @@ struct NowPlayingView: View, Equatable {
         .onChange(of: stage) { _, s in
             // Android: short focus belongs to the resting player.
             if s != .compact { shortFocus = false }
+            // The panel's lyrics or focus is a step further in: ⌘[ undoes it first (ShellBackOrder).
+            if panel, s != .compact { model.noteBackSurface(.nowPlaying, open: true) }
         }
         .task(id: stage == .expanded && !wide) {
             // Collapse starts: the wave runs again at once. Expanded: it
