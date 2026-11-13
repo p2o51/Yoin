@@ -421,6 +421,10 @@ class SpotifyMusicSource(
         ): Result<String?> = runCatching {
             if (items.isEmpty()) return@runCatching snapshotId
             val rawId = requireSpotify(playlistId).rawId
+            // A position is the song's place among the songs Yoin lists; Spotify
+            // counts every entry, the local files and episodes Yoin leaves out
+            // too. The last read of the playlist says which is which.
+            val offsets = playlistTrackOffsetsById[rawId]
             // Spotify removes by uri + positions; group positions by uri so
             // duplicate tracks at different positions each get targeted.
             val grouped = items
@@ -428,7 +432,7 @@ class SpotifyMusicSource(
                 .map { (uri, refs) ->
                     SpotifyRemoveTrackItem(
                         uri = uri,
-                        positions = refs.map { it.position }.sorted(),
+                        positions = refs.map { offsets?.getOrNull(it.position) ?: it.position }.sorted(),
                     )
                 }
             val newSnapshot = apiClient.removeTracksFromPlaylist(

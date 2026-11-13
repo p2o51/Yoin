@@ -30,6 +30,7 @@ import com.gpo.yoin.data.source.PlayReportRejectedException
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.WebLinkKind
 import retrofit2.HttpException
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -220,16 +221,25 @@ class SubsonicMusicSource(
             snapshotId: String?,
         ): Result<String?> = runCatching {
             if (items.isEmpty()) return@runCatching null
+            val rawPlaylistId = playlistId.requireSubsonic()
+            // updatePlaylist.view removes by index and checks nothing, so each
+            // index is found in the playlist as the server holds it now, never
+            // taken from the page: another client may have edited it since,
+            // and index 1 of a stale [A, B] is A on the server's [X, A, B].
+            val current = unwrap(api.getPlaylist(rawPlaylistId)).playlist?.entry.orEmpty().map { it.id }
+            val indexes = items.mapNotNullTo(HashSet()) { item ->
+                playlistIndexNearest(current, item.trackId.requireSubsonic(), item.position)
+            }
+            // Already gone on the server: nothing to send.
+            if (indexes.isEmpty()) return@runCatching null
             // Subsonic ignores snapshotId — its updatePlaylist.view is
             // last-writer-wins. Positions must be sorted descending when
             // removing multiple indices in one call so earlier removals
             // don't shift later indices.
             unwrap(
                 api.updatePlaylist(
-                    playlistId = playlistId.requireSubsonic(),
-                    songIndexToRemove = items
-                        .map { it.position }
-                        .sortedDescending(),
+                    playlistId = rawPlaylistId,
+                    songIndexToRemove = indexes.sortedDescending(),
                 ),
             )
             null
@@ -366,3 +376,11 @@ class SubsonicMusicSource(
         fun toServerRating(rating: Float): Int = rating.roundToInt().coerceIn(0, 5)
     }
 }
+
+/**
+ * Where [songId] sits in [songIds], a playlist's songs as the server lists
+ * them: at [position] when it is there, else its entry nearest to it (a song
+ * can be listed twice); null when the playlist no longer has it.
+ */
+internal fun playlistIndexNearest(songIds: List<String>, songId: String, position: Int): Int? =
+    songIds.indices.filter { songIds[it] == songId }.minByOrNull { abs(it - position) }

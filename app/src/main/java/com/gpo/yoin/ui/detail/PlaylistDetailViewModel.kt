@@ -7,9 +7,11 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.diagnosticReport
@@ -27,6 +29,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import com.gpo.yoin.data.backup.PlaylistBackupRecord
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaylistDetailViewModel(
@@ -61,6 +66,24 @@ class PlaylistDetailViewModel(
      */
     val deleted: SharedFlow<Unit> = _deleted.asSharedFlow()
 
+    /** One entry of the playlist; [key] is [PlaylistSong.rowKey]. */
+    private class Entry(val key: String, val track: Track)
+
+    // The playlist as the service last gave it, and its entries in the
+    // service's order.
+    private var lastRead: Playlist? = null
+    private var entries: List<Entry> = emptyList()
+    private var nextRowKey = 0
+
+    // Rows taken off the page while their removal is out; one that fails
+    // comes back where it was.
+    private val removing = HashSet<String>()
+
+    // One removal at a time: each finds its position in the playlist as the
+    // one before left it.
+    private val removals = Mutex()
+
+    // What the page shows: [entries] without the rows on their way out.
     private var playlistSongs: List<Track> = emptyList()
     private val playlistTrackIds = MutableStateFlow<List<MediaId>>(emptyList())
     // Spotify snapshot for concurrency on subsequent mutations. Refreshed on
@@ -173,26 +196,59 @@ class PlaylistDetailViewModel(
         }
     }
 
-    fun removeTrack(position: Int, trackId: String) {
-        val parsedTrackId = runCatching { MediaId.parse(trackId) }.getOrNull() ?: return
-        viewModelScope.launch {
+    /**
+     * "Remove from playlist" on the row [rowKey]: that one entry, so a song
+     * in the playlist twice keeps its other row. The row leaves the page at
+     * once and comes back where it was if the service refuses, with the
+     * page's snackbar saying so. Nothing happens on a playlist the account
+     * can't edit ([PlaylistDetailUiState.Content.canRemoveSongs]).
+     */
+    fun removeTrack(rowKey: String) {
+        val content = _uiState.value as? PlaylistDetailUiState.Content ?: return
+        if (!content.canRemoveSongs || entries.none { it.key == rowKey } || !removing.add(rowKey)) return
+        publish()
+        // The row is already off the page, so the write is not dropped when
+        // the page closes under it (as the song sheet's Favorite).
+        viewModelScope.launch(NonCancellable) {
+            removals.withLock { removeEntry(rowKey) }
+        }
+    }
+
+    private suspend fun removeEntry(rowKey: String) {
+        val position = entries.indexOfFirst { it.key == rowKey }
+        val entry = entries.getOrNull(position)
+        if (entry == null) {
+            // A read since the tap no longer has it: gone already.
+            removing -= rowKey
+            return
+        }
+        val id = MediaId.parse(playlistId)
+        runCatching {
             repository.removeTracksFromPlaylist(
-                playlistId = MediaId.parse(playlistId),
-                items = listOf(PlaylistItemRef(trackId = parsedTrackId, position = position)),
+                playlistId = id,
+                items = listOf(PlaylistItemRef(trackId = entry.track.id, position = position)),
                 snapshotId = snapshotId,
             )
-                .onSuccess { newSnapshot ->
-                    // Refresh to pick up the new snapshot + re-indexed positions
-                    // rather than patching locally — avoids index drift with
-                    // concurrent server-side edits.
-                    onPlaylistMutated()
-                    snapshotId = newSnapshot
-                    loadPlaylist()
-                }
-                .onFailure {
-                    _messages.tryEmit(it.message?.let(UiText::Raw) ?: UiText.Res(R.string.detail_playlist_error_remove))
-                }
-        }
+        }.getOrElse { Result.failure(it) }
+            .onSuccess { newSnapshot ->
+                onPlaylistMutated()
+                snapshotId = newSnapshot
+                entries = entries.filterNot { it.key == rowKey }
+                lastRead = lastRead?.without(entry.track)
+                removing -= rowKey
+                // Read again rather than trust the one row going: the
+                // positions and Spotify's snapshot are the service's, another
+                // client may have edited the playlist, and a song listed twice
+                // may have lost both entries. A read that fails leaves the
+                // page as it is.
+                val fresh = runCatching { repository.getPlaylist(id) }.getOrNull()
+                if (fresh != null) show(fresh) else publish()
+            }
+            .onFailure {
+                removing -= rowKey
+                publish()
+                _messages.tryEmit(it.message?.let(UiText::Raw) ?: UiText.Res(R.string.detail_playlist_error_remove))
+            }
     }
 
     private fun loadPlaylist() {
@@ -204,52 +260,7 @@ class PlaylistDetailViewModel(
                     _uiState.value = PlaylistDetailUiState.Error(UiText.Res(R.string.detail_playlist_error_not_found))
                     return@launch
                 }
-                playlistSongs = playlist.tracks
-                playlistTrackIds.value = playlistSongs.map(Track::id)
-                snapshotId = playlist.snapshotId
-                playlistCoverArt = playlist.coverArt
-                val heroSong = playlist.tracks.firstOrNull()
-                val heroCoverRef = heroSong?.coverArt ?: heroSong?.albumId?.let { CoverRef.SourceRelative(it.rawId) }
-                val songs = playlist.tracks.mapIndexed { index, song ->
-                    PlaylistSong(
-                        id = song.id.toString(),
-                        title = song.title.orEmpty(),
-                        artist = song.artist.orEmpty(),
-                        album = song.album.orEmpty(),
-                        duration = song.durationSec,
-                        coverArtUrl = (song.coverArt
-                            ?: song.albumId?.let { albumId -> CoverRef.SourceRelative(albumId.rawId) })?.let {
-                            repository.resolveCoverUrl(it, size = ROW_COVER_SIZE)
-                        },
-                        position = index,
-                    )
-                }
-                // The hero's sleeves: the rows' own album covers (same urls, so
-                // no new request). The hero is resolved at the rows' size here
-                // only to compare like for like.
-                val heroCover = playlist.coverArt ?: heroCoverRef
-                val sleeveCoverUrls = playlistSleeveCovers(
-                    songCovers = songs.map(PlaylistSong::coverArtUrl),
-                    heroCover = heroCover?.let { repository.resolveCoverUrl(it, size = ROW_COVER_SIZE) },
-                    heroIsFirstTrackCover = playlist.coverArt == null && heroCoverRef != null,
-                )
-                _uiState.value = PlaylistDetailUiState.Content(
-                    playlistId = playlist.id.toString(),
-                    playlistName = playlist.name,
-                    owner = playlist.owner.orEmpty(),
-                    comment = playlist.comment,
-                    isPublic = null,
-                    songCount = playlist.songCount,
-                    totalDuration = playlist.durationSec,
-                    // Hero shows the playlist's OWN cover (mosaic/custom art);
-                    // a first-track ref is only the no-art fallback. The page
-                    // palette follows whichever cover wins.
-                    coverArtUrl = heroCover?.let { repository.resolveCoverUrl(it) },
-                    canWrite = playlist.canWrite,
-                    tracksUnavailable = playlist.tracksUnavailable,
-                    songs = songs,
-                    sleeveCoverUrls = sleeveCoverUrls,
-                )
+                show(playlist)
                 markPerfContent(playlist.id.toString())
             } catch (e: Exception) {
                 _uiState.value = PlaylistDetailUiState.Error(
@@ -258,6 +269,78 @@ class PlaylistDetailViewModel(
                 )
             }
         }
+    }
+
+    /**
+     * Takes [read] as the playlist. An entry keeps the row key it had (by
+     * song, in order, so the two entries of a song listed twice stay apart);
+     * a new one gets a new key.
+     */
+    private fun show(read: Playlist) {
+        val known = HashMap<MediaId, ArrayDeque<String>>()
+        for (entry in entries) known.getOrPut(entry.track.id) { ArrayDeque() }.addLast(entry.key)
+        entries = read.tracks.map { track ->
+            Entry(key = known[track.id]?.removeFirstOrNull() ?: "row-${nextRowKey++}", track = track)
+        }
+        lastRead = read
+        snapshotId = read.snapshotId
+        playlistCoverArt = read.coverArt
+        publish()
+    }
+
+    /** Publishes the playlist as the page shows it: without the rows whose removal is out. */
+    private fun publish() {
+        val read = lastRead ?: return
+        val (leaving, shown) = entries.partition { it.key in removing }
+        // The count and length say what the rows show.
+        val playlist = leaving.fold(read) { rest, entry -> rest.without(entry.track) }
+        playlistSongs = shown.map(Entry::track)
+        playlistTrackIds.value = playlistSongs.map(Track::id)
+        val heroSong = playlistSongs.firstOrNull()
+        val heroCoverRef = heroSong?.coverArt ?: heroSong?.albumId?.let { CoverRef.SourceRelative(it.rawId) }
+        val songs = shown.map { entry ->
+            val song = entry.track
+            PlaylistSong(
+                id = song.id.toString(),
+                title = song.title.orEmpty(),
+                artist = song.artist.orEmpty(),
+                album = song.album.orEmpty(),
+                duration = song.durationSec,
+                coverArtUrl = (song.coverArt
+                    ?: song.albumId?.let { albumId -> CoverRef.SourceRelative(albumId.rawId) })?.let {
+                    repository.resolveCoverUrl(it, size = ROW_COVER_SIZE)
+                },
+                rowKey = entry.key,
+            )
+        }
+        // The hero's sleeves: the rows' own album covers (same urls, so
+        // no new request). The hero is resolved at the rows' size here
+        // only to compare like for like.
+        val heroCover = playlist.coverArt ?: heroCoverRef
+        val sleeveCoverUrls = playlistSleeveCovers(
+            songCovers = songs.map(PlaylistSong::coverArtUrl),
+            heroCover = heroCover?.let { repository.resolveCoverUrl(it, size = ROW_COVER_SIZE) },
+            heroIsFirstTrackCover = playlist.coverArt == null && heroCoverRef != null,
+        )
+        _uiState.value = PlaylistDetailUiState.Content(
+            playlistId = playlist.id.toString(),
+            playlistName = playlist.name,
+            owner = playlist.owner.orEmpty(),
+            comment = playlist.comment,
+            isPublic = null,
+            songCount = playlist.songCount,
+            totalDuration = playlist.durationSec,
+            // Hero shows the playlist's OWN cover (mosaic/custom art);
+            // a first-track ref is only the no-art fallback. The page
+            // palette follows whichever cover wins.
+            coverArtUrl = heroCover?.let { repository.resolveCoverUrl(it) },
+            canWrite = playlist.canWrite,
+            canRemoveSongs = playlist.canWrite &&
+                Capability.PLAYLISTS_WRITE in repository.currentCapabilities(),
+            tracksUnavailable = playlist.tracksUnavailable,
+            songs = songs,
+            sleeveCoverUrls = sleeveCoverUrls,
+        )
     }
 
     class Factory(
@@ -284,6 +367,12 @@ internal fun backupMessage(backup: PlaylistBackupRecord): UiText {
         UiText.Plural(R.plurals.detail_playlist_backup_partial, total, listOf(backup.trackCount, total))
     }
 }
+
+/** The playlist's count and length with one entry of [track] gone. */
+private fun Playlist.without(track: Track): Playlist = copy(
+    songCount = songCount?.let { (it - 1).coerceAtLeast(0) },
+    durationSec = durationSec?.let { (it - (track.durationSec ?: 0)).coerceAtLeast(0) },
+)
 
 /** Every row's cover url is resolved at this size (the hero's sleeves reuse them). */
 private const val ROW_COVER_SIZE = 320
