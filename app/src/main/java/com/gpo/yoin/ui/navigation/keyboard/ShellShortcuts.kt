@@ -5,8 +5,10 @@ import android.view.KeyEvent
 /**
  * The shell's keyboard shortcuts for a tablet keyboard or a desktop window:
  * iOS's set (YoinCommands.swift: Controls and Go), with Ctrl where iOS uses
- * ⌘ and Alt where it uses ⌥. Android has no menu bar — the system's shortcut
- * list (Meta + /) shows them. Esc is the platform's own back key already.
+ * ⌘ and Alt where it uses ⌥. Meta (⌘ on a Mac-style keyboard) works in place
+ * of Ctrl too (owner 2026-11-13), for every chord the system lets through.
+ * Android has no menu bar — the system's shortcut list (Meta + /) shows them,
+ * with Ctrl. Esc is the platform's own back key already.
  */
 enum class ShellShortcut {
     PlayPause,
@@ -55,8 +57,10 @@ val ShellShortcut.chord: ShortcutChord
 
 /**
  * The shortcut a key press means, or null. Modifiers must match exactly
- * (Ctrl+Shift+→ is not Next), and any press with Meta held belongs to the
- * system's own shortcuts.
+ * (Ctrl+Shift+→ is not Next). Meta stands in for Ctrl, so ⌘K is Search as
+ * Ctrl+K is; the system takes the Meta chords it keeps for itself (Meta + /,
+ * Meta + Tab, Meta + ←…) before the app sees them. Meta with Ctrl, or Meta on
+ * a key with no Ctrl in its chord (Meta + Space), stays the system's.
  */
 fun shellShortcutFor(
     keyCode: Int,
@@ -65,8 +69,8 @@ fun shellShortcutFor(
     shift: Boolean,
     meta: Boolean,
 ): ShellShortcut? {
-    if (meta) return null
-    val pressed = ShortcutChord(keyCode, ctrl = ctrl, alt = alt, shift = shift)
+    if (meta && ctrl) return null
+    val pressed = ShortcutChord(keyCode, ctrl = ctrl || meta, alt = alt, shift = shift)
     return ShellShortcut.entries.firstOrNull { it.chord == pressed }
 }
 

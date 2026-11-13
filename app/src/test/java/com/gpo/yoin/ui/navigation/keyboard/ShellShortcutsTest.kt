@@ -55,9 +55,23 @@ class ShellShortcutsTest {
     }
 
     @Test
-    fun should_leaveTheKeyToTheSystem_when_metaIsHeld() {
+    fun should_mapEveryCtrlChord_when_metaIsHeldInstead() {
+        ShellShortcut.entries.filter { it.chord.ctrl }.forEach { shortcut ->
+            val chord = shortcut.chord
+            assertEquals(shortcut, press(chord.keyCode, alt = chord.alt, shift = chord.shift, meta = true))
+        }
+        assertEquals(ShellShortcut.Search, press(KeyEvent.KEYCODE_K, meta = true))
+        assertEquals(ShellShortcut.Shuffle, press(KeyEvent.KEYCODE_S, alt = true, meta = true))
+    }
+
+    @Test
+    fun should_leaveTheKeyToTheSystem_when_metaIsNotInPlaceOfCtrl() {
         assertNull(press(KeyEvent.KEYCODE_K, ctrl = true, meta = true))
+        assertNull(press(KeyEvent.KEYCODE_DPAD_LEFT, ctrl = true, meta = true))
         assertNull(press(KeyEvent.KEYCODE_SPACE, meta = true))
+        assertNull(press(KeyEvent.KEYCODE_SLASH, meta = true))
+        assertNull(press(KeyEvent.KEYCODE_TAB, meta = true))
+        assertNull(press(KeyEvent.KEYCODE_S, meta = true))
     }
 
     @Test
