@@ -145,6 +145,17 @@ extension LibraryStore {
                           title: t.title, artist: t.artist ?? a.artist)
             }
         }
+        // `-historySeedSongLookups YES`: song scores on songs Yoin never played nor opened the album of (All
+        // Memories asks their server, #202): three on Northern Field Recordings (the server names the album),
+        // two on songs the server doesn't have (they share one Song score card).
+        if UserDefaults.standard.bool(forKey: "historySeedSongLookups") {
+            for (i, id) in ["s-field-01", "s-field-02", "s-field-03"].enumerated() {
+                _ = ratings.syncPut(8.6 - Double(i) * 0.7, provider: provider, songId: id, updatedAt: now - 2 * day - Int64(i) * hour)
+            }
+            for (i, id) in ["s-gone-01", "s-gone-02"].enumerated() {
+                _ = ratings.syncPut(7.2 + Double(i) * 0.9, provider: provider, songId: id, updatedAt: now - 5 * day - Int64(i) * hour)
+            }
+        }
     }
 }
 #endif

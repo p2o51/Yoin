@@ -102,12 +102,29 @@ struct LedgerRows: Sendable {
     var titles: [Title] = []
 }
 
+/// A song as its service describes it (a single-song lookup, Android LedgerTrack #202): which album it is on,
+/// and its name. What a song note or score needs when Yoin never played the song nor opened its album (a score
+/// pulled from the server, or synced from another device).
+struct LedgerTrack: Hashable, Sendable {
+    var title: String?
+    /// Raw album id in the song's provider; nil or blank when the service doesn't say.
+    var albumId: String?
+    var albumName: String?
+    var artist: String?
+    var coverKey: String?
+
+    /// Whether the answer changes what the ledger shows. A name alone does: the song stops reading as unknown.
+    var isNews: Bool { albumId?.nonBlank != nil || title?.nonBlank != nil }
+}
+
 /// What the ledger knows of albums and songs it never stores itself: from plays and loaded details.
 struct LedgerLookup: Sendable {
     /// Account key + album id → the album's name, artist and cover.
     var album: @Sendable (_ account: LedgerAccount, _ albumId: String) -> LedgerAlbum? = { _, _ in nil }
     /// Account key + song id → its album id and title.
     var song: @Sendable (_ account: LedgerAccount, _ songId: String) -> (albumId: String?, title: String?)? = { _, _ in nil }
+    /// A song already looked up on its service (LedgerTrackResolver): read only, never fetched here.
+    var track: @Sendable (_ account: LedgerAccount, _ songId: String) -> LedgerTrack? = { _, _ in nil }
 }
 
 enum MemoryLedger {
@@ -125,15 +142,37 @@ enum MemoryLedger {
             albumCache[key] = found
             return found
         }
+        // A song's album when nothing local names it: the song's own lookup, its album then known like any other.
+        func songAlbum(_ a: LedgerAccount, _ stored: String?, _ track: LedgerTrack?) -> LedgerAlbum? {
+            if let known = album(a, stored) { return known }
+            guard let id = track?.albumId?.nonBlank else { return nil }
+            if let known = album(a, id) { return known }
+            guard let name = track?.albumName?.nonBlank else { return nil }
+            let made = LedgerAlbum(account: a, albumId: id, name: name, artist: track?.artist ?? "", coverKey: track?.coverKey)
+            albumCache["\(a.key)|\(id)"] = made
+            return made
+        }
         var out: [LedgerEntry] = []
+        // Songs first: a song's lookup may be the only thing that names its album, and the album's own score,
+        // review and title below must find it named (the list is sorted at the end, so order is free).
         for n in rows.notes where counts(n.account) {
             let text = n.content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
             let song = lookup.song(n.account, n.trackId)
+            let track = lookup.track(n.account, n.trackId)
             out.append(LedgerEntry(id: "song-note:\(n.id)", kind: .songNote, at: n.createdAt, account: n.account,
-                                   album: album(n.account, song?.albumId), text: text,
-                                   trackTitle: n.title.nonBlank ?? song?.title?.nonBlank, songId: n.trackId,
-                                   positionMs: n.positionMs))
+                                   album: songAlbum(n.account, song?.albumId, track), text: text,
+                                   trackTitle: n.title.nonBlank ?? song?.title?.nonBlank ?? track?.title?.nonBlank,
+                                   songId: n.trackId, positionMs: n.positionMs))
+        }
+        for r in rows.trackRatings where counts(r.account) {
+            guard let score = r.rating else { continue }
+            let song = lookup.song(r.account, r.songId)
+            let track = lookup.track(r.account, r.songId)
+            out.append(LedgerEntry(id: "track-rating:\(r.account.key)|\(r.songId)", kind: .trackRating, at: r.updatedAt,
+                                   account: r.account, album: songAlbum(r.account, song?.albumId, track),
+                                   trackTitle: song?.title?.nonBlank ?? track?.title?.nonBlank, songId: r.songId,
+                                   score: score))
         }
         for r in rows.albums where counts(r.account) {
             guard let a = album(r.account, r.albumId) else { continue }
@@ -146,13 +185,6 @@ enum MemoryLedger {
                 out.append(LedgerEntry(id: "review:\(base)", kind: .review, at: r.reviewUpdatedAt ?? r.updatedAt,
                                        account: r.account, album: a, text: review))
             }
-        }
-        for r in rows.trackRatings where counts(r.account) {
-            guard let score = r.rating else { continue }
-            let song = lookup.song(r.account, r.songId)
-            out.append(LedgerEntry(id: "track-rating:\(r.account.key)|\(r.songId)", kind: .trackRating, at: r.updatedAt,
-                                   account: r.account, album: album(r.account, song?.albumId),
-                                   trackTitle: song?.title?.nonBlank, songId: r.songId, score: score))
         }
         for t in rows.titles where counts(t.account) {
             guard let a = album(t.account, t.albumId), let text = t.title.nonBlank else { continue }
@@ -346,6 +378,9 @@ enum LedgerTimelineRow: Hashable, Sendable, Identifiable {
     case month(Date, count: Int)
     case album(month: Date, item: LedgerItem, end: Bool)
     case note(LedgerEntry)
+    /// The month's song scores whose album nobody could name, together on one card (Android #202, owner
+    /// 2026-11-12: a run of identical "Song score, Album unknown" rows was tiring to read). Newest first.
+    case scores(month: Date, entries: [LedgerEntry])
     /// Empty months folded: [from] the later, [to] the earlier.
     case quiet(from: Date, to: Date)
 
@@ -354,6 +389,7 @@ enum LedgerTimelineRow: Hashable, Sendable, Identifiable {
         case .month(let d, _): "month:\(d.timeIntervalSince1970)"
         case .album(let m, let item, _): "album:\(m.timeIntervalSince1970):\(item.id)"
         case .note(let e): "note:\(e.id)"
+        case .scores(let m, _): "scores:\(m.timeIntervalSince1970)"
         case .quiet(let f, let t): "quiet:\(f.timeIntervalSince1970):\(t.timeIntervalSince1970)"
         }
     }
@@ -442,8 +478,12 @@ extension MemoryLedger {
                 rows.append(.month(m, count: inMonth.count))
                 let albums = Dictionary(grouping: inMonth.filter { $0.kind != .songNote && $0.album != nil }) { $0.album!.key }
                 var shown = Set<String>()
+                let orphanScores = inMonth.filter { $0.kind == .trackRating && $0.album == nil }
                 for e in inMonth {
-                    if e.kind == .songNote || e.album == nil {
+                    if e.kind == .trackRating && e.album == nil {
+                        // One card for all of them, where the newest falls.
+                        if e.id == orphanScores.first?.id { rows.append(.scores(month: m, entries: orphanScores)) }
+                    } else if e.kind == .songNote || e.album == nil {
                         rows.append(.note(e))
                     } else if shown.insert(e.album!.key).inserted {
                         rows.append(.album(month: m, item: albumItem(e.album!, albums[e.album!.key]!), end: cards % 2 == 1))

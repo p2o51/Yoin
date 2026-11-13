@@ -8581,6 +8581,36 @@
           }
         }
       }
+    },
+    "Song note": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲笔记"
+          }
+        }
+      }
+    },
+    "Song score": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲评分"
+          }
+        }
+      }
+    },
+    "Album score": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专辑评分"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

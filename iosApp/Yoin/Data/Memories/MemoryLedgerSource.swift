@@ -59,8 +59,11 @@ final class MemoryLedgerSource {
         var accounts: [LedgerAccount: Profile] = [:]
         for p in profiles { if let a = Self.account(of: p) { accounts[a] = p } }
         let rows = Self.rows(notes: NotesStore.shared, ratings: LocalRatings.shared, albums: AlbumMemoryStore.shared)
-        let lookup = Self.lookup(history: HistoryStore.shared, active: active.flatMap(Self.account(of:)),
+        var lookup = Self.lookup(history: HistoryStore.shared, active: active.flatMap(Self.account(of:)),
                                  details: model.store.albumDetails)
+        // Songs asked of their own server (a scored song never played here): their album and name.
+        let known = LedgerTrackResolver.shared.known
+        lookup.track = { account, id in known[LedgerTrackResolver.Wanted.key(account, id)] }
         // Signed out entirely: nothing counts (a removed account's rows aren't anyone's memories now).
         let entries = MemoryLedger.build(rows, accounts: Set(accounts.keys), lookup: lookup)
         var covers: [String: CoverPalette] = [:]
@@ -77,6 +80,53 @@ final class MemoryLedgerSource {
         state = LedgerState(entries: entries, stats: MemoryLedger.stats(entries),
                             grid: MemoryGrid.build(entries, today: now, calendar: calendar),
                             covers: covers, profiles: ledgerProfiles, activeAccount: activeAccount, today: now)
+    }
+
+    /// Songs nothing on the device names the album of, asked of their own Subsonic server (Android #202
+    /// LedgerTrackResolver): passes go on while they bring answers (each answered song leaves the pending ones,
+    /// so this ends), and what a pass named shows at once.
+    func resolveSongs(model: AppModel = .shared) async {
+        let resolver = LedgerTrackResolver.shared
+        while let state {
+            let wanted = LedgerTrackResolver.pending(state.entries, asked: Set(resolver.answers.keys))
+            guard !wanted.isEmpty else { return }
+            let pass = await resolver.resolve(wanted) { [weak self] want in
+                guard let self, let client = self.client(for: want.account, model: model) else {
+                    throw CancellationError()
+                }
+                return try await Self.song(want.songId, client: client)
+            }
+            if pass.found { reload(model: model) }
+            if pass.answered == 0 { return }
+        }
+    }
+
+    /// A Subsonic account's own server, kept for the process (any account, not only the one in use).
+    @ObservationIgnored private var clients: [String: SubsonicClient] = [:]
+
+    private func client(for account: LedgerAccount, model: AppModel) -> SubsonicClient? {
+        guard account.provider == AccountScope.subsonicProvider,
+              let p = model.profiles.profiles.first(where: { Self.account(of: $0) == account }),
+              let signIn = model.profiles.signIn(p.id) else { return nil }
+        let key = "\(p.id)|\(signIn.baseUrl)|\(signIn.username)"
+        if let c = clients[key] { return c }
+        let c = SubsonicClient(baseUrl: signIn.baseUrl, username: signIn.username, password: signIn.password)
+        clients[key] = c
+        return c
+    }
+
+    /// One song from its server; nil when the server doesn't have it (error 70 is "gone", not a failed lookup).
+    private static func song(_ id: String, client: SubsonicClient) async throws -> LedgerTrack? {
+        do {
+            guard let s = try await client.getSong(id: id) else { return nil }
+            return LedgerTrack(title: s.title, albumId: s.albumId, albumName: s.album, artist: s.artist,
+                               coverKey: s.coverArtId)
+        } catch {
+            if let k = (error as NSError).userInfo["KotlinException"] as? SubsonicException, k.kind == .notFound {
+                return nil
+            }
+            throw error
+        }
     }
 
     nonisolated static func rows(notes: [SongNote], ratings: [LocalRatings.Row],

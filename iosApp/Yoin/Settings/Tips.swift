@@ -30,6 +30,13 @@ enum Tips {
     /// The tips, in the order the bubble goes through them. Left out (iOS has no such thing): Android's
     /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line).
     static let all: [Tip] = [
+        // All Memories (Home grid + page, Android #186 / #178 / #202): Android's line and day (Argon's copy for
+        // the wide layout and the pixel bar), first in the list as on Android.
+        Tip(id: "MemoryLedger", icon: "edit_note", updated: "2026-11-12",
+            title: "All Memories",
+            text: "Tap All Memories on Home, tap a square on the grid to see just that time, and scroll down as the squares fly into a pixel bar at the top; switch between Timeline, Cards, and a sortable List below on the right, with Timeline and Cards in 2–3 columns on large screens",
+            titleZhHans: "全部回忆",
+            textZhHans: "点首页的「全部回忆」，在日历格点一格只看那段时间，往下滚格子会飞到顶栏拼成像素条；下方右侧可切换时间线、卡片或可排序的列表，大屏上时间线和卡片排成 2–3 列"),
         // Home's Spotify pill (HomeSpotifyElsewhere.swift; Android PR #197, owner 2026-11-10); Argon's wording.
         // No swap symbol in YoinSymbols yet: the music note.
         Tip(id: "SpotifyElsewhere", icon: "music_note", updated: "2026-11-10",
@@ -37,12 +44,6 @@ enum Tips {
             text: "While in another account, if Spotify is playing or paused on a song, tap the pill at the top of Home to switch to it",
             titleZhHans: "切换到 Spotify",
             textZhHans: "在其他账号下，已登录的 Spotify 有歌正在播放或暂停时，点首页顶部的胶囊即可切换过去"),
-        // All Memories (Home grid + page, Android #186 / #178); Argon's iOS wording (.argon/ios-parity-1110).
-        Tip(id: "MemoryLedger", icon: "edit_note", updated: "2026-11-10",
-            title: "All Memories",
-            text: "Tap All Memories on Home and tap a square on the grid to see just that time, or switch between Timeline, Cards, and a sortable List below on the right; memories marked \"From …\" switch to that account first when opened",
-            titleZhHans: "全部回忆",
-            textZhHans: "点首页的「全部回忆」，在日历格点一格只看那段时间，下方右侧可切换时间线、卡片与可排序的列表；标有「来自 …」的其他账号回忆，点开会先切换到该账号"),
         // Lyric Cards with Apple Intelligence (Android #180); Argon's iOS wording.
         Tip(id: "LyricHighlight", icon: "lyrics", updated: "2026-11-10",
             title: "Lyric Cards",
