@@ -307,15 +307,7 @@ struct LibraryView: View {
 
     private var searchPill: some View {
             Button { model.openSearch(from: .library) } label: {
-                HStack(spacing: 12) {
-                    // Adaptive label colors: they flip with the glass over dark content.
-                    YoinIcon("search", size: 24).foregroundStyle(.secondary)
-                    Text("Search library").font(.gsf(16)).foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .frame(height: SearchView.fieldHeight)
-                .contentShape(.capsule)
+                LibrarySearchPillLabel()
             }
             .buttonStyle(.plain)
             .labSearchGlass(scheme: scheme, in: .capsule)
@@ -427,33 +419,10 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func gridCell(_ item: LibraryItem, side: CGFloat) -> some View {
-        let isArtist = item.kind == .artist
         Button { open(item) } label: {
-            VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
-                EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,
-                               seed: item.id.rawId.count, size: side, stroke: scheme.primary)
-                    .zoomSource(item.id, zoomNS, tile: "library")
-                Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
-                // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
-                if let album = item.album, !isArtist {
-                    AlbumVersionTitle(album: album, scheme: scheme) { name in
-                        Text(name)
-                            .lineLimit(1)
-                            .yoinRole(Tokens.type.titleSmall)
-                            .foregroundStyle(scheme.onSurface)
-                    }
-                } else {
-                    Text(item.title)
-                        .lineLimit(1)
-                        .yoinRole(Tokens.type.titleSmall)
-                        .foregroundStyle(scheme.onSurface)
-                }
-                Text(gridSubtitle(item))
-                    .lineLimit(1)
-                    .yoinRole(Tokens.type.bodySmall)
-                    .foregroundStyle(scheme.onSurfaceVariant)
+            LibraryGridCellFace(item: item, side: side, scheme: scheme) { backdrop in
+                backdrop.zoomSource(item.id, zoomNS, tile: "library")
             }
-            .frame(width: side, alignment: isArtist ? .center : .leading)
         }
         .buttonStyle(PressScale())
     }
@@ -463,16 +432,6 @@ struct LibraryView: View {
         case .artist: model.openArtist(item.title, id: item.id.provider == "mock" ? nil : item.id.rawId)
         case .playlist: model.openPlaylist(item.id.rawId)
         case .album: if let album = item.album { model.open(album, tile: "library") }
-        }
-    }
-
-    /// The grid's line under a cover, Spotify's way (51, 2026-11-07): "Album • Artist",
-    /// "Single • Artist", "Playlist • owner", "Artist" (round cover) — the grid mixes all three.
-    private func gridSubtitle(_ item: LibraryItem) -> String {
-        switch item.kind {
-        case .artist: String(localized: "Artist")
-        case .album: item.album?.kindLine ?? ReleaseKind.album.label
-        case .playlist: KindLine.make(String(localized: "Playlist"), item.owner ?? "")
         }
     }
 
@@ -1055,6 +1014,78 @@ final class LibraryMemory {
     func sort(for tab: Tab, offered: [LibrarySortOrder]) -> LibrarySortOrder {
         if let chosen = sorts[tab], offered.contains(chosen) { return chosen }
         return offered.first ?? .recents
+    }
+}
+
+// MARK: Grid cell, search pill
+
+/// A cell of Library's grid (Android AlbumCard / ArtistGridItem): the backdrop by entity (round for an
+/// artist), titleSmall over bodySmall. [backdrop] dresses the cover (the grid's zoom source); the tip page's
+/// demo phone shows it as is.
+struct LibraryGridCellFace<Backdrop: View>: View {
+    var item: LibraryItem
+    var side: CGFloat
+    var scheme: CoverScheme
+    @ViewBuilder var backdrop: (EntityBackdrop) -> Backdrop
+
+    var body: some View {
+        let isArtist = item.kind == .artist
+        VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
+            backdrop(EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,
+                                    seed: item.id.rawId.count, size: side, stroke: scheme.primary))
+            Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
+            // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
+            if let album = item.album, !isArtist {
+                AlbumVersionTitle(album: album, scheme: scheme) { name in
+                    Text(name)
+                        .lineLimit(1)
+                        .yoinRole(Tokens.type.titleSmall)
+                        .foregroundStyle(scheme.onSurface)
+                }
+            } else {
+                Text(item.title)
+                    .lineLimit(1)
+                    .yoinRole(Tokens.type.titleSmall)
+                    .foregroundStyle(scheme.onSurface)
+            }
+            Text(Self.subtitle(item))
+                .lineLimit(1)
+                .yoinRole(Tokens.type.bodySmall)
+                .foregroundStyle(scheme.onSurfaceVariant)
+        }
+        .frame(width: side, alignment: isArtist ? .center : .leading)
+    }
+
+    /// The grid's line under a cover, Spotify's way (51, 2026-11-07): "Album • Artist",
+    /// "Single • Artist", "Playlist • owner", "Artist" (round cover) — the grid mixes all three.
+    static func subtitle(_ item: LibraryItem) -> String {
+        switch item.kind {
+        case .artist: String(localized: "Artist")
+        case .album: item.album?.kindLine ?? ReleaseKind.album.label
+        case .playlist: KindLine.make(String(localized: "Playlist"), item.owner ?? "")
+        }
+    }
+}
+
+extension LibraryGridCellFace where Backdrop == EntityBackdrop {
+    init(item: LibraryItem, side: CGFloat, scheme: CoverScheme) {
+        self.init(item: item, side: side, scheme: scheme) { $0 }
+    }
+}
+
+/// Library's search pill as it rests in the header (icon 24, 12 gap, 16 type, 56 tall, 16 in), before its
+/// glass: Search's field takes this exact rect.
+struct LibrarySearchPillLabel: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            // Adaptive label colors: they flip with the glass over dark content.
+            YoinIcon("search", size: 24).foregroundStyle(.secondary)
+            Text("Search library").font(.gsf(16)).foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .frame(height: SearchView.fieldHeight)
+        .contentShape(.capsule)
     }
 }
 

@@ -76,6 +76,19 @@ enum TipDemo {
         return album
     }()
 
+    // MARK: Library
+
+    /// Library's grid on the phone (Android demoLibraryAlbums + DemoLibraryArtists): every album, an artist
+    /// after every third from the second.
+    static let libraryItems: [LibraryItem] = albums.enumerated().flatMap { i, album -> [LibraryItem] in
+        let item = LibraryItem(id: album.id, kind: .album, title: album.title, subtitle: album.artist,
+                               palette: album.palette, album: album)
+        guard i % 3 == 1 else { return [item] }
+        let artist = LibraryItem(id: MediaId(provider: provider, rawId: "tip-artist-\(i)"), kind: .artist,
+                                 title: album.artist, subtitle: "", palette: album.palette)
+        return [item, artist]
+    }
+
     /// Made-up accounts, one per service, each its own avatar shape (their index).
     static let accounts: [Profile] = [
         Profile(id: "demo-a", service: .subsonic, baseUrl: "https://music.home", username: "Mira", createdAt: 0),

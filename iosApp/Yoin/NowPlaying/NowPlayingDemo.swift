@@ -45,6 +45,10 @@ final class NowPlayingDemo {
     /// The song's score on the rating bar and its heart: the phone's own (a press there changes only these).
     var rating: Double?
     var favorite: Bool
+    /// The song's note moments (ms into it): the phone's own, written by its Write pill.
+    var noteAnchorsMs: [Int64] = []
+    /// A scrub the script acts out on the wave progress bar (a fraction of it); nil: none.
+    var scrub: Double?
     /// The cover was held (the song's sheet, in the app).
     @ObservationIgnored var onCoverHold: () -> Void = {}
 
@@ -76,6 +80,16 @@ final class NowPlayingDemo {
         playhead.positionSec = (playhead.positionSec + seconds).truncatingRemainder(dividingBy: d)
         let line = Self.activeLine(lyrics.map(\.at), at: playhead.positionSec)
         if line != activeLyric { activeLyric = line }
+    }
+
+    /// The Write pill: the moment writing began is kept as a note's anchor (the app files the note there).
+    func write() {
+        noteAnchorsMs.append(Int64((playhead.positionSec * 1000).rounded()))
+    }
+
+    /// The note moments as fractions of the bar.
+    var noteAnchors: [Double] {
+        noteAnchorsMs.map { Double($0) / 1000 / playhead.durationSec }.sorted()
     }
 
     /// The round button's tap (PlayerEngine.cyclePlayMode): repeat all → shuffle → shuffle + repeat one →

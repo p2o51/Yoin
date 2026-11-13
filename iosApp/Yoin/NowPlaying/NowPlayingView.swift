@@ -1348,6 +1348,7 @@ struct NowPlayingView: View, Equatable {
     /// The current song's note moments as fractions of the bar.
     private func noteAnchors(duration: Double) -> [Double] {
         guard duration > 0 else { return [] }
+        if let demo { return demo.noteAnchors }
         let key = currentNoteKey
         return NotesStore.shared.notes(provider: key.provider, trackId: key.rawId)
             .compactMap { $0.positionMs.map { Double($0) / 1000 / duration } }
@@ -1900,10 +1901,12 @@ struct NowPlayingView: View, Equatable {
                             noteAnchors: noteAnchors(duration: duration),
                             noteInk: colorScheme == .dark ? Color.white : scheme.onPrimary,
                             live: transportLive,
+                            actedScrub: demo?.scrub,
                             onScrubbing: { touch("progress", $0) }) { fraction in
                 model.player.seek(to: fraction * duration)
             }
                 .frame(height: 40, alignment: .bottom)
+                .demoTarget("progressBar")
                 // The demo phone's bar is looked at: a sideways drag on it turns the tips.
                 .allowsHitTesting(demo == nil)
             Spacer().frame(width: Tokens.np.TIME_LABEL_GAP.cg)
@@ -2211,6 +2214,7 @@ struct NowPlayingView: View, Equatable {
                     // Spotify app: its Connect devices instead (Codex N17).
                     .overlay { if !spotifySong, demo == nil { AirPlayRoutePicker(trigger: airPlay) } }
                 pill("note", String(localized: "Write"), shape: AnyShape(Capsule())) { startWriting() }
+                    .demoTarget("write")
             }
         }
         .demoTarget("pills")
@@ -2258,8 +2262,11 @@ struct NowPlayingView: View, Equatable {
     /// the Note window comes up and the composer takes the keyboard, filed
     /// at the moment writing began.
     private func startWriting() {
-        // The demo phone writes nothing.
-        guard demo == nil else { return }
+        // The demo phone writes nothing: its pill keeps the moment, as a note's anchor, on the phone alone.
+        if let demo {
+            withAnimation(Yoin.spatial) { demo.write() }
+            return
+        }
         if draft.isEmpty {
             draftAnchorMs = playheadMs
             draftTarget = currentNoteTarget

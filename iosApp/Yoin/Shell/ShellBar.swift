@@ -449,6 +449,8 @@ struct PillContent: View {
     var np: NowPlayingPresentation? = nil
     var showCover = true
     var showTitle = true
+    /// The tip page's demo phone: its made-up song in the engine's place (its playhead rides the environment).
+    var demo: NowPlayingDemo? = nil
     private let height: CGFloat = 60
     private var lab: GlassLab { GlassLab.shared }
 
@@ -470,15 +472,17 @@ struct PillContent: View {
     /// Android PillPushTravel.
     private static let pushTravel: CGFloat = 30
 
+    private var playback: PlaybackSnapshot { demo?.snapshot ?? model.playback }
+
     private var live: Shown {
-        let p = model.playback
+        let p = playback
         return Shown(key: p.track.id, album: p.album, title: p.track.title, artist: p.album.artist)
     }
 
     var body: some View {
-        let p = model.playback
+        let p = playback
         let s = shown ?? live
-        let scheme = model.isIdle ? CoverScheme.brand(dark: colorScheme == .dark)
+        let scheme = model.isIdle && demo == nil ? CoverScheme.brand(dark: colorScheme == .dark)
             : CoverScheme(album: p.album, dark: colorScheme == .dark)
         HStack(spacing: 10) {
             CoverArt(palette: s.album.palette, cornerRadius: 6, seed: s.album.seed)

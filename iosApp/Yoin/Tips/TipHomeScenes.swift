@@ -224,23 +224,36 @@ struct DemoJumpBackIn: View {
     }
 }
 
-/// The phone's idle bar (ShellBar with nothing playing): Home | Library, labelled, and the Search circle,
-/// in the bar's own faces and glass.
+/// The phone's bar (ShellBar): idle, Home | Library labelled; with [nowPlaying], Home, the mini player and
+/// Library; then the Search circle; in the bar's own faces and glass. [selected] is the section on screen.
+/// [onLibraryHold] and [onPillHold] are the bar's long-presses (Library's search, the playing song's sheet).
 struct DemoShellBar: View {
     var scheme: CoverScheme
+    var selected: ShellSection = .home
+    var nowPlaying: NowPlayingDemo? = nil
+    var onLibraryHold: (() -> Void)? = nil
+    var onPillHold: (() -> Void)? = nil
     @Environment(\.colorScheme) private var colorScheme
+
+    /// ShellBar's long-press time.
+    static let holdSeconds = 0.45
 
     var body: some View {
         let brand = CoverScheme.brand(dark: colorScheme == .dark)
+        // Playing, the bar takes the song's colours (ShellBar.scheme).
+        let bar = nowPlaying.map { CoverScheme(album: $0.album, dark: colorScheme == .dark) } ?? scheme
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 6) {
-                half(.home, selected: true, brand: brand)
-                half(.library, selected: false, brand: brand)
+                half(.home, scheme: bar, brand: brand)
+                if let nowPlaying { pill(nowPlaying, scheme: bar, brand: brand) }
+                half(.library, scheme: bar, brand: brand)
+                    .demoTarget("library")
+                    .onLongPressGesture(minimumDuration: Self.holdSeconds) { onLibraryHold?() }
                 YoinIcon("search", size: 24)
                     .foregroundStyle(Yoin.ink)
                     .labContrast("barUnselected")
                     .frame(width: 60, height: 60)
-                    .labGlass("barUnselected", scheme: scheme, brand: brand, auto: scheme.tertiary, in: Circle())
+                    .labGlass("barUnselected", scheme: bar, brand: brand, auto: bar.tertiary, in: Circle())
                     .padding(.leading, 6)
             }
         }
@@ -250,20 +263,32 @@ struct DemoShellBar: View {
     /// One half in the bar's glass (ShellBar.navButton: the accent tinted into the selected one's glass, or
     /// the Glass Lab surface).
     @ViewBuilder
-    private func half(_ section: ShellSection, selected: Bool, brand: CoverScheme) -> some View {
+    private func half(_ section: ShellSection, scheme: CoverScheme, brand: CoverScheme) -> some View {
         let lab = GlassLab.shared
+        let on = section == selected
+        let idle = nowPlaying == nil
         let accent = section == .home ? scheme.primary : scheme.secondary
-        let face = ShellNavFace(section: section, selected: selected, labelled: true, scheme: scheme, fills: true)
-        if selected && lab.extra("barSelectedStyle") >= 0.5 {
+        let face = ShellNavFace(section: section, selected: on, labelled: idle, scheme: scheme, fills: idle)
+        if on && lab.extra("barSelectedStyle") >= 0.5 {
             face.glassEffect(.regular.tint(accent.opacity(lab.style("barSelected").tintOpacity)).interactive(), in: .capsule)
         } else {
-            face.labGlass(selected ? "barSelected" : "barUnselected", scheme: scheme, brand: brand, auto: accent, in: Capsule())
+            face.labGlass(on ? "barSelected" : "barUnselected", scheme: scheme, brand: brand, auto: accent, in: Capsule())
         }
+    }
+
+    /// The mini player (ShellBar.pill): the song's cover, title and artist over its progress wash.
+    private func pill(_ demo: NowPlayingDemo, scheme: CoverScheme, brand: CoverScheme) -> some View {
+        PillContent(demo: demo)
+            .contentShape(.capsule)
+            .environment(\.demoPlayhead, demo.playhead)
+            .labGlass("miniPlayer", scheme: scheme, brand: brand, auto: scheme.primaryContainer, in: Capsule())
+            .demoTarget("pill")
+            .onLongPressGesture(minimumDuration: Self.holdSeconds) { onPillHold?() }
     }
 }
 
 /// The account in use, as Home's header shows it.
-private struct DemoAccountAvatar: View {
+struct DemoAccountAvatar: View {
     var profile: Profile
     var scheme: CoverScheme
 

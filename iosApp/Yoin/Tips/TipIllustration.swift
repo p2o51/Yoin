@@ -12,7 +12,8 @@ struct TipIllustration: View {
     /// The tips that have a demo so far; the others' pages open on their title.
     static let scenes: Set<String> = [
         "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads", "EditHome",
-        "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn",
+        "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn", "MiniPlayerMenu", "NoteMoments", "LibrarySearch", "Labs",
+        "Name",
     ]
 
     static func has(_ id: String) -> Bool { scenes.contains(id) }
@@ -31,6 +32,11 @@ struct TipIllustration: View {
             case "SongMenu": SongMenuDemo(playing: playing, scheme: scheme)
             case "PlayModes": PlayModesDemo(playing: playing, scheme: scheme)
             case "KeepScreenOn": CoverMenuDemo(playing: playing, scheme: scheme, keepScreenOn: true)
+            case "MiniPlayerMenu": MiniPlayerMenuDemo(playing: playing, scheme: scheme)
+            case "NoteMoments": NoteMomentsDemo(playing: playing, scheme: scheme)
+            case "LibrarySearch": LibrarySearchDemo(playing: playing, scheme: scheme)
+            case "Labs": LabsDemo(playing: playing, scheme: scheme)
+            case "Name": NameDemo(playing: playing, scheme: scheme)
             default: EmptyView()
             }
         }

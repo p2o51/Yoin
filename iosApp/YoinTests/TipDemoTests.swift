@@ -156,13 +156,14 @@ final class TipDemoTests: XCTestCase {
     func test_should_onlyShowDemos_when_theTipExists() {
         XCTAssertEqual(TipIllustration.scenes, [
             "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads",
-            "EditHome", "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn",
+            "EditHome", "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn", "MiniPlayerMenu", "NoteMoments",
+            "LibrarySearch", "Labs", "Name",
         ])
         for id in TipIllustration.scenes {
             XCTAssertNotNil(Tips.tip(id), "\(id) has a demo but is not a tip")
             XCTAssertTrue(TipIllustration.has(id))
         }
-        XCTAssertFalse(TipIllustration.has("Name"))
+        XCTAssertFalse(TipIllustration.has("PullForMemories"))
     }
 
     // MARK: The made-up library
@@ -317,5 +318,47 @@ final class TipDemoTests: XCTestCase {
     func test_should_slideOntoTwoAccounts_when_theDemoSwitches() {
         XCTAssertEqual(AccountQuickSwitchDemo.slides, [0, 1])
         XCTAssertLessThan(AccountQuickSwitchDemo.slides.max() ?? 0, TipDemo.accounts.count - 1)
+    }
+
+    // MARK: Slice 3
+
+    func test_should_haveAScene_when_aTipAndroidActsOutExistsHere() {
+        // Every tip but All Memories' pull (PullForMemories) and the two iOS-only ones.
+        let without = Tips.all.map(\.id).filter { !TipIllustration.has($0) }
+        XCTAssertEqual(Set(without), ["PullForMemories", "VolumeLeveling", "HomeScreenWidgets"])
+    }
+
+    func test_should_keepTheSecondWriteWasTappedAt_when_theDemoWrites() {
+        let demo = TipDemo.nowPlaying()
+        demo.write()
+        XCTAssertEqual(demo.noteAnchorsMs, [58_000])
+        XCTAssertEqual(demo.noteAnchors.first ?? 0, 58.0 / 214.0, accuracy: 0.0001)
+        demo.advance(by: 10)
+        demo.write()
+        XCTAssertEqual(demo.noteAnchorsMs, [58_000, 68_000])
+    }
+
+    func test_should_startTheScrubPastTheNote_when_theDemoScrubsBack() {
+        // From 14 % past the anchor to 5 % before it, as Android's.
+        XCTAssertEqual(NoteMomentsDemo.scrubFrom, 0.14)
+        XCTAssertEqual(NoteMomentsDemo.scrubPast, 0.05)
+    }
+
+    func test_should_spreadEachRingInTurn_when_aNoteSounds() {
+        XCTAssertNil(NameDemo.ringProgress(age: 0, ring: 0))
+        XCTAssertEqual(NameDemo.ringProgress(age: 1.2, ring: 0) ?? 0, 0.5, accuracy: 0.0001)
+        // The second ring follows 0.22 s behind.
+        XCTAssertNil(NameDemo.ringProgress(age: 0.2, ring: 1))
+        XCTAssertEqual(NameDemo.ringProgress(age: 1.42, ring: 1) ?? 0, 0.5, accuracy: 0.0001)
+        XCTAssertNil(NameDemo.ringProgress(age: 2.4, ring: 0))
+        XCTAssertEqual(NameDemo.ringing, 2.84, accuracy: 0.0001)
+    }
+
+    func test_should_mixArtistsIntoTheAlbums_when_theDemoShowsLibrary() {
+        let items = TipDemo.libraryItems
+        XCTAssertEqual(items.count, TipDemo.albums.count + 2)
+        XCTAssertEqual(items.filter { $0.kind == .artist }.map(\.title), ["The Lanterns", "Mira Sol"])
+        XCTAssertEqual(items[2].kind, .artist)
+        XCTAssertEqual(Set(items.map(\.id)).count, items.count)
     }
 }

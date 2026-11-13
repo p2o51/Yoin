@@ -2,7 +2,7 @@
 
 Android source of truth: `app/src/main/java/com/gpo/yoin/ui/tips/` (`TipScreen.kt`, `TipDemoPhone.kt`, `TipIllustration.kt`, `TipDemoData.kt`, the `Tip*Scene(s).kt` files) and `ui/settings/TipsPage.kt`. iOS: `iosApp/Yoin/Tips/` and `Settings/TipsView.swift`. 1 dp = 1 pt.
 
-Pass of 2026-11-13 (slices 1 and 2 of 3). Checked on iPhone 17 Pro and iPad Pro 13 simulators, light and dark, with `-screen tips` and `-screen tip -tip <id>`.
+Pass of 2026-11-13 (slices 1, 2 and 3 of 3). Checked on iPhone 17 Pro and iPad Pro 13 simulators, light and dark, with `-screen tips` and `-screen tip -tip <id>`.
 
 ## Where it opens
 
@@ -56,6 +56,11 @@ Scripts are `async` and step with `DemoTiming.delay`; a scene's own values chang
 | FocusCover | `FocusCoverDemo` | `NowPlayingView(demo:)` on the `tall` (20:9) phone; tap the cover, focus 2400, tap, 1400 |
 | CoverMenu | `CoverMenuDemo` | Hold the cover, the playing song's sheet (Favorite / Add to playlist / Share, Go to album), 1800, tap the cover above it |
 | KeepScreenOn | `CoverMenuDemo(keepScreenOn:)` | The same sheet with `TrackMenuToggleRow`; switch Keep screen on, 1200 |
+| MiniPlayerMenu | `MiniPlayerMenuDemo` | The demo Library under the playing bar (`DemoShellBar(nowPlaying:)`: Home, the real `PillContent(demo:)`, Library, Search); hold the pill, the playing song's sheet (as the app's pill gives it: Favorite / Add to playlist / Share, Go to album, Keep screen on), 1800, tap above it |
+| NoteMoments | `NoteMomentsDemo` | `NowPlayingView(demo:)`: tap Write (the phone keeps the playhead's second as an anchor, `NowPlayingDemo.write`), 1600; scrub from 14 % past the anchor onto it over 1100 (the bar catches, its bubble reads Note), 1100, on to 5 % before it over 500 |
+| LibrarySearch | `LibrarySearchDemo` | The demo Library (`DemoLibraryPage`: `LibrarySearchPillLabel`, the account, `LibraryFilterRow`, `LibraryGridCellFace` three to a row) under the idle bar; hold Library, Search opens over it (`DemoLibrarySearch`), 1800, tap ✕ |
+| Labs | `LabsDemo` | `SettingsPage(demoScheme:)` + `LabsBody` (split out of `LabsView`) with the model ready; 700, tap the Lyric Cards switch, 2400 |
+| Name | `NameDemo` | The mark (`YoinArmsCanvas`, tertiary / primary / secondary arms) 96 in the middle; a tap anywhere sounds three rings 0.22 s apart over 2.4 s, to 60 % of the screen's height; tap, 1200, tap, 2000 |
 
 The demo Home (`DemoHomePage`) is Home's header row (greeting, the real `EditTitleSwap`, the account avatar), Jump Back In's `AlbumItem`s three to a row, and the idle bar drawn from `ShellNavFace` (the bar's own button face) in the bar's glass.
 
@@ -66,6 +71,10 @@ Differences kept:
 - All Memories on the phone has no glass edge blur under its top bar: the system draws it at the window's scale, over the phone's rim.
 - Edit Home: the finger taps Done in the header, where iOS keeps Undo and Done (Android's bar turns into them).
 - Now Playing's one-line hero: the artist now takes its own width up to its cap (Android `widthIn(max =)`), in the app too; a cap-wide frame had cut "Slow Light" short beside "Mira Sol".
+- Library on the phone: no sort row over the grid (its menu is the account's).
+- Quick search: Search is a page of the app's window, so the phone draws its open state from SearchView's numbers (the field on Library's pill, the ✕, the types for a Subsonic server: no scope pair, no Playlists), as Android draws M3's full-screen search. Closing is the ✕ (Android: the back arrow), and the surface covers the bar, as Android's does.
+- Mini player options: the sheet keeps Keep screen on, as iOS's pill sheet does (Android's leaves the player group out).
+- Name: the page behind the mark is the Library / Home gradient (Android ExpressivePageBackground).
 - Views that take a demo (`AllMemoriesView(demo:)`, `HomeLyricCardsSection(demo:)`, `HomeMemoryLedgerSection(onOpen:)`, `SpotifyElsewherePill(demoCover:)`) load, play, open and remember nothing in it.
 
 Now Playing on the phone (`NowPlaying/NowPlayingDemo.swift`): a made-up song (Android `DemoNowPlayingTrack`: Harbour Lights' first song, 3:34, from 0:58, FLAC 24/96, a favorite, 8.2) with its own playhead on a 250 ms tick, read through `PlaybackPosition` (`\.demoPlayhead`). In demo mode the page plays, loads, writes, opens and folds nothing; its rating bar and heart change only the demo's values; the pager, the seek bar and the pills take no drag (a sideways drag on the phone turns the tips).
@@ -74,6 +83,7 @@ The album page on the phone: `AlbumDetailView(album:demo:)` starts and stays on 
 
 The phone's sheet (`DemoSheetStage`): the system's sheet belongs to the window, so the phone's rises from its foot on the spatial spring, 8 inside the screen's edges, corner 38, the grabber 36 × 5, on regular glass (content moves under it: the page behind steps back by the system sheet's GlassLab numbers, dimmed at least 10 %). Android's Keep screen on demo scrolls its sheet first; on iOS the sheet fits the phone and the finger goes straight to the switch.
 
-## Not done (slice 3)
+## Without a scene
 
-Scenes for MiniPlayerMenu, PullForMemories, NoteMoments, LibrarySearch, Name, Labs, and the iOS-only VolumeLeveling and HomeScreenWidgets (no Android scene). A new scene: a view taking `playing` and `scheme`, built on `DemoPhone`, listed in `TipIllustration.scenes` and its switch.
+- PullForMemories: Memories' card (`MemoryCardFace`) runs on the deck model (`MemoriesDeckModel` with its presentation, diary morph and awards) and an `AlbumMemory`; a phone of its own needs a demo deck and a pull wired to the phone's own reveal. Left for a pass of its own.
+- VolumeLeveling, HomeScreenWidgets: iOS only; Android has no scene to port (one would show Settings › the Subsonic account, and the Home Screen's widget gallery, which the app does not draw).

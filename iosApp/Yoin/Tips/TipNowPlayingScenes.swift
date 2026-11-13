@@ -153,3 +153,74 @@ struct CoverMenuDemo: View {
         }
     }
 }
+
+// MARK: - Notes pin the second
+
+/// Write keeps the second it was tapped at as the note's anchor; scrubbing the wave progress bar back across
+/// it, the bar catches there and its bubble reads Note (WavyProgressBar's note anchors). The scrub is acted
+/// out on the bar (`NowPlayingDemo.scrub`), a frame at a time, as a finger's would be.
+struct NoteMomentsDemo: View {
+    var playing: Bool
+    var scheme: CoverScheme
+    @State private var demo = TipDemo.nowPlaying()
+
+    /// How far past the anchor the scrub starts, and where it ends before it (fractions of the bar; Android).
+    static let scrubFrom: Double = 0.14
+    static let scrubPast: Double = 0.05
+    /// Where on the bar's 40-tall frame the line runs (it sits at the frame's foot).
+    static let barFy: CGFloat = 0.85
+
+    /// [from] to [to] along the drag's curve (FastOutSlowIn) over [ms], after the finger's touch-down.
+    @MainActor
+    static func scrub(_ demo: NowPlayingDemo, from: Double, to: Double, ms: Int) async throws {
+        try await DemoTiming.delay(DemoTiming.dragDownMs)
+        let curve = UnitCurve.bezier(startControlPoint: UnitPoint(x: 0.4, y: 0), endControlPoint: UnitPoint(x: 0.2, y: 1))
+        let frames = max(1, ms / 16)
+        for i in 1...frames {
+            try await DemoTiming.delay(16)
+            demo.scrub = from + (to - from) * curve.value(at: Double(i) / Double(frames))
+        }
+    }
+
+    var body: some View {
+        DemoPhone(playing: playing, scheme: scheme, script: { finger in
+            do {
+                try await act(finger)
+            } catch {
+                // Stopped mid-scrub (the user took the phone): the bar lets go.
+                withAnimation(.spring(duration: 0.3, bounce: 0)) { demo.scrub = nil }
+                throw error
+            }
+        }) {
+            DemoNowPlaying(demo: demo, playing: playing)
+        }
+    }
+
+    private func act(_ finger: DemoFinger) async throws {
+        demo.noteAnchorsMs = []
+        demo.scrub = nil
+        try await DemoTiming.delay(900)
+        try await finger.moveTo("write")
+        try await finger.tap { withAnimation(Yoin.spatial) { demo.write() } }
+        try await DemoTiming.delay(1_600)
+        guard let anchor = demo.noteAnchors.last else { return }
+        let from = min(anchor + Self.scrubFrom, 1), to = max(anchor - Self.scrubPast, 0)
+        let start = finger.at("progressBar", fx: from, fy: Self.barFy)
+        try await finger.moveTo(x: start.x, y: start.y)
+        withAnimation(.spring(duration: 0.35, bounce: 0.3)) { demo.scrub = from }
+        let onNote = finger.at("progressBar", fx: anchor, fy: Self.barFy)
+        async let bar: Void = Self.scrub(demo, from: from, to: anchor, ms: 1_100)
+        try await finger.drag(toX: onNote.x, toY: onNote.y, ms: 1_100)
+        try await bar
+        // On the anchor the bar holds and its bubble reads Note.
+        try await DemoTiming.delay(1_100)
+        let past = finger.at("progressBar", fx: to, fy: Self.barFy)
+        async let leave: Void = Self.scrub(demo, from: anchor, to: to, ms: 500)
+        try await finger.drag(toX: past.x, toY: past.y, ms: 500)
+        try await leave
+        try await DemoTiming.delay(200)
+        withAnimation(.spring(duration: 0.3, bounce: 0)) { demo.scrub = nil }
+        try await finger.lift()
+        try await DemoTiming.delay(1_600)
+    }
+}

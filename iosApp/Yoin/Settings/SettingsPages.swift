@@ -9,6 +9,8 @@ enum SettingsDestination: Hashable, Sendable {
 /// SettingsFeatureActivity; 51 2026-11-09: every Settings row opens a page, nothing unfolds in the list).
 struct SettingsPage<Content: View>: View {
     var title: String
+    /// The tip page's demo phone: the page in these colours, its back button going nowhere.
+    var demoScheme: CoverScheme? = nil
     @ViewBuilder var content: (_ app: CoverScheme, _ row: Color) -> Content
 
     @Environment(AppModel.self) private var model
@@ -16,7 +18,8 @@ struct SettingsPage<Content: View>: View {
     @Environment(\.dismiss) private var dismiss
 
     private var app: CoverScheme {
-        model.isIdle ? .brand(dark: colorScheme == .dark)
+        if let demoScheme { return demoScheme }
+        return model.isIdle ? .brand(dark: colorScheme == .dark)
                      : CoverScheme(album: model.playback.album, dark: colorScheme == .dark)
     }
 
@@ -37,7 +40,7 @@ struct SettingsPage<Content: View>: View {
         .scrollDismissesKeyboard(.interactively)
         .safeAreaBar(edge: .top) {
             HStack {
-                Button { dismiss() } label: {
+                Button { if demoScheme == nil { dismiss() } } label: {
                     YoinIcon("back", size: 22)
                         .foregroundStyle(app.onSurface)
                         .frame(width: 40, height: 40)
