@@ -165,7 +165,11 @@ private fun CardBody(
                             groups = listOf(
                                 MetaGroup.Kind(
                                     stringResource(
-                                        if (prompt.playing) R.string.continue_on_playing else R.string.continue_on_paused,
+                                        if (prompt.playing) {
+                                            R.string.continue_on_playing
+                                        } else {
+                                            R.string.continue_on_paused
+                                        },
                                     ),
                                 ),
                                 MetaGroup.Stat(formatPosition(prompt.positionMs)),

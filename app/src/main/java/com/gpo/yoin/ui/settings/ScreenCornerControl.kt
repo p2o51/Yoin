@@ -165,7 +165,10 @@ internal fun ScreenCornerValueRow(
                 MetaLine(
                     groups = listOf(
                         MetaGroup.Plain(stringResource(R.string.screen_corners_follow)),
-                        MetaGroup.Plain(stringResource(R.string.screen_corners_value, value.roundToInt()), muted = true),
+                        MetaGroup.Plain(
+                            stringResource(R.string.screen_corners_value, value.roundToInt()),
+                            muted = true,
+                        ),
                     ),
                     style = MaterialTheme.typography.titleMedium.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurface,
