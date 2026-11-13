@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -102,6 +103,8 @@ import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.SeamTopPreference
 import com.gpo.yoin.ui.component.SeamTopStyle
@@ -1251,19 +1254,23 @@ private fun GeminiItem(
     selected: Boolean = false,
 ) {
     val ai = AiSettings(aiPrefs, geminiKey = apiKey)
-    val summaryText = if (!ai.isReady) {
-        stringResource(R.string.settings_gemini_summary_empty)
-    } else {
-        stringResource(
-            R.string.settings_gemini_summary_set,
-            providerName(ai.provider),
-            if (ai.provider == AiProvider.Custom) ai.modelId else tierName(aiPrefs.tier),
-        )
-    }
+    val provider = providerName(ai.provider)
+    val tier = if (ai.provider == AiProvider.Custom) ai.modelId else tierName(aiPrefs.tier)
     FeaturePageRow(
         icon = YoinSymbols.Sparkle,
         title = stringResource(R.string.settings_gemini_title),
-        summary = summaryText,
+        summary = if (ai.isReady) null else stringResource(R.string.settings_gemini_summary_empty),
+        summaryContent = if (ai.isReady) {
+            {
+                MetaLine(
+                    groups = listOf(MetaGroup.Plain(provider), MetaGroup.Plain(tier, muted = true)),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            null
+        },
         selected = selected,
         onClick = onOpenPage,
         listDetail = listDetail,
@@ -1382,9 +1389,10 @@ private fun FeaturePageRow(
     selected: Boolean,
     onClick: () -> Unit,
     listDetail: Boolean = true,
+    summaryContent: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     if (!listDetail) {
-        SettingsItem(icon = icon, title = title, summary = summary, onClick = onClick)
+        SettingsItem(icon = icon, title = title, summary = summary, summaryContent = summaryContent, onClick = onClick)
         return
     }
     SelectableSegment(selected = selected) {
@@ -1392,6 +1400,7 @@ private fun FeaturePageRow(
             icon = icon,
             title = title,
             summary = summary,
+            summaryContent = summaryContent,
             onClick = onClick,
             trailing = {
                 Icon(

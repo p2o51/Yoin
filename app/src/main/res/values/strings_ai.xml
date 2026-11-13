@@ -57,7 +57,6 @@
     <string name="ai_try_album">Album</string>
     <string name="ai_try_run">Try</string>
     <string name="ai_try_running">Searching…</string>
-    <string name="ai_try_time">%1$s · %2$s s</string>
     <string name="ai_try_queries">Searched: %1$s</string>
     <string name="ai_try_pages">%1$d pages read</string>
     <string name="ai_try_builtin">The model searched on its own</string>

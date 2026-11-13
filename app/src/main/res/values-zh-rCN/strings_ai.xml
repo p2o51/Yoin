@@ -52,7 +52,6 @@
     <string name="ai_try_album">专辑</string>
     <string name="ai_try_run">试试</string>
     <string name="ai_try_running">正在查…</string>
-    <string name="ai_try_time">%1$s · %2$s 秒</string>
     <string name="ai_try_queries">搜了：%1$s</string>
     <string name="ai_try_pages">读了 %1$d 个网页</string>
     <string name="ai_try_builtin">模型自己搜索</string>

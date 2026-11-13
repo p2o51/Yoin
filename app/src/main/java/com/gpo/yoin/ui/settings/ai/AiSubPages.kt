@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -204,10 +205,19 @@ internal fun AiTryPageContent() {
 @Composable
 private fun TestResult(run: TestRun.Done) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            stringResource(R.string.ai_try_time, run.model, "%.1f".format(java.util.Locale.ROOT, run.millis / 1000f)),
-            style = MaterialTheme.typography.titleMedium,
-        )
+        Column {
+            Text(
+                run.model,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                stringResource(R.string.ai_seconds, "%.1f".format(java.util.Locale.ROOT, run.millis / 1000f)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Text(
             when (run.search) {
                 AiSettings.SearchKind.BuiltIn -> stringResource(R.string.ai_try_builtin)
