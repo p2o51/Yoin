@@ -104,6 +104,7 @@ import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.detail.AlbumBarStatusBarEffect
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.settings.AccountMark
 import com.gpo.yoin.ui.settings.SettingsBackButton
 import com.gpo.yoin.ui.settings.SettingsHeadline
@@ -331,7 +332,7 @@ private fun LedgerBody(
     BoxWithConstraints(modifier) {
         // A large screen is used, not left as margins (owner 2026-11-12): the stats run large above a wider
         // grid, and the timeline and the cards run in as many columns as fit, so they fall into a masonry.
-        val layout = ledgerLayout(maxWidth)
+        val layout = ledgerLayoutFor(maxWidth, LocalYoinWindowInfo.current.isCompactHeight)
         val gridView = @Composable { gridItemModifier: Modifier ->
             MemoryGridView(
                     grid = state.grid,
@@ -1293,7 +1294,7 @@ private fun LedgerCover(album: MemoryLedgerAlbum?, state: MemoryLedgerState, mod
 }
 
 /** How the page lays out at a width: how many lanes, how wide it may grow, whether the top runs large. */
-private data class LedgerLayout(
+internal data class LedgerLayout(
     /** Larger stats over a wider, centred grid, and larger month headers. */
     val wide: Boolean,
     /** The timeline's columns: 1 on a phone (everything full width), more as a masonry. */
@@ -1304,7 +1305,9 @@ private data class LedgerLayout(
     val gutter: Dp,
 )
 
-private fun ledgerLayout(width: Dp): LedgerLayout = when {
+internal fun ledgerLayoutFor(width: Dp, compactHeight: Boolean): LedgerLayout = when {
+    // A short window (a landscape phone) is the phone layout whatever its width: height is judged first.
+    compactHeight -> LedgerLayout(wide = false, columns = 1, lanes = 2, maxWidth = 720.dp, gutter = 12.dp)
     width >= 1100.dp -> LedgerLayout(wide = true, columns = 3, lanes = 3, maxWidth = 1240.dp, gutter = 28.dp)
     width >= 840.dp -> LedgerLayout(wide = true, columns = 2, lanes = 2, maxWidth = 1040.dp, gutter = 28.dp)
     width >= 600.dp -> LedgerLayout(wide = false, columns = 2, lanes = 2, maxWidth = 840.dp, gutter = 20.dp)
