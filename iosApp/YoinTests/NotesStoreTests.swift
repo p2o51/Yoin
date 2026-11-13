@@ -172,7 +172,7 @@ final class RatingScaleTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString).appendingPathComponent("ratings.json")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let data = NowPlayingData(ratings: LocalRatings(fileURL: url))
+        let data = NowPlayingData(ratings: LocalRatings(fileURL: url), outbox: RatingOutbox(fileURL: nil))
         let track = PlayableTrack(id: "s1", provider: "subsonic", title: "T", artist: "A", album: "Al", albumId: nil,
                                   durationSec: 200, streamURL: URL(string: "http://x/s1")!, coverURL: nil,
                                   starred: true, userRating: 3)

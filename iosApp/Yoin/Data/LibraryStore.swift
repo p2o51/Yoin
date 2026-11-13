@@ -56,6 +56,8 @@ final class LibraryStore {
     @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "library")
     /// Subsonic plays waiting for the server, and when each song started (its submission's time).
     @ObservationIgnored let scrobbles: ScrobbleOutbox = .shared
+    @ObservationIgnored let ratingOutbox: RatingOutbox = .shared
+    @ObservationIgnored private var flushingRatings = false
     @ObservationIgnored private var scrobbleStarts: [String: Int64] = [:]
     /// What the server's now-playing view was last told (Playback/PlaybackReport.swift).
     @ObservationIgnored var playbackReports = PlaybackReportTracker()
@@ -218,8 +220,9 @@ final class LibraryStore {
     func loadHome(force: Bool = false) async {
         guard force || homePhase == .idle || homePhase == .failed else { return }
         guard isReal else { return }
-        // A launch or an account: plays left over from before go out now.
+        // A launch or an account: plays and ratings left over from before go out now.
         flushScrobbles()
+        flushRatings()
         // The last feed paints at once (Android's Home snapshot); the load below replaces it.
         let gen = generation, epoch = diskEpoch, scope = historyScope
         homePhase = .loading
@@ -1359,18 +1362,62 @@ final class LibraryStore {
         }
     }
 
-    /// Writes a track's rating (Yoin's 0–10; the server gets 0–5).
+    /// Sends a track's rating to the server (Yoin's 0–10 as 0–5 stars), after the caller stored it in
+    /// `LocalRatings`: the newest stored value goes, and the song stays owed to the account
+    /// (`RatingOutbox`) until the server has it, so a rating given offline goes out again later.
     func setRating(_ track: Track, rating: Double?) async -> Bool {
-        guard let client, track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return false }
-        do {
-            try await client.setRating(id: track.id.rawId, rating: Int32(SubsonicMapping.serverRating(rating)))
-            dropAlbums(containing: track.id.rawId) { $0.rating = rating }
-            return true
-        } catch {
-            log.error("rating failed: \(ServerSession.message(for: error), privacy: .public)")
+        guard track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC, let scope = session.scope else { return false }
+        let entry = RatingOutbox.Entry(scope: scope, songId: track.id.rawId)
+        ratingOutbox.mark(entry)
+        guard let client else { return false }
+        let ratings = ratings
+        let outcome = await ratingOutbox.push(entry, next: {
+            RatingOutbox.next(entry, ratings: ratings, activeScope: session.scope)
+        }, send: { stars in
+            try await client.setRating(id: entry.songId, rating: stars)
+        })
+        guard outcome != .kept else {
+            log.error("rating kept for later: \(entry.songId, privacy: .public)")
             return false
         }
+        dropAlbums(containing: track.id.rawId) { $0.rating = rating }
+        return true
     }
+
+    /// Sends the account's ratings its server hasn't taken (Android `syncPendingRatings`), oldest first,
+    /// one at a time, each with its newest value: when an account becomes active, when the network comes
+    /// back and when the app comes to the front. A rating the server refuses stays and doesn't hold the
+    /// others back; three failures in a row (still offline) end the run.
+    func flushRatings() {
+        guard !flushingRatings, let client, let scope = session.scope, !ratingOutbox.waiting(for: scope).isEmpty
+        else { return }
+        flushingRatings = true
+        let ratings = ratings
+        Task {
+            defer { flushingRatings = false }
+            var failuresInARow = 0
+            for entry in ratingOutbox.waiting(for: scope) {
+                guard session.scope == scope, ratingOutbox.isPending(entry) else { continue }
+                let outcome = await ratingOutbox.push(entry, next: {
+                    RatingOutbox.next(entry, ratings: ratings, activeScope: session.scope)
+                }, send: { stars in
+                    try await client.setRating(id: entry.songId, rating: stars)
+                })
+                if outcome == .kept {
+                    failuresInARow += 1
+                    guard failuresInARow < Self.ratingRetryMaxFailures, session.scope == scope else {
+                        log.info("ratings kept for later")
+                        return
+                    }
+                } else {
+                    failuresInARow = 0
+                }
+            }
+        }
+    }
+
+    /// Android RATING_RETRY_MAX_FAILURES.
+    nonisolated static let ratingRetryMaxFailures = 3
 
     // MARK: Playback
 

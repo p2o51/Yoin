@@ -293,12 +293,18 @@ final class AppModel {
         // Downloads the system finished or held while Yoin was away arrive before the queue moves on.
         BackgroundTransfers.shared.reconnect(overMobileData: OfflineDownloads.shared.overMobileData)
         OfflineDownloads.shared.pump()
-        // Waiting plays go out when the network comes back or the app comes to the front.
-        store.scrobbles.onReachable = { [weak store] in store?.flushScrobbles() }
+        // Waiting plays and ratings go out when the network comes back or the app comes to the front.
+        store.scrobbles.onReachable = { [weak store] in
+            store?.flushScrobbles()
+            store?.flushRatings()
+        }
         store.scrobbles.watchNetwork()
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                                queue: .main) { [weak store] _ in
-            MainActor.assumeIsolated { store?.flushScrobbles() }
+            MainActor.assumeIsolated {
+                store?.flushScrobbles()
+                store?.flushRatings()
+            }
         }
         watchPlaybackReports()
         Task { await profiles.fillSpotifyAvatars() }
@@ -411,6 +417,12 @@ final class AppModel {
                     try? await Task.sleep(for: .seconds(1))
                     let d = player.progress.durationSec > 0 ? player.progress.durationSec : player.currentTrack?.durationSec ?? 0
                     player.seek(to: max(0, d - fromEnd))
+                }
+                // `-serverRating 8.4`: the playing song rated as a released drag would (rating outbox QA: with
+                // the server off it stays owed, and goes out when the account or the network is back).
+                if d.object(forKey: "serverRating") != nil, let t = player.currentTrack {
+                    NowPlayingData.shared.dragRating(d.double(forKey: "serverRating"), t)
+                    NowPlayingData.shared.commitRating(t, client: session.client)
                 }
             }
             guard let route else { return }
