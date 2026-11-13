@@ -1558,7 +1558,9 @@ class PlaybackManager(
             tracks = tracks,
             startIndex = startIndex,
             shuffled = shuffled,
-            playlistOffset = { id, index -> spotifySource.resolvePlaylistContextOffset(id, index) },
+            playlistOffset = { id, index ->
+                tracks.getOrNull(index)?.let { spotifySource.resolvePlaylistContextOffset(id, index, it.id) }
+            },
         )
         if (attempts.isEmpty()) return null
         return { target ->
@@ -1610,7 +1612,9 @@ class PlaybackManager(
             tracks = tracks,
             startIndex = startIndex,
             shuffled = shuffled,
-            playlistOffset = { id, index -> spotifySource.resolvePlaylistContextOffset(id, index) },
+            playlistOffset = { id, index ->
+                tracks.getOrNull(index)?.let { spotifySource.resolvePlaylistContextOffset(id, index, it.id) }
+            },
         ).remoteContext() ?: return null
         return { context.remoteStart(spotifySource::contextIndexOf) }
     }

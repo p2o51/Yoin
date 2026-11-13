@@ -277,6 +277,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                             playbackProgress = miniPlayerProgress,
                             notedSongIds = notedSongIds,
                             trackMenu = trackMenu,
+                            onRemoveSong = viewModel::removeTrack,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .pageBesideNowPlayingPanel(nowPlayingPanel),

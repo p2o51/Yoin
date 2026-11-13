@@ -458,6 +458,7 @@ internal fun PlaylistPaneEntry(
             onOpenAlbum = onOpenAlbum,
             onOpenArtist = onOpenArtist,
         ),
+        onRemoveSong = viewModel::removeTrack,
         modifier = Modifier.fillMaxSize(),
     )
 }

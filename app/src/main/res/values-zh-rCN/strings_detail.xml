@@ -229,6 +229,7 @@
     <string name="track_menu_favorite">收藏</string>
     <string name="track_menu_favorited">已收藏</string>
     <string name="track_menu_view_in_scrapbook">在剪贴簿里查看</string>
+    <string name="track_menu_remove_from_playlist">从播放列表移除</string>
     <!-- 歌单「备份歌单」（docs/playlist-transfer.md §7） -->
     <string name="detail_playlist_backup_menu">云备份</string>
     <plurals name="detail_playlist_backup_done">
