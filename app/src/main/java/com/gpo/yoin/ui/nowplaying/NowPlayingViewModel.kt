@@ -40,6 +40,7 @@ import com.gpo.yoin.data.model.Track
 import androidx.media3.common.Player
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.AddToPlaylistRow
+import com.gpo.yoin.ui.component.DeviceStatusDlnaProtocols
 import com.gpo.yoin.ui.component.FavoriteGlyph
 import com.gpo.yoin.ui.component.NoteDraftState
 import com.gpo.yoin.ui.component.NoteSaveRequest
@@ -1072,28 +1073,46 @@ class NowPlayingViewModel(
         }
         val currentFavorite = (uiState.value as? NowPlayingUiState.Playing)?.isStarred
             ?: _isStarred.value
-        val nextFavorite = !currentFavorite
-        viewModelScope.launch {
-            repository.setFavorite(track, nextFavorite)
-                .onSuccess {
-                    _isStarred.value = nextFavorite
-                }
-                .onFailure { error ->
-                    // The optimistic heart has already reverted in the repository;
-                    // surface WHY instead of leaving a silent no-op (the symptom
-                    // was "heart bounces but nothing sticks").
-                    _addToPlaylistMessages.tryEmit(
-                        userMessage(
-                            error.message,
-                            if (nextFavorite) {
-                                R.string.np_msg_couldnt_save_favorite
-                            } else {
-                                R.string.np_msg_couldnt_remove_favorite
-                            },
-                        ),
-                    )
-                }
+        viewModelScope.launch { setFavorite(track, !currentFavorite) }
+    }
+
+    /**
+     * The keyboard's Like (Ctrl+D): the playing song's heart flips also when
+     * Now Playing is closed, from the state the repository holds for it —
+     * [uiState] is only kept up while the player is on screen.
+     */
+    fun toggleFavoriteOfPlaying() {
+        val track = playbackManager.playbackState.value.currentTrack ?: return
+        if (track.id.rawId.isBlank() || track.id.rawId == REMOTE_UNKNOWN_TRACK_ID) {
+            _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_msg_cant_save))
+            return
         }
+        viewModelScope.launch {
+            val starred = repository.observeFavoriteState(track).first().isStarred
+            setFavorite(track, !starred)
+        }
+    }
+
+    private suspend fun setFavorite(track: Track, nextFavorite: Boolean) {
+        repository.setFavorite(track, nextFavorite)
+            .onSuccess {
+                _isStarred.value = nextFavorite
+            }
+            .onFailure { error ->
+                // The optimistic heart has already reverted in the repository;
+                // surface WHY instead of leaving a silent no-op (the symptom
+                // was "heart bounces but nothing sticks").
+                _addToPlaylistMessages.tryEmit(
+                    userMessage(
+                        error.message,
+                        if (nextFavorite) {
+                            R.string.np_msg_couldnt_save_favorite
+                        } else {
+                            R.string.np_msg_couldnt_remove_favorite
+                        },
+                    ),
+                )
+            }
     }
 
     fun addCurrentToLibrary() {
@@ -1839,7 +1858,11 @@ private fun buildDevices(
                 id = renderer.id,
                 name = renderer.name,
                 isActive = renderer.id == selectedDlna?.id,
-                statusText = if (renderer.id == selectedDlna?.id) NpDeviceStatusConnected else "DLNA · UPnP",
+                statusText = if (renderer.id == selectedDlna?.id) {
+                    NpDeviceStatusConnected
+                } else {
+                    DeviceStatusDlnaProtocols
+                },
             )
         })
     }

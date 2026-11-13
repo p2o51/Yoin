@@ -78,6 +78,7 @@ import com.gpo.yoin.ui.experience.LocalWindowCovered
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.abs
 
 /**
@@ -374,8 +375,16 @@ private fun NotePageLine(
         ) {
             if (onRealign != null) {
                 YoinDropdownMenuItem(
-                    text = stringResource(R.string.np_note_realign, formatNotePosition(menuNowMs)),
+                    text = stringResource(R.string.np_note_realign),
                     leadingIcon = { Icon(YoinSymbols.MusicNote, contentDescription = null) },
+                    // The moment it would move to, quieter at the item's end: no dot.
+                    trailingIcon = {
+                        Text(
+                            text = formatNotePosition(menuNowMs),
+                            style = MaterialTheme.typography.labelLarge.withTabularFigures(),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
                     onClick = {
                         menuOpen = false
                         haptics.performTick()

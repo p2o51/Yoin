@@ -55,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -338,7 +339,7 @@ private fun LazyItemScope.QueueEditableRow(
     val latestRow by rememberUpdatedState(row)
     val latestShown by rememberUpdatedState(shown)
     val handle = if (canMove) {
-        Modifier.pointerInput(Unit) {
+        Modifier.pointerHoverIcon(GrabPointer).pointerInput(Unit) {
             detectVerticalDragGestures(
                 onDragStart = {
                     state.dragging = latestShown.indexOfFirst { it.item.entryId == latestRow.item.entryId }

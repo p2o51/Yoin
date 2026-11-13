@@ -268,9 +268,15 @@ private fun NanoStatus.labelRes(): Int = when (this) {
 }
 
 private const val AICORE_PACKAGE = "com.google.android.aicore"
+private const val PLAY_STORE_PACKAGE = "com.android.vending"
 
+/**
+ * AICore's page in the Play Store itself: a bare market:// link lets every app that claims those links answer,
+ * and Android asks which one ("Open with"). Without Play, the page on the web.
+ */
 private fun openAiCoreInPlay(context: Context) {
     val market = Intent(Intent.ACTION_VIEW, "market://details?id=$AICORE_PACKAGE".toUri())
+        .setPackage(PLAY_STORE_PACKAGE)
     val web = Intent(Intent.ACTION_VIEW, "https://play.google.com/store/apps/details?id=$AICORE_PACKAGE".toUri())
     try {
         context.startActivity(market)

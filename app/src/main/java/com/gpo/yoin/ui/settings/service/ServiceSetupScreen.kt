@@ -4,6 +4,9 @@ import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.SeamTop
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.togetherWith
@@ -76,6 +79,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthContract
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.MetaGroup
@@ -143,6 +147,7 @@ fun ServiceSetupScreen(
         onBackClick = onBackClick,
         onTestSubsonic = viewModel::testSubsonicConnection,
         onSaveSubsonic = viewModel::saveSubsonicProfile,
+        onSubsonicAddressChange = viewModel::onSubsonicAddressChanged,
         onSaveSpotifyClientId = viewModel::saveSpotifyClientId,
         onConnectSpotify = viewModel::connectSpotify,
         appleMusicContent = { AppleMusicValidationSection(profileId = viewModel.profileId, onSaved = { onDone(it) }) },
@@ -164,6 +169,7 @@ fun ServiceSetupContent(
     focusClientId: Boolean = false,
     onTestSubsonic: (String, String, String) -> Unit = { _, _, _ -> },
     onSaveSubsonic: (String, String, String) -> Unit = { _, _, _ -> },
+    onSubsonicAddressChange: () -> Unit = {},
     onSaveSpotifyClientId: (String) -> Unit = {},
     onConnectSpotify: () -> Unit = {},
     appleMusicContent: @Composable () -> Unit = {},
@@ -241,6 +247,7 @@ fun ServiceSetupContent(
                             state = state,
                             onTest = onTestSubsonic,
                             onSave = onSaveSubsonic,
+                            onAddressChange = onSubsonicAddressChange,
                         )
                         SetupService.Spotify -> SpotifyConnectGroup(
                             state = state,
@@ -522,6 +529,7 @@ private fun SubsonicConnectGroup(
     state: ServiceSetupUiState,
     onTest: (String, String, String) -> Unit,
     onSave: (String, String, String) -> Unit,
+    onAddressChange: () -> Unit = {},
 ) {
     val form = state.subsonic
     var serverUrl by rememberSaveable { mutableStateOf(form.initialUrl) }
@@ -558,13 +566,20 @@ private fun SubsonicConnectGroup(
                 if (form.credentialsMissing) {
                     InlineNotice(stringResource(R.string.settings_setup_password_missing))
                 }
-                ExpressiveTextField(
-                    value = serverUrl,
-                    onValueChange = { serverUrl = it },
-                    label = stringResource(R.string.settings_setup_address_label),
-                    placeholder = stringResource(R.string.settings_setup_address_placeholder),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                // What is wrong with the address sits right under it, and goes once the address changes.
+                Column {
+                    ExpressiveTextField(
+                        value = serverUrl,
+                        onValueChange = {
+                            if (it != serverUrl) onAddressChange()
+                            serverUrl = it
+                        },
+                        label = stringResource(R.string.settings_setup_address_label),
+                        placeholder = stringResource(R.string.settings_setup_address_placeholder),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    SubsonicAddressError(form.addressError)
+                }
                 ExpressiveTextField(
                     value = username,
                     onValueChange = { username = it },
@@ -608,6 +623,27 @@ private fun SubsonicConnectGroup(
     }
 }
 
+/** The address field's error: unfolds under the field on the spatial spring and folds away again. */
+@Composable
+private fun SubsonicAddressError(error: UiText?) {
+    // Kept while it folds away, so the words don't vanish before the space does.
+    var shown by remember { mutableStateOf(error) }
+    if (error != null) shown = error
+    AnimatedVisibility(
+        visible = error != null,
+        enter = expandVertically(YoinMotion.spatialSpring(), expandFrom = Alignment.Top) +
+            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = shrinkVertically(YoinMotion.spatialSpring(), shrinkTowards = Alignment.Top) +
+            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+    ) {
+        shown?.let { message ->
+            Box(Modifier.padding(start = 4.dp, top = 8.dp)) {
+                StatusRow(YoinSymbols.Error, message.asString(), MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
 /** Only speaks when there's something to say; animates between states. */
 @Composable
 private fun SubsonicStatusLine(status: SubsonicStatus) {
@@ -623,7 +659,7 @@ private fun SubsonicStatusLine(status: SubsonicStatus) {
         val color by animateColorAsState(
             targetValue = when (current) {
                 is SubsonicStatus.Failed -> MaterialTheme.colorScheme.error
-                SubsonicStatus.Reachable -> MaterialTheme.colorScheme.primary
+                is SubsonicStatus.Reachable -> MaterialTheme.colorScheme.primary
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             animationSpec = YoinMotion.effectsSpring(),
@@ -648,20 +684,38 @@ private fun SubsonicStatusLine(status: SubsonicStatus) {
                     color = color,
                 )
             }
-            SubsonicStatus.Reachable -> StatusRow(
-                YoinSymbols.Check,
-                stringResource(R.string.settings_setup_reachable),
-                color,
-            )
+            is SubsonicStatus.Reachable -> Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                StatusRow(
+                    YoinSymbols.Check,
+                    stringResource(R.string.settings_setup_reachable),
+                    color,
+                )
+                // What the server calls itself ("Navidrome 0.64.2"), under the
+                // status and on its text's line; a plain Subsonic server gives none.
+                current.server?.let { server ->
+                    Text(
+                        text = server,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = StatusIconSize + StatusIconGap),
+                    )
+                }
+            }
             is SubsonicStatus.Failed -> StatusRow(YoinSymbols.Error, current.message.asString(), color)
         }
     }
 }
 
+private val StatusIconSize = 20.dp
+private val StatusIconGap = 8.dp
+
 @Composable
 private fun StatusRow(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, color: Color) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(StatusIconGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(StatusIconSize))
         Text(text = text, style = MaterialTheme.typography.bodyMedium, color = color)
     }
 }
@@ -839,6 +893,27 @@ private fun ServiceSetupSpotifyPreview() {
     YoinTheme {
         ServiceSetupContent(
             state = ServiceSetupUiState(service = SetupService.Spotify, isManaging = false),
+            onBackClick = {},
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F, heightDp = 900, name = "Subsonic account, tested")
+@Composable
+private fun ServiceSetupManageSubsonicPreview() {
+    YoinTheme {
+        ServiceSetupContent(
+            state = ServiceSetupUiState(
+                service = SetupService.Subsonic,
+                isManaging = true,
+                account = AccountFace(title = "qa", detail = "music.example.com"),
+                subsonic = SubsonicFormState(
+                    initialUrl = "https://music.example.com",
+                    initialUsername = "qa",
+                    initialPassword = "password",
+                    status = SubsonicStatus.Reachable(server = "Navidrome 0.64.2"),
+                ),
+            ),
             onBackClick = {},
         )
     }

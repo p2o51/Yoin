@@ -2,8 +2,7 @@
 <resources>
     <!-- 设置 › 下载 -->
     <string name="settings_downloads_title">下载</string>
-    <string name="settings_downloads_summary_empty">%1$s · 还没有下载</string>
-    <string name="settings_downloads_summary">%1$s · 本机已存 %2$s</string>
+    <string name="settings_downloads_summary">本机已存 %1$s</string>
     <string name="settings_downloads_quality">下载音质</string>
     <string name="settings_downloads_quality_original_detail">服务器上的原文件</string>
     <string name="settings_downloads_quality_note">只影响之后下载的歌，已下载的保持原来的音质。</string>
@@ -15,7 +14,6 @@
     <string name="settings_downloads_remove_all_detail">本机所有账号的下载</string>
     <string name="settings_downloads_list">已下载</string>
     <string name="settings_downloads_list_empty">还没有下载</string>
-    <string name="settings_downloads_entry_songs">%1$d 首 · %2$s</string>
     <string name="settings_downloads_entry_progress">正在下载 %1$d / %2$d</string>
     <string name="settings_downloads_entry_failed">有些歌没下载成功</string>
     <string name="settings_downloads_entry_remove">移除下载</string>

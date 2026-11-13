@@ -10,6 +10,8 @@ import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.contentcapture.ContentCaptureManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.window.embedding.RuleController
 import androidx.window.embedding.SplitController
@@ -17,6 +19,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import com.gpo.yoin.data.backup.PlaylistBackupFollower
+import com.gpo.yoin.player.PlayTrace
 import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
 import com.gpo.yoin.ui.component.ArtworkForegroundRetry
 import com.gpo.yoin.ui.component.ArtworkNetworkRecovery
@@ -53,6 +56,9 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         ContentCaptureManager.isEnabled = false
         // JavaCPP's process-memory budget is captured on first MusicKit/Pointer use.
         AppleMusicNativeMemoryPolicy.initialize(this)
+        // Settings › Help and about › Export log: from here on, playback events are kept.
+        PlayTrace.install(this)
+        PlayTrace.log("app launch")
         container = containerOverrideForTests ?: AppContainer(this)
         // Before any window composes: read inside the first composition, the stored choice
         // never reached that composition (Keep screen on came back off after a restart).
@@ -61,6 +67,15 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         retireLegacyImageDiskCache(cacheDir)
         registerArtworkNetworkRetry()
         ProcessLifecycleOwner.get().lifecycle.addObserver(ArtworkForegroundRetry())
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_START -> PlayTrace.log("app foreground")
+                    Lifecycle.Event.ON_STOP -> PlayTrace.log("app background")
+                    else -> Unit
+                }
+            },
+        )
         registerHostLifecycle()
         registerActivityEmbeddingRules()
         if (containerOverrideForTests == null) {

@@ -97,8 +97,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -1585,12 +1588,45 @@ class YoinRepository(
         id: MediaId,
         name: String,
         description: String? = null,
-    ): Result<Unit> =
-        requireSource().writeActions().renamePlaylist(id = id, name = name, description = description)
+    ): Result<Unit> {
+        // The account the rename is made on: the rows it renames are that account's.
+        val profileId = activeProfileId.value
+        return requireSource().writeActions().renamePlaylist(id = id, name = name, description = description)
             .onSuccess {
                 markSpotifyLibraryStaleIfNeeded()
                 invalidatePlaylistDetail(id)
+                renameStoredPlaylist(profileId, id, name)
+                _playlistRenames.tryEmit(PlaylistRename(profileId, id, name))
             }
+    }
+
+    /**
+     * A playlist renamed on its page, as the service took it: Home's rows keep
+     * a name of their own (the Activities' history rows, Jump Back In's pool),
+     * so they take this one without reading Home again.
+     */
+    data class PlaylistRename(val profileId: String?, val id: MediaId, val name: String)
+
+    private val _playlistRenames = MutableSharedFlow<PlaylistRename>(extraBufferCapacity = 16)
+    val playlistRenames: SharedFlow<PlaylistRename> = _playlistRenames.asSharedFlow()
+
+    /** The history rows and the pooled Jump Back In row of [id] on [profileId]'s account take [name]. */
+    private suspend fun renameStoredPlaylist(profileId: String?, id: MediaId, name: String) {
+        if (profileId.isNullOrBlank()) return
+        try {
+            database.activityEventDao().renamePlaylist(
+                profileId = profileId,
+                provider = id.provider,
+                entityIds = listOf(id.rawId, id.toString()),
+                title = name,
+            )
+            database.homeGridPoolDao().renamePlaylist(profileId, id.provider, id.rawId, name)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // The service has the name; the next read of Home brings it.
+        }
+    }
 
     suspend fun deletePlaylist(id: MediaId): Result<Unit> =
         requireSource().writeActions().deletePlaylist(id)

@@ -52,7 +52,7 @@
     <string name="home_placeholder_recently_played">近期无播放记录</string>
     <string name="home_placeholder_your_playlists">资料库中无播放列表</string>
     <string name="home_placeholder_other_profiles">其他账号最近没有播放</string>
-    <string name="home_placeholder_lyric_highlight">多听几首歌，Gemini Nano 会挑出第一句</string>
+    <string name="home_placeholder_lyric_highlight">暂无歌词卡片</string>
     <string name="home_placeholder_memory_grid">还没有回忆</string>
 
     <string name="home_other_profiles_switch_title">切换到「%1$s」？</string>
@@ -204,7 +204,7 @@
     <string name="home_tip_focus_cover_title">轻点封面聚焦</string>
     <string name="home_tip_focus_cover">正在播放里轻点封面进入聚焦，再点一下回到原样</string>
     <string name="home_tip_downloads_title">离线下载</string>
-    <string name="home_tip_downloads">Subsonic 账号可在歌曲、专辑或歌单菜单里下载，管理在设置 › 存储 › 下载</string>
+    <string name="home_tip_downloads">Subsonic 账号可在歌曲、专辑或歌单菜单里下载，管理在设置 › 账号 › 当前账号 › 存储 › 下载</string>
     <string name="home_tip_edit_home_title">重新排版首页</string>
     <string name="home_tip_edit_home">长按首页，重新排版</string>
     <string name="home_tip_pull_memories_title">Memories</string>
@@ -219,10 +219,12 @@
     <string name="home_tip_note_moments">在正在播放写的笔记，会钉在那一秒</string>
     <string name="home_tip_library_search_title">快速搜索</string>
     <string name="home_tip_library_search">长按底栏的资料库，直接搜索</string>
+    <string name="home_tip_library_refresh_title">刷新资料库</string>
+    <string name="home_tip_library_refresh">在资料库顶部往下拉，刷新正在看的内容</string>
     <string name="home_tip_keep_screen_on_title">屏幕常亮</string>
     <string name="home_tip_keep_screen_on">屏幕常亮在封面的长按菜单里</string>
     <string name="home_tip_scroll_edge_title">滚动边缘</string>
-    <string name="home_tip_scroll_edge">设置 › 动效 › 滚动边缘，换掉列表顶部的潮线</string>
+    <string name="home_tip_scroll_edge">设置 › 外观 › 滚动边缘，换掉列表顶部的潮线</string>
     <string name="home_tip_name_title">名字的由来</string>
     <string name="home_tip_name">Yoin 的名字来自日语「余韻」：余音不散</string>
     <string name="tip_position">%1$d / %2$d</string>

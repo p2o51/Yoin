@@ -137,8 +137,8 @@ private const val GridItemIndex = 2
 private val BarHeight = 64.dp
 
 /**
- * The page. [onOpenAlbum] opens an album of the account in use; another account's albums don't open (that
- * would switch accounts: a later step).
+ * The page. [onOpenAlbum] opens an album, of any account: another account's album switches there first
+ * ([MemoryLedgerActivity], after the one-off switch notice).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -224,7 +224,7 @@ internal fun MemoryLedgerScreen(
                         albumColors = albumColors,
                         // The real grid steps aside the moment its copies take off, so no square shows twice.
                         gridAlpha = { if (liftProgress(screen[0], barBottomPx) > 0.001f) 0f else 1f },
-                        onOpenAlbum = { album -> if (album.profileId == state.activeProfileId) onOpenAlbum(album) },
+                        onOpenAlbum = onOpenAlbum,
                         gridModifier = gridModifier,
                         headlineModifier = Modifier.onGloballyPositioned {
                             headlineTop.floatValue = it.positionInWindow().y
@@ -817,7 +817,7 @@ private fun TimelineAlbumCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = if (masonry) 12.dp else 16.dp)
-            .noRippleClickable(interaction, enabled = item.album.profileId == state.activeProfileId) {
+            .noRippleClickable(interaction) {
                 onOpen(item.album)
             },
     ) {
@@ -930,7 +930,7 @@ private fun FromLine(profileId: String, state: MemoryLedgerState) {
 /** Cards, two a row: an album (its cover whole, its title, its score). */
 @Composable
 private fun AlbumGridCard(item: MemoryLedgerItem.Album, state: MemoryLedgerState, onOpen: (MemoryLedgerAlbum) -> Unit) {
-    GridCard(enabled = item.album.profileId == state.activeProfileId, onClick = { onOpen(item.album) }) {
+    GridCard(enabled = true, onClick = { onOpen(item.album) }) {
         LedgerCover(item.album, state, Modifier.fillMaxWidth(), corner = 12.dp)
         Spacer(Modifier.height(6.dp))
         item.title?.let {
@@ -967,7 +967,7 @@ private fun AlbumGridCard(item: MemoryLedgerItem.Album, state: MemoryLedgerState
 @Composable
 private fun SongGridCard(item: MemoryLedgerItem.Song, state: MemoryLedgerState, onOpen: (MemoryLedgerAlbum) -> Unit) {
     val album = item.album
-    GridCard(enabled = album != null && album.profileId == state.activeProfileId, onClick = { album?.let(onOpen) }) {
+    GridCard(enabled = album != null, onClick = { album?.let(onOpen) }) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             LedgerCover(album, state, Modifier.size(44.dp), corner = 8.dp)
             Column(Modifier.weight(1f)) {
@@ -1046,7 +1046,7 @@ private fun LedgerListRow(item: MemoryLedgerItem, state: MemoryLedgerState, onOp
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .noRippleClickable(interaction, enabled = album != null && album.profileId == state.activeProfileId) {
+            .noRippleClickable(interaction, enabled = album != null) {
                 album?.let(onOpen)
             }
             .padding(vertical = if (isAlbum) 10.dp else 6.dp),
@@ -1109,7 +1109,7 @@ private fun LedgerListRow(item: MemoryLedgerItem, state: MemoryLedgerState, onOp
 @Composable
 private fun NoteCard(entry: MemoryLedgerEntry, state: MemoryLedgerState, onClick: () -> Unit) {
     val album = entry.album
-    val opens = album != null && entry.profileId == state.activeProfileId
+    val opens = album != null
     val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier

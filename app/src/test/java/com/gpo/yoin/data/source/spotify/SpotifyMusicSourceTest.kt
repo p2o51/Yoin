@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.PlaylistItemRef
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -407,9 +408,89 @@ class SpotifyMusicSourceTest {
 
         assertEquals(listOf("x1", "x2", "x3"), playlist?.tracks?.map { it.id.rawId })
         assertTrue(playlist?.canWrite == true)
-        assertEquals(2, source.resolvePlaylistContextOffset(MediaId.spotify("p1"), visibleStartIndex = 2))
+        assertEquals(
+            2,
+            source.resolvePlaylistContextOffset(MediaId.spotify("p1"), visibleStartIndex = 2, trackId = MediaId.spotify("x3")),
+        )
         val itemRequests = requests.filter { it.requestUrl?.encodedPath == "/v1/playlists/p1/items" }
         assertEquals(listOf("2"), itemRequests.map { it.requestUrl?.queryParameter("offset") })
+    }
+
+    @Test
+    fun should_notTrustPlaylistOffset_when_rowNoLongerHoldsTheReadSong() = runTest {
+        // The page took a row off while its removal is out: [x1, x2, x3] shows as
+        // [x2, x3], so its row 0 is x2 where the last read had x1.
+        routes["/v1/playlists/p1"] = {
+            ok(
+                """
+                {"id":"p1","name":"Mix","owner":{"id":"me"},
+                 "items":{"items":[{"item":${track("x1")}},{"item":${track("x2")}},{"item":${track("x3")}}],
+                          "next":null,"total":3}}
+                """.trimIndent()
+            )
+        }
+        val source = newSource()
+        source.library().getPlaylist(MediaId.spotify("p1"))
+
+        assertEquals(
+            null,
+            source.resolvePlaylistContextOffset(MediaId.spotify("p1"), visibleStartIndex = 0, trackId = MediaId.spotify("x2")),
+        )
+        assertEquals(
+            1,
+            source.resolvePlaylistContextOffset(MediaId.spotify("p1"), visibleStartIndex = 1, trackId = MediaId.spotify("x2")),
+        )
+    }
+
+    @Test
+    fun should_removeAtSpotifysOwnPosition_when_playlistHoldsAnEntryYoinLeavesOut() = runTest {
+        // An episode comes first: Yoin lists x1 and x2 as its rows 0 and 1,
+        // Spotify counts them 1 and 2.
+        routes["/v1/playlists/p1"] = {
+            ok(
+                """
+                {"id":"p1","name":"Mix","owner":{"id":"me"},"snapshot_id":"snap-0",
+                 "items":{"items":[{"item":{"id":"e1","name":"Episode","type":"episode"}},
+                                   {"item":${track("x1")}},{"item":${track("x2")}}],
+                          "next":null,"total":3}}
+                """.trimIndent()
+            )
+        }
+        routes["/v1/playlists/p1/items"] = { ok("""{"snapshot_id":"snap-1"}""") }
+        val source = newSource()
+        val playlist = source.library().getPlaylist(MediaId.spotify("p1"))!!
+        assertEquals(listOf("x1", "x2"), playlist.tracks.map { it.id.rawId })
+
+        val snapshot = source.writeActions().removeTracksFromPlaylist(
+            playlistId = MediaId.spotify("p1"),
+            items = listOf(PlaylistItemRef(trackId = MediaId.spotify("x2"), position = 1)),
+            snapshotId = playlist.snapshotId,
+        ).getOrThrow()
+
+        assertEquals("snap-1", snapshot)
+        val removal = requests.single { it.method == "DELETE" }
+        assertEquals("/v1/playlists/p1/items", removal.requestUrl?.encodedPath)
+        // `items`, not the removed /tracks endpoint's `tracks`; the one entry, against the snapshot read.
+        assertEquals(
+            """{"items":[{"uri":"spotify:track:x2","positions":[2]}],"snapshot_id":"snap-0"}""",
+            removal.body.readUtf8(),
+        )
+    }
+
+    @Test
+    fun should_removeAtThePagesPosition_when_playlistWasNotReadThisSession() = runTest {
+        routes["/v1/playlists/p1/items"] = { ok("""{"snapshot_id":"snap-1"}""") }
+
+        newSource().writeActions().removeTracksFromPlaylist(
+            playlistId = MediaId.spotify("p1"),
+            items = listOf(PlaylistItemRef(trackId = MediaId.spotify("x2"), position = 1)),
+            snapshotId = null,
+        ).getOrThrow()
+
+        assertEquals(
+            """{"items":[{"uri":"spotify:track:x2","positions":[1]}]}""",
+            requests.single { it.method == "DELETE" }.body.readUtf8(),
+        )
     }
 
     @Test

@@ -33,7 +33,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,7 +70,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
@@ -90,12 +88,15 @@ import com.gpo.yoin.data.remote.ai.AiThinking
 import com.gpo.yoin.data.remote.ai.AiTier
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.keepInViewAboveKeyboard
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.SecretTextField
 import com.gpo.yoin.ui.settings.SettingsFeature
 import com.gpo.yoin.ui.settings.SettingsFeatureActivity
+import com.gpo.yoin.ui.settings.SettingsItem
+import com.gpo.yoin.ui.settings.SettingsSegments
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -221,7 +222,7 @@ internal fun AiSettingsPageBody(
                             onValueChange = { actions.setKey(provider, it) },
                             label = stringResource(R.string.ai_key_label),
                             placeholder = if (provider == AiProvider.Gemini) "AIza…" else "sk-…",
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
                         )
                         val (linkText, url) = keyLink(provider)
                         TextButton(onClick = { onOpenLink(url) }) {
@@ -236,7 +237,7 @@ internal fun AiSettingsPageBody(
             }
         }
 
-        LanguageButton(language = state.targetLanguage, onPick = actions::setTargetLanguage)
+        LanguageRow(language = state.targetLanguage, onPick = actions::setTargetLanguage)
 
         Button(
             onClick = {
@@ -664,14 +665,14 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
             },
             label = stringResource(R.string.ai_custom_url),
             placeholder = if (prefs.customFormat == AiApiFormat.OpenAi) "https://api.openai.com/v1" else "https://api.anthropic.com",
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
         )
         SecretTextField(
             value = prefs.customKey,
             onValueChange = { actions.setKey(AiProvider.Custom, it) },
             label = stringResource(R.string.ai_key_label),
             placeholder = "sk-…",
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
         )
         // The model field and the rows that come and go under it. They bring their own gaps, so a
         // row opening or closing moves what is below it the whole way, with no jump at either end.
@@ -701,7 +702,7 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
                         ) { Text(stringResource(R.string.ai_custom_pull)) }
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
             )
             val chips = modelChips(state.models.ids, model)
             Column(modifier = Modifier.fillMaxWidth().animateContentSize(YoinMotion.spatialSpring())) {
@@ -806,11 +807,11 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
                             onValueChange = { actions.setSearchKey(keyService, it) },
                             label = stringResource(R.string.ai_search_key, name),
                             placeholder = "",
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
                         )
                     }
                     TextButton(onClick = { onOpenLink(searchKeyUrl(keyService)) }) {
-                        Text(stringResource(R.string.ai_get_search_key, name))
+                        Text(searchKeyLink(keyService))
                         Spacer(Modifier.width(4.dp))
                         Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -841,6 +842,15 @@ private fun searchServiceName(service: AiSearchService): String = when (service)
     AiSearchService.None -> stringResource(R.string.ai_search_none)
 }
 
+/** "Get a … key", one string per service: English's article follows the name (an Exa key). */
+@Composable
+private fun searchKeyLink(service: AiSearchService): String = when (service) {
+    AiSearchService.DeepSeek -> stringResource(R.string.ai_get_search_key_deepseek)
+    AiSearchService.Exa -> stringResource(R.string.ai_get_search_key_exa)
+    AiSearchService.Tavily -> stringResource(R.string.ai_get_search_key_tavily)
+    AiSearchService.None -> ""
+}
+
 private fun searchKeyUrl(service: AiSearchService): String = when (service) {
     AiSearchService.DeepSeek -> "https://platform.deepseek.com/api_keys"
     AiSearchService.Exa -> "https://dashboard.exa.ai/api-keys"
@@ -848,34 +858,39 @@ private fun searchKeyUrl(service: AiSearchService): String = when (service) {
     AiSearchService.None -> ""
 }
 
+/** The answer language: a value row (the language on the right) opening the same menu. */
 @Composable
-private fun LanguageButton(language: String, onPick: (String) -> Unit) {
+private fun LanguageRow(language: String, onPick: (String) -> Unit) {
     val haptics = rememberYoinHaptics()
     var open by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(
-            onClick = {
-                haptics.performTick()
-                open = true
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                stringResource(R.string.settings_gemini_answer_in, language),
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Start,
-            )
-        }
-        YoinDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { option ->
-                YoinDropdownMenuItem(
-                    text = option,
-                    onClick = {
-                        haptics.performContextClick()
-                        open = false
-                        onPick(option)
+    SettingsSegments {
+        item {
+            Box {
+                SettingsItem(
+                    icon = YoinSymbols.Translate,
+                    title = stringResource(R.string.ai_answer_language),
+                    onClick = { open = true },
+                    trailing = {
+                        Text(
+                            text = language,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
                     },
                 )
+                YoinDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { option ->
+                        YoinDropdownMenuItem(
+                            text = option,
+                            onClick = {
+                                haptics.performContextClick()
+                                open = false
+                                onPick(option)
+                            },
+                        )
+                    }
+                }
             }
         }
     }

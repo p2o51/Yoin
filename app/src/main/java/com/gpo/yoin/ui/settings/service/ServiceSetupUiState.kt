@@ -33,13 +33,17 @@ data class SubsonicFormState(
     val loaded: Boolean = true,
     val isBusy: Boolean = false,
     val status: SubsonicStatus = SubsonicStatus.Idle,
+    /** What is wrong with the server address, said under that field; cleared as the address is edited. */
+    val addressError: UiText? = null,
 )
 
 sealed interface SubsonicStatus {
     data object Idle : SubsonicStatus
     data object Testing : SubsonicStatus
     data object Saving : SubsonicStatus
-    data object Reachable : SubsonicStatus
+
+    /** The server answered the test. [server]: what it calls itself ("Navidrome 0.64.2"); null when it doesn't say. */
+    data class Reachable(val server: String? = null) : SubsonicStatus
     data class Failed(val message: UiText) : SubsonicStatus
 }
 

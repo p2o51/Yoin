@@ -73,6 +73,7 @@ internal fun ProfileServiceSettings(providerKey: String, profileId: String?) {
                     icon = YoinSymbols.Download,
                     title = stringResource(R.string.settings_downloads_title),
                     summary = downloadsSummary(offline),
+                    summaryDetail = downloadsSummaryDetail(offline),
                     onClick = { open(SettingsFeature.Downloads) },
                 )
             }

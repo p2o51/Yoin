@@ -570,7 +570,12 @@ class PlaybackManager(
                         withTimeout(OUTPUT_HANDOFF_TIMEOUT_MS) { PlaybackService.usingDlna.first { !it } }
                     }
                     if (source.id != MediaId.PROVIDER_SPOTIFY) selectMedia3Source(source)
-                    when (val handle = source.playback().handleFor(tracks[startIndex])) {
+                    val handle = source.playback().handleFor(tracks[startIndex])
+                    PlayTrace.log(
+                        "play ${source.id} ${tracks[startIndex].id.rawId} at=$startIndex/${tracks.size} " +
+                            "paused=$startPaused shuffled=$shuffled ${handle.traceLabel()}",
+                    )
+                    when (handle) {
                         is PlaybackHandle.DirectStream -> {
                             pendingSpotifyHandoff = false
                             preserveLocalUiDuringSpotifyHandoff = false
@@ -661,6 +666,7 @@ class PlaybackManager(
                         ?: context.getString(R.string.player_play_failed),
                 )
                 Log.w(TAG, "play failed for ${tracks[startIndex].id}", error)
+                PlayTrace.log("play failed ${tracks[startIndex].id.rawId} ${error.javaClass.simpleName}: ${PlayTrace.maskHosts(error.message)}")
             }
         }
     }
@@ -766,6 +772,7 @@ class PlaybackManager(
     }
 
     fun pause() {
+        PlayTrace.log("pause $activeBackend")
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.pause()
             else -> executeOrQueue { it.pause() }
@@ -774,6 +781,7 @@ class PlaybackManager(
 
     fun resume() {
         com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
+        PlayTrace.log("resume $activeBackend")
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.resume()
             else -> executeOrQueue { it.play() }
@@ -781,6 +789,7 @@ class PlaybackManager(
     }
 
     fun skipNext() {
+        PlayTrace.log("next $activeBackend")
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.skipNext()
             else -> executeOrQueue { player ->
@@ -792,6 +801,7 @@ class PlaybackManager(
     }
 
     fun skipPrevious() {
+        PlayTrace.log("previous $activeBackend")
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.skipPrevious()
             // Spotify's rule (owner W2, 2026-10-05): past the first 3 s
@@ -803,6 +813,7 @@ class PlaybackManager(
     }
 
     fun seekTo(positionMs: Long) {
+        PlayTrace.log("seek $positionMs $activeBackend")
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.seekTo(positionMs)
             else -> executeOrQueue { it.seekTo(positionMs) }
@@ -993,7 +1004,10 @@ class PlaybackManager(
     // ── Internal ──────────────────────────────────────────────────────
 
     private val playerListener = object : Player.Listener {
-        override fun onPlayerError(error: androidx.media3.common.PlaybackException) { syncState() }
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            PlayTrace.log("player error ${error.errorCodeName}: ${PlayTrace.maskHosts(error.message)} cause=${error.cause?.javaClass?.simpleName}")
+            syncState()
+        }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             syncState()
@@ -1357,6 +1371,7 @@ class PlaybackManager(
             previous.connectionFailure == failure
         if (sameAsBefore) return
         val message = next.connectionErrorMessage ?: failure.userMessage(context.resources)
+        PlayTrace.log("spotify connect failed ${failure.javaClass.simpleName}")
         scope.launch {
             _events.emit(PlaybackEvent.SpotifyConnectError(failure = failure, message = message))
         }
@@ -1558,7 +1573,9 @@ class PlaybackManager(
             tracks = tracks,
             startIndex = startIndex,
             shuffled = shuffled,
-            playlistOffset = { id, index -> spotifySource.resolvePlaylistContextOffset(id, index) },
+            playlistOffset = { id, index ->
+                tracks.getOrNull(index)?.let { spotifySource.resolvePlaylistContextOffset(id, index, it.id) }
+            },
         )
         if (attempts.isEmpty()) return null
         return { target ->
@@ -1582,11 +1599,13 @@ class PlaybackManager(
                     .onFailure { e ->
                         if (e is CancellationException) throw e
                         Log.w(TAG, "Spotify start $attempt failed: ${e.javaClass.simpleName}: ${e.message}")
+                        PlayTrace.log("spotify start $attempt failed ${e.javaClass.simpleName}: ${PlayTrace.maskHosts(e.message)}")
                         failure = e
                     }
                     .isSuccess
             }
             if (!started) throw failure ?: IllegalStateException("No Spotify start succeeded")
+            PlayTrace.log("spotify start sent ${if (target != null) "to the playing device" else "here"}")
         }
     }
 
@@ -1610,7 +1629,9 @@ class PlaybackManager(
             tracks = tracks,
             startIndex = startIndex,
             shuffled = shuffled,
-            playlistOffset = { id, index -> spotifySource.resolvePlaylistContextOffset(id, index) },
+            playlistOffset = { id, index ->
+                tracks.getOrNull(index)?.let { spotifySource.resolvePlaylistContextOffset(id, index, it.id) }
+            },
         ).remoteContext() ?: return null
         return { context.remoteStart(spotifySource::contextIndexOf) }
     }
@@ -1928,4 +1949,10 @@ internal fun upcomingOrder(timeline: Timeline, current: Int, shuffle: Boolean): 
         index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, shuffle)
     }
     return order
+}
+
+/** How a start's [PlaybackHandle] reads in [PlayTrace]: a stream by [PlayTrace.describe], never its headers. */
+private fun PlaybackHandle.traceLabel(): String = when (this) {
+    is PlaybackHandle.DirectStream -> "stream ${PlayTrace.describe(uri)}"
+    is PlaybackHandle.ExternalController -> "controller $type"
 }

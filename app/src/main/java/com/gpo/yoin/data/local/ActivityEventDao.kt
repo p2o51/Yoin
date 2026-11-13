@@ -87,6 +87,19 @@ interface ActivityEventDao {
 
     @Insert
     suspend fun insert(entry: ActivityEvent)
+
+    /**
+     * A playlist renamed on [profileId]'s account: its rows take the new
+     * [title], so Home's Activities and the widgets don't keep the name it
+     * had when it was played. [entityIds] are its stored forms (the raw id,
+     * and the MediaId string older rows kept).
+     */
+    @Query(
+        "UPDATE activity_events SET title = :title " +
+            "WHERE profileId = :profileId AND provider = :provider " +
+            "AND entityType = 'PLAYLIST' AND entityId IN (:entityIds)",
+    )
+    suspend fun renamePlaylist(profileId: String, provider: String, entityIds: List<String>, title: String)
 }
 
 data class OtherProfilePlayAggregate(
