@@ -130,7 +130,7 @@
     <plurals name="np_lyrics_copied">
         <item quantity="other">已复制 %1$d 行</item>
     </plurals>
-    <string name="np_lyrics_credit">%1$s · %2$s</string>
+    <string name="np_lyrics_credit">%1$s\n%2$s</string>
     <string name="np_lyrics_clipboard_with_credit">%1$s\n\n— %2$s</string>
 
     <string name="np_share_title">分享歌词</string>
@@ -155,7 +155,7 @@
     </plurals>
     <string name="np_cd_note_play_from">从 %1$s 播放</string>
     <string name="np_cd_note_actions">笔记操作</string>
-    <string name="np_note_realign">对齐至当前时刻 · %1$s</string>
+    <string name="np_note_realign">对齐至当前时刻</string>
     <string name="np_note_delete">删除</string>
     <string name="np_note_deleted">已删除</string>
     <string name="np_note_undo">撤销</string>

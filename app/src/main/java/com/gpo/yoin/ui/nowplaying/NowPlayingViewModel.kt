@@ -40,6 +40,7 @@ import com.gpo.yoin.data.model.Track
 import androidx.media3.common.Player
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.AddToPlaylistRow
+import com.gpo.yoin.ui.component.DeviceStatusDlnaProtocols
 import com.gpo.yoin.ui.component.FavoriteGlyph
 import com.gpo.yoin.ui.component.NoteDraftState
 import com.gpo.yoin.ui.component.NoteSaveRequest
@@ -1839,7 +1840,11 @@ private fun buildDevices(
                 id = renderer.id,
                 name = renderer.name,
                 isActive = renderer.id == selectedDlna?.id,
-                statusText = if (renderer.id == selectedDlna?.id) NpDeviceStatusConnected else "DLNA · UPnP",
+                statusText = if (renderer.id == selectedDlna?.id) {
+                    NpDeviceStatusConnected
+                } else {
+                    DeviceStatusDlnaProtocols
+                },
             )
         })
     }
