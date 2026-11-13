@@ -1,39 +1,32 @@
 package com.gpo.yoin.ui.settings.ai
 
-import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -43,11 +36,13 @@ import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.data.remote.ai.AiTier
-import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.settings.SettingsSegments
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.YoinTheme
 
 /** The tier page (from ⓘ): the tiers of the chosen service side by side, and what they cost. */
 @Composable
@@ -114,17 +109,27 @@ private fun TierFacts(provider: AiProvider, tier: AiTier, chosen: Boolean, modif
             Text(tierName(tier), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Fact(labelColor, stringResource(R.string.ai_row_model), model)
             Fact(labelColor, stringResource(R.string.ai_row_search), search)
+            // An estimate is marked as the estimated cost always was: 「（估）」 after the number.
+            val estimated = point?.estimated == true
             Fact(
                 labelColor,
                 stringResource(R.string.ai_row_speed),
-                point?.seconds?.let { stringResource(R.string.ai_seconds, trimNumber(it)) } ?: "—",
+                point?.seconds?.let {
+                    stringResource(if (estimated) R.string.ai_seconds_estimated else R.string.ai_seconds, trimNumber(it))
+                } ?: "—",
             )
-            Fact(labelColor, stringResource(R.string.ai_row_accuracy), point?.accuracy?.let { "${trimNumber(it)}%" } ?: "—")
+            Fact(
+                labelColor,
+                stringResource(R.string.ai_row_accuracy),
+                point?.accuracy?.let {
+                    if (estimated) stringResource(R.string.ai_accuracy_estimated, trimNumber(it)) else "${trimNumber(it)}%"
+                } ?: "—",
+            )
             Fact(
                 labelColor,
                 stringResource(R.string.ai_row_cost),
                 point?.costPer1000?.let {
-                    if (point.costEstimated) {
+                    if (estimated || point.costEstimated) {
                         stringResource(R.string.ai_cost_estimated, trimNumber(it))
                     } else {
                         stringResource(R.string.ai_cost, trimNumber(it))
@@ -144,37 +149,75 @@ private fun Fact(labelColor: Color, label: String, value: String) {
 }
 
 /**
- * 「拿一首歌试试」: write About for one song with the settings as they are,
- * nothing saved. Opens on the song playing now.
+ * 「拿一首歌试试」: write About for one song with the settings as they are, nothing saved. The
+ * song is one of the active account's last [RECENT_TEST_SONGS] played (owner 2026-11-14): tap one.
  */
 @Composable
 internal fun AiTryPageContent() {
     val app = LocalContext.current.applicationContext as YoinApplication
     val viewModel: AiSettingsViewModel = viewModel(factory = AiSettingsViewModel.Factory(app.container))
     val run by viewModel.test.collectAsState()
-    val haptics = rememberYoinHaptics()
-    val playing = remember { viewModel.nowPlaying() }
-    var title by rememberSaveable { mutableStateOf(playing?.title.orEmpty()) }
-    var artist by rememberSaveable { mutableStateOf(playing?.artist.orEmpty()) }
-    var album by rememberSaveable { mutableStateOf(playing?.album.orEmpty()) }
-    val running = run is TestRun.Running
+    val songs by viewModel.recentSongs.collectAsState()
+    AiTryPageBody(songs = songs, run = run, onPick = viewModel::runTest)
+}
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ExpressiveTextField(title, { title = it }, stringResource(R.string.ai_try_song), "", Modifier.fillMaxWidth())
-        ExpressiveTextField(artist, { artist = it }, stringResource(R.string.ai_try_artist), "", Modifier.fillMaxWidth())
-        ExpressiveTextField(album, { album = it }, stringResource(R.string.ai_try_album), "", Modifier.fillMaxWidth())
-        Spacer(Modifier.height(4.dp))
-        Button(
-            onClick = {
-                haptics.performClick()
-                viewModel.runTest(TestSong(title.trim(), artist.trim(), album.trim()))
-            },
-            enabled = !running && title.isNotBlank() && artist.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().height(52.dp).handPointer(enabled = !running && title.isNotBlank() && artist.isNotBlank()),
-        ) { Text(stringResource(R.string.ai_try_run)) }
-        Spacer(Modifier.height(8.dp))
-        // Waiting, the answer and a failure take each other's place: they cross-fade and the
-        // page takes its new height on the spatial spring.
+/**
+ * The test page over plain state: [songs] null while the history is read, empty with none. While
+ * a run goes, its row shows progress and no row starts another.
+ */
+@Composable
+internal fun AiTryPageBody(
+    songs: List<RecentTestSong>?,
+    run: TestRun,
+    onPick: (TestSong) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    val running = (run as? TestRun.Running)?.song
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        when {
+            songs == null -> Unit
+            songs.isEmpty() -> Text(
+                stringResource(R.string.ai_try_no_history),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            else -> SettingsSegments {
+                songs.forEach { recent ->
+                    item(key = recent.key) {
+                        SongListItem(
+                            title = recent.song.title,
+                            artist = recent.song.artist,
+                            album = "",
+                            durationSeconds = null,
+                            coverArtUrl = recent.coverUrl,
+                            onClick = {
+                                if (running == null) {
+                                    haptics.performClick()
+                                    onPick(recent.song)
+                                }
+                            },
+                            extractBackdropColors = false,
+                            trailingContent = {
+                                AnimatedVisibility(
+                                    visible = running == recent.song,
+                                    enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
+                                        YoinMotion.scaleIn(YoinMotionRole.Expressive, initialScale = 0.6f),
+                                    exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
+                                        YoinMotion.scaleOut(YoinMotionRole.Expressive, targetScale = 0.6f),
+                                ) {
+                                    Box(Modifier.size(32.dp)) { YoinLoadingIndicator() }
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        // The answer and a failure take each other's place: they cross-fade and the page takes
+        // its new height on the spatial spring. Waiting shows on the song's row.
         val sizeSpring = YoinMotion.spatialSpring<IntSize>()
         AnimatedContent(
             targetState = run,
@@ -189,11 +232,12 @@ internal fun AiTryPageContent() {
         ) { r ->
             when (r) {
                 TestRun.Idle -> Unit
-                is TestRun.Running -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(32.dp)) { YoinLoadingIndicator() }
-                    Spacer(Modifier.width(12.dp))
-                    Text(stringResource(R.string.ai_try_running), style = MaterialTheme.typography.bodyLarge)
-                }
+                is TestRun.Running -> Text(
+                    stringResource(R.string.ai_try_running),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
                 is TestRun.Failed -> Text(
                     if (r.message == null) {
                         stringResource(R.string.ai_try_no_key)
@@ -202,10 +246,37 @@ internal fun AiTryPageContent() {
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 4.dp),
                 )
                 is TestRun.Done -> TestResult(r)
             }
         }
+    }
+}
+
+@Preview(showBackground = true, widthDp = 360)
+@Composable
+private fun AiTryPageBodyPreview() {
+    YoinTheme {
+        val songs = listOf(
+            RecentTestSong("1", TestSong("Lemon", "Kenshi Yonezu", "STRAY SHEEP"), null),
+            RecentTestSong("2", TestSong("Plastic Love", "Mariya Takeuchi", "Variety"), null),
+            RecentTestSong("3", TestSong("Hype Boy", "NewJeans", "New Jeans"), null),
+        )
+        AiTryPageBody(
+            songs = songs,
+            run = TestRun.Running(songs[1].song),
+            onPick = {},
+            modifier = Modifier.padding(16.dp),
+        )
+    }
+}
+
+@Preview(showBackground = true, widthDp = 360)
+@Composable
+private fun AiTryPageBodyEmptyPreview() {
+    YoinTheme {
+        AiTryPageBody(songs = emptyList(), run = TestRun.Idle, onPick = {}, modifier = Modifier.padding(16.dp))
     }
 }
 

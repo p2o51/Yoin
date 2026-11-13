@@ -7,7 +7,9 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.AiProviderStore
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.GeminiConfigDao
+import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.settingsFor
+import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.remote.ai.AiApiFormat
 import com.gpo.yoin.data.remote.ai.AiProvider
@@ -22,12 +24,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -75,8 +79,11 @@ class AiSettingsViewModel(
     private val geminiService: GeminiService,
     /** Drops the answers the AI wrote: they are in the old language after a language switch. */
     private val clearGeneratedAbout: suspend () -> Unit,
-    /** The song playing now, to prefill the test page. */
-    private val nowPlayingSong: () -> TestSong?,
+    /**
+     * The active account's songs for 「拿一首歌试试」, newest first (see [recentTestSongs]). Empty
+     * with no play history.
+     */
+    recentSongs: Flow<List<RecentTestSong>>,
     private val saveScope: CoroutineScope = KeySaveScope,
 ) : ViewModel(), AiSettingsActions {
 
@@ -90,6 +97,11 @@ class AiSettingsViewModel(
     private val models = MutableStateFlow(ModelList())
     private val _test = MutableStateFlow<TestRun>(TestRun.Idle)
     val test: StateFlow<TestRun> = _test.asStateFlow()
+    private var testJob: Job? = null
+
+    /** The songs the test page offers; null until the history has been read. */
+    val recentSongs: StateFlow<List<RecentTestSong>?> =
+        recentSongs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val state: StateFlow<AiSettingsState> = combine(
         store.prefs,
@@ -192,12 +204,13 @@ class AiSettingsViewModel(
         }
     }
 
-    /** The song playing now, to prefill the test page. */
-    fun nowPlaying(): TestSong? = nowPlayingSong()
-
-    /** Write About for [song] with the settings on screen, without saving anything. */
+    /**
+     * Write About for [song] with the settings on screen, without saving anything. One run at a
+     * time: a tap while one is running does nothing.
+     */
     fun runTest(song: TestSong) {
-        viewModelScope.launch {
+        if (testJob?.isActive == true) return
+        testJob = viewModelScope.launch {
             val config = geminiDao.getConfig().first()
             val ai = store.settingsFor(config.withDraft(geminiKeyDraft.value))
             if (!ai.isReady) {
@@ -241,16 +254,18 @@ class AiSettingsViewModel(
             geminiDao = container.database.geminiConfigDao(),
             geminiService = container.geminiService,
             clearGeneratedAbout = { container.database.songAboutEntryDao().deleteGenerated() },
-            nowPlayingSong = {
-                container.playbackManager.playbackState.value.currentTrack?.let { track ->
-                    TestSong(track.title.orEmpty(), track.artist.orEmpty(), track.album.orEmpty())
-                }
+            // The repository scopes the history to the active profile and its provider.
+            recentSongs = container.repository.getRecentHistory(RECENT_HISTORY_ROWS).map { rows ->
+                recentTestSongs(rows) { key -> container.repository.resolveCoverUrl(CoverRef.fromStorageKey(key)) }
             },
         ) as T
     }
 
     private companion object {
         const val KEY_SAVE_DELAY_MS = 600L
+
+        /** History rows read for the test page: enough for six songs after a few on repeat. */
+        const val RECENT_HISTORY_ROWS = 200
 
         /** Process-lifetime scope for the key a closing page hands over (see the class KDoc). */
         val KeySaveScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
@@ -281,6 +296,30 @@ data class ModelList(
 )
 
 data class TestSong(val title: String, val artist: String, val album: String)
+
+/** One song the test page offers: [key] is its song id, [coverUrl] its cover when it has one. */
+data class RecentTestSong(val key: String, val song: TestSong, val coverUrl: String?)
+
+/** How many recently played songs 「拿一首歌试试」 offers (owner 2026-11-14). */
+const val RECENT_TEST_SONGS = 6
+
+/**
+ * The test page's songs from play history [rows] (newest first): each song once, at its newest
+ * play, at most [RECENT_TEST_SONGS]. [coverUrl] turns a row's stored cover key into a URL.
+ */
+internal fun recentTestSongs(rows: List<PlayHistory>, coverUrl: (String?) -> String?): List<RecentTestSong> =
+    rows.asSequence()
+        .filter { it.title.isNotBlank() }
+        .distinctBy { it.songId }
+        .take(RECENT_TEST_SONGS)
+        .map { row ->
+            RecentTestSong(
+                key = row.songId,
+                song = TestSong(row.title, row.artist, row.album),
+                coverUrl = coverUrl(row.coverArtId),
+            )
+        }
+        .toList()
 
 sealed interface TestRun {
     data object Idle : TestRun

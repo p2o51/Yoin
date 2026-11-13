@@ -14,6 +14,8 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.isPopup
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -101,11 +103,11 @@ class AiSettingsPageBodyTest {
         )
         showPage()
 
-        rule.onNodeWithText("Exa").performScrollTo().performClick()
+        pickSearch("Exa")
         // The DeepSeek key must not turn up under Exa's label.
         searchKeyField("Exa").performScrollTo().assertTextEquals("")
         searchKeyField("Exa").performTextInput("exa-key")
-        rule.onNodeWithText("Tavily").performScrollTo().performClick()
+        pickSearch("Tavily")
         searchKeyField("Tavily").performScrollTo().assertTextEquals("")
 
         rule.runOnIdle {
@@ -114,8 +116,42 @@ class AiSettingsPageBodyTest {
             assertEquals("", state.value.prefs.searchKeyTavily)
         }
 
-        rule.onNodeWithText("No search").performScrollTo().performClick()
+        pickSearch("No search")
         rule.onNodeWithText("Tavily key").assertDoesNotExist()
+    }
+
+    @Test
+    fun should_listEverySearchServiceInTheMenu_andShowTheChoiceOnTheRow() {
+        state.value = AiSettingsState(AiProviderPrefs(provider = AiProvider.Custom))
+        showPage()
+
+        // The row shows the current service on its right.
+        rule.onNode(hasText("Search") and hasClickAction()).performScrollTo().assertIsDisplayed()
+        rule.onNode(hasText("Search") and hasClickAction()).performClick()
+        listOf("DeepSeek", "Exa", "Tavily", "Brave", "Doubao", "No search").forEach { name ->
+            rule.onNode(isPopupItem(name)).assertIsDisplayed()
+        }
+        rule.onNode(isPopupItem("Brave")).performClick()
+
+        rule.runOnIdle { assertEquals(AiSearchService.Brave, state.value.prefs.searchService) }
+        searchKeyField("Brave").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Get a Brave key").performScrollTo().performClick()
+
+        pickSearch("Doubao")
+        searchKeyField("Doubao").performScrollTo().performTextInput("db-key")
+        rule.onNodeWithText("Get a Doubao key").performScrollTo().performClick()
+
+        rule.runOnIdle {
+            assertEquals("db-key", state.value.prefs.searchKeyDoubao)
+            assertEquals("", state.value.prefs.searchKeyBrave)
+            assertEquals(
+                listOf(
+                    "https://api-dashboard.search.brave.com/app/keys",
+                    "https://console.volcengine.com/search-infinity/api-key",
+                ),
+                opened,
+            )
+        }
     }
 
     @Test
@@ -151,6 +187,26 @@ class AiSettingsPageBodyTest {
         rule.onNode(hasText("千问") and hasClickAction()).assertIsDisplayed()
         rule.onNodeWithText("最佳").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("拿一首歌试试").performScrollTo().assertIsDisplayed()
+    }
+
+    /** Open the search row's menu and pick [service]. */
+    private fun pickSearch(service: String) {
+        rule.onNode(hasText("Search") and hasClickAction()).performScrollTo().performClick()
+        rule.onNode(isPopupItem(service)).performClick()
+        rule.waitForIdle()
+    }
+
+    /** A menu item: clickable, in the popup the row opens (the row itself also shows the choice). */
+    private fun isPopupItem(text: String) = hasText(text) and hasClickAction() and hasAnyAncestor(isPopup())
+
+    @Config(qualifiers = "zh-rCN")
+    @Test
+    fun should_nameDoubaoInChinese_when_theAppUsesSimplifiedChinese() {
+        state.value = AiSettingsState(AiProviderPrefs(provider = AiProvider.Custom, searchService = AiSearchService.Doubao))
+        showPage()
+
+        rule.onNodeWithText("豆包").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("获取豆包密钥").performScrollTo().assertIsDisplayed()
     }
 
     /** The masked field under "[service] key": the one whose eye button names it. */

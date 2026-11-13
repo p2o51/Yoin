@@ -15,32 +15,27 @@ import com.gpo.yoin.data.remote.ai.AiTier
  * [costPer1000] is US$ for 1,000 About calls at list prices, tokens plus
  * search; Gemini's assumes the monthly 5,000 free searches, and 3.5
  * Flash-Lite's token price is a third party's figure. Qwen's is converted from
- * yuan at 7.1. DeepSeek's two-search tier was not run on this set. Qwen has
- * one tier ([AiProvider.tiers]).
+ * yuan at 7.1. DeepSeek's two-search tier was not run on this set: its numbers
+ * are estimates ([estimated]). Qwen has one tier ([AiProvider.tiers]).
  */
 data class AiTierPoint(
     val provider: AiProvider,
     val tier: AiTier,
-    val accuracy: Float?,
-    val seconds: Float?,
-    val costPer1000: Float?,
+    val accuracy: Float,
+    val seconds: Float,
+    val costPer1000: Float,
+    /** Only the cost is an estimate (Gemini 3.5 Flash-Lite's third-party token price). */
     val costEstimated: Boolean = false,
+    /** Every number is an estimate: the tier was not run on the benchmark. */
+    val estimated: Boolean = false,
 ) {
-    val measured: Boolean get() = accuracy != null && seconds != null && costPer1000 != null
-
     /** 0–100: [FASTEST_SECONDS] or less is 100, [SLOWEST_SECONDS] or more is 0. */
-    val speedScore: Float?
-        get() = seconds?.let {
-            ((SLOWEST_SECONDS - it) / (SLOWEST_SECONDS - FASTEST_SECONDS) * 100f).coerceIn(0f, 100f)
-        }
+    val speedScore: Float
+        get() = ((SLOWEST_SECONDS - seconds) / (SLOWEST_SECONDS - FASTEST_SECONDS) * 100f).coerceIn(0f, 100f)
 
     /** 0–100: accuracy and speed in one number, accuracy weighing more (About is written once). */
-    val overall: Float?
-        get() {
-            val quality = accuracy ?: return null
-            val speed = speedScore ?: return null
-            return ACCURACY_WEIGHT * quality + (1f - ACCURACY_WEIGHT) * speed
-        }
+    val overall: Float
+        get() = ACCURACY_WEIGHT * accuracy + (1f - ACCURACY_WEIGHT) * speedScore
 
     companion object {
         const val FASTEST_SECONDS = 1f
@@ -54,8 +49,18 @@ object AiTierBenchmark {
         AiTierPoint(AiProvider.Gemini, AiTier.Good, accuracy = 95f, seconds = 2.8f, costPer1000 = 0.54f),
         AiTierPoint(AiProvider.Gemini, AiTier.Best, accuracy = 95f, seconds = 2.6f, costPer1000 = 0.95f, costEstimated = true),
         AiTierPoint(AiProvider.DeepSeek, AiTier.Good, accuracy = 92f, seconds = 3.7f, costPer1000 = 2.89f),
-        // Not run on the 500 songs: drawn as a hollow dot.
-        AiTierPoint(AiProvider.DeepSeek, AiTier.Best, accuracy = null, seconds = null, costPer1000 = null),
+        // Not run on the 500 songs, so estimated (owner 2026-11-14: "a little stronger; it searches
+        // one more time"). In the 35-song test of 2026-11-12, Best was +2 accuracy points, +0.7 s and
+        // x1.35 cost over Good. Applied to Good's 500-song 92 / 3.7 s / $2.89, with the accuracy gain
+        // halved because the 500-song accuracy averages two scores: 93 / 4.4 s / $3.9.
+        AiTierPoint(
+            AiProvider.DeepSeek,
+            AiTier.Best,
+            accuracy = 93f,
+            seconds = 4.4f,
+            costPer1000 = 3.9f,
+            estimated = true,
+        ),
         AiTierPoint(AiProvider.Qwen, AiTier.Good, accuracy = 83f, seconds = 4.9f, costPer1000 = 0.57f),
     )
 
@@ -73,7 +78,7 @@ enum class AiAxis(val min: Float, val max: Float, val higherIsBetter: Boolean) {
     Overall(min = 50f, max = 100f, higherIsBetter = true),
     ;
 
-    fun value(point: AiTierPoint): Float? = when (this) {
+    fun value(point: AiTierPoint): Float = when (this) {
         Speed -> point.seconds
         Cost -> point.costPer1000
         Accuracy -> point.accuracy
@@ -81,9 +86,9 @@ enum class AiAxis(val min: Float, val max: Float, val higherIsBetter: Boolean) {
     }
 
     /** 0 = worst edge, 1 = best edge. */
-    fun fraction(point: AiTierPoint): Float? = value(point)?.let { v ->
-        val f = ((v - min) / (max - min)).coerceIn(0f, 1f)
-        if (higherIsBetter) f else 1f - f
+    fun fraction(point: AiTierPoint): Float {
+        val f = ((value(point) - min) / (max - min)).coerceIn(0f, 1f)
+        return if (higherIsBetter) f else 1f - f
     }
 }
 

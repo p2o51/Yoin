@@ -37,7 +37,8 @@ enum class AiApiFormat { OpenAi, Anthropic }
 
 enum class AiThinking { Off, Low, Medium, High }
 
-enum class AiSearchService { DeepSeek, Exa, Tavily, None }
+/** Custom's search choices, in the order the menu lists them (owner 2026-11-14 added Brave and 豆包). */
+enum class AiSearchService { DeepSeek, Exa, Tavily, Brave, Doubao, None }
 
 /** What the user set, minus the Gemini key (that one still lives in `gemini_config`). */
 data class AiProviderPrefs(
@@ -55,6 +56,8 @@ data class AiProviderPrefs(
     val searchKeyDeepSeek: String = "",
     val searchKeyExa: String = "",
     val searchKeyTavily: String = "",
+    val searchKeyBrave: String = "",
+    val searchKeyDoubao: String = "",
 ) {
     /**
      * The tier in use: [tier] where [provider] offers it, otherwise the one it has. [tier] itself
@@ -68,6 +71,8 @@ data class AiProviderPrefs(
         AiSearchService.DeepSeek -> searchKeyDeepSeek
         AiSearchService.Exa -> searchKeyExa
         AiSearchService.Tavily -> searchKeyTavily
+        AiSearchService.Brave -> searchKeyBrave
+        AiSearchService.Doubao -> searchKeyDoubao
         AiSearchService.None -> ""
     }
 
@@ -75,6 +80,8 @@ data class AiProviderPrefs(
         AiSearchService.DeepSeek -> copy(searchKeyDeepSeek = key)
         AiSearchService.Exa -> copy(searchKeyExa = key)
         AiSearchService.Tavily -> copy(searchKeyTavily = key)
+        AiSearchService.Brave -> copy(searchKeyBrave = key)
+        AiSearchService.Doubao -> copy(searchKeyDoubao = key)
         AiSearchService.None -> this
     }
 }

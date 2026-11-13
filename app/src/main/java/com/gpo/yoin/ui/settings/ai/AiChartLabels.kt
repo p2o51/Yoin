@@ -6,10 +6,10 @@ import androidx.compose.ui.geometry.Size
 
 /**
  * Where the AI chart puts a tier's name beside its dot. A name goes on the dot's right if it fits
- * there, otherwise on its left, above or below: the first of those that stays inside the plot and
- * covers no dot, nothing in [place]'s obstacles and no name placed before it. Gemini's two tiers sit
- * almost on top of each other and a phone's plot is narrow, so the right side alone runs names
- * off the plot or over the neighbouring dots.
+ * there, otherwise on its left, above or below (centred, then running off to either side): the
+ * first of those that stays inside the plot and covers no dot and no name placed before it.
+ * Gemini's two tiers sit almost on top of each other and a phone's plot is narrow, so the right
+ * side alone runs names off the plot or over the neighbouring dots.
  */
 internal object AiChartLabels {
 
@@ -23,7 +23,6 @@ internal object AiChartLabels {
         dots: List<Offset>,
         dotRadius: Float,
         gap: Float,
-        obstacles: List<Rect>,
         labels: List<Pair<Int, Size>>,
     ): List<Offset> {
         val placed = mutableListOf<Rect>()
@@ -34,6 +33,12 @@ internal object AiChartLabels {
                 Offset(-gap - size.width, -size.height / 2f),
                 Offset(-size.width / 2f, -gap - size.height),
                 Offset(-size.width / 2f, gap),
+                // Above or below, running off to one side: for a dot near the plot's edge with a
+                // neighbour beside it (DeepSeek's two tiers at the cheap end on a phone).
+                Offset(0f, -gap - size.height),
+                Offset(0f, gap),
+                Offset(-size.width, -gap - size.height),
+                Offset(-size.width, gap),
             )
             val best = sides.minBy { side ->
                 val box = Rect(centre + side, size)
@@ -42,7 +47,6 @@ internal object AiChartLabels {
                     clashes++
                 }
                 dots.forEachIndexed { i, dot -> if (i != index && box.touches(dot, dotRadius)) clashes++ }
-                clashes += obstacles.count { it.overlaps(box) }
                 clashes += placed.count { it.overlaps(box) }
                 clashes
             }
