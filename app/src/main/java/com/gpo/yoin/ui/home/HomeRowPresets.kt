@@ -364,7 +364,9 @@ internal fun jbiPackedLadder(
 ): List<HomeRowStop<List<List<HomeWidgetCard>>>> = homeRowLadder { preset ->
     val cells = jbiPackedCells(spec, preset)
     val rows = if (spec.followColumn) JbiPhoneShelfRows else jbiPresetRows(spec, preset)
-    val shelf = trimToPhoneShelf(cards, cells = cells, maxSignals = jbiSignalLimit(rows, cells))
+    // A pane too wide for its covers (the template's fallback) keeps one card, as the template does.
+    val sparse = if (spec.templated) jbiSparseSignalLimit(cards.count { !it.expanded }, spec.columns) else Int.MAX_VALUE
+    val shelf = trimToPhoneShelf(cards, cells = cells, maxSignals = minOf(jbiSignalLimit(rows, cells), sparse))
     val packed = packWidgetRows(shelf, spec.columns)
     packed to packed.size
 }

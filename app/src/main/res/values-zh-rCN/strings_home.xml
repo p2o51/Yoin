@@ -185,12 +185,14 @@
     <string name="home_cd_bubble_latest_by">Memories。最新：%1$s，%2$s</string>
     <string name="home_cd_bubble_latest">Memories。最新：%1$s</string>
     <string name="home_cd_bubble_memories">Memories</string>
+    <string name="home_tip_continue_on_title">在平板上接着听</string>
+    <string name="home_tip_continue_on">手机播歌时，点平板任务栏里的 Yoin，选「在这里继续」接着播</string>
     <string name="home_tip_labs_title">Yoin Labs</string>
-    <string name="home_tip_labs">实验功能与 Gemini Nano 模型下载，现在都在 设置 &gt; Yoin Labs</string>
+    <string name="home_tip_labs">实验功能、Gemini Nano 模型下载与诊断，现在都在 设置 &gt; Yoin Labs</string>
     <string name="home_tip_lyric_highlight_title">歌词卡片</string>
     <string name="home_tip_lyric_highlight">支持 Gemini Nano 的机型上，点首页歌词卡片从那句开播，左右滑动翻看；歌词里分享或保存的句子也会加入</string>
     <string name="home_tip_memory_ledger_title">全部回忆</string>
-    <string name="home_tip_memory_ledger">点首页的「全部回忆」，在日历格点一格只看那段时间；日历格下方右侧可切换时间线、卡片或列表视图，列表还能排序</string>
+    <string name="home_tip_memory_ledger">点首页的「全部回忆」，在日历格点一格只看那段时间，往下滚格子会飞到顶栏拼成像素条；下方右侧可切换时间线、卡片或可排序的列表，大屏上时间线和卡片排成 2–3 列</string>
     <string name="home_tip_memories_all_accounts_title">各账号的回忆</string>
     <string name="home_tip_memories_all_accounts">Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号</string>
     <string name="home_tip_spotify_speakers_title">连接更多音箱</string>
@@ -231,4 +233,6 @@
     <string name="home_spotify_elsewhere_cd">Spotify 正在播放：%1$s，%2$s。切换到 Spotify</string>
     <string name="home_tip_spotify_elsewhere_title">切换到 Spotify</string>
     <string name="home_tip_spotify_elsewhere">在其他账号下，已登录的 Spotify 有歌正在播放或暂停时，点首页顶部的胶囊即可切换过去</string>
+    <string name="home_tip_ai_services_title">AI 功能</string>
+    <string name="home_tip_ai_services">在设置 &gt; AI 功能中选择 Gemini、DeepSeek、千问或自定义服务，切换「好」与「最佳」档位，或点「拿一首歌试试」当场测试</string>
 </resources>

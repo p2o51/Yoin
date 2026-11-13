@@ -31,7 +31,10 @@ object YoinPageWidths {
     /** 信息流页（Home / Library）：宽一点，容得下网格与 shelf。 */
     val Feed = 720.dp
 
-    /** 阅读/表单页（Settings、全文 sheet 内容）。 */
+    /**
+     * 阅读页（Tips、全文 sheet 内容）。Settings 家族不用这一档：owner 2026-10-04 定为全宽
+     * （docs/design.md「设置」页头一条、SettingsScreen 里的注释），不要给它加限宽。
+     */
     val Prose = 640.dp
 
     /** 单视口卡（Memories 印章卡）：按 393dp 设计稿放大到的舒适上限。 */

@@ -89,6 +89,14 @@ class DetailPaneState internal constructor() {
     /** Close-gesture preview progress (eased), read inside graphicsLayer only. */
     internal var closeProgress by mutableFloatStateOf(0f)
 
+    /**
+     * The close preview's sideways travel at the moment a gesture committed,
+     * as a share of the column's width. The slide-out continues from it: the
+     * page keeps that offset scaled by [openFraction], so its edge only ever
+     * moves toward the window's end (never a jump back, never a jump ahead).
+     */
+    internal var committedTravel by mutableFloatStateOf(0f)
+
     /** True from the last entry's back commit until the column has left. */
     var closing by mutableStateOf(false)
         internal set
@@ -104,10 +112,13 @@ class DetailPaneState internal constructor() {
         internal set
 
     /**
-     * The column's page may compose. A column opening from nothing slides in
-     * as an empty surface and builds its page once the open spring has
-     * settled: a page's first composition, layout and raster cost several
-     * frames, and spent inside the spring they make it skip.
+     * The column's page may compose. Set with the open request, so the page
+     * composes and lays out (off screen, past the region's end) during
+     * [awaitPrewarm] — before the open spring's clock starts — and then rides
+     * in WITH the column (owner 2026-11-12: a column that slid in blank and
+     * filled in after it landed read as stuck). Building it after the spring
+     * instead cost a blank half second; building it inside the spring made
+     * the spring skip.
      */
     var pageReady by mutableStateOf(false)
         internal set
@@ -281,8 +292,10 @@ fun DetailPaneCloseHandler(
                 preview.snapTo(YoinMotion.backGestureEasing.transform(event.progress))
                 state.closeProgress = preview.value
             }
-            // Commit: the shell's spring takes the column out; the preview
+            // Commit: the shell's spring takes the column out from where the
+            // finger left it (committedTravel × openFraction); the scale
             // releases on the same ride so the page is whole as it slides.
+            state.committedTravel = BackMotionTokens.ColumnClosePreviewTravel * preview.value
             onClose()
             scope.launch {
                 preview.animateTo(0f, settleSpec) { state.closeProgress = value }
@@ -296,9 +309,23 @@ fun DetailPaneCloseHandler(
     }
 }
 
-/** The close-gesture preview on the column's content: uniform scale + the window corner. */
-fun Modifier.detailPaneClosePreview(state: DetailPaneState): Modifier = graphicsLayer {
+/**
+ * The close-gesture preview on the column's content: uniform scale + the
+ * window corner, and the page heading for the edge it leaves by — a share of
+ * its width ([BackMotionTokens.ColumnClosePreviewTravel]) at full progress, a
+ * transform of the complete page (invariant 3). After a commit the offset
+ * rides out with the column ([DetailPaneState.committedTravel]).
+ */
+fun Modifier.detailPaneClosePreview(state: DetailPaneState, rtl: Boolean = false): Modifier = graphicsLayer {
     val p = state.closeProgress
+    val travel = if (state.closing) {
+        state.committedTravel * state.openFraction.value
+    } else {
+        BackMotionTokens.ColumnClosePreviewTravel * p
+    }
+    if (p <= 0f && travel <= 0f) return@graphicsLayer
+    val towardEnd = if (rtl) -1f else 1f
+    translationX = towardEnd * travel * size.width
     if (p <= 0f) return@graphicsLayer
     val scale = 1f - (1f - BackMotionTokens.PopPageScaleTarget) * p
     scaleX = scale
@@ -349,11 +376,25 @@ fun DetailPaneDivider(
  * its narrower column (requested at the tap, [requestColumn]) — until
  * [PrewarmCalmFrames] consecutive frames arrive on time (capped at
  * [PrewarmMaxNanos]) — so the open spring's clock starts on a light frame
- * and never skips. The page itself composes after the spring ([pageReady]).
+ * and never skips. The page composes and lays out in these same frames, past
+ * the region's end ([pageReady]), and rides in with the column.
  */
 suspend fun DetailPaneState.awaitPrewarm() {
     holdsColumn = true
+    pageReady = true
     if (isVisible) return
+    awaitSteadyFrames()
+}
+
+/**
+ * Suspends until [PrewarmCalmFrames] consecutive frames arrive on time
+ * (capped at [PrewarmMaxNanos]): call after mounting or re-tiering something
+ * heavy and before starting the spring that reveals it, so the spring's clock
+ * starts on a light frame. A spring whose first frame is a 100ms composition
+ * covers most of its travel in that one frame (the Memories open read as a
+ * cut, 2026-11-12).
+ */
+suspend fun awaitSteadyFrames() {
     val start = withFrameNanos { it }
     var last = start
     var calm = 0
@@ -368,7 +409,7 @@ private const val PrewarmCalmFrames = 2
 private const val PrewarmCalmFrameNanos = 24_000_000L
 private const val PrewarmMaxNanos = 900_000_000L
 
-/** Grows the column open/closed on the app's spatial spring; an open that lands builds the page. */
+/** Grows the column open/closed on the app's spatial spring (the page was built in the prewarm, see [pageReady]). */
 suspend fun DetailPaneState.animateOpen(open: Boolean, spec: androidx.compose.animation.core.AnimationSpec<Float>) {
     openFraction.animateTo(if (open) 1f else 0f, spec)
     if (open) pageReady = true
@@ -378,6 +419,7 @@ suspend fun DetailPaneState.animateOpen(open: Boolean, spec: androidx.compose.an
 suspend fun DetailPaneState.snapClosed() {
     openFraction.snapTo(0f)
     closeProgress = 0f
+    committedTravel = 0f
     closing = false
     holdsColumn = false
     pageReady = false
@@ -386,6 +428,8 @@ suspend fun DetailPaneState.snapClosed() {
 /** An open request (tap, restore): the shell starts laying out for a column at once. */
 fun DetailPaneState.requestColumn() {
     holdsColumn = true
+    pageReady = true
+    committedTravel = 0f
 }
 
 @Composable
@@ -456,7 +500,7 @@ fun DetailColumnsLayout(
         // Clip (drawing and touch) only while the column is placed: it runs
         // past the region's end then. Every other window — phones included —
         // keeps the shell's content unclipped, as before the column existed.
-        modifier = modifier.graphicsLayer { clip = paneState.openFraction.value > 0f },
+        modifier = modifier.graphicsLayer { clip = paneState.openFraction.value > 0f || paneState.holdsColumn },
     ) { (shellMeasurables, paneMeasurables), constraints ->
         val regionPx = constraints.maxWidth
         val heightPx = constraints.maxHeight
@@ -467,18 +511,17 @@ fun DetailColumnsLayout(
         val takePx = (paneFullPx * paneState.openFraction.value).roundToInt().coerceIn(0, regionPx)
         val shellPx = regionPx - takePx
         val shellPlaceables = shellMeasurables.map { it.measure(Constraints.fixed(shellPx, heightPx)) }
-        val panePlaceables = if (takePx > 0) {
+        // While the column is requested but not yet moving, its page is
+        // measured and placed just past the region's end (clipped): its first
+        // layout lands in the prewarm, not in the open spring's first frame.
+        val panePlaceables = if (takePx > 0 || paneState.holdsColumn) {
             paneMeasurables.map { it.measure(Constraints.fixed(paneFullPx, heightPx)) }
         } else {
             emptyList()
         }
         layout(regionPx, heightPx) {
-            if (takePx > 0) {
-                shellPlaceables.forEach { it.placeRelative(0, 0) }
-                panePlaceables.forEach { it.placeRelative(shellPx, 0) }
-            } else {
-                shellPlaceables.forEach { it.placeRelative(0, 0) }
-            }
+            shellPlaceables.forEach { it.placeRelative(0, 0) }
+            panePlaceables.forEach { it.placeRelative(shellPx, 0) }
         }
     }
 }

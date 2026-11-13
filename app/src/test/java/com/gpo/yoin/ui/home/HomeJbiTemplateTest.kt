@@ -192,6 +192,24 @@ class HomeJbiTemplateTest {
     }
 
     @Test
+    fun should_seatOneSignal_when_coversCannotFillARow() {
+        // Owner 2026-11-12: two rating cards on one row of four lanes left no cover at all.
+        val layout = jbiLayout(shelf(2, covers = 3), 4, 2, seed = 5)
+        assertNotNull(layout)
+        assertEquals(1, layout!!.cells.count { it.piece.kind.isSignal })
+        assertTrue(layout.template.covers >= 1)
+        assertTiles(layout.template)
+    }
+
+    @Test
+    fun should_keepTwoSignals_when_coversFillARow() {
+        val layout = jbiLayout(shelf(2, covers = 8), 6, 2, seed = 5)!!
+        assertEquals(2, layout.cells.count { it.piece.kind.isSignal })
+        assertEquals(1, jbiSparseSignalLimit(covers = 5, columns = 6))
+        assertEquals(2, jbiSparseSignalLimit(covers = 6, columns = 6))
+    }
+
+    @Test
     fun should_returnNull_when_notEvenOneRowFits() {
         assertNull(jbiLayout(shelf(0, covers = 3), 9, 2, seed = 1))
     }

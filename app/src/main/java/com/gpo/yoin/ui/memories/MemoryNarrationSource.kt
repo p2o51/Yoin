@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.memories
 
+import com.gpo.yoin.data.local.AiProviderStore
 import com.gpo.yoin.data.local.GeminiConfigDao
+import com.gpo.yoin.data.local.settingsFor
 import com.gpo.yoin.data.local.MemoryCopyCache
 import com.gpo.yoin.data.local.MemoryCopyCacheDao
 import com.gpo.yoin.data.model.MediaId
@@ -42,6 +44,7 @@ class GeminiMemoryNarrationSource(
     private val cacheDao: MemoryCopyCacheDao,
     private val activeProfileId: StateFlow<String?>,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val aiProviderStore: AiProviderStore? = null,
 ) : MemoryNarrationSource {
 
     override suspend fun narrate(albumId: MediaId, brief: MemoryNarrationBrief): MemoryNarration? {
@@ -59,12 +62,11 @@ class GeminiMemoryNarrationSource(
             }
         }
 
-        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
-        if (apiKey.isNullOrBlank()) return null
+        val ai = aiProviderStore.settingsFor(geminiConfigDao.getConfig().first()).takeIf { it.isReady } ?: return null
 
         val generated = try {
             geminiService.generateAlbumMemoryNarration(
-                apiKey = apiKey,
+                ai = ai,
                 languageName = brief.languageName,
                 facts = brief.facts,
                 alreadySaid = brief.alreadySaid,

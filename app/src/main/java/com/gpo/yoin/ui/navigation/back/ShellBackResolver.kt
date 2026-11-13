@@ -21,25 +21,50 @@ enum class ShellBackOwner {
  * detail column's NavDisplay and Memories' BackHandler register later, when
  * they mount. So priority is expressed only by gating — each owner's handlers
  * are enabled solely while this returns that owner (the column's live on a
- * child dispatcher enabled only for [ShellBackOwner.DetailPane]).
+ * child dispatcher enabled only for [ShellBackOwner.DetailPane], Now
+ * Playing's through NowPlayingOverlayHost's `backYields`).
  *
- * Order: Now Playing > Home edit > detail column > Memories. Home edit
- * outranks the column because cards are disabled while editing — the column
- * was open first, so back leaves the newer edit mode before it closes the
- * column (closing it first would re-tier the shell mid-edit).
+ * A full-window Now Playing covers everything and always answers first; Home
+ * edit mode comes next (cards are disabled while editing — the column was
+ * open first, and closing it would re-tier the shell mid-edit).
+ *
+ * Surfaces that sit SIDE BY SIDE — the Now Playing side panel, the detail
+ * column, Memories over the shell column — close in reverse order of opening
+ * (owner 2026-11-12: 「返回是进入的反序」): [recency] lists them oldest first
+ * as the shell saw them open, and the latest one still open answers. Going
+ * further inside an open one — another page shown in the column, the
+ * player's lyrics or focus — counts as entering it again: the shell notes it
+ * as the newest, so back undoes that step first. One
+ * missing from [recency] (opened in the frame before the shell recorded it)
+ * ranks oldest, ties falling back to Now Playing > detail column > Memories.
  */
 fun resolveShellBackOwner(
     showNowPlaying: Boolean,
     selectedSection: YoinSection,
     homeSurface: HomeSurface,
     detailPaneOpen: Boolean = false,
-): ShellBackOwner = when {
-    showNowPlaying -> ShellBackOwner.NowPlaying
-    selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Edit -> ShellBackOwner.HomeEdit
-    detailPaneOpen -> ShellBackOwner.DetailPane
-    selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories -> {
-        ShellBackOwner.Memories
+    nowPlayingIsPanel: Boolean = false,
+    recency: List<ShellBackOwner> = emptyList(),
+): ShellBackOwner {
+    if (showNowPlaying && !nowPlayingIsPanel) return ShellBackOwner.NowPlaying
+    val home = selectedSection == YoinSection.HOME
+    if (home && homeSurface == HomeSurface.Edit) {
+        return if (showNowPlaying) ShellBackOwner.NowPlaying else ShellBackOwner.HomeEdit
     }
+    val open = buildList {
+        if (showNowPlaying) add(ShellBackOwner.NowPlaying)
+        if (detailPaneOpen) add(ShellBackOwner.DetailPane)
+        if (home && homeSurface == HomeSurface.Memories) add(ShellBackOwner.Memories)
+    }
+    // Stable: equal recency keeps the default order above.
+    return open.maxByOrNull { recency.lastIndexOf(it) } ?: ShellBackOwner.None
+}
 
-    else -> ShellBackOwner.None
+/**
+ * The side-by-side surfaces' opening order, oldest first: [owner] opened or
+ * was entered further (moves to the end), or closed (leaves).
+ */
+fun MutableList<ShellBackOwner>.noteShellSurface(owner: ShellBackOwner, open: Boolean) {
+    remove(owner)
+    if (open) add(owner)
 }

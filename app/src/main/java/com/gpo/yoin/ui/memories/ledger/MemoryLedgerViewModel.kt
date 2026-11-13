@@ -39,8 +39,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 
 /** An account the ledger has memories from: what its filter chip and an entry's "from" line show. */
 @Immutable
@@ -83,13 +83,32 @@ class MemoryLedgerViewModel internal constructor(
     private val repository: YoinRepository,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
     private val today: () -> LocalDate = { LocalDate.now(zone()) },
+    // Returns once the album link enricher is between passes: it asks a streaming service the same songs.
+    serviceFree: suspend () -> Unit = {},
 ) : ViewModel() {
+
+    private val tracks = LedgerTrackResolver(profiles, serviceFree = serviceFree)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<MemoryLedgerState?> = combine(dao.changes().distinctUntilChanged(), profileCards) { _, cards ->
         cards
     }
-        .mapLatest(::load)
+        .transformLatest { cards ->
+            // What's on the device first; then, for songs nothing here names the album of, their services.
+            var shown = load(cards)
+            emit(shown)
+            val providers = cards.associate { it.id to it.provider.key }
+            // A pass asks a streaming service for a few songs only: passes go on while they bring answers
+            // (each answered song leaves the pending ones, so this ends), and what a pass named shows at once.
+            while (true) {
+                val pass = tracks.resolve(tracks.pending(shown.entries, providers))
+                if (pass.found) {
+                    shown = load(cards)
+                    emit(shown)
+                }
+                if (pass.answered == 0) break
+            }
+        }
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -131,6 +150,7 @@ class MemoryLedgerViewModel internal constructor(
                     )
                 }
             },
+            knownTrack = tracks::known,
         )
         val withMemories = entries.mapTo(HashSet()) { it.profileId }
         val ledgerProfiles = cards
@@ -186,6 +206,7 @@ class MemoryLedgerViewModel internal constructor(
             profiles = container.profileManager,
             profileCards = profileCardsFlow(container),
             repository = container.repository,
+            serviceFree = { container.trackAlbumLinkEnricher.awaitIdle() },
         ) as T
     }
 

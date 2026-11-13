@@ -206,12 +206,14 @@
     <string name="home_cd_bubble_memories">Memories</string>
     <!-- Home bubble tips (owner 2026-10-17): one gesture or detail each, said between Memories. -->
     <!-- Tip page (ui/tips/TipScreen): "3 / 10" -->
+    <string name="home_tip_continue_on_title">Continue on tablet</string>
+    <string name="home_tip_continue_on">Tap Yoin in your tablet\'s taskbar and choose Continue here to pick up from your phone</string>
     <string name="home_tip_labs_title">Yoin Labs</string>
-    <string name="home_tip_labs">Experimental features and the Gemini Nano model download are now in Settings &gt; Yoin Labs</string>
+    <string name="home_tip_labs">Experimental features, Gemini Nano model download, and diagnostics are now in Settings &gt; Yoin Labs</string>
     <string name="home_tip_lyric_highlight_title">Lyric Cards</string>
     <string name="home_tip_lyric_highlight">On phones with Gemini Nano, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up</string>
     <string name="home_tip_memory_ledger_title">All Memories</string>
-    <string name="home_tip_memory_ledger">Tap All Memories on Home and tap a square on the grid to see just that time; switch between Timeline, Cards, and List below the grid on the right, with sorting in List</string>
+    <string name="home_tip_memory_ledger">Tap All Memories on Home, tap a square on the grid to see just that time, and scroll down as the squares fly into a pixel bar at the top; switch between Timeline, Cards, and a sortable List below on the right, with Timeline and Cards in 2–3 columns on large screens</string>
     <string name="home_tip_memories_all_accounts_title">Memories across accounts</string>
     <string name="home_tip_memories_all_accounts">Memories includes all your accounts, and switches to that account first when you play or go to the album</string>
     <string name="home_tip_spotify_speakers_title">Connect more speakers</string>
@@ -252,4 +254,6 @@
     <string name="home_spotify_elsewhere_cd">Playing on Spotify: %1$s, %2$s. Switch to Spotify</string>
     <string name="home_tip_spotify_elsewhere_title">Switch to Spotify</string>
     <string name="home_tip_spotify_elsewhere">While in another account, if Spotify is playing or paused on a song, tap the pill at the top of Home to switch to it</string>
+    <string name="home_tip_ai_services_title">AI features</string>
+    <string name="home_tip_ai_services">Choose Gemini, DeepSeek, Qwen, or a Custom service in Settings &gt; AI features, switch between Good and Best, or tap Try a song to test it out</string>
 </resources>

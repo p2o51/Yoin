@@ -45,5 +45,4 @@
 
     <string name="memory_ledger_since">Kept since %1$s. Every account counts as you.</string>
     <string name="memory_ledger_empty_title">No memories yet</string>
-    <string name="memory_ledger_empty_body">Write a note while a song plays, or score an album, and it shows up here.</string>
 </resources>

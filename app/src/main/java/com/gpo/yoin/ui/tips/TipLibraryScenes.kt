@@ -42,11 +42,14 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.player.continueon.ContinueOnPrompt
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinButtonGroup
+import com.gpo.yoin.ui.continueon.ContinueOnCard
+import com.gpo.yoin.ui.continueon.sampleContinueOnPrompt
 import com.gpo.yoin.ui.detail.AlbumSong
 import com.gpo.yoin.ui.detail.AlbumBarHeaderTwin
 import com.gpo.yoin.ui.detail.AlbumBarTitleLift
@@ -210,6 +213,49 @@ internal fun DownloadsDemo(playing: Boolean) {
             quickActions = demoSongSheetQuickActions(nowPlaying = false),
             rowModifier = { row -> if (row.label == download || row.label == remove) Modifier.demoTarget("offline") else Modifier },
             onRowClick = { row -> row.onClick() },
+        )
+    }
+}
+
+/**
+ * Continue On: another device hands its song over, the card comes up over Library, and
+ * "Continue here" takes it (the other device pauses).
+ */
+@Composable
+internal fun ContinueOnDemo(playing: Boolean) {
+    var card by remember { mutableStateOf(false) }
+    var starting by remember { mutableStateOf(false) }
+    val album = DemoAlbums[2]
+    val cover = demoCoverUrl(album)
+    val prompt = remember(album, cover, starting) {
+        sampleContinueOnPrompt(
+            title = DemoTrackTitles[0],
+            artist = album.artist,
+            album = album.name,
+            coverUrl = cover,
+            stage = if (starting) ContinueOnPrompt.Stage.Starting else ContinueOnPrompt.Stage.Asking,
+        )
+    }
+    DemoPhone(playing = playing, script = {
+        card = false
+        starting = false
+        delay(700)
+        card = true
+        delay(1_400)
+        moveTo("continueHere")
+        tap { starting = true }
+        lift()
+        delay(700)
+        card = false
+        delay(1_600)
+        hide()
+    }) {
+        DemoLibraryPage(gridState = rememberLazyGridState(), onSearch = {})
+        ContinueOnCard(
+            prompt = prompt.takeIf { card },
+            onContinue = { starting = true },
+            onDismiss = { card = false },
+            continueModifier = Modifier.demoTarget("continueHere"),
         )
     }
 }

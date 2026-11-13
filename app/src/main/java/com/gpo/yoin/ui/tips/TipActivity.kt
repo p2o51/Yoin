@@ -20,9 +20,10 @@ class TipActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        val tips = HomeBubbleTip.available()
         val start = intent.getStringExtra(EXTRA_TIP)
-            ?.let { name -> HomeBubbleTip.entries.firstOrNull { it.name == name } }
-            ?: HomeBubbleTip.entries.first()
+            ?.let { name -> tips.firstOrNull { it.name == name } }
+            ?: tips.first()
         setContent {
             YoinActivityRoot {
                 TipScreen(

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories
 
+import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.MemoryCopyCache
@@ -64,7 +65,7 @@ class MemoryNarrationSourceTest {
 
         assertEquals("你九月以来听了 9 遍，最近一次是四天前。", narration?.narration)
         coVerify(exactly = 1) {
-            gemini.generateAlbumMemoryNarration("key", "Simplified Chinese", brief.facts, "四天，四条笔记")
+            gemini.generateAlbumMemoryNarration(AiSettings.geminiOnly("key"), "Simplified Chinese", brief.facts, "四天，四条笔记")
         }
         val row = cacheDao.rows.single()
         assertTrue(row.promptHash.startsWith("narration-v${GeminiService.MEMORY_NARRATION_PROMPT_VERSION}:"))
