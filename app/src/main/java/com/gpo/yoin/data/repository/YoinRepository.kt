@@ -1628,12 +1628,37 @@ class YoinRepository(
         }
     }
 
-    suspend fun deletePlaylist(id: MediaId): Result<Unit> =
-        requireSource().writeActions().deletePlaylist(id)
+    suspend fun deletePlaylist(id: MediaId): Result<Unit> {
+        // The account the deletion is made on: the rows it drops are that account's.
+        val profileId = activeProfileId.value
+        return requireSource().writeActions().deletePlaylist(id)
             .onSuccess {
                 markSpotifyLibraryStaleIfNeeded()
                 invalidatePlaylistDetail(id)
+                forgetStoredPlaylist(profileId, id)
             }
+    }
+
+    /**
+     * A deleted playlist leaves the rows Home reads it from: [profileId]'s
+     * history rows of it (the Activities) and its pooled Jump Back In row, so
+     * the next read of Home doesn't bring it back.
+     */
+    private suspend fun forgetStoredPlaylist(profileId: String?, id: MediaId) {
+        if (profileId.isNullOrBlank()) return
+        try {
+            database.activityEventDao().deletePlaylist(
+                profileId = profileId,
+                provider = id.provider,
+                entityIds = listOf(id.rawId, id.toString()),
+            )
+            database.homeGridPoolDao().deletePlaylist(profileId, id.provider, id.rawId)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // The service no longer has it; Home drops it from the feed up (HomeViewModel).
+        }
+    }
 
     suspend fun addTracksToPlaylist(
         playlistId: MediaId,
