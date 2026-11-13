@@ -42,6 +42,9 @@ struct MemoriesView: View {
     /// The new deck's entry from the pulled edge (Android MemoriesDeckEnterOffset 44 dp + fade).
     @State private var deckShift: CGFloat = 0
     @State private var deckAlpha: Double = 1
+    /// The open the deck's data was last read behind (a plain box: nothing draws from it).
+    @State private var loaded = LoadedOpen()
+    private let others = OtherAccountMemories.shared
 
     init(presentation: MemoriesPresentation) {
         self.presentation = presentation
@@ -114,17 +117,41 @@ struct MemoriesView: View {
             MemoriesScript.title = { title($0, $1) }
             MemoriesScript.review = { review($0, $1) }
             MemoriesScript.back = { back() }
+            MemoriesScript.show = { other, albumId in
+                let i = cards.firstIndex { $0.fromOther == other && $0.albumId == albumId }
+                    ?? cards.firstIndex { $0.fromOther == other }
+                if let i { turn(to: i, velocity: 0) }
+            }
+            MemoriesScript.openAlbum = {
+                guard cards.indices.contains(currentIndex) else { return }
+                let card = cards[currentIndex]
+                let surface: MemoryTitleSurface = layout.isSpread ? .spread : deck.diary.isDiaryLevel ? .diary : .card
+                open(card, from: MemorySwitchAnchor.album(surface, card))
+            }
             // iPad: Home full width (no album column), for the spread's recordings.
             if UserDefaults.standard.bool(forKey: "memoriesNoColumn"), model.padSelection != nil { model.padSelection = nil }
             #endif
         }
         .onChange(of: presentation.openCount) { _, _ in rebuild() }
-        // The albums its memories need and the app had no track list for
-        // (after a relaunch, a sync): loaded behind the open deck.
-        .task(id: presentation.openCount) {
-            let open = presentation.openCount
-            guard await model.store.hydrateMemoryAlbums(), open == presentation.openCount else { return }
+        // Behind the open deck: the other accounts' memories as they are now (what changed lands through
+        // `revision`), and the albums its memories need and the app had no track list for (after a
+        // relaunch, a sync). Again when the account changes under it (Go to album or a song of another
+        // account's memory switches there): every card then reads its own account's rows afresh.
+        .task(id: [String(presentation.openCount), model.profiles.activeId ?? "", String(model.store.generation)]) {
+            let open = presentation.openCount, generation = model.store.generation
+            let again = loaded.open == open
+            loaded.open = open
+            await others.reload(model: model)
+            let landed = await model.store.hydrateMemoryAlbums()
+            guard landed || again, open == presentation.openCount, generation == model.store.generation else { return }
             withAnimation(Yoin.effects) { refreshInPlace() }
+        }
+        .onChange(of: others.revision) { _, _ in withAnimation(Yoin.effects) { refreshInPlace() } }
+        // The account changed: whose card is another account's follows at once (a card that is now
+        // read-only takes no write meant for the account before), ahead of the rows read again above.
+        .onChange(of: model.profiles.activeId) { _, active in
+            deck.editor.end()
+            withAnimation(Yoin.spatial) { cards = cards.map { $0.stamped(active: active) } }
         }
         // Titles and narration for the cards not yet tried in this language (MemoryGeneration: once per
         // album and language, never again on the next open); each answer lands on its card in place.
@@ -149,12 +176,12 @@ struct MemoriesView: View {
             let cover = MemoriesLayouts.spreadCover(layout, room: self.size.height - layout.barHeight - 120)
             MemoriesSpreadPage(card: card, deck: deck, layout: layout, cover: cover, seal: deck.sealSize, size: size,
                                scheme: scheme, dark: dark, current: i == currentIndex,
-                               onOpenAlbum: { open(card) }, onTitle: { title(card, $0) },
+                               onOpenAlbum: { open(card, from: $0) }, onTitle: { title(card, $0) },
                                onReview: { review(card, $0) },
                                leftGesture: pageGesture(zone: .card), horizontalPager: horizontalPager())
         } else {
             MemoryPageView(card: card, deck: deck, layout: layout, scheme: scheme, dark: dark, current: i == currentIndex,
-                           onOpenAlbum: { open(card) }, onTitle: { title(card, $0) },
+                           onOpenAlbum: { open(card, from: $0) }, onTitle: { title(card, $0) },
                            onReview: { review(card, $0) },
                            horizontalPager: horizontalPager())
         }
@@ -203,7 +230,7 @@ struct MemoriesView: View {
     /// The deck for this open: the pool rebuilt every time, stopped on the focus, every card on its card face.
     private func rebuild() {
         builtFor = presentation.openCount
-        let inputs = model.store.memoryDeckInputs()
+        let inputs = model.memoryDeckInputs()
         cards = model.voicedMemoryCards(MemoryDeck.deck(inputs, focus: presentation.focusAlbumId), inputs)
         pager.stop()
         position = CGFloat(MemoryDeck.startIndex(cards, focus: presentation.focusAlbumId))
@@ -215,13 +242,12 @@ struct MemoriesView: View {
     }
 
     /// Every card again from the stores, in place (the deck's order holds
-    /// while it is open); memories that now qualify join at the end. An
-    /// empty deck is built afresh.
+    /// while it is open), each from its own account's rows; memories that now
+    /// qualify join at the end. An empty deck is built afresh.
     private func refreshInPlace() {
         guard !cards.isEmpty else { return rebuild() }
-        let inputs = model.store.memoryDeckInputs()
-        let latest = Dictionary(inputs.memories.map { ($0.albumId, $0) }, uniquingKeysWith: { a, _ in a })
-        var next = cards.map { MemoryDeck.card(latest[$0.id] ?? $0.memory, inputs) }
+        let inputs = model.memoryDeckInputs()
+        var next = cards.map { MemoryDeck.refreshed($0, inputs) }
         let have = Set(next.map(\.id))
         next += MemoryDeck.deck(inputs, focus: nil).filter { !have.contains($0.id) }.prefix(max(0, MemoryDeck.limit - next.count))
         next = model.voicedMemoryCards(next, inputs)
@@ -233,7 +259,7 @@ struct MemoriesView: View {
     /// A new group past an end (Android advanceDeck): the memories not just shown first; forward lands
     /// on its first card, backward on its last; it slides in from the pulled edge with a tick.
     private func advanceDeck(forward: Bool) {
-        let inputs = model.store.memoryDeckInputs()
+        let inputs = model.memoryDeckInputs()
         let next = model.voicedMemoryCards(MemoryDeck.next(inputs, excluding: Set(cards.map(\.id))), inputs)
         guard !next.isEmpty else {
             return turn(to: forward ? cards.count - 1 : 0, velocity: 0)
@@ -261,8 +287,8 @@ struct MemoriesView: View {
     /// One card again after a write, in place (the deck's order holds while it is open).
     private func refresh(_ card: MemoryCard) {
         guard let i = cards.firstIndex(where: { $0.id == card.id }) else { return }
-        let inputs = model.store.memoryDeckInputs()
-        let fresh = model.voicedMemoryCards([MemoryDeck.card(card.memory, inputs)], inputs)[0]
+        let inputs = model.memoryDeckInputs()
+        let fresh = model.voicedMemoryCards([MemoryDeck.card(card.memory, inputs.source(for: card) ?? inputs)], inputs)[0]
         cards[i] = fresh
         deck.refresh(fresh)
     }
@@ -278,9 +304,23 @@ struct MemoriesView: View {
 
     // MARK: Actions
 
-    private func open(_ card: MemoryCard) { model.open(card.album) }
+    /// Go to album. Another account's memory: its album is that account's, so Yoin switches there first
+    /// (the deck keeps the card in view across the switch) and opens the album once that account is in
+    /// use (Android rememberMemoryAlbumOpen). The first time ever the notice asks before switching, on
+    /// the button tapped ([anchor]), since a switch stops what is playing.
+    private func open(_ card: MemoryCard, from anchor: String) {
+        guard let owner = card.owner else { return model.open(card.album) }
+        deck.switchGate.request(from: anchor, account: owner.name, subject: card.album.title, opensAlbum: true) {
+            Task {
+                guard await model.switchAccount(to: owner.profileId, provider: card.album.id.provider) else { return }
+                model.open(card.album)
+            }
+        }
+    }
 
     private func title(_ card: MemoryCard, _ outcome: MemoryTitles.Outcome) {
+        // Another account's memory is read-only here: its title belongs to that account.
+        guard !card.fromOther else { return }
         switch outcome {
         case .unchanged: return
         case .restore: MemoryWrites.saveTitle(card, nil)
@@ -290,6 +330,8 @@ struct MemoriesView: View {
     }
 
     private func review(_ card: MemoryCard, _ text: String) -> Bool {
+        // Another account's memory is read-only here: its review belongs to that account.
+        guard !card.fromOther else { return false }
         guard MemoryWrites.saveReview(card, text: text) else {
             PlaylistActions.shared.show(String(localized: "Couldn't save the review. Your draft is kept."))
             return false
@@ -532,4 +574,10 @@ private struct MemoriesAurora: View {
 @MainActor
 private final class SurfaceTop {
     var y: CGFloat = 0
+}
+
+/// The open whose data load already ran once: a second run in the same open is an account change.
+@MainActor
+private final class LoadedOpen {
+    var open: Int?
 }

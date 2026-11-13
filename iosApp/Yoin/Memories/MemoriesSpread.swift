@@ -22,7 +22,7 @@ struct MemoriesSpreadPage: View {
     var scheme: CoverScheme
     var dark: Bool
     var current: Bool
-    var onOpenAlbum: () -> Void
+    var onOpenAlbum: (String) -> Void
     var onTitle: (MemoryTitles.Outcome) -> Void
     var onReview: (String) -> Bool
     var leftGesture: AnyGesture<DragGesture.Value>
@@ -54,6 +54,7 @@ struct MemoriesSpreadPage: View {
         let spacing = size * 0.3 - 6
         // Memories: the seal sits on every cover's lower-right corner, Spotify's too (51, 11-07, like Android).
         let onCover = true
+        let anchor = MemorySwitchAnchor.album(.spread, card)
         return VStack(spacing: 0) {
             Spacer(minLength: 24)
             CoverArt(palette: card.album.palette, cornerRadius: Tokens.shape.HERO.cg, seed: card.album.seed)
@@ -66,8 +67,9 @@ struct MemoriesSpreadPage: View {
                         .padding(.top, onCover ? cover - seal * 0.76 : cover + CoverMarks.gap)
                 }
                 .padding(.bottom, onCover ? seal * 0.24 : seal + CoverMarks.gap)
+            // Another account's memory is read-only here: its title is that account's.
             MemoryTitleSlot(card: card, surface: .spread, editor: deck.editor, scheme: scheme, tones: tones, font: font,
-                            lineSpacing: spacing, centred: true, enabled: current, onCommit: onTitle) {
+                            lineSpacing: spacing, centred: true, enabled: current && !card.fromOther, onCommit: onTitle) {
                 Text(card.title)
                     .font(font)
                     .lineSpacing(spacing)
@@ -100,15 +102,24 @@ struct MemoriesSpreadPage: View {
             }
             .multilineTextAlignment(.center)
             .padding(.top, 18)
-            Button(action: onOpenAlbum) {
-                Text("Go to album")
-                    .font(.gsf(15, .semibold))
-                    .foregroundStyle(tones.onButton)
-                    .padding(.horizontal, 24)
-                    .frame(height: 48)
-                    .background(tones.button, in: .capsule)
+            // Another account's memory: whose it is, beside Go to album (which switches there).
+            HStack(spacing: MemoryOtherAccountLine.goGap) {
+                Button { onOpenAlbum(anchor) } label: {
+                    Text("Go to album")
+                        .font(.gsf(15, .semibold))
+                        .foregroundStyle(tones.onButton)
+                        .padding(.horizontal, 24)
+                        .frame(height: 48)
+                        .background(tones.button, in: .capsule)
+                }
+                .buttonStyle(PressScale())
+                .accountSwitchNotice(deck.switchGate, anchor: anchor)
+                if let owner = card.owner {
+                    MemoryOtherAccountLine(owner: owner, tones: tones)
+                        .transition(.opacity)
+                }
             }
-            .buttonStyle(PressScale())
+            .animation(Yoin.spatial, value: card.fromOther)
             .padding(.top, 30)
             Spacer(minLength: 56)
         }

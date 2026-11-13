@@ -14,9 +14,10 @@ extension LibraryStore {
     /// days (Activities); 4 rated on every track, 5 months away (the rated
     /// 1×2); 5 two tracks rated, 14 months away; 6 rated on 70 %, 4 months
     /// away; 7 one note, 6 months away (Rediscover; the note is the noted 1×2).
-    func seedHistory(_ mode: String) async {
-        if mode == "promo" { return await seedPromo() }
-        guard mode == "demo", isReal, !Self.didSeed else { return }
+    /// [again]: a second account in the same run (`-profilesScript seed:<mode>`).
+    func seedHistory(_ mode: String, again: Bool = false) async {
+        if mode == "promo" { return await seedPromo(again: again) }
+        guard mode == "demo", isReal, again || !Self.didSeed else { return }
         Self.didSeed = true
         // Let the sign-in's reset land first (it would drop the lists loaded here).
         try? await Task.sleep(for: .milliseconds(300))
@@ -90,8 +91,8 @@ extension LibraryStore {
     /// `-historySeed promo`: the promo demo server's memories, as Android's promo kit seeds them
     /// (Yoin-archive/promo-demo-2026-11-02/seed.py): plays, track and album ratings, reviews, titles
     /// and timed notes on the same albums, so the two platforms' Memories can be shot side by side.
-    private func seedPromo() async {
-        guard isReal, !Self.didSeed else { return }
+    private func seedPromo(again: Bool = false) async {
+        guard isReal, again || !Self.didSeed else { return }
         Self.didSeed = true
         try? await Task.sleep(for: .milliseconds(300))
         let now = history.nowMs, day = HomeHistory.dayMs, hour: Int64 = 3_600_000

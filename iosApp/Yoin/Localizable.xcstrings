@@ -8561,6 +8561,26 @@
           }
         }
       }
+    },
+    "From another account, %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自另一个账号：%@"
+          }
+        }
+      }
+    },
+    "Couldn't switch account": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法切换账号"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

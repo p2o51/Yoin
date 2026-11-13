@@ -236,6 +236,33 @@ enum MemoriesScript {
     static var title: ((MemoryCard, MemoryTitles.Outcome) -> Void)?
     static var review: ((MemoryCard, String) -> Bool)?
     static var back: (() -> Void)?
+    /// Turns the deck to a card from another account (true) or of the one in use: that album's when the
+    /// deck holds it, else the first (set by MemoriesView).
+    static var show: ((Bool, String?) -> Void)?
+    /// The current card's Go to album, as its button's tap (set by MemoriesView).
+    static var openAlbum: (() -> Void)?
+
+    /// `-profilesScript "…;memories:open;wait:3000;memories:other;wait:1500;memories:album"`: the deck
+    /// driven as taps do, between the script's account steps (two accounts' memories in one deck):
+    /// `open` / `close`; `other` / `own` turn to the first card from another account / of the account in
+    /// use (`other=<album id>`: that album's card when the deck holds it); `diary` opens the current
+    /// card's diary; `album` is its Go to album; `play` its diary's first liner row (pair with
+    /// `-silentAudio YES`). On another account's card the last two ask through the switch notice.
+    static func step(_ verb: String, _ model: AppModel) {
+        let parts = verb.split(separator: "=", maxSplits: 1).map(String.init)
+        switch parts.first ?? verb {
+        case "open": model.memories.open()
+        case "close": model.memories.close()
+        case "other": show?(true, parts.count > 1 ? parts[1] : nil)
+        case "own": show?(false, parts.count > 1 ? parts[1] : nil)
+        case "diary": if let deck, let card = current?() { deck.openDiary(card) }
+        case "album": openAlbum?()
+        case "play":
+            guard let deck, let card = current?(), let row = card.diaryTracks.first else { return }
+            deck.play(card, track: row, at: nil, from: MemorySwitchAnchor.track(card, row), model: model)
+        default: break
+        }
+    }
 
     /// `-memoriesDiaryScripted YES`: open on the focus; the Diary button; a
     /// pull past the diary's top that closes it; the button again and the

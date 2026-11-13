@@ -59,7 +59,35 @@ struct MemoryCard: Identifiable, Hashable {
     var playCount: Int
     var firstPlayedAt: Int64?
 
-    var id: String { album.id.rawId }
+    /// The account a memory belongs to (Android `MemoryOtherProfile`): what its "From …" line shows.
+    struct Account: Hashable, Sendable {
+        var profileId: String
+        var name: String
+        var service: Profile.Service
+        /// The account's avatar shape, for the mark before its name.
+        var shape: Int = 0
+    }
+
+    /// Whose memory it is; nil on a deck without accounts (the mock deck).
+    var account: Account?
+    /// It is another account's, not the one in use (Android `isFromOtherProfile`): it says "From …", it
+    /// is read-only here (its title and review are that account's), and Go to album or playing one of
+    /// its songs switches to that account first.
+    var fromOther = false
+
+    /// The account its "From …" line names; nil for the account in use.
+    var owner: Account? { fromOther ? account : nil }
+
+    var albumId: String { album.id.rawId }
+    /// The card among every account's: two accounts can keep the same album id (one server, two users).
+    var id: String { MemoryDeck.cardId(account: account?.profileId, albumId: albumId) }
+
+    /// The card as it stands with [activeId] in use: whose account is the other one follows a switch.
+    func stamped(active activeId: String?) -> MemoryCard {
+        var c = self
+        c.fromOther = account.map { $0.profileId != activeId } ?? false
+        return c
+    }
 }
 
 enum MemoryDeck {
@@ -80,6 +108,36 @@ enum MemoryDeck {
         var yoinTitle: (String) -> String? = { _ in nil }
         /// Raw album id → Yoin's paragraph (the memory copy).
         var copy: (String) -> String? = { _ in nil }
+        /// Whose rows these are; nil without accounts (the mock deck).
+        var account: MemoryCard.Account? = nil
+        /// They are another account's than the one in use: its cards say "From …" and are read-only.
+        var isOther = false
+        /// Raw album id → that account's stored memory copy row (its AI title); nil reads the store,
+        /// which answers for the account in use.
+        var memoryCopy: ((String) -> AlbumMemoryStore.MemoryCopy?)? = nil
+        /// The other accounts' memories, each with its own rows (Android `OtherMemoryProfiles`, owner
+        /// 2026-11-08: Memories shows every account's).
+        var others: [Inputs] = []
+
+        /// The rows [card] was built from: these, or one of [others].
+        func source(for card: MemoryCard) -> Inputs? {
+            if card.account?.profileId == account?.profileId { return self }
+            return others.first { $0.account?.profileId == card.account?.profileId }
+        }
+    }
+
+    /// One memory of the pool, with the rows of the account it belongs to.
+    struct Entry {
+        var memory: AlbumMemory
+        var source: Inputs
+        var id: String { MemoryDeck.cardId(account: source.account?.profileId, albumId: memory.albumId) }
+    }
+
+    /// Another account's memories in the pool at most (Android getOtherProfileAlbumMemoryCandidates).
+    static let otherAccountLimit = 24
+
+    static func cardId(account: String?, albumId: String) -> String {
+        account.map { "\($0)\u{1F}\(albumId)" } ?? albumId
     }
 
     /// One open's deck (Android ensureDeckFocused + sampleDeckCandidates): the focus first, then
@@ -90,14 +148,16 @@ enum MemoryDeck {
     }
 
     static func deck(_ x: Inputs, focus albumId: String?, using rng: inout some RandomNumberGenerator) -> [MemoryCard] {
-        let all = pool(x)
-        let focus = all.filter { $0.albumId == albumId }
-        let rest = all.filter { $0.albumId != albumId }.shuffled(using: &rng)
-        return (focus + rest).prefix(limit).map { card($0, x) }
+        let all = entries(x)
+        // A focus is an album of the account in use (Home's pill, a Jump Back In card).
+        func focused(_ e: Entry) -> Bool { !e.source.isOther && e.memory.albumId == albumId }
+        let focus = all.filter(focused)
+        let rest = all.filter { !focused($0) }.shuffled(using: &rng)
+        return (focus + rest).prefix(limit).map(card)
     }
 
     /// The next deck past either end (Android advanceDeck + sampleDeckCandidates): the memories
-    /// not in [current] first, shuffled, then the current ones shuffled to fill a small pool.
+    /// not in [current] (card ids) first, shuffled, then the current ones shuffled to fill a small pool.
     static func next(_ x: Inputs, excluding current: Set<String>) -> [MemoryCard] {
         var rng = SystemRandomNumberGenerator()
         return next(x, excluding: current, using: &rng)
@@ -105,14 +165,39 @@ enum MemoryDeck {
 
     static func next(_ x: Inputs, excluding current: Set<String>,
                      using rng: inout some RandomNumberGenerator) -> [MemoryCard] {
-        let all = pool(x)
-        let fresh = all.filter { !current.contains($0.albumId) }.shuffled(using: &rng)
-        let seen = all.filter { current.contains($0.albumId) }.shuffled(using: &rng)
-        return (fresh + seen).prefix(limit).map { card($0, x) }
+        let all = entries(x)
+        let fresh = all.filter { !current.contains($0.id) }.shuffled(using: &rng)
+        let seen = all.filter { current.contains($0.id) }.shuffled(using: &rng)
+        return (fresh + seen).prefix(limit).map(card)
     }
 
     /// Every card of the pool, in its order (the deck samples from these).
-    static func cards(_ x: Inputs) -> [MemoryCard] { pool(x).map { card($0, x) } }
+    static func cards(_ x: Inputs) -> [MemoryCard] { entries(x).map(card) }
+
+    /// The whole pool (Android ensureCandidates: own + others): the account in use's memories, then
+    /// each other account's (OtherAccountDeck keeps [otherAccountLimit] of them).
+    static func entries(_ x: Inputs) -> [Entry] {
+        pool(x).map { Entry(memory: $0, source: x) }
+            + x.others.flatMap { other in pool(other).map { Entry(memory: $0, source: other) } }
+    }
+
+    /// [card] again from [x] (a write, an album page that loaded, an account switch): built from its
+    /// account's rows as they are now. A card whose account or album is no longer in [x], or whose
+    /// album page isn't loaded again yet (just after a switch), keeps what it shows (Android
+    /// refreshDeck: dropping it would move every later page), marked against the account in use.
+    static func refreshed(_ card: MemoryCard, _ x: Inputs) -> MemoryCard {
+        guard let source = x.source(for: card) else { return card.stamped(active: x.account?.profileId) }
+        let memory = source.memories.first { $0.albumId == card.albumId } ?? card.memory
+        if memory.album.tracks.isEmpty, !card.album.tracks.isEmpty {
+            var kept = card
+            kept.account = source.account
+            kept.fromOther = source.isOther
+            return kept
+        }
+        return MemoryDeck.card(memory, source)
+    }
+
+    static func card(_ e: Entry) -> MemoryCard { card(e.memory, e.source) }
 
     /// The Memory pool (eligible memories; every memory with something kept
     /// when none is), written ones first, newest write first.
@@ -158,7 +243,8 @@ enum MemoryDeck {
                           yoinTitle: x.yoinTitle(id).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
                           paragraph: x.copy(id).flatMap(MemoryNarrationCopy.paragraph),
                           diaryTracks: diaryTracks(m.album, notes: notes, rating: x.rating),
-                          playCount: m.playCount, firstPlayedAt: m.firstPlayedAt)
+                          playCount: m.playCount, firstPlayedAt: m.firstPlayedAt,
+                          account: x.account, fromOther: x.isOther)
     }
 
     /// The liner (Android option A): only the rated or noted tracks, in album
@@ -192,10 +278,10 @@ enum MemoryDeck {
         return (plays, max(days, 0))
     }
 
-    /// Where the deck opens: the focused album's card, else the first.
+    /// Where the deck opens: the focused album's card (the account in use's), else the first.
     static func startIndex(_ cards: [MemoryCard], focus albumId: String?) -> Int {
         guard let albumId else { return 0 }
-        return cards.firstIndex { $0.id == albumId } ?? 0
+        return cards.firstIndex { !$0.fromOther && $0.albumId == albumId } ?? 0
     }
 
     /// A release this fast (pages / s) turns the page whatever the position.

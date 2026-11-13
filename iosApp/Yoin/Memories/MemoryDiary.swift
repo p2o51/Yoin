@@ -57,7 +57,7 @@ struct MemoryDiaryView: View {
     var scheme: CoverScheme
     var dark: Bool
     var interactive: Bool
-    var onOpenAlbum: () -> Void
+    var onOpenAlbum: (String) -> Void
     var onTitle: (MemoryTitles.Outcome) -> Void
     var onReview: (String) -> Bool
     var horizontalPager: AnyGesture<DragGesture.Value>
@@ -70,8 +70,9 @@ struct MemoryDiaryView: View {
         let tones = MemoryTones(palette: card.album.palette, dark: dark)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                DiaryHead(card: card, deck: deck, morph: morph, scheme: scheme, tones: tones, enabled: interactive,
-                          onTitle: onTitle)
+                // Another account's memory is read-only here: its title is that account's.
+                DiaryHead(card: card, deck: deck, morph: morph, scheme: scheme, tones: tones,
+                          enabled: interactive && !card.fromOther, onTitle: onTitle)
                     .pageFrame { r in if morph.scrollY < 0.5 { morph.diaryTop = r.minY } }
                 DiaryBlocks(card: card, deck: deck, scheme: scheme, tones: tones, interactive: interactive,
                             showGo: true, firstBlock: card.paragraph != nil && card.review == nil && card.titleKind != .album ? 1 : 0,
@@ -301,7 +302,8 @@ struct DiaryBlocks: View {
     var interactive: Bool
     var showGo: Bool
     var firstBlock: Int
-    var onOpenAlbum: () -> Void
+    /// Go to album, from the button tapped (its switch-notice anchor).
+    var onOpenAlbum: (String) -> Void
     var onReview: (String) -> Bool
     var block: (Int, AnyView) -> AnyView = { _, v in v }
 
@@ -313,8 +315,9 @@ struct DiaryBlocks: View {
                                        now: Int64(Date().timeIntervalSince1970 * 1000))
         let k0 = firstBlock
         VStack(alignment: .leading, spacing: 0) {
+            // Another account's memory is read-only here: its blank page takes no review.
             block(k0, AnyView(MemoryDiaryEntry(card: card, tones: tones, scheme: scheme, drafts: deck.drafts,
-                                               enabled: interactive, onSave: onReview)))
+                                               enabled: interactive && !card.fromOther, onSave: onReview)))
             if liner {
                 if card.review != nil {
                     block(k0 + 1, AnyView(separator))
@@ -353,8 +356,9 @@ struct DiaryBlocks: View {
         .frame(maxWidth: 520, alignment: .leading)
     }
 
+    /// The account in use plays: another account's row never lights (its song ids are that account's).
     private func playing(_ t: MemoryCard.DiaryTrack) -> Bool {
-        model.player.currentTrack?.id == t.track.id.rawId
+        !card.fromOther && model.player.currentTrack?.id == t.track.id.rawId
     }
 
     private func trackGroup(_ g: MemoryCard.DiaryTrack) -> some View {
@@ -363,7 +367,7 @@ struct DiaryBlocks: View {
         return VStack(alignment: .leading, spacing: 0) {
             Button {
                 MemoriesHaptics.soft(0.4)
-                play(g, at: nil)
+                play(g, at: nil, from: MemorySwitchAnchor.track(card, g))
             } label: {
                 HStack(spacing: 0) {
                     Text("\(g.track.number)")
@@ -390,12 +394,13 @@ struct DiaryBlocks: View {
             .padding(.horizontal, -MemoryDiaryTokens.rowBleed)
             .disabled(!interactive)
             .animation(Yoin.effects, value: isPlaying)
+            .accountSwitchNotice(deck.switchGate, anchor: MemorySwitchAnchor.track(card, g))
             .accessibilityLabel(g.rating.map { "Track \(g.track.number), \(g.track.title), rated \(String(format: "%.1f", $0))" }
                 ?? String(localized: "Track \(g.track.number), \(g.track.title)"))
             ForEach(g.notes) { n in
                 Button {
                     MemoriesHaptics.soft(0.4)
-                    play(g, at: n.positionMs)
+                    play(g, at: n.positionMs, from: MemorySwitchAnchor.note(card, n))
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 0) {
                         Text(n.positionMs.map(MemoryDiaryFormat.stamp) ?? "")
@@ -417,15 +422,16 @@ struct DiaryBlocks: View {
                 .buttonStyle(DiaryRowStyle(scheme: scheme))
                 .padding(.horizontal, -MemoryDiaryTokens.rowBleed)
                 .disabled(!interactive)
+                .accountSwitchNotice(deck.switchGate, anchor: MemorySwitchAnchor.note(card, n))
                 .accessibilityLabel(n.positionMs.map { "Note at \(MemoryDiaryFormat.stamp($0)): \(n.content)" } ?? String(localized: "Note: \(n.content)"))
             }
         }
     }
 
-    /// A row plays its track from the start; a note from its moment (MemoryPlayback.swift: the
-    /// queue says it plays from this memory's album).
-    private func play(_ g: MemoryCard.DiaryTrack, at ms: Int64?) {
-        model.play(card, track: g, at: ms)
+    /// A row plays its track from the start; a note from its moment; another account's after a
+    /// switch (MemoriesDeckModel.play). [anchor]: the row tapped, where a switch notice comes out.
+    private func play(_ g: MemoryCard.DiaryTrack, at ms: Int64?, from anchor: String) {
+        deck.play(card, track: g, at: ms, from: anchor, model: model)
     }
 
     /// The record's run-out groove: three hairline rings over the numerals.
@@ -451,19 +457,30 @@ struct DiaryBlocks: View {
                 }
             }
             if showGo {
-                Button(action: onOpenAlbum) {
-                    Text("Go to album")
-                        .font(.gsf(15, .semibold))
-                        .foregroundStyle(tones.onButton)
-                        .padding(.horizontal, 24)
-                        .frame(height: 48)
-                        .background(tones.button, in: .capsule)
+                let anchor = MemorySwitchAnchor.album(.diary, card)
+                // Another account's memory: whose it is, beside Go to album (which switches there).
+                HStack(spacing: MemoryOtherAccountLine.goGap) {
+                    Button { onOpenAlbum(anchor) } label: {
+                        Text("Go to album")
+                            .font(.gsf(15, .semibold))
+                            .foregroundStyle(tones.onButton)
+                            .padding(.horizontal, 24)
+                            .frame(height: 48)
+                            .background(tones.button, in: .capsule)
+                    }
+                    .buttonStyle(PressScale())
+                    .disabled(!interactive)
+                    .accountSwitchNotice(deck.switchGate, anchor: anchor)
+                    if let owner = card.owner {
+                        MemoryOtherAccountLine(owner: owner, tones: tones)
+                            .transition(.opacity)
+                    }
                 }
-                .buttonStyle(PressScale())
-                .disabled(!interactive)
+                .animation(Yoin.spatial, value: card.fromOther)
                 .padding(.top, footer != nil ? MemoryDiaryTokens.goTop : 0)
             }
-            DiaryNeoDBLine(album: card.album, scheme: scheme, interactive: interactive)
+            // No line on another account's memory: its NeoDB state is that account's.
+            DiaryNeoDBLine(album: card.album, scheme: scheme, interactive: interactive, otherAccount: card.fromOther)
                 .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
@@ -498,8 +515,10 @@ struct DiaryNeoDBLine: View {
     var album: Album
     var scheme: CoverScheme
     var interactive: Bool
+    /// The memory is another account's: nothing is read or said (the slot stays).
+    var otherAccount = false
 
-    private var state: AlbumNeoDBState { AlbumNeoDBSync.shared.state(album) }
+    private var state: AlbumNeoDBState { otherAccount ? .unknown : AlbumNeoDBSync.shared.state(album) }
 
     var body: some View {
         let s = state
@@ -532,6 +551,6 @@ struct DiaryNeoDBLine: View {
         .frame(height: 48)
         .contentShape(.rect)
         .animation(Yoin.effects, value: s)
-        .onAppear { AlbumNeoDBSync.shared.sheetOpened(album) }
+        .onAppear { if !otherAccount { AlbumNeoDBSync.shared.sheetOpened(album) } }
     }
 }

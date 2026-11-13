@@ -26,8 +26,9 @@ final class MemoryGeneration {
                   client: GeminiClient = GeminiClient(), store: AlbumMemoryStore = .shared,
                   settings: GeminiSettings = .shared, onSaved: () -> Void = { CloudSync.shared.localChanged() },
                   isCurrent: () -> Bool) async {
-        let key = Key(account: account, provider: input.card.album.id.provider, album: input.card.id, language: input.targetLanguage)
-        guard isCurrent(), !account.isEmpty, settings.hasKey, !busy.contains(key) else { return }
+        let key = Key(account: account, provider: input.card.album.id.provider, album: input.card.albumId, language: input.targetLanguage)
+        // Gemini writes for the account in use; another account's memory keeps what it has.
+        guard isCurrent(), !account.isEmpty, !input.card.fromOther, settings.hasKey, !busy.contains(key) else { return }
         busy.insert(key)
         defer { busy.remove(key) }
 
@@ -135,17 +136,22 @@ final class MemoryGeneration {
 
     static func voiced(_ card: MemoryCard, _ inputs: MemoryDeck.Inputs, language: String, now: Int64,
                        store: AlbumMemoryStore = .shared) -> MemoryCard {
-        let voice = MemoryVoice.Input(card: card, notes: inputs.notes[card.id] ?? [], now: now, targetLanguage: language)
-        let generated = cached(voice, row: store.memory(provider: card.album.id.provider, entityId: card.id))
+        // The card's own account's rows: another account's memory reads that account's notes and AI title.
+        // A card whose account isn't in [inputs] (its rows aren't read yet) stays as it reads.
+        guard let source = inputs.source(for: card) else { return card }
+        let voice = MemoryVoice.Input(card: card, notes: source.notes[card.albumId] ?? [], now: now, targetLanguage: language)
+        let row = source.memoryCopy.map { $0(card.albumId) }
+            ?? store.memory(provider: card.album.id.provider, entityId: card.albumId)
+        let generated = cached(voice, row: row)
         var card = card
         card.yoinTitle = generated.title
         if card.titleKind != .user {
             card.title = generated.title ?? card.album.title
             card.titleKind = generated.title == nil ? .album : .ai
         }
-        card.paragraph = card.review == nil
-            ? generated.copy.flatMap { paragraph($0, targetLanguage: language) } ?? voice.fallback?.paragraph
-            : nil
+        // Another account's memory keeps the local copy (Android: Gemini's narration is the account in use's).
+        let narration = card.fromOther ? nil : generated.copy.flatMap { paragraph($0, targetLanguage: language) }
+        card.paragraph = card.review == nil ? narration ?? voice.fallback?.paragraph : nil
         return card
     }
 }
@@ -169,10 +175,12 @@ extension AppModel {
             gen == store.generation && provider == store.provider && account == profiles.activeId
                 && language == GeminiSettings.shared.targetLanguage
         }
-        let inputs = store.memoryDeckInputs()
-        for card in MemoryDeck.cards(inputs) where card.album.id.provider == provider && deck().contains(card.id) {
+        let inputs = memoryDeckInputs()
+        // Never for another account's memory: Gemini writes for the account in use.
+        for card in MemoryDeck.cards(inputs)
+        where !card.fromOther && card.album.id.provider == provider && deck().contains(card.id) {
             guard live(), !Task.isCancelled else { return }
-            let input = MemoryVoice.Input(card: card, notes: inputs.notes[card.id] ?? [],
+            let input = MemoryVoice.Input(card: card, notes: inputs.notes[card.albumId] ?? [],
                                           now: HistoryStore.shared.nowMs, targetLanguage: language)
             await MemoryGeneration.shared.generate(input, account: account, isCurrent: live)
             if live(), !Task.isCancelled { onCard() }

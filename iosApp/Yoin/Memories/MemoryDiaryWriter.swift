@@ -59,7 +59,8 @@ enum MemoryWrites {
     @discardableResult
     static func saveReview(_ card: MemoryCard, text: String) -> Bool {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty else { return false }
+        // Another account's memory is read-only here (Android saveReview): the stores write for the account in use.
+        guard !words.isEmpty, !card.fromOther else { return false }
         let album = card.album
         if album.id.provider == "mock" {
             MemoryDeck.MockWrites.shared.reviews[album.id.rawId] = (words, now)
@@ -79,6 +80,8 @@ enum MemoryWrites {
 
     /// The user's title (nil = back to Yoin's own: the row is deleted).
     static func saveTitle(_ card: MemoryCard, _ title: String?) {
+        // Another account's memory keeps that account's title (Android writeMemoryTitle).
+        guard !card.fromOther else { return }
         let album = card.album
         if album.id.provider == "mock" {
             MemoryDeck.MockWrites.shared.titles[album.id.rawId] = .some(title)
@@ -149,9 +152,11 @@ struct MemoryDiaryEntry: View {
         .onAppear {
             if bornBlank == nil { bornBlank = blank }
             // A draft kept from before reopens writing (not focused: the keyboard waits for a tap).
-            if blank, !(drafts.texts[card.id] ?? "").isEmpty { writing = true }
+            if blank, !card.fromOther, !(drafts.texts[card.id] ?? "").isEmpty { writing = true }
         }
         .onChange(of: enabled) { _, on in if !on { focused = false } }
+        // The account changed under the page and this memory is another account's now: the page closes.
+        .onChange(of: card.fromOther) { _, other in if other { writing = false } }
         .accessibilityElement(children: .contain)
     }
 

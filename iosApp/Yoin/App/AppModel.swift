@@ -326,8 +326,9 @@ final class AppModel {
     /// Debug builds, account QA without typing: `-profilesScript "add:http://127.0.0.1:4995;wait:2000;
     /// switch:0;remove:1;open:settings"`. `add:<url>` connects demo/demo there (Settings › Add account's
     /// path, made the account in use; `add:<url>,<user>` as that user); `switch:<n>` / `remove:<n>` act on
-    /// the n-th card as a tap / a confirmed Remove do; `open:` settings, all-memories, home or library.
-    /// Never in release builds.
+    /// the n-th card as a tap / a confirmed Remove do; `open:` settings, all-memories, home or library;
+    /// `seed:demo` / `seed:promo` seeds the account in use (`-historySeed`, again for a second account);
+    /// `memories:<step>` drives the Memories deck (MemoriesScript.step). Never in release builds.
     private func runProfilesScript() {
         guard let script = UserDefaults.standard.string(forKey: "profilesScript") else { return }
         Task {
@@ -344,6 +345,8 @@ final class AppModel {
                 case "switch": if let card { await profiles.switchTo(card.id) }
                 case "remove": if let card { profiles.remove(card.id) }
                 case "wait": try? await Task.sleep(for: .milliseconds(Int(arg) ?? 1000))
+                case "seed": await store.seedHistory(arg, again: true)
+                case "memories": MemoriesScript.step(arg, self)
                 case "open":
                     switch arg {
                     case "settings": if !path.contains(.settings) { openSettings() }

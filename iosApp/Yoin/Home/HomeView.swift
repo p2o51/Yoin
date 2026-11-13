@@ -137,6 +137,11 @@ struct HomeView: View {
             LyricHighlightProcessor.shared.appBecameActive(model)
         }
         .onChange(of: memories.isOpen) { _, open in if !open { MemoryLedgerSource.shared.reload(model: model) } }
+        // The other accounts' memories for the Memories deck (#178): read when Home shows and after an
+        // account is added, removed or switched to, so the deck opens with them.
+        .task(id: [model.profiles.activeId ?? ""] + model.profiles.profiles.map(\.id)) {
+            await OtherAccountMemories.shared.reload(model: model)
+        }
         .onChange(of: model.profiles.activeId) { spotifyElsewhere.reset() }
         // Yoin starts playing: the pill has nothing to offer.
         .onChange(of: model.playback.isPlaying) { _, playing in if playing { spotifyElsewhere.dismiss() } }

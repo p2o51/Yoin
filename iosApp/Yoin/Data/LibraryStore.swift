@@ -1590,6 +1590,11 @@ final class LibraryStore {
 
     /// An album made from a play's snapshot, for one the app has no copy of.
     private func snapshotAlbum(_ id: String, _ snap: PlayEvent?) -> Album? {
+        Self.snapshotAlbum(id, snap, mapping: mapping)
+    }
+
+    /// [mapping]: the Subsonic account the play belongs to (its covers are read through its server).
+    static func snapshotAlbum(_ id: String, _ snap: PlayEvent?, mapping: SubsonicMapping?) -> Album? {
         guard let snap, !snap.album.isEmpty || !snap.title.isEmpty else { return nil }
         let palette: CoverPalette
         if let mapping, snap.provider == MediaRef.companion.PROVIDER_SUBSONIC {

@@ -49,6 +49,13 @@ enum Tips {
             text: "On devices with Apple Intelligence, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up",
             titleZhHans: "歌词卡片",
             textZhHans: "支持 Apple 智能的设备上，点首页歌词卡片从那句开播，左右滑动翻看；歌词里分享或保存的句子也会加入"),
+        // The Memories deck deals every account's memories (Android #178); Android's own strings
+        // (home_tip_memories_all_accounts). No memory symbol in YoinSymbols on iOS yet: the note one.
+        Tip(id: "MemoriesAllAccounts", icon: "edit_note", updated: "2026-11-13",
+            title: "Memories across accounts",
+            text: "Memories includes all your accounts, and switches to that account first when you play or go to the album",
+            titleZhHans: "各账号的回忆",
+            textZhHans: "Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号"),
         // Yoin Labs (Android #189); Argon's iOS wording.
         Tip(id: "Labs", icon: "sparkle", updated: "2026-11-10",
             title: "Yoin Labs",

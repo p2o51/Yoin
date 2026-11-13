@@ -27,4 +27,42 @@ extension AppModel {
         if let ms { player.seek(to: Double(ms) / 1000) }
         if current { player.resume() }
     }
+
+    /// How long playing another account's song waits for that account's source after the switch
+    /// (Android OtherProfileSourceWaitMs).
+    static let otherAccountSourceWait: Duration = .seconds(10)
+
+    /// A row or note of another account's memory (Android YoinNavHost onPlayMemoryTrack): Yoin switches
+    /// to [owner]'s account, as Home's other-accounts shelf does, then plays once its source is up. A
+    /// switch that doesn't land says so and plays nothing.
+    func play(_ card: MemoryCard, track g: MemoryCard.DiaryTrack, at ms: Int64? = nil,
+              switchingTo owner: MemoryCard.Account) {
+        Task {
+            guard await switchAccount(to: owner.profileId, provider: card.album.id.provider) else { return }
+            play(card, track: g, at: ms)
+        }
+    }
+
+    /// Makes [profileId] the account in use and waits until the library reads from it ([provider]'s
+    /// source: the store starts over a turn after the switch, and Spotify's is built behind it), at most
+    /// [wait]. False when the switch didn't land (said in a toast, Android's switchFailures) or the
+    /// source never came up.
+    func switchAccount(to profileId: String, provider: String,
+                       wait: Duration = AppModel.otherAccountSourceWait) async -> Bool {
+        if profiles.activeId != profileId {
+            let before = store.generation
+            await profiles.switchTo(profileId)
+            guard profiles.activeId == profileId else {
+                PlaylistActions.shared.show(String(localized: "Couldn't switch account"))
+                return false
+            }
+            let clock = ContinuousClock()
+            let deadline = clock.now + wait
+            while store.generation == before || !store.isReal || store.provider != provider {
+                guard clock.now < deadline, !Task.isCancelled, profiles.activeId == profileId else { return false }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
+        return store.isReal && store.provider == provider
+    }
 }
