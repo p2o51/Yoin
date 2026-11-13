@@ -328,13 +328,26 @@ the dispatcher gate does:
    shape, seeked by the finger, never a layout scrub. Pushes are the mirror
    (incoming from +96dp, beneath recedes −96dp).
 2. **Last entry → column closed** (`DetailPaneCloseHandler`): the page
-   scales toward 0.9 + 28dp corner under the finger 1:1 (`backGestureEasing`);
-   commit hands the close to the shell's open/close spring
-   (`DetailPaneState.openFraction`, the single owner of the column width —
-   the column slides out past the window edge while the shell widens and
-   the bar lerps back to its nav pose on the same spring); cancel springs the
-   scale home. `ShellBackResolver` ranks it NowPlaying > DetailPane >
-   Memories so Memories' handler is disabled while a column is open.
+   scales toward 0.9 + 28dp corner under the finger 1:1 (`backGestureEasing`)
+   AND heads for the window's end — `BackMotionTokens.ColumnClosePreviewTravel`
+   (a quarter of its width) at full progress, a transform of the complete page
+   (owner 2026-11-12: the scale alone read as "not moving", then the release
+   jumped). Commit stores that travel (`committedTravel`) and hands the close
+   to the shell's open/close spring (`DetailPaneState.openFraction`, the
+   single owner of the column width); the page keeps `committedTravel ×
+   openFraction`, so its edge only moves toward the end — no jump at release.
+   The shell widens and the bar lerps back to its nav pose on the same spring;
+   cancel springs the preview home. Nothing re-lays the shell in the close
+   spring's first frame (`homeCovered` / Memories' inset follow
+   `paneHasEntries`, not the closing flag).
+3. **Who answers back** (`ShellBackResolver`, 2026-11-12 「返回是进入的反序」):
+   a full-window Now Playing first, then Home edit; the side-by-side surfaces
+   — the NP side panel, the column, Memories — close in REVERSE OPENING ORDER
+   (`backRecency`, `noteShellSurface`). Going further inside an open one
+   notes it as newest again: a page shown in the column (`openPane` /
+   `pushPane`), the player's stage leaving Compact (lyrics, focus). NP stands
+   down through `NowPlayingOverlayHost(backYields = …)` while a newer surface
+   owns back.
 
 Pages composed in the column read `LocalDetailHostMode == Pane`:
 `DetailBottomBar` returns early (no bar), `rememberDetailBackCollapse`
@@ -406,7 +419,11 @@ controllers with clean borders, fed by one gesture router and one back handler:
   by −q·H, and Home behind rides the same q (scale 0.94 → 1, alpha 0.5 → 1,
   layer only). Hard clamp at open. State-driven moves go through ONE effect —
   the host's `LaunchedEffect(homeSurface)` calling `launchAnimateTo` (never
-  `settle()`), or two drivers race the fraction. Home's pull-down open still
+  `settle()`), or two drivers race the fraction. That effect rides the slow
+  spatial spring (Standard, no overshoot past the top) and, opening from
+  closed, first waits out the deck's mount (`awaitSteadyFrames`): mounted and
+  sprung in one frame, the open crossed the screen in ~50ms (2026-11-12).
+  Home's pull-down open still
   releases on `settle()` (fraction rule); Memories' own drags release on
   `settleDismiss` (dp rule, below).
 - **p** = `MemoriesDiaryState.fraction`, card (0) ⇄ diary (1); below 0 is the
@@ -658,7 +675,7 @@ token.
 | Launch helpers, extras, close dissolve | `ui/detail/DetailBottomBar.kt` |
 | Window anims (handoff/close) | `app/src/main/res/anim/detail_bar_*.xml` |
 | Cross-window pose bridge, phase enum | `ui/experience/ExperienceSessionStore.kt` |
-| Shell back ownership (NowPlaying > DetailPane > Memories) | `ui/navigation/back/ShellBackResolver.kt` |
+| Shell back ownership (full NP > Home edit > side-by-side surfaces in reverse opening order) | `ui/navigation/back/ShellBackResolver.kt` |
 | NP layered back | `ui/nowplaying/NowPlayingOverlayHost.kt` |
 | Sheet back from a detail page (any host) | `ui/component/YoinModalBottomSheet.kt`, `ui/navigation/back/SheetWindowBack.kt` |
 | Predictive back inside a Compose Dialog's own window (Home's account switcher) | `ui/navigation/back/DialogWindowBack.kt` |

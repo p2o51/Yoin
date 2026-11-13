@@ -265,15 +265,48 @@ internal class NeoDBApi(
         }
     }
 
+    /**
+     * Others' posts on an item — `GET /api/item/{uuid}/posts/`. Anonymous works (public posts of accounts that
+     * allow it); with [token] the caller also sees what its account may see. A merged item answers 302, which
+     * OkHttp follows to the item it was merged into.
+     */
+    suspend fun listItemPosts(
+        instance: String,
+        token: String?,
+        itemUuid: String,
+        page: Int,
+        types: String = "comment,review",
+    ): NeoDbPostPage = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(buildUrl(instance, "/api/item/$itemUuid/posts/?type=${encode(types)}&page=$page"))
+            .withOptionalAuth(token)
+            .header("Accept", JSON_MEDIA_TYPE_VALUE)
+            .get()
+            .build()
+        executeJson(request)
+    }
+
+    /** Album search that also works signed out (the catalog is public); see [searchAlbum]. */
+    suspend fun searchAlbumPublic(
+        instance: String,
+        token: String?,
+        query: String,
+    ): List<ShelfItem.Item> = withContext(Dispatchers.IO) {
+        searchCatalog(instance = instance, token = token, query = query, category = "music")
+    }
+
+    private fun Request.Builder.withOptionalAuth(token: String?): Request.Builder =
+        if (token.isNullOrBlank()) this else header("Authorization", "Bearer $token")
+
     private fun searchCatalog(
         instance: String,
-        token: String,
+        token: String?,
         query: String,
         category: String,
     ): List<ShelfItem.Item> {
         val request = Request.Builder()
             .url(buildUrl(instance, "/api/catalog/search?category=$category&query=${encode(query)}"))
-            .header("Authorization", "Bearer $token")
+            .withOptionalAuth(token)
             .header("Accept", JSON_MEDIA_TYPE_VALUE)
             .get()
             .build()

@@ -415,7 +415,12 @@ internal fun SpotifyConnectScene(
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
-            AnimatedVisibility(visible = pasted) {
+            AnimatedVisibility(
+                visible = pasted,
+                enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) + expandVertically(YoinMotion.defaultSpatialSpec()),
+                exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast) +
+                    shrinkVertically(YoinMotion.defaultSpatialSpec()),
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

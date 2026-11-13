@@ -15,6 +15,8 @@ data class SubsonicResponseBody(
     val version: String? = null,
     val error: SubsonicError? = null,
     val album: Album? = null,
+    /** `getSong`: one song. */
+    val song: Song? = null,
     val artist: ArtistDetail? = null,
     val artists: ArtistsResponse? = null,
     val albumList2: AlbumList2Response? = null,

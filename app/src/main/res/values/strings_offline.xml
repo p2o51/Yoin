@@ -14,7 +14,7 @@
     <string name="settings_downloads_remove_all">Remove all downloads</string>
     <string name="settings_downloads_remove_all_detail">Every account\'s downloads on this device</string>
     <string name="settings_downloads_list">Downloaded</string>
-    <string name="settings_downloads_list_empty">Download an album or a playlist from its ⋮ menu, or a song by long-pressing it. It stays on this device and plays without a connection.</string>
+    <string name="settings_downloads_list_empty">Nothing downloaded yet</string>
     <string name="settings_downloads_entry_songs">%1$d songs · %2$s</string>
     <string name="settings_downloads_entry_progress">Downloading %1$d of %2$d</string>
     <string name="settings_downloads_entry_failed">Some songs couldn\'t download</string>

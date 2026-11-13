@@ -143,7 +143,11 @@ class RevealState internal constructor(
      * fire-and-forget from a non-suspend context (e.g. a side effect bound
      * to a state change).
      */
-    internal fun launchAnimateTo(scope: CoroutineScope, target: Float) {
+    internal fun launchAnimateTo(
+        scope: CoroutineScope,
+        target: Float,
+        spec: AnimationSpec<Float> = settleSpec,
+    ) {
         settleJob?.cancel()
         settleJob = scope.launch {
             try {
@@ -151,7 +155,7 @@ class RevealState internal constructor(
                     initialValue = _fraction,
                     targetValue = target.coerceIn(0f, 1f),
                     initialVelocity = 0f,
-                    animationSpec = settleSpec,
+                    animationSpec = spec,
                 ) { value, _ -> _fraction = value }
             } catch (_: CancellationException) {
                 // Drag or another settle preempted; leave fraction at last value.

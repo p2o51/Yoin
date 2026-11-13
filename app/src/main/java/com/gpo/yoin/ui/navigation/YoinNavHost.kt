@@ -43,6 +43,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,6 +59,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
@@ -157,6 +159,7 @@ import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
 import com.gpo.yoin.ui.navigation.back.rememberShellBarChromeMorph
+import com.gpo.yoin.ui.navigation.back.noteShellSurface
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
 import com.gpo.yoin.ui.navigation.pane.DetailColumnsLayout
 import com.gpo.yoin.ui.navigation.pane.DetailPaneCloseHandler
@@ -168,6 +171,7 @@ import com.gpo.yoin.ui.navigation.pane.PaneBarRegistry
 import com.gpo.yoin.ui.navigation.pane.TwoColumnsMinWidth
 import com.gpo.yoin.ui.navigation.pane.animateOpen
 import com.gpo.yoin.ui.navigation.pane.awaitPrewarm
+import com.gpo.yoin.ui.navigation.pane.awaitSteadyFrames
 import com.gpo.yoin.ui.navigation.pane.detailPaneClosePreview
 import com.gpo.yoin.ui.navigation.pane.rememberColumnWindowInfos
 import com.gpo.yoin.ui.navigation.pane.rememberDetailPaneState
@@ -533,11 +537,34 @@ private fun YoinShell(
         libraryViewModel.invalidatePlaylists()
     }
 
+    // The side-by-side surfaces in the order they opened: back closes the
+    // newest first (ShellBackResolver).
+    val backRecency = remember { mutableStateListOf<ShellBackOwner>() }
+    val memoriesOpen = selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories
+    LaunchedEffect(showNowPlaying) { backRecency.noteShellSurface(ShellBackOwner.NowPlaying, showNowPlaying) }
+    LaunchedEffect(paneOpen) { backRecency.noteShellSurface(ShellBackOwner.DetailPane, paneOpen) }
+    LaunchedEffect(memoriesOpen) { backRecency.noteShellSurface(ShellBackOwner.Memories, memoriesOpen) }
+    // Going further inside a surface that is already open is the newest thing
+    // the user entered: a page shown in the column (openPane / pushPane) and
+    // the player's lyrics or focus make that surface the newest again, so
+    // back undoes that step before it closes one opened in between. The stage
+    // is collected here, not read as state: a stage change must not recompose
+    // the shell.
+    LaunchedEffect(showNowPlaying, nowPlayingViewModel) {
+        if (!showNowPlaying) return@LaunchedEffect
+        nowPlayingViewModel.stageMode.drop(1).collect { mode ->
+            if (mode != NowPlayingStageMode.Compact) {
+                backRecency.noteShellSurface(ShellBackOwner.NowPlaying, open = true)
+            }
+        }
+    }
     val shellBackOwner = resolveShellBackOwner(
         showNowPlaying = showNowPlaying,
         selectedSection = selectedSection,
         homeSurface = homeSurface,
         detailPaneOpen = paneOpen,
+        nowPlayingIsPanel = npPanel.panelOpen,
+        recency = backRecency,
     )
     // The column's back handlers (NavDisplay's stacked pop, the last page's
     // close) register on a CHILD dispatcher that is live only while the
@@ -576,6 +603,10 @@ private fun YoinShell(
             paneStack.clear()
             paneStack.add(route)
         }
+        // The page just asked for is the newest thing entered, also when the
+        // column was already open (paneOpen does not flip then): back leaves
+        // it before Memories or a side panel opened before the tap.
+        backRecency.noteShellSurface(ShellBackOwner.DetailPane, open = true)
         // The page the user asked for must be visible. A full-window player
         // would cover the column: step it back to the side panel — or, where
         // the panel cannot sit beside two columns, close it.
@@ -597,6 +628,7 @@ private fun YoinShell(
         markDetailClick(route, via = "pane-push")
         app.container.repository.prefetchPaneDetail(route)
         paneStack.add(route)
+        backRecency.noteShellSurface(ShellBackOwner.DetailPane, open = true)
     }
     // Opening or closing the column re-tiers the shell — never mid-edit: edit
     // mode animates out first (P settles at 0), then the column moves.
@@ -942,13 +974,22 @@ private fun YoinShell(
     // the no-op animation so the gesture-driven settle isn't interrupted.
     // launchAnimateTo is settleJob-tracked, so a drag that starts while the
     // panel is animating cancels the spring instead of fighting it.
+    // The surface-driven ride crosses the whole screen, so it takes the slow
+    // spatial spring (Standard: no overshoot past the top) — on the shorter
+    // gesture settle a tap-open read as a cut (2026-11-12). Drags and back
+    // cancels keep RevealState's own settle.
+    val memoriesRideSpec = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Standard)
     LaunchedEffect(homeSurface) {
         when (homeSurface) {
             HomeSurface.Memories -> if (memoriesReveal.fraction > 0.001f) {
-                memoriesReveal.launchAnimateTo(this, 0f)
+                // Opening from closed mounts the whole deck in this frame: let
+                // its first layout and raster land before the spring's clock
+                // starts, or the spring covers most of the screen in one frame.
+                if (memoriesReveal.fraction >= 0.999f) awaitSteadyFrames()
+                memoriesReveal.launchAnimateTo(this, 0f, memoriesRideSpec)
             }
             HomeSurface.Feed, HomeSurface.Edit -> if (memoriesReveal.fraction < 0.999f) {
-                memoriesReveal.launchAnimateTo(this, 1f)
+                memoriesReveal.launchAnimateTo(this, 1f, memoriesRideSpec)
             }
         }
     }
@@ -982,7 +1023,14 @@ private fun YoinShell(
         // Column tiers come from the region at rest (window − a settled
         // panel); the live widths are the layout's (measure phase only).
         val windowWidth = rememberWindowWidthDp()
-        val restingRegionWidth = (windowWidth - if (npPanel.panelOpen) npPanel.panelWidth else 0.dp)
+        // The columns re-tier when the panel starts opening, but only after it
+        // has finished closing (the columns are then at rest at their new
+        // width): a page swapping to its wide layout mid-slide doubled the
+        // album cover and jumped (2026-11-12). Derived: flips twice, not per frame.
+        val holdsNpPanel by remember(npPanel) {
+            derivedStateOf { npPanel.panelOpen || npPanel.isMoving }
+        }
+        val restingRegionWidth = (windowWidth - if (holdsNpPanel) npPanel.panelWidth else 0.dp)
             .coerceAtLeast(0.dp)
         val columnWindowInfos = rememberColumnWindowInfos(restingRegionWidth, paneState, paneSplit)
         // Post-release settles have no touch boost: vote High while the
@@ -1057,7 +1105,9 @@ private fun YoinShell(
                                 // Something above Home owns the screen (Now
                                 // Playing, the detail column): Home keeps quiet
                                 // and leaves back to it.
-                                homeCovered = showNowPlaying || paneOpen,
+                                // paneHasEntries, not paneOpen: Home re-tiers once
+                                // the column has left, never in its close spring.
+                                homeCovered = showNowPlaying || paneHasEntries,
                                 editController = homeEdit,
                                 onNavigateToSettings = { navigateToSettingsFromShell(null) },
                                 // Memories never opens over edit mode (the surface
@@ -1121,7 +1171,10 @@ private fun YoinShell(
                                         backEnabled = shellBackOwner == ShellBackOwner.Memories,
                                         // The detail column keeps the bar up (it carries the
                                         // column's Play): the deck stays clear of it.
-                                        bottomInset = if (paneOpen) {
+                                        // Until the column has left (paneHasEntries): a
+                                        // re-layout of the deck in the close spring's
+                                        // first frame made the column jump.
+                                        bottomInset = if (paneHasEntries) {
                                             shellChromeInsets.calculateBottomPadding()
                                         } else {
                                             0.dp
@@ -1283,17 +1336,12 @@ private fun YoinShell(
                                 // recede) never draws over the gutter or the
                                 // shell column (owner 2026-10-05, Fold).
                                 .clipToBounds()
-                                .detailPaneClosePreview(paneState),
+                                .detailPaneClosePreview(paneState, rtl = LocalLayoutDirection.current == LayoutDirection.Rtl),
                         ) {
-                            // The page builds once the column has landed (see
-                            // DetailPaneState.pageReady); the column slides in as
-                            // the plain page surface and the page fades in over it.
-                            androidx.compose.animation.AnimatedVisibility(
-                                visible = paneState.pageReady,
-                                enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-                                exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
-                                modifier = Modifier.fillMaxSize(),
-                            ) {
+                            // The page builds with the open request, during the
+                            // prewarm (see DetailPaneState.pageReady), and rides
+                            // in with the column — never a blank column first.
+                            if (paneState.pageReady) {
                             CompositionLocalProvider(
                                 LocalYoinWindowInfo provides columnWindowInfos.pane.value,
                                 LocalNavigationEventDispatcherOwner provides paneBackOwner,
@@ -1347,6 +1395,7 @@ private fun YoinShell(
             container = app.container,
             expanded = showNowPlaying,
             onExpandedChange = experienceSessionStore::setNowPlayingExpanded,
+            backYields = showNowPlaying && shellBackOwner != ShellBackOwner.NowPlaying,
             // Keep Now Playing expanded across the push. NP is a shell-scoped
             // overlay, so when a detail Activity covers the shell, NP stops
             // rendering with it; returning restores NP in whatever stage the

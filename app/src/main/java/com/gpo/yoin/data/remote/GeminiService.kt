@@ -1,162 +1,113 @@
 package com.gpo.yoin.data.remote
 
 import com.gpo.yoin.data.local.SongAboutEntry
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
+import com.gpo.yoin.data.remote.ai.AiClient
+import com.gpo.yoin.data.remote.ai.AiSettings
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 
+/**
+ * Yoin's online AI calls (About, Ask, Memories copy, lyric translation).
+ * Named for Gemini, the only service until AI settings v2 (2026-11-12); every
+ * call now goes to whichever service [AiSettings] names, through [AiClient].
+ */
 class GeminiService(
-    private val client: OkHttpClient,
-    private val json: Json,
+    client: OkHttpClient,
+    json: Json,
 ) {
+    private val ai = AiClient(client, json)
+
+    /** What the last About call searched, for the 「拿一首歌试试」 page. */
+    data class AboutRun(
+        val values: List<CanonicalAboutValue>,
+        val rawText: String,
+        val searchKind: AiSettings.SearchKind,
+        val searchQueries: List<String>,
+        val pagesRead: Int,
+    )
+
     /**
      * Fetch the 6 canonical About fields (Creation Time / Location /
-     * Lyricist / Composer / Producer / Review) via a single Grounded call.
+     * Lyricist / Composer / Producer / Review) in one searched call.
      *
-     * Returns partial rows: only fields Gemini actually filled in come back;
+     * Returns partial rows: only fields the model actually filled in come back;
      * "N/A" / empty tags are dropped. Ordering follows
      * [SongAboutEntry.CANONICAL_ORDER]. Repository layer stamps identity
      * keys and timestamps before persisting.
      */
     suspend fun generateCanonicalAbout(
-        apiKey: String,
+        ai: AiSettings,
         title: String,
         artist: String,
         album: String,
         targetLanguage: String,
-    ): List<CanonicalAboutValue> = withContext(Dispatchers.IO) {
-        val prompt = buildPrompt(title, artist, album, targetLanguage)
-        val requestBody = GeminiRequest(
-            contents = listOf(
-                GeminiContent(parts = listOf(GeminiPart(text = prompt))),
-            ),
-            tools = listOf(GeminiTool()),
+    ): List<CanonicalAboutValue> = runCanonicalAbout(ai, title, artist, album, targetLanguage).values
+
+    /** [generateCanonicalAbout] with what it searched and the raw reply, for the test page. */
+    suspend fun runCanonicalAbout(
+        ai: AiSettings,
+        title: String,
+        artist: String,
+        album: String,
+        targetLanguage: String,
+    ): AboutRun {
+        val queries = buildList {
+            add("$title $artist ${AiClient.creditsKeywords(title, artist)}")
+            if (ai.searchQueries > 1) add("$title $artist $album")
+        }.take(ai.searchQueries)
+        val searched = searchFor(ai, queries)
+        val prompt = buildPrompt(title, artist, album, targetLanguage, searchLead(ai, searched)) + searched.appendix
+        val rawText = this.ai.generate(ai, prompt, temperature = 0.8f, useSearch = true)
+        return AboutRun(
+            values = parseTaggedResponse(rawText),
+            rawText = rawText,
+            searchKind = ai.searchKind,
+            searchQueries = if (ai.searchKind == AiSettings.SearchKind.External) queries else emptyList(),
+            pagesRead = searched.pages,
         )
-
-        val bodyJson = json.encodeToString(requestBody)
-        val request = Request.Builder()
-            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
-            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        val response = client.newCall(request).execute()
-        val responseBody = response.body?.string()
-            ?: throw GeminiException("Empty response from Gemini API")
-
-        if (!response.isSuccessful) {
-            throw GeminiException(
-                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
-            )
-        }
-
-        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
-        val rawText = geminiResponse.candidates
-            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            ?: throw GeminiException("No content in Gemini response")
-
-        parseTaggedResponse(rawText)
     }
 
     /**
-     * Grounded free-form Q&A about a song. Gemini is asked to return a
+     * Searched free-form Q&A about a song. The model is asked to return a
      * concise headline version of the question alongside the detailed
      * answer, so the UI can show a short heading instead of re-echoing
      * the user's verbose prompt. Repository upserts both into the
      * `ask` row.
      */
     suspend fun askAboutSong(
-        apiKey: String,
+        ai: AiSettings,
         title: String,
         artist: String,
         album: String,
         question: String,
         targetLanguage: String,
-    ): AskAnswer = withContext(Dispatchers.IO) {
-        val prompt = buildAskPrompt(title, artist, album, question, targetLanguage)
-        val requestBody = GeminiRequest(
-            contents = listOf(
-                GeminiContent(parts = listOf(GeminiPart(text = prompt))),
-            ),
-            tools = listOf(GeminiTool()),
-        )
-
-        val bodyJson = json.encodeToString(requestBody)
-        val request = Request.Builder()
-            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
-            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        val response = client.newCall(request).execute()
-        val responseBody = response.body?.string()
-            ?: throw GeminiException("Empty response from Gemini API")
-
-        if (!response.isSuccessful) {
-            throw GeminiException(
-                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
-            )
-        }
-
-        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
-        val rawText = geminiResponse.candidates
-            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            ?.takeIf { it.isNotEmpty() }
-            ?: throw GeminiException("No content in Gemini response")
-
-        parseAskResponse(rawText, fallbackQuestion = question)
+    ): AskAnswer {
+        val searched = searchFor(ai, listOf("$title $artist $question"))
+        val prompt = buildAskPrompt(title, artist, album, question, targetLanguage, searchLead(ai, searched)) + searched.appendix
+        val rawText = this.ai.generate(ai, prompt, temperature = 0.8f, useSearch = true)
+        return parseAskResponse(rawText, fallbackQuestion = question)
     }
 
     /**
-     * Lightweight title-only call used by the Ask Gemini loading state.
-     * The full grounded answer still returns its own `[TITLE]` later; this
+     * Lightweight title-only call used by the Ask loading state.
+     * The full searched answer still returns its own `[TITLE]` later; this
      * just gives the user a readable heading while the slower answer is
      * being generated.
      */
     suspend fun generateAskTitle(
-        apiKey: String,
+        ai: AiSettings,
         title: String,
         artist: String,
         album: String,
         question: String,
         targetLanguage: String,
-    ): String = withContext(Dispatchers.IO) {
+    ): String {
         val prompt = buildAskTitlePrompt(title, artist, album, question, targetLanguage)
-        val requestBody = GeminiRequest(
-            contents = listOf(
-                GeminiContent(parts = listOf(GeminiPart(text = prompt))),
-            ),
-            tools = null,
-            generationConfig = GeminiGenerationConfig(temperature = 0.2f),
-        )
-
-        val bodyJson = json.encodeToString(requestBody)
-        val request = Request.Builder()
-            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
-            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        val response = client.newCall(request).execute()
-        val responseBody = response.body?.string()
-            ?: throw GeminiException("Empty response from Gemini API")
-
-        if (!response.isSuccessful) {
-            throw GeminiException(
-                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
-            )
-        }
-
-        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
-        val rawText = geminiResponse.candidates
-            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            ?.takeIf { it.isNotEmpty() }
-            ?: throw GeminiException("No content in Gemini response")
-
-        cleanAskTitle(rawText, fallbackQuestion = question)
+        val rawText = this.ai.generate(ai, prompt, temperature = 0.2f, useSearch = false)
+        return cleanAskTitle(rawText, fallbackQuestion = question)
     }
 
     /**
@@ -174,14 +125,14 @@ class GeminiService(
      * is free to edit.
      */
     suspend fun generateAlbumMemoryCopy(
-        apiKey: String,
+        ai: AiSettings,
         albumName: String,
         artist: String?,
         year: Int?,
         averageRating: Float?,
         ratedSongCount: Int,
         totalSongCount: Int,
-    ): String = withContext(Dispatchers.IO) {
+    ): String {
         val prompt = buildMemoryPrompt(
             albumName = albumName,
             artist = artist,
@@ -190,36 +141,12 @@ class GeminiService(
             ratedSongCount = ratedSongCount,
             totalSongCount = totalSongCount,
         )
-        val requestBody = GeminiRequest(
-            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
-            // Memory 文案不走 search tool —— 只要 LLM 基于 embedding 给感性
-            // 回响，不需要外网事实核对；更快也更便宜。
-            tools = null,
-        )
-
-        val bodyJson = json.encodeToString(requestBody)
-        val request = Request.Builder()
-            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
-            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        val response = client.newCall(request).execute()
-        val responseBody = response.body?.string()
-            ?: throw GeminiException("Empty response from Gemini API")
-
-        if (!response.isSuccessful) {
-            throw GeminiException(
-                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
-            )
-        }
-
-        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
-        geminiResponse.candidates
-            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            ?.trim()
-            ?.removeSurrounding("\"")
-            ?.takeIf { it.isNotEmpty() }
-            ?: throw GeminiException("No content in Gemini response")
+        // Memory 文案不走搜索 —— 只要感性回响，不需要外网事实核对；更快也更便宜。
+        return this.ai.generate(ai, prompt, temperature = 0.8f, useSearch = false)
+            .trim()
+            .removeSurrounding("\"")
+            .takeIf { it.isNotEmpty() }
+            ?: throw GeminiException("No content in AI response")
     }
 
     /**
@@ -238,51 +165,27 @@ class GeminiService(
      * shown again.
      */
     suspend fun generateAlbumMemoryNarration(
-        apiKey: String,
+        ai: AiSettings,
         languageName: String,
         facts: List<String>,
         alreadySaid: String?,
-    ): MemoryNarrationText = withContext(Dispatchers.IO) {
+    ): MemoryNarrationText {
         val prompt = buildMemoryNarrationPrompt(
             languageName = languageName,
             facts = facts,
             alreadySaid = alreadySaid,
         )
-        val requestBody = GeminiRequest(
-            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
-            // Only the given facts may be used: no search grounding.
-            tools = null,
-            generationConfig = GeminiGenerationConfig(temperature = 0.4f),
+        // Only the given facts may be used: no search. The Memories deck waits
+        // on this call; past the timeout the local template stands in.
+        val rawText = this.ai.generate(
+            ai,
+            prompt,
+            temperature = 0.4f,
+            useSearch = false,
+            timeoutSeconds = MEMORY_NARRATION_TIMEOUT_SECONDS,
         )
-
-        val bodyJson = json.encodeToString(requestBody)
-        val request = Request.Builder()
-            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
-            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        val call = client.newCall(request)
-        // The Memories deck waits on this call; past the timeout the local
-        // template stands in.
-        call.timeout().timeout(MEMORY_NARRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        val response = call.execute()
-        val responseBody = response.body?.string()
-            ?: throw GeminiException("Empty response from Gemini API")
-
-        if (!response.isSuccessful) {
-            throw GeminiException(
-                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
-            )
-        }
-
-        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
-        val rawText = geminiResponse.candidates
-            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            ?.takeIf { it.isNotEmpty() }
-            ?: throw GeminiException("No content in Gemini response")
-
-        parseMemoryNarration(rawText)
-            ?: throw GeminiException("No usable narration in Gemini response")
+        return parseMemoryNarration(rawText)
+            ?: throw GeminiException("No usable narration in AI response")
     }
 
     /**
@@ -295,13 +198,13 @@ class GeminiService(
      * 的输入契约不变。
      */
     suspend fun generateAlbumMemoryTitle(
-        apiKey: String,
+        ai: AiSettings,
         albumName: String,
         artist: String?,
         year: Int?,
         writingKind: String,
         writingText: String,
-    ): String = withContext(Dispatchers.IO) {
+    ): String {
         val prompt = buildMemoryTitlePrompt(
             albumName = albumName,
             artist = artist,
@@ -309,82 +212,58 @@ class GeminiService(
             writingKind = writingKind,
             writingText = writingText,
         )
-        val requestBody = GeminiRequest(
-            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
-            // 拟题不走 search tool：专辑背景用模型自身知识即可，标题要快。
-            tools = null,
-            generationConfig = GeminiGenerationConfig(temperature = 0.2f),
-        )
-
-        val bodyJson = json.encodeToString(requestBody)
-        val request = Request.Builder()
-            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
-            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        val response = client.newCall(request).execute()
-        val responseBody = response.body?.string()
-            ?: throw GeminiException("Empty response from Gemini API")
-
-        if (!response.isSuccessful) {
-            throw GeminiException(
-                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
-            )
-        }
-
-        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
-        geminiResponse.candidates
-            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            ?.trim()
-            ?.removeSurrounding("\"")
-            ?.replace("\n", " ")
-            ?.takeIf { it.isNotEmpty() }
-            ?: throw GeminiException("No content in Gemini response")
+        // 拟题不走搜索：专辑背景用模型自身知识即可，标题要快。
+        return this.ai.generate(ai, prompt, temperature = 0.2f, useSearch = false)
+            .trim()
+            .removeSurrounding("\"")
+            .replace("\n", " ")
+            .takeIf { it.isNotEmpty() }
+            ?: throw GeminiException("No content in AI response")
     }
 
     /**
      * Translate lyric lines for inline display. This intentionally avoids
-     * search grounding: the model should preserve line count and phrasing,
-     * not fetch facts about the song.
+     * search: the model should preserve line count and phrasing, not fetch
+     * facts about the song.
      */
     suspend fun translateLyricLines(
-        apiKey: String,
+        ai: AiSettings,
         title: String,
         artist: String,
         lines: List<String>,
         targetLanguage: String = "English",
-    ): Map<Int, String> = withContext(Dispatchers.IO) {
+    ): Map<Int, String> {
         val prompt = buildLyricsTranslationPrompt(title, artist, lines, targetLanguage)
-        val requestBody = GeminiRequest(
-            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
-            tools = null,
-        )
-
-        val bodyJson = json.encodeToString(requestBody)
-        val request = Request.Builder()
-            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
-            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        val response = client.newCall(request).execute()
-        val responseBody = response.body?.string()
-            ?: throw GeminiException("Empty response from Gemini API")
-
-        if (!response.isSuccessful) {
-            throw GeminiException(
-                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
-            )
-        }
-
-        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
-        val rawText = geminiResponse.candidates
-            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-            ?.takeIf { it.isNotEmpty() }
-            ?: throw GeminiException("No content in Gemini response")
-
-        parseLineTranslations(rawText, lines.size)
+        val rawText = this.ai.generate(ai, prompt, temperature = 0.8f, useSearch = false)
+        return parseLineTranslations(rawText, lines.size)
             .takeIf { it.isNotEmpty() }
-            ?: throw GeminiException("No usable lyric translations in Gemini response")
+            ?: throw GeminiException("No usable lyric translations in AI response")
+    }
+
+    /** The model ids a Custom endpoint offers. */
+    suspend fun listCustomModels(ai: AiSettings): List<String> =
+        this.ai.listModels(ai.prefs.customFormat, ai.prefs.customBaseUrl, ai.prefs.customKey)
+
+    private class Searched(val appendix: String, val pages: Int)
+
+    /**
+     * Run [queries] when Yoin searches for this service, and turn the pages
+     * into the block appended to the prompt. Built-in or no search: nothing.
+     */
+    private suspend fun searchFor(ai: AiSettings, queries: List<String>): Searched {
+        if (ai.searchKind != AiSettings.SearchKind.External) return Searched("", 0)
+        val hits = coroutineScope {
+            queries.map { query -> async { this@GeminiService.ai.search(ai, query) } }.awaitAll().flatten()
+        }
+        val block = AiClient.contextBlock(hits)
+        if (block.isEmpty()) return Searched("", 0)
+        return Searched("\n\nSearch results:\n$block", hits.distinctBy { it.url }.size.coerceAtMost(AiClient.MAX_PAGES_IN_PROMPT))
+    }
+
+    private fun searchLead(ai: AiSettings, searched: Searched): String = when {
+        ai.searchKind == AiSettings.SearchKind.BuiltIn -> "Use the search tool to find accurate information."
+        searched.pages > 0 -> "Use the search results provided below to find accurate information."
+        else -> "Answer from what you reliably know; write \"N/A\" for anything you are not sure of."
     }
 
     private fun buildMemoryPrompt(
@@ -450,6 +329,7 @@ Output only the title itself.
         artist: String,
         album: String,
         targetLanguage: String,
+        searchLead: String,
     ): String = """
 Search for and provide detailed information about the following song:
 
@@ -457,7 +337,7 @@ Song: $title
 Artist: $artist
 Album: $album
 
-Use the search tool to find accurate information. Write all human-readable
+$searchLead Write all human-readable
 answers in $targetLanguage. Respond strictly in the following tagged format.
 If any information cannot be found, write "N/A" inside the tag.
 
@@ -494,9 +374,10 @@ Respond strictly in the tagged format above. Every field must include its corres
         album: String,
         question: String,
         targetLanguage: String,
+        searchLead: String,
     ): String = """
 Answer the following question about the song "$title" from the album "$album" by $artist.
-Use the search tool to find accurate, up-to-date information.
+$searchLead
 Write the title and answer in $targetLanguage.
 
 Respond strictly in the following tagged format:
@@ -556,13 +437,6 @@ $indexedLines
         """.trimIndent()
     }
 
-    private fun extractErrorMessage(body: String): String = try {
-        val errorResponse = json.decodeFromString<GeminiErrorResponse>(body)
-        errorResponse.error?.message ?: body.take(200)
-    } catch (_: Exception) {
-        body.take(200)
-    }
-
     /** One canonical About field returned by [generateCanonicalAbout]. */
     data class CanonicalAboutValue(
         val entryKey: String,
@@ -582,10 +456,8 @@ $indexedLines
     )
 
     companion object {
-        private const val BASE_URL =
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-        internal const val MODEL = "gemini-3.1-flash-lite"
-        private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+        /** The model every install used before AI settings v2 (still Gemini's 「好」). */
+        internal const val MODEL = AiSettings.GEMINI_GOOD
 
         /**
          * Version of the Memories narration prompt. v1 was the poetic one-liner
@@ -810,14 +682,5 @@ Output exactly this and nothing else:
     }
 }
 
-class GeminiException(message: String) : Exception(message)
-
-@kotlinx.serialization.Serializable
-private data class GeminiErrorResponse(
-    val error: GeminiErrorDetail? = null,
-)
-
-@kotlinx.serialization.Serializable
-private data class GeminiErrorDetail(
-    val message: String? = null,
-)
+/** [httpCode] is set when the service answered with an HTTP error. */
+class GeminiException(message: String, val httpCode: Int? = null) : Exception(message)

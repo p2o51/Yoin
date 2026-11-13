@@ -25,4 +25,10 @@ class BackMotionTokensTest {
         assertEquals(320.dp, BackMotionTokens.MemoriesDiaryMorphDistance)
         assertEquals(24.dp, BackMotionTokens.MemoriesDiaryPullBand)
     }
+
+    @Test
+    fun should_keep_column_close_preview_travel_stable() {
+        // The detail column's close preview: a quarter of its width toward the edge at full progress.
+        assertEquals(0.25f, BackMotionTokens.ColumnClosePreviewTravel, 0.0001f)
+    }
 }

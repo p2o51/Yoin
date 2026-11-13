@@ -22,6 +22,10 @@
         <package android:name="com.apple.android.music" />
         <!-- The landing's Spotoolfy step opens it when installed (docs/spotoolfy-migration.md §5.2). -->
         <package android:name="com.gojyuplusone.spotoolfy.spotoolfy_flutter" />
+        <!-- Yoin Labs › Gemini Nano diagnostics shows these versions (AICore itself is queried by ML Kit GenAI). -->
+        <package android:name="com.google.android.aicore" />
+        <package android:name="com.google.android.as" />
+        <package android:name="com.google.android.as.oss" />
     </queries>
 
     <application
@@ -120,6 +124,10 @@
             android:theme="@style/Theme.Yoin.DetailTranslucent"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <!-- 别人怎么说 (NeoDB listeners on an album). Plain Activity: native cross-Activity back. -->
+        <activity
+            android:name=".ui.detail.NeoDbVoicesActivity"
+            android:exported="false" />
         <activity
             android:name=".ui.settings.SettingsActivity"
             android:exported="false"

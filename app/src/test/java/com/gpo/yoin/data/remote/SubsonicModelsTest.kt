@@ -342,6 +342,33 @@ class SubsonicModelsTest {
     }
 
     @Test
+    fun should_parseTheOneSong_when_getSongAnswers() {
+        val raw =
+            """
+            {
+              "subsonic-response": {
+                "status": "ok",
+                "version": "1.16.1",
+                "song": {
+                  "id": "s-7",
+                  "title": "Weightless",
+                  "album": "Weightless",
+                  "artist": "Marconi Union",
+                  "albumId": "al-7",
+                  "duration": 485
+                }
+              }
+            }
+            """.trimIndent()
+
+        val song = json.decodeFromString<SubsonicResponse>(raw).subsonicResponse.song!!
+        assertEquals("s-7", song.id)
+        assertEquals("Weightless", song.title)
+        assertEquals("al-7", song.albumId)
+        assertEquals(485, song.duration)
+    }
+
+    @Test
     fun should_parseArtistDetail_when_albumsPresent() {
         val raw =
             """

@@ -60,6 +60,8 @@ internal fun TipIllustration(
         when (tip) {
             HomeBubbleTip.VolumeLeveling -> VolumeLevelingDemo(playing)
             HomeBubbleTip.HomeScreenWidgets -> HomeScreenWidgetsDemo(playing)
+            HomeBubbleTip.AiServices -> AiServicesDemo(playing)
+            HomeBubbleTip.ContinueOn -> ContinueOnDemo(playing)
             HomeBubbleTip.SpotifyElsewhere -> SpotifyElsewhereDemo(playing)
             HomeBubbleTip.Labs -> LabsDemo(playing)
             HomeBubbleTip.SettingsRegrouped -> SettingsGroupsDemo(playing)

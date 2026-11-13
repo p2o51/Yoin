@@ -120,6 +120,14 @@ android {
             initWith(getByName("release"))
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += "release"
+            // R8 copy of "Yoin Nano" (-PyoinNanoTest=true -PyoinAppIdSuffix=.nanotest): installs over the debug Nano
+            // test copy (same debug key), beside the everyday app. Gemini Nano broke only under R8 (0.5.9), so
+            // Nano changes are checked on this build, not on debug.
+            (project.findProperty("yoinAppIdSuffix") as String?)?.let { applicationIdSuffix = it }
+            if (project.findProperty("yoinNanoTest") == "true") {
+                buildConfigField("boolean", "NANO_TEST", "true")
+                manifestPlaceholders["appLabel"] = "Yoin Nano"
+            }
         }
     }
 

@@ -24,7 +24,19 @@ internal data class ShelfItem(
         val uuid: String? = null,
         @SerialName("display_title") val displayTitle: String? = null,
         @SerialName("category") val category: String? = null,
+        // Catalog fields (search / item detail). Absent on shelf payloads.
+        @SerialName("title") val title: String? = null,
+        @SerialName("url") val url: String? = null,
+        @SerialName("artist") val artist: List<String> = emptyList(),
+        @SerialName("rating") val rating: Double? = null,
+        @SerialName("rating_count") val ratingCount: Int? = null,
+        /** Five buckets, low to high, in percent. */
+        @SerialName("rating_distribution") val ratingDistribution: List<Int>? = null,
+        @SerialName("external_resources") val externalResources: List<ExternalResource>? = null,
     )
+
+    @Serializable
+    data class ExternalResource(val url: String = "")
 }
 
 /**
@@ -82,4 +94,42 @@ internal data class AlbumSearchResponse(
 internal data class NeoDBErrorBody(
     val detail: String? = null,
     val error: String? = null,
+)
+
+/**
+ * `GET /api/item/{uuid}/posts/` —— 某条目下所有人的帖子（短评、长评、标记）。
+ * 帖子是 Mastodon 形状；NeoDB 自己的含义在 `ext_neodb.relatedWith` 里
+ * （Comment 的纯文字、Rating 的分数、Review 的标题和正文），所以那一层按
+ * JsonObject 读，交给 [NeoDbVoices] 解释。
+ */
+@Serializable
+internal data class NeoDbPostPage(
+    val data: List<NeoDbPost> = emptyList(),
+    val pages: Int = 0,
+    val count: Int = 0,
+)
+
+@Serializable
+internal data class NeoDbPost(
+    val id: String = "",
+    val url: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    val sensitive: Boolean = false,
+    @SerialName("spoiler_text") val spoilerText: String? = null,
+    val account: NeoDbAccount? = null,
+    @SerialName("ext_neodb") val extNeodb: NeoDbPostExt? = null,
+)
+
+@Serializable
+internal data class NeoDbAccount(
+    val acct: String? = null,
+    val username: String? = null,
+    @SerialName("display_name") val displayName: String? = null,
+    val avatar: String? = null,
+    val url: String? = null,
+)
+
+@Serializable
+internal data class NeoDbPostExt(
+    val relatedWith: List<kotlinx.serialization.json.JsonObject> = emptyList(),
 )

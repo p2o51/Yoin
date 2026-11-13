@@ -68,3 +68,13 @@
 -keep class com.google.mlkit.genai.** { *; }
 -keep class com.google.android.gms.internal.mlkit_genai_prompt.** { *; }
 -dontwarn com.google.mlkit.genai.**
+
+# ML Kit (and any Firebase-style SDK) lists its ComponentRegistrar classes in manifest meta-data and creates them
+# reflectively through the no-argument constructor. R8 under AGP 9 no longer keeps that constructor for a class it
+# keeps by name, so the 0.5.9 Play build shipped com.google.mlkit.common.internal.CommonComponentRegistrar without
+# <init>(): ML Kit registered no components, MlKitContext handed the GenAI client a null SharedPrefManager, and
+# checkStatus() threw a NullPointerException on every phone, so Gemini Nano showed "not supported" even where AICore
+# had it ready (Discord, Pixel 11 Pro, 2026-11-12; checked in the 0.5.9 (24) AAB's dex). Debug builds were fine.
+-keep class * implements com.google.firebase.components.ComponentRegistrar {
+    <init>();
+}
