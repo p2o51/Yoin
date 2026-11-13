@@ -727,7 +727,7 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
                         )
                     }
                     TextButton(onClick = { onOpenLink(searchKeyUrl(keyService)) }) {
-                        Text(stringResource(R.string.ai_get_search_key, name))
+                        Text(searchKeyLink(keyService))
                         Spacer(Modifier.width(4.dp))
                         Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -756,6 +756,15 @@ private fun searchServiceName(service: AiSearchService): String = when (service)
     AiSearchService.Exa -> "Exa"
     AiSearchService.Tavily -> "Tavily"
     AiSearchService.None -> stringResource(R.string.ai_search_none)
+}
+
+/** "Get a … key", one string per service: English's article follows the name (an Exa key). */
+@Composable
+private fun searchKeyLink(service: AiSearchService): String = when (service) {
+    AiSearchService.DeepSeek -> stringResource(R.string.ai_get_search_key_deepseek)
+    AiSearchService.Exa -> stringResource(R.string.ai_get_search_key_exa)
+    AiSearchService.Tavily -> stringResource(R.string.ai_get_search_key_tavily)
+    AiSearchService.None -> ""
 }
 
 private fun searchKeyUrl(service: AiSearchService): String = when (service) {
