@@ -29,11 +29,14 @@ import com.gpo.yoin.ui.landing.LandingGate
 import com.gpo.yoin.ui.landing.LandingHost
 import com.gpo.yoin.ui.landing.SharedPrefsLandingStore
 import com.gpo.yoin.ui.navigation.YoinNavHost
+import com.gpo.yoin.ui.navigation.keyboard.ShellKeyEvent
+import com.gpo.yoin.ui.navigation.keyboard.ShellKeyRoute
 import com.gpo.yoin.ui.navigation.keyboard.ShellShortcut
 import com.gpo.yoin.ui.navigation.keyboard.ShellShortcutHost
 import com.gpo.yoin.ui.navigation.keyboard.ShellShortcutSink
 import com.gpo.yoin.ui.navigation.keyboard.chord
-import com.gpo.yoin.ui.navigation.keyboard.shellShortcutFor
+import com.gpo.yoin.ui.navigation.keyboard.keepsKeyWhenIdle
+import com.gpo.yoin.ui.navigation.keyboard.shellKeyRoute
 import com.gpo.yoin.widget.WidgetLaunch
 import com.gpo.yoin.widget.WidgetDetailRequest
 import java.util.UUID
@@ -181,40 +184,46 @@ class MainActivity : ComponentActivity(), ShellShortcutHost {
     }
 
     /**
-     * The shell's keyboard shortcuts ([ShellShortcut]). Never while a text
-     * field takes the keyboard, nor under the landing. A chord with Ctrl goes
-     * before the window (Compose would read Ctrl+arrows as focus moves); plain
-     * Space only when nothing in the window wanted it.
+     * The shell's keyboard shortcuts ([ShellShortcut]), routed by
+     * [shellKeyRoute] before the window: Compose keeps an invisible keyboard
+     * focus on a clickable after a Ctrl chord or a return from Settings, and
+     * would turn plain Space into a click on it (and Ctrl+arrows into focus
+     * moves). Never while a text field takes the keyboard, nor under the
+     * landing. Enter and the D-pad still reach the focused control.
      */
     // Activity.dispatchKeyEvent is public; lint reads androidx.core's
     // ComponentActivity override, marked library-internal, as the one called.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        shortcutKeyDown?.let { down ->
-            if (event.keyCode == down) {
+        val route = shellKeyRoute(
+            event = ShellKeyEvent(
+                keyCode = event.keyCode,
+                down = event.action == KeyEvent.ACTION_DOWN,
+                repeatCount = event.repeatCount,
+                ctrl = event.isCtrlPressed,
+                alt = event.isAltPressed,
+                shift = event.isShiftPressed,
+                meta = event.isMetaPressed,
+            ),
+            heldKeyCode = shortcutKeyDown,
+            typing = event.action == KeyEvent.ACTION_DOWN && isTypingText(),
+        )
+        when (route) {
+            ShellKeyRoute.Swallow -> {
                 if (event.action == KeyEvent.ACTION_UP) shortcutKeyDown = null
                 return true
             }
+            ShellKeyRoute.Window -> return super.dispatchKeyEvent(event)
+            is ShellKeyRoute.Shortcut -> {
+                val sink = shellShortcutSink
+                if (sink == null || landingGate.showing) return super.dispatchKeyEvent(event)
+                if (!sink.perform(route.shortcut) && !route.shortcut.keepsKeyWhenIdle) {
+                    return super.dispatchKeyEvent(event)
+                }
+                shortcutKeyDown = event.keyCode
+                return true
+            }
         }
-        val sink = shellShortcutSink
-        if (sink == null || event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0 ||
-            landingGate.showing || isTypingText()
-        ) {
-            return super.dispatchKeyEvent(event)
-        }
-        val shortcut = shellShortcutFor(
-            keyCode = event.keyCode,
-            ctrl = event.isCtrlPressed,
-            alt = event.isAltPressed,
-            shift = event.isShiftPressed,
-            meta = event.isMetaPressed,
-        ) ?: return super.dispatchKeyEvent(event)
-        if (shortcut == ShellShortcut.PlayPause && super.dispatchKeyEvent(event)) return true
-        if (!sink.perform(shortcut)) {
-            return shortcut != ShellShortcut.PlayPause && super.dispatchKeyEvent(event)
-        }
-        shortcutKeyDown = event.keyCode
-        return true
     }
 
     private fun isTypingText(): Boolean =

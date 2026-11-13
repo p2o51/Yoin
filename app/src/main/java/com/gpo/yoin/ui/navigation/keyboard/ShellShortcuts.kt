@@ -70,6 +70,58 @@ fun shellShortcutFor(
     return ShellShortcut.entries.firstOrNull { it.chord == pressed }
 }
 
+/** One key event as the shell window gets it, before anything in the window sees it. */
+data class ShellKeyEvent(
+    val keyCode: Int,
+    val down: Boolean,
+    val repeatCount: Int = 0,
+    val ctrl: Boolean = false,
+    val alt: Boolean = false,
+    val shift: Boolean = false,
+    val meta: Boolean = false,
+)
+
+/** Where the shell window sends a key event. */
+sealed interface ShellKeyRoute {
+    /** The window's own handling: a text field, Enter or D-pad on a focused control. */
+    data object Window : ShellKeyRoute
+
+    /** Taken with nothing done: the repeats and the release of a key a shortcut took. */
+    data object Swallow : ShellKeyRoute
+
+    /** Offered to the shell before the window, so a focused control never turns it into a click. */
+    data class Shortcut(val shortcut: ShellShortcut) : ShellKeyRoute
+}
+
+/**
+ * Routes [event] before the window's focus system sees it, as iOS does: a
+ * shortcut, Space included, acts from anywhere in the shell unless the user
+ * is [typing] (a text field has focus or an IME is composing), whatever
+ * control holds keyboard focus. [heldKeyCode] is the key a shortcut took on
+ * its press; its repeats and release are swallowed so it neither toggles
+ * again nor clicks the focused control on key-up.
+ */
+fun shellKeyRoute(event: ShellKeyEvent, heldKeyCode: Int?, typing: Boolean): ShellKeyRoute {
+    if (heldKeyCode != null && event.keyCode == heldKeyCode) return ShellKeyRoute.Swallow
+    if (!event.down || event.repeatCount != 0 || typing) return ShellKeyRoute.Window
+    val shortcut = shellShortcutFor(
+        keyCode = event.keyCode,
+        ctrl = event.ctrl,
+        alt = event.alt,
+        shift = event.shift,
+        meta = event.meta,
+    ) ?: return ShellKeyRoute.Window
+    return ShellKeyRoute.Shortcut(shortcut)
+}
+
+/**
+ * Whether [this] keeps its key when it does nothing now. Space is never a
+ * click in the shell (Enter is), so with no song it is still taken; the
+ * Ctrl chords go back to the window.
+ */
+val ShellShortcut.keepsKeyWhenIdle: Boolean
+    get() = this == ShellShortcut.PlayPause
+
 /**
  * Whether [this] does anything now; one that doesn't leaves the key to the
  * window (as iOS greys the menu item out). The player's keys need a song;

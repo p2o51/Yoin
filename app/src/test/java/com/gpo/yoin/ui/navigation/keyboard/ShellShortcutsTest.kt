@@ -133,4 +133,77 @@ class ShellShortcutsTest {
             )
         }
     }
+
+    private fun space(down: Boolean = true, repeatCount: Int = 0) =
+        ShellKeyEvent(KeyEvent.KEYCODE_SPACE, down = down, repeatCount = repeatCount)
+
+    @Test
+    fun should_togglePlayback_when_spaceIsPressedAndNothingIsTyping() {
+        assertEquals(
+            ShellKeyRoute.Shortcut(ShellShortcut.PlayPause),
+            shellKeyRoute(space(), heldKeyCode = null, typing = false),
+        )
+    }
+
+    @Test
+    fun should_leaveSpaceToTheWindow_when_theUserIsTyping() {
+        assertEquals(ShellKeyRoute.Window, shellKeyRoute(space(), heldKeyCode = null, typing = true))
+        assertEquals(
+            ShellKeyRoute.Window,
+            shellKeyRoute(space(repeatCount = 3), heldKeyCode = null, typing = true),
+        )
+        assertEquals(ShellKeyRoute.Window, shellKeyRoute(space(down = false), heldKeyCode = null, typing = true))
+    }
+
+    @Test
+    fun should_toggleAndNotClick_when_aNonTextControlHoldsFocus() {
+        // A focused card or button is not typing: the press is the shell's before the
+        // window sees it, and its repeats and release are swallowed, so the control
+        // never gets a press to turn into a click on key-up.
+        assertEquals(
+            ShellKeyRoute.Shortcut(ShellShortcut.PlayPause),
+            shellKeyRoute(space(), heldKeyCode = null, typing = false),
+        )
+        val held = KeyEvent.KEYCODE_SPACE
+        assertEquals(ShellKeyRoute.Swallow, shellKeyRoute(space(repeatCount = 1), held, typing = false))
+        assertEquals(ShellKeyRoute.Swallow, shellKeyRoute(space(repeatCount = 2), held, typing = false))
+        assertEquals(ShellKeyRoute.Swallow, shellKeyRoute(space(down = false), held, typing = false))
+        assertTrue(ShellShortcut.PlayPause.keepsKeyWhenIdle)
+    }
+
+    @Test
+    fun should_notToggleAgain_when_spaceRepeatsWithoutAHeldShortcut() {
+        assertEquals(ShellKeyRoute.Window, shellKeyRoute(space(repeatCount = 1), heldKeyCode = null, typing = false))
+    }
+
+    @Test
+    fun should_leaveEnterAndDpadToTheFocusedControl_when_pressed() {
+        listOf(
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_TAB,
+        ).forEach { keyCode ->
+            assertEquals(
+                ShellKeyRoute.Window,
+                shellKeyRoute(ShellKeyEvent(keyCode, down = true), heldKeyCode = null, typing = false),
+            )
+        }
+        assertEquals(
+            ShellKeyRoute.Window,
+            shellKeyRoute(
+                ShellKeyEvent(KeyEvent.KEYCODE_ENTER, down = true),
+                heldKeyCode = KeyEvent.KEYCODE_SPACE,
+                typing = false,
+            ),
+        )
+    }
+
+    @Test
+    fun should_giveCtrlChordsBackToTheWindow_when_theyDoNothingNow() {
+        ShellShortcut.entries.filter { it != ShellShortcut.PlayPause }.forEach { shortcut ->
+            assertFalse(shortcut.name, shortcut.keepsKeyWhenIdle)
+        }
+    }
 }
