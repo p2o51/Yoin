@@ -134,8 +134,16 @@ final class StageColumnBudget {
   );
 }
 
-/// Transport labels sit inline only when the transport is at least this wide (PlaybackControls.kt L1024).
-const double transportLabelsInlineMinWidth = 360;
+/// Transport labels sit inline only when the transport is at least this wide.
+///
+/// Android uses 360 (PlaybackLabelsInlineMinWidth) to drop the labels under
+/// the bar on the narrow Fold left pane (~1:1.5, well under 340). HarmonyOS
+/// phones are a few vp narrower than Android's 411 dp reference: the Mate 70
+/// Air is 406 vp, a 358 vp transport, which 360 would put on two lines while
+/// every Android phone shows one row (owner: row 2 must be Android's single
+/// row). 340 keeps phones inline and still drops the labels on narrow panes;
+/// inline, the wave keeps ≥ 164 vp at 340 (56 + 8 + 44 + 8 + 8 + 52 = 176 taken).
+const double transportLabelsInlineMinWidth = 340;
 
 /// Height the lyric window needs to hold [cleanLines] clean lines with the
 /// active one anchored at 22 % (LyricsDisplay geometry).

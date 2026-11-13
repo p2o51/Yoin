@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import 'now_playing_state.dart';
+import 'playback_controller.dart';
 
 /// Playback-chain strings, English and Simplified Chinese, copied from
 /// Android res/values{,-zh-rCN}/strings*.xml (key in the comment). Same
@@ -24,6 +25,8 @@ class PlaybackStrings {
   String get couldntRemoveFavorite =>
       zh ? '无法从收藏移除' : "Couldn't remove from favorites"; // np_msg_couldnt_remove_favorite
 
+  String get snackbarDismiss => zh ? '关闭' : 'Dismiss'; // cmp_snackbar_dismiss
+
   /// What to show for [kind] (never the engine's raw text).
   String errorMessage(PlaybackErrorKind kind) => switch (kind) {
         PlaybackErrorKind.interrupted => playbackInterrupted,
@@ -32,4 +35,13 @@ class PlaybackStrings {
 
   /// The failure toast for a heart write that tried to set [favorite].
   String favoriteFailure({required bool favorite}) => favorite ? couldntSaveFavorite : couldntRemoveFavorite;
+
+  /// The shell snackbar's text for [notice]; null shows nothing. A rating
+  /// write has no failure copy on Android (ratings are local-first and retry
+  /// on their own), so it stays silent until the owner's copy model gives one.
+  String? noticeMessage(PlaybackNotice notice) => switch (notice) {
+        FavoriteWriteFailed(:final favorite) => favoriteFailure(favorite: favorite),
+        PlaybackFailed(:final kind) => errorMessage(kind),
+        RatingWriteFailed() => null,
+      };
 }

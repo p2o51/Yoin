@@ -1,14 +1,20 @@
 /// Library order and fast-scroller sections as pure functions (Android
 /// LibrarySort.kt + LibraryIndex.kt). No Flutter, safe in an isolate.
 ///
-/// Collation: Dart has no ICU AlphabeticIndex/Collator/Han→pinyin, so this is
-/// the fallback the spec allows: Latin is diacritic-folded and bucketed A–Z,
-/// every other script (Han, kana, Hangul, Cyrillic …) shares one overflow
-/// bucket "…" after Z ordered by code point, digits and symbols go to a
-/// trailing "#".
+/// Collation follows Android's ICU AlphabeticIndex (English primary + Japanese
+/// and Korean labels): A–Z, an inflow "…" for the scripts ICU orders between
+/// Latin and Hangul (Greek, Cyrillic …), the Hangul initials ㄱ–ㅎ, the kana
+/// rows あ か さ … わ, a trailing overflow "…", then digits and symbols under
+/// "#". Han has no bucket of its own: [LibraryListInputs.latinNames] carries
+/// its pinyin (ArkTS `yoin/i18n`, lib/platform/i18n/), so 林间 files under L
+/// and 午後のソーダ under W, as on Android API 29+. A Han name without a
+/// pinyin form (the pure-Dart fallback) goes to the overflow "…".
+/// Within a bucket names compare by their folded key: Latin lower-cased with
+/// diacritics (pinyin tones included) folded, katakana read as hiragana.
 library;
 
 import '../data/model/model.dart';
+import '../platform/i18n/name_transliterator.dart' show isHan;
 
 /// The Library's views. [all] has no chip.
 enum LibraryTab { all, playlists, artists, albums, songs, favorites }
@@ -143,6 +149,7 @@ final class LibraryListInputs {
     this.playlists,
     this.sorts = const {},
     this.lastSeenMs = const {},
+    this.latinNames = const {},
     required this.nowMs,
   });
 
@@ -154,6 +161,13 @@ final class LibraryListInputs {
   /// [LibraryItem.recentsKey] → when it was last opened or played.
   final Map<String, int> lastSeenMs;
   final int nowMs;
+
+  /// A display name (name, artist, owner) → its Latin sort form, for names
+  /// with Han ([latinKeyMap]). Absent = the name sorts as itself.
+  final Map<String, String> latinNames;
+
+  /// [name]'s sort form: its pinyin when it has one.
+  String latinOf(String name) => latinNames[name] ?? name;
 
   LibrarySort sortOf(LibraryTab tab) => sorts[tab] ?? librarySortOptions(tab).first;
 }
@@ -262,9 +276,9 @@ SortedView sortItems(
 ]) {
   final entries = <_Entry>[];
   for (final (position, item) in items.indexed) {
-    final key = collationKey(stripLeadingArticle(item.name));
+    final key = collationKey(stripLeadingArticle(inputs.latinOf(item.name)));
     final creator = _creatorOf(item);
-    final creatorKey = creator == null ? null : collationKey(stripLeadingArticle(creator));
+    final creatorKey = creator == null ? null : collationKey(stripLeadingArticle(inputs.latinOf(creator)));
     entries.add(
       _Entry(
         item,
@@ -390,40 +404,88 @@ int? parseLibraryDate(String? raw) {
 
 // ---------------------------------------------------------------- collation
 
-/// A letter bucket: A–Z (0–25), other scripts (26), digits/symbols (27).
+/// A fast-scroller bucket, in section order: A–Z (0–25), inflow "…" (26),
+/// Hangul initials ㄱ–ㅎ (27–40), kana rows あ–わ (41–50), overflow "…" (51),
+/// digits/symbols "#" (52).
 extension type const _Bucket(int index) {
-  static const other = _Bucket(26);
-  static const number = _Bucket(27);
+  static const inflow = _Bucket(26);
+  static const _hangulStart = 27;
+  static const _kanaStart = 41;
+  static const overflow = _Bucket(51);
+  static const number = _Bucket(52);
   int compareTo(_Bucket b) => index.compareTo(b.index);
-  String get label => index < 26 ? String.fromCharCode(0x41 + index) : (index == 26 ? '…' : '#');
+  String get label {
+    if (index < 26) return String.fromCharCode(0x41 + index);
+    if (index >= _hangulStart && index < _kanaStart) return _hangulLabels[index - _hangulStart];
+    if (index >= _kanaStart && index < overflow.index) return _kanaLabels[index - _kanaStart];
+    return index == number.index ? '#' : '…';
+  }
 }
+
+/// ICU's Korean index labels.
+const _hangulLabels = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+
+/// ICU's Japanese index labels (the gojūon rows).
+const _kanaLabels = ['あ', 'か', 'さ', 'た', 'な', 'は', 'ま', 'や', 'ら', 'わ'];
+
+/// A syllable's 19 initials (ㄱ ㄲ ㄴ ㄷ ㄸ ㄹ ㅁ ㅂ ㅃ ㅅ ㅆ ㅇ ㅈ ㅉ ㅊ ㅋ ㅌ ㅍ ㅎ) → label index; a doubled
+/// consonant files under its single one.
+const _hangulInitialLabel = [0, 0, 1, 2, 2, 3, 4, 5, 5, 6, 6, 7, 8, 8, 9, 10, 11, 12, 13];
+
+/// Compatibility jamo ㄱ (U+3131) … ㅎ (U+314E) → label index; clusters under their first consonant.
+const _hangulJamoLabel = [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 5, 5, 5, 6, 6, 7, 8, 8, 9, 10, 11, 12, 13];
+
+/// The first hiragana of each row after あ (か さ た な は ま や ら わ, small ゎ leading わ).
+const _kanaRowStarts = [0x304B, 0x3055, 0x305F, 0x306A, 0x306F, 0x307E, 0x3083, 0x3089, 0x308E];
 
 final _letter = RegExp(r'\p{L}', unicode: true);
 
 /// The bucket a collation key files under.
 _Bucket _bucketOf(String key) {
   if (key.isEmpty) return _Bucket.number;
-  final c = key.codeUnitAt(0);
+  final c = key.runes.first;
   if (c >= 0x61 && c <= 0x7A) return _Bucket(c - 0x61);
-  final first = String.fromCharCode(key.runes.first);
-  return _letter.hasMatch(first) ? _Bucket.other : _Bucket.number;
+  // Hangul syllables, then leading jamo, then compatibility jamo.
+  if (c >= 0xAC00 && c <= 0xD7A3) return _Bucket(_Bucket._hangulStart + _hangulInitialLabel[(c - 0xAC00) ~/ 588]);
+  if (c >= 0x1100 && c <= 0x1112) return _Bucket(_Bucket._hangulStart + _hangulInitialLabel[c - 0x1100]);
+  if (c >= 0x3131 && c <= 0x314E) return _Bucket(_Bucket._hangulStart + _hangulJamoLabel[c - 0x3131]);
+  // Kana (the key reads katakana as hiragana): ゔ is a vowel-row sound, ゕ ゖ are small か け.
+  if (c >= 0x3041 && c <= 0x3096) {
+    if (c == 0x3094) return const _Bucket(_Bucket._kanaStart);
+    if (c >= 0x3095) return const _Bucket(_Bucket._kanaStart + 1);
+    var row = 0;
+    while (row < _kanaRowStarts.length && c >= _kanaRowStarts[row]) {
+      row++;
+    }
+    return _Bucket(_Bucket._kanaStart + row);
+  }
+  // Han without a pinyin form, Bopomofo and the rest of the CJK block sort after kana in ICU.
+  if (isHan(c) || (c >= 0x3100 && c <= 0x312F) || (c >= 0x31A0 && c <= 0x31BF)) return _Bucket.overflow;
+  return _letter.hasMatch(String.fromCharCode(c)) ? _Bucket.inflow : _Bucket.number;
 }
 
-/// The bucket's label for [name] (tests, search).
-String bucketLabelOf(String name) => _bucketOf(collationKey(stripLeadingArticle(name))).label;
+/// The bucket's label for [name] (tests, search); [latinNames] as in
+/// [LibraryListInputs.latinNames].
+String bucketLabelOf(String name, [Map<String, String> latinNames = const {}]) =>
+    _bucketOf(collationKey(stripLeadingArticle(latinNames[name] ?? name))).label;
 
-/// Lower-case, Latin diacritics folded.
+/// Lower-case, Latin diacritics (pinyin tone marks too) folded, katakana as
+/// hiragana.
 String collationKey(String s) {
   final out = StringBuffer();
   for (final rune in s.toLowerCase().runes) {
+    if (rune >= 0x30A1 && rune <= 0x30F6) {
+      out.writeCharCode(rune - 0x60);
+      continue;
+    }
     final ch = String.fromCharCode(rune);
     out.write(_fold[ch] ?? ch);
   }
   return out.toString();
 }
 
-const _foldFrom = 'àáâãäåāăąçćĉċčďđèéêëēĕėęěĝğġģĥħìíîïĩīĭįıĵķĺļľŀłñńņňòóôõöøōŏőŕŗřśŝşšţťŧùúûüũūŭůűųŵýÿŷźżž';
-const _foldTo = 'aaaaaaaaacccccddeeeeeeeeegggghhiiiiiiiiijklllllnnnnooooooooorrrsssstttuuuuuuuuuuwyyyzzz';
+const _foldFrom = 'àáâãäåāăąǎçćĉċčďđèéêëēĕėęěĝğġģĥħìíîïĩīĭįıǐĵķĺļľŀłñńņňǹòóôõöøōŏőǒŕŗřśŝşšţťŧùúûüũūŭůűųǔǖǘǚǜŵýÿŷźżžḿ';
+const _foldTo = 'aaaaaaaaaacccccddeeeeeeeeegggghhiiiiiiiiiijklllllnnnnnoooooooooorrrsssstttuuuuuuuuuuuuuuuwyyyzzzm';
 final Map<String, String> _fold = {
   for (var i = 0; i < _foldFrom.length; i++) _foldFrom[i]: _foldTo[i],
   'æ': 'ae',

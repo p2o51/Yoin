@@ -1,14 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+/// One page row in the Play split's ▾ menu (Android DetailMenu rows and the
+/// promotable BarExtraActions, which phones show as menu rows).
+@immutable
+final class DetailMenuAction {
+  const DetailMenuAction({required this.icon, required this.label, required this.onTap});
+
+  final IconData icon;
+  final String label;
+
+  /// Runs after the menu has closed.
+  final VoidCallback onTap;
+}
+
 /// What a detail page puts in the window's one bar (its "detail pose":
 /// the Play split button + the now-playing pill; adaptive-principles §2).
 @immutable
 final class DetailPlayActions {
-  const DetailPlayActions({required this.onPlay, this.onShuffle, this.playContainer, this.playContent});
+  const DetailPlayActions({
+    required this.onPlay,
+    this.onShuffle,
+    this.menuItems = const [],
+    this.playContainer,
+    this.playContent,
+  });
 
   final VoidCallback onPlay;
   final VoidCallback? onShuffle;
+
+  /// The ▾ menu's rows after Shuffle play, in order (Android: Play next, Add
+  /// to queue, …, then the page's promotable actions such as Go to artist).
+  final List<DetailMenuAction> menuItems;
 
   /// The page's accent for the Play button (cover colour), null = theme primary.
   final Color? playContainer;

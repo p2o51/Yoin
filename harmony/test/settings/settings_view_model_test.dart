@@ -13,8 +13,8 @@ import 'package:yoin/settings/settings_view_model.dart';
 
 import '../support/fake_music_source.dart';
 
-const _home = SubsonicCredentials(baseUrl: 'https://home.test', username: 'u', password: 'p');
-const _work = SubsonicCredentials(baseUrl: 'https://work.test', username: 'u', password: 'p');
+const _home = SubsonicCredentials(baseUrl: 'https://home.test', username: 'ann', password: 'p');
+const _work = SubsonicCredentials(baseUrl: 'https://work.test', username: 'bob', password: 'p');
 
 void main() {
   late InMemoryStore store;
@@ -32,8 +32,8 @@ void main() {
   ];
 
   Future<(Profile, Profile)> twoAccounts() async {
-    final home = await repo.add(provider: MediaId.providerSubsonic, displayName: 'home.test', credentials: _home);
-    final work = await repo.add(provider: MediaId.providerSubsonic, displayName: 'work.test', credentials: _work);
+    final home = await repo.add(provider: MediaId.providerSubsonic, displayName: 'ann @ home.test', credentials: _home);
+    final work = await repo.add(provider: MediaId.providerSubsonic, displayName: 'bob @ work.test', credentials: _work);
     return (home, work); // work is active (the last added).
   }
 
@@ -64,8 +64,36 @@ void main() {
       final (home, work) = await twoAccounts();
       c.invalidate(activeSourceProvider);
       await settle();
-      expect(content().profiles.map((p) => p.id), [home.id, work.id]);
+      expect(content().accounts.map((a) => a.id), [home.id, work.id]);
       expect(content().activeId, work.id);
+    });
+
+    test('should_leadWithUsernameAndHost_when_subsonicAccount', () async {
+      await twoAccounts();
+      c.invalidate(activeSourceProvider);
+      await settle();
+      final first = content().accounts.first;
+      expect(first.title, 'ann');
+      expect(first.host, 'home.test');
+      expect(first.displayName, 'ann @ home.test');
+    });
+
+    test('should_fallBackToDisplayName_when_credentialsMissing', () async {
+      final (home, _) = await twoAccounts();
+      await store.write(ProfileRepository.credentialsKey(home.id), null);
+      c.invalidate(activeSourceProvider);
+      await settle();
+      final first = content().accounts.first;
+      expect(first.title, 'ann @ home.test');
+      expect(first.host, isNull);
+    });
+
+    test('should_giveEachAccountItsOwnShape_when_loaded', () async {
+      await twoAccounts();
+      c.invalidate(activeSourceProvider);
+      await settle();
+      final shapes = content().accounts.map((a) => a.avatarShape).toSet();
+      expect(shapes, hasLength(2));
     });
 
     test('should_activateAndRebuildSource_when_switched', () async {
@@ -91,7 +119,7 @@ void main() {
       await c.read(settingsViewModelProvider.notifier).remove(work.id);
       await settle();
 
-      expect(content().profiles.map((p) => p.id), [home.id]);
+      expect(content().accounts.map((a) => a.id), [home.id]);
       expect(content().activeId, home.id);
       expect(await repo.credentials(work.id), isNull);
     });
@@ -105,7 +133,7 @@ void main() {
       await c.read(settingsViewModelProvider.notifier).remove(home.id);
       await settle();
 
-      expect(content().profiles.map((p) => p.id), [work.id]);
+      expect(content().accounts.map((a) => a.id), [work.id]);
       expect(identical(await c.read(activeSourceProvider.future), source), isTrue);
     });
   });
@@ -119,12 +147,12 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('should_switchAccount_when_inactiveRowTapped', (tester) async {
+    testWidgets('should_switchAccount_when_inactiveCardTapped', (tester) async {
       late Profile home;
       await tester.runAsync(() async => home = (await twoAccounts()).$1);
       await pump(tester);
 
-      await tester.tap(find.text('home.test'));
+      await tester.tap(find.text('ann'));
       await tester.runAsync(settle);
       await tester.pumpAndSettle();
 
@@ -133,27 +161,51 @@ void main() {
       expect(active, home.id);
     });
 
+    testWidgets('should_offerUseOnlyForOtherAccounts_when_menuOpened', (tester) async {
+      await tester.runAsync(twoAccounts);
+      await pump(tester);
+
+      await tester.tap(find.byTooltip('Options for bob'));
+      await tester.pumpAndSettle();
+      expect(find.text('Use this account'), findsNothing);
+      expect(find.text('Remove'), findsOneWidget);
+      await tester.tapAt(Offset.zero);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Options for ann'));
+      await tester.pumpAndSettle();
+      expect(find.text('Use this account'), findsOneWidget);
+    });
+
     testWidgets('should_removeAccount_when_removeConfirmed', (tester) async {
       await tester.runAsync(twoAccounts);
       await pump(tester);
 
-      await tester.tap(find.byTooltip('Options for home.test'));
+      await tester.tap(find.byTooltip('Options for ann'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Remove'));
       await tester.pumpAndSettle();
       expect(find.text('Remove this account?'), findsOneWidget);
+      expect(find.textContaining('ann @ home.test'), findsOneWidget);
       await tester.tap(find.widgetWithText(TextButton, 'Remove'));
       await tester.runAsync(settle);
       await tester.pumpAndSettle();
 
-      expect(find.text('home.test'), findsNothing);
-      expect(find.text('work.test'), findsOneWidget);
+      expect(find.text('ann'), findsNothing);
+      expect(find.text('bob'), findsOneWidget);
     });
 
     testWidgets('should_showEmptyAndAdd_when_noAccount', (tester) async {
       await pump(tester);
       expect(find.text('No accounts'), findsOneWidget);
       expect(find.text('Add account'), findsOneWidget);
+    });
+
+    testWidgets('should_showAddTile_when_accountsExist', (tester) async {
+      await tester.runAsync(twoAccounts);
+      await pump(tester);
+      expect(find.text('Add'), findsOneWidget);
+      expect(find.text('Settings'), findsWidgets);
     });
   });
 }

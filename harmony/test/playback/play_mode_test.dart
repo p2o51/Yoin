@@ -35,4 +35,10 @@ void main() {
     expect(PlayMode.defaultMode, PlayMode.repeatAll);
     expect(PlayMode.repeatAll.repeat, RepeatMode.all);
   });
+
+  test('should_keepShuffleAndResetRepeat_when_withRepeatAll', () {
+    expect(PlayMode.shuffleRepeatOff.withRepeatAll, PlayMode.shuffle);
+    expect(PlayMode.repeatOne.withRepeatAll, PlayMode.repeatAll);
+    expect(PlayMode.repeatAll.withRepeatAll, PlayMode.repeatAll);
+  });
 }

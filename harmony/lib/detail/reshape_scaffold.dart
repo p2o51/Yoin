@@ -16,7 +16,7 @@ final class ReshapeContent {
     required this.coverUrl,
     required this.heroBelow,
     required this.listChildren,
-    this.sleeves,
+    this.backdrop,
     this.fallbackIcon = YoinSymbols.album,
   });
 
@@ -27,8 +27,9 @@ final class ReshapeContent {
   /// Under the hero slot: track count + flowing titles (links live while [linksEnabled]).
   final Widget Function(bool linksEnabled) heroBelow;
 
-  /// Drawn behind the cover inside the hero slot (Playlist sleeves), given the cover rect in slot space.
-  final Widget Function(Rect coverInSlot, double fade)? sleeves;
+  /// Drawn behind the cover inside the hero slot (Album butterfly, Playlist sleeves), given the cover
+  /// rect in slot space and how far it has left with the pull-up (0 = whole, 1 = gone).
+  final Widget Function(Rect coverInSlot, double leaving)? backdrop;
 
   /// The pulled-up track list.
   final List<Widget> listChildren;
@@ -239,12 +240,12 @@ class _Body extends StatelessWidget {
                 children: [
                   SizedBox(
                     height: slotHeight,
-                    child: content.sleeves == null
+                    child: content.backdrop == null
                         ? null
                         : AnimatedBuilder(
                             animation: reveal,
                             builder: (context, _) =>
-                                content.sleeves!(coverInSlot, PullUpMath.smoothStep(0, 0.7, reveal.expand)),
+                                content.backdrop!(coverInSlot, PullUpMath.smoothStep(0, 0.7, reveal.expand)),
                           ),
                   ),
                   Padding(

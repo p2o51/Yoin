@@ -84,7 +84,7 @@ class PlaylistDetailScreen extends ConsumerWidget {
     return ReshapeContent(
       coverUrl: heroUrl,
       fallbackIcon: YoinSymbols.playlist,
-      sleeves: sleeveUrls.isEmpty
+      backdrop: sleeveUrls.isEmpty
           ? null
           : (cover, leaving) =>
                 PlaylistSleeves(urls: sleeveUrls, cover: cover, leaving: leaving, corner: playlistSleeveCorner),

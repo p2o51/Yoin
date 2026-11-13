@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'haptics.dart';
+import 'play_mode_cycle.dart';
 import 'nowplaying_strings.dart';
 import '../ui/component/expressive/expressive_shapes.dart';
 import '../ui/component/expressive/expressive_surface_button.dart';
@@ -26,7 +28,8 @@ enum TransportKey { none, play, next }
 
 /// Both transport rows (PlaybackControls.kt): [PLAY|PAUSE][8][NEXT] …
 /// [play mode] over [PREVIOUS][elapsed][wave][-remaining]; labels drop
-/// under the wave when the row is narrower than 360.
+/// under the wave when the row is narrower than transportLabelsInlineMinWidth
+/// (stage_budget.dart).
 class TransportControls extends StatefulWidget {
   const TransportControls({
     super.key,
@@ -40,9 +43,11 @@ class TransportControls extends StatefulWidget {
     required this.onPlayPause,
     required this.onNext,
     required this.onPrevious,
-    required this.onPlayMode,
+    required this.onSetPlayMode,
     required this.onSeek,
     required this.pressed,
+    this.showPlayModeSplitOnFullCycle = false,
+    this.onShowedPlayModeSplit,
   });
 
   final bool isPlaying;
@@ -55,7 +60,11 @@ class TransportControls extends StatefulWidget {
   final VoidCallback onPlayPause;
   final VoidCallback onNext;
   final VoidCallback onPrevious;
-  final VoidCallback onPlayMode;
+  final ValueChanged<PlayMode> onSetPlayMode;
+
+  /// A run round the play-mode cycle splits the button once to show it can.
+  final bool showPlayModeSplitOnFullCycle;
+  final VoidCallback? onShowedPlayModeSplit;
   final ValueChanged<double> onSeek;
 
   /// Which key is held (the hero reads it to stretch).
@@ -107,7 +116,12 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
                   ),
                 ),
                 const Spacer(),
-                PlayModeButton(mode: widget.playMode, onTap: widget.onPlayMode),
+                PlayModeButton(
+                  mode: widget.playMode,
+                  onSetPlayMode: widget.onSetPlayMode,
+                  showSplitOnFullCycle: widget.showPlayModeSplitOnFullCycle,
+                  onShowedSplit: widget.onShowedPlayModeSplit,
+                ),
               ],
             ),
           ),
@@ -405,43 +419,158 @@ class _RoundKey extends StatelessWidget {
 /// controlIconSize = controlSize × 0.5 (56 → 28).
 const double _iconSize = NowPlayingTokens.controlSize * 0.5;
 
-/// The round play-mode key: tertiaryContainer at repeat-all, lit (primary)
-/// otherwise; Off modes draw the repeat glyph with a slash drawn in on the
-/// effects spring. Tap walks the 4-mode cycle.
+// PlaybackControls.kt private vals (Android keeps them local to the button too).
+const double _playModeSegmentGap = 2;
+const double _playModeInnerCornerRatio = 0.18;
+const double _playModeGlyphInset = 10;
+
+/// Below this much split the second symbol sits exactly under the first: one is drawn.
+const double _playModeSplitShownFrom = 0.02;
+
+/// The play-mode pill when split: two segments of 0.8 × the control size (playModeNaturalWidth).
+double playModeNaturalWidth(double controlSize) => controlSize * 1.6 + _playModeSegmentGap;
+
+final Stopwatch _uptime = Stopwatch()..start();
+
+/// The play-mode button (owner 2026-10-17, PlaybackControls.kt PlayModeButton):
+/// a round button by default, its symbol showing the mode; a tap steps
+/// [PlayMode.next]. A long-press splits it into a pill of two segments —
+/// shuffle on the left, repeat on the right — each tap on a segment switching
+/// only its own axis; left alone for [playModeSplitHoldMs] (or long-pressed
+/// again) it merges back into the circle. Width, gap, inner corners and the
+/// symbols' travel share one spatial spring; colours ride the effects
+/// spring. A segment lights up (primary) when its axis leaves the default;
+/// the circle lights up for any mode but repeat all. The repeat segment steps
+/// all → one → off ([PlayMode.nextRepeat]); repeat off draws its symbol
+/// struck through, split or not.
 class PlayModeButton extends StatefulWidget {
-  const PlayModeButton({super.key, required this.mode, required this.onTap});
+  const PlayModeButton({
+    super.key,
+    required this.mode,
+    required this.onSetPlayMode,
+    this.height = NowPlayingTokens.controlSize,
+    this.splitWidth = NowPlayingTokens.controlSize * 1.6 + _playModeSegmentGap,
+    this.iconSize = _iconSize,
+    this.showSplitOnFullCycle = false,
+    this.onShowedSplit,
+    this.nowMs,
+  });
 
   final PlayMode mode;
-  final VoidCallback onTap;
+  final ValueChanged<PlayMode> onSetPlayMode;
+  final double height;
+  final double splitWidth;
+  final double iconSize;
+
+  /// Taps all the way round the cycle split it once, to show it can (PlayModeCycle).
+  final bool showSplitOnFullCycle;
+  final VoidCallback? onShowedSplit;
+
+  /// Monotonic clock for the cycle (tests).
+  final int Function()? nowMs;
 
   @override
-  State<PlayModeButton> createState() => _PlayModeButtonState();
+  State<PlayModeButton> createState() => PlayModeButtonState();
 }
 
-class _PlayModeButtonState extends State<PlayModeButton> with TickerProviderStateMixin {
-  late final SpringValue _lit = SpringValue(
-    vsync: this,
-    initial: (widget.mode != PlayMode.repeatAll) ? 1 : 0,
-    spring: YoinSprings.defaultEffects,
-  );
+class PlayModeButtonState extends State<PlayModeButton> with TickerProviderStateMixin {
+  final PlayModeCycle _cycle = PlayModeCycle();
+  bool _split = false;
+  Timer? _hold;
+
+  late final SpringValue _f = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardDefaultSpatial);
+  late final SpringValue _leftLit = SpringValue(vsync: this, initial: _leftTarget, spring: YoinSprings.defaultEffects);
+  late final SpringValue _rightLit = SpringValue(vsync: this, initial: _rightTarget, spring: YoinSprings.defaultEffects);
   late final SpringValue _slash = SpringValue(
     vsync: this,
     initial: widget.mode.isRepeatOff ? 1 : 0,
     spring: YoinSprings.defaultEffects,
   );
 
+  /// Whether the button is split into its two segments.
+  bool get isSplit => _split;
+
+  double get _leftTarget => (_split ? widget.mode.shuffled : widget.mode != PlayMode.repeatAll) ? 1 : 0;
+
+  // Split, the repeat segment is lit against this mode with repeat all.
+  double get _rightTarget =>
+      (_split ? widget.mode != widget.mode.withRepeatAll : widget.mode != PlayMode.repeatAll) ? 1 : 0;
+
+  bool get _reduced => MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+  void _drive(SpringValue v, double target) => _reduced ? v.snapTo(target) : v.animateTo(target);
+
+  void _syncTargets() {
+    _drive(_f, _split ? 1 : 0);
+    _drive(_leftLit, _leftTarget);
+    _drive(_rightLit, _rightTarget);
+    _drive(_slash, widget.mode.isRepeatOff ? 1 : 0);
+  }
+
   @override
   void didUpdateWidget(PlayModeButton oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _lit.animateTo((widget.mode != PlayMode.repeatAll) ? 1 : 0);
-    _slash.animateTo(widget.mode.isRepeatOff ? 1 : 0);
+    _syncTargets();
   }
 
   @override
   void dispose() {
-    _lit.dispose();
+    _hold?.cancel();
+    _f.dispose();
+    _leftLit.dispose();
+    _rightLit.dispose();
     _slash.dispose();
     super.dispose();
+  }
+
+  /// Every split, and every tap while split, restarts the quiet spell before the merge.
+  void _holdOpen() {
+    _hold?.cancel();
+    if (!_split) return;
+    _hold = Timer(const Duration(milliseconds: playModeSplitHoldMs), () {
+      if (mounted) _setSplit(false);
+    });
+  }
+
+  void _setSplit(bool split) {
+    setState(() => _split = split);
+    _holdOpen();
+    _syncTargets();
+  }
+
+  void _onRoundTap() {
+    YoinHaptics.tick();
+    final from = widget.mode;
+    final next = from.next();
+    widget.onSetPlayMode(next);
+    final now = widget.nowMs?.call() ?? _uptime.elapsedMilliseconds;
+    final roundTheCycle = _cycle.onTap(from, next, now);
+    if (widget.showSplitOnFullCycle && roundTheCycle) {
+      _setSplit(true);
+      widget.onShowedSplit?.call();
+    }
+  }
+
+  void _onRoundLongPress() {
+    YoinHaptics.longPress();
+    _setSplit(true);
+  }
+
+  void _merge() {
+    YoinHaptics.longPress();
+    _setSplit(false);
+  }
+
+  void _onShuffleTap() {
+    YoinHaptics.tick();
+    _holdOpen();
+    widget.onSetPlayMode(widget.mode.withShuffle(!widget.mode.shuffled));
+  }
+
+  void _onRepeatTap() {
+    YoinHaptics.tick();
+    _holdOpen();
+    widget.onSetPlayMode(widget.mode.nextRepeat());
   }
 
   String _state(NowPlayingStrings s) => switch (widget.mode) {
@@ -453,75 +582,236 @@ class _PlayModeButtonState extends State<PlayModeButton> with TickerProviderStat
     PlayMode.shuffleRepeatOff => s.shuffleRepeatOff,
   };
 
+  String _repeatState(NowPlayingStrings s) => widget.mode.isRepeatOne
+      ? s.repeatOne
+      : widget.mode.isRepeatOff
+      ? s.repeatOff
+      : s.repeatAll;
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final strings = NowPlayingStrings.of(context);
     final mode = widget.mode;
-    final glyph = switch (mode) {
-      PlayMode.repeatAll || PlayMode.repeatOff => YoinSymbols.repeat,
-      PlayMode.shuffle || PlayMode.shuffleRepeatOne || PlayMode.shuffleRepeatOff => YoinSymbols.shuffle,
-      PlayMode.repeatOne => YoinSymbols.repeatOne,
-    };
-    return Semantics(
-      button: true,
-      label: strings.cdPlayMode,
-      value: _state(strings),
-      excludeSemantics: true,
-      child: AnimatedBuilder(
-        animation: Listenable.merge([_lit.animation, _slash.animation]),
-        builder: (context, _) {
-          final lit = _lit.value.clamp(0.0, 1.0);
-          final container = Color.lerp(colors.tertiaryContainer, colors.primary, lit)!;
-          final content = Color.lerp(colors.onTertiaryContainer, colors.onPrimary, lit)!;
-          // A circle (clip(CircleShape) + combinedClickable: ripple, no press morph).
-          return SizedBox.square(
-            dimension: NowPlayingTokens.controlSize,
-            child: ExpressiveSurfaceButton(
-              shapes: const InteractionShapes.fixed(CornerRadii.full),
-              height: NowPlayingTokens.controlSize,
-              color: container,
-              contentColor: content,
-              onTap: () {
-                YoinHaptics.tick();
-                widget.onTap();
-              },
-              child: SizedBox.square(
-                dimension: NowPlayingTokens.controlSize,
-                child: CustomPaint(
-                  foregroundPainter: _SlashPainter(
-                    progress: _slash.value.clamp(0.0, 1.0),
-                    color: content,
-                    halo: container,
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Icon(glyph, size: 28, color: content),
-                      // Shuffle + repeat one: Android has a dedicated symbol; v1 badges a "1".
-                      if (mode == PlayMode.shuffleRepeatOne)
-                        Positioned(
-                          right: 10,
-                          bottom: 9,
-                          child: Text(
-                            '1',
-                            style: Theme.of(
-                              context,
-                            ).textTheme.labelSmall!.copyWith(color: content, fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                    ],
+    final h = widget.height;
+    final splitW = widget.splitWidth;
+    final merged = _PlayModeSymbol.of(mode);
+    final leftSymbol = _split ? _PlayModeSymbol.shuffle : merged;
+    final rightSymbol = !_split
+        ? merged
+        : mode.isRepeatOne
+        ? _PlayModeSymbol.repeatOne
+        : _PlayModeSymbol.repeatAll;
+
+    return AnimatedBuilder(
+      animation: Listenable.merge([_f.animation, _leftLit.animation, _rightLit.animation, _slash.animation]),
+      builder: (context, _) {
+        final f = _f.value;
+        final width = h + (splitW - h) * f;
+        final gap = _playModeSegmentGap * f;
+        final segment = math.max(0.0, (width - gap) / 2);
+        final outer = h / 2;
+        // Square inner edges at rest, so the two halves close into one circle.
+        final inner = math.max(0.0, h * _playModeInnerCornerRatio * f);
+        final glyphSplit = math.min(widget.iconSize, (splitW - _playModeSegmentGap) / 2 - _playModeGlyphInset);
+        final glyph = widget.iconSize + (glyphSplit - widget.iconSize) * f.clamp(0.0, 1.0);
+        Color container(double lit) => Color.lerp(colors.tertiaryContainer, colors.primary, lit.clamp(0.0, 1.0))!;
+        Color content(double lit) => Color.lerp(colors.onTertiaryContainer, colors.onPrimary, lit.clamp(0.0, 1.0))!;
+        final leftBg = container(_leftLit.value);
+        final rightBg = container(_rightLit.value);
+        final leftFg = content(_leftLit.value);
+        final rightFg = content(_rightLit.value);
+        final leftRadius = BorderRadius.horizontal(left: Radius.circular(outer), right: Radius.circular(inner));
+        final rightRadius = BorderRadius.horizontal(left: Radius.circular(inner), right: Radius.circular(outer));
+        final centre = width / 2;
+        final leftCentre = centre + (segment / 2 - centre) * f;
+        final rightCentre = centre + (width - segment / 2 - centre) * f;
+        final slash = _slash.value.clamp(0.0, 1.0);
+        final showRight = f > _playModeSplitShownFrom || _split;
+
+        Widget touch({
+          required ShapeBorder shape,
+          required VoidCallback onTap,
+          required VoidCallback onLongPress,
+        }) => Material(
+          type: MaterialType.transparency,
+          child: InkWell(customBorder: shape, onTap: onTap, onLongPress: onLongPress),
+        );
+
+        return SizedBox(
+          width: width,
+          height: h,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: segment,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(color: leftBg, borderRadius: leftRadius),
+                ),
+              ),
+              Positioned(
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: segment,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(color: rightBg, borderRadius: rightRadius),
+                ),
+              ),
+              // The symbols: one in the middle of the circle; split, two copies
+              // travel out to their segments' middles (and back).
+              Positioned(
+                left: leftCentre - glyph / 2,
+                top: (h - glyph) / 2,
+                child: IgnorePointer(
+                  // Merged, the one symbol carries repeat off; split, the repeat segment's does.
+                  child: _PlayModeGlyph(
+                    symbol: leftSymbol,
+                    size: glyph,
+                    color: leftFg,
+                    halo: leftBg,
+                    slash: slash * (1 - f).clamp(0.0, 1.0),
                   ),
                 ),
               ),
-            ),
-          );
-        },
+              if (showRight)
+                Positioned(
+                  left: rightCentre - glyph / 2,
+                  top: (h - glyph) / 2,
+                  child: IgnorePointer(
+                    child: _PlayModeGlyph(
+                      symbol: rightSymbol,
+                      size: glyph,
+                      color: rightFg,
+                      halo: rightBg,
+                      slash: slash * f.clamp(0.0, 1.0),
+                    ),
+                  ),
+                ),
+              if (!_split)
+                Positioned.fill(
+                  child: Semantics(
+                    button: true,
+                    label: strings.cdPlayMode,
+                    value: _state(strings),
+                    onLongPressHint: strings.cdPlayModeSplit,
+                    excludeSemantics: true,
+                    child: touch(shape: const CircleBorder(), onTap: _onRoundTap, onLongPress: _onRoundLongPress),
+                  ),
+                )
+              else ...[
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: segment,
+                  child: Semantics(
+                    label: strings.shuffle,
+                    toggled: mode.shuffled,
+                    excludeSemantics: true,
+                    child: touch(
+                      shape: RoundedRectangleBorder(borderRadius: leftRadius),
+                      onTap: _onShuffleTap,
+                      onLongPress: _merge,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: segment,
+                  child: Semantics(
+                    button: true,
+                    label: strings.repeat,
+                    value: _repeatState(strings),
+                    excludeSemantics: true,
+                    child: touch(
+                      shape: RoundedRectangleBorder(borderRadius: rightRadius),
+                      onTap: _onRepeatTap,
+                      onLongPress: _merge,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+enum _PlayModeSymbol {
+  repeatAll,
+  shuffle,
+  shuffleRepeatOne,
+  repeatOne;
+
+  // PlaybackControls.kt toSymbol(): the off modes are struck through by the slash.
+  static _PlayModeSymbol of(PlayMode mode) => switch (mode) {
+    PlayMode.repeatAll || PlayMode.repeatOff => repeatAll,
+    PlayMode.shuffle || PlayMode.shuffleRepeatOff => shuffle,
+    PlayMode.shuffleRepeatOne => shuffleRepeatOne,
+    PlayMode.repeatOne => repeatOne,
+  };
+}
+
+/// One play-mode symbol, [slash] of a repeat-off stroke drawn over it.
+class _PlayModeGlyph extends StatelessWidget {
+  const _PlayModeGlyph({
+    required this.symbol,
+    required this.size,
+    required this.color,
+    required this.halo,
+    required this.slash,
+  });
+
+  final _PlayModeSymbol symbol;
+  final double size;
+  final Color color;
+  final Color halo;
+  final double slash;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = switch (symbol) {
+      _PlayModeSymbol.repeatAll => YoinSymbols.repeat,
+      _PlayModeSymbol.shuffle || _PlayModeSymbol.shuffleRepeatOne => YoinSymbols.shuffle,
+      _PlayModeSymbol.repeatOne => YoinSymbols.repeatOne,
+    };
+    return SizedBox.square(
+      dimension: size,
+      child: CustomPaint(
+        foregroundPainter: _SlashPainter(progress: slash, color: color, halo: halo),
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            Icon(icon, size: size, color: color),
+            // Shuffle + repeat one: Android has a dedicated animated symbol; v1 badges a "1".
+            if (symbol == _PlayModeSymbol.shuffleRepeatOne)
+              Positioned(
+                right: -size * 0.14,
+                bottom: -size * 0.18,
+                child: Text(
+                  '1',
+                  style: Theme.of(context).textTheme.labelSmall!.copyWith(color: color, fontWeight: FontWeight.w700),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
 }
 
+/// repeatOffSlash: a diagonal stroke from the top-left, [progress] of it drawn,
+/// with a [halo]-coloured gap so it reads over the strands it crosses.
 class _SlashPainter extends CustomPainter {
   const _SlashPainter({required this.progress, required this.color, required this.halo});
 
@@ -532,12 +822,11 @@ class _SlashPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (progress <= 0) return;
-    final glyph = Rect.fromCenter(center: size.center(Offset.zero), width: 28, height: 28);
-    final inset = glyph.width * 0.08;
-    final start = glyph.topLeft + Offset(inset, inset);
-    final end = glyph.bottomRight - Offset(inset, inset);
-    final head = Offset.lerp(start, end, progress)!;
-    final stroke = math.min(glyph.width, glyph.height) * 0.09;
+    final inset = size.shortestSide * 0.08;
+    final start = Offset(inset, inset);
+    final end = Offset(size.width - inset, size.height - inset);
+    final head = Offset.lerp(start, end, progress.clamp(0.0, 1.0))!;
+    final stroke = size.shortestSide * 0.09;
     canvas.drawLine(
       start,
       head,
@@ -622,6 +911,8 @@ class _TimeLabelState extends State<_TimeLabel> {
         child: Text(
           _text,
           textAlign: widget.remaining ? TextAlign.end : TextAlign.start,
+          maxLines: 1,
+          softWrap: false,
           style: Theme.of(context).textTheme.labelLarge!.copyWith(
             color: colors.onSurfaceVariant,
             fontFeatures: const [FontFeature.tabularFigures()],

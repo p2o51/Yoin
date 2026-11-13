@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/detail/album_detail_screen.dart';
+import 'package:yoin/detail/album_hero_marks.dart';
 import 'package:yoin/detail/detail_routes.dart';
 import 'package:yoin/detail/pull_up_reveal.dart';
 import 'package:yoin/playback/playback_context.dart';
@@ -117,6 +118,47 @@ void main() {
     await tester.tap(find.byTooltip('Back'));
     await _settle(tester);
     expect(find.byType(AlbumDetailScreen), findsNothing);
+  });
+
+  testWidgets('should_showUnratedEmblem_when_loaded', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _open(tester);
+    expect(find.byType(AlbumUnratedEmblem), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('Not rated')), findsOneWidget);
+    semantics.dispose();
+    await _close(tester);
+  });
+
+  testWidgets('should_offerQueueRowsOnly_when_albumNamesNoArtistId', (tester) async {
+    final (c, _) = await _open(tester);
+    final rows = c.read(topDetailActionsProvider)!.menuItems.map((r) => r.label);
+    expect(rows, ['Play next', 'Add to queue']);
+    await _close(tester);
+  });
+
+  testWidgets('should_queueAlbumAndConfirm_when_addToQueueChosen', (tester) async {
+    final (c, engine) = await _open(tester);
+    c.read(topDetailActionsProvider)!.menuItems[1].onTap();
+    await _settle(tester);
+
+    // Nothing was loaded: the queued tracks become the queue, paused.
+    expect(engine.queue.map((i) => i.id), ['subsonic:t1', 'subsonic:t2', 'subsonic:t3']);
+    expect(find.text('Added 3 songs to the queue'), findsOneWidget);
+    await _close(tester);
+  });
+
+  testWidgets('should_showNoConfirmation_when_queueEditAddsNothing', (tester) async {
+    final (c, engine) = await _open(tester);
+    // A queue is loaded and the base engine can't edit it: addToQueue returns without adding.
+    c.read(topDetailActionsProvider)!.onPlay();
+    await _settle(tester);
+    c.read(topDetailActionsProvider)!.menuItems[1].onTap();
+    await _settle(tester);
+
+    expect(engine.queue, hasLength(3));
+    expect(find.textContaining('to the queue'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await _close(tester);
   });
 
   test('should_settleToList_when_releasedPastHalf', () {

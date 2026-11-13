@@ -2,8 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/data/profile/profile.dart';
+import 'package:yoin/data/profile/profile_repository.dart';
 import 'package:yoin/detail/album_detail_screen.dart';
+import 'package:yoin/platform/storage/stores.dart';
+import 'package:yoin/playback/local_ratings.dart';
 import 'package:yoin/playback/now_playing_state.dart';
 import 'package:yoin/playback/playback_context.dart';
 import 'package:yoin/playback/system_requests.dart';
@@ -14,6 +19,7 @@ import 'package:yoin/shell/shell_state.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
 import '../support/nowplaying_fakes.dart';
+import '../support/playback_fakes.dart';
 
 Widget _app(List<Override> overrides) => ProviderScope(
   overrides: overrides,
@@ -325,5 +331,41 @@ void main() {
     await tester.tap(find.text('Shuffle play'));
     await tester.pumpAndSettle();
     expect(shuffled, 1);
+  });
+
+  testWidgets('should_resendPendingRating_when_appStartsWithoutOpeningPlayer', (tester) async {
+    _phone(tester);
+    final values = InMemoryStore();
+    final repo = ProfileRepository(values, InMemoryStore());
+    final profile = await repo.add(
+      provider: MediaId.providerSubsonic,
+      displayName: 'Home',
+      credentials: const SubsonicCredentials(baseUrl: 'https://m.test', username: 'u', password: 'p'),
+    );
+    final song = MediaId.subsonic('s1');
+    await LocalRatingStore(values).write(profile.id, {
+      song: LocalRating(
+        profileId: profile.id,
+        songId: song.rawId,
+        provider: song.provider,
+        rating: 9,
+        serverRating: 5,
+        needsSync: true,
+        updatedAt: 1,
+      ),
+    });
+    final source = PlaybackFakeSource();
+    controller = NowPlayingFakeController(NowPlayingState.idle);
+    await tester.pumpWidget(
+      _app([
+        ...nowPlayingOverrides(controller: controller, source: source),
+        keyValueStoreProvider.overrideWithValue(values),
+        profileRepositoryProvider.overrideWithValue(repo),
+      ]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_player, findsNothing, reason: 'the player was never opened');
+    expect(source.ratingWrites, [(song, 5)]);
   });
 }

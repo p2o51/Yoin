@@ -61,6 +61,8 @@ class NowPlayingStrings {
   String get repeatOne => _zh ? '单曲循环' : 'Repeat one'; // np_transport_repeat_one
   String get repeatOff => _zh ? '不循环' : 'Repeat off'; // np_transport_repeat_off
   String get shuffleRepeatOff => _zh ? '随机播放，不循环' : 'Shuffle, repeat off'; // np_transport_shuffle_repeat_off
+  String get repeat => _zh ? '循环' : 'Repeat'; // np_transport_repeat
+  String get cdPlayModeSplit => _zh ? '分开随机和循环' : 'Separate shuffle and repeat'; // np_cd_play_mode_split
 
   // Lyrics.
   String get lyricsEmpty => _zh ? '暂无歌词' : 'No lyrics available'; // cmp_lyrics_empty / np_lyrics_none

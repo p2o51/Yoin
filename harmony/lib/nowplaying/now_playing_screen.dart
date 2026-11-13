@@ -21,6 +21,7 @@ import 'now_playing_background.dart';
 import 'now_playing_view_model.dart';
 import 'nowplaying_strings.dart';
 import 'overlay_controller.dart';
+import 'play_mode_cycle.dart';
 import 'playhead_clock.dart';
 import 'queue_sheet.dart';
 import 'rating_and_heart.dart';
@@ -363,7 +364,9 @@ class _Stage extends ConsumerWidget {
                   onPlayPause: vm.togglePlayPause,
                   onNext: vm.next,
                   onPrevious: vm.previous,
-                  onPlayMode: vm.cyclePlayMode,
+                  onSetPlayMode: vm.setPlayMode,
+                  showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
+                  onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
                   onSeek: vm.seekToFraction,
                   pressed: pressed,
                 ),

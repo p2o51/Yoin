@@ -4,8 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/data/profile/profile.dart';
+import 'package:yoin/data/profile/profile_repository.dart';
+import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/nowplaying/now_playing_view_model.dart';
 import 'package:yoin/nowplaying/player_snapshot.dart';
+import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/playback/now_playing_state.dart';
 import 'package:yoin/playback/play_mode.dart';
 import 'package:yoin/playback/playback_context.dart';
@@ -128,11 +132,43 @@ void main() {
   });
 
   test('should_keepTenthsLocallyAndSendStars_when_ratingCommitted', () async {
-    c = make(playingState(nowPlayingTracks(1)));
+    final values = InMemoryStore();
+    final repo = ProfileRepository(values, InMemoryStore());
+    await repo.add(
+      provider: MediaId.providerSubsonic,
+      displayName: 'Home',
+      credentials: const SubsonicCredentials(baseUrl: 'https://m.test', username: 'u', password: 'p'),
+    );
+    final rated = _RatingSource();
+    controller = NowPlayingFakeController(playingState(nowPlayingTracks(1)));
+    c = ProviderContainer(
+      overrides: [
+        ...nowPlayingOverrides(controller: controller, source: rated),
+        keyValueStoreProvider.overrideWithValue(values),
+        profileRepositoryProvider.overrideWithValue(repo),
+      ],
+    );
+    c.listen(nowPlayingViewModelProvider, (_, _) {});
     await c.read(activeSourceProvider.future);
+    await settle();
     await c.read(nowPlayingViewModelProvider.notifier).commitRating(7.4);
     expect((c.read(nowPlayingViewModelProvider) as NowPlayingContent).rating, 7.4);
-    expect(controller.calls.last, 'setRating:4');
+    expect(rated.ratingWrites, ['t0:4'], reason: 'round(7.4 / 2) stars to the server');
+    expect(controller.calls.where((call) => call.startsWith('setRating')), isEmpty);
+
+    // A new session (app restart) reads the stored rating back.
+    final again = ProviderContainer(
+      overrides: [
+        ...nowPlayingOverrides(controller: NowPlayingFakeController(playingState(nowPlayingTracks(1))), source: rated),
+        keyValueStoreProvider.overrideWithValue(values),
+        profileRepositoryProvider.overrideWithValue(repo),
+      ],
+    );
+    addTearDown(again.dispose);
+    again.listen(nowPlayingViewModelProvider, (_, _) {});
+    await again.read(activeSourceProvider.future);
+    await settle();
+    expect((again.read(nowPlayingViewModelProvider) as NowPlayingContent).rating, 7.4);
   });
 
   test('should_seekToFractionOfDuration_when_scrubbed', () async {
@@ -150,3 +186,17 @@ void main() {
 }
 
 final _albumId = MediaId.subsonic('al');
+
+/// Records rating pushes.
+class _RatingSource extends NowPlayingFakeSource implements MusicWriteActions {
+  final List<String> ratingWrites = [];
+
+  @override
+  MusicWriteActions get writeActions => this;
+
+  @override
+  Future<void> setRating(MediaId trackId, int rating) async => ratingWrites.add('${trackId.rawId}:$rating');
+
+  @override
+  Future<void> setFavorite(MediaId id, bool favorite) async {}
+}

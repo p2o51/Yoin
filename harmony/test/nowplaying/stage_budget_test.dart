@@ -47,10 +47,16 @@ void main() {
     expect(b.lyrics, greaterThanOrEqualTo(0));
   });
 
-  test('should_dropTimeLabelsUnderWave_when_narrowerThan408', () {
-    final b = resolveStageColumnBudget(width: 400, height: 828);
+  test('should_dropTimeLabelsUnderWave_when_narrowerThan388', () {
+    final b = resolveStageColumnBudget(width: 380, height: 828);
     expect(b.labelsUnderWave, isTrue);
     expect(b.controls, 168);
+  });
+
+  test('should_keepTimeLabelsInline_when_mate70AirWidth', () {
+    // Mate 70 Air: 1320 px / 3.25 = 406 vp → a 358 vp transport, one row like Android.
+    final b = resolveStageColumnBudget(width: 406, height: 828);
+    expect(b.labelsUnderWave, isFalse);
   });
 
   test('should_holdOneLineFrame_when_withinHysteresis', () {

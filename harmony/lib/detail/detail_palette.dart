@@ -75,7 +75,13 @@ Future<int?> seedFromRgba(Uint8List rgba) async {
 /// The page colours a detail page draws with (Android DetailPageColors).
 @immutable
 final class DetailColors {
-  const DetailColors({required this.accent, required this.onAccent, required this.wash, required this.ring});
+  const DetailColors({
+    required this.accent,
+    required this.onAccent,
+    required this.wash,
+    required this.ring,
+    required this.secondary,
+  });
 
   /// Title, Kind group, equalizer, hearts on: the cover scheme's primary.
   final Color accent;
@@ -87,11 +93,16 @@ final class DetailColors {
   /// The artist ring's dot (tertiary).
   final Color ring;
 
+  /// The album butterfly's second block (the cover scheme's secondary;
+  /// the first block is [accent]).
+  final Color secondary;
+
   static DetailColors from(ColorScheme scheme, ColorScheme page) => DetailColors(
     accent: scheme.primary,
     onAccent: scheme.onPrimary,
     wash: Color.lerp(page.surfaceContainer, scheme.primary, 0.18)!,
     ring: scheme.tertiary,
+    secondary: scheme.secondary,
   );
 
   static DetailColors lerp(DetailColors a, DetailColors b, double t) => DetailColors(
@@ -99,6 +110,7 @@ final class DetailColors {
     onAccent: Color.lerp(a.onAccent, b.onAccent, t)!,
     wash: Color.lerp(a.wash, b.wash, t)!,
     ring: Color.lerp(a.ring, b.ring, t)!,
+    secondary: Color.lerp(a.secondary, b.secondary, t)!,
   );
 }
 

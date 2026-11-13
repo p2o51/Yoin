@@ -41,6 +41,10 @@ enum PlayMode {
   /// This mode with only the shuffle axis changed.
   PlayMode withShuffle(bool on) => of(repeat, on);
 
+  /// This mode with the repeat axis at its default, all: what the split
+  /// pill's repeat segment is lit against (PlaybackControls.kt withRepeatAll).
+  PlayMode get withRepeatAll => of(RepeatMode.all, shuffled);
+
   /// The split pill's repeat segment: all → one → off → all, shuffle kept.
   PlayMode nextRepeat() => of(
         switch (repeat) {

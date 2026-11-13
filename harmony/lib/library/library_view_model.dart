@@ -8,6 +8,7 @@ import '../data/activity/activity.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../detail/detail_cache.dart';
+import '../platform/i18n/name_transliterator.dart';
 import 'library_sort.dart';
 import 'library_stores.dart';
 import 'newest_album_songs_pager.dart';
@@ -620,12 +621,21 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     final content = _content;
     if (content == null) return;
     final token = ++_sortToken;
+    // Han names get their pinyin first (ArkTS yoin/i18n, cached), as Android's ICU index does.
+    final latinNamesFetch = latinKeyMap(ref.read(nameTransliteratorProvider), [
+      ...?content.artists?.map((a) => a.name),
+      for (final a in content.albums ?? const <Album>[]) ...[a.name, a.artist],
+      for (final p in content.playlists ?? const <Playlist>[]) ...[p.name, p.owner],
+    ]);
+    final latinNames = latinNamesFetch == null ? const <String, String>{} : await latinNamesFetch;
+    if (!_alive(gen) || token != _sortToken) return;
     final inputs = LibraryListInputs(
       artists: content.artists,
       albums: content.albums,
       playlists: content.playlists,
       sorts: content.sorts,
       lastSeenMs: _lastSeen,
+      latinNames: latinNames,
       nowMs: DateTime.now().millisecondsSinceEpoch,
     );
     final sorted = await runLibrarySort(inputs);

@@ -7,6 +7,7 @@ import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../platform/playback/playback_engine.dart';
+import '../playback/local_ratings.dart';
 import '../playback/playback_context.dart';
 import '../playback/playback_controller.dart';
 import 'lyrics_logic.dart';
@@ -139,9 +140,6 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
   String? _lyricsFetchFor;
   int _lyricsGeneration = 0;
 
-  /// Local ratings 0.0–10.0 by song (in memory until a ratings store lands).
-  final Map<String, double> _ratings = {};
-
   PlaybackController get _controller => ref.read(playbackControllerProvider.notifier);
 
   @override
@@ -163,9 +161,10 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       isPlaying: snapshot.playWhenReady,
       isWavePlaying: snapshot.isPlaying,
       durationMs: snapshot.durationMs,
-      // Local ratings only: Android never seeds the slider from the server's
-      // userRating, so an unrated song shows an empty bar and no number.
-      rating: _ratings[key],
+      // Local ratings only (local_ratings, per account): Android never seeds
+      // the slider from the server's userRating, so an unrated song shows an
+      // empty bar and no number.
+      rating: ref.watch(localRatingsProvider.select((m) => m[track.id]?.rating)),
       // One heart owner (favoriteOverridesProvider): album rows, the system
       // heart and this one stay in step.
       isStarred: ref.watch(favoriteOverridesProvider.select((m) => m[track.id])) ?? track.isStarred,
@@ -244,9 +243,14 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
   Future<void> cyclePlayMode() async {
     final current = state;
     if (current is! NowPlayingContent) return;
-    final next = current.playMode.next();
+    await setPlayMode(current.playMode.next());
+  }
+
+  /// The play-mode button's choice (a round tap, or a split segment's axis).
+  Future<void> setPlayMode(PlayMode mode) async {
+    if (state is! NowPlayingContent) return;
     try {
-      await _controller.setMode(next);
+      await _controller.setMode(mode);
     } catch (e) {
       debugPrint('setPlayMode failed: $e');
     }
@@ -264,19 +268,17 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     }
   }
 
-  /// Commits a rating from the slider (on lift): local 0.0–10.0, pushed to
-  /// the server as round(r / 2) stars (YoinRepository.pushRating).
+  /// Commits a rating from the slider (on lift): stored locally 0.0–10.0
+  /// for this account (survives restarts), then pushed to the server as
+  /// round(r / 2) stars; a push that fails is retried later (LocalRatings).
   Future<void> commitRating(double rating) async {
     final current = state;
     if (current is! NowPlayingContent) return;
-    final key = current.songKey;
     final value = (rating * 10).round() / 10;
-    _ratings[key] = value;
     state = _copy(current, rating: value);
     try {
-      await _controller.setRating((value / 2).round().clamp(0, 5));
+      await ref.read(localRatingsProvider.notifier).setRating(current.track.id, value);
     } catch (e) {
-      // Kept locally; the playback chain retries server sync (spec item 7).
       debugPrint('setRating failed: $e');
     }
   }

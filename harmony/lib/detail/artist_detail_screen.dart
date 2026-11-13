@@ -576,10 +576,37 @@ class _ArtistChrome extends ConsumerWidget {
       );
     }
 
+    // ▾ after Shuffle play (ArtistDetailActivity rememberDetailMenu): Play next and Add to queue, read
+    // the whole discography like Play. Share waits for Subsonic share links.
+    final strings = DetailStrings.of(context);
+    void queue({required bool next}) {
+      if (content == null || content.releases.isEmpty) return;
+      final player = DetailPlayer.widget(ref);
+      queueFromDetail(player, () => loadArtistTracks(content.releases, player.cache.album), next: next).then((count) {
+        if (count > 0 && context.mounted) {
+          showDetailMessage(context, next ? strings.menuPlayNextCount(count) : strings.menuQueued(count));
+        }
+      });
+    }
+
     return DetailChromeRegistration(
       actions: DetailPlayActions(
         onPlay: () => play(shuffle: false),
         onShuffle: () => play(shuffle: true),
+        menuItems: content == null || content.releases.isEmpty
+            ? const []
+            : [
+                DetailMenuAction(
+                  icon: YoinSymbols.skipNext,
+                  label: strings.menuPlayNext,
+                  onTap: () => queue(next: true),
+                ),
+                DetailMenuAction(
+                  icon: YoinSymbols.queue,
+                  label: strings.menuAddToQueue,
+                  onTap: () => queue(next: false),
+                ),
+              ],
         playContainer: palette?.accent,
         playContent: palette?.onAccent,
       ),

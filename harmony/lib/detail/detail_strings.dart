@@ -62,4 +62,21 @@ class DetailStrings {
   String playlistTracks(int n) => zh ? '$n 首曲目' : (n == 1 ? '$n track' : '$n tracks'); // detail_playlist_tracks
   String durationHoursMinutes(int h, int m) => zh ? '$h 小时 $m 分钟' : '${h}h ${m}m'; // cmp_duration_hours_minutes
   String durationMinutes(int m) => zh ? '$m 分钟' : '${m}m'; // cmp_duration_minutes
+
+  // The ▾ menu's page rows and their confirmations.
+  String get menuPlayNext => zh ? '下一首播放' : 'Play next'; // detail_menu_play_next
+  String get menuAddToQueue => zh ? '加入队列' : 'Add to queue'; // detail_menu_add_to_queue
+  String get albumGoToArtist => zh ? '前往艺术家' : 'Go to artist'; // detail_album_go_to_artist
+
+  /// detail_menu_queued (plurals).
+  String menuQueued(int n) =>
+      zh ? '已将 $n 首加入队列' : (n == 1 ? 'Added $n song to the queue' : 'Added $n songs to the queue');
+
+  /// detail_menu_play_next_count (plurals).
+  String menuPlayNextCount(int n) =>
+      zh ? '接下来将播放 $n 首' : (n == 1 ? '$n song will play next' : '$n songs will play next');
+
+  // The album hero's score emblem.
+  String get emblemUnrated => zh ? '未评分' : 'Unrated'; // mem_emblem_unrated
+  String get emblemCdUnrated => zh ? '未评分' : 'Not rated'; // mem_cd_emblem_unrated
 }

@@ -7,6 +7,7 @@ import '../data/source/music_source.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/component/expressive/loading_indicator.dart';
 import 'activity_bento.dart';
 import 'home_header.dart';
 import 'home_metrics.dart';
@@ -273,11 +274,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   }
 }
 
-/// YoinLoadingIndicator stand-in: nothing for 180 ms, then the indicator
-/// fades (effects) and scales in from 0.6 (spatial); it leaves the same way.
-///
-/// TODO(harmony): M3 Expressive LoadingIndicator (morphing shapes) has no
-/// Flutter equivalent yet; this uses CircularProgressIndicator.
+/// Home's YoinLoadingIndicator: nothing for 180 ms, then the M3 Expressive
+/// contained loading indicator fades (effects) and scales in from 0.6
+/// (spatial); it leaves the same way.
 class _LoadingIndicator extends StatefulWidget {
   const _LoadingIndicator({required this.visible});
   final bool visible;
@@ -336,7 +335,7 @@ class _LoadingIndicatorState extends State<_LoadingIndicator> with TickerProvide
           return Center(
             child: Opacity(
               opacity: alpha,
-              child: Transform.scale(scale: _scale.value, child: const CircularProgressIndicator()),
+              child: Transform.scale(scale: _scale.value, child: const ExpressiveLoadingIndicator.yoin()),
             ),
           );
         },

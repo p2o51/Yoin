@@ -21,8 +21,8 @@ import 'scrobble.dart';
 import 'system_requests.dart';
 import 'track_codec.dart';
 
-/// A heart or rating write that did not land (the UI may toast it with
-/// PlaybackStrings.favoriteFailure).
+/// Something the shell's snackbar tells the user (AppChrome): a heart or
+/// rating write that did not land, or playback that failed.
 sealed class PlaybackNotice {
   const PlaybackNotice();
 }
@@ -38,6 +38,13 @@ final class FavoriteWriteFailed extends PlaybackNotice {
 final class RatingWriteFailed extends PlaybackNotice {
   const RatingWriteFailed(this.trackId);
   final MediaId trackId;
+}
+
+/// Playback stopped on an error ([NowPlayingState.errorKind] went from none
+/// to [kind]); raised once per failure, not per state update.
+final class PlaybackFailed extends PlaybackNotice {
+  const PlaybackFailed(this.kind);
+  final PlaybackErrorKind kind;
 }
 
 /// One queue entry on the Dart side, parallel to the native queue.
@@ -778,7 +785,10 @@ class PlaybackController extends Notifier<NowPlayingState> {
     var candidate = next;
     // Keep list instances stable when their contents did not change.
     if (listEquals(candidate.upcoming, state.upcoming)) candidate = candidate.copyWith(upcoming: state.upcoming);
+    final failed = candidate.errorKind;
+    final wasFailing = state.errorKind != null;
     if (candidate != state) state = candidate;
+    if (failed != null && !wasFailing) _notices.add(PlaybackFailed(failed));
   }
 
   Track _withFavoriteOverride(Track track) {

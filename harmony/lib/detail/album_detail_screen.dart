@@ -6,14 +6,18 @@ import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../shell/detail_chrome.dart';
+import '../theme/tokens.dart';
 import '../ui/component/meta_line.dart';
 import 'album_detail_view_model.dart';
+import 'album_hero_marks.dart';
 import 'detail_page.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
+import 'detail_routes.dart';
 import 'detail_strings.dart';
 import 'detail_track_rows.dart';
 import 'flowing_titles.dart';
+import 'pull_up_reveal.dart';
 import 'reshape_scaffold.dart';
 
 /// The Album page (PushPage; Android AlbumDetailScreen, Compact): page wash
@@ -70,8 +74,7 @@ class AlbumDetailScreen extends ConsumerWidget {
     void playFrom(int index) =>
         playFromDetail(DetailPlayer.widget(ref), tracks, startIndex: index, context: albumPlaybackContext(state.album));
     final multiDisc = state.isMultiDisc;
-    final canFavorite =
-        ref.read(activeSourceProvider).value?.capabilities.contains(Capability.favorites) ?? false;
+    final canFavorite = ref.read(activeSourceProvider).value?.capabilities.contains(Capability.favorites) ?? false;
     final list = <Widget>[
       Padding(
         padding: const EdgeInsetsDirectional.only(start: 8, top: 2, bottom: 10),
@@ -103,10 +106,30 @@ class AlbumDetailScreen extends ConsumerWidget {
       coverUrl: coverUrl,
       fallbackIcon: YoinSymbols.album,
       listChildren: list,
+      // The album's family mark behind the cover (owner 2026-11-06: one mark, three readings).
+      backdrop: (cover, leaving) => AlbumButterfly(leaving: leaving),
       heroBelow: (links) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Score emblem + comment pen, the cover's width (AlbumHeroDetails, Compact).
+          LayoutBuilder(
+            builder: (context, constraints) => Padding(
+              padding: const EdgeInsets.only(bottom: AlbumHeroTokens.metaBottom),
+              child: AlbumHeroMetaRow(
+                // The hero column is inset 16 each side; the cover is sized off the page width.
+                width: PullUpMath.heroCoverSide(
+                  constraints.maxWidth + 32,
+                  fraction: DetailTokens.albumCoverWidthFraction,
+                  max: DetailTokens.albumCoverMax,
+                ),
+                trackCount: state.trackCount,
+              ),
+            ),
+          ),
           if (tracks.isNotEmpty) ...[
+            // Android follows this with Last Play ("Today 22:45", MAX(play_history.playedAt) for the
+            // album). Harmony keeps no per-song play history (the activity log folds plays and visits
+            // into one row per entity), so it is left out rather than shown wrong.
             TrackCountLine(count: state.trackCount, totalSec: state.totalDurationSec),
             const SizedBox(height: 6),
           ],
@@ -161,9 +184,38 @@ class _AlbumChrome extends ConsumerWidget {
           );
         }
       },
+      menuItems: loaded == null ? const [] : albumMenuItems(context, ref, loaded),
       playContainer: palette?.accent,
       playContent: palette?.onAccent,
     );
     return DetailChromeRegistration(actions: actions, child: child);
   }
+}
+
+/// The Album page's ▾ rows after Shuffle play that work on Subsonic in v1
+/// (AlbumDetailActivity rememberDetailMenu + promotable): Play next, Add to
+/// queue, then Go to artist when the album names one. Add to playlist,
+/// Download and Share wait for playlist writes, offline and share links.
+List<DetailMenuAction> albumMenuItems(BuildContext context, WidgetRef ref, AlbumDetailContent state) {
+  final strings = DetailStrings.of(context);
+  void queue({required bool next}) {
+    final player = DetailPlayer.widget(ref);
+    queueFromDetail(player, () async => state.tracks, next: next).then((count) {
+      if (count > 0 && context.mounted) {
+        showDetailMessage(context, next ? strings.menuPlayNextCount(count) : strings.menuQueued(count));
+      }
+    });
+  }
+
+  final artistId = state.album.artistId;
+  return [
+    DetailMenuAction(icon: YoinSymbols.skipNext, label: strings.menuPlayNext, onTap: () => queue(next: true)),
+    DetailMenuAction(icon: YoinSymbols.queue, label: strings.menuAddToQueue, onTap: () => queue(next: false)),
+    if (artistId != null)
+      DetailMenuAction(
+        icon: YoinSymbols.artist,
+        label: strings.albumGoToArtist,
+        onTap: () => DetailRoutes.openArtist(context, artistId, name: state.album.artist),
+      ),
+  ];
 }

@@ -394,8 +394,8 @@ class _BarButton extends StatelessWidget {
 /// circle via [ExpressiveSplitButton]), as tall as the bar's buttons and
 /// [BarTokens.splitWidth] wide, in the page's colours (springing as the cover
 /// scheme resolves). ▾ opens the Play menu and folds over while it is open.
-/// Android's menu is Shuffle play + the page's own items (Go to artist,
-/// Share…); DetailPlayActions carries only Shuffle in v1.
+/// The menu is Shuffle play + the page's own rows
+/// ([DetailPlayActions.menuItems]: Play next, Add to queue, Go to artist…).
 class _PlaySplit extends StatefulWidget {
   const _PlaySplit({required this.actions, required this.height, this.shuffleInMenu = true});
 
@@ -403,8 +403,9 @@ class _PlaySplit extends StatefulWidget {
   final double height;
 
   /// False when the bar shows Shuffle as its own button (centred detail
-  /// pose): an action pulled out of the menu never stays in it too. With no
-  /// page items in v1 the menu is then empty, so ▾ is left out.
+  /// pose): an action pulled out of the menu never stays in it too. The
+  /// page's rows stay in the menu there (v1 promotes only Shuffle); with none,
+  /// the menu is empty and ▾ is left out.
   final bool shuffleInMenu;
 
   @override
@@ -438,7 +439,7 @@ class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
   /// The ▾ menu (PlaySplitButton.kt: YoinDropdownMenu). It is a route on
   /// the app Navigator (the bar sits above it), so system back closes the
   /// menu instead of popping the detail page under it.
-  Future<void> _openMenu(VoidCallback onShuffle) async {
+  Future<void> _openMenu(VoidCallback? onShuffle) async {
     final navigatorContext = appNavigatorKey.currentContext;
     final glyphContext = _anchorContext;
     if (_menuOpen || navigatorContext == null || glyphContext == null || !glyphContext.mounted) return;
@@ -453,14 +454,24 @@ class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
       split.bottom,
     );
     setState(() => _menuOpen = true);
-    final chosen = await showYoinDropdownMenu<_SplitMenuItem>(
+    final pageItems = widget.actions.menuItems;
+    // Shuffle is row −1; the page's rows follow by index.
+    final chosen = await showYoinDropdownMenu<int>(
       context: navigatorContext,
       anchor: anchor,
-      items: [YoinMenuItem(value: _SplitMenuItem.shuffle, label: strings.playMenuShuffle, icon: YoinSymbols.shuffle)],
+      items: [
+        if (onShuffle != null) YoinMenuItem(value: -1, label: strings.playMenuShuffle, icon: YoinSymbols.shuffle),
+        for (final (i, item) in pageItems.indexed) YoinMenuItem(value: i, label: item.label, icon: item.icon),
+      ],
     );
     if (!mounted) return;
     setState(() => _menuOpen = false);
-    if (chosen == _SplitMenuItem.shuffle) onShuffle();
+    if (chosen == null) return;
+    if (chosen < 0) {
+      onShuffle?.call();
+    } else if (chosen < pageItems.length) {
+      pageItems[chosen].onTap();
+    }
   }
 
   @override
@@ -511,7 +522,7 @@ class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
               ),
             ],
           ),
-          onTrailingTap: onShuffle == null
+          onTrailingTap: onShuffle == null && widget.actions.menuItems.isEmpty
               ? null
               // TrailingButton(onCheckedChange): no haptic of its own on Android.
               : () => _openMenu(onShuffle),
@@ -528,8 +539,6 @@ class _PlaySplitState extends State<_PlaySplit> with TickerProviderStateMixin {
     );
   }
 }
-
-enum _SplitMenuItem { shuffle }
 
 /// A promoted page action as a round tonal button (YoinButtonGroup
 /// BarExtraButton: FilledTonalIconButton, surfaceContainerHighest /
