@@ -4741,6 +4741,24 @@
         }
       }
     },
+    "playback.next": {
+      "comment": "Skip to the next song (Now Playing's button, the Controls menu); the generic Next is the landing's",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一首"
+          }
+        }
+      }
+    },
     "Playing": {
       "localizations": {
         "zh-Hans": {

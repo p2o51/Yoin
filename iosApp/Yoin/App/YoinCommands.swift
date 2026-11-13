@@ -14,7 +14,7 @@ struct YoinCommands: Commands {
             Button(p.isPlaying ? "Pause" : "Play") { p.togglePlayPause() }
                 .keyboardShortcut(.space, modifiers: [])
                 .disabled(idle || model.searchActive)
-            Button("Next") { p.next() }
+            Button(String(localized: "playback.next", defaultValue: "Next")) { p.next() }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
                 .disabled(idle)
             Button("Previous") { p.previous() }

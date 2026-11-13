@@ -1886,7 +1886,8 @@ struct NowPlayingView: View, Equatable {
                 .animation(Yoin.standardDefaultSpatial, value: nextPressed)
                 // PREVIOUS's place in this row, opening as it arrives.
                 .padding(.leading, short ? control + gap : 0)
-                roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: String(localized: "Next"),
+                roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary,
+                            label: String(localized: "playback.next", defaultValue: "Next"), touchKey: "Next",
                             width: max(0, nextWidth), size: control) {
                     if demo == nil { model.player.next() }
                 }
@@ -2062,8 +2063,10 @@ struct NowPlayingView: View, Equatable {
         lab.extra("liftInFlow") > 0.5 ? interacting && scrubbing : interacting
     }
 
-    private func roundButton(_ icon: String, fill: Color, ink: Color, label: String, badge: String? = nil,
-                             width: CGFloat = 56, size: CGFloat = 56, action: @escaping () -> Void) -> some View {
+    /// [touchKey]: the name the press reports under (`touching`), when it isn't [label]: a label
+    /// changes with the language, and Next's press widens PAUSE by its name.
+    private func roundButton(_ icon: String, fill: Color, ink: Color, label: String, touchKey: String? = nil,
+                             badge: String? = nil, width: CGFloat = 56, size: CGFloat = 56, action: @escaping () -> Void) -> some View {
         // Untinted (Balanced / HIG presets) or a neutral floor (Gemini):
         // the glyph goes on-surface.
         let tinted = GlassLab.shared.style("transportSecondary").tintOn
@@ -2083,7 +2086,7 @@ struct NowPlayingView: View, Equatable {
                 .frame(width: width, height: size)
                 .contentShape(.capsule)
         }
-        .buttonStyle(PressReport { touch(label, $0) })
+        .buttonStyle(PressReport { touch(touchKey ?? label, $0) })
         // A capsule: a circle at 56 × 56, the pill a press widens it into.
         .labGlass("transportSecondary", scheme: scheme, brand: brand, auto: fill, in: Capsule())
         .accessibilityLabel(label)
