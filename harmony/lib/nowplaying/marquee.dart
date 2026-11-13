@@ -17,6 +17,7 @@ class Marquee extends StatefulWidget {
     this.repeatDelay = const Duration(milliseconds: 2000),
     this.edgeFade = 0,
     this.enabled = true,
+    this.probe,
   });
 
   final String text;
@@ -30,6 +31,10 @@ class Marquee extends StatefulWidget {
   /// False draws a clipped, still line (idle / error texts use ellipsis).
   final bool enabled;
 
+  /// Mirrors the live scroll, for a proxy that draws this same line (the
+  /// shared flight leaves the hero title from where it has scrolled to).
+  final MarqueeProbe? probe;
+
   /// basicMarquee's default velocity.
   static const double velocity = 30;
 
@@ -39,8 +44,10 @@ class Marquee extends StatefulWidget {
 
 class _MarqueeState extends State<Marquee> with SingleTickerProviderStateMixin {
   late final Ticker _ticker = createTicker(_onTick);
-  final ValueNotifier<double> _offset = ValueNotifier(0);
+  late final ValueNotifier<double> _offset = ValueNotifier(0)..addListener(_report);
   double _lap = 0;
+
+  void _report() => widget.probe?.offset = _offset.value;
   Duration? _start;
 
   /// The line's current scroll, for tests.
@@ -49,6 +56,7 @@ class _MarqueeState extends State<Marquee> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    widget.probe?.offset = 0;
     _ticker.dispose();
     _offset.dispose();
     super.dispose();
@@ -65,6 +73,10 @@ class _MarqueeState extends State<Marquee> with SingleTickerProviderStateMixin {
   @override
   void didUpdateWidget(Marquee oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.probe != widget.probe) {
+      oldWidget.probe?.offset = 0;
+      _report();
+    }
     if (oldWidget.text != widget.text || oldWidget.style != widget.style) _restart();
   }
 
@@ -154,6 +166,12 @@ class _MarqueeState extends State<Marquee> with SingleTickerProviderStateMixin {
       },
     );
   }
+}
+
+/// A read-only window on one [Marquee]'s scroll: [offset] is how far the
+/// line has scrolled left right now (0 at rest, while muted, or unmounted).
+class MarqueeProbe {
+  double offset = 0;
 }
 
 class _MarqueePainter extends CustomPainter {

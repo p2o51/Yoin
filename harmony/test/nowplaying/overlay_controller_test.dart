@@ -161,4 +161,21 @@ void main() {
     expect(c.flightKeys.lastRects, isNotEmpty, reason: 'a reversed flight keeps its measurements');
     await tester.pumpAndSettle();
   });
+
+  testWidgets('should_leaveFromTheHeroTitlesScroll_when_closing', (tester) async {
+    await setUpController(tester);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    expect(c.flightKeys.leavesPill, isTrue);
+    expect(c.flightKeys.heroTitleScroll, 0);
+
+    c.flightKeys.heroTitleMarquee.offset = 42;
+    c.close();
+    expect(c.flightKeys.leavesPill, isFalse, reason: 'a close leaves the player');
+    expect(c.flightKeys.heroTitleScroll, 42);
+
+    c.openPlayer();
+    expect(c.flightKeys.heroTitleScroll, 0, reason: 'an open lands on a rewound marquee');
+    await tester.pumpAndSettle();
+  });
 }

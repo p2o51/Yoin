@@ -489,7 +489,7 @@ class _StageCover extends StatelessWidget {
 /// same values so the hand-over to the real text doesn't jump.
 ({double title, double artist}) heroRestScale({required bool playing, bool held = false, bool reduced = false}) =>
     held
-    ? (title: reduced ? 1.02 : 1.05, artist: reduced ? 1.015 : 1.04)
+    ?(title: reduced ? 1.02 : 1.05, artist: reduced ? 1.015 : 1.04)
     : playing
     ? (title: reduced ? 1.01 : 1.03, artist: reduced ? 1.008 : 1.02)
     : (title: reduced ? 0.99 : 0.97, artist: reduced ? 0.992 : 0.98);
@@ -655,8 +655,31 @@ class _HeroState extends State<_Hero> with TickerProviderStateMixin {
     _retarget();
   }
 
+  NowPlayingOverlayController? _overlay;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The shared flight lands on these springs' live values.
+    final overlay = NowPlayingOverlayScope.read(context);
+    if (overlay != _overlay) {
+      _unregister();
+      _overlay = overlay;
+      overlay?.flightKeys.heroScale[FlightElement.title] = _title.animation;
+      overlay?.flightKeys.heroScale[FlightElement.artist] = _artist.animation;
+    }
+  }
+
+  void _unregister() {
+    final scales = _overlay?.flightKeys.heroScale;
+    if (scales == null) return;
+    if (scales[FlightElement.title] == _title.animation) scales.remove(FlightElement.title);
+    if (scales[FlightElement.artist] == _artist.animation) scales.remove(FlightElement.artist);
+  }
+
   @override
   void dispose() {
+    _unregister();
     widget.pressed.removeListener(_retarget);
     _title.dispose();
     _artist.dispose();
@@ -709,7 +732,13 @@ class _HeroState extends State<_Hero> with TickerProviderStateMixin {
             animation: _title.animation,
             builder: (context, child) =>
                 Transform.scale(scaleX: _title.value, alignment: AlignmentDirectional.centerStart, child: child),
-            child: Marquee(key: ValueKey(widget.title), text: widget.title, style: titleStyle, edgeFade: 28),
+            child: Marquee(
+              key: ValueKey(widget.title),
+              text: widget.title,
+              style: titleStyle,
+              edgeFade: heroTitleEdgeFade,
+              probe: _overlay?.flightKeys.heroTitleMarquee,
+            ),
           ),
         ),
       ),

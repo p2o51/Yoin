@@ -55,6 +55,43 @@ void main() {
     });
   });
 
+  group('FlightKeys.resolve', () {
+    const pillRect = Rect.fromLTWH(100, 2440, 40, 40);
+    const playerRect = Rect.fromLTWH(24, 330, 300, 300);
+
+    test('should_keepTheFirstRect_when_theLeavingEndMoves', () {
+      final keys = FlightKeys()..leavesPill = false;
+      final player = keys.player[FlightElement.title]!;
+      expect(keys.resolve(player, playerRect), playerRect);
+      // The player slides away under the proxies; they don't chase it.
+      expect(keys.resolve(player, playerRect.shift(const Offset(0, 900))), playerRect);
+    });
+
+    test('should_followTheLiveRect_when_theArrivingEndMoves', () {
+      final keys = FlightKeys()..leavesPill = false;
+      final pill = keys.pill[FlightElement.title]!;
+      expect(keys.resolve(pill, pillRect.shift(const Offset(0, 120))), pillRect.shift(const Offset(0, 120)));
+      expect(keys.resolve(pill, pillRect), pillRect);
+    });
+
+    test('should_keepTheLastRect_when_theSlotLeavesTheTree', () {
+      final keys = FlightKeys();
+      final player = keys.player[FlightElement.cover]!;
+      expect(keys.resolve(player, null), isNull);
+      keys.resolve(player, playerRect);
+      expect(keys.resolve(player, null), playerRect);
+    });
+
+    test('should_freezeTheFormerArrivingEnd_when_theFlightReverses', () {
+      final keys = FlightKeys()..leavesPill = true;
+      final player = keys.player[FlightElement.cover]!;
+      keys.resolve(player, playerRect.shift(const Offset(0, 400)));
+      keys.resolve(player, playerRect.shift(const Offset(0, 200)));
+      keys.leavesPill = false; // closed mid-open
+      expect(keys.resolve(player, playerRect), playerRect.shift(const Offset(0, 200)));
+    });
+  });
+
   group('Marquee', () {
     Widget host({required bool ticking}) => MaterialApp(
       home: Center(
@@ -73,6 +110,34 @@ void main() {
     );
 
     double offset(WidgetTester tester) => (tester.state(find.byType(Marquee)) as dynamic).debugOffset as double;
+
+    testWidgets('should_mirrorTheLiveScroll_when_givenAProbe', (tester) async {
+      final probe = MarqueeProbe();
+      Widget probed({required bool ticking}) => MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 80,
+            child: TickerMode(
+              enabled: ticking,
+              child: Marquee(
+                text: 'A title far too long to fit in eighty pixels',
+                style: const TextStyle(fontSize: 14),
+                initialDelay: const Duration(milliseconds: 100),
+                probe: probe,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(probed(ticking: true));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(probe.offset, greaterThan(0));
+      expect(probe.offset, offset(tester));
+
+      await tester.pumpWidget(probed(ticking: false));
+      expect(probe.offset, 0);
+    });
 
     testWidgets('should_restAtTheLineStart_when_itsSlotIsHiddenForTheFlight', (tester) async {
       await tester.pumpWidget(host(ticking: true));

@@ -1,8 +1,10 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'marquee.dart';
 import 'overlay_controller.dart';
 
 /// The three elements that fly between the pill and the player (Android
@@ -28,6 +30,35 @@ class FlightKeys {
   /// real slots are hidden while the flight is active, so a dropped proxy is
   /// a visible blink.
   final Map<GlobalKey, Rect> lastRects = {};
+
+  /// Which end the flight leaves from: the pill (open) or the player (close).
+  bool leavesPill = true;
+
+  /// The hero title's marquee, read when a close starts ([heroTitleScroll]).
+  final MarqueeProbe heroTitleMarquee = MarqueeProbe();
+
+  /// How far the hero title had scrolled when this flight left the player
+  /// (0 for an open: the slot is hidden, so its marquee rests at the start).
+  double heroTitleScroll = 0;
+
+  /// The hero texts' live horizontal scale springs (the hero registers
+  /// them): the flight lands on their value of the moment, not on a rest
+  /// value the spring may not have reached yet.
+  final Map<FlightElement, ValueListenable<double>> heroScale = {};
+
+  /// The rect [key]'s end of the flight is drawn at this frame, from its
+  /// [measured] rect (null: not laid out). The end the flight leaves keeps
+  /// the rect it was first seen at — Compose sharedBounds starts from the
+  /// outgoing bounds, it doesn't chase them: the player slides away (and
+  /// the bar drops) while the proxies are already flying, and chasing them
+  /// pulled the hero texts off the bottom of the screen, so on close they
+  /// landed in the pill frames after the cover. The arriving end is live.
+  Rect? resolve(GlobalKey key, Rect? measured) {
+    final leaving = leavesPill ? pill.containsValue(key) : player.containsValue(key);
+    if (leaving && lastRects.containsKey(key)) return lastRects[key];
+    if (measured == null) return lastRects[key];
+    return lastRects[key] = measured;
+  }
 }
 
 /// What the flying proxies draw (the pill's content, captured at flight start).
@@ -205,6 +236,10 @@ class _FlightLayerState extends State<FlightLayer> {
 /// The pill decodes its cover at this fixed size so twins hit the same cache entry.
 const double pillCoverRequestDp = 96;
 
+/// The hero title marquee's edge fade (Android MarqueeText fadeEdge 28 dp);
+/// the hero and the flight's proxy of it draw the same one.
+const double heroTitleEdgeFade = 28;
+
 class _FlightPainter extends CustomPainter {
   _FlightPainter({
     required this.controller,
@@ -223,17 +258,17 @@ class _FlightPainter extends CustomPainter {
   final Map<FlightElement, ({TextPainter pill, TextPainter hero})> _painters = {};
 
   Rect? _rectOf(GlobalKey key, RenderBox self) {
-    final last = controller.flightKeys.lastRects;
+    final keys = controller.flightKeys;
     RenderObject? box;
     try {
       box = key.currentContext?.findRenderObject();
     } on FlutterError {
-      return last[key]; // The slot is leaving the tree this frame.
+      return keys.resolve(key, null); // The slot is leaving the tree this frame.
     }
-    if (box is! RenderBox || !box.attached || !box.hasSize) return last[key];
+    if (box is! RenderBox || !box.attached || !box.hasSize) return keys.resolve(key, null);
     final topLeft = self.globalToLocal(box.localToGlobal(Offset.zero));
     final bottomRight = self.globalToLocal(box.localToGlobal(box.size.bottomRight(Offset.zero)));
-    return last[key] = Rect.fromPoints(topLeft, bottomRight);
+    return keys.resolve(key, Rect.fromPoints(topLeft, bottomRight));
   }
 
   @override
@@ -270,10 +305,15 @@ class _FlightPainter extends CustomPainter {
         t: t,
         pillSize: painters.pill.size,
         heroSize: painters.hero.size,
-        heroScaleX: heroScaleX,
+        heroScaleX: keys.heroScale[element]?.value ?? heroScaleX,
       );
       _paintLine(canvas, painters.pill, poses.pill);
-      _paintLine(canvas, painters.hero, poses.hero);
+      if (element == FlightElement.title) {
+        // The hero title is a marquee: scrolled as it was left, with its edge fades.
+        _paintMarqueeLine(canvas, painters.hero, poses.hero, box: to.width, scroll: keys.heroTitleScroll);
+      } else {
+        _paintLine(canvas, painters.hero, poses.hero);
+      }
     }
 
     text(FlightElement.title, content.title, content.pillTitleStyle, content.heroTitleStyle, content.heroTitleScaleX);
@@ -307,6 +347,46 @@ class _FlightPainter extends CustomPainter {
     } else {
       painter.paint(canvas, Offset.zero);
     }
+    canvas.restore();
+  }
+
+  /// [painter]'s line as the hero's [Marquee] draws it in a [box] that wide:
+  /// a line that fits is a plain Text; one that overflows is clipped to the
+  /// box, scrolled left by [scroll] (wrapping after a third-of-the-box gap)
+  /// and masked by the 28 dp edge fades.
+  void _paintMarqueeLine(
+    Canvas canvas,
+    TextPainter painter,
+    FlightTextPose pose, {
+    required double box,
+    required double scroll,
+  }) {
+    if (pose.alpha <= 0) return;
+    if (painter.width <= box) {
+      _paintLine(canvas, painter, pose);
+      return;
+    }
+    final bounds = Rect.fromLTWH(0, 0, box, painter.height);
+    final lap = painter.width + box / 3;
+    canvas.save();
+    canvas.clipRect(pose.clip);
+    canvas.translate(pose.origin.dx, pose.origin.dy);
+    canvas.scale(pose.scaleX, pose.scale);
+    canvas.clipRect(bounds);
+    canvas.saveLayer(bounds, Paint()..color = Color.fromRGBO(0, 0, 0, pose.alpha));
+    painter.paint(canvas, Offset(-scroll, 0));
+    painter.paint(canvas, Offset(-scroll + lap, 0));
+    final stop = (heroTitleEdgeFade / box).clamp(0.0, 0.5);
+    canvas.drawRect(
+      bounds,
+      Paint()
+        ..blendMode = BlendMode.dstIn
+        ..shader = LinearGradient(
+          colors: const [Color(0x00000000), Color(0xFF000000), Color(0xFF000000), Color(0x00000000)],
+          stops: [0, stop, 1 - stop, 1],
+        ).createShader(bounds),
+    );
+    canvas.restore();
     canvas.restore();
   }
 

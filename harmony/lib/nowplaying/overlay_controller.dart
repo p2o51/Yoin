@@ -239,8 +239,13 @@ class NowPlayingOverlayController extends ChangeNotifier {
   }
 
   void _startFlight({required bool toPlayer}) {
-    // A new flight measures afresh (the window may have changed since).
+    // A new flight measures afresh (the window may have changed since); a
+    // reversed one leaves from where its arriving end was last drawn.
     if (!_flightActive) flightKeys.lastRects.clear();
+    flightKeys.leavesPill = toPlayer;
+    // Read before this frame's build mutes the hidden hero marquee (which
+    // rewinds it): the close leaves the title where it had scrolled to.
+    flightKeys.heroTitleScroll = toPlayer ? 0 : flightKeys.heroTitleMarquee.offset;
     _flightActive = true;
     flight.animateTo(
       toPlayer ? 1 : 0,

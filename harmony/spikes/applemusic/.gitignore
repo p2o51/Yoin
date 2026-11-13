@@ -1,0 +1,6 @@
+# Apple binaries and anything derived from them never enter the repository.
+*.so
+*.aar
+*.jar
+build/
+out/
