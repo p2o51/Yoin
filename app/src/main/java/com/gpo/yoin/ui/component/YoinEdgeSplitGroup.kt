@@ -307,7 +307,8 @@ private fun UpperCapsuleContent(
                     modifier = Modifier
                         .width(EdgeSplitButtonWidth)
                         .height(homeHeight)
-                        .barEditLeftSlotSemantics(editing, editLeftSlot),
+                        .barEditLeftSlotSemantics(editing, editLeftSlot)
+                        .handPointer(),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (editSwap < 0.99f) {
@@ -339,17 +340,21 @@ private fun UpperCapsuleContent(
                         showLibrarySearchHint = false
                     }
                 }
+                val libraryShape = rememberBarEditPressShape(
+                    rest = RoundedCornerShape(EdgeNavCornerRadius),
+                    interactionSource = libraryInteraction,
+                    active = editing,
+                )
+                val libraryContentColor = lerp(libraryContent, colors.onPrimary, edit)
                 Surface(
-                    shape = rememberBarEditPressShape(
-                        rest = RoundedCornerShape(EdgeNavCornerRadius),
-                        interactionSource = libraryInteraction,
-                        active = editing,
-                    ),
+                    shape = libraryShape,
                     color = lerp(libraryContainer, colors.primary, edit),
-                    contentColor = lerp(libraryContent, colors.onPrimary, edit),
+                    contentColor = libraryContentColor,
                     modifier = Modifier
                         .width(EdgeSplitButtonWidth)
                         .height(libraryHeight)
+                        // No ripple here, so the hover wash the Home button gets from its own.
+                        .pointerPressPreview(libraryInteraction, libraryShape, libraryContentColor)
                         .combinedClickable(
                             interactionSource = libraryInteraction,
                             indication = null,

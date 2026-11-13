@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -91,15 +92,11 @@ internal fun TipScreen(
     val context = LocalContext.current
     val store = LocalTipReadStore.current ?: remember(context) { SharedPrefsTipReadStore.get(context) }
     val read by store.read.collectAsState()
-    // The tips the account in use can use; the one this page opened on stays.
-    val available = rememberAvailableTips()
-    val tips = remember(available, startTip) {
-        if (startTip in available) available else HomeBubbleTip.entries.filter { it in available || it == startTip }
-    }
+    val tips = remember { HomeBubbleTip.available() }
     val pager = rememberPagerState(initialPage = tips.indexOf(startTip).coerceAtLeast(0)) { tips.size }
     val scope = rememberCoroutineScope()
     val haptics = rememberYoinHaptics()
-    val current = tips[pager.currentPage.coerceIn(tips.indices)]
+    val current = tips[pager.currentPage]
     val nextUnread = nextUnreadTip(current, read, tips)
     val pageSpring = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val bars = WindowInsets.systemBars.asPaddingValues()
@@ -165,7 +162,7 @@ internal fun TipScreen(
                     store.setRead(current, checked)
                 },
                 shapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight),
-                modifier = Modifier.height(TipButtonHeight),
+                modifier = Modifier.height(TipButtonHeight).handPointer(),
             ) {
                 if (isRead) {
                     Icon(
@@ -192,7 +189,7 @@ internal fun TipScreen(
                     }
                 },
                 shapes = ButtonDefaults.shapes(),
-                modifier = Modifier.height(TipButtonHeight),
+                modifier = Modifier.height(TipButtonHeight).handPointer(),
             ) {
                 Text(stringResource(if (nextUnread == null) R.string.tip_done else R.string.tip_next))
                 if (nextUnread != null) {

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.handPointer
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
@@ -192,6 +193,7 @@ internal fun ScreenCornerValueRow(
                     haptics.performConfirm()
                     onFollow()
                 },
+                modifier = Modifier.handPointer(),
             ) { Text(stringResource(R.string.screen_corners_follow)) }
         }
     }

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
@@ -1781,7 +1782,7 @@ private fun HomeContentHeader(
                     onNavigateToSettings()
                 },
                 enabled = iconsEnabled,
-                modifier = headerControl,
+                modifier = headerControl.handPointer(enabled = iconsEnabled),
             ) {
                 Icon(
                     imageVector = YoinSymbols.Settings,
@@ -3118,7 +3119,7 @@ internal fun HomeEmptyCard(
                 )
             }
             if (actionLabel != null && onAction != null) {
-                TextButton(onClick = onAction) {
+                TextButton(onClick = onAction, modifier = Modifier.handPointer()) {
                     Text(text = actionLabel)
                 }
             }

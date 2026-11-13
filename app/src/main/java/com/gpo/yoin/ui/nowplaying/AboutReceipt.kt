@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
@@ -250,6 +251,7 @@ internal fun AboutReceipt(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .handPointer()
                         .clickable(role = Role.Button) { expanded = !expanded }
                         .padding(vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

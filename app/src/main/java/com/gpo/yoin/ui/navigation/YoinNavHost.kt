@@ -102,6 +102,7 @@ import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.LocalSharedPageBackground
 import com.gpo.yoin.ui.component.YoinChromeGroup
+import com.gpo.yoin.ui.component.ShowAppNotices
 import com.gpo.yoin.ui.component.YoinSnackbarHost
 import com.gpo.yoin.ui.component.rememberNeutralPageWash
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
@@ -997,6 +998,9 @@ private fun YoinShell(
         }
     }
     val snackbarHostState = remember { SnackbarHostState() }
+    // The app's notices while the shell is in front: a page shown in its
+    // column included, and a page that closed and revealed it.
+    ShowAppNotices(app.container.appNotices, snackbarHostState)
     LaunchedEffect(Unit) {
         app.container.playbackManager.events.collect { event ->
             when (event) {

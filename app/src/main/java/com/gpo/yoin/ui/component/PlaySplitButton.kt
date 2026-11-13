@@ -248,7 +248,8 @@ fun PlaySplitButtonVertical(
             contentPadding = PaddingValues(0.dp),
             modifier = Modifier
                 .width(VerticalSplitWidth)
-                .height(playHeight),
+                .height(playHeight)
+                .handPointer(),
         ) {
             Icon(
                 imageVector = YoinSymbols.PlayFilled,
@@ -272,7 +273,8 @@ fun PlaySplitButtonVertical(
                 contentPadding = PaddingValues(0.dp),
                 modifier = Modifier
                     .width(VerticalSplitWidth)
-                    .height(VerticalSplitMenuHeight),
+                    .height(VerticalSplitMenuHeight)
+                    .handPointer(),
             ) {
                 Icon(
                     painter = rememberExpandSymbolPainter(menuOpen),
@@ -307,7 +309,8 @@ fun PlaySplitButtonVertical(
                 modifier = Modifier
                     .padding(top = SplitButtonDefaults.Spacing)
                     .width(VerticalSplitWidth)
-                    .height(VerticalSplitShuffleHeight),
+                    .height(VerticalSplitShuffleHeight)
+                    .handPointer(),
             ) {
                 Icon(
                     imageVector = YoinSymbols.Shuffle,

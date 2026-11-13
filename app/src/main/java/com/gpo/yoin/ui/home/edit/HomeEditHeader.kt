@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home.edit
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -172,9 +173,10 @@ private fun PreviewHeader(progress: Float) {
             IconButton(
                 onClick = {},
                 enabled = iconsEnabled,
-                modifier = Modifier
+                modifier = (Modifier
                     .homeEditHeaderIcon(p)
-                    .then(if (iconsEnabled) Modifier else Modifier.clearAndSetSemantics {}),
+                    .then(if (iconsEnabled) Modifier else Modifier.clearAndSetSemantics {}))
+                    .handPointer(enabled = iconsEnabled),
             ) {
                 Icon(YoinSymbols.Settings, contentDescription = "Settings")
             }

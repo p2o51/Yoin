@@ -1628,12 +1628,58 @@ class YoinRepository(
         }
     }
 
-    suspend fun deletePlaylist(id: MediaId): Result<Unit> =
-        requireSource().writeActions().deletePlaylist(id)
+    suspend fun deletePlaylist(id: MediaId): Result<Unit> {
+        // The account the deletion is made on: the rows it drops are that account's.
+        val profileId = activeProfileId.value
+        return deletePlaylistOn(profileId, requireSource(), id)
+    }
+
+    /**
+     * Deletes on the account in use now, read here: its profile and its
+     * source, taken together. Sent later, it goes to that source or nowhere —
+     * a switch that commits in between fails it instead of sending it to the
+     * next account, where the same id may be another playlist.
+     */
+    fun playlistDeleterForCurrentAccount(): suspend (MediaId) -> Result<Unit> {
+        val profileId = activeProfileId.value
+        val source = activeSource.value
+        return { id ->
+            if (source == null || activeSource.value !== source) {
+                Result.failure(IllegalStateException("Account changed"))
+            } else {
+                deletePlaylistOn(profileId, source, id)
+            }
+        }
+    }
+
+    private suspend fun deletePlaylistOn(profileId: String?, source: MusicSource, id: MediaId): Result<Unit> =
+        source.writeActions().deletePlaylist(id)
             .onSuccess {
                 markSpotifyLibraryStaleIfNeeded()
                 invalidatePlaylistDetail(id)
+                forgetStoredPlaylist(profileId, id)
             }
+
+    /**
+     * A deleted playlist leaves the rows Home reads it from: [profileId]'s
+     * history rows of it (the Activities) and its pooled Jump Back In row, so
+     * the next read of Home doesn't bring it back.
+     */
+    private suspend fun forgetStoredPlaylist(profileId: String?, id: MediaId) {
+        if (profileId.isNullOrBlank()) return
+        try {
+            database.activityEventDao().deletePlaylist(
+                profileId = profileId,
+                provider = id.provider,
+                entityIds = listOf(id.rawId, id.toString()),
+            )
+            database.homeGridPoolDao().deletePlaylist(profileId, id.provider, id.rawId)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // The service no longer has it; Home drops it from the feed up (HomeViewModel).
+        }
+    }
 
     suspend fun addTracksToPlaylist(
         playlistId: MediaId,

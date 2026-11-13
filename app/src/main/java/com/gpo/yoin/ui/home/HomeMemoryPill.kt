@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.home
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import kotlin.math.roundToInt
@@ -427,7 +429,7 @@ private fun LegacyMemoriesChevron(
                 val hint = hintProgress()
                 translationY = hint * 4f
                 alpha = 0.62f + hint * 0.38f
-            },
+            }.handPointer(),
     ) {
         Icon(
             imageVector = YoinSymbols.ChevronDown,
@@ -531,6 +533,7 @@ private fun MemoryPill(
                 role = Role.Button
                 contentDescription = description
             }
+            .pointerPressPreview(interactionSource, CircleShape)
             .noRippleClickable(interactionSource = interactionSource) {
                 haptics.performContextClick()
                 val session = latest?.sessionId

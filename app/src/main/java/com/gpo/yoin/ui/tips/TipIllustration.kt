@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -117,6 +118,7 @@ private fun NameDemo(playing: Boolean) {
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
+                    .handPointer()
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                         notes += now.longValue
                     },

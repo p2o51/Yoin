@@ -83,6 +83,7 @@ fun SongListItem(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .handPointer()
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = ripple(),

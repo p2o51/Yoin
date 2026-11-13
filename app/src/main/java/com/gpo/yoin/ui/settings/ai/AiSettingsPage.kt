@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings.ai
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -191,7 +192,7 @@ internal fun AiSettingsPageBody(
                                 IconButton(onClick = {
                                     haptics.performClick()
                                     onOpenTiers()
-                                }) {
+                                }, modifier = Modifier.handPointer()) {
                                     Icon(
                                         YoinSymbols.Info,
                                         contentDescription = stringResource(R.string.ai_cd_tier_details),
@@ -225,7 +226,7 @@ internal fun AiSettingsPageBody(
                             modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
                         )
                         val (linkText, url) = keyLink(provider)
-                        TextButton(onClick = { onOpenLink(url) }) {
+                        TextButton(onClick = { onOpenLink(url) }, modifier = Modifier.handPointer()) {
                             Text(linkText)
                             Spacer(Modifier.width(4.dp))
                             Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -244,7 +245,7 @@ internal fun AiSettingsPageBody(
                 haptics.performClick()
                 onOpenTry()
             },
-            modifier = Modifier.fillMaxWidth().height(52.dp).then(tryModifier),
+            modifier = Modifier.fillMaxWidth().height(52.dp).then(tryModifier).handPointer(),
         ) {
             Icon(YoinSymbols.PlayCircle, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
@@ -316,7 +317,8 @@ private fun ChoiceChip(
         contentColor = if (selected) scheme.onPrimary else scheme.onSurface,
         modifier = modifier
             .height(height.dp)
-            .semantics { this.selected = selected; role = Role.RadioButton },
+            .semantics { this.selected = selected; role = Role.RadioButton }
+            .handPointer(),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = horizontalPadding.dp)) {
             Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1)
@@ -364,7 +366,8 @@ private fun TierCard(tier: AiTier, selected: Boolean, onClick: () -> Unit, modif
         contentColor = if (selected) scheme.onPrimary else scheme.onSurface,
         modifier = modifier
             .height(84.dp)
-            .semantics { this.selected = selected; role = Role.RadioButton },
+            .semantics { this.selected = selected; role = Role.RadioButton }
+            .handPointer(),
     ) {
         Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.padding(horizontal = 18.dp)) {
             Text(tierName(tier), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -557,6 +560,7 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
                     shape = CircleShape,
                     color = scheme.surfaceBright,
                     contentColor = scheme.onSurface,
+                    modifier = Modifier.handPointer(),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -698,7 +702,9 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
                             enabled = !state.models.loading &&
                                 prefs.customBaseUrl.isNotBlank() &&
                                 prefs.customKey.isNotBlank(),
-                            modifier = Modifier.requiredHeight(40.dp),
+                            modifier = Modifier.requiredHeight(40.dp).handPointer(enabled = !state.models.loading &&
+                                prefs.customBaseUrl.isNotBlank() &&
+                                prefs.customKey.isNotBlank()),
                         ) { Text(stringResource(R.string.ai_custom_pull)) }
                     }
                 },
@@ -810,7 +816,7 @@ private fun CustomSection(state: AiSettingsState, actions: AiSettingsActions, on
                             modifier = Modifier.fillMaxWidth().keepInViewAboveKeyboard(),
                         )
                     }
-                    TextButton(onClick = { onOpenLink(searchKeyUrl(keyService)) }) {
+                    TextButton(onClick = { onOpenLink(searchKeyUrl(keyService)) }, modifier = Modifier.handPointer()) {
                         Text(searchKeyLink(keyService))
                         Spacer(Modifier.width(4.dp))
                         Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(16.dp))

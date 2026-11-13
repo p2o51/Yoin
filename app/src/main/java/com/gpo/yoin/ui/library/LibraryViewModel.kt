@@ -88,7 +88,9 @@ class LibraryViewModel(
      */
     private val scrollIndex: () -> LibraryScrollIndex = { LibraryScrollIndex.icu() },
     /** Albums past which a collection's read stops ([readAlbumBatches]; tests pass a small one). */
-    private val albumsReadCeiling: Int = ALBUMS_READ_CEILING
+    private val albumsReadCeiling: Int = ALBUMS_READ_CEILING,
+    /** Playlists being deleted, and deleted ([PlaylistDeletions]; [observePlaylistDeletions]). */
+    private val playlistDeletions: StateFlow<PlaylistDeletions.State> = MutableStateFlow(PlaylistDeletions.State()),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
@@ -147,6 +149,11 @@ class LibraryViewModel(
     private var songsMoreJob: Job? = null
     private var searchMoreJob: Job? = null
     private var cachedPlaylists: List<Playlist>? = null
+
+    // The deletions as last seen: the lists leave out the account's
+    // playlists on their way out ([publishLists]).
+    private var playlistDeletionState = playlistDeletions.value
+
     private var cachedFavorites: Starred? = null
 
     /** A playlist changed somewhere: the cached list still shows until a fresh one replaces it. */
@@ -244,6 +251,35 @@ class LibraryViewModel(
         observeLibraryRevision()
         observeLibraryAlbumsRevision()
         observeSpotifyLibrarySynced()
+        observePlaylistDeletions()
+    }
+
+    /**
+     * A playlist deleted on its page leaves Playlists and All at once, and
+     * comes back where it was when the service refuses. One the service took
+     * leaves the cached list for good, in the same pass, so it never shows
+     * again before the read that follows (AppContainer.notifyPlaylistMutation).
+     */
+    private fun observePlaylistDeletions() {
+        viewModelScope.launch {
+            playlistDeletions.collect { state ->
+                val profileId = repository.currentProfileId()
+                val gone = state.doneAfter(playlistDeletionState.lastSeq)
+                    .filter { it.profileId == profileId }
+                    .mapTo(HashSet()) { it.id }
+                val hiddenBefore = playlistDeletionState.pendingFor(profileId)
+                playlistDeletionState = state
+                if (gone.isNotEmpty()) cachedPlaylists = cachedPlaylists?.filterNot { it.id in gone }
+                if (gone.isEmpty() && hiddenBefore == state.pendingFor(profileId)) return@collect
+                publishLists()
+            }
+        }
+    }
+
+    /** [playlists] without the account's playlists on their way out. */
+    private fun visiblePlaylists(playlists: List<Playlist>): List<Playlist> {
+        val hidden = playlistDeletionState.pendingFor(repository.currentProfileId())
+        return if (hidden.isEmpty()) playlists else playlists.filterNot { it.id in hidden }
     }
 
     /**
@@ -1422,7 +1458,7 @@ class LibraryViewModel(
                 albums = cachedAlbums?.let { albums ->
                     if (albumsHeldBack.isEmpty()) albums else albums.filterNot { it.id in albumsHeldBack }
                 },
-                playlists = cachedPlaylists,
+                playlists = cachedPlaylists?.let(::visiblePlaylists),
                 allSettled = allSettled
             )
         }
@@ -1851,7 +1887,7 @@ class LibraryViewModel(
             .plus(favorites.albums)
             .distinctBy(Album::id)
         val songs = snapshot.tracks.ifEmpty { favorites.tracks }
-        val playlists = cachedPlaylists ?: snapshot.playlists
+        val playlists = visiblePlaylists(cachedPlaylists ?: snapshot.playlists)
 
         // Every match, not a page: the All list keeps SEARCH_ALL_ROWS_PER_TYPE
         // of each type (shownFor), a type filter shows the rest. The snapshot
@@ -2377,7 +2413,8 @@ class LibraryViewModel(
                 onPlaylistMutated = container::notifyPlaylistMutation,
                 sortStore = container.librarySortStore,
                 recentsSource = container.libraryRecentsSource,
-                openStore = container.libraryOpenStore
+                openStore = container.libraryOpenStore,
+                playlistDeletions = container.playlistDeletions.state,
             ) as T
     }
 

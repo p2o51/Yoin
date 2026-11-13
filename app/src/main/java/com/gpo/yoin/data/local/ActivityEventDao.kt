@@ -100,6 +100,14 @@ interface ActivityEventDao {
             "AND entityType = 'PLAYLIST' AND entityId IN (:entityIds)",
     )
     suspend fun renamePlaylist(profileId: String, provider: String, entityIds: List<String>, title: String)
+
+    /** A playlist deleted on [profileId]'s account: its rows go. [entityIds] as in [renamePlaylist]. */
+    @Query(
+        "DELETE FROM activity_events " +
+            "WHERE profileId = :profileId AND provider = :provider " +
+            "AND entityType = 'PLAYLIST' AND entityId IN (:entityIds)",
+    )
+    suspend fun deletePlaylist(profileId: String, provider: String, entityIds: List<String>)
 }
 
 data class OtherProfilePlayAggregate(

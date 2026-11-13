@@ -85,6 +85,7 @@ internal fun QuickPrompts(
                 shape = YoinShapeTokens.Full,
                 color = container,
                 contentColor = content,
+                modifier = Modifier.handPointer(),
             ) {
                 Text(
                     text = prompt,

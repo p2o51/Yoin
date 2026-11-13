@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -36,7 +37,8 @@ internal fun DetailBackButton(
         },
         modifier = modifier
             .size(40.dp)
-            .minimumTouchTarget(),
+            .minimumTouchTarget()
+            .handPointer(),
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = containerColor,
             contentColor = contentColor,
