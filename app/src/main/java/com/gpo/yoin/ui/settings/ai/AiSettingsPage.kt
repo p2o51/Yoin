@@ -33,7 +33,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,7 +70,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
@@ -97,6 +95,8 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.SecretTextField
 import com.gpo.yoin.ui.settings.SettingsFeature
 import com.gpo.yoin.ui.settings.SettingsFeatureActivity
+import com.gpo.yoin.ui.settings.SettingsItem
+import com.gpo.yoin.ui.settings.SettingsSegments
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -237,7 +237,7 @@ internal fun AiSettingsPageBody(
             }
         }
 
-        LanguageButton(language = state.targetLanguage, onPick = actions::setTargetLanguage)
+        LanguageRow(language = state.targetLanguage, onPick = actions::setTargetLanguage)
 
         Button(
             onClick = {
@@ -858,34 +858,39 @@ private fun searchKeyUrl(service: AiSearchService): String = when (service) {
     AiSearchService.None -> ""
 }
 
+/** The answer language: a value row (the language on the right) opening the same menu. */
 @Composable
-private fun LanguageButton(language: String, onPick: (String) -> Unit) {
+private fun LanguageRow(language: String, onPick: (String) -> Unit) {
     val haptics = rememberYoinHaptics()
     var open by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(
-            onClick = {
-                haptics.performTick()
-                open = true
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                stringResource(R.string.settings_gemini_answer_in, language),
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Start,
-            )
-        }
-        YoinDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { option ->
-                YoinDropdownMenuItem(
-                    text = option,
-                    onClick = {
-                        haptics.performContextClick()
-                        open = false
-                        onPick(option)
+    SettingsSegments {
+        item {
+            Box {
+                SettingsItem(
+                    icon = YoinSymbols.Translate,
+                    title = stringResource(R.string.ai_answer_language),
+                    onClick = { open = true },
+                    trailing = {
+                        Text(
+                            text = language,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
                     },
                 )
+                YoinDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { option ->
+                        YoinDropdownMenuItem(
+                            text = option,
+                            onClick = {
+                                haptics.performContextClick()
+                                open = false
+                                onPick(option)
+                            },
+                        )
+                    }
+                }
             }
         }
     }

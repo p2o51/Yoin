@@ -33,6 +33,7 @@
     <string name="ai_get_search_key_exa">获取 Exa 密钥</string>
     <string name="ai_get_search_key_tavily">获取 Tavily 密钥</string>
     <string name="ai_models_error">拉取失败：%1$s</string>
+    <string name="ai_answer_language">回答语言</string>
     <string name="ai_try">拿一首歌试试</string>
     <string name="ai_tiers_title">%1$s 档位</string>
     <string name="ai_row_model">模型</string>

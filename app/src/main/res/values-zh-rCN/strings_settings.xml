@@ -64,7 +64,6 @@
     <string name="settings_gemini_title">AI 功能</string>
     <string name="settings_gemini_title_page">AI 功能</string>
     <string name="settings_gemini_summary_empty">歌曲信息、问 Gemini、歌词翻译与 Memories 标题</string>
-    <string name="settings_gemini_answer_in">回答语言：%1$s</string>
 
     <string name="settings_neodb_summary_on">专辑评分与评论已开启同步</string>
     <string name="settings_neodb_summary_off">同步专辑评分与评论</string>

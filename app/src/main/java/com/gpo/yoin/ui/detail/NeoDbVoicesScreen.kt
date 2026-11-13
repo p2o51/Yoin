@@ -523,14 +523,30 @@ private fun VoiceCard(
                     .clip(CircleShape)
                     .background(scheme.secondaryContainer),
             )
-            Text(
-                text = voice.byline(),
-                style = MaterialTheme.typography.labelSmall,
-                color = scheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            // The name and, apart from it by space and tone, the instance: no glyph between them.
+            Row(
                 modifier = Modifier.weight(1f),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = voice.author,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                    color = scheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                voice.otherInstance()?.let { host ->
+                    Text(
+                        text = host,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+            }
             if (voice.reviewTitle != null) {
                 Text(
                     text = stringResource(R.string.neodb_voices_review),
@@ -543,10 +559,10 @@ private fun VoiceCard(
     }
 }
 
-/** The writer's name; their instance only when it isn't the one the page reads (NeoDB is federated). */
-private fun NeoDbVoice.byline(): String {
+/** The writer's instance, only when it isn't the one the page reads (NeoDB is federated). */
+private fun NeoDbVoice.otherInstance(): String? {
     val host = handle.substringAfter('@', "")
-    return if (host.isEmpty() || host == "neodb.social") author else "$author · $host"
+    return host.takeUnless { it.isEmpty() || it == "neodb.social" }
 }
 
 /** A NeoDB grade (1–10) as stars out of five, a filled star from Yoin Symbols beside the number. */

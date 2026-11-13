@@ -52,7 +52,7 @@
     <string name="home_placeholder_recently_played">近期无播放记录</string>
     <string name="home_placeholder_your_playlists">资料库中无播放列表</string>
     <string name="home_placeholder_other_profiles">其他账号最近没有播放</string>
-    <string name="home_placeholder_lyric_highlight">多听几首歌，Gemini Nano 会挑出第一句</string>
+    <string name="home_placeholder_lyric_highlight">暂无歌词卡片</string>
     <string name="home_placeholder_memory_grid">还没有回忆</string>
 
     <string name="home_other_profiles_switch_title">切换到「%1$s」？</string>

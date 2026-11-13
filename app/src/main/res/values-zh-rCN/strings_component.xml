@@ -142,7 +142,7 @@
         <item>当时反响如何？</item>
     </string-array>
     <!-- About 里的制作名单（歌词源写在歌词里的制作信息） -->
-    <string name="cmp_lyric_credits_more">更多 %1$d 项 · %2$s</string>
+    <string name="cmp_lyric_credits_more">更多 %1$d 项</string>
     <string name="cmp_lyric_credits_less">收起</string>
     <string name="cmp_lyric_credits_note">备注</string>
 </resources>

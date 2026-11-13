@@ -2842,12 +2842,14 @@ private fun YourPlaylistsSection(
     val editCardScope = LocalHomeEditCardScope.current
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HomeSectionTitle(text = stringResource(HomeSection.YourPlaylists.titleRes))
+        val shelfState = rememberLazyListState()
         val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
         LazyRow(
-            state = rememberLazyListState(),
+            state = shelfState,
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
+                .horizontalEdgeFadeOnScroll(shelfState)
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -2888,12 +2890,14 @@ private fun OtherProfilesSection(
     val editCardScope = LocalHomeEditCardScope.current
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HomeSectionTitle(text = stringResource(HomeSection.OtherProfiles.titleRes))
+        val shelfState = rememberLazyListState()
         val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
         LazyRow(
-            state = rememberLazyListState(),
+            state = shelfState,
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
+                .horizontalEdgeFadeOnScroll(shelfState)
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -2993,12 +2997,14 @@ private fun AlbumShelfSection(
     val editCardScope = LocalHomeEditCardScope.current
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HomeSectionTitle(text = title)
+        val shelfState = rememberLazyListState()
         val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
         LazyRow(
-            state = rememberLazyListState(),
+            state = shelfState,
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
+                .horizontalEdgeFadeOnScroll(shelfState)
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
