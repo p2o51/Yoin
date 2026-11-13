@@ -469,11 +469,6 @@ private fun LedgerEmpty() {
             text = stringResource(R.string.memory_ledger_empty_title),
             style = MaterialTheme.typography.titleMedium,
         )
-        Text(
-            text = stringResource(R.string.memory_ledger_empty_body),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
