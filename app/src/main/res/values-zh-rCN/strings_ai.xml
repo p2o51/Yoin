@@ -29,7 +29,9 @@
     <string name="ai_search_label">搜索服务</string>
     <string name="ai_search_none">不搜索</string>
     <string name="ai_search_key">%1$s 密钥</string>
-    <string name="ai_get_search_key">获取 %1$s 密钥</string>
+    <string name="ai_get_search_key_deepseek">获取 DeepSeek 密钥</string>
+    <string name="ai_get_search_key_exa">获取 Exa 密钥</string>
+    <string name="ai_get_search_key_tavily">获取 Tavily 密钥</string>
     <string name="ai_models_error">拉取失败：%1$s</string>
     <string name="ai_try">拿一首歌试试</string>
     <string name="ai_tiers_title">%1$s 档位</string>

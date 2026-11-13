@@ -218,22 +218,36 @@ class ServiceSetupViewModel(
         }
     }
 
+    /** The address was edited: what was said about the old one no longer holds. */
+    fun onSubsonicAddressChanged() {
+        subsonicForm.update { if (it.addressError == null) it else it.copy(addressError = null) }
+    }
+
     private fun normalizeSubsonic(url: String, username: String, password: String): ProfileCredentials.Subsonic? {
         val normalizedUrl = url.trim().trimEnd('/')
         val normalizedUsername = username.trim()
-        val error = when {
+        val addressError = when {
             normalizedUrl.isBlank() -> UiText.Res(R.string.settings_setup_address_required)
             // Not an http(s) address ("music.home:4533"): Retrofit would throw while the source is
             // built, after Save had already written the account.
             normalizedUrl.toHttpUrlOrNull() == null -> UiText.Res(R.string.settings_setup_check_address)
+            else -> null
+        }
+        if (addressError != null) {
+            // Said under the address field, not in the status line under the password.
+            subsonicForm.update { it.copy(status = SubsonicStatus.Idle, addressError = addressError) }
+            return null
+        }
+        val error = when {
             normalizedUsername.isBlank() -> UiText.Res(R.string.settings_setup_username_required)
             password.isBlank() -> UiText.Res(R.string.settings_setup_password_required)
             else -> null
         }
         if (error != null) {
-            subsonicForm.update { it.copy(status = SubsonicStatus.Failed(error)) }
+            subsonicForm.update { it.copy(status = SubsonicStatus.Failed(error), addressError = null) }
             return null
         }
+        subsonicForm.update { it.copy(addressError = null) }
         return ProfileCredentials.Subsonic(
             serverUrl = normalizedUrl,
             username = normalizedUsername,

@@ -33,7 +33,10 @@
     <string name="ai_search_label">Search</string>
     <string name="ai_search_none">No search</string>
     <string name="ai_search_key">%1$s key</string>
-    <string name="ai_get_search_key">Get a %1$s key</string>
+    <!-- One per service: the article follows the name ("an Exa key"). -->
+    <string name="ai_get_search_key_deepseek">Get a DeepSeek key</string>
+    <string name="ai_get_search_key_exa">Get an Exa key</string>
+    <string name="ai_get_search_key_tavily">Get a Tavily key</string>
     <string name="ai_models_error">Couldn\'t fetch models: %1$s</string>
     <string name="ai_try">Try a song</string>
     <string name="ai_tiers_title">%1$s tiers</string>

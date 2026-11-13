@@ -204,7 +204,7 @@
     <string name="home_tip_focus_cover_title">轻点封面聚焦</string>
     <string name="home_tip_focus_cover">正在播放里轻点封面进入聚焦，再点一下回到原样</string>
     <string name="home_tip_downloads_title">离线下载</string>
-    <string name="home_tip_downloads">Subsonic 账号可在歌曲、专辑或歌单菜单里下载，管理在设置 › 存储 › 下载</string>
+    <string name="home_tip_downloads">Subsonic 账号可在歌曲、专辑或歌单菜单里下载，管理在设置 › 账号 › 当前账号 › 存储 › 下载</string>
     <string name="home_tip_edit_home_title">重新排版首页</string>
     <string name="home_tip_edit_home">长按首页，重新排版</string>
     <string name="home_tip_pull_memories_title">Memories</string>
@@ -224,7 +224,7 @@
     <string name="home_tip_keep_screen_on_title">屏幕常亮</string>
     <string name="home_tip_keep_screen_on">屏幕常亮在封面的长按菜单里</string>
     <string name="home_tip_scroll_edge_title">滚动边缘</string>
-    <string name="home_tip_scroll_edge">设置 › 动效 › 滚动边缘，换掉列表顶部的潮线</string>
+    <string name="home_tip_scroll_edge">设置 › 外观 › 滚动边缘，换掉列表顶部的潮线</string>
     <string name="home_tip_name_title">名字的由来</string>
     <string name="home_tip_name">Yoin 的名字来自日语「余韻」：余音不散</string>
     <string name="tip_position">%1$d / %2$d</string>
