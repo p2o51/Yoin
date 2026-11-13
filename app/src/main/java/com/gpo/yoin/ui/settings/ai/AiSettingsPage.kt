@@ -358,9 +358,10 @@ private fun providerColor(provider: AiProvider, dark: Boolean): Color = when (pr
 }
 
 /**
- * Every tier as a dot on two of speed / cost / accuracy. No axis picker: the
- * button beside the legend steps through [AiChartViews] and the dots spring
- * to their new places. Untested tiers are hollow dots in the corner.
+ * Every tier as a dot. It opens on cost against the overall score (accuracy and
+ * speed together); the button beside the legend steps through [AiChartViews],
+ * the other three being two of speed / cost / accuracy, and the dots spring to
+ * their new places. Untested tiers are hollow dots in the corner.
  */
 @Composable
 private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
@@ -380,10 +381,20 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
         Offset(x, y)
     }
     val labels = measured.map { tierName(it.tier) }
+    // 0 = the name on the dot's right, 1 = on its left.
+    val labelSides = measured.map { point ->
+        val side by animateFloatAsState(
+            if (AiTierBenchmark.labelOnLeft(point, xAxis, yAxis)) 1f else 0f,
+            spring,
+            label = "labelSide",
+        )
+        side
+    }
     val axisLabel = mapOf(
         AiAxis.Speed to stringResource(R.string.ai_axis_speed),
         AiAxis.Cost to stringResource(R.string.ai_axis_cost),
         AiAxis.Accuracy to stringResource(R.string.ai_axis_accuracy),
+        AiAxis.Overall to stringResource(R.string.ai_axis_overall),
     )
     val untestedText = stringResource(R.string.ai_untested)
     val measurer = rememberTextMeasurer()
@@ -433,7 +444,8 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
             untested.forEachIndexed { i, point ->
                 val mine = point.provider == provider
                 val chosen = mine && point.tier == tier
-                val c = Offset(right - (14 + i * 18).dp.toPx(), bottom - 14.dp.toPx())
+                // Top left: the one corner no measured tier comes near in any view.
+                val c = Offset(left + (14 + i * 18).dp.toPx(), top + 14.dp.toPx())
                 drawCircle(
                     color = providerColor(point.provider, dark).copy(alpha = if (mine) 1f else 0.45f),
                     radius = (if (chosen) 7.5f else 5.5f).dp.toPx(),
@@ -442,18 +454,17 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
                 )
                 if (mine && i == untested.lastIndex) {
                     val t = measurer.measure(untestedText, small)
-                    drawText(t, topLeft = Offset(c.x - 14.dp.toPx() - t.size.width, c.y - t.size.height / 2f))
+                    drawText(t, topLeft = Offset(c.x + 14.dp.toPx(), c.y - t.size.height / 2f))
                 }
             }
 
-            measured.forEachIndexed { i, point ->
+            // The chosen tier last: two tiers can overlap, and the chosen one stays whole.
+            val drawOrder = measured.indices.sortedBy { measured[it].provider == provider && measured[it].tier == tier }
+            drawOrder.forEach { i ->
+                val point = measured[i]
                 val mine = provider == AiProvider.Custom || point.provider == provider
                 val chosen = point.provider == provider && point.tier == tier
-                val alpha = when {
-                    provider == AiProvider.Qwen -> 0.3f
-                    mine -> 1f
-                    else -> 0.3f
-                }
+                val alpha = if (mine) 1f else 0.3f
                 val color = providerColor(point.provider, dark)
                 val c = at(positions[i])
                 if (chosen) drawCircle(color.copy(alpha = 0.18f), radius = 13.dp.toPx(), center = c)
@@ -464,7 +475,12 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier) {
                         labels[i],
                         dotLabel.copy(fontWeight = if (chosen) FontWeight.Bold else FontWeight.Medium),
                     )
-                    drawText(t, topLeft = Offset(c.x + 10.dp.toPx(), c.y - t.size.height / 2f))
+                    val onRight = c.x + 10.dp.toPx()
+                    val onLeft = c.x - 10.dp.toPx() - t.size.width
+                    drawText(
+                        t,
+                        topLeft = Offset(onRight + (onLeft - onRight) * labelSides[i], c.y - t.size.height / 2f),
+                    )
                 }
             }
         }
@@ -521,6 +537,7 @@ private fun axisValue(axis: AiAxis, worst: Boolean): String {
         AiAxis.Speed -> "${trimNumber(v)}s"
         AiAxis.Cost -> "$${trimNumber(v)}"
         AiAxis.Accuracy -> "${trimNumber(v)}%"
+        AiAxis.Overall -> trimNumber(v)
     }
 }
 
