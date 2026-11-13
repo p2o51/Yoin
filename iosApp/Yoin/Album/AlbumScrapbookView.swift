@@ -196,10 +196,18 @@ struct AlbumScrapbookView: View {
         .onAppear {
             onScreen = true
             openFocus()
+            #if DEBUG
+            openNotesDemo()
+            #endif
         }
         .onDisappear { onScreen = false }
         .onChange(of: ScrapbookFocusRequest.shared.pending) { _, _ in openFocus() }
-        .onChange(of: album.tracks.map(\.id)) { _, _ in openFocus() }
+        .onChange(of: album.tracks.map(\.id)) { _, _ in
+            openFocus()
+            #if DEBUG
+            openNotesDemo()
+            #endif
+        }
         .onChange(of: pointedOut) { _, id in
             // View in Scrapbook: the song's piece comes into view and swells a touch, then settles.
             guard let id else { return }
@@ -220,6 +228,17 @@ struct AlbumScrapbookView: View {
         }
         }
     }
+
+    #if DEBUG
+    /// `-scrapNotesDemo …`: the first song's sheet on Notes, once the tracks are here (ScrapNotesTab.swift).
+    private func openNotesDemo() {
+        guard !isMock, trackSheet == nil, let t = ScrapNotesDemo.seed(album, store: model.store) else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(900))
+            trackSheet = ScrapSheetOpen(track: t, tab: .notes)
+        }
+    }
+    #endif
 
     /// Now Playing's "Manage in Scrapbook" (ScrapbookFocusRequest): once the
     /// pager has come to rest here, the song's sheet opens at that row's editor.

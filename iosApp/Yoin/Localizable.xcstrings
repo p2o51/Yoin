@@ -4019,16 +4019,6 @@
         }
       }
     },
-    "No notes on this song yet": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这首歌还没有笔记"
-          }
-        }
-      }
-    },
     "No notes yet": {
       "localizations": {
         "zh-Hans": {
@@ -8648,6 +8638,113 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld-bit"
+          }
+        }
+      }
+    },
+    "All lyrics": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开全部歌词"
+          }
+        }
+      }
+    },
+    "Notes only": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只看笔记"
+          }
+        }
+      }
+    },
+    "Loading lyrics…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载歌词…"
+          }
+        }
+      }
+    },
+    "No notes yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有笔记。"
+          }
+        }
+      }
+    },
+    "New note": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建笔记"
+          }
+        }
+      }
+    },
+    "A note at %@…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 记一笔…"
+          }
+        }
+      }
+    },
+    "A note…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记一笔…"
+          }
+        }
+      }
+    },
+    "Note deleted": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除笔记"
+          }
+        }
+      }
+    },
+    "Playing from %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 %@ 开始播放"
+          }
+        }
+      }
+    },
+    "Edit note": {
+      "comment": "The scrapbook note menu's Edit",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改"
           }
         }
       }
