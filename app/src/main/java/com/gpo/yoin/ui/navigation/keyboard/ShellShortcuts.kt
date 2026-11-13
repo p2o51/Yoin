@@ -89,9 +89,25 @@ sealed interface ShellKeyRoute {
     /** Taken with nothing done: the repeats and the release of a key a shortcut took. */
     data object Swallow : ShellKeyRoute
 
-    /** Offered to the shell before the window, so a focused control never turns it into a click. */
-    data class Shortcut(val shortcut: ShellShortcut) : ShellKeyRoute
+    /**
+     * Offered to the shell before the window, so a focused control never turns it into a click.
+     * [onRelease]: the window ate the press ([pressTakenByTouchMode]), so the shortcut acts on
+     * the release, and nothing of that key is left to swallow.
+     */
+    data class Shortcut(val shortcut: ShellShortcut, val onRelease: Boolean = false) : ShellKeyRoute
 }
+
+/**
+ * Whether the window ate the press of the key now being released to leave
+ * touch mode. After a touch, the first Space, Enter, Tab or D-pad press
+ * (ViewRootImpl's "navigation keys", unmodified) only takes the window out of
+ * touch mode and hands keyboard focus to the first control; when that moves
+ * focus the press is consumed before the Activity sees it, and only the
+ * release arrives. [pressSeen]: the press with this [releaseDownTime] did
+ * reach the shell. [leftTouchModeAt]: when the window last left touch mode.
+ */
+fun pressTakenByTouchMode(releaseDownTime: Long, pressSeen: Boolean, leftTouchModeAt: Long?): Boolean =
+    !pressSeen && leftTouchModeAt != null && leftTouchModeAt >= releaseDownTime
 
 /**
  * Routes [event] before the window's focus system sees it, as iOS does: a
@@ -99,11 +115,19 @@ sealed interface ShellKeyRoute {
  * is [typing] (a text field has focus or an IME is composing), whatever
  * control holds keyboard focus. [heldKeyCode] is the key a shortcut took on
  * its press; its repeats and release are swallowed so it neither toggles
- * again nor clicks the focused control on key-up.
+ * again nor clicks the focused control on key-up. [pressTaken]: the window
+ * ate this release's press to leave touch mode ([pressTakenByTouchMode]), so
+ * the release acts in its place: the first Space after a touch still toggles.
  */
-fun shellKeyRoute(event: ShellKeyEvent, heldKeyCode: Int?, typing: Boolean): ShellKeyRoute {
+fun shellKeyRoute(
+    event: ShellKeyEvent,
+    heldKeyCode: Int?,
+    typing: Boolean,
+    pressTaken: Boolean = false,
+): ShellKeyRoute {
     if (heldKeyCode != null && event.keyCode == heldKeyCode) return ShellKeyRoute.Swallow
-    if (!event.down || event.repeatCount != 0 || typing) return ShellKeyRoute.Window
+    if (event.repeatCount != 0 || typing) return ShellKeyRoute.Window
+    if (!event.down && !pressTaken) return ShellKeyRoute.Window
     val shortcut = shellShortcutFor(
         keyCode = event.keyCode,
         ctrl = event.ctrl,
@@ -111,7 +135,7 @@ fun shellKeyRoute(event: ShellKeyEvent, heldKeyCode: Int?, typing: Boolean): She
         shift = event.shift,
         meta = event.meta,
     ) ?: return ShellKeyRoute.Window
-    return ShellKeyRoute.Shortcut(shortcut)
+    return ShellKeyRoute.Shortcut(shortcut, onRelease = !event.down)
 }
 
 /**
