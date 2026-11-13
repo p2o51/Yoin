@@ -222,6 +222,55 @@ class PlaylistDetailViewModelRenameTest {
         assertEquals(1, page.mutations)
     }
 
+    @Test
+    fun should_keepTheLaterName_when_theEarlierRenamesReadComesBackFirst() = runTest {
+        val page = page()
+        val first = page.holdRename("Evening")
+        val second = page.holdRename("Night")
+
+        page.viewModel.messages.test {
+            page.viewModel.rename("Evening")
+            page.viewModel.rename("Night")
+            runCurrent()
+
+            // The service takes "Evening" and the page reads it again while
+            // "Night" is still out: the page keeps "Night".
+            page.serverName = "Evening"
+            first.complete(Result.success(Unit))
+            advanceUntilIdle()
+
+            assertEquals(UiText.Res(R.string.detail_playlist_renamed), awaitItem())
+            assertEquals("Night", page.shownName())
+
+            page.serverName = "Night"
+            second.complete(Result.success(Unit))
+            advanceUntilIdle()
+
+            assertEquals(UiText.Res(R.string.detail_playlist_renamed), awaitItem())
+            assertEquals("Night", page.shownName())
+        }
+    }
+
+    @Test
+    fun should_notSendTheQueuedRename_when_theAccountChangedBeforeItsTurn() = runTest {
+        val page = page()
+        val first = page.holdRename("Evening")
+        page.viewModel.rename("Evening")
+        page.viewModel.rename("Night")
+        runCurrent()
+
+        // The page is closed and another account is switched to before the
+        // first rename is answered.
+        page.viewModel.viewModelScope.cancel()
+        page.profileId = "account-b"
+        first.complete(Result.success(Unit))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { page.repository.renamePlaylist(PLAYLIST_ID, "Evening", any()) }
+        coVerify(exactly = 0) { page.repository.renamePlaylist(PLAYLIST_ID, "Night", any()) }
+        assertEquals(1, page.mutations)
+    }
+
     /** The playlist "Morning" on its page. */
     private class Page {
         /** The name the service gives the next time the playlist is read. */
@@ -229,6 +278,9 @@ class PlaylistDetailViewModelRenameTest {
 
         /** How often the Library was told a playlist changed. */
         var mutations = 0
+
+        /** The account in use. */
+        var profileId = "account-a"
 
         val repository: YoinRepository = mockk<YoinRepository>(relaxed = true).also { repository ->
             coEvery { repository.awaitActiveSource(any()) } returns mockk<MusicSource>()
@@ -244,6 +296,7 @@ class PlaylistDetailViewModelRenameTest {
                 )
             }
             every { repository.observeTracksWithNotes(any()) } returns flowOf(emptySet())
+            every { repository.currentProfileId() } answers { profileId }
             coEvery { repository.renamePlaylist(any(), any(), any()) } returns Result.success(Unit)
         }
 

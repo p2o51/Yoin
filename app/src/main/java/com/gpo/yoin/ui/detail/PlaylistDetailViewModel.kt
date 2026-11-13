@@ -150,6 +150,10 @@ class PlaylistDetailViewModel(
     // next one goes back to if it is refused.
     private var renaming: Deferred<String?>? = null
 
+    // Renames made and not yet answered. While any is out, a read of the
+    // playlist keeps the name on the page: it is the latest one asked for.
+    private var renamesOut = 0
+
     /**
      * Rename: the page wears the new name at once and the service is told
      * after (as iOS's PlaylistActions.rename). If it refuses, the name it
@@ -168,12 +172,23 @@ class PlaylistDetailViewModel(
         showName(trimmed)
         // With a rename still out, the name on the page is that one's, not the service's.
         val earlier = renaming?.takeIf { it.isActive }
+        // The account the rename was made on. A queued one whose turn comes
+        // after a switch is not sent: the same id on the new account is
+        // another playlist.
+        val profileId = repository.currentProfileId()
+        renamesOut++
         // The page already wears the name, so the write is not dropped when
         // the page closes under it (as the song sheet's Favorite).
         renaming = viewModelScope.async(kotlinx.coroutines.NonCancellable) {
             val held = if (earlier != null) earlier.await() else before
-            runCatching { repository.renamePlaylist(MediaId.parse(playlistId), trimmed) }
-                .getOrElse { Result.failure(it) }
+            val result = if (repository.currentProfileId() != profileId) {
+                Result.failure(IllegalStateException())
+            } else {
+                runCatching { repository.renamePlaylist(MediaId.parse(playlistId), trimmed) }
+                    .getOrElse { Result.failure(it) }
+            }
+            renamesOut--
+            result
                 .fold(
                     onSuccess = {
                         onPlaylistMutated()
@@ -275,7 +290,11 @@ class PlaylistDetailViewModel(
                 )
                 _uiState.value = PlaylistDetailUiState.Content(
                     playlistId = playlist.id.toString(),
-                    playlistName = playlist.name,
+                    playlistName = if (renamesOut > 0) {
+                        (_uiState.value as? PlaylistDetailUiState.Content)?.playlistName ?: playlist.name
+                    } else {
+                        playlist.name
+                    },
                     owner = playlist.owner.orEmpty(),
                     comment = playlist.comment,
                     isPublic = null,
