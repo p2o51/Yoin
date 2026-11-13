@@ -40,6 +40,7 @@ import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
 import com.gpo.yoin.ui.theme.CoverNeighbours
 import com.gpo.yoin.ui.theme.CoverSeedExtractor
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.tips.LocalTipCapabilities
 
 /**
  * Transparent edge-to-edge for every Yoin Activity. Call before `setContent`
@@ -161,6 +162,10 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     val shellChromeInsets = rememberShellChromeInsets(windowInfo)
     val activity = LocalContext.current.findActivityOrNull()
     val windowCovered = remember(activity) { CoveredWindowAnimationGate.coveredState(activity) }
+    // What the account in use can do: the tips it can't use are left out (LocalTipCapabilities).
+    val tipCapabilities = app?.container?.repository?.let { repository ->
+        repository.capabilities.collectAsState(initial = repository.currentCapabilities()).value
+    }
 
     CompositionLocalProvider(
         LocalWindowCovered provides windowCovered,
@@ -174,6 +179,7 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         *motionProfileValues(motionProfile),
         LocalYoinWindowInfo provides windowInfo,
         LocalShellChromeInsets provides shellChromeInsets,
+        LocalTipCapabilities provides tipCapabilities,
     ) {
         // This window's floating bar, for the seams' bottom field (dissolve-final §1.2).
         ProvideSeamBarField(content = content)

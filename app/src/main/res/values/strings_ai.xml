@@ -13,6 +13,7 @@
     <string name="ai_axis_speed">Faster</string>
     <string name="ai_axis_cost">Cheaper</string>
     <string name="ai_axis_accuracy">More accurate</string>
+    <string name="ai_axis_overall">Accurate and fast</string>
     <string name="ai_untested">Not tested</string>
     <string name="ai_key_label">API key</string>
     <string name="ai_get_key_gemini">Get a key in Google AI Studio</string>
@@ -32,8 +33,12 @@
     <string name="ai_search_label">Search</string>
     <string name="ai_search_none">No search</string>
     <string name="ai_search_key">%1$s key</string>
-    <string name="ai_get_search_key">Get a %1$s key</string>
+    <!-- One per service: the article follows the name ("an Exa key"). -->
+    <string name="ai_get_search_key_deepseek">Get a DeepSeek key</string>
+    <string name="ai_get_search_key_exa">Get an Exa key</string>
+    <string name="ai_get_search_key_tavily">Get a Tavily key</string>
     <string name="ai_models_error">Couldn\'t fetch models: %1$s</string>
+    <string name="ai_answer_language">Answer language</string>
     <string name="ai_try">Try a song</string>
     <string name="ai_tiers_title">%1$s tiers</string>
     <string name="ai_row_model">Model</string>
@@ -48,10 +53,10 @@
     <string name="ai_search_qwen">Qwen\'s own search</string>
     <string name="ai_search_deepseek_once">DeepSeek Search once, full pages</string>
     <string name="ai_search_deepseek_twice">DeepSeek Search twice, full pages</string>
-    <string name="ai_note_gemini">The first 5,000 searches each month are free; after that, about $31 per 1,000 songs. A free key without billing can\'t search and gets error 429.</string>
+    <string name="ai_note_gemini">The first 5,000 searches each month are free; after that, about $25 per 1,000 songs. A free key without billing can\'t search and gets error 429.</string>
     <string name="ai_note_deepseek">Works in mainland China without a proxy. Search uses the same key and is charged per call.</string>
-    <string name="ai_note_qwen">Works in mainland China without a proxy. Not tested yet.</string>
-    <string name="ai_tiers_source">Speed and accuracy from a 35-song test; cost at current prices.</string>
+    <string name="ai_note_qwen">Works in mainland China without a proxy. Search uses the same key and is charged per call.</string>
+    <string name="ai_tiers_source">Speed from a 500-song test, accuracy checked on 109 of them; cost at current prices.</string>
     <string name="ai_try_song">Song</string>
     <string name="ai_try_artist">Artist</string>
     <string name="ai_try_album">Album</string>

@@ -171,9 +171,15 @@ private fun QualityGroup(
 }
 
 @Composable
-internal fun QualityRow(label: String, detail: String?, selected: Boolean, onClick: () -> Unit) {
+internal fun QualityRow(
+    label: String,
+    detail: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(role = Role.RadioButton, onClick = onClick)
             .heightIn(min = SettingsRowMinHeight)

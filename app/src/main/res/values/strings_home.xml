@@ -52,7 +52,7 @@
     <string name="home_placeholder_recently_played">Nothing played lately</string>
     <string name="home_placeholder_your_playlists">No playlists in your library</string>
     <string name="home_placeholder_other_profiles">Nothing played on your other accounts lately</string>
-    <string name="home_placeholder_lyric_highlight">Listen a while and Gemini Nano picks the first line</string>
+    <string name="home_placeholder_lyric_highlight">No lyric cards yet</string>
     <string name="home_placeholder_memory_grid">No memories yet</string>
 
     <string name="home_other_profiles_switch_title">Switch to %1$s?</string>
@@ -225,7 +225,7 @@
     <string name="home_tip_focus_cover_title">Tap cover to Focus</string>
     <string name="home_tip_focus_cover">Tap the cover in Now Playing to enter Focus, and tap again to return</string>
     <string name="home_tip_downloads_title">Offline downloads</string>
-    <string name="home_tip_downloads">Subsonic accounts can download from song, album, or playlist menus; manage in Settings › Storage › Downloads</string>
+    <string name="home_tip_downloads">Subsonic accounts can download from song, album, or playlist menus; manage in Settings › Accounts › your active account › Storage › Downloads</string>
     <string name="home_tip_edit_home_title">Rearrange Home</string>
     <string name="home_tip_edit_home">Long-press Home to rearrange sections</string>
     <string name="home_tip_pull_memories_title">Memories</string>
@@ -240,10 +240,12 @@
     <string name="home_tip_note_moments">Notes written in Now Playing stay pinned to that exact second</string>
     <string name="home_tip_library_search_title">Quick search</string>
     <string name="home_tip_library_search">Long-press Library in the bar to search right away</string>
+    <string name="home_tip_library_refresh_title">Refresh Library</string>
+    <string name="home_tip_library_refresh">Pull down at the top of Library to refresh the current view</string>
     <string name="home_tip_keep_screen_on_title">Keep screen on</string>
     <string name="home_tip_keep_screen_on">Keep screen on is in the cover\'s long-press menu</string>
     <string name="home_tip_scroll_edge_title">Scroll edge</string>
-    <string name="home_tip_scroll_edge">Change the top wave line in Settings › Motion › Scroll edge</string>
+    <string name="home_tip_scroll_edge">Change the top wave line in Settings › Appearance › Scroll edge</string>
     <string name="home_tip_name_title">Behind the name</string>
     <string name="home_tip_name">Yoin comes from the Japanese word \"余韻\" — a lingering resonance</string>
     <string name="tip_position">%1$d / %2$d</string>

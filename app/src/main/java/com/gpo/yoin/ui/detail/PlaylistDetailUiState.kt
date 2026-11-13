@@ -15,8 +15,13 @@ sealed interface PlaylistDetailUiState {
         val totalDuration: Int?,
         val coverArtUrl: String?,
         val songs: List<PlaylistSong>,
-        /** Source-provided write permission; gates Rename/Delete/Remove UI. */
+        /** Source-provided write permission; gates Rename/Delete UI. */
         val canWrite: Boolean = false,
+        /**
+         * A song's sheet offers "Remove from playlist": [canWrite] on a service
+         * that writes playlists ([com.gpo.yoin.data.source.Capability.PLAYLISTS_WRITE]).
+         */
+        val canRemoveSongs: Boolean = false,
         /** The service refused the entries: [songs] is empty, the playlist isn't. */
         val tracksUnavailable: Boolean = false,
         /**
@@ -37,8 +42,10 @@ data class PlaylistSong(
     val duration: Int?,
     val coverArtUrl: String?,
     /**
-     * Zero-based server-ordered position. Used by remove-by-index
-     * (Subsonic) and remove-by-uri+positions (Spotify, duplicate-safe).
+     * The row's own key: it stays this entry's across reads and removals, and
+     * a song in the playlist twice has one per entry. The list keys its rows
+     * by it (so a removed row leaves and the rest move up) and
+     * [PlaylistDetailViewModel.removeTrack] takes it.
      */
-    val position: Int = 0,
+    val rowKey: String,
 )

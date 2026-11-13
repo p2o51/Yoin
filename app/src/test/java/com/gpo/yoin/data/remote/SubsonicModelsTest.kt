@@ -398,4 +398,38 @@ class SubsonicModelsTest {
         assertEquals(2, artist.album.size)
         assertEquals("The Wall", artist.album[0].name)
     }
+
+    private fun ping(fields: String) = json.decodeFromString<SubsonicResponse>(
+        """{"subsonic-response":{"status":"ok","version":"1.16.1"$fields}}"""
+    ).subsonicResponse
+
+    @Test
+    fun should_nameTheServerWithItsVersion_when_anOpenSubsonicServerAnswersThePing() {
+        val body = ping(""","type":"navidrome","serverVersion":"0.64.2 (1a2b3c4d)","openSubsonic":true""")
+
+        assertEquals("navidrome", body.type)
+        assertEquals("0.64.2 (1a2b3c4d)", body.serverVersion)
+        assertEquals("Navidrome 0.64.2 (1a2b3c4d)", body.serverName)
+    }
+
+    @Test
+    fun should_haveNoServerName_when_aPlainSubsonicServerAnswersThePing() {
+        val body = ping("")
+
+        assertNull(body.serverVersion)
+        assertNull(body.serverName)
+    }
+
+    @Test
+    fun should_nameTheServerByWhatItSends_when_typeOrVersionIsMissing() {
+        assertEquals("Gonic", ping(""","type":"gonic"""").serverName)
+        assertEquals("0.64.2", ping(""","serverVersion":" 0.64.2 """").serverName)
+        assertNull(ping(""","type":" ","serverVersion":""""").serverName)
+    }
+
+    @Test
+    fun should_capitaliseEachWordAndKeepTheRest_when_theTypeHasSeveralWords() {
+        assertEquals("Nextcloud Music 2.1", ping(""","type":"nextcloud  music","serverVersion":"2.1"""").serverName)
+        assertEquals("LMS 3.60", ping(""","type":"LMS","serverVersion":"3.60"""").serverName)
+    }
 }

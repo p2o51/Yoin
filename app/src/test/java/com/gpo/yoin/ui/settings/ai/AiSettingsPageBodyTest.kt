@@ -59,6 +59,23 @@ class AiSettingsPageBodyTest {
     }
 
     @Test
+    fun should_offerNoTierChoice_when_theServiceHasOneTier() {
+        state.value = AiSettingsState(AiProviderPrefs(tier = AiTier.Best))
+        showPage()
+        rule.onNodeWithText("Best").performScrollTo().assertIsSelected()
+
+        rule.onNode(hasText("Qwen") and hasClickAction()).performClick()
+
+        rule.onNodeWithText("Good").assertDoesNotExist()
+        rule.onNodeWithText("Best").assertDoesNotExist()
+        rule.onNodeWithText("Get a key in Alibaba Cloud Model Studio").performScrollTo().assertIsDisplayed()
+        // The choice made on Gemini is kept for when the user goes back.
+        rule.runOnIdle { assertEquals(AiTier.Best, state.value.prefs.tier) }
+        rule.onNode(hasText("Gemini") and hasClickAction()).performClick()
+        rule.onNodeWithText("Best").performScrollTo().assertIsSelected()
+    }
+
+    @Test
     fun should_swapTiersForTheEndpoint_when_customIsChosen() {
         showPage()
 

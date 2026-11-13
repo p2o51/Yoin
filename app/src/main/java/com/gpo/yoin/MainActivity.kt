@@ -1,9 +1,16 @@
 package com.gpo.yoin
 
+import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.KeyEvent
+import android.view.KeyboardShortcutGroup
+import android.view.KeyboardShortcutInfo
+import android.view.Menu
+import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -23,6 +30,15 @@ import com.gpo.yoin.ui.landing.LandingGate
 import com.gpo.yoin.ui.landing.LandingHost
 import com.gpo.yoin.ui.landing.SharedPrefsLandingStore
 import com.gpo.yoin.ui.navigation.YoinNavHost
+import com.gpo.yoin.ui.navigation.keyboard.ShellKeyEvent
+import com.gpo.yoin.ui.navigation.keyboard.ShellKeyRoute
+import com.gpo.yoin.ui.navigation.keyboard.ShellShortcut
+import com.gpo.yoin.ui.navigation.keyboard.ShellShortcutHost
+import com.gpo.yoin.ui.navigation.keyboard.ShellShortcutSink
+import com.gpo.yoin.ui.navigation.keyboard.chord
+import com.gpo.yoin.ui.navigation.keyboard.keepsKeyWhenIdle
+import com.gpo.yoin.ui.navigation.keyboard.pressTakenByTouchMode
+import com.gpo.yoin.ui.navigation.keyboard.shellKeyRoute
 import com.gpo.yoin.widget.WidgetLaunch
 import com.gpo.yoin.widget.WidgetDetailRequest
 import java.util.UUID
@@ -51,8 +67,19 @@ import kotlinx.coroutines.launch
  * [YoinApplication] across the whole activity stack, NOT here, so the remote
  * stays connected when a detail Activity comes to the foreground.
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), ShellShortcutHost {
     private val landingGate = LandingGate()
+    override var shellShortcutSink: ShellShortcutSink? = null
+
+    /** The key whose press a shortcut took: its repeats and release are taken too. */
+    private var shortcutKeyDown: Int? = null
+
+    /** The last press that reached [dispatchKeyEvent], by key and down time. */
+    private var seenPressKeyCode: Int? = null
+    private var seenPressDownTime = 0L
+
+    /** When the window last left touch mode ([SystemClock.uptimeMillis], as key times are). */
+    private var leftTouchModeAt: Long? = null
     private lateinit var shellHandoffHostKey: String
     private var pendingWidgetDetail by mutableStateOf<WidgetDetailRequest?>(null)
     private var shellWindowFocused by mutableStateOf(false)
@@ -67,6 +94,9 @@ class MainActivity : ComponentActivity() {
         // Must be called before super.onCreate(); also applies postSplashScreenTheme.
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
+        window.decorView.viewTreeObserver.addOnTouchModeChangeListener { inTouchMode ->
+            if (!inTouchMode) leftTouchModeAt = SystemClock.uptimeMillis()
+        }
         if (savedInstanceState == null && handOverToLiveShell()) return
         liveShells += this
         pendingWidgetDetail = WidgetDetailRequest.parse(
@@ -165,9 +195,111 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
+    /**
+     * The shell's keyboard shortcuts ([ShellShortcut]), routed by
+     * [shellKeyRoute] before the window: Compose keeps an invisible keyboard
+     * focus on a clickable after a Ctrl chord or a return from Settings, and
+     * would turn plain Space into a click on it (and Ctrl+arrows into focus
+     * moves). Never while a text field takes the keyboard, nor under the
+     * landing. Enter and the D-pad still reach the focused control.
+     *
+     * After a touch the window eats the first Space press to leave touch mode
+     * (it hands keyboard focus to the first control), so only its release gets
+     * here; that release plays or pauses instead ([pressTakenByTouchMode]).
+     */
+    // Activity.dispatchKeyEvent is public; lint reads androidx.core's
+    // ComponentActivity override, marked library-internal, as the one called.
+    @SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val down = event.action == KeyEvent.ACTION_DOWN
+        if (down && event.repeatCount == 0) {
+            seenPressKeyCode = event.keyCode
+            seenPressDownTime = event.downTime
+        }
+        val pressTaken = event.action == KeyEvent.ACTION_UP &&
+            pressTakenByTouchMode(
+                releaseDownTime = event.downTime,
+                pressSeen = seenPressKeyCode == event.keyCode && seenPressDownTime == event.downTime,
+                leftTouchModeAt = leftTouchModeAt,
+            )
+        val route = shellKeyRoute(
+            event = ShellKeyEvent(
+                keyCode = event.keyCode,
+                down = down,
+                repeatCount = event.repeatCount,
+                ctrl = event.isCtrlPressed,
+                alt = event.isAltPressed,
+                shift = event.isShiftPressed,
+                meta = event.isMetaPressed,
+            ),
+            heldKeyCode = shortcutKeyDown,
+            typing = (down || pressTaken) && isTypingText(),
+            pressTaken = pressTaken,
+        )
+        when (route) {
+            ShellKeyRoute.Swallow -> {
+                if (event.action == KeyEvent.ACTION_UP) shortcutKeyDown = null
+                return true
+            }
+            ShellKeyRoute.Window -> return super.dispatchKeyEvent(event)
+            is ShellKeyRoute.Shortcut -> {
+                val sink = shellShortcutSink
+                if (sink == null || landingGate.showing) return super.dispatchKeyEvent(event)
+                if (!sink.perform(route.shortcut) && !route.shortcut.keepsKeyWhenIdle) {
+                    return super.dispatchKeyEvent(event)
+                }
+                if (!route.onRelease) shortcutKeyDown = event.keyCode
+                return true
+            }
+        }
+    }
+
+    private fun isTypingText(): Boolean =
+        getSystemService(InputMethodManager::class.java)?.isAcceptingText == true
+
+    /** The system's shortcut list (Meta + /): iOS's Controls and Go menus. */
+    override fun onProvideKeyboardShortcuts(
+        data: MutableList<KeyboardShortcutGroup>,
+        menu: Menu?,
+        deviceId: Int,
+    ) {
+        super.onProvideKeyboardShortcuts(data, menu, deviceId)
+        if (shellShortcutSink == null) return
+        val playback = (application as YoinApplication).container.playbackManager.playbackState.value
+        fun item(shortcut: ShellShortcut, label: Int): KeyboardShortcutInfo =
+            KeyboardShortcutInfo(getString(label), shortcut.chord.keyCode, shortcut.chord.metaState)
+        data += KeyboardShortcutGroup(
+            getString(R.string.shortcut_group_controls),
+            listOf(
+                item(ShellShortcut.PlayPause, if (playback.isPlaying) R.string.shortcut_pause else R.string.shortcut_play),
+                item(ShellShortcut.Next, R.string.shortcut_next),
+                item(ShellShortcut.Previous, R.string.shortcut_previous),
+                item(
+                    ShellShortcut.Shuffle,
+                    if (playback.shuffleEnabled) R.string.shortcut_shuffle_off else R.string.shortcut_shuffle_on,
+                ),
+                item(ShellShortcut.Like, R.string.shortcut_like),
+                item(ShellShortcut.NowPlaying, R.string.shortcut_now_playing),
+                item(ShellShortcut.Search, R.string.shortcut_search),
+                item(ShellShortcut.Back, R.string.shortcut_back),
+                item(ShellShortcut.Settings, R.string.shortcut_settings),
+            ),
+        )
+        data += KeyboardShortcutGroup(
+            getString(R.string.shortcut_group_go),
+            listOf(
+                item(ShellShortcut.Home, R.string.shortcut_home),
+                item(ShellShortcut.Library, R.string.shortcut_library),
+                item(ShellShortcut.AllMemories, R.string.shortcut_all_memories),
+            ),
+        )
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         shellWindowFocused = hasFocus
+        // A shortcut that opened another window never sees its key come up here.
+        if (!hasFocus) shortcutKeyDown = null
     }
 
     override fun onDestroy() {

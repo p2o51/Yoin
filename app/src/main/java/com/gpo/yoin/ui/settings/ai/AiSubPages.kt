@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -47,14 +48,14 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
-/** The tier page (from ⓘ): both tiers of the chosen service side by side, and what they cost. */
+/** The tier page (from ⓘ): the tiers of the chosen service side by side, and what they cost. */
 @Composable
 internal fun AiTiersPageContent() {
     val app = LocalContext.current.applicationContext as YoinApplication
     val viewModel: AiSettingsViewModel = viewModel(factory = AiSettingsViewModel.Factory(app.container))
     val prefs by viewModel.state.collectAsState()
     val provider = prefs.prefs.provider.takeIf { it != AiProvider.Custom } ?: AiProvider.Gemini
-    val current = prefs.prefs.tier
+    val current = prefs.prefs.copy(provider = provider).activeTier
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
@@ -62,7 +63,7 @@ internal fun AiTiersPageContent() {
             style = MaterialTheme.typography.titleLarge,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AiTier.entries.forEach { tier ->
+            provider.tiers.forEach { tier ->
                 TierFacts(provider, tier, chosen = tier == current, modifier = Modifier.weight(1f))
             }
         }
@@ -105,16 +106,21 @@ private fun TierFacts(provider: AiProvider, tier: AiTier, chosen: Boolean, modif
         contentColor = if (chosen) scheme.onPrimaryContainer else scheme.onSurface,
         modifier = modifier,
     ) {
+        // The row labels read in the card's own on-colour: on the chosen card's primaryContainer,
+        // onSurfaceVariant (meant for surfaces) all but disappears.
+        val labelColor = if (chosen) scheme.onPrimaryContainer else scheme.onSurfaceVariant
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(tierName(tier), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Fact(stringResource(R.string.ai_row_model), model)
-            Fact(stringResource(R.string.ai_row_search), search)
+            Fact(labelColor, stringResource(R.string.ai_row_model), model)
+            Fact(labelColor, stringResource(R.string.ai_row_search), search)
             Fact(
+                labelColor,
                 stringResource(R.string.ai_row_speed),
                 point?.seconds?.let { stringResource(R.string.ai_seconds, trimNumber(it)) } ?: "—",
             )
-            Fact(stringResource(R.string.ai_row_accuracy), point?.accuracy?.let { "${trimNumber(it)}%" } ?: "—")
+            Fact(labelColor, stringResource(R.string.ai_row_accuracy), point?.accuracy?.let { "${trimNumber(it)}%" } ?: "—")
             Fact(
+                labelColor,
                 stringResource(R.string.ai_row_cost),
                 point?.costPer1000?.let {
                     if (point.costEstimated) {
@@ -129,9 +135,9 @@ private fun TierFacts(provider: AiProvider, tier: AiTier, chosen: Boolean, modif
 }
 
 @Composable
-private fun Fact(label: String, value: String) {
+private fun Fact(labelColor: Color, label: String, value: String) {
     Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = labelColor)
         Text(value, style = MaterialTheme.typography.bodyLarge)
     }
 }

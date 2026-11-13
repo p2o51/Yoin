@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.settings
 
+import android.content.ClipData
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -90,6 +92,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
@@ -100,6 +103,7 @@ import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.data.remote.ai.AiProviderPrefs
 import com.gpo.yoin.data.remote.ai.AiSettings
+import com.gpo.yoin.player.PlayTrace
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
@@ -143,8 +147,11 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.animateFloatAsPacedState
 import com.gpo.yoin.ui.theme.currentScreenCornerRadius
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Deep-link targets for [SettingsActivity]'s `focusSection` extra. */
 object SettingsFocus {
@@ -485,6 +492,7 @@ fun SettingsContent(
                                         item { WelcomeGuideItem() }
                                         item { DocsItem(snackbarHostState) }
                                         item { FeedbackItem(snackbarHostState) }
+                                        item { ExportLogItem(snackbarHostState) }
                                         item(key = SettingsFeature.About, paintsOwnSegment = listDetail) {
                                             AboutYoinItem(
                                                 listDetail = listDetail,
@@ -1255,7 +1263,12 @@ private fun GeminiItem(
 ) {
     val ai = AiSettings(aiPrefs, geminiKey = apiKey)
     val provider = providerName(ai.provider)
-    val tier = if (ai.provider == AiProvider.Custom) ai.modelId else tierName(aiPrefs.tier)
+    // Beside the service: Custom's model, the tier where the service has two, nothing for one tier.
+    val detail = when {
+        ai.provider == AiProvider.Custom -> ai.modelId
+        ai.provider.tiers.size > 1 -> tierName(aiPrefs.activeTier)
+        else -> null
+    }
     FeaturePageRow(
         icon = YoinSymbols.Sparkle,
         title = stringResource(R.string.settings_gemini_title),
@@ -1263,7 +1276,10 @@ private fun GeminiItem(
         summaryContent = if (ai.isReady) {
             {
                 MetaLine(
-                    groups = listOf(MetaGroup.Plain(provider), MetaGroup.Plain(tier, muted = true)),
+                    groups = listOfNotNull(
+                        MetaGroup.Plain(provider),
+                        detail?.let { MetaGroup.Plain(it, muted = true) },
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1664,15 +1680,37 @@ private fun ScreenCornersItem(
 ) {
     val title = stringResource(R.string.settings_motion_screen_corners)
     val radius = currentScreenCornerRadius().value.roundToInt()
-    val summary = if (ScreenCorners.userRadius == null) {
-        stringResource(R.string.screen_corners_summary_follow, radius)
+    val value = stringResource(R.string.screen_corners_value, radius)
+    val summary = if (ScreenCorners.userRadius == null) stringResource(R.string.screen_corners_follow) else value
+    // Following the screen: "Match screen", then the value beside it as a MetaLine group, no glyph.
+    val summaryContent: (@Composable ColumnScope.() -> Unit)? = if (ScreenCorners.userRadius == null) {
+        {
+            MetaLine(
+                groups = listOf(MetaGroup.Plain(summary), MetaGroup.Stat(value)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     } else {
-        stringResource(R.string.screen_corners_value, radius)
+        null
     }
     if (listDetail) {
-        FeaturePageRow(icon = YoinSymbols.Smartphone, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+        FeaturePageRow(
+            icon = YoinSymbols.Smartphone,
+            title = title,
+            summary = summary,
+            selected = selected,
+            onClick = onOpenPage,
+            summaryContent = summaryContent,
+        )
     } else {
-        SettingsItem(icon = YoinSymbols.Smartphone, title = title, summary = summary, onClick = onOpenPage)
+        SettingsItem(
+            icon = YoinSymbols.Smartphone,
+            title = title,
+            summary = summary,
+            summaryContent = summaryContent,
+            onClick = onOpenPage,
+        )
     }
 }
 
@@ -1807,6 +1845,41 @@ private fun FeedbackItem(snackbarHostState: SnackbarHostState) {
         url = YoinLinks.FEEDBACK_FORM,
         openFailed = stringResource(R.string.settings_about_feedback_open_failed),
         snackbarHostState = snackbarHostState,
+    )
+}
+
+/**
+ * Settings › Help and about › Export log (iOS's row): the playback diagnostics log ([PlayTrace]) as a .txt
+ * through the system share sheet; nothing leaves the phone unless the user picks where it goes.
+ */
+@Composable
+private fun ExportLogItem(snackbarHostState: SnackbarHostState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val failed = stringResource(R.string.settings_about_export_log_failed)
+    SettingsItem(
+        icon = YoinSymbols.Share,
+        title = stringResource(R.string.settings_about_export_log),
+        summary = stringResource(R.string.settings_about_export_log_summary),
+        onClick = {
+            scope.launch {
+                val shared = runCatching {
+                    val file = withContext(Dispatchers.IO) { PlayTrace.writeExport(context) }
+                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        clipData = ClipData.newRawUri(null, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(send, null))
+                }
+                shared.exceptionOrNull()?.let { error ->
+                    if (error is CancellationException) throw error
+                    snackbarHostState.showSnackbar(failed)
+                }
+            }
+        },
     )
 }
 

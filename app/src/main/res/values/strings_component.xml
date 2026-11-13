@@ -55,7 +55,8 @@
 
     <string name="cmp_devices_title">Devices</string>
     <string name="cmp_devices_subtitle_spotify">Spotify Connect</string>
-    <string name="cmp_devices_subtitle_subsonic">This device, Chromecast and DLNA · Same Wi-Fi</string>
+    <string name="cmp_devices_subtitle_subsonic">This device, Chromecast and DLNA</string>
+    <string name="cmp_devices_subtitle_subsonic_network">Same Wi-Fi</string>
     <string name="cmp_devices_subtitle_other">Playback devices</string>
     <string name="cmp_devices_cd_refresh">Refresh devices</string>
     <string name="cmp_devices_this_device">This device</string>
@@ -158,7 +159,7 @@
         <item>How was it received?</item>
     </string-array>
     <!-- Lyric credits card in About (credits the lyrics source wrote into the lyrics) -->
-    <string name="cmp_lyric_credits_more">%1$d more · %2$s</string>
+    <string name="cmp_lyric_credits_more">%1$d more</string>
     <string name="cmp_lyric_credits_less">Show less</string>
     <string name="cmp_lyric_credits_note">Note</string>
 </resources>

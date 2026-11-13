@@ -91,11 +91,15 @@ internal fun TipScreen(
     val context = LocalContext.current
     val store = LocalTipReadStore.current ?: remember(context) { SharedPrefsTipReadStore.get(context) }
     val read by store.read.collectAsState()
-    val tips = remember { HomeBubbleTip.available() }
+    // The tips the account in use can use; the one this page opened on stays.
+    val available = rememberAvailableTips()
+    val tips = remember(available, startTip) {
+        if (startTip in available) available else HomeBubbleTip.entries.filter { it in available || it == startTip }
+    }
     val pager = rememberPagerState(initialPage = tips.indexOf(startTip).coerceAtLeast(0)) { tips.size }
     val scope = rememberCoroutineScope()
     val haptics = rememberYoinHaptics()
-    val current = tips[pager.currentPage]
+    val current = tips[pager.currentPage.coerceIn(tips.indices)]
     val nextUnread = nextUnreadTip(current, read, tips)
     val pageSpring = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val bars = WindowInsets.systemBars.asPaddingValues()

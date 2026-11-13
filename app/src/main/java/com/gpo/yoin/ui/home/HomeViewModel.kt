@@ -60,6 +60,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -69,6 +70,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -114,7 +116,17 @@ class HomeViewModel(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     // Jump Back In cards hidden for a while from edit mode (HomeJbiHidden.kt).
     private val jbiHiddenStore: JbiHiddenStore = JbiHiddenStore.InMemory(),
+    // YoinRepository.playlistRenames: a playlist renamed on its page reaches
+    // the Activities, Jump Back In and Your Playlists ([observePlaylistRenames]).
+    private val playlistRenames: Flow<YoinRepository.PlaylistRename> = emptyFlow(),
 ) : ViewModel() {
+
+    // The names playlists were renamed to while Home was up, by account and
+    // MediaId string ([renameKey]): Jump Back In's pools a load still holds
+    // were read before. Two accounts on one provider can share a raw id.
+    private val renamedPlaylists = mutableMapOf<String, String>()
+
+    private fun renameKey(profileId: String?, id: MediaId): String = "${profileId.orEmpty()}|$id"
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -260,6 +272,30 @@ class HomeViewModel(
         observeRecentHistory()
         observeMemorySignals()
         observeRediscoverRemovals()
+        observePlaylistRenames()
+    }
+
+    /**
+     * A playlist renamed on its page: the feed up takes the new name where it
+     * shows that playlist (an Activities row, a Jump Back In card, Your
+     * Playlists), without reading Home again. The rows on disk took it too
+     * (YoinRepository.renamePlaylist).
+     */
+    private fun observePlaylistRenames() {
+        viewModelScope.launch {
+            playlistRenames.collect { rename ->
+                renamedPlaylists[renameKey(rename.profileId, rename.id)] = rename.name
+                val providerId = rename.id.provider
+                val profileId = rename.profileId
+                if (!matchesCurrentScope(providerId, profileId)) return@collect
+                val scopeKey = homeScopeKey(providerId, profileId)
+                val latest = contentOf(scopeKey) ?: return@collect
+                val next = latest.withPlaylistName(rename.id, rename.name)
+                if (next == latest) return@collect
+                keep(scopeKey, providerId, profileId, next)
+                emit(next, profileId)
+            }
+        }
     }
 
     /** The feed reports the artists (MediaId strings) its Activities picture now. */
@@ -2310,7 +2346,7 @@ class HomeViewModel(
         return HomeWidgetCard(
             stableId = "grid-playlist:$id",
             entityType = MemoryEntityType.PLAYLIST,
-            title = name,
+            title = renamedPlaylists[renameKey(activeProfileId.value, id)] ?: name,
             subtitle = subtitle,
             subtitleText = subtitleText,
             coverArtUrl = coverArtUrl,
@@ -2460,6 +2496,7 @@ class HomeViewModel(
                 switchingState = container.profileManager.switchingState,
                 snapshotStore = container.homeSnapshotStore,
                 jbiHiddenStore = container.jbiHiddenStore,
+                playlistRenames = container.repository.playlistRenames,
             ) as T
     }
 
@@ -2823,3 +2860,26 @@ private inline fun <T> List<T>.withinRecentlyAddedWindow(
     .map { (_, item) -> item }
     .distinctBy(key)
     .take(limit)
+
+/**
+ * [id] renamed to [name] wherever this feed shows it: its Activities rows (a
+ * row keeps the name the playlist had when it was played), its Jump Back In
+ * cards and Your Playlists. The same content when none shows it.
+ */
+internal fun HomeUiState.Content.withPlaylistName(id: MediaId, name: String): HomeUiState.Content {
+    val target = HomeWidgetTarget.PlaylistDetail(id.toString())
+    fun ActivityEvent.isIt(): Boolean = entityType == ActivityEntityType.PLAYLIST.name &&
+        provider == id.provider &&
+        MediaId.storedRawId(provider, entityId) == id.rawId
+    if (activities.none { it.isIt() && it.title != name } &&
+        widgetGrid.none { it.target == target && it.title != name } &&
+        playlists.none { it.id == id && it.name != name }
+    ) {
+        return this
+    }
+    return copy(
+        activities = activities.map { if (it.isIt()) it.copy(title = name) else it },
+        widgetGrid = widgetGrid.map { if (it.target == target) it.copy(title = name) else it },
+        playlists = playlists.map { if (it.id == id) it.copy(name = name) else it },
+    )
+}

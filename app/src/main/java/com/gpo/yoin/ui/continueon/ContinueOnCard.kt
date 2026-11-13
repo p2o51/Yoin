@@ -11,11 +11,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,6 +45,7 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -63,9 +65,10 @@ fun ContinueOnCard(continueOn: ContinueOn, modifier: Modifier = Modifier) {
         prompt = prompt,
         onContinue = continueOn::confirm,
         onDismiss = continueOn::dismiss,
-        // The window's card clears the navigation bar. The Tips demo's phone has none, and padding
-        // the card there by this device's bar lifted it off the demo's bottom edge.
-        modifier = modifier.navigationBarsPadding(),
+        // The window's card sits above the shell's bar (and beside the edge capsules), whose space
+        // includes the navigation bar: it overlapped the bar before. The Tips demo's phone has neither,
+        // and padding the card there by this device's chrome lifted it off the demo's bottom edge.
+        modifier = modifier.padding(LocalShellChromeInsets.current),
     )
 }
 
@@ -115,82 +118,109 @@ private fun CardBody(
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
-    Surface(
-        modifier = modifier,
-        shape = YoinShapeTokens.ExtraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 3.dp,
-        shadowElevation = 6.dp,
+    val page = MaterialTheme.colorScheme
+    val cardScheme = remember(page) { continueOnCardScheme(page) }
+    MaterialTheme(
+        colorScheme = cardScheme,
+        typography = MaterialTheme.typography,
+        shapes = MaterialTheme.shapes,
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Cover(prompt.coverUrl)
-                Spacer(Modifier.size(14.dp))
-                Column(Modifier.weight(1f)) {
-                    val device = prompt.deviceName ?: stringResource(R.string.continue_on_other_device)
-                    Text(
-                        text = stringResource(R.string.continue_on_from, device),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = prompt.title ?: stringResource(R.string.continue_on_unknown_song),
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    // As a song row has them (SongListItem): the artist, then the album muted, no glyph between.
-                    val artist = prompt.artist?.takeIf { it.isNotBlank() }
-                    val album = prompt.album?.takeIf { it.isNotBlank() }
-                    if (artist != null || album != null) {
+        Surface(
+            modifier = modifier,
+            shape = YoinShapeTokens.ExtraLarge,
+            color = cardScheme.surface,
+            contentColor = cardScheme.onSurface,
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Cover(prompt.coverUrl)
+                    Spacer(Modifier.size(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        val device = prompt.deviceName ?: stringResource(R.string.continue_on_other_device)
+                        Text(
+                            text = stringResource(R.string.continue_on_from, device),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = prompt.title ?: stringResource(R.string.continue_on_unknown_song),
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // As a song row has them (SongListItem): the artist, then the album muted, no glyph between.
+                        val artist = prompt.artist?.takeIf { it.isNotBlank() }
+                        val album = prompt.album?.takeIf { it.isNotBlank() }
+                        if (artist != null || album != null) {
+                            MetaLine(
+                                groups = listOfNotNull(
+                                    artist?.let { MetaGroup.Plain(it) },
+                                    album?.let { MetaGroup.Plain(it, muted = true) },
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                         MetaLine(
-                            groups = listOfNotNull(
-                                artist?.let { MetaGroup.Plain(it) },
-                                album?.let { MetaGroup.Plain(it, muted = true) },
+                            groups = listOf(
+                                MetaGroup.Kind(
+                                    stringResource(
+                                        if (prompt.playing) {
+                                            R.string.continue_on_playing
+                                        } else {
+                                            R.string.continue_on_paused
+                                        },
+                                    ),
+                                ),
+                                MetaGroup.Stat(formatPosition(prompt.positionMs)),
                             ),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.labelMedium,
                         )
                     }
-                    MetaLine(
-                        groups = listOf(
-                            MetaGroup.Kind(
-                                stringResource(
-                                    if (prompt.playing) R.string.continue_on_playing else R.string.continue_on_paused,
-                                ),
-                            ),
-                            MetaGroup.Stat(formatPosition(prompt.positionMs)),
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
+                }
+                AnimatedContent(
+                    targetState = prompt.stage to prompt.account,
+                    transitionSpec = {
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                    },
+                    label = "continueOnActions",
+                ) { (stage, account) ->
+                    Actions(
+                        stage = stage,
+                        account = account,
+                        continueModifier = continueModifier,
+                        onContinue = {
+                            haptics.performConfirm()
+                            onContinue()
+                        },
+                        onDismiss = {
+                            haptics.performClick()
+                            onDismiss()
+                        },
                     )
                 }
-            }
-            AnimatedContent(
-                targetState = prompt.stage to prompt.account,
-                transitionSpec = {
-                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
-                },
-                label = "continueOnActions",
-            ) { (stage, account) ->
-                Actions(
-                    stage = stage,
-                    account = account,
-                    continueModifier = continueModifier,
-                    onContinue = {
-                        haptics.performConfirm()
-                        onContinue()
-                    },
-                    onDismiss = {
-                        haptics.performClick()
-                        onDismiss()
-                    },
-                )
             }
         }
     }
 }
+
+/**
+ * The card's colours: flat, no shadow (owner 2026-11-13), so it stands on the page's inverse
+ * surface the way YoinSnackbar does, about 18:1 against the page in light and dark. The title
+ * takes the page's own surface tone, the quieter lines inverseOnSurface, the accent
+ * inversePrimary, and "Continue here" is an inversePrimary pill with the card's colour for text.
+ */
+internal fun continueOnCardScheme(page: ColorScheme): ColorScheme = page.copy(
+    surface = page.inverseSurface,
+    onSurface = page.surface,
+    onSurfaceVariant = page.inverseOnSurface,
+    surfaceContainerHigh = page.inverseSurface,
+    surfaceContainerHighest = lerp(page.inverseSurface, page.inverseOnSurface, 0.14f),
+    primary = page.inversePrimary,
+    onPrimary = page.inverseSurface,
+)
 
 @Composable
 private fun Actions(
