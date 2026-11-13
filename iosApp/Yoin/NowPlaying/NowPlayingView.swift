@@ -114,6 +114,10 @@ struct NowPlayingView: View, Equatable {
     /// iPad Full in a Wide window (Android DualPane): the two-column player.
     /// Its resting stage is `.expanded` (the right column is the expanded page).
     @State private var wide = false
+    /// Two-column focus's edge band: where the cover and the lyrics sit (global), and a tick per lyric line.
+    @State private var bandCover: CGPoint = .zero
+    @State private var bandLyrics: CGPoint?
+    @State private var bandLineTick = 0
     /// Android focus at ease (PR #185): in two-column focus, FocusIdleMs
     /// without a touch while synced lyrics play; the transport's buttons and
     /// times step away, the progress bar stays.
@@ -464,6 +468,13 @@ struct NowPlayingView: View, Equatable {
                     }
                 }
                     .frame(width: g.size.width, height: g.size.height)
+                    .background {
+                        // Two-column focus: the edge dots burst out from the cover's side.
+                        if twoColumns && !reduceMotion {
+                            // To the screen's edges, past the status bar and the home indicator.
+                            edgeBand.ignoresSafeArea()
+                        }
+                    }
                     .onChange(of: twoColumns, initial: true) { _, on in if wide != on { wide = on } }
                     .overlay(alignment: .bottom) {
                         // Two columns: the composer and the Ask bar sit in the
@@ -817,6 +828,7 @@ struct NowPlayingView: View, Equatable {
     private func coverRow(_ cover: CGFloat, retreat: Bool, dock: CoverDock?, tappable: Bool,
                           ratingColumn: CGFloat = Tokens.np.PHONE_RATING_COLUMN.cg,
                           spine: SpineSlot? = nil,
+                          dissolve: Bool = false,
                           onTap: @escaping () -> Void) -> some View {
         let p = playback
         return HStack(alignment: .top, spacing: 0) {
@@ -883,7 +895,9 @@ struct NowPlayingView: View, Equatable {
             }
             .frame(width: ratingColumn)
             .offset(x: retreat ? 72 : 0)
-            .opacity(retreat ? 0 : 1)
+            // Two columns: the column breaks into dots as it goes (Android
+            // dotDissolve on the landscape rating); the phone keeps its fade.
+            .modifier(FocusDissolve(progress: retreat ? 1 : 0, dots: dissolve))
             .allowsHitTesting(!retreat)
             .frame(width: retreat ? 0 : ratingColumn, alignment: .leading)
             .npFade(open, contentFade)
@@ -1237,7 +1251,8 @@ struct NowPlayingView: View, Equatable {
                 onTap: { i in lyricLineTapped(i, times: times, synced: loaded.synced) },
                 // Two-column focus prints the lyrics through the halftone (Android WidePlayingContent).
                 halftone: wide && stage == .focus,
-                reseatOnResize: wide
+                reseatOnResize: wide,
+                onActiveLine: wide ? { _ in if stage == .focus { bandLineTick &+= 1 } } : nil
             )
     }
 
@@ -3039,6 +3054,24 @@ private struct DelayedSpinner: View {
 // MARK: Two columns (Android WidePlayingContent, PR #163 v10 + PR #185)
 
 extension NowPlayingView {
+    /// Android EdgeDotBand, two-column focus only (see NowPlayingEdgeBand).
+    var edgeBand: some View {
+        let p = playback
+        let pal = p.album.palette
+        return NowPlayingEdgeBand(
+            on: wide && stage == .focus && open,
+            playing: p.isPlaying,
+            cover: bandCover,
+            lyrics: bandLyrics,
+            // Wash bottom / top / left / right, the dots' hues round the window.
+            palette: [pal.a, pal.b, pal.c, scheme.primary],
+            primary: scheme.primary,
+            dark: colorScheme == .dark,
+            lineTick: bandLineTick,
+            songKey: String(describing: p.track.id)
+        )
+    }
+
     /// iPad Full in a Wide window: a full-width top bar, then LEFT the cover
     /// with the rating column at its right, the transport under them and the
     /// title set at the bottom (laid out at Android's 312 stack width), RIGHT
@@ -3066,17 +3099,23 @@ extension NowPlayingView {
         return VStack(alignment: .leading, spacing: 0) {
             wideTopBar(p, titleInBar: titleInBar)
                 .frame(height: F.topBarHeight)
-                .modifier(FocusRetreat(away: barAway, lift: !reduceMotion))
+                // The bar fades (as on Android): its AirPlay picker is a UIKit view, which a shader can't draw.
+                .modifier(FocusRetreat(away: barAway, lift: !reduceMotion, dots: false))
                 .npFade(open, contentFade)
             Spacer().frame(height: budget.barGap)
             HStack(alignment: .top, spacing: 0) {
                 // LEFT — passive: cover + rating column, transport, title at the bottom.
                 VStack(alignment: .leading, spacing: 0) {
                     coverRow(pose.cover, retreat: inFocus, dock: nil,
-                             tappable: focusOffered || stage == .focus) {
+                             tappable: focusOffered || stage == .focus, dissolve: !reduceMotion) {
                         coverTapped(focusOffered: focusOffered)
                     }
                     .frame(width: pose.slot, height: pose.cover, alignment: .topLeading)
+                    .onGeometryChange(for: CGPoint.self) { proxy in
+                        // The cover's centre (its square sits at the slot's top-left).
+                        let f = proxy.frame(in: .global)
+                        return CGPoint(x: f.minX + pose.cover / 2, y: f.minY + pose.cover / 2)
+                    } action: { bandCover = $0 }
                     .zIndex(1)
                     Spacer().frame(height: pose.coverToTransport)
                     transport(p, atEase: atEase)
@@ -3113,6 +3152,10 @@ extension NowPlayingView {
                             .padding(.horizontal, Self.widePageInset)
                     }
                     .frame(height: pagerH, alignment: .top)
+                    .onGeometryChange(for: CGPoint.self) { proxy in
+                        let f = proxy.frame(in: .global)
+                        return CGPoint(x: f.midX, y: f.midY)
+                    } action: { bandLyrics = $0 }
                     .clipped()
                     // The page fades at its sides instead of a hard cut while it swipes.
                     .mask(HStack(spacing: 0) {
@@ -3329,18 +3372,44 @@ extension NowPlayingView {
 
 }
 
-/// Android focusRetreat: what steps away in focus lifts a little (10) and
-/// fades, and stops taking taps. Reduce Motion: the fade alone.
+/// Android focusRetreat + dotDissolve: what steps away in two-column focus
+/// lifts a little (10) and breaks up into fine dots as it goes, and stops
+/// taking taps; the top bar only fades, as on Android. Reduce Motion: a plain fade. (Two columns only: the iPhone's
+/// focus has no dots, owner 2026-11-13.)
 private struct FocusRetreat: ViewModifier {
     var away: Bool
     var lift: Bool
+    /// Off for content holding a UIKit view (a shader draws those as a placeholder).
+    var dots = true
 
     func body(content: Content) -> some View {
         content
-            .opacity(away ? 0 : 1)
+            .modifier(FocusDissolve(progress: away ? 1 : 0, dots: lift && dots))
             .offset(y: away && lift ? -10 : 0)
             .allowsHitTesting(!away)
             .accessibilityHidden(away)
+    }
+}
+
+/// The retreat's progress on the stage's spring: dots (DotDissolve), or a
+/// fade under Reduce Motion.
+nonisolated private struct FocusDissolve: ViewModifier, Animatable {
+    var progress: CGFloat
+    var dots: Bool
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    @MainActor func body(content: Content) -> some View {
+        let p = min(1, max(0, progress))
+        // `dots` is fixed per call site (and by Reduce Motion), so the branch never flips mid-retreat.
+        if dots {
+            content.dotDissolve(p)
+        } else {
+            content.opacity(1 - p)
+        }
     }
 }
 

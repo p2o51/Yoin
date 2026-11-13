@@ -133,6 +133,8 @@ struct ExpandedLyricsList: View {
     /// the window once it holds still after a resize — focus folds the tools
     /// away and the page grows — and the line glides to it.
     var reseatOnResize: Bool = false
+    /// Each new current line (two-column focus's edge band swells with it).
+    var onActiveLine: ((Int) -> Void)? = nil
 
     /// Android LyricsRowInset: rows reach this far past the page edge.
     static let rowInset: CGFloat = 12
@@ -216,7 +218,10 @@ struct ExpandedLyricsList: View {
                 }
                 .mask(NowPlayingAboutView.fade(top: Self.fadeTop, bottom: Self.fadeBottom))
                 .onAppear { seat(animated: false) }
-                .onChange(of: active) { seat(animated: true) }
+                .onChange(of: active) { _, line in
+                    seat(animated: true)
+                    onActiveLine?(line)
+                }
                 // Recenter (and a tapped line) also catches a list still coasting from a fling.
                 .onChange(of: recenterTick) { seat(animated: true, halt: true) }
                 .onChange(of: follow) { seat(animated: true, halt: true) }
