@@ -31,6 +31,7 @@ import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -289,6 +290,38 @@ internal fun LibrarySearchDemo(playing: Boolean) {
 }
 
 /**
+ * Pull Library down from the top: the view is read again, and the real pull
+ * indicator turns under the chips meanwhile. The phone has no service behind
+ * it, so a pull — the dot's, or the user's — reads for a moment and is done.
+ */
+@Composable
+internal fun LibraryRefreshDemo(playing: Boolean) {
+    var refreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshing) {
+        if (refreshing) {
+            delay(DemoRefreshMs)
+            refreshing = false
+        }
+    }
+    DemoPhone(playing = playing, script = {
+        refreshing = false
+        delay(300)
+        moveTo("libraryBody", fy = 0.3f)
+        drag(at("libraryBody", fy = 0.3f).x, at("libraryBody", fy = 0.55f).y, ms = 700) {}
+        refreshing = true
+        lift()
+        delay(DemoRefreshMs + 1_200)
+    }) {
+        DemoLibraryPage(
+            gridState = rememberLazyGridState(),
+            onSearch = {},
+            isRefreshing = refreshing,
+            onRefresh = { refreshing = true },
+        )
+    }
+}
+
+/**
  * Keyboard shortcuts: Space pauses and plays the mini player, Ctrl + → moves
  * it to the next song, Ctrl + K opens search — a keyboard's keys as keycaps
  * on a tray of their own that the bar sits on, pressed by the dot (or the user).
@@ -443,10 +476,12 @@ private fun BoxScope.DemoLibraryPage(
     playing: Boolean = false,
     onMiniPlayerLongPress: (() -> Unit)? = null,
     underBar: @Composable BoxScope.() -> Unit = {},
+    isRefreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
 ) {
     val albums = demoLibraryAlbums()
     var tab by remember { mutableStateOf(LibraryTab.All) }
-    val state = remember(albums, tab) {
+    val state = remember(albums, tab, isRefreshing) {
         val items = buildList<LibraryItem> {
             albums.forEachIndexed { i, album ->
                 add(LibraryItem.AlbumItem(album))
@@ -464,6 +499,7 @@ private fun BoxScope.DemoLibraryPage(
             searchResults = null,
             isSearching = false,
             allItems = items,
+            isRefreshing = isRefreshing,
         )
     }
     LibraryContent(
@@ -477,6 +513,7 @@ private fun BoxScope.DemoLibraryPage(
         onPlaylistClick = {},
         onSongClick = {},
         onRetry = {},
+        onRefresh = onRefresh,
         coverArtUrlBuilder = null,
         allGridState = gridState,
         modifier = Modifier.matchParentSize().demoTarget("libraryBody"),
@@ -673,6 +710,9 @@ private const val MiniPlayerProgress = 0.35f
 
 /** The collapsed search pill's band under the status bar. */
 private val SearchPillBand = 64.dp
+
+/** How long a pull on the demo phone "reads" before the indicator goes. */
+private const val DemoRefreshMs = 1_400L
 
 /** How far the scroll-edge demo scrolls Library. */
 private val ScrollTravel = 360.dp

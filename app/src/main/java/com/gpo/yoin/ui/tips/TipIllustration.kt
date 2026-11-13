@@ -61,6 +61,7 @@ internal fun TipIllustration(
             HomeBubbleTip.KeyboardShortcuts -> KeyboardShortcutsDemo(playing)
             HomeBubbleTip.VolumeLeveling -> VolumeLevelingDemo(playing)
             HomeBubbleTip.HomeScreenWidgets -> HomeScreenWidgetsDemo(playing)
+            HomeBubbleTip.LibraryRefresh -> LibraryRefreshDemo(playing)
             HomeBubbleTip.AiServices -> AiServicesDemo(playing)
             HomeBubbleTip.ContinueOn -> ContinueOnDemo(playing)
             HomeBubbleTip.SpotifyElsewhere -> SpotifyElsewhereDemo(playing)
