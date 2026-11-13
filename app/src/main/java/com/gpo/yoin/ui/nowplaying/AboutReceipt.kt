@@ -246,23 +246,36 @@ internal fun AboutReceipt(
                     }
                 }
                 val noteLabel = stringResource(R.string.cmp_lyric_credits_note)
-                Text(
-                    text = if (expanded) {
-                        stringResource(R.string.cmp_lyric_credits_less)
-                    } else {
-                        stringResource(
-                            R.string.cmp_lyric_credits_more,
-                            others.size,
-                            others.take(3).joinToString("、") { it.role.ifEmpty { noteLabel } } + "…",
-                        )
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                // "N more", then the first roles quieter beside it: space between, no glyph.
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(role = Role.Button) { expanded = !expanded }
                         .padding(vertical = 10.dp),
-                )
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (expanded) {
+                            stringResource(R.string.cmp_lyric_credits_less)
+                        } else {
+                            stringResource(R.string.cmp_lyric_credits_more, others.size)
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                    if (!expanded) {
+                        Text(
+                            text = others.take(3).joinToString("、") { it.role.ifEmpty { noteLabel } } + "…",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                }
             }
             if (notices.isNotEmpty()) {
                 DashedRule()

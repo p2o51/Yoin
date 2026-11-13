@@ -1664,15 +1664,37 @@ private fun ScreenCornersItem(
 ) {
     val title = stringResource(R.string.settings_motion_screen_corners)
     val radius = currentScreenCornerRadius().value.roundToInt()
-    val summary = if (ScreenCorners.userRadius == null) {
-        stringResource(R.string.screen_corners_summary_follow, radius)
+    val value = stringResource(R.string.screen_corners_value, radius)
+    val summary = if (ScreenCorners.userRadius == null) stringResource(R.string.screen_corners_follow) else value
+    // Following the screen: "Match screen", then the value beside it as a MetaLine group, no glyph.
+    val summaryContent: (@Composable ColumnScope.() -> Unit)? = if (ScreenCorners.userRadius == null) {
+        {
+            MetaLine(
+                groups = listOf(MetaGroup.Plain(summary), MetaGroup.Stat(value)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     } else {
-        stringResource(R.string.screen_corners_value, radius)
+        null
     }
     if (listDetail) {
-        FeaturePageRow(icon = YoinSymbols.Smartphone, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+        FeaturePageRow(
+            icon = YoinSymbols.Smartphone,
+            title = title,
+            summary = summary,
+            selected = selected,
+            onClick = onOpenPage,
+            summaryContent = summaryContent,
+        )
     } else {
-        SettingsItem(icon = YoinSymbols.Smartphone, title = title, summary = summary, onClick = onOpenPage)
+        SettingsItem(
+            icon = YoinSymbols.Smartphone,
+            title = title,
+            summary = summary,
+            summaryContent = summaryContent,
+            onClick = onOpenPage,
+        )
     }
 }
 

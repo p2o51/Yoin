@@ -11,6 +11,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -452,12 +453,8 @@ private fun LyricsDisplayContent(
             if (shownUpNext != null && upNextLine != null) {
                 val rise: () -> Float = { upNextRisePx }
                 item(key = "upNextLabel") {
-                    Text(
-                        text = stringResource(R.string.np_lyric_up_next, shownUpNext.title),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    // The label quiet, the song's title stronger: space between, no glyph.
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = UpNextLabelGap, bottom = 2.dp)
@@ -465,7 +462,24 @@ private fun LyricsDisplayContent(
                                 alpha = upNextAlpha * currentBlockAlpha
                                 translationY = rise()
                             },
-                    )
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.np_lyric_up_next),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = shownUpNext.title,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
                 }
                 item(key = "upNextLine") {
                     // As the next song's own list shows it before its first

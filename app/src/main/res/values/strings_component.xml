@@ -158,7 +158,7 @@
         <item>How was it received?</item>
     </string-array>
     <!-- Lyric credits card in About (credits the lyrics source wrote into the lyrics) -->
-    <string name="cmp_lyric_credits_more">%1$d more · %2$s</string>
+    <string name="cmp_lyric_credits_more">%1$d more</string>
     <string name="cmp_lyric_credits_less">Show less</string>
     <string name="cmp_lyric_credits_note">Note</string>
 </resources>

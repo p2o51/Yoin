@@ -53,6 +53,8 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -146,7 +148,7 @@ internal fun ScreenCornerSlider(
     }
 }
 
-/** "Match screen · N dp" or "N dp", and the reset while the user's own value is in use. */
+/** "Match screen" with "N dp" beside it, or the page's title, and the reset while the user's own value is in use. */
 @Composable
 internal fun ScreenCornerValueRow(
     value: Float,
@@ -157,16 +159,26 @@ internal fun ScreenCornerValueRow(
     val haptics = rememberYoinHaptics()
     // Fixed height: "Match screen" (a 48dp target) appearing mid-drag must not move the bar.
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier.fillMaxWidth().height(48.dp)) {
-        Text(
-            text = if (following) {
-                stringResource(R.string.screen_corners_summary_follow, value.roundToInt())
-            } else {
-                stringResource(R.string.settings_motion_screen_corners)
-            },
-            style = MaterialTheme.typography.titleMedium.withTabularFigures(),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f).padding(start = 8.dp),
-        )
+        if (following) {
+            // The label, then the value quieter beside it (MetaLine): no glyph between.
+            Box(Modifier.weight(1f).padding(start = 8.dp)) {
+                MetaLine(
+                    groups = listOf(
+                        MetaGroup.Plain(stringResource(R.string.screen_corners_follow)),
+                        MetaGroup.Plain(stringResource(R.string.screen_corners_value, value.roundToInt()), muted = true),
+                    ),
+                    style = MaterialTheme.typography.titleMedium.withTabularFigures(),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        } else {
+            Text(
+                text = stringResource(R.string.settings_motion_screen_corners),
+                style = MaterialTheme.typography.titleMedium.withTabularFigures(),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f).padding(start = 8.dp),
+            )
+        }
         AnimatedVisibility(
             visible = !following,
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
