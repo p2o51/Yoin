@@ -1092,13 +1092,13 @@ internal fun LibrarySearchShortcutHint(
             modifier = Modifier.size(48.dp),
             contentAlignment = Alignment.Center,
         ) {
+            // Flat, no shadow (owner 2026-11-13): the inverse surface sets it apart from the
+            // page instead, as YoinSnackbar does (about 18:1 against surface, light and dark).
             Surface(
                 modifier = Modifier.size(46.dp),
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                contentColor = MaterialTheme.colorScheme.primary,
-                tonalElevation = 8.dp,
-                shadowElevation = 16.dp,
+                color = MaterialTheme.colorScheme.inverseSurface,
+                contentColor = MaterialTheme.colorScheme.inversePrimary,
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
