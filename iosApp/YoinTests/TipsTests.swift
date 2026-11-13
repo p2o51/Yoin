@@ -137,4 +137,13 @@ final class TipsTests: XCTestCase {
     func test_should_alternate_when_turnsCount() {
         XCTAssertEqual((0..<4).map(BubbleSayPlan.isMemoryTurn), [true, false, true, false])
     }
+
+    func test_should_carryAndroidsSpotifySpeakersTip_when_theDevicesSheetListsSpeakersWithoutAnId() throws {
+        let tip = try XCTUnwrap(Tips.tip("SpotifySpeakers"))
+        XCTAssertEqual(tip.updated, "2026-11-08")
+        XCTAssertEqual(tip.title, "Connect more speakers")
+        XCTAssertEqual(tip.titleZhHans, "连接更多音箱")
+        XCTAssertEqual(tip.text, "Tap More devices… in Now Playing > Devices to switch Spotify to Sonos, PS5, and more; recently used speakers stay in the list")
+        XCTAssertEqual(tip.textZhHans, "正在播放 > 设备里点「更多设备…」，将 Spotify 切到 Sonos、PS5 等音箱；用过的会留在列表里")
+    }
 }

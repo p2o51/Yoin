@@ -87,3 +87,5 @@ The phone's sheet (`DemoSheetStage`): the system's sheet belongs to the window, 
 
 - PullForMemories: Memories' card (`MemoryCardFace`) runs on the deck model (`MemoriesDeckModel` with its presentation, diary morph and awards) and an `AlbumMemory`; a phone of its own needs a demo deck and a pull wired to the phone's own reveal. Left for a pass of its own.
 - VolumeLeveling, HomeScreenWidgets: iOS only; Android has no scene to port (one would show Settings › the Subsonic account, and the Home Screen's widget gallery, which the app does not draw).
+- MemoriesAllAccounts: the same deck as PullForMemories, with a second account's card; it waits for that demo deck.
+- SpotifySpeakers: the Devices sheet (`SpotifyDevicesSheet`) reads `SpotifySource` and `SpotifyDeviceMemory` for the account in use; a phone of its own needs the sheet split from its loading the way TrackMenuBody was. Left for a pass of its own.

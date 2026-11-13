@@ -485,11 +485,6 @@ struct TrackMenuBody<Player: View>: View {
                     FormatTagRow(tags: tags, container: scheme.secondaryContainer, content: scheme.onSecondaryContainer)
                         .padding(.top, 4)
                 }
-                // The file's own format (Subsonic); what is playing shows on Now Playing.
-                if !tags.isEmpty {
-                    FormatTagRow(tags: tags, container: app.secondaryContainer, content: app.onSecondaryContainer)
-                        .padding(.top, 4)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

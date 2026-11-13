@@ -218,7 +218,8 @@ final class SpotifyAudioOutput: AudioOutput {
         guard !silent else {
             // A silent run starts nothing, but a start that could never run here is still said (once the
             // engine has finished its load).
-            if !spotifyInstalled() { Task { [weak self] in self?.refuse(.appMissing, gen: gen) } }
+            // (A Mac has no App Remote to need the app for: its own rule says when Spotify isn't open.)
+            if !device.isMac, !spotifyInstalled() { Task { [weak self] in self?.refuse(.appMissing, gen: gen) } }
             return
         }
         starting = true

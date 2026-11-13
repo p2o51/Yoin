@@ -30,9 +30,8 @@ enum Tips {
     /// The tips, in the order the bubble goes through them. Left out (iOS has no such thing): Android's
     /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line), ScreenCorners (the system draws
     /// them) and SettingsRegrouped (iOS never shipped the old Settings). Not yet, each waits for its feature:
-    /// AiServices (the AI services page), MemoriesAllAccounts (every account's memories in the deck),
-    /// SpotifySpeakers (speakers without an id), ContinueOn (Handoff), and MemoryLedger's and Labs' 11-12 days
-    /// (Android's pixel bar and wide columns; Gemini Nano diagnostics, which iOS has no counterpart for).
+    /// AiServices (the AI services page), ContinueOn (Handoff), and Labs' 11-12 day (Gemini Nano
+    /// diagnostics, which iOS has no counterpart for).
     static let all: [Tip] = [
         // All Memories (Home grid + page, Android #186 / #178 / #202): Android's line and day (Argon's copy for
         // the wide layout and the pixel bar), first in the list as on Android.
@@ -61,6 +60,14 @@ enum Tips {
             text: "Memories includes all your accounts, and switches to that account first when you play or go to the album",
             titleZhHans: "各账号的回忆",
             textZhHans: "Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号"),
+        // Speakers Spotify lists without an id, and the ones used before (Android SpotifySpeakers, #176; iOS
+        // SpotifyDevicesSheet / SpotifyDeviceMemory); Android's own strings (home_tip_spotify_speakers). No
+        // speaker symbol in YoinSymbols on iOS yet: the cast one, as the sheet's More devices… row uses.
+        Tip(id: "SpotifySpeakers", icon: "cast", updated: "2026-11-08",
+            title: "Connect more speakers",
+            text: "Tap More devices… in Now Playing > Devices to switch Spotify to Sonos, PS5, and more; recently used speakers stay in the list",
+            titleZhHans: "连接更多音箱",
+            textZhHans: "正在播放 > 设备里点「更多设备…」，将 Spotify 切到 Sonos、PS5 等音箱；用过的会留在列表里"),
         // Yoin Labs (Android #189); Argon's iOS wording.
         Tip(id: "Labs", icon: "sparkle", updated: "2026-11-10",
             title: "Yoin Labs",

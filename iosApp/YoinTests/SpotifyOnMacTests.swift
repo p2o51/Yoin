@@ -163,7 +163,9 @@ final class SpotifyOnMacTests: XCTestCase {
         app.remote = remote
         remote.bind(account: "p1")
         remote.token = { "tok" }
-        spotify = SpotifyAudioOutput(remote: remote, device: device)
+        // This device has the Spotify app (the simulator has none: canOpenURL would say so), and what a
+        // start says of the account stays out of the app's own cards.
+        spotify = SpotifyAudioOutput(remote: remote, issues: SpotifyIssues(), spotifyInstalled: { true }, device: device)
         engine = PlayerEngine(output: spotify)
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [ConnectStub.self]

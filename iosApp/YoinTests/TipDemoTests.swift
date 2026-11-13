@@ -323,9 +323,11 @@ final class TipDemoTests: XCTestCase {
     // MARK: Slice 3
 
     func test_should_haveAScene_when_aTipAndroidActsOutExistsHere() {
-        // Every tip but All Memories' pull (PullForMemories) and the two iOS-only ones.
+        // Every tip but the Memories deck's two (PullForMemories, MemoriesAllAccounts: no demo deck yet), the
+        // Devices sheet's (SpotifySpeakers) and the two iOS-only ones (docs/fidelity/tips.md, Without a scene).
         let without = Tips.all.map(\.id).filter { !TipIllustration.has($0) }
-        XCTAssertEqual(Set(without), ["PullForMemories", "VolumeLeveling", "HomeScreenWidgets"])
+        XCTAssertEqual(Set(without), ["PullForMemories", "MemoriesAllAccounts", "SpotifySpeakers",
+                                      "VolumeLeveling", "HomeScreenWidgets"])
     }
 
     func test_should_keepTheSecondWriteWasTappedAt_when_theDemoWrites() {
