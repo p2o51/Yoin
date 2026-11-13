@@ -6,6 +6,21 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Yoin</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Spotoolfy export</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.json</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -47,6 +62,8 @@
 	<array>
 		<string>spotify</string>
 	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -58,6 +75,10 @@
 	<string>Yoin plays and shows your Apple Music library.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Yoin streams music from servers on your local network.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.gpo.yoin.playing</string>
+	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>google_sans_flex_400.ttf</string>
@@ -68,8 +89,10 @@
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
-		<true/>
+		<false/>
 	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
@@ -86,6 +109,19 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Yoin item</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.gpo.yoin.item</string>
+		</dict>
 	</array>
 	<key>YoinSpotifyClientID</key>
 	<string>$(YOIN_SPOTIFY_CLIENT_ID)</string>

@@ -227,9 +227,10 @@ class LyricsTranslationSyncAdapter(
 }
 
 /**
- * Global app settings as [SyncKinds.SETTING] records, payload `{value}`. iOS has only
- * [SyncSettingKeys.TRANSLATION_LANGUAGE]: no runtime Spotify client id and no Scroll edge style, so
- * `spotify_client_id` / `seam_top_style` records are declined as UNSUPPORTED and carried unchanged.
+ * Global app settings as [SyncKinds.SETTING] records, payload `{value}`. iOS has
+ * [SyncSettingKeys.TRANSLATION_LANGUAGE] and [SyncSettingKeys.SPOTIFY_CLIENT_ID] (bootstrap-only, see
+ * [applyClientId]) but no Scroll edge style, so `seam_top_style` records are declined as UNSUPPORTED and
+ * carried unchanged.
  *
  * Android's rules: a setting is captured only once the user set it (a default is not an opinion); once sync
  * tracks it ([tracked]) the default is an explicit choice too. The language applies only while there are no

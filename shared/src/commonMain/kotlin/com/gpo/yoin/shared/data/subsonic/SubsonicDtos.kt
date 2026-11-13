@@ -37,6 +37,18 @@ internal data class SubsonicBody(
     val lyricsList: LyricsListDto? = null,
     val lyrics: PlainLyricsDto? = null,
     val openSubsonicExtensions: List<OpenSubsonicExtensionDto>? = null,
+    val shares: SharesDto? = null,
+)
+
+@Serializable
+internal data class SharesDto(
+    val share: List<ShareDto> = emptyList(),
+)
+
+@Serializable
+internal data class ShareDto(
+    val id: String? = null,
+    val url: String? = null,
 )
 
 @Serializable
@@ -100,6 +112,8 @@ internal data class AlbumDto(
     val played: String? = null,
     val song: List<SongDto> = emptyList(),
     val releaseTypes: List<String> = emptyList(),
+    /** OpenSubsonic: the release's version ("Deluxe", "全景声"), from the files' ALBUMVERSION tag. */
+    val version: String? = null,
 )
 
 @Serializable
@@ -134,6 +148,21 @@ internal data class SongDto(
     val played: String? = null,
     /** OpenSubsonic `artists`: every credited artist of the song, one by one. */
     val artists: List<SongArtistDto> = emptyList(),
+    /** OpenSubsonic `replayGain` (#139). */
+    val replayGain: ReplayGainDto? = null,
+    /** OpenSubsonic audio format (#121). */
+    val samplingRate: Int? = null,
+    val bitDepth: Int? = null,
+    val channelCount: Int? = null,
+)
+
+/** OpenSubsonic `ReplayGain`: gains in dB, peaks linear. */
+@Serializable
+internal data class ReplayGainDto(
+    val trackGain: Double? = null,
+    val albumGain: Double? = null,
+    val trackPeak: Double? = null,
+    val albumPeak: Double? = null,
 )
 
 /** OpenSubsonic `ArtistID3` as a song's `artists` entry. */

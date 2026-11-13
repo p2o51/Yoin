@@ -204,6 +204,9 @@ public struct WavyProgressBar: View {
     /// transport row is 0 tall and transparent; Android stageControlsLive),
     /// the wave's frame clock and the glide stop; they resume as it returns.
     public var live: Bool
+    /// A scrub acted out from outside (the tip page's demo phone, whose script drags no real finger): the
+    /// bar shows it as a finger's, magnetized, with its bubble. Nil in the app.
+    public var actedScrub: Double?
 
     @State private var shown: Double
     @State private var amplitude: CGFloat
@@ -216,6 +219,9 @@ public struct WavyProgressBar: View {
     @State private var snapped: Double?
     @State private var captureTicks = 0
     @State private var crossTicks = 0
+    /// A pointer over the bar (iPad, the iPad app on a Mac): the unplayed track deepens by the M3
+    /// hovered state layer. A finger never sets it.
+    @State private var hovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(
@@ -231,10 +237,12 @@ public struct WavyProgressBar: View {
         noteAnchors: [Double] = [],
         noteInk: Color = .white,
         live: Bool = true,
+        actedScrub: Double? = nil,
         onScrubbing: @escaping (Bool) -> Void = { _ in },
         onSeek: @escaping (Double) -> Void
     ) {
         self.live = live
+        self.actedScrub = actedScrub.map { min(max($0, 0), 1) }
         self.noteAnchors = noteAnchors.map { min(max($0, 0), 1) }.sorted()
         self.noteInk = noteInk
         self.progress = progress
@@ -252,10 +260,13 @@ public struct WavyProgressBar: View {
         _amplitude = State(initialValue: isPlaying ? 1 : 0)
     }
 
-    private var displayed: Double { scrub ?? shown }
+    /// The scrub on show: the finger's, else the acted one.
+    private var shownScrub: Double? { scrub ?? actedScrub.map(magnetized) }
+
+    private var displayed: Double { shownScrub ?? shown }
 
     private var wantsWave: Bool {
-        isPlaying && !(flattensWhileScrubbing && scrub != nil)
+        isPlaying && !(flattensWhileScrubbing && shownScrub != nil)
     }
 
     private var waveMoves: Bool { isPlaying && !reduceMotion && live }
@@ -272,7 +283,7 @@ public struct WavyProgressBar: View {
                 .frame(width: width, height: metrics.height)
                 .frame(maxHeight: .infinity, alignment: .bottom)
 
-                if let s = scrub {
+                if let s = shownScrub {
                     bubble(for: s)
                         .alignmentGuide(.leading) { d in
                             -min(max(s * width - d.width / 2, 0), max(width - d.width, 0))
@@ -284,6 +295,7 @@ public struct WavyProgressBar: View {
             .gesture(scrubGesture(width: width))
         }
         .frame(height: 40)
+        .onPointerHover { h in withAnimation(Yoin.effects) { hovered = h } }
         .sensoryFeedback(.selection, trigger: seekCount)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: captureTicks)
         .sensoryFeedback(.impact(weight: .medium), trigger: crossTicks)
@@ -329,7 +341,7 @@ public struct WavyProgressBar: View {
     private func bar(phase: CGFloat) -> some View {
         let p = CGFloat(displayed)
         let active = WavyActiveShape(progress: p, amplitude: amplitude, phase: phase, metrics: metrics)
-        let trackOpacity = buffered > displayed + 0.02 ? 0.20 : 0.14
+        let trackOpacity = Self.trackOpacity(buffered: buffered > displayed + 0.02, hovered: hovered || PointerHover.preview)
         ZStack {
             WavyTrackShape(progress: p, metrics: metrics)
                 .stroke(
@@ -349,6 +361,12 @@ public struct WavyProgressBar: View {
                 )
             }
         }
+    }
+
+    /// The unplayed track's alpha: 0.14, 0.20 where the song is buffered ahead, plus the hovered state
+    /// layer under a pointer.
+    static func trackOpacity(buffered: Bool, hovered: Bool) -> Double {
+        (buffered ? 0.20 : 0.14) + (hovered ? PointerHover.layer : 0)
     }
 
     private func stopDot(progress p: CGFloat) -> some View {

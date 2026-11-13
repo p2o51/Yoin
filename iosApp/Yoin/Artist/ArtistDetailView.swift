@@ -143,7 +143,8 @@ struct ArtistDetailView: View {
     private var yearSpan: String? {
         let years = releases.map(\.year).filter { $0 > 0 }
         guard let lo = years.min(), let hi = years.max() else { return nil }
-        return lo == hi ? "\(lo)" : String(localized: "\(lo) – \(hi)")
+        // Plain digits: an Int in a localized string comes out grouped ("2,021").
+        return lo == hi ? String(lo) : "\(String(lo)) – \(String(hi))"
     }
 
     private var header: some View {
@@ -154,7 +155,7 @@ struct ArtistDetailView: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
@@ -187,7 +188,7 @@ struct ArtistDetailView: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             // Pinned header button over scrolling content: a glass circle.
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
@@ -411,6 +412,16 @@ struct ArtistDetailView: View {
                 .padding(.top, 12)
             }
             Spacer().frame(height: 8)
+            if releases.isEmpty {
+                // Android detail_artist_no_releases (ArtistDetailScreen.kt:1046):
+                // bodyMedium in onSurfaceVariant, 8 × 8 padding. Only a loaded
+                // page gets here; a loading one draws `pendingBody`.
+                Text("No releases")
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+                    .padding(8)
+                    .transition(.opacity)
+            }
             ForEach(Array(visible.enumerated()), id: \.element.id) { i, r in
                 releaseRow(r, firstOfYear: i == 0 || visible[i - 1].year != r.year, latest: r.id == releases.first?.id)
             }
@@ -431,6 +442,8 @@ struct ArtistDetailView: View {
             }
         }
         .animation(Yoin.spatial, value: kindFilter)
+        // A revalidated page that gained or lost its releases: the line fades.
+        .animation(Yoin.effects, value: releases.isEmpty)
     }
 
     private func chip(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
@@ -463,9 +476,11 @@ struct ArtistDetailView: View {
                 EntityBackdrop(entity: .album, palette: r.palette, seed: r.seed, size: 56, stroke: app.primary)
                 Spacer().frame(width: 12)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(r.title).lineLimit(1)
-                        .yoinRole(Tokens.type.titleMedium)
-                        .foregroundStyle(app.onSurface)
+                    AlbumVersionTitle(album: r, scheme: app) { name in
+                        Text(name).lineLimit(1)
+                            .yoinRole(Tokens.type.titleMedium)
+                            .foregroundStyle(app.onSurface)
+                    }
                     // MetaLine (bodySmall): Kind groups in Medium (Latest in
                     // primary, the kind in onSurfaceVariant), then a Stat:
                     // the count Medium tabular onSurface, the unit at 60 %.
@@ -473,7 +488,7 @@ struct ArtistDetailView: View {
                         if latest {
                             Text("Latest").yoinRole(Tokens.type.bodySmall, weight: .medium).foregroundStyle(app.primary)
                         }
-                        Text(r.kind.rawValue).yoinRole(Tokens.type.bodySmall, weight: .medium)
+                        Text(r.kind.label).yoinRole(Tokens.type.bodySmall, weight: .medium)
                             .foregroundStyle(app.onSurfaceVariant)
                         HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
                             Text("\(r.trackCount)").monospacedDigit()

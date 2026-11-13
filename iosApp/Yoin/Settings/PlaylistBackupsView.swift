@@ -144,7 +144,7 @@ struct PlaylistBackupsView: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .animation(Yoin.effects, value: b.following)
     }
 }
@@ -238,7 +238,7 @@ struct PlaylistBackupView: View {
                 .frame(width: 40, height: 40)
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .glassEffect(.regular.interactive(), in: .circle)
         .frame(width: 48, height: 48)
         .accessibilityLabel("More options")
@@ -576,10 +576,11 @@ enum BackupChrome {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
+            .settingsPaneBack()
             Spacer()
             if let menu { menu }
         }

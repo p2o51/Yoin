@@ -44,6 +44,8 @@ struct Profile: Codable, Equatable, Identifiable, Sendable {
     var spotifyName: String? = nil
     /// Epoch ms of its last sign-in: a new sign-in (after a revoke) rebuilds the account's source.
     var spotifySignedInAt: Int64? = nil
+    /// Spotify only: the account's profile picture, shown in its avatar.
+    var spotifyAvatar: String? = nil
 
     /// `AccountScope`'s key for this account's rows ("baseUrl|username" as first saved); nil for Apple Music.
     var subsonicScope: String? {
@@ -118,6 +120,18 @@ final class ProfileStore {
         }
         for p in profiles where p.service == .subsonic {
             if case .found(let a) = credentials.load(p.id) { signIns[p.id] = a }
+        }
+        adoptSpotifyClientId()
+    }
+
+    /// Builds that shipped a Client ID left it unsaved: an account signed in with it keeps it
+    /// (its tokens carry it), so App Remote still has one after the built-in ID went away.
+    private func adoptSpotifyClientId() {
+        guard defaults === UserDefaults.standard,
+              (defaults.string(forKey: SpotifyConfig.clientIdKey) ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+        else { return }
+        for p in profiles where p.service == .spotify {
+            if let id = spotify(p.id)?.clientId, !id.isEmpty { SpotifyConfig.setClientId(id); return }
         }
     }
 
@@ -220,10 +234,18 @@ final class ProfileStore {
         guard status == errSecSuccess || status == errSecMissingEntitlement else { return .failure(.keychain(status)) }
         spotifyTokens[profileId] = tokens
         let updated = Profile(id: profileId, service: .spotify, createdAt: existing?.createdAt ?? now,
-                              spotifyUserId: tokens.userId, spotifyName: tokens.displayName, spotifySignedInAt: now)
+                              spotifyUserId: tokens.userId, spotifyName: tokens.displayName, spotifySignedInAt: now,
+                              spotifyAvatar: tokens.avatarURL ?? existing?.spotifyAvatar)
         if let i = profiles.firstIndex(where: { $0.id == profileId }) { profiles[i] = updated } else { profiles.append(updated) }
         persist()
         return .success(updated)
+    }
+
+    /// A Spotify account's profile picture, read from `/me` after it was added.
+    func setSpotifyAvatar(_ url: String?, for id: String) {
+        guard let i = profiles.firstIndex(where: { $0.id == id }), profiles[i].spotifyAvatar != url else { return }
+        profiles[i].spotifyAvatar = url
+        persist()
     }
 
     /// The tokens a refresh wrote to the Keychain, here too (the in-memory copy a switch reuses).
@@ -431,6 +453,17 @@ final class ProfileManager {
         }
     }
 
+    /// Spotify accounts added before their picture was kept: read once a launch from `/me` with a token
+    /// still good (an expired one waits for the account's own refresh).
+    func fillSpotifyAvatars() async {
+        for p in profiles where p.service == .spotify && p.spotifyAvatar == nil {
+            guard let t = store.spotify(p.id), !t.expiresSoon,
+                  let me = try? await SpotifyAuth.fetchMe(t.accessToken), let url = me.avatar else { continue }
+            store.setSpotifyAvatar(url, for: p.id)
+            refresh()
+        }
+    }
+
     /// The switch itself, in one animated step.
     private func commit(_ target: Profile, probe: ServerSession.Probe?, account: ServerSession.Account?) {
         withAnimation(Yoin.spatial) {
@@ -527,6 +560,8 @@ final class ProfileManager {
             return "Couldn't save the sign-in (Keychain error \(status))"
         case .success(let saved):
             spotifyRevoked.remove(saved.id)
+            // A new sign-in may be another subscription: what Spotify refused before no longer counts.
+            SpotifyIssues.shared.forget(saved.id)
             if activate || saved.id == activeId || activeId == nil {
                 commit(saved, probe: nil, account: nil)
             } else {
@@ -556,6 +591,8 @@ final class ProfileManager {
         withAnimation(Yoin.spatial) {
             if switchingTo == id { switchingTo = nil }
             if failure?.profileId == id { failure = nil }
+            SpotifyIssues.shared.forget(id)
+            AppleMusicNameRegionStore.shared.remove(id)
             if store.remove(id) {
                 endPlayback()
                 settle(store.active)

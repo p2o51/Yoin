@@ -18,6 +18,9 @@ final class MemoriesDeckModel {
     private(set) var awards = MemoriesAwardLifecycle()
     let editor = MemoryTitleEditor()
     let drafts = MemoryDiaryDrafts()
+    /// Going to another account's album, or playing one of its songs, asks once before switching (the
+    /// notice Home's shelf and All Memories share).
+    let switchGate = AccountSwitchGate()
     private var morphs: [String: MemoryPageMorph] = [:]
     private var cardAwards: [String: EmblemAwardTarget] = [:]
     private var diaryAwards: [String: DiaryEmblemTarget] = [:]
@@ -75,7 +78,8 @@ final class MemoriesDeckModel {
         MemoriesHaptics.click()
         editor.end()
         awards.onDiaryOpening(card.id)
-        AlbumNeoDBSync.shared.sheetOpened(card.album)
+        // Another account's memory has no NeoDB line here (its state is that account's).
+        if !card.fromOther { AlbumNeoDBSync.shared.sheetOpened(card.album) }
         diary.animate(to: 1)
     }
 
@@ -83,6 +87,17 @@ final class MemoriesDeckModel {
     func closeDiary() {
         editor.end()
         diary.animate(to: 0)
+    }
+
+    /// A liner row plays its track from the start; a note from its moment (MemoryPlayback.swift: the
+    /// queue says it plays from this memory's album). Another account's song: Yoin switches to that
+    /// account first, then plays (Android onPlayMemoryTrack); the first time ever the notice asks, on
+    /// the row tapped ([anchor]), since a switch stops what is playing.
+    func play(_ card: MemoryCard, track g: MemoryCard.DiaryTrack, at ms: Int64?, from anchor: String, model: AppModel) {
+        guard let owner = card.owner else { return model.play(card, track: g, at: ms) }
+        switchGate.request(from: anchor, account: owner.name, subject: g.track.title, opensAlbum: false) {
+            model.play(card, track: g, at: ms, switchingTo: owner)
+        }
     }
 }
 
@@ -182,7 +197,8 @@ struct MemoryCardFace: View {
     var scheme: CoverScheme
     var dark: Bool
     var interactive: Bool
-    var onOpenAlbum: () -> Void
+    /// Go to album, from the button tapped (its switch-notice anchor).
+    var onOpenAlbum: (String) -> Void
     var onTitle: (MemoryTitles.Outcome) -> Void
     /// The column's inside width: what the excerpt's lines are measured at.
     @State private var excerptWidth: CGFloat = MemoryExcerptFit.maxWidth
@@ -222,7 +238,8 @@ struct MemoryCardFace: View {
 
     private func exhibit(_ tones: MemoryTones) -> some View {
         let cover = metrics.cover, seal = metrics.seal
-        let onCover = CoverMarks.onCover(provider: card.album.id.provider)
+        // Memories: the seal sits on every cover's lower-right corner, Spotify's too (51, 11-07, like Android).
+        let onCover = true
         return VStack(spacing: 0) {
             CoverArt(palette: card.album.palette, cornerRadius: 0, seed: card.album.seed)
                 .frame(width: cover, height: cover)
@@ -235,7 +252,6 @@ struct MemoryCardFace: View {
                                 neutrals: scheme, onCover: onCover)
                         .morphLayer(diary) { p in sealPose(p) }
                         .pageFrame { r in if abs(diary.fraction) < 0.001 { morph.seal = r } }
-                        // A Spotify cover: the stamp under its right edge, clear of it (CoverMarks).
                         .padding(.leading, onCover ? cover - seal * 0.7 : cover - seal)
                         .padding(.top, onCover ? cover - seal * 0.76 : cover + CoverMarks.gap)
                 }
@@ -281,8 +297,9 @@ struct MemoryCardFace: View {
         let size = Self.titleFont(card.titleKind)
         let font: Font = album ? .gsf(size, .semibold) : .system(size: size, weight: .semibold, design: .serif)
         let spacing = album ? size * 0.3 - 6 : size * 0.36 - 7
+        // Another account's memory is read-only here: its title is that account's.
         return MemoryTitleSlot(card: card, surface: .card, editor: deck.editor, scheme: scheme, tones: tones, font: font,
-                               lineSpacing: spacing, centred: true, enabled: interactive, onCommit: onTitle) {
+                               lineSpacing: spacing, centred: true, enabled: interactive && !card.fromOther, onCommit: onTitle) {
             Text(card.title)
                 .font(font)
                 .lineSpacing(spacing)
@@ -322,40 +339,56 @@ struct MemoryCardFace: View {
     private func teaser(_ tones: MemoryTones) -> some View {
         VStack(spacing: 16) {
             if let e = card.excerpt { excerpt(e, tones) }
-            HStack(spacing: 10) {
-                Button { deck.openDiary(card) } label: {
-                    HStack(spacing: 8) {
-                        YoinIcon("note", size: 18)
-                        Text("Diary").font(.gsf(15, .semibold))
-                        if card.noteCount > 0 {
-                            // The count on its own 18 % pill, lighter than the label.
-                            Text("\(card.noteCount)")
-                                .font(.gsf(15, .medium)).monospacedDigit()
-                                .opacity(0.78)
-                                .padding(.horizontal, 6)
-                                .frame(minWidth: 24, minHeight: 24)
-                                .background(tones.ink.opacity(0.18), in: .capsule)
-                                .padding(.leading, -2)
-                        }
-                    }
-                    .foregroundStyle(tones.ink)
-                    .padding(.leading, 16).padding(.trailing, 20)
-                    .frame(height: 48)
-                    .background(tones.ink.opacity(0.14), in: .capsule)
-                    .contentShape(.capsule)
+            VStack(spacing: MemoryOtherAccountLine.cardGap) {
+                buttons(tones)
+                // Another account's memory: whose it is, right by Go to album (which switches there).
+                // Under the row, which already holds two buttons.
+                if let owner = card.owner {
+                    MemoryOtherAccountLine(owner: owner, tones: tones)
+                        .transition(.opacity)
                 }
-                .buttonStyle(PressScale())
-                .accessibilityLabel(card.noteCount > 0 ? String(localized: "Diary, \(card.noteCount) notes") : String(localized: "Diary"))
-                Button(action: onOpenAlbum) {
-                    Text("Go to album")
-                        .font(.gsf(15, .semibold))
-                        .foregroundStyle(tones.onButton)
-                        .padding(.horizontal, 24)
-                        .frame(height: 48)
-                        .background(tones.button, in: .capsule)
-                }
-                .buttonStyle(PressScale())
             }
+            // An account switch under the open deck moves the line in or out.
+            .animation(Yoin.spatial, value: card.fromOther)
+        }
+    }
+
+    private func buttons(_ tones: MemoryTones) -> some View {
+        let anchor = MemorySwitchAnchor.album(.card, card)
+        return HStack(spacing: 10) {
+            Button { deck.openDiary(card) } label: {
+                HStack(spacing: 8) {
+                    YoinIcon("note", size: 18)
+                    Text("Diary").font(.gsf(15, .semibold))
+                    if card.noteCount > 0 {
+                        // The count on its own 18 % pill, lighter than the label.
+                        Text("\(card.noteCount)")
+                            .font(.gsf(15, .medium)).monospacedDigit()
+                            .opacity(0.78)
+                            .padding(.horizontal, 6)
+                            .frame(minWidth: 24, minHeight: 24)
+                            .background(tones.ink.opacity(0.18), in: .capsule)
+                            .padding(.leading, -2)
+                    }
+                }
+                .foregroundStyle(tones.ink)
+                .padding(.leading, 16).padding(.trailing, 20)
+                .frame(height: 48)
+                .background(tones.ink.opacity(0.14), in: .capsule)
+                .contentShape(.capsule)
+            }
+            .buttonStyle(PressScale())
+            .accessibilityLabel(card.noteCount > 0 ? String(localized: "Diary, \(card.noteCount) notes") : String(localized: "Diary"))
+            Button { onOpenAlbum(anchor) } label: {
+                Text("Go to album")
+                    .font(.gsf(15, .semibold))
+                    .foregroundStyle(tones.onButton)
+                    .padding(.horizontal, 24)
+                    .frame(height: 48)
+                    .background(tones.button, in: .capsule)
+            }
+            .buttonStyle(PressScale())
+            .accountSwitchNotice(deck.switchGate, anchor: anchor)
         }
     }
 
@@ -422,7 +455,7 @@ struct MemoryPageView: View {
     var dark: Bool
     /// This is the deck's current page.
     var current: Bool
-    var onOpenAlbum: () -> Void
+    var onOpenAlbum: (String) -> Void
     var onTitle: (MemoryTitles.Outcome) -> Void
     var onReview: (String) -> Bool
     var horizontalPager: AnyGesture<DragGesture.Value>

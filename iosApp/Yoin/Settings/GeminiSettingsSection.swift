@@ -10,6 +10,9 @@ import SwiftUI
 struct GeminiSettingsSection: View {
     var app: CoverScheme
     var row: Color
+    /// Its own page (Settings › Features › AI features, 51 2026-11-09: every row opens a page, nothing
+    /// unfolds in the list): the key and the language, open, without the group label and the row.
+    var page = false
 
     @State private var settings = GeminiSettings.shared
     @State private var open = false
@@ -22,6 +25,27 @@ struct GeminiSettingsSection: View {
     }
 
     var body: some View {
+        if page { pageBody } else { listBody }
+    }
+
+    private var pageBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "Song info, Ask Gemini, translation and Memory titles"))
+                .yoinRole(Tokens.type.bodyMedium)
+                .foregroundStyle(app.onSurfaceVariant)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+            VStack(spacing: 2) {
+                keyField.background(row, in: segment(0, 2))
+                languageRow.background(row, in: segment(1, 2))
+            }
+            saveButton.padding(.top, 8)
+        }
+        .animation(Yoin.effects, value: settings.apiKey)
+        .animation(Yoin.effects, value: settings.targetLanguage)
+    }
+
+    private var listBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Features")
                 .yoinRole(Tokens.type.labelLarge)
@@ -81,7 +105,7 @@ struct GeminiSettingsSection: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     private var keyField: some View {
@@ -136,7 +160,7 @@ struct GeminiSettingsSection: View {
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     private var saveButton: some View {

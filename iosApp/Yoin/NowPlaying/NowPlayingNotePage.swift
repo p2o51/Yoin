@@ -191,7 +191,7 @@ struct NowPlayingNotePage: View {
                          meta: sort == .created ? NotesStore.formatDate(note.createdAt, nowMs: Self.nowMs) : nil,
                          scheme: scheme)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .contextMenu {
             Button {
                 onEdit(note)
@@ -237,7 +237,7 @@ struct NowPlayingNotePage: View {
                     .frame(minHeight: 40)
                     .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
         }
         .frame(minHeight: 48)
     }
@@ -373,7 +373,7 @@ struct NoteSortToggle: View {
                 }
                 .contentShape(.capsule)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }

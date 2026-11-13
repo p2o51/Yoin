@@ -25,8 +25,8 @@ settings:
     DEVELOPMENT_TEAM: M75T74PTC4
     CODE_SIGN_STYLE: Automatic
     # One version for the app and its widget extension (they must match); a new build bumps this line only.
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "25"
+    MARKETING_VERSION: "0.6.0"
+    CURRENT_PROJECT_VERSION: "32"
 targets:
   Yoin:
     type: application
@@ -76,14 +76,37 @@ targets:
     info:
       path: Yoin/Info.plist
       properties:
+        # "Open in Yoin" for a Spotoolfy export (JSON): the welcome guide's Spotoolfy step takes it.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Spotoolfy export
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.json]
+        LSSupportsOpeningDocumentsInPlace: false
+        # Handoff of what's playing (App/PlayingHandoff.swift), the native Mac's activity type.
+        NSUserActivityTypes:
+          - com.gpo.yoin.playing
+        # Songs, albums and playlists dragged inside Yoin (Library/YoinDrag.swift; the native Mac's type).
+        # Other apps get their plain text.
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.gpo.yoin.item
+            UTTypeDescription: Yoin item
+            UTTypeConformsTo:
+              - public.data
         CFBundleDisplayName: Yoin
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Only HTTPS and Apple's own crypto: no export compliance paperwork per build.
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
+        # One window, on iPad and on a Mac: every scene would share AppModel.shared, so a second window
+        # only mirrored the first (docs/ipad.md).
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: true
+          UIApplicationSupportsMultipleScenes: false
+        # A pointer's clicks arrive as indirect-pointer touches with their button mask (an iPad with a
+        # mouse or trackpad, the iPad app on a Mac). Without it they are plain direct touches and a
+        # right-click can't be told from a tap (Theme/SecondaryClick.swift).
+        UIApplicationSupportsIndirectInputEvents: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:

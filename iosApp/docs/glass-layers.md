@@ -141,8 +141,9 @@ Material column = World. "Lift" = tonal at rest, glass while held.
 | Element | Layer | Material | Why |
 |---|---|---|---|
 | Queue, song menu, Add to playlist | L4 | system sheet glass | system |
-| Rows and quick actions inside | L1 of the sheet | tonal | R1 |
-| Behind | — | recedes 0.96, dim 0.14, blur 3.5 (NP too, under Queue) | R3 |
+| Account card (header avatar's tap) | L4 | the song menu's surface (`SheetSurface`, Library/TrackMenuSheet.swift): plain Liquid Glass at the sheet's 36 corner, the same row fill and segments; grows out of the avatar, its colour tinting the glass until p 0.4 | 51 (11-13): one material with the song sheet |
+| Rows and quick actions inside | L1 of the sheet | tonal: `SheetSurface.rowFill` (surfaceContainerHigh 0.7, dark 0.55) | R1 |
+| Behind | — | recedes 0.96, dim 0.14, blur 3.5 (NP too, under Queue; the shell under the account card, on the card's p through `SheetRise`) | R3 |
 
 ## Glass Lab: what was added
 

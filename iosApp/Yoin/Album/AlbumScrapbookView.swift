@@ -196,10 +196,18 @@ struct AlbumScrapbookView: View {
         .onAppear {
             onScreen = true
             openFocus()
+            #if DEBUG
+            openNotesDemo()
+            #endif
         }
         .onDisappear { onScreen = false }
         .onChange(of: ScrapbookFocusRequest.shared.pending) { _, _ in openFocus() }
-        .onChange(of: album.tracks.map(\.id)) { _, _ in openFocus() }
+        .onChange(of: album.tracks.map(\.id)) { _, _ in
+            openFocus()
+            #if DEBUG
+            openNotesDemo()
+            #endif
+        }
         .onChange(of: pointedOut) { _, id in
             // View in Scrapbook: the song's piece comes into view and swells a touch, then settles.
             guard let id else { return }
@@ -220,6 +228,17 @@ struct AlbumScrapbookView: View {
         }
         }
     }
+
+    #if DEBUG
+    /// `-scrapNotesDemo …`: the first song's sheet on Notes, once the tracks are here (ScrapNotesTab.swift).
+    private func openNotesDemo() {
+        guard !isMock, trackSheet == nil, let t = ScrapNotesDemo.seed(album, store: model.store) else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(900))
+            trackSheet = ScrapSheetOpen(track: t, tab: .notes)
+        }
+    }
+    #endif
 
     /// Now Playing's "Manage in Scrapbook" (ScrapbookFocusRequest): once the
     /// pager has come to rest here, the song's sheet opens at that row's editor.
@@ -327,7 +346,7 @@ struct AlbumScrapbookView: View {
             .background(s.primaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             .contentShape(.rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .disabled(isMock || onEditReview == nil)
             .accessibilityLabel("Edit comment")
             .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
@@ -614,6 +633,7 @@ struct AlbumScrapbookView: View {
             }
         }
         .contentShape(TicketShape())
+        .pointerHighlight()
         // Android Ticket: a tap plays the album from the song, a long press opens its sheet (score,
         // About, Notes). The mock's are hand-set and do neither.
         .onTapGesture { play(t) }
@@ -645,7 +665,7 @@ struct AlbumScrapbookView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .disabled(isMock)
                     .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(n.text)") : String(localized: "Note at \(n.time): \(n.text)"))
                 }
@@ -658,7 +678,7 @@ struct AlbumScrapbookView: View {
                             .padding(.leading, 42).padding(.top, 6).padding(.bottom, 4).padding(.trailing, 8)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .disabled(isMock)
                 }
             }
@@ -717,7 +737,7 @@ struct AlbumScrapbookView: View {
                     .offset(x: -11, y: -12)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityLabel("Asked about \(t.title): \(ask.title ?? ask.question)")
         .accessibilityHint("Read all")
         .frame(maxWidth: 380)
@@ -740,7 +760,7 @@ struct AlbumScrapbookView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(s.tertiaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityLabel("About \(t.title): \(line)")
         .accessibilityHint("Read all")
         .containerRelativeFrame(.horizontal) { w, _ in min(w * 0.92, 380) }
@@ -762,7 +782,7 @@ struct AlbumScrapbookView: View {
             // A capped radius, not a capsule: a long value wraps (Android FactTagShape).
             .background(s.secondaryContainer, in: .rect(cornerRadius: 16, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .frame(maxWidth: 340, alignment: .leading)
         .modifier(layer(tilt("\(t.number)/fact\(index)", Tilt.tag), depth: 0.7))
     }
@@ -1215,7 +1235,7 @@ struct AlbumRateSheet: View {
                 reviewField
                 if neoState.isShown {
                     AlbumNeoDBLine(state: neoState, scheme: scheme, onSignIn: openNeoDBSettings,
-                                   onRetry: { Task { await neo.retry(album) } })
+                                   onRetry: { Task { await neo.retry(album) } }, onVoices: openNeoDBVoices)
                         .transition(.opacity)
                 }
             }
@@ -1257,7 +1277,13 @@ struct AlbumRateSheet: View {
     /// "Sign in to sync": Settings, where NeoDB signs in (Android opens Settings › NeoDB).
     private func openNeoDBSettings() {
         dismiss()
-        model?.openSettings()
+        model?.openSettings(.neodb)
+    }
+
+    /// What others say on NeoDB: the sheet goes, the page is pushed over the album.
+    private func openNeoDBVoices() {
+        dismiss()
+        model?.openNeoDBVoices(album)
     }
 
     /// AlbumReviewField: a borderless field on surfaceContainerHigh, 28

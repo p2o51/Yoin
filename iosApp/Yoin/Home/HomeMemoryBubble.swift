@@ -392,6 +392,7 @@ struct MemoryBubbleOverlay: View {
             .opacity(Double(rest * fade * (1 - smoothstep(0, 0.5, editProgress)) * (1 - smoothstep(0, 0.3, bubble.islandT))))
             .frame(width: t, height: t)
             .contentShape(.rect)
+            .pointerHighlight()
             .onTapGesture {
                 guard enabled else { return }
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -467,11 +468,10 @@ struct MemoryBubbleOverlay: View {
 
     private func tapBubble() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        // A tip opens Settings › About › Tips on it, and is read from then on (Android TipActivity).
+        // A tip opens on its own page, where it can be read in full and marked read (Android TipActivity).
         if let tip = bubble.sayTip {
             bubble.cue(.touch, pill: pill)
-            bubble.tips.setRead(tip, true)
-            model.open(.tips(focus: tip.id))
+            model.open(.tip(tip.id))
             return
         }
         let focus = bubble.say?.albumId ?? pill?.latest?.albumId

@@ -59,6 +59,14 @@ class SubsonicException(
             kind == SubsonicErrorKind.CONFLICTING_AUTH ||
             kind == SubsonicErrorKind.INVALID_API_KEY
 
+    /**
+     * A refusal that won't change by asking again (sharing off, no permission, no such endpoint):
+     * a Subsonic error, or an HTTP 400 / 404 / 405 / 501. A network failure or a 5xx doesn't count
+     * (Android SubsonicMusicSource.isPermanentShareRefusal).
+     */
+    val refusesForGood: Boolean
+        get() = code >= 0 || (kind == SubsonicErrorKind.HTTP && httpStatus in setOf(400, 404, 405, 501))
+
     internal companion object {
         fun api(code: Int, message: String?, httpStatus: Int?): SubsonicException =
             SubsonicException(

@@ -11,27 +11,41 @@ import SwiftUI
 struct StorageSettingsSection: View {
     var app: CoverScheme
     var row: Color
+    /// The NeoDB page, opened by its row (and by Settings for "Sign in to sync").
+    @Binding var neodbOpen: Bool
+    @State private var neodb = NeoDBAccount.shared
+    /// The two-pane Settings' list: NeoDB's row picks its page beside it.
+    @Environment(\.settingsList) private var list
 
     @State private var bytes: Int64?
     @State private var clearing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Storage")
+            // 51 2026-11-09 (Android #191): Cloud sync, NeoDB, then the playback cache.
+            Text("Sync and storage")
                 .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(app.primary)
                 .padding(.horizontal, 8)
                 .accessibilityAddTraits(.isHeader)
             VStack(spacing: 2) {
-                cacheRow
-                    .background(row, in: CloudSyncView.segment(0, 2))
+                CloudSyncEntryRow(app: app, row: row, shape: CloudSyncView.segment(0, 3))
+                Button { if let list { list.pick(.neodb) } else { neodbOpen = true } } label: {
+                    SettingsRowLabel(title: "NeoDB", summary: neodbSummary, app: app, trailing: "chevron_right")
+                }
+                .buttonStyle(.plain).pointerHighlight()
+                .settingsSegment(1, 3, row: row, app: app, picked: list?.picked == .neodb)
                 // Downloads (Subsonic only) are on the Subsonic account's page (SubsonicAccountSettings).
-                // Android keeps Cloud sync in this group (Settings › Storage).
-                CloudSyncEntryRow(app: app, row: row, shape: CloudSyncView.segment(1, 2))
+                cacheRow
+                    .background(row, in: CloudSyncView.segment(2, 3))
             }
         }
         .animation(Yoin.effects, value: bytes)
         .task { await refresh() }
+    }
+
+    private var neodbSummary: String {
+        neodb.isSignedIn ? String(localized: "Signed in") : String(localized: "Not signed in")
     }
 
     private var canClear: Bool { !clearing && (bytes ?? 0) > 0 }

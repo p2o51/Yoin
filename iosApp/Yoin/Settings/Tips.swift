@@ -28,15 +28,73 @@ struct Tip: Identifiable, Hashable, Sendable {
 
 enum Tips {
     /// The tips, in the order the bubble goes through them. Left out (iOS has no such thing): Android's
-    /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line).
+    /// ScrollEdge ("Settings › Motion › Scroll edge", the top wave line), ScreenCorners (the system draws
+    /// them) and SettingsRegrouped (iOS never shipped the old Settings). Not yet, each waits for its feature:
+    /// AiServices (the AI services page) and Labs' 11-12 day (Gemini Nano diagnostics, which iOS has no
+    /// counterpart for).
     static let all: [Tip] = [
+        // All Memories (Home grid + page, Android #186 / #178 / #202): Android's line and day (Argon's copy for
+        // the wide layout and the pixel bar), first in the list as on Android.
+        Tip(id: "MemoryLedger", icon: "edit_note", updated: "2026-11-12",
+            title: "All Memories",
+            text: "Tap All Memories on Home, tap a square on the grid to see just that time, and scroll down as the squares fly into a pixel bar at the top; switch between Timeline, Cards, and a sortable List below on the right, with Timeline and Cards in 2–3 columns on large screens",
+            titleZhHans: "全部回忆",
+            textZhHans: "点首页的「全部回忆」，在日历格点一格只看那段时间，往下滚格子会飞到顶栏拼成像素条；下方右侧可切换时间线、卡片或可排序的列表，大屏上时间线和卡片排成 2–3 列"),
+        // Home's Spotify pill (HomeSpotifyElsewhere.swift; Android PR #197, owner 2026-11-10); Argon's wording.
+        // No swap symbol in YoinSymbols yet: the music note.
+        Tip(id: "SpotifyElsewhere", icon: "music_note", updated: "2026-11-10",
+            title: "Switch to Spotify",
+            text: "While in another account, if Spotify is playing or paused on a song, tap the pill at the top of Home to switch to it",
+            titleZhHans: "切换到 Spotify",
+            textZhHans: "在其他账号下，已登录的 Spotify 有歌正在播放或暂停时，点首页顶部的胶囊即可切换过去"),
+        // Handoff of the playing song (App/PlayingHandoff.swift; Android's ContinueOn, where it is the tablet's
+        // taskbar); Argon's iOS wording. No demo: the offer is the system's App Switcher and Dock.
+        Tip(id: "ContinueOn", icon: "devices", updated: "2026-11-13",
+            title: "Continue on another device",
+            text: "With Handoff on for the same Apple ID, tap Yoin at the bottom of the App Switcher on iPhone or in the Dock on iPad and Mac to pick up where your other device left off",
+            titleZhHans: "在另一台设备上接着听",
+            textZhHans: "登录同一 Apple ID 并开启「接力」后，在 iPhone 的 App 切换器底部或 iPad、Mac 的程序坞点 Yoin，从另一台设备放到的位置接着播"),
+        // Lyric Cards with Apple Intelligence (Android #180); Argon's iOS wording.
+        Tip(id: "LyricHighlight", icon: "lyrics", updated: "2026-11-10",
+            title: "Lyric Cards",
+            text: "On devices with Apple Intelligence, tap a lyric card on Home to play from that line, or swipe for more; lines shared or saved in Lyrics also show up",
+            titleZhHans: "歌词卡片",
+            textZhHans: "支持 Apple 智能的设备上，点首页歌词卡片从那句开播，左右滑动翻看；歌词里分享或保存的句子也会加入"),
+        // The Memories deck deals every account's memories (Android #178); Android's own strings
+        // (home_tip_memories_all_accounts). No memory symbol in YoinSymbols on iOS yet: the note one.
+        Tip(id: "MemoriesAllAccounts", icon: "edit_note", updated: "2026-11-13",
+            title: "Memories across accounts",
+            text: "Memories includes all your accounts, and switches to that account first when you play or go to the album",
+            titleZhHans: "各账号的回忆",
+            textZhHans: "Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号"),
+        // Speakers Spotify lists without an id, and the ones used before (Android SpotifySpeakers, #176; iOS
+        // SpotifyDevicesSheet / SpotifyDeviceMemory); Android's own strings (home_tip_spotify_speakers). No
+        // speaker symbol in YoinSymbols on iOS yet: the cast one, as the sheet's More devices… row uses.
+        Tip(id: "SpotifySpeakers", icon: "cast", updated: "2026-11-08",
+            title: "Connect more speakers",
+            text: "Tap More devices… in Now Playing > Devices to switch Spotify to Sonos, PS5, and more; recently used speakers stay in the list",
+            titleZhHans: "连接更多音箱",
+            textZhHans: "正在播放 > 设备里点「更多设备…」，将 Spotify 切到 Sonos、PS5 等音箱；用过的会留在列表里"),
+        // Yoin Labs (Android #189); Argon's iOS wording.
+        Tip(id: "Labs", icon: "sparkle", updated: "2026-11-10",
+            title: "Yoin Labs",
+            text: "Experimental features are now in Settings › Yoin Labs, including the Lyric Cards toggle",
+            titleZhHans: "Yoin Labs",
+            textZhHans: "实验功能现在在 设置 › Yoin Labs，歌词卡片的开关也在那里"),
+        // Volume leveling (Android #139); Argon's iOS wording (the Subsonic account's page).
+        Tip(id: "VolumeLeveling", icon: "equalizer", updated: "2026-11-10",
+            title: "Volume leveling",
+            text: "In Settings › your Subsonic account › Volume leveling, turn on ReplayGain by track or by album to keep volume consistent",
+            titleZhHans: "音量平衡",
+            textZhHans: "设置 › 点开 Subsonic 账号 › 音量平衡，可按曲目或按专辑开启 ReplayGain，让歌曲音量一致"),
         // Home screen widgets (Widgets/, parity A-F10); Argon's wording (.argon/ios-widgets-tip), the widget
-        // names as the gallery shows them.
+        // names as the gallery shows them; the Chinese in Apple's terms, 主屏幕 and 小组件 (Carbon,
+        // .argon/ios-widgets-tip-apple, 2026-11-13; a wording change, so the day stays).
         Tip(id: "HomeScreenWidgets", icon: "library", updated: "2026-11-07",
             title: "Add Home Screen widgets",
             text: "Long-press an empty area on the Home Screen and tap Edit to add the Play and Memory widgets",
-            titleZhHans: "添加桌面小组件",
-            textZhHans: "长按主屏幕空白处，在左上角「编辑」里添加「播放」和「Memories」小组件"),
+            titleZhHans: "添加主屏幕小组件",
+            textZhHans: "长按主屏幕空白处，轻点左上角「编辑」，添加「播放」和「Memories」小组件"),
         // Android #162 (owner's wording, 2026-11-06). No person symbol in YoinSymbols yet: the artist one.
         Tip(id: "AccountQuickSwitch", icon: "artist", updated: "2026-11-06",
             title: "Switch accounts",
@@ -74,11 +132,14 @@ enum Tips {
             text: "Long-press the cover in Now Playing for Song options and quick actions",
             titleZhHans: "歌曲菜单",
             textZhHans: "正在播放里长按封面，打开歌曲菜单与快捷操作"),
-        Tip(id: "SongMenu", icon: "queue", updated: "2026-11-04",
+        // Android moved it to 11-07 when Library's song rows got the sheet (c1c717d25, 803294971); iOS's Library
+        // and search rows already open it on a long-press (LibraryView, SearchView `.trackRow`), and its pages
+        // leave search first (TrackMenuSheet.leaveOverlays). Android's line as given.
+        Tip(id: "SongMenu", icon: "queue", updated: "2026-11-07",
             title: "Song quick actions",
-            text: "Long-press a song in an album or playlist to play next, queue, favorite, or share",
+            text: "Long-press a song in an album, playlist, or Library to play next, queue, favorite, or share",
             titleZhHans: "长按歌曲操作",
-            textZhHans: "长按专辑或歌单里的歌，下一首播放、加入队列、收藏或分享"),
+            textZhHans: "长按专辑、歌单或资料库里的歌，下一首播放、加入队列、收藏或分享"),
         Tip(id: "PlayModes", icon: "shuffle", updated: "2026-10-21",
             title: "Shuffle and repeat",
             text: "Tap to switch shuffle and repeat; long-press to split them and toggle repeat off",
@@ -137,6 +198,18 @@ enum Tips {
     /// The tips still unread, in the bubble's order.
     static func unread(_ read: Set<String>, in tips: [Tip] = all) -> [Tip] {
         tips.filter { !read.contains($0.id) }
+    }
+
+    /// After [current] is read, the next unread tip after it (wrapping); nil once every other tip is read
+    /// (Android `nextUnreadTip`): the tip page's Next goes there, and reads Done when there is none.
+    static func nextUnread(after current: String, read: Set<String>, in tips: [Tip] = all) -> Tip? {
+        guard let start = tips.firstIndex(where: { $0.id == current }) else { return unread(read, in: tips).first }
+        return (1..<tips.count).lazy.map { tips[(start + $0) % tips.count] }.first { !read.contains($0.id) }
+    }
+
+    /// The tip page's place in the list: Android `tip_position`, "3 / 19".
+    static func positionLine(index: Int, total: Int) -> String {
+        String(localized: "\(index + 1) / \(total)")
     }
 
     // MARK: Read store encoding

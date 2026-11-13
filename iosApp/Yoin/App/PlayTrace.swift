@@ -12,10 +12,12 @@ enum PlayTrace {
     static let capacity = 2000
     private static let queue = DispatchQueue(label: "com.gpo.yoin.playtrace")
     nonisolated(unsafe) private static var lines: [String] = []
-    private static let stamp: DateFormatter = {
+    /// Each line's time, with the day as Android's log has it (MM-dd HH:mm:ss.SSS): a log kept on disk
+    /// across relaunches can span days.
+    static let stamp: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "HH:mm:ss.SSS"
+        f.dateFormat = "MM-dd HH:mm:ss.SSS"
         return f
     }()
 

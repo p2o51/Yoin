@@ -232,6 +232,6 @@ struct MemoryTitleEditRow: View {
                 .frame(height: DiaryWriterTokens.rowHit)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 }

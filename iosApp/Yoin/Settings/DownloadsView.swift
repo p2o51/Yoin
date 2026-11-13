@@ -134,7 +134,7 @@ struct DownloadsView: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityValue(offline.quality.label)
     }
 
@@ -160,7 +160,7 @@ struct DownloadsView: View {
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .transition(.opacity.combined(with: .move(edge: .top)))
         .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
@@ -213,7 +213,7 @@ struct DownloadsView: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     /// [kind] [subtitle] [status / size]: labels only.
@@ -260,10 +260,11 @@ struct DownloadsView: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
+            .settingsPaneBack()
             Spacer()
         }
         .padding(.leading, 8)

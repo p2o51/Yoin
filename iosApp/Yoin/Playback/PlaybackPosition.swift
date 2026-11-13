@@ -6,10 +6,14 @@ import SwiftUI
 /// Falls back to the mock snapshot while the engine has no song.
 struct PlaybackPosition<Content: View>: View {
     @Environment(AppModel.self) private var model
+    /// The tip page's demo phone: its own playhead, never the engine's.
+    @Environment(\.demoPlayhead) private var demo
     @ViewBuilder var content: (_ positionSec: Double, _ durationSec: Double) -> Content
 
     var body: some View {
-        if model.player.currentTrack != nil {
+        if let demo {
+            content(demo.positionSec, max(demo.durationSec, 1))
+        } else if model.player.currentTrack != nil {
             let p = model.player.progress
             content(p.positionSec, max(p.durationSec, 1))
         } else {

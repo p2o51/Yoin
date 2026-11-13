@@ -3,26 +3,26 @@ import NaturalLanguage
 
 // What the recap after an import shows (Android `SpotoolfyRecap`), worked out locally from the plan.
 
-struct RecapNote: Hashable, Sendable {
+struct RecapNote: Hashable, Sendable, Codable {
     var text: String
     var trackTitle: String?
     var artist: String?
     var writtenAt: Int64
 }
 
-struct RecapKeyword: Hashable, Sendable {
+struct RecapKeyword: Hashable, Sendable, Codable {
     var text: String
     var count: Int
     /// Notes using the word, newest first.
     var notes: [RecapNote]
 }
 
-struct RecapEmoji: Hashable, Sendable {
+struct RecapEmoji: Hashable, Sendable, Codable {
     var emoji: String
     var count: Int
 }
 
-struct RecapLyric: Hashable, Sendable {
+struct RecapLyric: Hashable, Sendable, Codable {
     var lyric: String
     var trackTitle: String?
     var artist: String?
@@ -31,7 +31,7 @@ struct RecapLyric: Hashable, Sendable {
     var note: String
 }
 
-struct SpotoolfyRecap: Sendable {
+struct SpotoolfyRecap: Sendable, Codable {
     var noteCount: Int
     var trackCount: Int
     var artistCount: Int
@@ -212,5 +212,48 @@ struct SpotoolfyRecapCalculator {
         case 0x2B50, 0x2B55, 0x231A, 0x231B, 0x23F0, 0x23F3: true
         default: false
         }
+    }
+}
+
+/// Each Spotify account's newest Spotoolfy recap (Android Settings › Yoin › Spotoolfy recap, D15): kept when
+/// an import is written, so the recap can be seen again after the welcome guide.
+enum SpotoolfyRecapStore {
+    static func key(_ scope: String) -> String { "spotoolfyRecap.\(scope)" }
+
+    static func save(_ recap: SpotoolfyRecap, scope: String, defaults: UserDefaults = .standard) {
+        if let data = try? JSONEncoder().encode(recap) { defaults.set(data, forKey: key(scope)) }
+    }
+
+    static func load(scope: String, defaults: UserDefaults = .standard) -> SpotoolfyRecap? {
+        defaults.data(forKey: key(scope)).flatMap { try? JSONDecoder().decode(SpotoolfyRecap.self, from: $0) }
+    }
+
+    static func remove(scope: String, defaults: UserDefaults = .standard) { defaults.removeObject(forKey: key(scope)) }
+}
+
+/// A Spotoolfy export shared or opened into Yoin ("Open in Yoin", Android's share receiver, #49): the welcome
+/// guide's Spotoolfy step takes it; anywhere else it is refused, as on Android (imports go into a new account).
+@MainActor
+@Observable
+final class SpotoolfyInbox {
+    static let shared = SpotoolfyInbox()
+    /// A file waiting for the guide's step.
+    var pending: URL?
+
+    /// From `onOpenURL`: true when the guide is up to take it.
+    @discardableResult
+    func receive(_ url: URL, landingOpen: Bool) -> Bool {
+        guard url.isFileURL else { return false }
+        guard landingOpen else {
+            PlaylistActions.shared.show(String(localized: "Spotoolfy data can only be imported in the welcome guide."))
+            return false
+        }
+        pending = url
+        return true
+    }
+
+    func take() -> URL? {
+        defer { pending = nil }
+        return pending
     }
 }

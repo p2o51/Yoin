@@ -419,10 +419,19 @@ final class PlaylistActions {
     /// removal, never in the page on screen (another client may have changed it: index 1 of a stale
     /// [A, B] was A on the server's [X, A, B]); no fresh read, no removal (Codex 11-07). A removal for an
     /// account no longer in use sends nothing and restores nothing.
-    func remove(at index: Int, from playlistId: String, store: LibraryStore) {
+    ///
+    /// [expecting] is the row the sheet was opened on: the page may have been reloaded under the open
+    /// sheet ([A, B] → [X, A, B]), so the index is checked against it and moved to that row, or nothing is
+    /// removed (Codex review 2026-11-10 #14).
+    func remove(at hint: Int, from playlistId: String, store: LibraryStore, expecting: PlaylistEntry? = nil) {
+        guard let page = store.playlist(playlistId),
+              let index = Self.pageIndex(of: expecting, hint: hint, in: page.entries) else {
+            if expecting != nil { show(String(localized: "Couldn't remove track")) }
+            return
+        }
         if let spotify = store.spotify { return removeOnSpotify(at: index, from: playlistId, spotify: spotify, store: store) }
         guard let client = store.client else { return }
-        guard let entries = store.playlist(playlistId)?.entries, index < entries.count else { return }
+        let entries = page.entries
         let removed = entries[index]
         let gen = store.generation
         queuedRemovals[playlistId, default: 0] += 1
@@ -595,6 +604,14 @@ final class PlaylistActions {
     /// Where [entry] sits in the server's list: the occurrence nearest [hint] (a song can be in a
     /// playlist twice; entries of one playlist differ by position number otherwise).
     /// The server's position of [track] (the occurrence nearest the row tapped, for a song listed twice).
+    /// The sheet's row on the page as it is now: [hint] if it still holds it, else the same row nearest
+    /// to it, else the same song nearest to it; nil when it's gone. No row to check: [hint] as it is.
+    nonisolated static func pageIndex(of entry: PlaylistEntry?, hint: Int, in entries: [PlaylistEntry]) -> Int? {
+        guard let entry else { return hint < entries.count ? hint : nil }
+        if hint < entries.count, entries[hint] == entry { return hint }
+        return serverIndex(of: entry, in: entries, near: hint) ?? serverIndex(ofTrack: entry.track.id, in: entries, near: hint)
+    }
+
     nonisolated static func serverIndex(ofTrack track: MediaId, in server: [PlaylistEntry], near hint: Int) -> Int? {
         server.indices.filter { server[$0].track.id == track }.min { abs($0 - hint) < abs($1 - hint) }
     }

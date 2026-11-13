@@ -56,7 +56,11 @@ final class LibraryStore {
     @ObservationIgnored private let log = Logger(subsystem: "com.gpo.yoin", category: "library")
     /// Subsonic plays waiting for the server, and when each song started (its submission's time).
     @ObservationIgnored let scrobbles: ScrobbleOutbox = .shared
+    @ObservationIgnored let ratingOutbox: RatingOutbox = .shared
+    @ObservationIgnored private var flushingRatings = false
     @ObservationIgnored private var scrobbleStarts: [String: Int64] = [:]
+    /// What the server's now-playing view was last told (Playback/PlaybackReport.swift).
+    @ObservationIgnored var playbackReports = PlaybackReportTracker()
     @ObservationIgnored private var flushingScrobbles = false
 
     /// Bumps on every sign-in / sign-out; views key their load tasks on it.
@@ -73,6 +77,9 @@ final class LibraryStore {
         var highest: [Album]
         var random: [Album]
         var recentTracks: [PlaylistEntry]
+        /// Jump Back In's song pool: Subsonic's random songs; Apple Music and Spotify (no random read) the
+        /// songs last played.
+        var trackPool: [PlaylistEntry] = []
     }
 
     private(set) var albums: [Album] = []
@@ -136,6 +143,8 @@ final class LibraryStore {
             _ = sources.active
             _ = appleMusic.authorization
             _ = spotifyAccount?.scope
+            // Another name region: what was read carries the old names (Android forgetDetails).
+            _ = AppleMusicNameRegionStore.shared.regions
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -199,6 +208,7 @@ final class LibraryStore {
         searchPhase = .idle
         starredOverride = [:]
         hearts.reset()
+        SubsonicShareLinks.shared.reset()
         // Old-source loads stop here (Codex C01); one that answers anyway fails `ensureLive`.
         for task in inFlight.values { task.cancel() }
         inFlight = [:]
@@ -212,10 +222,11 @@ final class LibraryStore {
     func loadHome(force: Bool = false) async {
         guard force || homePhase == .idle || homePhase == .failed else { return }
         guard isReal else { return }
-        // A launch or an account: plays left over from before go out now.
+        // A launch or an account: plays and ratings left over from before go out now.
         flushScrobbles()
+        flushRatings()
         // The last feed paints at once (Android's Home snapshot); the load below replaces it.
-        let gen = generation, epoch = diskEpoch, scope = historyScope
+        let gen = generation, epoch = diskEpoch, scope = diskScope
         homePhase = .loading
         if homeLists == nil, let codec, let hit = await disk.read(DetailCacheDTO.Home.self, scope: scope, kind: .home, id: ""),
            gen == generation, homeLists == nil {
@@ -245,9 +256,12 @@ final class LibraryStore {
                     tracks += album.tracks.prefix(2).map { PlaylistEntry(album: album, track: $0) }
                 }
             }
+            // Jump Back In's songs (Android getRandomSongs, 16 requested); a failed read leaves the shelf without.
+            let randomSongs = (try? await client.getRandomSongs(size: 16)) ?? []
             guard gen == generation else { return }
             let lists = HomeLists(recent: recentAlbums, frequent: f.map(mapping.album), newest: newestAlbums,
-                                  highest: h.map(mapping.album), random: x.map(mapping.album), recentTracks: tracks)
+                                  highest: h.map(mapping.album), random: x.map(mapping.album), recentTracks: tracks,
+                                  trackPool: randomSongs.enumerated().map { mapping.entry($1, index: $0) })
             homeLists = lists
             homePhase = .loaded
             persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
@@ -271,7 +285,7 @@ final class LibraryStore {
             let l = try await apple.homeLists()
             guard gen == generation else { return }
             let lists = HomeLists(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
-                                  random: l.older, recentTracks: l.recentTracks)
+                                  random: l.older, recentTracks: l.recentTracks, trackPool: l.recentTracks)
             homeLists = lists
             homePhase = .loaded
             persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
@@ -291,7 +305,7 @@ final class LibraryStore {
             let l = try await spotify.homeLists()
             guard gen == generation else { return }
             let lists = HomeLists(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
-                                  random: l.older, recentTracks: l.recentTracks)
+                                  random: l.older, recentTracks: l.recentTracks, trackPool: l.recentTracks)
             homeLists = lists
             homePhase = .loaded
             persist(codec?.dto(lists), kind: .home, id: "", epoch: epoch)
@@ -314,10 +328,14 @@ final class LibraryStore {
         let revision = homeRevision
         if let cached = homeCache, cached.revision == revision { return cached.feed }
         let feed = withObservationTracking {
-            homeLists.map { l in
+            // A card hidden for now (JbiHiddenStore): reading the tick redraws Home when one is.
+            _ = jbiHiddenTick
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            let hidden = jbiHiddenStore.hidden(scope: homeScope, now: now)
+            return homeLists.map { l in
                 Self.buildHome(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: l.highest,
-                               random: l.random, recentTracks: l.recentTracks, history: homeHistory(l),
-                               playlists: playlists)
+                               random: l.random, recentTracks: l.recentTracks, history: homeHistory(l, hidden: hidden),
+                               playlists: playlists, trackPool: l.trackPool, now: now, hiddenJbi: hidden)
             }
         } onChange: { [weak self] in
             // Called before the change lands: rebuild on the next turn.
@@ -328,6 +346,23 @@ final class LibraryStore {
     }
 
     private var homeRevision = 0
+    /// Where the account's hidden Jump Back In cards are kept; tests swap it.
+    @ObservationIgnored var jbiHiddenStore = JbiHiddenStore.shared
+    /// Bumps when a card is hidden, so [home] is built again without it.
+    private var jbiHiddenTick = 0
+
+    /// The keys hidden on this account now (reading it tracks a hide, for the mock shelf's redraw).
+    func hiddenJbiKeys(now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> Set<String> {
+        _ = jbiHiddenTick
+        return jbiHiddenStore.hidden(scope: homeScope, now: now)
+    }
+
+    /// Hide a Jump Back In card for [span] on this account (edit mode's menu); the shelf rebuilds without it
+    /// and the next card in line steps up.
+    func hideJbi(key: String, span: JbiHideSpan, now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) {
+        jbiHiddenStore.hide(scope: homeScope, key: key, until: now + span.millis)
+        jbiHiddenTick &+= 1
+    }
     @ObservationIgnored private var homeCache: (revision: Int, feed: HomeFeed?)?
 
     /// The account's album memories (the Home lists' albums known too), for
@@ -430,7 +465,7 @@ final class LibraryStore {
         var now: Int64 = 0
     }
 
-    private func homeHistory(_ l: HomeLists) -> HomeOverlay? {
+    private func homeHistory(_ l: HomeLists, hidden: Set<String> = []) -> HomeOverlay? {
         guard isReal else { return nil }
         let inputs = historyInputs(extra: l.recent + l.frequent + l.newest + l.highest + l.random
             + l.recentTracks.map(\.album))
@@ -440,8 +475,13 @@ final class LibraryStore {
         let memories = HomeHistory.memories(inputs)
         var o = HomeOverlay(hasHistory: !inputs.plays.isEmpty, now: inputs.now)
         o.activities = HomeHistory.activityPicks(records, resolve: inputs.resolve)
-        if let rated = HomeHistory.ratedAlbumSignal(memories) { o.signals.append(rated) }
-        if let noted = HomeHistory.notedTrackSignal(inputs, placeholder: { [weak self] note in
+        // A memory or noted-track card hidden for now makes way for the next one (Android's pickers skip it).
+        if let rated = HomeHistory.ratedAlbumSignal(memories.filter { !hidden.contains(jbiAlbumHideKey($0.album.id)) }) {
+            o.signals.append(rated)
+        }
+        var signalInputs = inputs
+        signalInputs.notes = inputs.notes.filter { !hidden.contains(jbiSongHideKey(MediaId(provider: $0.provider, rawId: $0.trackId))) }
+        if let noted = HomeHistory.notedTrackSignal(signalInputs, placeholder: { [weak self] note in
             self?.placeholderAlbum(note) ?? Album(id: MediaId(provider: note.provider, rawId: note.trackId),
                                                     title: note.title, artist: note.artist, year: 0,
                                                     palette: AppleMusicMapping.palette(nil, key: note.trackId),
@@ -476,7 +516,9 @@ final class LibraryStore {
     /// Pure: the shelves from the lists (unit-tested).
     nonisolated static func buildHome(recent: [Album], frequent: [Album], newest: [Album], highest: [Album],
                                       random: [Album], recentTracks: [PlaylistEntry],
-                                      history: HomeOverlay? = nil, playlists: [LibraryItem] = []) -> HomeFeed {
+                                      history: HomeOverlay? = nil, playlists: [LibraryItem] = [],
+                                      trackPool: [PlaylistEntry] = [], now: Int64 = 0,
+                                      hiddenJbi: Set<String> = []) -> HomeFeed {
         func plays(_ a: Album) -> String {
             guard let n = a.playCount, n > 0 else { return String(localized: "Recently active") }
             return n == 1 ? String(localized: "1 play") : String(localized: "\(n) plays")
@@ -500,18 +542,20 @@ final class LibraryStore {
         }
 
         let signals = history?.signals ?? []
-        // Only an album's own card keeps its cover off the shelf (an artist's or playlist's card shows that artist or playlist).
-        var seen = Set(activities.filter { $0.entity == .album }.map(\.album.id))
-        for s in signals where s.kind == .ratedAlbum { seen.insert(s.album.id) }
-        var jbi: [Album] = []
-        let rest = Array(recent.dropFirst(4))
+        // Jump Back In (Android buildWidgetGrid, see HomeJbiPools): albums, songs and playlists, less the ones a
+        // signal card already shows. Activities' albums stay (Android leaves them in too).
+        let excludedAlbums = Set(signals.filter { $0.kind == .ratedAlbum }.map(\.album.id))
+        let excludedTracks = Set(signals.compactMap { $0.kind == .notedTrack ? $0.song?.track.id : nil })
         var mixed: [Album] = []
-        for i in 0..<max(frequent.count, rest.count) {
+        for i in 0..<max(frequent.count, recent.count) {
             if i < frequent.count { mixed.append(frequent[i]) }
-            if i < rest.count { mixed.append(rest[i]) }
+            if i < recent.count { mixed.append(recent[i]) }
         }
-        mixed += random
-        for a in mixed where jbi.count < 12 && seen.insert(a.id).inserted { jbi.append(a) }
+        let jbi = HomeJbiPools.select(
+            albums: HomeJbiPools.albumPool(random: random, fallback: mixed),
+            tracks: HomeJbiPools.trackPool(trackPool),
+            playlists: HomeJbiPools.playlistPool(playlists, now: now),
+            excludedAlbums: excludedAlbums, excludedTracks: excludedTracks, hidden: hiddenJbi)
 
         let gridAlbums = Set(recentTracks.map(\.album.id))
         let recentAlbums = newest.filter { !gridAlbums.contains($0.id) || recentTracks.isEmpty }
@@ -722,7 +766,7 @@ final class LibraryStore {
         fetch: @escaping @MainActor () async throws -> D?
     ) async {
         await once(key, force: force) { [self] in
-            let gen = generation, epoch = diskEpoch, scope = historyScope
+            let gen = generation, epoch = diskEpoch, scope = diskScope
             var storedAt: Date?
             if !inMemory(), let codec, let hit = await disk.read(D.self, scope: scope, kind: kind, id: id) {
                 guard gen == generation else { return }
@@ -755,7 +799,7 @@ final class LibraryStore {
     private func persist<D: Codable & Sendable>(_ value: D?, kind: DetailDiskCache.Kind, id: String, epoch: Int,
                                                 scope: String? = nil) {
         guard let value, isReal else { return }
-        let scope = scope ?? historyScope
+        let scope = scope ?? diskScope
         let disk = disk
         Task.detached(priority: .utility) { await disk.write(value, scope: scope, kind: kind, id: id, epoch: epoch) }
     }
@@ -771,7 +815,7 @@ final class LibraryStore {
     /// begun before it can't write the old one back.
     private func dropFromDisk(_ kind: DetailDiskCache.Kind, _ id: String) {
         diskEpoch += 1
-        let epoch = diskEpoch, scope = historyScope, disk = disk
+        let epoch = diskEpoch, scope = diskScope, disk = disk
         Task.detached(priority: .utility) { await disk.remove(scope: scope, kind: kind, id: id, epoch: epoch) }
     }
 
@@ -1004,7 +1048,7 @@ final class LibraryStore {
         favoritesStale = false
         // The starred artists and albums paint from disk too (Codex F04: offline, only the songs came back).
         if favoriteArtists.isEmpty, favoriteAlbums.isEmpty, let codec {
-            let scope = historyScope, gen = generation
+            let scope = diskScope, gen = generation
             let artists = await disk.read([DetailCacheDTO.Item].self, scope: scope, kind: .list, id: "favoriteArtists")
             let albums = await disk.read([DetailCacheDTO.Album].self, scope: scope, kind: .list, id: "favoriteAlbums")
             if gen == generation, favoriteArtists.isEmpty, favoriteAlbums.isEmpty {
@@ -1320,18 +1364,62 @@ final class LibraryStore {
         }
     }
 
-    /// Writes a track's rating (Yoin's 0–10; the server gets 0–5).
+    /// Sends a track's rating to the server (Yoin's 0–10 as 0–5 stars), after the caller stored it in
+    /// `LocalRatings`: the newest stored value goes, and the song stays owed to the account
+    /// (`RatingOutbox`) until the server has it, so a rating given offline goes out again later.
     func setRating(_ track: Track, rating: Double?) async -> Bool {
-        guard let client, track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return false }
-        do {
-            try await client.setRating(id: track.id.rawId, rating: Int32(SubsonicMapping.serverRating(rating)))
-            dropAlbums(containing: track.id.rawId) { $0.rating = rating }
-            return true
-        } catch {
-            log.error("rating failed: \(ServerSession.message(for: error), privacy: .public)")
+        guard track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC, let scope = session.scope else { return false }
+        let entry = RatingOutbox.Entry(scope: scope, songId: track.id.rawId)
+        ratingOutbox.mark(entry)
+        guard let client else { return false }
+        let ratings = ratings
+        let outcome = await ratingOutbox.push(entry, next: {
+            RatingOutbox.next(entry, ratings: ratings, activeScope: session.scope)
+        }, send: { stars in
+            try await client.setRating(id: entry.songId, rating: stars)
+        })
+        guard outcome != .kept else {
+            log.error("rating kept for later: \(entry.songId, privacy: .public)")
             return false
         }
+        dropAlbums(containing: track.id.rawId) { $0.rating = rating }
+        return true
     }
+
+    /// Sends the account's ratings its server hasn't taken (Android `syncPendingRatings`), oldest first,
+    /// one at a time, each with its newest value: when an account becomes active, when the network comes
+    /// back and when the app comes to the front. A rating the server refuses stays and doesn't hold the
+    /// others back; three failures in a row (still offline) end the run.
+    func flushRatings() {
+        guard !flushingRatings, let client, let scope = session.scope, !ratingOutbox.waiting(for: scope).isEmpty
+        else { return }
+        flushingRatings = true
+        let ratings = ratings
+        Task {
+            defer { flushingRatings = false }
+            var failuresInARow = 0
+            for entry in ratingOutbox.waiting(for: scope) {
+                guard session.scope == scope, ratingOutbox.isPending(entry) else { continue }
+                let outcome = await ratingOutbox.push(entry, next: {
+                    RatingOutbox.next(entry, ratings: ratings, activeScope: session.scope)
+                }, send: { stars in
+                    try await client.setRating(id: entry.songId, rating: stars)
+                })
+                if outcome == .kept {
+                    failuresInARow += 1
+                    guard failuresInARow < Self.ratingRetryMaxFailures, session.scope == scope else {
+                        log.info("ratings kept for later")
+                        return
+                    }
+                } else {
+                    failuresInARow = 0
+                }
+            }
+        }
+    }
+
+    /// Android RATING_RETRY_MAX_FAILURES.
+    nonisolated static let ratingRetryMaxFailures = 3
 
     // MARK: Playback
 
@@ -1369,6 +1457,8 @@ final class LibraryStore {
         t.starred = isStarred(e.track)
         t.userRating = e.track.rating.map { SubsonicMapping.serverRating($0) }
         t.sourceKbps = e.track.bitRateKbps
+        t.formatTags = e.track.formatTags
+        ReplayGainSettings.shared.remember(e.track.audio, songId: e.track.id.rawId)
         return t
     }
 
@@ -1441,6 +1531,16 @@ final class LibraryStore {
         if spotify != nil, let scope = spotifyAccount?.scope { return scope }
         // The account's scope (`Profile.subsonicScope`), steady across an edit of how its address is written.
         return session.scope ?? ""
+    }
+
+    /// Whose stored pages and lists these are: [historyScope], and for Apple Music under another name
+    /// region that region too, so a page stored under one region's names never paints under another's
+    /// (Android forgets an account's details when its region changes).
+    var diskScope: String {
+        let scope = historyScope
+        guard apple != nil else { return scope }
+        let region = appleMusic.nameRegion()
+        return region == .off ? scope : "\(scope)|names:\(region.key)"
     }
 
     /// The song the last play row was written for (Android
@@ -1549,6 +1649,11 @@ final class LibraryStore {
 
     /// An album made from a play's snapshot, for one the app has no copy of.
     private func snapshotAlbum(_ id: String, _ snap: PlayEvent?) -> Album? {
+        Self.snapshotAlbum(id, snap, mapping: mapping)
+    }
+
+    /// [mapping]: the Subsonic account the play belongs to (its covers are read through its server).
+    static func snapshotAlbum(_ id: String, _ snap: PlayEvent?, mapping: SubsonicMapping?) -> Album? {
         guard let snap, !snap.album.isEmpty || !snap.title.isEmpty else { return nil }
         let palette: CoverPalette
         if let mapping, snap.provider == MediaRef.companion.PROVIDER_SUBSONIC {

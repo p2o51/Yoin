@@ -595,7 +595,7 @@ struct LandingSpotifyScene: View {
                 .frame(minHeight: 48)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .accessibilityAddTraits(.isButton)
             if urisOpen {
                 VStack(alignment: .leading, spacing: 6) {
@@ -717,7 +717,7 @@ struct CopyRow: View {
             .background(scheme.surfaceContainerHighest, in: .rect(cornerRadius: 12))
             .contentShape(.rect(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .animation(Yoin.effects, value: copied)
         .accessibilityLabel("Copy \(value)")
     }

@@ -33,6 +33,9 @@ final class SpotifySource {
                 return String(localized: "Reconnect Spotify in Settings")
             case .http(403, let m) where (m ?? "").localizedCaseInsensitiveContains("scope"):
                 return String(localized: "Reconnect Spotify in Settings to let Yoin control playback")
+            // Spotify's player refuses a free account ("PREMIUM_REQUIRED" / "Premium required").
+            case .http(403, let m) where (m ?? "").localizedCaseInsensitiveContains("premium"):
+                return SpotifyFailureCopy.premium
             default:
                 return e.errorDescription ?? error.localizedDescription
             }
@@ -350,24 +353,70 @@ final class SpotifySource {
     // MARK: Connect devices (Android getDevices / transferPlayback)
 
     struct Device: Identifiable, Equatable, Sendable {
+        /// Spotify's id, or `noIdKey(name)` for a speaker Spotify names without one (Sonos).
         var id: String
         var name: String
         var type: String
         var isActive: Bool
+        /// Spotify gave an id: a transfer can name it.
+        var hasId: Bool = true
+        /// Spotify won't take a Web API transfer to it (is_restricted: Sonos).
+        var restricted: Bool = false
+        /// Remembered from an earlier list, not in Spotify's this time (SpotifyDeviceMemory).
+        var remembered: Bool = false
+
+        /// Moved to only through the Spotify app (Android YoinDevice.SpotifyConnect.spotifyOnly).
+        var spotifyOnly: Bool { !hasId || restricted }
+
+        /// Row key for a device Spotify names without an id (Android SpotifyConnect.noIdKey).
+        static func noIdKey(_ name: String) -> String {
+            "spotify-no-id:\(name.trimmingCharacters(in: .whitespaces))"
+        }
+
+        /// The same device: by id when both have one, else by name (Android sameDevice).
+        func same(as other: Device) -> Bool {
+            if hasId && other.hasId { return id == other.id }
+            return name.trimmingCharacters(in: .whitespaces)
+                .caseInsensitiveCompare(other.name.trimmingCharacters(in: .whitespaces)) == .orderedSame
+        }
     }
 
     private struct DevicesDTO: Decodable {
-        struct D: Decodable { let id: String?; let name: String?; let type: String?; let isActive: Bool? }
+        struct D: Decodable {
+            let id: String?; let name: String?; let type: String?; let isActive: Bool?; let isRestricted: Bool?
+        }
         let devices: [D]
     }
 
-    /// The account's Spotify Connect devices (user-read-playback-state).
+    /// The account's Spotify Connect devices (user-read-playback-state), id-less ones (a Sonos it
+    /// plays on) included under `Device.noIdKey`.
     func devices() async throws -> [Device] {
         let r = try await api.get("me/player/devices", as: DevicesDTO.self)
-        return r.devices.compactMap { d in
-            guard let id = d.id else { return nil }
-            return Device(id: id, name: d.name ?? "Device", type: d.type ?? "", isActive: d.isActive ?? false)
+        return r.devices.map { d in
+            let name = d.name ?? "Device"
+            return Device(id: d.id ?? Device.noIdKey(name), name: name, type: d.type ?? "",
+                          isActive: d.isActive ?? false, hasId: d.id != nil, restricted: d.isRestricted ?? false)
         }
+    }
+
+    /// The Devices sheet's list (Android YoinRepository.listSpotifyDevices): the devices, plus the one
+    /// me/player says plays when the list leaves it out (Sonos, Cast: often with no id), the playing
+    /// one first.
+    func sheetDevices() async throws -> [Device] {
+        let listed = try await devices()
+        let now = try? await playerNow()
+        return Self.withPlaying(listed, now: now)
+    }
+
+    nonisolated static func withPlaying(_ listed: [Device], now: PlayerNow?) -> [Device] {
+        var all = listed
+        if let now {
+            let playing = Device(id: now.deviceId ?? Device.noIdKey(now.deviceName), name: now.deviceName,
+                                 type: now.deviceType, isActive: true, hasId: now.deviceId != nil)
+            if !listed.contains(where: { $0.same(as: playing) }) { all.append(playing) }
+        }
+        // Stable: the active one first, the rest in Spotify's order.
+        return all.filter(\.isActive) + all.filter { !$0.isActive }
     }
 
     /// Moves playback to [deviceId], playing there.

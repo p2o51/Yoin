@@ -9,15 +9,23 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     @State private var contentWidth: CGFloat = 370
+    /// The feed container's resting size, for the density (Android feedUnits).
+    @State private var feedSize = CGSize(width: 402, height: 874)
+    private var density: HomeDensity { HomeDensity(width: feedSize.width, height: feedSize.height) }
     /// Edit mode and the account's section layout (HomeEdit.swift).
     @State private var edit = HomeEditController()
     /// The Memories bubble's motion and turns (HomeMemoryBubble.swift).
     @State private var bubble = MemoryBubbleController()
+    /// Another Spotify account's playback, shown 5 s in the header (HomeSpotifyElsewhere.swift).
+    @State private var spotifyElsewhere = SpotifyElsewhereWatch()
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var intro: HomeIntro { .shared }
     @State private var scroll = HomeScrollState()
     /// How far the window runs past Home's frame (status bar above, bottom bar below): Memories covers it.
     @State private var pageBleed = EdgeInsets()
+    /// The header avatar's target in the window: the account card grows out of it.
+    @State private var accountFrame: CGRect = .zero
 
     /// App-wide tokens follow the playing cover (design.md 颜色系统 3).
     private var scheme: CoverScheme { CoverScheme(seed: model.accent, dark: colorScheme == .dark) }
@@ -26,7 +34,11 @@ struct HomeView: View {
     /// signed out: the mock shelf, for screenshots and demos only
     /// (LaunchConfig.demoContent); a real launch with no account gets nil
     /// and the connect prompt.
-    private var liveFeed: HomeFeed? { Self.feed(isReal: model.store.isReal, demo: LaunchConfig.demoContent) { model.store.home } }
+    private var liveFeed: HomeFeed? {
+        let feed = Self.feed(isReal: model.store.isReal, demo: LaunchConfig.demoContent) { model.store.home }
+        // The mock shelf is not built from lists: a hidden card is taken off it here.
+        return model.store.isReal ? feed : feed?.removingHiddenJbi(model.store.hiddenJbiKeys())
+    }
 
     /// What Home shows: the live feed, except while a page is pushed over it and through the
     /// zoom back. Opening an album logs a visit, which moves it into Activities (and out of
@@ -62,11 +74,25 @@ struct HomeView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            feedScroll
+            // Sized by the space Home is given, not by what it holds: the feed's sections are as wide as the
+            // content width, and the scroll view takes its content's width across, so reading the scroll view
+            // back kept a feed that had been wide stuck wide when its container narrowed (an iPad column
+            // opening, a rotation). The proposal is the one input (Android: the container's width).
+            GeometryReader { g in
+                feedScroll
+                    .frame(width: g.size.width, height: g.size.height)
+                    .onChange(of: g.size, initial: true) { _, size in
+                        feedSize = size
+                        contentWidth = HomeDensity(width: size.width, height: size.height).content
+                    }
+            }
                 .modifier(IslandPush(bubble: bubble))
+                // Under the push, not on the feed: the band the island opens keeps Home's own colour.
+                .background(pageBackground)
                 .modifier(MemoriesHomeBehind(presentation: memories))
+            // Spotify's pill has the header for its 5 s: the bubble keeps quiet.
             MemoryBubbleOverlay(bubble: bubble, memories: memories, pill: pill, scheme: scheme, scroll: scroll,
-                                covered: covered, edit: edit)
+                                covered: covered || spotifyElsewhereUp, edit: edit)
             if memories.mounted {
                 MemoriesView(presentation: memories)
                     // The whole window: under the status bar and the bottom bar too
@@ -96,8 +122,37 @@ struct HomeView: View {
             await model.store.loadPlaylists()
             // The albums memories need (the pill, the marks, the deck), after a relaunch or a sync.
             await model.store.hydrateMemoryAlbums()
+            // The ledger names songs from the album pages just loaded.
+            MemoryLedgerSource.shared.reload(model: model)
         }
         .onAppear { edit.load(scope: model.store.homeScope) }
+        // One look each time the app opens or comes back; none outlives leaving or a switch.
+        .task { spotifyElsewhere.look(model) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { spotifyElsewhere.look(model) } else if phase == .background { spotifyElsewhere.reset() }
+            // Lyric Cards pick only while Yoin is in front (Android: the process lifecycle).
+            if phase == .active { LyricHighlightProcessor.shared.appBecameActive(model) }
+            else { LyricHighlightProcessor.shared.appResignedActive() }
+            if phase == .active { MemoryLedgerSource.shared.reload(model: model) }
+        }
+        // The memory ledger: read when Home shows, after an account change, and when Memories closes.
+        .task(id: model.profiles.activeId) {
+            MemoryLedgerSource.shared.reload(model: model)
+            LyricHighlightProcessor.shared.appBecameActive(model)
+        }
+        .onChange(of: memories.isOpen) { _, open in if !open { MemoryLedgerSource.shared.reload(model: model) } }
+        // The other accounts' memories for the Memories deck (#178): read when Home shows and after an
+        // account is added, removed or switched to, so the deck opens with them.
+        .task(id: [model.profiles.activeId ?? ""] + model.profiles.profiles.map(\.id)) {
+            await OtherAccountMemories.shared.reload(model: model)
+        }
+        .onChange(of: model.profiles.activeId) { spotifyElsewhere.reset() }
+        .onChange(of: spotifyElsewhereOnScreen, initial: true) { _, on in spotifyElsewhere.setOnScreen(on) }
+        #if DEBUG
+        .task { await SpotifyElsewhereSeed.run(spotifyElsewhere, model: model) }
+        #endif
+        // Yoin starts playing: the pill has nothing to offer.
+        .onChange(of: model.playback.isPlaying) { _, playing in if playing { spotifyElsewhere.dismiss() } }
         .onChange(of: model.store.homeScope) { _, scope in edit.load(scope: scope) }
         // Another device's layout landed (cloud sync): reread it unless a draft is open.
         .onChange(of: HomeLayoutStore.shared.remoteRevision) { edit.load(scope: model.store.homeScope) }
@@ -131,8 +186,31 @@ struct HomeView: View {
             let focus = pill?.recall.dropFirst().first?.albumId
             Task { await MemoriesScript.run(memories, focus: focus) }
             Task { await HomeEditScript.run() }
+            debugOpenAccountCard()
         }
         #endif
+    }
+
+    #if DEBUG
+    /// `-accountCardOpen home`: the account card, a beat after launch (QA screenshots).
+    private func debugOpenAccountCard() {
+        guard UserDefaults.standard.string(forKey: "accountCardOpen") == "home" else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            openAccountCard()
+            // `-accountCardPick <n>`: then the n-th other account's row, as a tap.
+            let n = UserDefaults.standard.integer(forKey: "accountCardPick") - 1
+            guard n >= 0 else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            let others = AccountCardLogic.split(model.profiles.profiles, active: model.profiles.activeId).others
+            if others.indices.contains(n) { model.accountCardPick(others[n]) }
+        }
+    }
+    #endif
+
+    private func openAccountCard() {
+        let edit = edit
+        model.openAccountCard(avatarTarget: accountFrame, reduced: reduceMotion) { edit.enter() }
     }
 
     private var feedScroll: some View {
@@ -143,7 +221,8 @@ struct HomeView: View {
                     let shown = edit.order.filter { edit.isEditing || hasContent($0, feed) }
                     ForEach(Array(shown.enumerated()), id: \.element) { i, section in
                         HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed),
-                                      rows: rowsHandle(section, feed)) {
+                                      rows: rowsHandle(section, feed),
+                                      lyricCount: section == .lyricHighlight && !lyricCards.isEmpty) {
                             sectionView(section, feed)
                         }
                     }
@@ -163,15 +242,15 @@ struct HomeView: View {
                     HomeSkeleton(width: contentWidth, scheme: scheme)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, density.margin)
             .coordinateSpace(.named(HomeEditController.feedSpace))
             .background(HomeHoldObserver(edit: edit))
             .overlay(alignment: .topLeading) { CarriedStrip(edit: edit, covers: feed.map { covers(edit.hole ?? .activities, $0) } ?? []) }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width - 32 } action: { contentWidth = $0 }
             .background(ScrollPullObserver(presentation: memories, enabled: !edit.isEditing && !covered) {
                 bubble.cue(.outOfReach, pill: nil)
             })
         }
+        .environment(\.homeMargin, density.margin)
         .contentMargins(.bottom, 24, for: .scrollContent)
         // A carried section owns the finger: the feed doesn't scroll under it.
         .scrollDisabled(edit.carried != nil)
@@ -185,16 +264,42 @@ struct HomeView: View {
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             scroll.scrolled = y
         }
-        .background(
-            LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
-                           startPoint: .top, endPoint: .bottom)
+    }
+
+    /// The page's wash. It stays where it is while the island pushes the feed down (51 2026-11-13:
+    /// it rode the feed, and the band it left above showed the window's bare white).
+    private var pageBackground: some View {
+        LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
+                       startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()
-        )
     }
 
     // MARK: Sections (the account's layout, Android HomeSection catalog)
 
-    private func hasContent(_ s: HomeSection, _ feed: HomeFeed) -> Bool { feed.hasContent(s) }
+    private func hasContent(_ s: HomeSection, _ feed: HomeFeed) -> Bool {
+        switch s {
+        case .memoryGrid: !(MemoryLedgerSource.shared.state?.isEmpty ?? true)
+        // The intro shows until it's answered, on a device that could run the model.
+        case .lyricHighlight: !lyricCards.isEmpty || (!LyricHighlightStore.shared.introSeen && !LyricHighlightStore.shared.optedIn)
+        case .otherProfiles: !otherAccounts.isEmpty
+        default: feed.hasContent(s)
+        }
+    }
+
+    /// The account in use's lyric cards, the next to show first (Android nextToShow, up to four).
+    private var lyricCards: [LyricHighlightRow] {
+        let store = LyricHighlightStore.shared
+        _ = store.revision
+        guard model.store.isReal, let a = model.profiles.active.flatMap(MemoryLedgerSource.account(of:)) else { return [] }
+        // Never shown first, then the longest ago (Android nextToShow, without its random draw so the pager
+        // keeps its order while Home is open).
+        return store.cards(provider: a.provider, scope: a.scope).sorted {
+            ($0.lastShownAt ?? .min, $0.id) < ($1.lastShownAt ?? .min, $1.id)
+        }
+        .prefix(4).map { $0 }
+    }
+
+    private var otherAccounts: [OtherAccountItem] { HomeOtherAccounts.items(model: model) }
 
     @ViewBuilder
     private func sectionView(_ s: HomeSection, _ feed: HomeFeed) -> some View {
@@ -213,7 +318,11 @@ struct HomeView: View {
             case .rediscover: rediscover(feed.rediscover)
             case .recentlyPlayed: recentlyPlayed(feed)
             case .yourPlaylists: yourPlaylists(feed.playlists)
-            case .otherProfiles: EmptyView()
+            case .otherProfiles: OtherAccountsShelf(items: otherAccounts)
+            // As many cards as its dots say (Android lyricCards: two to four).
+            case .lyricHighlight: HomeLyricCardsSection(cards: Array(lyricCards.prefix(edit.rowsOf(.lyricHighlight).lyricCards)))
+            case .memoryGrid:
+                if let state = MemoryLedgerSource.shared.state { HomeMemoryLedgerSection(state: state) }
             }
         }
     }
@@ -223,12 +332,13 @@ struct HomeView: View {
         if s == .yourPlaylists { return Array(feed.playlists.prefix(3).map(\.palette)) }
         let albums: [Album] = switch s {
         case .activities: feed.activities.map(\.album)
-        case .jumpBackIn: feed.signals.map(\.album) + feed.jumpBackIn
+        case .jumpBackIn: feed.signals.map(\.album) + feed.jumpBackIn.compactMap(\.album)
         case .recentlyAdded: feed.recentAlbums + feed.recentTracks.map(\.album)
         case .rediscover: feed.rediscover.map(\.album)
         case .recentlyPlayed: feed.recentlyPlayed
-        case .yourPlaylists, .otherProfiles: []
+        case .yourPlaylists, .otherProfiles, .lyricHighlight, .memoryGrid: []
         }
+        if s == .otherProfiles { return Array(otherAccounts.prefix(3).map(\.palette)) }
         return Array(albums.prefix(3).map(\.palette))
     }
 
@@ -250,12 +360,27 @@ struct HomeView: View {
 
     // MARK: Header (HomeGreetingTitle.kt)
 
-    private var greeting: String {
-        switch Calendar.current.component(.hour, from: .now) {
+    private var greeting: String { Self.greeting(at: .now) }
+
+    /// The header's greeting at [date] (the tip page's demo Home says it too).
+    static func greeting(at date: Date) -> String {
+        switch Calendar.current.component(.hour, from: date) {
         case 5..<11: String(localized: "Good morning")
         case 11..<18: String(localized: "Good afternoon")
         default: String(localized: "Good evening")
         }
+    }
+
+    private var spotifyElsewhereUp: Bool {
+        SpotifyElsewhere.visible(spotifyElsewhere.shown, yoinPlaying: model.playback.isPlaying)
+    }
+
+    /// The header can be seen: the pill's 5 s run only then (Android 8cd973e6c).
+    private var spotifyElsewhereOnScreen: Bool {
+        SpotifyElsewhere.headerOnScreen(
+            feedLoaded: feed != nil, sceneActive: scenePhase == .active,
+            nowPlaying: model.npExpanded || model.np.mounted, detailColumn: model.isPad && model.padSelection != nil,
+            pushed: !model.path.isEmpty, search: model.searchActive, memories: memories.mounted)
     }
 
     private var header: some View {
@@ -288,18 +413,33 @@ struct HomeView: View {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.titleFrame = $0 }
             .padding(.trailing, Tokens.home.HEADER_TITLE_BREATHING.cg)
             Spacer(minLength: 0)
+            if spotifyElsewhereUp, let e = spotifyElsewhere.shown {
+                SpotifyElsewherePill(elsewhere: e, scheme: scheme) {
+                    spotifyElsewhere.dismiss()
+                    // Nothing plays in Yoin while it is up: the switch stops nothing. The Spotify
+                    // account picks up its own playback once in use (its watch, Web API first).
+                    if let p = model.profiles.profile(e.profileId) { model.quickSwitch(to: p) }
+                }
+                .opacity(Double(1 - smoothstep(0, 0.5, min(max(edit.progress, 0), 1))))
+                .allowsHitTesting(edit.progress < 0.5)
+            }
             HeaderActions(edit: edit, scheme: scheme) {
-                Button { if !AccountFan.shared.swallowsTap { model.openSettings() } } label: {
+                // A short tap: the account card grows out of the avatar (Android HomeAccountSwitcher).
+                Button { if !AccountFan.shared.swallowsTap { openAccountCard() } } label: {
                     // 32 dp avatar in a 48 dp target: the account in use (its shape, service colour and
                     // letter); with none, the mock's (profile 0 = Cookie6Sided).
                     HeaderAccountAvatar(profile: model.profiles.active,
                                         shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
                                         fallback: BackdropColors(model.playback.album.palette).accent.mix(with: scheme.primary, by: 0.5),
-                                        onFallback: scheme.onPrimary, ring: scheme.surfaceContainer)
+                                        onFallback: scheme.onPrimary, ring: scheme.surfaceContainer,
+                                        needsReconnect: model.activeNeedsReconnect, error: scheme.error)
+                        // Up there as the card while it is open: steps aside in the same frame.
+                        .opacity(AccountSwitcher.shared.shown ? 0 : 1)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { accountFrame = $0 }
                 .accessibilityLabel("Account")
-                .accessibilityValue(model.profiles.active?.spokenAccount ?? "")
+                .accessibilityValue(model.headerAccountValue)
                 // Hold and slide onto another account (Android #162).
                 .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
             }
@@ -315,8 +455,12 @@ struct HomeView: View {
     /// as many as the preset seats and the history fills.
     private func activities(_ a: [ActivityEntry], preset: HomeRowPreset) -> some View {
         let gap = Tokens.home.ACTIVITY_ROW_GAP.cg
-        let rows = activityStops(a).stops.stopPayload(for: preset)
         let hasHero = a[0].entity != .artist
+        // A tablet-wide feed: the unit grid (more cards per row, the same card sizes; Android N ≥ 3).
+        let rows = density.isTablet
+            ? HomeDensity.activityGrid(units: density.units, hasHero: hasHero, supportingCount: hasHero ? a.count - 1 : a.count,
+                                       preset: preset)
+            : activityStops(a).stops.stopPayload(for: preset)
         let supporting = hasHero ? Array(a.dropFirst()) : a
         return VStack(alignment: .leading, spacing: gap) {
             HomeSectionTitle(String(localized: "Activities")).padding(.bottom, 6)
@@ -333,7 +477,9 @@ struct HomeView: View {
                         ForEach(Array(row.slots.enumerated()), id: \.offset) { _, slot in
                             let width = contentWidth > 0 ? usable * CGFloat(slot.weight) / total : nil
                             Group {
-                                if let e = supporting.entry(at: slot.entryIndex) {
+                                if slot.kind == .hero {
+                                    HeroCard(entry: a[0]).frame(maxHeight: .infinity)
+                                } else if let e = supporting.entry(at: slot.entryIndex) {
                                     if slot.kind == .small { SmallCard(entry: e) } else { WideCard(entry: e) }
                                 } else {
                                     // An entry past the supply: a spacer of the same weight.
@@ -343,7 +489,8 @@ struct HomeView: View {
                             .frame(width: width)
                         }
                     }
-                    .frame(height: Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
+                    // A grid row holding the hero is the hero's height; the cards beside it stretch.
+                    .frame(height: row.slots.contains { $0.kind == .hero } ? 132 : Tokens.home.ACTIVITY_ROW_HEIGHT.cg)
                 }
             }
         }
@@ -364,6 +511,9 @@ struct HomeView: View {
         case .activities:
             let stops = activityStops(feed.activities).stops
             return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
+        case .jumpBackIn where density.isTablet && !(feed.jumpBackIn.isEmpty && feed.signals.isEmpty):
+            let stops = tabletJbiStops(feed)
+            return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
         case .jumpBackIn where feed.layout == .server:
             let stops = jbiStops(feed)
             return HomeRowsHandle(stops: stops.map { ($0.rowCount, $0.presetFrom(current)) }, index: stops.stopIndex(of: current))
@@ -375,14 +525,95 @@ struct HomeView: View {
 
     @ViewBuilder
     private func jumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
-        if feed.layout == .mock { mockJumpBackIn(feed.jumpBackIn) } else { serverJumpBackIn(feed, preset: preset) }
+        if density.isTablet, !feed.jumpBackIn.isEmpty || !feed.signals.isEmpty {
+            tabletJumpBackIn(feed, preset: preset)
+        } else if feed.layout == .mock {
+            mockJumpBackIn(feed.jumpBackIn.compactMap(\.album))
+        } else {
+            serverJumpBackIn(feed, preset: preset)
+        }
+    }
+
+    /// The tablet shelf's cards in ranking order: the signal cards, then the covers.
+    private func tabletJbiCards(_ feed: HomeFeed) -> [JBICard] {
+        var covers = feed.jumpBackIn
+        #if DEBUG
+        // QA aid: `-jbiCovers N` trims the shelf's covers (a small library).
+        if UserDefaults.standard.object(forKey: "jbiCovers") != nil {
+            covers = Array(covers.prefix(max(0, UserDefaults.standard.integer(forKey: "jbiCovers"))))
+        }
+        #endif
+        return feed.signals.map(JBICard.signal) + covers.map(JBICard.cover)
+    }
+
+    /// The tablet ladder of [feed] on this width's cover columns (Android jbiRowLadder).
+    private func tabletJbiStops(_ feed: HomeFeed) -> [HomeRowStop<JbiPresetLayout<JBICard>>] {
+        jbiTabletLadder(cards: tabletJbiCards(feed), columns: density.coverColumns)
+    }
+
+    /// Jump Back In on a tablet-wide feed (Android HomeJbiTemplate): phone-sized covers in `coverColumns`
+    /// lanes, each lane starting 0 / ¼ / ½ row below its neighbour; a signal card stands (1 column × 2 rows,
+    /// cover over its copy) or lies (2 columns, cover beside its copy) as the seeded template says, and a
+    /// lying card's right neighbour drops half a row. A shelf too short for any template is a plain column
+    /// grid. The preset picks the rows (S = L−2 … XL = L+1).
+    private func tabletJumpBackIn(_ feed: HomeFeed, preset: HomeRowPreset) -> some View {
+        let gap = Tokens.home.JBI_COLUMN_GAP.cg
+        let rowGap = Tokens.home.JBI_ROW_GAP.cg
+        let cols = density.coverColumns
+        let (colW, cover) = density.jbiColumn(gap: gap)
+        let composition = tabletJbiStops(feed).stopPayload(for: preset)
+        let pitch = cover + 50 + rowGap
+        let wideWidth = colW * 2 + gap
+
+        func cell(_ card: JBICard, standing: Bool = false, wide: Bool = false) -> some View {
+            Group {
+                switch card {
+                case let .signal(signal):
+                    SignalCard(signal: signal, cover: cover, standing: standing)
+                        .frame(width: wide ? wideWidth : colW, alignment: .leading)
+                case let .cover(item):
+                    JBICell(item: item, marks: feed.memoryMarks, size: cover)
+                        .frame(width: colW, alignment: .leading)
+                }
+            }
+        }
+
+        return VStack(alignment: .leading, spacing: rowGap) {
+            HomeSectionTitle(String(localized: "Jump Back In"))
+            switch composition {
+            case let .template(layout):
+                let t = layout.template
+                // As tall as the lowest thing placed: a short supply leaves no empty band under the shelf.
+                let height = (t.pieces.map { CGFloat(t.top(of: $0)) + CGFloat($0.kind.rowSpan) }.max() ?? 1) * pitch - rowGap
+                ZStack(alignment: .topLeading) {
+                    ForEach(layout.cells, id: \.card.stableId) { c in
+                        cell(c.card, standing: c.piece.kind == .tallSignal, wide: c.piece.kind == .wideSignal)
+                            .offset(x: CGFloat(c.piece.column) * (colW + gap), y: CGFloat(t.top(of: c.piece)) * pitch)
+                            .transition(.jbiRemoval)
+                    }
+                }
+                .frame(width: density.content, height: height, alignment: .topLeading)
+                // A hidden card folds away and the next one steps up on a spring.
+                .animation(Yoin.spatial, value: layout.cells.map { "\($0.card.stableId)@\($0.piece.column),\($0.piece.row)" })
+            case let .packed(rows):
+                VStack(alignment: .leading, spacing: rowGap) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        HStack(alignment: .top, spacing: gap) {
+                            ForEach(row, id: \.stableId) { card in cell(card, wide: card.expanded).transition(.jbiRemoval) }
+                        }
+                    }
+                }
+                .frame(width: density.content, alignment: .leading)
+                .animation(Yoin.spatial, value: rows.map { $0.map(\.stableId) })
+            }
+        }
     }
 
     /// One Jump Back In row of a server's shelf.
     private enum JBIRow: Hashable {
         /// A 1×2 then a cover, or a cover then a 1×2 (the mock's two rows).
-        case signal(JBISignal, Album?, leading: Bool)
-        case covers([Album])
+        case signal(JBISignal, JBIItem?, leading: Bool)
+        case covers([JBIItem])
     }
 
     /// The shelf's cells (a 1×2 takes two) at [preset]: 2 / 3 / 4 / 6 rows of three. The signal
@@ -424,23 +655,24 @@ struct HomeView: View {
                     switch row {
                     case let .signal(signal, cover, leading):
                         if !leading, let cover {
-                            JBICell(album: cover, mark: feed.memoryMarks[cover.id.rawId])
-                                .frame(width: pairUnit, alignment: .leading)
+                            JBICell(item: cover, marks: feed.memoryMarks)
+                                .frame(width: pairUnit, alignment: .leading).transition(.jbiRemoval)
                         }
-                        SignalCard(signal: signal).frame(width: pairUnit * 2, alignment: .leading)
+                        SignalCard(signal: signal).frame(width: pairUnit * 2, alignment: .leading).transition(.jbiRemoval)
                         if leading, let cover {
-                            JBICell(album: cover, mark: feed.memoryMarks[cover.id.rawId])
-                                .frame(width: pairUnit, alignment: .leading)
+                            JBICell(item: cover, marks: feed.memoryMarks)
+                                .frame(width: pairUnit, alignment: .leading).transition(.jbiRemoval)
                         }
-                    case let .covers(albums):
-                        ForEach(albums) { album in
-                            JBICell(album: album, mark: feed.memoryMarks[album.id.rawId])
-                                .frame(width: col, alignment: .leading)
+                    case let .covers(items):
+                        ForEach(items, id: \.stableId) { item in
+                            JBICell(item: item, marks: feed.memoryMarks)
+                                .frame(width: col, alignment: .leading).transition(.jbiRemoval)
                         }
                     }
                 }
             }
         }
+        .animation(Yoin.spatial, value: feed.signals.map(\.hideKey) + feed.jumpBackIn.map(\.stableId))
     }
 
     private func mockJumpBackIn(_ a: [Album]) -> some View {
@@ -488,7 +720,10 @@ struct HomeView: View {
 
     private func recentlyAdded(_ feed: HomeFeed) -> some View {
         let tiles = feed.recentTracks
-        let gridWidth = min(340, max(226.8, (contentWidth - 14) * 2.6 / 3.6))
+        // Tablet: 3 or 4 track columns (only as many as fill two rows), whole 166-wide cells.
+        let trackCols = density.isTablet ? min(density.recentTrackColumns, max(2, (min(tiles.count, 8) + 1) / 2)) : 2
+        let gridWidth = density.isTablet ? density.recentGridWidth(columns: trackCols)
+                                         : min(340, max(226.8, (contentWidth - 14) * 2.6 / 3.6))
         let tileGap = Tokens.home.RECENTLY_ADDED_TILE_GAP.cg
         return VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(String(localized: "Recently Added"))
@@ -496,11 +731,13 @@ struct HomeView: View {
                 HStack(alignment: .top, spacing: 14) {
                     if !tiles.isEmpty {
                         VStack(alignment: .leading, spacing: 14) {
-                            ForEach(Array(stride(from: 0, to: min(tiles.count, 4), by: 2)), id: \.self) { r in
+                            ForEach(Array(stride(from: 0, to: min(tiles.count, trackCols * 2), by: trackCols)), id: \.self) { r in
                                 HStack(spacing: tileGap) {
-                                    ForEach(r..<min(r + 2, tiles.count), id: \.self) { i in
+                                    ForEach(r..<min(r + trackCols, tiles.count), id: \.self) { i in
                                         TrackTile(album: tiles[i].album, track: tiles[i].track)
-                                            .frame(width: (gridWidth - tileGap) / 2, alignment: .leading)
+                                            .frame(width: (gridWidth - tileGap * CGFloat(trackCols - 1)) / CGFloat(trackCols),
+                                                   alignment: .leading)
+                                            .pointerHighlight()
                                             .onTapGesture { homeTap(edit) { model.play(tiles, startAt: i) } }
                                     }
                                 }
@@ -512,10 +749,11 @@ struct HomeView: View {
                         AlbumMini(album: album, mark: feed.memoryMarks[album.id.rawId])
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, density.margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -16)
+            .padding(.horizontal, -density.margin)
+            .shelfEdgeFade()
         }
     }
 
@@ -542,10 +780,11 @@ struct HomeView: View {
             HomeSectionTitle(title)
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 14) { content() }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, density.margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -16)
+            .padding(.horizontal, -density.margin)
+            .shelfEdgeFade()
         }
     }
 
@@ -569,10 +808,11 @@ struct HomeView: View {
                         .frame(width: contentWidth * 0.86)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, density.margin)
             }
             .scrollIndicators(.hidden)
-            .padding(.horizontal, -16)
+            .padding(.horizontal, -density.margin)
+            .shelfEdgeFade()
         }
     }
 }
@@ -621,6 +861,9 @@ private struct HomeSchemeKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    /// The feed's page margin (HomeDensity): shelves bleed by it to the container's edge.
+    @Entry var homeMargin: CGFloat = 16
+
     var homeScheme: CoverScheme? {
         get { self[HomeSchemeKey.self] }
         set { self[HomeSchemeKey.self] = newValue }
@@ -829,26 +1072,125 @@ private struct StripCard: View {
 /// Memory mark on a plain album cover: 16 dp disc + 12 dp Cookie12Sided.
 private typealias MemoryMark = AlbumMemoryMark
 
+/// A card of the tablet shelf, seated on Android's template: a signal (rating / note) card or a cover.
+enum JBICard: JbiCard {
+    case signal(JBISignal)
+    case cover(JBIItem)
+
+    var stableId: String {
+        switch self {
+        case let .signal(s): "signal:\(s.kind == .ratedAlbum ? "rated" : "noted"):\(s.album.id.provider):\(s.album.id.rawId)"
+        case let .cover(item): item.stableId
+        }
+    }
+
+    var expanded: Bool {
+        if case .signal = self { true } else { false }
+    }
+}
+
+/// One Jump Back In cover: an album (opens it), a song (plays it, as Android's PlaySong card) or a playlist
+/// (opens it). The subtitle carries the kind, since the shelf mixes them.
 private struct JBICell: View {
     @Environment(AppModel.self) private var model
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     @Environment(\.zoomNamespace) private var zoomNS
     @State private var zoomTile = ZoomTile()
-    var album: Album
-    var mark: MemoryMark?
+    var item: JBIItem
+    /// Raw album id → memory mark; only an album's own cover wears one.
+    var marks: [String: AlbumMemoryMark] = [:]
+    /// The cover's size: the phone's, or a tablet column's (HomeDensity.jbiColumn).
+    var size: CGFloat = Tokens.home.JBI_COVER.cg
     @Environment(\.colorScheme) private var colorScheme
 
+    init(item: JBIItem, marks: [String: AlbumMemoryMark] = [:], size: CGFloat = Tokens.home.JBI_COVER.cg) {
+        self.item = item
+        self.marks = marks
+        self.size = size
+    }
+
+    /// The mock shelf's album cover with its hand-set mark.
+    init(album: Album, mark: AlbumMemoryMark?) {
+        self.init(item: .album(album), marks: mark.map { [album.id.rawId: $0] } ?? [:])
+    }
+
+    @State private var hideOpen = false
+
     var body: some View {
-        let s = scheme!
-        Button { homeTap(edit) { model.open(album, tile: zoomTile.key) } } label: {
-            AlbumItem(album: album, size: Tokens.home.JBI_COVER.cg, subtitle: album.kindLine) {
-                // albumMemoryMarkInk: palette base, accent in dark mode.
-                if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
+        content.jbiHideMenu(key: item.hideKey, open: $hideOpen)
+        #if DEBUG
+            // QA aid: `-jbiHideDemo menu` opens the first album's "not now" menu, `-jbiHideDemo hide` hides it.
+            .task {
+                guard case .album = item, let mode = UserDefaults.standard.string(forKey: "jbiHideDemo"),
+                      Self.claimDemo(item.stableId) else { return }
+                try? await Task.sleep(for: .seconds(mode == "menu" ? 5 : 5))
+                if mode == "menu" { hideOpen = true } else {
+                    withAnimation(Yoin.spatial) { model.store.hideJbi(key: item.hideKey, span: .threeDays) }
+                }
             }
-            .zoomSource(album.id, zoomNS, tile: zoomTile.key)
+        #endif
+    }
+    #if DEBUG
+    @MainActor private static var demoId: String? = nil
+    @MainActor private static func claimDemo(_ id: String) -> Bool {
+        if demoId == nil { demoId = id }
+        return demoId == id
+    }
+    #endif
+
+    /// A tap: edit mode opens the "not now" menu (Android HomeJbiHidden), otherwise the card's own action.
+    private func jbiTap(_ action: () -> Void) {
+        jbiCardTap(edit, open: $hideOpen, action)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch item {
+        case let .album(album):
+            let mark = marks[album.id.rawId]
+            let s = scheme!
+            Button { jbiTap { model.open(album, tile: zoomTile.key) } } label: {
+                AlbumItem(album: album, size: size, subtitle: album.kindLine) {
+                    // albumMemoryMarkInk: palette base, accent in dark mode.
+                    if let mark { MemoryMarkView(mark: mark, ink: cardInk(album.palette, dark: colorScheme == .dark), bg: s.background) }
+                }
+                .zoomSource(album.id, zoomNS, tile: zoomTile.key)
+            }
+            .buttonStyle(PressScale())
+        case let .track(entry):
+            Button { jbiTap { model.play([entry]) } } label: {
+                plainCover(entity: .song, palette: entry.album.palette, seed: entry.album.seed, title: entry.track.title,
+                           subtitle: KindLine.make(String(localized: "Track"), entry.track.artist ?? entry.album.artist))
+            }
+            .buttonStyle(PressScale())
+        case let .playlist(playlist):
+            Button { jbiTap { model.openPlaylist(playlist.id.rawId) } } label: {
+                plainCover(entity: .playlist, palette: playlist.palette, seed: playlist.id.rawId.count, title: playlist.title,
+                           subtitle: KindLine.make(String(localized: "Playlist"), playlist.owner ?? ""))
+            }
+            .buttonStyle(PressScale())
         }
-        .buttonStyle(PressScale())
+    }
+
+    /// A song's or playlist's cover and caption, set like an album's (JBI 1×1: 5 gap, title 16/22, bodySmall).
+    private func plainCover(entity: EntityBackdrop.Entity, palette: CoverPalette, seed: Int, title: String,
+                            subtitle: String) -> some View {
+        let s = scheme!
+        return VStack(alignment: .leading, spacing: 5) {
+            EntityBackdrop(entity: entity, palette: palette, seed: seed, size: size, stroke: s.primary)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
+                    .homeLine(16, 22)
+                    .foregroundStyle(s.onSurface)
+                Text(subtitle)
+                    .homeType(Tokens.type.bodySmall)
+                    .foregroundStyle(s.onSurfaceVariant)
+            }
+            .lineLimit(1)
+        }
+        .frame(width: size, alignment: .leading)
     }
 }
 
@@ -899,10 +1241,12 @@ struct AlbumItem<Mark: View>: View {
                 .overlay(alignment: .topTrailing) { if onCover { mark() } }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 2) {
-                    Text(album.title)
-                        .font(YoinFont.font(size: titleSize, YoinFont.Axes(weight: 600, round: 100)))
-                        .homeLine(titleSize, titleLineHeight)
-                        .foregroundStyle(s.onSurface)
+                    AlbumVersionTitle(album: album, scheme: s) { name in
+                        Text(name)
+                            .font(YoinFont.font(size: titleSize, YoinFont.Axes(weight: 600, round: 100)))
+                            .homeLine(titleSize, titleLineHeight)
+                            .foregroundStyle(s.onSurface)
+                    }
                     // A Spotify cover: the mark at the title's end instead (CoverMarks).
                     if !onCover {
                         Spacer(minLength: 0)
@@ -934,16 +1278,80 @@ private struct SignalCard: View {
     @Environment(\.homeEdit) private var edit
     @Environment(\.homeScheme) private var scheme
     var signal: JBISignal
+    /// The cover's size: the phone's, or a tablet column's.
+    var cover: CGFloat = Tokens.home.JBI_COVER.cg
+    /// A tablet's standing 1×2: the cover over its copy instead of beside it.
+    var standing = false
 
     @Environment(\.colorScheme) private var colorScheme
 
     private var album: Album { signal.album }
 
+    /// The cover and its caption (a tablet column's cover size, or the phone's).
+    @ViewBuilder
+    private func coverBlock(_ s: CoverScheme) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: cover,
+                           stroke: s.primary)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(signal.title)
+                    .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
+                    .homeLine(16, 22)
+                    .foregroundStyle(s.onSurface)
+                Text(signal.kind == .ratedAlbum ? album.kindLine : signal.subtitle)
+                    .homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
+            }
+            .lineLimit(1)
+            .frame(width: cover, alignment: .leading)
+        }
+    }
+
+    /// The score over its basis, then the words.
+    @ViewBuilder
+    private func ratingColumn(_ s: CoverScheme, ink: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            // Row(verticalAlignment = Bottom): the basis sits 3 dp off the score's line-box bottom.
+            HStack(alignment: .bottom, spacing: 6) {
+                Text(signal.score)
+                    .homeType(Tokens.type.headlineSmall, .bold, digits: true)
+                if let basis = signal.basis {
+                    Text(basis)
+                        .homeType(Tokens.type.labelSmall, digits: true)
+                        .opacity(0.85)
+                        .padding(.bottom, 3)
+                }
+            }
+            .foregroundStyle(ink)
+            if let comment = signal.comment {
+                // A memory's title in the headline face; a note is body text.
+                if signal.kind == .ratedAlbum {
+                    Text(comment)
+                        .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 24)
+                        .foregroundStyle(s.onSurface)
+                        .lineLimit(3)
+                } else {
+                    Text(comment)
+                        .homeType(Tokens.type.bodyMedium)
+                        .foregroundStyle(s.onSurface)
+                        .lineLimit(3)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @State private var hideOpen = false
+
     var body: some View {
+        content.jbiHideMenu(key: signal.hideKey, open: $hideOpen)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         let s = scheme!
         let ink = cardInk(album.palette, dark: colorScheme == .dark)
         Button {
-            homeTap(edit) {
+            jbiCardTap(edit, open: $hideOpen) {
                 // A memory 1×2 opens Memories stopped on its album (Android onOpenMemoryFocus);
                 // a noted track plays its song.
                 if let song = signal.song {
@@ -955,50 +1363,19 @@ private struct SignalCard: View {
                 }
             }
         } label: {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 5) {
-                    EntityBackdrop(entity: .album, palette: album.palette, seed: album.seed, size: Tokens.home.JBI_COVER.cg,
-                                   stroke: s.primary)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(signal.title)
-                            .font(YoinFont.font(size: 16, YoinFont.Axes(weight: 600, round: 100)))
-                            .homeLine(16, 22)
-                            .foregroundStyle(s.onSurface)
-                        Text(signal.kind == .ratedAlbum ? album.kindLine : signal.subtitle)
-                            .homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
+            Group {
+                if standing {
+                    // Standing (tablet 1×2): the cover block over its copy, one column wide.
+                    VStack(alignment: .leading, spacing: 10) {
+                        coverBlock(s)
+                        ratingColumn(s, ink: ink)
                     }
-                    .lineLimit(1)
-                    .frame(width: Tokens.home.JBI_COVER.cg, alignment: .leading)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    // Row(verticalAlignment = Bottom): the basis sits 3 dp off the score's line-box bottom.
-                    HStack(alignment: .bottom, spacing: 6) {
-                        Text(signal.score)
-                            .homeType(Tokens.type.headlineSmall, .bold, digits: true)
-                        if let basis = signal.basis {
-                            Text(basis)
-                                .homeType(Tokens.type.labelSmall, digits: true)
-                                .opacity(0.85)
-                                .padding(.bottom, 3)
-                        }
-                    }
-                    .foregroundStyle(ink)
-                    if let comment = signal.comment {
-                        // A memory's title in the headline face; a note is body text.
-                        if signal.kind == .ratedAlbum {
-                            Text(comment)
-                                .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 24)
-                                .foregroundStyle(s.onSurface)
-                                .lineLimit(3)
-                        } else {
-                            Text(comment)
-                                .homeType(Tokens.type.bodyMedium)
-                                .foregroundStyle(s.onSurface)
-                                .lineLimit(3)
-                        }
+                } else {
+                    HStack(alignment: .top, spacing: 16) {
+                        coverBlock(s)
+                        ratingColumn(s, ink: ink)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .contentShape(.rect)
         }
@@ -1274,7 +1651,8 @@ extension HomeFeed {
         case .rediscover: !rediscover.isEmpty
         case .recentlyPlayed: !recentlyPlayed.isEmpty
         case .yourPlaylists: !playlists.isEmpty
-        case .otherProfiles: false
+        // Read from their own stores (HomeView.hasContent).
+        case .otherProfiles, .lyricHighlight, .memoryGrid: false
         }
     }
 }

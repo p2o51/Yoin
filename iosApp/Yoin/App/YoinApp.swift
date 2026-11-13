@@ -2,6 +2,9 @@ import SwiftUI
 
 @main
 struct YoinApp: App {
+    /// Background download events (Data/Cache/BackgroundTransfers.swift).
+    @UIApplicationDelegateAdaptor(YoinAppDelegate.self) private var appDelegate
+
     init() {
         YoinFont.selfCheck()
         PlayTrace.observeApp()
@@ -10,7 +13,11 @@ struct YoinApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .modifier(QAWindowFrame())
+                // On a Mac the window stops at the smallest size the phone shell is laid out for.
+                .background(WindowFloorInstaller())
         }
+        .commands { YoinCommands(model: AppModel.shared) }
     }
 }
 
@@ -53,7 +60,14 @@ struct RootView: View {
             if let link = WidgetLink(url: url) { return model.handleWidget(link) }
             // The Spotify app hands back here after waking (App Remote's token).
             if SpotifyRemote.shared.handle(url) { return }
+            // A Spotoolfy export opened into Yoin: the welcome guide takes it (Android's share receiver).
+            if url.isFileURL { SpotoolfyInbox.shared.receive(url, landingOpen: model.landing != nil); return }
             _ = CloudSync.handle(url: url)
+        }
+        // Handoff from another of the listener's Apple devices: the song it was playing (App/PlayingHandoff.swift).
+        .onContinueUserActivity(HandoffPlaying.activityType) { activity in
+            guard let h = HandoffPlaying(userInfo: activity.userInfo) else { return }
+            Task { await model.continueHandoff(h) }
         }
         .task {
             let profiles = model.profiles
@@ -62,6 +76,8 @@ struct RootView: View {
             PlaylistBackups.shared.start(library: model.store)
             // Home screen widgets: a new snapshot whenever what they show changes.
             WidgetPublisher.shared.start(model)
+            // Handoff: the loaded song, offered to the listener's other Apple devices.
+            PlayingHandoff.shared.start(model)
         }
         .preferredColorScheme(GlassLab.shared.colorScheme)
         .overlay {
@@ -74,6 +90,8 @@ struct RootView: View {
         .animation(Yoin.spatial, value: GlassLab.shared.panelOpen)
         // The header avatar's hold: the other accounts, over everything but the landing (Home/AccountQuickSwitch.swift).
         .overlay { AccountFanLayer().environment(model).environment(\.glassFlavor, model.glassFlavor) }
+        // The header avatar's short tap: the account card (Home/AccountSwitcherCard.swift).
+        .overlay { AccountSwitcherLayer().environment(model).font(.gsf(17)) }
         .background(GlassLabGestureInstaller())
         .background(SlowMotionInstaller())
         // The first-run landing / Welcome guide: above the shell (bar included), like Android's
@@ -103,4 +121,36 @@ private struct SlowMotionInstaller: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
+/// QA stand-in for a narrow iPad window (Split View, Stage Manager), which the simulator can't be put into
+/// from the command line: `-padWindowWidth 683 -padWindowClass regular` lays the app out in a window that
+/// wide (leading edge, the rest of the screen dimmed) with that horizontal size class, so the same layout
+/// code runs as in a real window that size. `-padWindowHeight 480` makes it that tall as well (top edge):
+/// a short window, such as the Mac's smallest (WindowFloor). Debug builds only; nothing without the argument.
+struct QAWindowFrame: ViewModifier {
+    func body(content: Content) -> some View {
+        #if DEBUG
+        let d = UserDefaults.standard
+        let width = d.double(forKey: "padWindowWidth")
+        if width > 0 {
+            let compact = d.string(forKey: "padWindowClass") == "compact"
+            let height = d.double(forKey: "padWindowHeight")
+            HStack(spacing: 0) {
+                content
+                    .environment(\.horizontalSizeClass, compact ? .compact : .regular)
+                    .frame(width: width, height: height > 0 ? height : nil)
+                    .clipShape(.rect(cornerRadius: 18, style: .continuous))
+                    .frame(maxHeight: .infinity, alignment: .top)
+                Color.black.opacity(0.85).frame(width: 10)
+                Color.gray.opacity(0.35)
+            }
+            .background(Color.black.ignoresSafeArea())
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
 }

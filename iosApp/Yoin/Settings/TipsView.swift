@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Settings › About › Tips (Android TipsPage): every tip, read ones checked; a tap marks one read or unread.
-/// Once something is read, one more row marks them all unread, so Home's bubble brings them up again.
-/// [focus] is the tip the bubble opened it on: scrolled to, lit for a moment, and marked read.
+/// Settings › About › Tips (Android TipsPage): every tip, read ones checked; a tap opens it on its own page
+/// (Tips/TipView.swift), where it is marked read. Once something is read, one more row marks them all unread,
+/// so Home's bubble brings them up again. [focus] is a tip to open the list on: scrolled to, lit for a moment,
+/// and marked read.
 struct TipsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
@@ -52,7 +53,7 @@ struct TipsView: View {
                             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                             .contentShape(.rect)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.plain).pointerHighlight()
                         .background(app.surfaceBright, in: CloudSyncView.segment(0, 1))
                         .transition(.opacity)
                     }
@@ -78,7 +79,7 @@ struct TipsView: View {
 
     private func row(_ tip: Tip) -> some View {
         let read = store.isRead(tip)
-        return Button { store.setRead(tip, !read) } label: {
+        return NavigationLink { TipView(start: tip.id) } label: {
             HStack(alignment: .top, spacing: 16) {
                 YoinIcon(tip.icon, size: 22)
                     .foregroundStyle(app.onSecondaryContainer)
@@ -109,10 +110,9 @@ struct TipsView: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityElement(children: .combine)
         .accessibilityValue(read ? String(localized: "Read") : String(localized: "Unread"))
-        .accessibilityHint(read ? String(localized: "Mark as unread") : String(localized: "Mark as read"))
     }
 
     private var topBar: some View {
@@ -123,10 +123,11 @@ struct TipsView: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
+            .settingsPaneBack()
             Spacer()
         }
         .padding(.leading, 8)
@@ -138,26 +139,35 @@ struct TipsView: View {
 struct TipsEntryRow: View {
     var app: CoverScheme
     private let store = TipReadStore.shared
+    /// The two-pane Settings' list: the row picks Tips beside it.
+    @Environment(\.settingsList) private var list
 
     var body: some View {
-        NavigationLink { TipsView(focus: nil) } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Tips")
-                        .yoinRole(Tokens.type.bodyLarge)
-                        .foregroundStyle(app.onSurface)
-                    Text(Tips.readSummary(read: store.read.count, total: Tips.all.count))
-                        .yoinRole(Tokens.type.bodyMedium)
-                        .foregroundStyle(app.onSurfaceVariant)
-                }
-                Spacer(minLength: 16)
-                YoinIcon("chevron_right", size: 20).foregroundStyle(app.onSurfaceVariant)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .contentShape(.rect)
+        if let list {
+            Button { list.pick(.tips) } label: { label }
+                .buttonStyle(.plain).pointerHighlight()
+        } else {
+            NavigationLink { TipsView(focus: nil) } label: { label }
+                .buttonStyle(.plain).pointerHighlight()
         }
-        .buttonStyle(.plain)
+    }
+
+    private var label: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Tips")
+                    .yoinRole(Tokens.type.bodyLarge)
+                    .foregroundStyle(app.onSurface)
+                Text(Tips.readSummary(read: store.read.count, total: Tips.all.count))
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(app.onSurfaceVariant)
+            }
+            Spacer(minLength: 16)
+            YoinIcon("chevron_right", size: 20).foregroundStyle(app.onSurfaceVariant)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .contentShape(.rect)
     }
 }

@@ -36,6 +36,12 @@ final class NowPlayingPresentation {
     private(set) var warming = false
     @ObservationIgnored private var warmTask: Task<Void, Never>?
 
+    /// iPad: the side panel's global frame and corner radius. While `fromPanel`, the morph grows out of
+    /// the panel (and folds back into it) instead of the pill: Android's Panel ⇄ Full.
+    var panelFrame: CGRect = .zero
+    var panelRadius: CGFloat = 28
+    var fromPanel = false
+
     /// Global frames of the bar's pill and its cover / title.
     var pillFrame: CGRect = .zero
     var pillCoverFrame: CGRect = .zero
@@ -87,6 +93,7 @@ final class NowPlayingPresentation {
             } else {
                 setMounted(false)
                 progress = 0
+                fromPanel = false
             }
         }
     }
@@ -288,7 +295,9 @@ struct NowPlayingMorph: View {
         GeometryReader { geo in
             let origin = geo.frame(in: .global).origin
             let screen = CGRect(origin: .zero, size: geo.size)
-            let pill = pillRect(np.pillFrame.offsetBy(dx: -origin.x, dy: -origin.y), in: screen)
+            let fromPanel = np.fromPanel && np.panelFrame.width > 1
+            let pill = fromPanel ? np.panelFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+                : pillRect(np.pillFrame.offsetBy(dx: -origin.x, dy: -origin.y), in: screen)
             // Spring overshoot past the page is clamped (the page doesn't
             // leave the screen); only a drag lifts it (rubber band). Below 0
             // the geometry holds the pill's rect: the shape never folds
@@ -299,7 +308,7 @@ struct NowPlayingMorph: View {
             let h = NowPlayingPresentation.rise(q)
             let rect = CGRect(x: lerp(pill.minX, screen.minX, q), y: lerp(pill.minY, screen.minY, h) - lift,
                               width: lerp(pill.width, screen.width, q), height: lerp(pill.height, screen.height, h))
-            let radius = max(0, lerp(pill.height / 2, fullRadius, clamp01(q)))
+            let radius = max(0, lerp(fromPanel ? np.panelRadius : pill.height / 2, fullRadius, clamp01(q)))
             let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
 
             ZStack(alignment: .topLeading) {
@@ -308,7 +317,7 @@ struct NowPlayingMorph: View {
                 // The pill's own content (artist, progress wash) rides the
                 // shape's top edge and fades as the page takes over.
                 // Gone once faded out: its wash keeps a timeline running.
-                if q < 0.22 {
+                if q < 0.22 && !fromPanel {
                     PillContent(showCover: false, showTitle: false)
                         .frame(width: pill.width, height: pill.height)
                         .offset(x: rect.minX, y: rect.maxY - pill.height)
@@ -318,7 +327,8 @@ struct NowPlayingMorph: View {
 
                 page(screen: screen, rect: rect, shape: shape, q: q, insets: insets)
 
-                if np.inFlight {
+                // From the panel the page itself is the panel's twin: nothing flies.
+                if np.inFlight && !fromPanel {
                     flights(np: np, origin: origin, q: q, rect: rect, scale: rect.width / screen.width)
                         .mask(alignment: .topLeading) {
                             shape.frame(width: rect.width, height: rect.height)

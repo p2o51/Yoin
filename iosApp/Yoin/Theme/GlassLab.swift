@@ -786,7 +786,7 @@ struct GlassLabPanel: View {
                                     }
                                 }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.plain).pointerHighlight()
                     }
                 }
             }
@@ -817,7 +817,7 @@ struct GlassLabPanel: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             if open {
                 SurfaceControls(id: surface.id, extras: surface.extras)
             }

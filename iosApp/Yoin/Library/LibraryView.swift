@@ -21,6 +21,9 @@ struct LibraryView: View {
     @Environment(\.zoomNamespace) private var zoomNS
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The header avatar's target in the window: the account card grows out of it.
+    @State private var accountFrame: CGRect = .zero
     @State private var width: CGFloat = 370
     @State private var position = ScrollPosition()
     @State private var metrics = ScrollMetrics()
@@ -47,7 +50,7 @@ struct LibraryView: View {
     /// YoinShared): Android's knee mapping, where the thumb tracks the top row
     /// and the last stretch of the track covers the final screen.
     struct ScrollMetrics: Equatable {
-        var offset: CGFloat = 0, content: CGFloat = 1, viewport: CGFloat = 1
+        var offset: CGFloat = 0, content: CGFloat = 1, viewport: CGFloat = 1, insets: CGFloat = 0
 
         func rows(_ items: Int, columns: Int) -> Int32 {
             FastScrollMath.shared.lineCount(itemCount: Int32(items), itemsPerLine: Int32(columns))
@@ -86,8 +89,19 @@ struct LibraryView: View {
     /// cells stay phone-sized and the count follows the width (min 96, a
     /// landscape phone's short window 100).
     private var columns: Int {
-        LibraryGrid.columns(width: width, regularWidth: hSize == .regular, compactHeight: vSize == .compact)
+        let base = LibraryGrid.columns(width: width, regularWidth: hSize == .regular, compactHeight: vSize == .compact)
+        // A short shelf past the phone's width grows its cells (Android LibrarySparseCells, owner 2026-11-12):
+        // All, Albums and Artists; never the phone's fixed three or a short landscape window.
+        guard vSize != .compact, hSize == .regular || width >= 600,
+              filter == nil || filter == .albums || filter == .artists, gridViewport > 0 else { return base }
+        return LibraryGrid.sparseColumns(itemCount: ordered.items.count, baseColumns: base, width: width - 32,
+                                         height: gridViewport, leading: LibraryGrid.sparseSortRow)
     }
+    /// The grid's visible height: the scroll view less its top bar (header, chips) and bottom inset, and the
+    /// grid's top padding (Android: maxHeight − 8 − the floating bar's padding).
+    @State private var gridViewport: CGFloat = 0
+    /// The song rows (by occurrence key) whose "Apple Music doesn't stream" reason is open.
+    @State private var notStreamedReasons: Set<String> = []
     private var cell: CGFloat { LibraryGrid.cell(width: width, columns: columns) }
 
     /// Android librarySortOptions: only orders the data can back (see `LibrarySortOptions`).
@@ -161,8 +175,8 @@ struct LibraryView: View {
                     gridTab(shown)
                 }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
+        .offeredWidth { width = $0 }
         .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
         .task(id: LoadKey(generation: model.store.generation, filter: filter)) {
@@ -178,6 +192,22 @@ struct LibraryView: View {
             // glass press bloom) overlaps the bar and is that 4 gap.
             // The track styles keep 8 between the field and the track, so
             // the two capsules read as a pair, not one stacked slab.
+            if wideHeader {
+                // Android's wide Library app bar: the search field at its own width, the chips beside it,
+                // the account at the end (a full-width field read as a bar across the whole page).
+                HStack(spacing: 8) {
+                    searchPill.frame(width: Self.wideSearchWidth)
+                    chips
+                        .opacity(model.searchActive ? 0 : 1)
+                        .animation(model.searchActive ? nil : Yoin.effects, value: model.searchActive)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    accountButton
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 16)
+                .padding(.top, SearchView.headerTop)
+                .padding(.bottom, 4)
+            } else {
             VStack(alignment: .leading, spacing: LibraryFilterRow.Style.current.isTrack ? 0 : -4) {
                 header
                 chips
@@ -187,13 +217,16 @@ struct LibraryView: View {
                     .opacity(model.searchActive ? 0 : 1)
                     .animation(model.searchActive ? nil : Yoin.effects, value: model.searchActive)
             }
+            }
         }
         .scrollPosition($position)
         .onScrollGeometryChange(for: ScrollMetrics.self) {
             ScrollMetrics(offset: $0.contentOffset.y + $0.contentInsets.top, content: $0.contentSize.height,
-                          viewport: $0.containerSize.height)
+                          viewport: $0.containerSize.height, insets: $0.contentInsets.top + $0.contentInsets.bottom)
         } action: { _, m in
             metrics = m
+            let visible = m.viewport - m.insets - Tokens.library.GRID_TOP_PADDING.cg
+            if abs(visible - gridViewport) > 0.5 { gridViewport = visible }
             memory.offsets[tab] = m.offset
             wake()
         }
@@ -214,7 +247,7 @@ struct LibraryView: View {
                 // app bar, 44 chips and 4 gap) plus LibraryScrollerTopInset 8;
                 // bottom = floatingBottomGroupContentPadding 108 over the inset,
                 // less the 62 the shell already reserves for the bar.
-                .padding(.top, 64 + Tokens.library.CHIP_HEIGHT.cg + 4 + Tokens.library.SCROLLER_TOP_INSET.cg
+                .padding(.top, 64 + (wideHeader ? 0 : Tokens.library.CHIP_HEIGHT.cg + 4) + Tokens.library.SCROLLER_TOP_INSET.cg
                          + (LibraryFilterRow.Style.current.isTrack ? 4 : 0))
                 .padding(.bottom, Tokens.library.BOTTOM_GROUP_PADDING.cg - 62)
             }
@@ -242,6 +275,8 @@ struct LibraryView: View {
             }
         }
         .onChange(of: model.store.generation) { _, _ in memory.offsets = [:] }
+        // The sorts are the account's own, kept across launches.
+        .onChange(of: model.store.homeScope, initial: true) { _, scope in memory.scope = scope }
         .background(
             LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
                            startPoint: .top, endPoint: .bottom)
@@ -261,42 +296,62 @@ struct LibraryView: View {
 
     // MARK: Header: search pill + avatar
 
+    /// Android Wide (≥ 840): the app bar holds the field and the chips in one row.
+    private var wideHeader: Bool { width >= 840 }
+    static let wideSearchWidth: CGFloat = 360
+
     private var header: some View {
         HStack(spacing: 8) {
+            searchPill
+            accountButton
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, SearchView.headerTop)
+        .padding(.bottom, 4)
+    }
+
+    private var searchPill: some View {
             Button { model.openSearch(from: .library) } label: {
-                HStack(spacing: 12) {
-                    // Adaptive label colors: they flip with the glass over dark content.
-                    YoinIcon("search", size: 24).foregroundStyle(.secondary)
-                    Text("Search library").font(.gsf(16)).foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .frame(height: SearchView.fieldHeight)
-                .contentShape(.capsule)
+                LibrarySearchPillLabel()
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .labSearchGlass(scheme: scheme, in: .capsule)
             // Search's field takes this exact rect. Opened from here the two
             // coincide and the pill simply stays under it; grown from the
             // bar's circle, the pill steps aside so no second field waits here.
             .opacity(model.searchActive && model.searchOrigin == .bar ? 0 : 1)
             .animation(Yoin.effects, value: model.searchActive)
+    }
+
+    private var accountButton: some View {
             // The account Library is reading, as on Home (Android: 资料库也要显示当前的账号).
-            Button { if !AccountFan.shared.swallowsTap { model.openSettings() } } label: {
+            // A short tap: the account card, minus Home's own Edit Home (Android HomeAccountSwitcherHost).
+            Button { if !AccountFan.shared.swallowsTap { openAccountCard() } } label: {
                 HeaderAccountAvatar(profile: model.profiles.active,
                                     shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
                                     fallback: scheme.primary, onFallback: scheme.onPrimary,
-                                    ring: scheme.surfaceContainer)
+                                    ring: scheme.surfaceContainer,
+                                    needsReconnect: model.activeNeedsReconnect, error: scheme.error)
+                    .opacity(AccountSwitcher.shared.shown ? 0 : 1)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { accountFrame = $0 }
+            #if DEBUG
+            // `-accountCardOpen library`: the card, a beat after Library shows (QA screenshots).
+            .task {
+                guard UserDefaults.standard.string(forKey: "accountCardOpen") == "library" else { return }
+                try? await Task.sleep(for: .seconds(3))
+                openAccountCard()
+            }
+            #endif
             .accessibilityLabel("Account")
-            .accessibilityValue(model.profiles.active?.spokenAccount ?? "")
+            .accessibilityValue(model.headerAccountValue)
             // Hold and slide onto another account (Android #162).
             .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, SearchView.headerTop)
-        .padding(.bottom, 4)
+    }
+
+    private func openAccountCard() {
+        model.openAccountCard(avatarTarget: accountFrame, reduced: reduceMotion, editHome: nil)
     }
 
     // MARK: Chips
@@ -377,7 +432,7 @@ struct LibraryView: View {
             .frame(minHeight: 48)
             .contentShape(.rect(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .offset(x: -Tokens.library.SORT_ROW_PRESS_BLEED.cg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityLabel("Sort")
@@ -385,26 +440,13 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func gridCell(_ item: LibraryItem, side: CGFloat) -> some View {
-        let isArtist = item.kind == .artist
         Button { open(item) } label: {
-            VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
-                EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,
-                               seed: item.id.rawId.count, size: side, stroke: scheme.primary)
-                    .zoomSource(item.id, zoomNS, tile: "library")
-                Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
-                // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
-                Text(item.title)
-                    .lineLimit(1)
-                    .yoinRole(Tokens.type.titleSmall)
-                    .foregroundStyle(scheme.onSurface)
-                Text(gridSubtitle(item))
-                    .lineLimit(1)
-                    .yoinRole(Tokens.type.bodySmall)
-                    .foregroundStyle(scheme.onSurfaceVariant)
+            LibraryGridCellFace(item: item, side: side, scheme: scheme) { backdrop in
+                backdrop.zoomSource(item.id, zoomNS, tile: "library")
             }
-            .frame(width: side, alignment: isArtist ? .center : .leading)
         }
         .buttonStyle(PressScale())
+        .modifier(GridCellDrag(item: item, ink: scheme.primary))
     }
 
     private func open(_ item: LibraryItem) {
@@ -412,16 +454,6 @@ struct LibraryView: View {
         case .artist: model.openArtist(item.title, id: item.id.provider == "mock" ? nil : item.id.rawId)
         case .playlist: model.openPlaylist(item.id.rawId)
         case .album: if let album = item.album { model.open(album, tile: "library") }
-        }
-    }
-
-    /// The grid's line under a cover, Spotify's way (51, 2026-11-07): "Album • Artist",
-    /// "Single • Artist", "Playlist • owner", "Artist" (round cover) — the grid mixes all three.
-    private func gridSubtitle(_ item: LibraryItem) -> String {
-        switch item.kind {
-        case .artist: String(localized: "Artist")
-        case .album: item.album?.kindLine ?? ReleaseKind.album.label
-        case .playlist: KindLine.make(String(localized: "Playlist"), item.owner ?? "")
         }
     }
 
@@ -453,6 +485,12 @@ struct LibraryView: View {
                 sortRow.padding(.horizontal, 16)
                 ForEach(shown) { p in
                     PlaylistRow(item: p, scheme: scheme) { open(p) }
+                        // Dragged onto the queue; songs, albums and playlists dropped here go into it.
+                        .yoinDraggable { YoinDrag.playlist(p, model: model) }
+                        .yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous),
+                                        ink: scheme.primary, accepts: YoinDrag.accepts(p, model: model)) {
+                            YoinDrag.add($0, to: p, model: model)
+                        }
                         .transition(.opacity.animation(Yoin.effects))
                 }
             }
@@ -516,7 +554,7 @@ struct LibraryView: View {
                     .frame(width: 48, height: 48)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .accessibilityLabel("Reshuffle")
         }
         .padding(.leading, 16)
@@ -545,11 +583,20 @@ struct LibraryView: View {
     /// minus any heart taken off here since (FavoritesStore, shared with NP).
     private var songEntries: [PlaylistEntry] {
         if filter == .favorites { return favoriteEntries }
-        guard model.store.isReal else {
+        var entries: [PlaylistEntry]
+        if model.store.isReal {
+            entries = model.store.songs
+        } else {
             guard LaunchConfig.demoContent else { return [] }
-            return model.library.albums().flatMap { a in a.tracks.prefix(3).map { PlaylistEntry(album: a, track: $0) } }
+            entries = model.library.albums().flatMap { a in a.tracks.prefix(3).map { PlaylistEntry(album: a, track: $0) } }
         }
-        return model.store.songs
+        #if DEBUG
+        // `-notStreamedDemo YES|open`: the third song as one Apple won't stream (`open` opens its reason).
+        if UserDefaults.standard.string(forKey: "notStreamedDemo") != nil, entries.indices.contains(2) {
+            entries[2].track.notStreamed = true
+        }
+        #endif
+        return entries
     }
 
     private var favoriteEntries: [PlaylistEntry] {
@@ -640,15 +687,29 @@ struct LibraryView: View {
         // arrivals, removals (a heart taken off) and pages move, not cut.
         let keyed = LibraryGrid.occurrenceKeys(entries.map { "\($0.track.id)" })
         LazyVStack(spacing: 0) {
-            ForEach(Array(zip(keyed, entries.indices)), id: \.0) { _, i in
+            ForEach(Array(zip(keyed, entries.indices)), id: \.0) { key, i in
                 let e = entries[i]
+                let explain = { withAnimation(Yoin.spatial) { NotStreamedRow.toggle(key, in: &notStreamedReasons) } }
                 LibrarySongRow(album: e.album, track: e.track, current: model.playback.track.id == e.track.id,
-                               scheme: scheme)
-                    .trackRow(for: e) { model.play(entries, startAt: i) }
+                               scheme: scheme, reasonShown: notStreamedReasons.contains(key), explain: explain)
+                    .trackRow(for: e) {
+                        // A song Apple won't stream doesn't play: its tap says why (Android SongListItem).
+                        switch NotStreamedRow.tap(e.track) {
+                        case .play: model.play(entries, startAt: i)
+                        case .explain: explain()
+                        }
+                    }
                     .transition(.opacity.animation(Yoin.effects))
             }
         }
         .animation(Yoin.spatial, value: keyed)
+        #if DEBUG
+        .onChange(of: keyed.count, initial: true) {
+            if UserDefaults.standard.string(forKey: "notStreamedDemo") == "open", keyed.indices.contains(2) {
+                notStreamedReasons.insert(keyed[2])
+            }
+        }
+        #endif
     }
 
     // MARK: Server load states
@@ -769,7 +830,37 @@ struct LibraryListRow<Art: View>: View {
             .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
+    }
+}
+
+/// Library's grid cell as a drag source and a drop target: an album or a playlist drags out (onto the
+/// queue or a playlist); a writable playlist takes songs, albums and playlists dropped on it, lit behind
+/// the tile (never on its cover). Artists do neither.
+private struct GridCellDrag: ViewModifier {
+    var item: LibraryItem
+    var ink: Color
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        switch item.kind {
+        case .album:
+            if let album = item.album {
+                content.yoinDraggable { YoinDrag.album(album, model: model) }
+            } else {
+                content
+            }
+        case .playlist:
+            content
+                .yoinDraggable { YoinDrag.playlist(item, model: model) }
+                .yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous)
+                                    .inset(by: -6),
+                                ink: ink, accepts: YoinDrag.accepts(item, model: model)) {
+                    YoinDrag.add($0, to: item, model: model)
+                }
+        case .artist:
+            content
+        }
     }
 }
 
@@ -800,7 +891,7 @@ struct PlaylistRow: View {
             .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     /// MetaLine: the owner plain; the count a Stat (number Medium tabular,
@@ -847,6 +938,30 @@ enum LibraryGrid {
         guard regularWidth || width >= 600 else { return 3 }
         return max(3, Int((available + gutter) / (96 + gutter)))
     }
+
+    /// A short shelf's columns (Android librarySparseColumns, 8f90026d): [baseColumns] (the usual ~96 cells),
+    /// or fewer while [itemCount] cells can't fill [height] — from max(3, ⌈base / 2⌉) up, the first count whose
+    /// rows (sort row [leading] + rows × (cell + 44) + gaps) fit; none fits → base. [width] is the grid's own
+    /// (inside the margins); 12 column / 16 row gaps as the grid's.
+    static func sparseColumns(itemCount: Int, baseColumns: Int, width: CGFloat, height: CGFloat,
+                              cellExtra: CGFloat = sparseCellExtra, leading: CGFloat = 0,
+                              rowGap: CGFloat = 16, columnGap: CGFloat = 12) -> Int {
+        guard baseColumns > sparseMinColumns, itemCount > 0 else { return baseColumns }
+        let fewest = max(sparseMinColumns, (baseColumns + 1) / 2)
+        for columns in fewest..<baseColumns {
+            let cell = (width - columnGap * CGFloat(columns - 1)) / CGFloat(columns)
+            let rows = (itemCount + columns - 1) / columns
+            let content = leading + (cell + cellExtra) * CGFloat(rows) + rowGap * CGFloat(rows - 1)
+            if content <= height { return columns }
+        }
+        return baseColumns
+    }
+
+    /// Title + subtitle under a cell's artwork (Android LibrarySparseCellExtra).
+    static let sparseCellExtra: CGFloat = 44
+    /// The sort row above the first cells (Android LibrarySparseSortRow).
+    static let sparseSortRow: CGFloat = 48
+    static let sparseMinColumns = 3
 
     /// A cell's side for [columns] across [width] (16 margins, 12 gaps).
     static func cell(width: CGFloat, columns: Int) -> CGFloat {
@@ -908,6 +1023,29 @@ final class LibraryMemory {
     enum Tab: Hashable {
         case all, albums, artists, playlists, songs, favorites
 
+        var key: String {
+            switch self {
+            case .all: "all"
+            case .albums: "albums"
+            case .artists: "artists"
+            case .playlists: "playlists"
+            case .songs: "songs"
+            case .favorites: "favorites"
+            }
+        }
+
+        init?(key: String) {
+            switch key {
+            case "all": self = .all
+            case "albums": self = .albums
+            case "artists": self = .artists
+            case "playlists": self = .playlists
+            case "songs": self = .songs
+            case "favorites": self = .favorites
+            default: return nil
+            }
+        }
+
         init(_ kind: LibraryKind?) {
             switch kind {
             case nil: self = .all
@@ -928,14 +1066,107 @@ final class LibraryMemory {
     case "library-favorites": .favorites
     default: nil
     }
-    var sorts: [Tab: LibrarySortOrder] = [:]
+    /// Each view's chosen order, kept per account across launches (Android LibrarySortStore).
+    var sorts: [Tab: LibrarySortOrder] = [:] {
+        didSet { if sorts != oldValue { Self.save(sorts, scope: scope, defaults: defaults) } }
+    }
     var byYou = false
+    /// The account the sorts belong to (`LibraryStore.homeScope`); a switch reads that account's.
+    var scope = "" {
+        didSet { if scope != oldValue { sorts = Self.load(scope: scope, defaults: defaults) } }
+    }
+    @ObservationIgnored var defaults: UserDefaults = .standard
+
+    nonisolated static func key(_ scope: String) -> String { "librarySorts.\(scope)" }
+
+    nonisolated static func load(scope: String, defaults: UserDefaults) -> [Tab: LibrarySortOrder] {
+        guard let raw = defaults.dictionary(forKey: key(scope)) as? [String: String] else { return [:] }
+        var out: [Tab: LibrarySortOrder] = [:]
+        for (k, v) in raw { if let t = Tab(key: k), let o = LibrarySortOrder(rawValue: v) { out[t] = o } }
+        return out
+    }
+
+    nonisolated static func save(_ sorts: [Tab: LibrarySortOrder], scope: String, defaults: UserDefaults) {
+        defaults.set(Dictionary(uniqueKeysWithValues: sorts.map { ($0.key.key, $0.value.rawValue) }), forKey: key(scope))
+    }
     @ObservationIgnored var offsets: [Tab: CGFloat] = [:]
 
     /// The tab's chosen order while still offered, else the default (Recents).
     func sort(for tab: Tab, offered: [LibrarySortOrder]) -> LibrarySortOrder {
         if let chosen = sorts[tab], offered.contains(chosen) { return chosen }
         return offered.first ?? .recents
+    }
+}
+
+// MARK: Grid cell, search pill
+
+/// A cell of Library's grid (Android AlbumCard / ArtistGridItem): the backdrop by entity (round for an
+/// artist), titleSmall over bodySmall. [backdrop] dresses the cover (the grid's zoom source); the tip page's
+/// demo phone shows it as is.
+struct LibraryGridCellFace<Backdrop: View>: View {
+    var item: LibraryItem
+    var side: CGFloat
+    var scheme: CoverScheme
+    @ViewBuilder var backdrop: (EntityBackdrop) -> Backdrop
+
+    var body: some View {
+        let isArtist = item.kind == .artist
+        VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
+            backdrop(EntityBackdrop(entity: isArtist ? .artist : .album, palette: item.palette,
+                                    seed: item.id.rawId.count, size: side, stroke: scheme.primary))
+            Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
+            // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
+            if let album = item.album, !isArtist {
+                AlbumVersionTitle(album: album, scheme: scheme) { name in
+                    Text(name)
+                        .lineLimit(1)
+                        .yoinRole(Tokens.type.titleSmall)
+                        .foregroundStyle(scheme.onSurface)
+                }
+            } else {
+                Text(item.title)
+                    .lineLimit(1)
+                    .yoinRole(Tokens.type.titleSmall)
+                    .foregroundStyle(scheme.onSurface)
+            }
+            Text(Self.subtitle(item))
+                .lineLimit(1)
+                .yoinRole(Tokens.type.bodySmall)
+                .foregroundStyle(scheme.onSurfaceVariant)
+        }
+        .frame(width: side, alignment: isArtist ? .center : .leading)
+    }
+
+    /// The grid's line under a cover, Spotify's way (51, 2026-11-07): "Album • Artist",
+    /// "Single • Artist", "Playlist • owner", "Artist" (round cover) — the grid mixes all three.
+    static func subtitle(_ item: LibraryItem) -> String {
+        switch item.kind {
+        case .artist: String(localized: "Artist")
+        case .album: item.album?.kindLine ?? ReleaseKind.album.label
+        case .playlist: KindLine.make(String(localized: "Playlist"), item.owner ?? "")
+        }
+    }
+}
+
+extension LibraryGridCellFace where Backdrop == EntityBackdrop {
+    init(item: LibraryItem, side: CGFloat, scheme: CoverScheme) {
+        self.init(item: item, side: side, scheme: scheme) { $0 }
+    }
+}
+
+/// Library's search pill as it rests in the header (icon 24, 12 gap, 16 type, 56 tall, 16 in), before its
+/// glass: Search's field takes this exact rect.
+struct LibrarySearchPillLabel: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            // Adaptive label colors: they flip with the glass over dark content.
+            YoinIcon("search", size: 24).foregroundStyle(.secondary)
+            Text("Search library").font(.gsf(16)).foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .frame(height: SearchView.fieldHeight)
+        .contentShape(.capsule)
     }
 }
 
@@ -1401,6 +1632,10 @@ struct LibrarySongRow: View {
     var horizontalPadding: CGFloat = Tokens.library.ROW_PADDING_H.cg
     /// Search results of a service that adds to a library: the + / ✓ at the row's end (Android SearchSongRow).
     var libraryAdd: LibraryAddControl? = nil
+    /// A song Apple won't stream ([Track.notStreamed]): whether its reason is open under the row, and what
+    /// its "?" does (the list keeps the state, so the row's tap and the "?" toggle the same reason).
+    var reasonShown: Bool = false
+    var explain: () -> Void = {}
 
     /// What the + / ✓ shows and does for this row.
     struct LibraryAddControl {
@@ -1415,10 +1650,27 @@ struct LibrarySongRow: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            line
+            // Android SongListItem: UnavailableTrackReason under the row, indented to the title, 16 from the end.
+            if track.notStreamed && reasonShown {
+                NotStreamedReason(scheme: scheme,
+                                  leading: horizontalPadding + Tokens.library.ROW_THUMB.cg + Tokens.library.ROW_GAP.cg,
+                                  trailing: horizontalPadding)
+            }
+        }
+        .clipped()
+    }
+
+    private var line: some View {
         HStack(spacing: Tokens.library.ROW_GAP.cg) {
             CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
                 .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
                 .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
+                // Android SongListItem: the "?" on the cover's bottom-left corner.
+                .overlay(alignment: .bottomLeading) {
+                    if track.notStreamed { NotStreamedBadge(scheme: scheme, action: explain) }
+                }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
                     if current {
@@ -1444,7 +1696,8 @@ struct LibrarySongRow: View {
                 .monospacedDigit()
                 .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(scheme.onSurfaceVariant)
-            if let libraryAdd {
+            // Android SearchSongRow: no + / ✓ on a song Apple won't stream.
+            if let libraryAdd, !track.notStreamed {
                 SongLibraryButton(membership: libraryAdd.membership, working: libraryAdd.working, scheme: scheme,
                                   action: libraryAdd.add)
                     .padding(.trailing, -8)
@@ -1452,6 +1705,7 @@ struct LibrarySongRow: View {
         }
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
+        .opacity(track.notStreamed ? NotStreamedRow.alpha : 1)
         .contentShape(.rect)
         .overlay(alignment: .bottomLeading) { addedFeedback }
     }

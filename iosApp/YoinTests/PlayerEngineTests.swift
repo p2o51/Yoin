@@ -873,6 +873,17 @@ final class G3RulesTests: XCTestCase {
         XCTAssertEqual(PlaylistActions.serverIndex(ofTrack: b.track.id, in: [b, x, a, b], near: 3), 3)
     }
 
+    func test_should_removeTheLongPressedRow_when_thePageReloadedUnderTheSheet() {
+        // Long-pressed B (index 1) on [A, B]; the page then reloaded as [X, A, B]: index 1 is now A
+        // (Codex review 2026-11-10 #14). The sheet's row is found again, or nothing is removed.
+        let x = entry(9, song: "X"), a = entry(1, song: "A"), b = entry(2, song: "B")
+        XCTAssertEqual(PlaylistActions.pageIndex(of: b, hint: 1, in: [a, b]), 1)
+        XCTAssertEqual(PlaylistActions.pageIndex(of: b, hint: 1, in: [x, a, b]), 2)
+        XCTAssertNil(PlaylistActions.pageIndex(of: b, hint: 1, in: [x, a]))
+        XCTAssertEqual(PlaylistActions.pageIndex(of: nil, hint: 1, in: [x, a]), 1)
+        XCTAssertNil(PlaylistActions.pageIndex(of: nil, hint: 2, in: [x, a]))
+    }
+
     func test_should_treatAPauseNearTheEndAsAPause_and_aRunOutAsTheEnd() {
         // The listener paused 1 s before the end: the playhead is where it was playing.
         XCTAssertFalse(AppleMusicAudioOutput.isNaturalEnd(status: .paused, hasEntry: true, time: 199,

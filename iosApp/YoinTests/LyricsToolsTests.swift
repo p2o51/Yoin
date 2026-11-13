@@ -201,4 +201,17 @@ final class LyricsToolsTests: XCTestCase {
         XCTAssertEqual(settings.targetLanguage, "French")
         XCTAssertEqual(changes, 1)
     }
+
+    /// #185: the sung line's centre at 40 % of the window, wherever the lyric page sits.
+    @MainActor
+    func test_should_seatTheLineAtFortyPercentOfTheScreen() {
+        // A full-screen page (top 0, 800 tall in an 800 window): 0.4·800 − 16 = 304 of a 720 band ≈ 0.42.
+        XCTAssertEqual(ExpandedLyricsList.screenSeatFraction(windowTop: 0, window: 800, screen: 800), 0.42, accuracy: 0.001)
+        // A page starting below the seat keeps a few lines above the row (held at 0.2).
+        XCTAssertEqual(ExpandedLyricsList.screenSeatFraction(windowTop: 500, window: 300, screen: 800), 0.2, accuracy: 0.001)
+        // One ending above it never sinks past the band's middle.
+        XCTAssertEqual(ExpandedLyricsList.screenSeatFraction(windowTop: -400, window: 400, screen: 800), 0.5, accuracy: 0.001)
+        // Nothing known: the middle, as before.
+        XCTAssertEqual(ExpandedLyricsList.screenSeatFraction(windowTop: 0, window: 400, screen: 0), 0.5, accuracy: 0.001)
+    }
 }

@@ -24,17 +24,36 @@ Screenshots: `iosApp/screenshots/iphone-np.png`, `-dark`, `-short`, `-touch`, `-
 | Time labels | labelLarge tabular, min width 44 / 52, 8 dp each side of the bar, flush with the row ends (PlaybackControls.kt:474–503) | min 40 / 48, 6 pt gaps, row inset 10 pt for the glass → bar 8 pt narrower, labels pulled in | 44 / 52, 8 pt gaps, no inset: bar and labels sit at Android's x. The touch-glass capsule is drawn outside the row instead (4 pt before, 10 pt after), so it still clears Previous |
 | Hero, one row (short) | title displaySmall, artist titleMedium×0.9 on its baseline, 12 apart, artist ≤ 40 % of the row and measured first; slot content at the **top** (NowPlayingScreen.kt:4700–4760, 4905–4906, `StageHeightSlot` 4564) | bottom-aligned + 12 pt bottom padding (row rose when the slot was squeezed); artist uncapped; no artist stretch | top-aligned; artist capped at 40 %, layout priority over the title; artist stretch 1.02 |
 | Hero, stacked | artist titleMedium×0.9 (24 line) / 2 / title displaySmall (44 line), stretches 1.02 / 1.03 | same | unchanged |
+| Format tags (after the artist; also the song sheet's header, under the artist) | a block per tag, codec first then the layout ("FLAC 16/44.1", "5.1"): labelSmall 11/16 tabular, 6 × 1 inside a 6-corner block, 4 apart, secondaryContainer / onSecondaryContainer (`AudioFormatTagRow.kt`, `AudioFormatTags.kt`, NowPlayingScreen.kt:6445, TrackMenu.kt:454) | one capsule in onSurfaceVariant 12 %; the raw suffix ("M4A 256", "WAV"); a multichannel file showed its layout alone ("5.1"); none in the song sheet | `FormatTagRow` (Theme/Components.swift) with Android's numbers and colours, fed by `FormatTags.tags` (Playback/ReplayGain.swift, a port of `audioFormatTags` and `subsonicAudioFormat`): "AAC 256", "WAV 44.1", "FLAC 16/44.1" + "5.1"; an MP4 the server couldn't read gets no tag. Debug: `-formatDemo flac,0,16,44100,6` |
+| Spine (short columns) | where the resting cover is height-capped, the band between it and the rating gap (stage − 48 − 12 − rating column − cover, shown from 24): one fact at a time turned a quarter, labelLarge onSurfaceVariant, label 60 %; cached About credits then the Subsonic server's quality / rating / genre / year / track, else album · artist · title; 9 s dwell, long facts pan at 18 pt/s after 1.2 s, swipe across steps past 32 (damped 0.15, ≤ 14), ends fade 20, fades with the rating's retreat (`NowPlayingSpine.kt`, NowPlayingScreen.kt:1599, 1831) | none | `NowPlayingSpine.swift`, the same numbers; the server's record comes from `getSong` without asking Gemini. iPhones in portrait never open the band (cover width-capped); `-screen np-short -npShortHeight 560` shows it |
 | Pills | bottom-aligned in their slot, no bottom padding (NowPlayingScreen.kt:1918) | extra 8 pt bottom padding | removed: pills sit on the column's bottom edge as on Android |
 | Rating number | titleLarge 22/28 tabular, 8 dp from the top; color lerps onSurfaceVariant → onPrimary as fill goes 80 → 100 % (RatingSlider.kt:205–225) | 22 pt natural box; hard switch at 80 % | `yoinRole(titleLarge)` line box; color mixed over 80 → 100 % |
 | Cover, rating column, transport rows, pill sizes/shapes, column padding | (budget + YoinTokens) | already matched | unchanged |
 
 ## Not matched
 
-- Lyric lines stay single-line (`lineLimit(1)`); Android wraps long lines. The iOS scroll offset
-  is computed from fixed line heights, so wrapping would need measured rows.
 - Short screens: Android shows only the current line; iOS lets the next line run on under the
   transport (owner's "lyrics under the transport" decision).
 - `-screen np-short` puts the height the 700 pt reference wouldn't have between transport and
   hero (debug comparison only).
-- Android-only affordances not ported here: spine marquee beside a height-capped cover,
-  TrackLibraryButton, Cast button, play-mode split, PLAY/PAUSE width morph.
+- Format tags show the file as the server lists it. Android's Now Playing shows what arrives instead
+  (`playingFormatTags`: "Opus 192" for a transcode, the decoder's channel count and codec), names
+  E-AC-3 JOC "Dolby Atmos" from the decoder's MIME type, and adds an accent "Spatial" while the system
+  spatializes. iOS has the "Dolby Atmos" wording (`FormatTags.codecLabel`), but nothing reads the
+  playing item's format yet, so that tag and "Spatial" never show.
+- Not ported: Android's Cast button (the
+  Devices pill opens AirPlay instead, or Spotify's Connect devices for a Spotify song).
+
+Since ported (were listed here before):
+
+- The spine beside a height-capped cover (`NowPlayingSpine.swift`; see the Spine row).
+- Lyric lines wrap, as on Android (`LyricLinesView`, NowPlayingLyrics.swift): each row is
+  measured and the list scrolls by the measured rows above the active one. Only the one-line
+  modes (short screens' one-line row, focus) keep `lineLimit(1)`.
+- TrackLibraryButton: for an Apple Music song the heart becomes add to library, + / ✓
+  (`heartIsLibrary`, NowPlayingView.swift).
+- Play-mode split: the play-mode circle splits into shuffle | repeat on a long press
+  (Android PlayModeButton; NowPlayingView.swift).
+- PLAY/PAUSE width morph: one spring reshapes the pill (word box and side padding 16 ⇄ 24)
+  while the word swaps weight and stretch; the pill and NEXT trade 15 % of their width on a
+  press (`transport`, NowPlayingView.swift).

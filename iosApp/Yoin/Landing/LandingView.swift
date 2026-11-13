@@ -118,6 +118,12 @@ struct LandingView: View {
             // Leaving the step with the recap open (a back swipe): it closes.
             if step != .spotoolfy { spotoolfy.recapShown = false }
         }
+        // A Spotoolfy export opened into Yoin ("Open in Yoin" from Files or Spotoolfy's share sheet).
+        .onChange(of: SpotoolfyInbox.shared.pending, initial: true) { _, url in
+            guard url != nil, let file = SpotoolfyInbox.shared.take() else { return }
+            if flow.steps.contains(.spotoolfy), flow.step != .spotoolfy { flow.goTo(.spotoolfy) }
+            Task { await spotoolfy.pick(.success(file)) }
+        }
         .fileImporter(isPresented: $pickingSpotoolfyFile, allowedContentTypes: [.json, .plainText, .data]) { result in
             Task { await spotoolfy.pick(result) }
         }

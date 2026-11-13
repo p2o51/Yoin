@@ -51,6 +51,9 @@ protocol AppRemoteLink: AnyObject {
 /// on the active Spotify account's token, woken with `authorizeAndPlayURI` when the app isn't running
 /// (it opens Spotify, starts the song and comes back to yoin://auth/spotify/app-remote).
 ///
+/// On a Mac (the iPad app there) there is no App Remote: the desktop Spotify app doesn't speak it, so
+/// the remote is off and never connects or wakes anything (SpotifyAudioOutput drives the Web API).
+///
 /// A connection can come up and still answer nothing (51's 11-08 log: the one made right after a wake's
 /// handback failed its subscription and every play with "The request failed", read as connected, and
 /// every album after it failed on it). A failed subscription or a request failing that way marks the
@@ -78,13 +81,13 @@ final class SpotifyRemote {
     private var link: AppRemoteLink?
     private var clientId: String?
     /// Whose remote this is (the account's profile id): another account gets a remote of its own.
-    private var account: String?
+    private(set) var account: String?
     private var connectWaiters: [CheckedContinuation<Bool, Never>] = []
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "spotify")
 
     init(makeLink: @escaping @MainActor (String, URL) -> AppRemoteLink = { SDKAppRemoteLink(clientId: $0, redirect: $1) },
          clientId: @escaping () -> String? = { SpotifyConfig.clientId },
-         enabled: @escaping () -> Bool = { !SpotifyFake.isOn }) {
+         enabled: @escaping () -> Bool = { !SpotifyFake.isOn && !Platform.current.isMac }) {
         self.makeLink = makeLink
         clientIdOf = clientId
         self.enabled = enabled
@@ -228,10 +231,13 @@ final class SpotifyRemote {
     /// Opens the Spotify app on [uri] (it starts playing it) and connects when it hands back.
     func wake(playing uri: String) {
         PlayTrace.log("SR wake \(uri)")
-        guard enabled() else { return onFailure?("The QA fake doesn't play songs") ?? () }
+        guard enabled() else {
+            // Off for the QA fake, or on a Mac (no App Remote there; the output never asks).
+            return onFailure?(SpotifyFake.isOn ? "The QA fake doesn't play songs" : SpotifyFailureCopy.notOpenOnMac) ?? ()
+        }
         guard let r = appRemote() else { return onFailure?("Add your Spotify Client ID in Settings") ?? () }
         r.authorizeAndPlay(uri) { [weak self] opened in
-            if !opened { self?.onFailure?("Install the Spotify app to play Spotify songs") }
+            if !opened { self?.onFailure?(SpotifyFailureCopy.appMissing) }
         }
     }
 

@@ -122,6 +122,20 @@ final class SubsonicMappingTests: XCTestCase {
         XCTAssertTrue(page.starred)
     }
 
+    /// An artist the server lists without albums (a track artist only): still a page, so the artist
+    /// screen leaves its loading blocks and the discography reads "No releases".
+    func test_should_buildAPageWithoutReleases_when_theArtistHasNoAlbums() {
+        let artist = ArtistInfo(ref: MediaRef(provider: provider, rawId: "ar-guest"), id: "ar-guest", name: "Guest",
+                                albumCount: KotlinInt(int: 0), coverArtId: "ar-guest", starred: false, starredAt: nil,
+                                albums: [])
+        let page = mapping.artistPage(artist, loadedAlbums: [])
+        XCTAssertEqual(page.id, MediaId(provider: provider, rawId: "ar-guest"))
+        XCTAssertEqual(page.name, "Guest")
+        XCTAssertTrue(page.releases.isEmpty)
+        XCTAssertTrue(page.mostPlayed.isEmpty)
+        XCTAssertEqual(page.palette, mapping.palette(coverId: "ar-guest"), "the artist's own image colours the page")
+    }
+
     func test_should_fill_shelves_without_repeats_when_building_home() {
         func al(_ i: Int, plays: Int? = nil, rating: Double? = nil) -> Album {
             Album(id: MediaId(provider: "subsonic", rawId: "a\(i)"), title: "A\(i)", artist: "X", year: 2020,
@@ -135,9 +149,12 @@ final class SubsonicMappingTests: XCTestCase {
         XCTAssertEqual(feed.activities.map(\.album.id.rawId), ["a0", "a1", "a2", "a3"])
         XCTAssertEqual(feed.activities[0].eyebrow, loc("\(10) plays"))
         XCTAssertEqual(feed.activities[1].eyebrow, "")
-        XCTAssertEqual(feed.jumpBackIn.count, 12)
-        XCTAssertEqual(Set(feed.jumpBackIn.map(\.id)).count, 12)
-        XCTAssertFalse(feed.jumpBackIn.contains { $0.id.rawId == "a0" })
+        // Android's pool: the random albums first, topped up to 14 from the recent / frequent mix; Activities'
+        // albums are not left out (the shelf's own rule is the signal cards').
+        let shelf = feed.jumpBackIn.compactMap(\.album?.id.rawId)
+        XCTAssertEqual(shelf.count, 14)
+        XCTAssertEqual(Set(shelf).count, 14)
+        XCTAssertEqual(Array(shelf.prefix(9)), (11..<20).map { "a\($0)" })
         XCTAssertEqual(feed.recentAlbums.map(\.id.rawId), ["a8", "a9"])
         XCTAssertEqual(feed.rediscover.first?.album.id.rawId, "a10")
         XCTAssertEqual(feed.rediscover.first?.score, 8)
@@ -147,5 +164,15 @@ final class SubsonicMappingTests: XCTestCase {
     func test_should_format_year_month_when_given_iso_date() {
         XCTAssertEqual(LibraryStore.yearMonth("2024-03-17T10:00:00Z"), "2024.03")
         XCTAssertEqual(LibraryStore.yearMonth(nil), "")
+    }
+
+    /// #154: the version shows as a tag, so the " (version)" the server appended to the name goes.
+    func test_should_dropTheAppendedVersion_onlyWhenTheNameEndsWithIt() {
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights (Deluxe)", "Deluxe"), "Midnights")
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights (Deluxe)", " Deluxe "), "Midnights")
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights", "Deluxe"), "Midnights")
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights (Deluxe) Live", "Deluxe"), "Midnights (Deluxe) Live")
+        XCTAssertEqual(Album.nameWithoutVersion("(全景声)", "全景声"), "(全景声)")
+        XCTAssertEqual(Album.nameWithoutVersion("Midnights (Deluxe)", nil), "Midnights (Deluxe)")
     }
 }

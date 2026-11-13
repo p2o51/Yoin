@@ -9,6 +9,8 @@ import SwiftUI
 struct NeoDBSettingsSection: View {
     var app: CoverScheme
     var row: Color
+    /// Its own page (Settings › Sync and storage › NeoDB): no group label, the page has the title.
+    var page = false
 
     @State private var account = NeoDBAccount.shared
     @State private var instance = NeoDBAccount.shared.instance
@@ -27,11 +29,13 @@ struct NeoDBSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("NeoDB")
-                .yoinRole(Tokens.type.labelLarge)
-                .foregroundStyle(app.primary)
-                .padding(.horizontal, 8)
-                .accessibilityAddTraits(.isHeader)
+            if !page {
+                Text("NeoDB")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(app.primary)
+                    .padding(.horizontal, 8)
+                    .accessibilityAddTraits(.isHeader)
+            }
             let items = rows
             VStack(spacing: 2) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
@@ -144,7 +148,7 @@ struct NeoDBSettingsSection: View {
                 .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .disabled(disabled)
     }
 

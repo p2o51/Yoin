@@ -123,7 +123,15 @@ struct AccountAvatar: View {
                 .offset(x: monogram.isEmpty ? 0 : -size * 0.07, y: monogram.isEmpty ? 0 : -size * 0.07)
                 .frame(width: size, height: size)
                 .background(tone.accent, in: AvatarShape(index: shape))
-            if !monogram.isEmpty {
+                // A Spotify account's own picture fills its shape (Android photoUrl); the letter stays off.
+                .overlay {
+                    if let photo = profile.spotifyAvatar.flatMap(URL.init(string:)) {
+                        RemoteCover(ref: CoverRef(url: photo), placeholder: tone.accent)
+                            .clipShape(AvatarShape(index: shape))
+                            .transition(.opacity)
+                    }
+                }
+            if !monogram.isEmpty, profile.spotifyAvatar == nil {
                 Text(monogram)
                     .font(.gsf(badge * 0.5, .semibold))
                     .foregroundStyle(tone.iconContent)
@@ -140,6 +148,26 @@ struct AccountAvatar: View {
     }
 }
 
+/// An account's avatar at text size, for a line that names the account (Android AccountMark): just the
+/// account's shape in the service's colour with the service glyph on it, no person badge (too small to
+/// read). The same shape as the account's full `AccountAvatar`, so the two read as one account.
+/// Decorative: the name is the text beside it.
+struct AccountMark: View {
+    var service: Profile.Service
+    var shape: Int
+    var size: CGFloat = 16
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let tone = service.tone(dark: colorScheme == .dark)
+        YoinIcon(service.glyph, size: size * 0.6)
+            .foregroundStyle(tone.onAccent)
+            .frame(width: size, height: size)
+            .background(tone.accent, in: AvatarShape(index: shape))
+            .accessibilityHidden(true)
+    }
+}
+
 /// The header's account button face (Home, Library): the account in use as a
 /// 32 avatar in its shape and service accent, its letter on it; with no
 /// account, the mock's "5" (the screenshots).
@@ -150,6 +178,9 @@ struct HeaderAccountAvatar: View {
     var fallback: Color
     var onFallback: Color
     var ring: Color
+    /// The account needs its owner (Android HomeAccountReconnectDot): a dot on the avatar's corner.
+    var needsReconnect = false
+    var error: Color = .red
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -168,6 +199,10 @@ struct HeaderAccountAvatar: View {
         .background(tone?.accent ?? fallback, in: AvatarShape(index: profile == nil ? 0 : shape))
         .padding(1.5)
         .background(ring, in: AvatarShape(index: profile == nil ? 0 : shape))
+        .overlay(alignment: .topTrailing) {
+            AccountReconnectDot(visible: needsReconnect && profile != nil, ring: ring, color: error)
+                .offset(x: 1, y: -1)
+        }
         .frame(width: 48, height: 48)
         .animation(Yoin.spatial, value: shape)
         .animation(Yoin.effects, value: profile?.id)

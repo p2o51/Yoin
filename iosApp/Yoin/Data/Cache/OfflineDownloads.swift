@@ -40,7 +40,7 @@ final class OfflineDownloads {
 
         var label: String {
             switch self {
-            case .original: "Original"
+            case .original: String(localized: "Original")
             case .kbps320: "320 kbps"
             case .kbps192: "192 kbps"
             case .kbps128: "128 kbps"
@@ -337,7 +337,20 @@ final class OfflineDownloads {
 
     private func fetch(_ url: URL, key: String) async -> Fetched {
         do {
-            let (temp, response) = if let transfer { try await transfer(url) } else { try await session.download(from: url) }
+            let (temp, response): (URL, URLResponse)
+            if let transfer {
+                (temp, response) = try await transfer(url)
+            } else if let done = BackgroundTransfers.shared.takeFinished(key: key) {
+                // Finished while Yoin was away (the system ended it mid-download).
+                let typeFile = done.appendingPathExtension("type")
+                let type = (try? String(contentsOf: typeFile, encoding: .utf8)) ?? "audio/mpeg"
+                try? FileManager.default.removeItem(at: typeFile)
+                temp = done
+                response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": type])!
+            } else {
+                // A background session: the song keeps downloading while Yoin is suspended (Codex #12).
+                (temp, response) = try await BackgroundTransfers.shared.download(url, key: key, overMobileData: overMobileData)
+            }
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 try? FileManager.default.removeItem(at: temp)
                 return .failed
@@ -430,7 +443,7 @@ final class OfflineDownloads {
         return URLSession(configuration: c)
     }
 
-    static func fileName(_ key: String) -> String {
+    nonisolated static func fileName(_ key: String) -> String {
         SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 

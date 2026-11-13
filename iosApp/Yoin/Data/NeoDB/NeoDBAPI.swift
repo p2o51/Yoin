@@ -3,7 +3,8 @@ import os
 
 /// NeoDB REST client — Android `NeoDBApi.kt` (OpenAPI 0.14.0.5, the subset Yoin uses): dynamic OAuth app
 /// registration and code exchange, catalog search for an album's uuid, the user's own Mark (GET / POST)
-/// and Review (item-centred GET / POST upsert / DELETE). Calls carry the token as a Bearer header; the
+/// and Review (item-centred GET / POST upsert / DELETE), and everyone's public posts on an item (the
+/// "What others say" page). Calls carry the token as a Bearer header; the
 /// instance is whatever the user chose (neodb.social by default).
 ///
 /// No merging here: NeoDBSyncService reads the Mark, merges and posts it back.
@@ -60,11 +61,26 @@ struct NeoDBAPI: Sendable {
         }
     }
 
-    private func searchCatalog(instance: String, token: String, query: String, category: String) async throws -> [NeoDBItem] {
+    /// Album search that also works signed out (the catalog is public; Android `searchAlbumPublic`).
+    func searchAlbumPublic(instance: String, token: String?, query: String) async throws -> [NeoDBItem] {
+        try await searchCatalog(instance: instance, token: token, query: query, category: "music")
+    }
+
+    private func searchCatalog(instance: String, token: String?, query: String, category: String) async throws -> [NeoDBItem] {
         let path = "/api/catalog/search?category=\(category)&query=\(NeoDBAPI.formEncode(query))"
         let request = authorized(try url(instance, path), token: token)
         let response: NeoDBSearchResponse = try await json(request)
         return response.data
+    }
+
+    // MARK: Everyone's posts (public)
+
+    /// One page (1-based) of everyone's posts on the item, newest first: short comments and reviews by
+    /// default (Android `listItemPosts`). Works signed out; signed in, posts the account may see come too.
+    func listItemPosts(instance: String, token: String?, itemUuid: String, page: Int,
+                       types: String = "comment,review") async throws -> NeoDBPostPage {
+        let path = "/api/item/\(itemUuid)/posts/?type=\(NeoDBAPI.formEncode(types))&page=\(page)"
+        return try await json(authorized(try url(instance, path), token: token))
     }
 
     // MARK: Mark
@@ -113,9 +129,10 @@ struct NeoDBAPI: Sendable {
 
     // MARK: Transport
 
-    private func authorized(_ url: URL, token: String) -> URLRequest {
+    /// A request with the token as a Bearer header; none when there is no token (a public read).
+    private func authorized(_ url: URL, token: String?) -> URLRequest {
         var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
     }

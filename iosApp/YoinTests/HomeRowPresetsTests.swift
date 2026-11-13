@@ -132,4 +132,52 @@ final class HomeRowPresetsTests: XCTestCase {
         XCTAssertEqual(HomeRowPresets.jbiSignals(.l, available: 2), 2)
         XCTAssertEqual(HomeRowPresets.jbiSignals(.xl, available: 2), 2)
     }
+
+    // MARK: Lyric Cards' count (Android HomeLyricCountHandle / lyricCards / takesPresets)
+
+    func test_should_mapPresetsToTwoThreeFourCards_when_readingLyricCards() {
+        XCTAssertEqual(HomeRowPreset.s.lyricCards, 2)
+        XCTAssertEqual(HomeRowPreset.m.lyricCards, 3)
+        XCTAssertEqual(HomeRowPreset.l.lyricCards, 4)
+        // XL is never written; a stored one reads as four.
+        XCTAssertEqual(HomeRowPreset.xl.lyricCards, 4)
+        XCTAssertEqual(HomeRowPreset.default.lyricCards, 4)
+        XCTAssertEqual([2, 3, 4].map(HomeRowPreset.lyricCards), [.s, .m, .l])
+    }
+
+    func test_should_storeLyricCardsPresetInAndroidsShape_when_countChanges() throws {
+        XCTAssertTrue(HomeSection.lyricHighlight.takesPresets)
+        XCTAssertFalse(HomeSection.lyricHighlight.supportsRows)
+        XCTAssertFalse(HomeSection.recentlyAdded.takesPresets)
+        let layout = HomeLayout.default.withRows(.lyricHighlight, .lyricCards(2))
+        XCTAssertEqual(layout.rowsOf(.lyricHighlight).lyricCards, 2)
+        let doc = json(HomeLayoutCodec.encode(layout.toPrefs()))
+        let sections = try XCTUnwrap(doc["sections"] as? [NSDictionary])
+        let lyric = try XCTUnwrap(sections.first { $0["id"] as? String == "lyric_highlight" })
+        XCTAssertEqual(lyric["config"] as? NSDictionary, ["rows": "s"])
+        // Back to four: the default, nothing stored.
+        XCTAssertEqual(layout.withRows(.lyricHighlight, .lyricCards(4)), HomeLayout.default)
+        // A section without presets stays as it is.
+        XCTAssertEqual(HomeLayout.default.withRows(.recentlyAdded, .s), HomeLayout.default)
+    }
+
+    func test_should_readAndroidsLyricCardsPreset_when_decoding() throws {
+        let doc = #"{"version":1,"sections":[{"id":"lyric_highlight","enabled":true,"config":{"rows":"m"}}]}"#
+        let layout = HomeLayout.reconcile(try XCTUnwrap(HomeLayoutCodec.decode(Data(doc.utf8))))
+        XCTAssertEqual(layout.rowsOf(.lyricHighlight).lyricCards, 3)
+    }
+
+    func test_should_stepWholeCardsWithinTwoToFour_when_handleIsDragged() {
+        let step = HomeLyricCount.stepDistance
+        XCTAssertEqual(HomeLyricCount.count(start: 4, travel: 0), 4)
+        // Short of a whole step, nothing changes either way.
+        XCTAssertEqual(HomeLyricCount.count(start: 3, travel: step - 1), 3)
+        XCTAssertEqual(HomeLyricCount.count(start: 3, travel: -(step - 1)), 3)
+        XCTAssertEqual(HomeLyricCount.count(start: 3, travel: step), 4)
+        XCTAssertEqual(HomeLyricCount.count(start: 4, travel: -step), 3)
+        XCTAssertEqual(HomeLyricCount.count(start: 4, travel: -2 * step), 2)
+        // Clamped at both ends.
+        XCTAssertEqual(HomeLyricCount.count(start: 4, travel: 5 * step), 4)
+        XCTAssertEqual(HomeLyricCount.count(start: 2, travel: -5 * step), 2)
+    }
 }

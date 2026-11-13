@@ -319,7 +319,8 @@ final class PlaybackSystem {
             track: engine.currentTrack,
             elapsed: engine.progress.positionSec,
             duration: engine.progress.durationSec,
-            playing: engine.isPlaying,
+            // Waiting for data: the clock holds still (rate 0) until the sound runs.
+            playing: engine.isPlaying && !engine.outputStalled,
             index: engine.currentIndex,
             count: engine.queue.count
         )
@@ -337,6 +338,12 @@ final class NowPlayingInfoController {
     func update(track: PlayableTrack?, elapsed: Double, duration: Double, playing: Bool, index: Int?, count: Int) {
         let center = MPNowPlayingInfoCenter.default()
         guard let track else {
+            // A cover still loading for the card just cleared must not write
+            // it back (Codex review 2026-11-10 #21).
+            artworkTask?.cancel()
+            artworkTask = nil
+            artworkFor = nil
+            artwork = nil
             center.nowPlayingInfo = nil
             return
         }
@@ -371,9 +378,9 @@ final class NowPlayingInfoController {
             guard let (data, _) = try? await URLSession.shared.data(from: url),
                   let image = UIImage(data: data), !Task.isCancelled else { return }
             let art = Self.makeArtwork(image)
-            guard let self, self.artworkFor == url else { return }
+            guard let self, !Task.isCancelled, self.artworkFor == url,
+                  var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
             self.artwork = art
-            var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
             info[MPMediaItemPropertyArtwork] = art
             MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         }

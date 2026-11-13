@@ -15,6 +15,8 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
     case recentlyPlayed = "recently_played"
     case yourPlaylists = "your_playlists"
     case otherProfiles = "other_profiles"
+    case lyricHighlight = "lyric_highlight"
+    case memoryGrid = "memory_grid"
 
     var id: String { rawValue }
 
@@ -27,6 +29,8 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
         case .recentlyPlayed: String(localized: "Recently Played")
         case .yourPlaylists: String(localized: "Your Playlists")
         case .otherProfiles: String(localized: "On Your Other Accounts")
+        case .lyricHighlight: String(localized: "Lyric Cards")
+        case .memoryGrid: String(localized: "All Memories")
         }
     }
 
@@ -40,6 +44,8 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
         case .recentlyPlayed: String(localized: "Albums you played lately, on any device")
         case .yourPlaylists: String(localized: "Playlists in your library")
         case .otherProfiles: String(localized: "Albums and playlists your other accounts play most")
+        case .lyricHighlight: String(localized: "Lyrics picked from your songs, tap to play from that line")
+        case .memoryGrid: String(localized: "Every note and score, on a grid that grows with you")
         }
     }
 
@@ -52,9 +58,8 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
     /// iOS renders it (the rest are carried, not shown).
     var supportedOnIOS: Bool {
         switch self {
-        case .activities, .jumpBackIn, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists: true
-        // Other accounts' most played needs their covers and a switch-and-play (not on iOS yet).
-        case .otherProfiles: false
+        case .activities, .jumpBackIn, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists,
+             .otherProfiles, .lyricHighlight, .memoryGrid: true
         }
     }
 

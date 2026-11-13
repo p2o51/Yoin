@@ -10,6 +10,15 @@ enum Route: Hashable {
     case settings
     /// Settings › About › Tips, optionally on one tip (Home's bubble opens it).
     case tips(focus: String?)
+    /// One tip on its own page, with its demo phone (Home's bubble opens it; Android TipActivity).
+    case tip(String)
+    /// Home's Memories grid → All Memories (#186).
+    case allMemories
+    /// Settings › Yoin Labs (#189).
+    case labs
+    /// What others say on NeoDB about an album (Android NeoDbVoicesActivity, #192): from the rate sheet's
+    /// NeoDB line and the memory diary.
+    case neoDBVoices(Album)
 }
 
 enum ShellSection: Hashable {
@@ -31,10 +40,24 @@ final class AppModel {
         // a push, HomeView): Memories goes with it, unseen.
         didSet { if section != .home { memories.snapClosed() } }
     }
-    var path: [Route] = []
-    var padSelection: Album?
+    var path: [Route] = [] {
+        // A page shown on the stack is the newest step entered (in the iPad's column, Android's pushPane).
+        didSet {
+            if path.count > oldValue.count { noteBackSurface(.column, open: true) }
+            else if path.isEmpty, padSelection == nil { noteBackSurface(.column, open: false) }
+        }
+    }
+    /// A Settings page to open on arrival (the scrapbook's "Sign in to sync" → NeoDB); taken once.
+    var settingsDestination: SettingsDestination?
+    /// The pages pushed on the two-pane Settings' page side, topmost last: ⌘[ pops the topmost
+    /// (SettingsPaneBack). Its root page isn't here; ⌘[ then closes Settings.
+    @ObservationIgnored var settingsPanePops: [SettingsPanePop] = []
+    var padSelection: Album? {
+        // An album picked into the column, also the one already there, is the newest step (Android openPane).
+        didSet { noteBackSurface(.column, open: padSelection != nil || !path.isEmpty) }
+    }
     var isPad = false
-    var npExpanded = false
+    var npExpanded = false { didSet { noteNowPlayingSurface() } }
     /// Home's Memories bubble is out of the Dynamic Island (or the notch): the soft status-bar
     /// band steps aside so the island's black meets the screen's top without a haze.
     var islandOut = false
@@ -48,7 +71,11 @@ final class AppModel {
     /// Home's Memories overlay (ShellOverlayUp): one reveal progress.
     let memories = MemoriesPresentation()
     /// iPad: Now Playing as a right-hand inspector panel (Closed → Panel → Full).
-    var npPanel = false
+    var npPanel = false { didSet { noteNowPlayingSurface() } }
+    /// The side-by-side surfaces in the order they opened, oldest first: ⌘[ closes the newest
+    /// (ShellBackOrder, Android #200).
+    @ObservationIgnored var backRecency: [ShellBackSurface] = []
+    @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024
     /// Screenshot aid: resolve the NP budget as a short (~700 dp) Android phone.
@@ -200,12 +227,27 @@ final class AppModel {
         profiles.useFakeSpotify()
         #endif
         observeSpotifyAccount()
+        memories.onOpenChange = { [weak self] open in self?.noteBackSurface(.memories, open: open) }
+        #if DEBUG
+        if let order = UserDefaults.standard.string(forKey: "backOrderDemo") {
+            Task { @MainActor [weak self] in if let self { await QAProbe.backOrderDemo(order, self) } }
+        }
+        #endif
         glassFlavor = GlassFlavor(rawValue: LaunchConfig.glass) ?? .system
         switch LaunchConfig.baseScreen {
         case "library": section = .library
         case "library-albums", "library-songs", "library-scroller", "library-artists", "library-playlists",
              "library-favorites": section = .library
-        case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom": path = [.album(library.albums()[0])]
+        case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom":
+            var album = library.albums()[0]
+            #if DEBUG
+            // `-notStreamedDemo YES`: the mock album's third and fourth songs as Apple Music songs Apple won't
+            // stream; `open` also opens the third one's reason.
+            if UserDefaults.standard.string(forKey: "notStreamedDemo") != nil {
+                for i in [2, 3] where album.tracks.indices.contains(i) { album.tracks[i].notStreamed = true }
+            }
+            #endif
+            path = [.album(album)]
         case "np", "np-touch": npExpanded = true
         case "np-queue": npExpanded = true; queueSheetOpen = true
         case "np-airplay": npExpanded = true
@@ -214,6 +256,14 @@ final class AppModel {
         case "np-morph-close": slowMorph = true; np.slow = true; npExpanded = true
         case "np-panel": npPanel = true
         case "settings": path = [.settings]
+        case "labs": path = [.labs]
+        case "neodb-voices": path = [.neoDBVoices(Self.neoDBVoicesQAAlbum(library.albums()[0]))]
+        #if DEBUG
+        // `-screen tips`: Settings › About › Tips. `-screen tip -tip LyricHighlight`: that tip's page
+        // (the first tip without `-tip`).
+        case "tips": path = [.tips(focus: nil)]
+        case "tip": path = [.tip(UserDefaults.standard.string(forKey: "tip") ?? Tips.all[0].id)]
+        #endif
         case "artist", "artist-bottom": path = [.artist(ArtistRef("Mina Asahi"))]
         case "playlist", "playlist-list": path = [.playlist("pl1")]
         case "progress35": mockPlayback.positionSec = Int(Double(mockPlayback.track.durationSec) * 0.35)
@@ -248,7 +298,9 @@ final class AppModel {
         case "library-idle": isIdle = true; section = .library
         default: break
         }
-        padSelection = library.albums().first
+        // Screenshots and demos open iPad with the mock's first album in the column. A real launch opens with
+        // no column (Android: the right column appears only when a page is opened), never a made-up album.
+        if LaunchConfig.demoContent, !LaunchConfig.screen.hasPrefix("home") { padSelection = library.albums().first }
         let store = store
         let engine = player
         // Codex A39: what the engine did on its own reaches the shell (the toast); a held failure stays
@@ -256,7 +308,15 @@ final class AppModel {
         player.onEvent = { event in
             switch event {
             case .skippedAfterError(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't play \(track.title)"))
-            case .failed(let track, _): PlaylistActions.shared.show(String(localized: "Couldn't reach the server for \(track.title)"))
+            case .failed(let track, let message):
+                // A start Spotify refused (no app here, no Premium) isn't the server: the banner says which.
+                if SpotifyIssues.Issue(message: message) != nil {
+                    PlaylistActions.shared.show(String(localized: "Couldn't play \(track.title)"))
+                    break
+                }
+                // Spotify's app not being open isn't a server out of reach: the banner says what to do.
+                guard PlaybackFailure.isServerOutOfReach(message) else { break }
+                PlaylistActions.shared.show(String(localized: "Couldn't reach the server for \(track.title)"))
             case .queueFailed: PlaylistActions.shared.show(String(localized: "Couldn't play this queue"))
             case .queueEnded: break
             }
@@ -277,14 +337,24 @@ final class AppModel {
             return URL(string: client.streamUrl(id: id, maxBitRate: kbps,
                                                 format: kbps == nil ? nil : SubsonicStreamURLs.transcodeFormat))
         }
+        // Downloads the system finished or held while Yoin was away arrive before the queue moves on.
+        BackgroundTransfers.shared.reconnect(overMobileData: OfflineDownloads.shared.overMobileData)
         OfflineDownloads.shared.pump()
-        // Waiting plays go out when the network comes back or the app comes to the front.
-        store.scrobbles.onReachable = { [weak store] in store?.flushScrobbles() }
+        // Waiting plays and ratings go out when the network comes back or the app comes to the front.
+        store.scrobbles.onReachable = { [weak store] in
+            store?.flushScrobbles()
+            store?.flushRatings()
+        }
         store.scrobbles.watchNetwork()
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
                                                queue: .main) { [weak store] _ in
-            MainActor.assumeIsolated { store?.flushScrobbles() }
+            MainActor.assumeIsolated {
+                store?.flushScrobbles()
+                store?.flushRatings()
+            }
         }
+        watchPlaybackReports()
+        Task { await profiles.fillSpotifyAvatars() }
         player.onScrobble = { track, submission, listenedSec in
             store.scrobble(track, submission: submission)
             // Local play history (Data/History): a row when the song starts, marked once it counts with
@@ -294,6 +364,7 @@ final class AppModel {
         #if DEBUG
         signInFromLaunchArguments()
         runProfilesScript()
+        runSpotifyIssueDemo()
         // `-landingReset YES`: forget that the landing was seen (QA of the first-run gate).
         if UserDefaults.standard.bool(forKey: "landingReset") { DefaultsLandingStore().reset() }
         #endif
@@ -312,8 +383,10 @@ final class AppModel {
     #if DEBUG
     /// Debug builds, account QA without typing: `-profilesScript "add:http://127.0.0.1:4995;wait:2000;
     /// switch:0;remove:1;open:settings"`. `add:<url>` connects demo/demo there (Settings › Add account's
-    /// path, made the account in use); `switch:<n>` / `remove:<n>` act on the n-th card as a tap / a
-    /// confirmed Remove do; `open:` settings, home or library. Never in release builds.
+    /// path, made the account in use; `add:<url>,<user>` as that user); `switch:<n>` / `remove:<n>` act on
+    /// the n-th card as a tap / a confirmed Remove do; `open:` settings, all-memories, home or library;
+    /// `seed:demo` / `seed:promo` seeds the account in use (`-historySeed`, again for a second account);
+    /// `memories:<step>` drives the Memories deck (MemoriesScript.step). Never in release builds.
     private func runProfilesScript() {
         guard let script = UserDefaults.standard.string(forKey: "profilesScript") else { return }
         Task {
@@ -323,19 +396,40 @@ final class AppModel {
                 let verb = token[..<colon], arg = colon == token.endIndex ? "" : String(token[token.index(after: colon)...])
                 let card = Int(arg).flatMap { $0 < profiles.profiles.count ? profiles.profiles[$0] : nil }
                 switch verb {
-                case "add": _ = await profiles.connectSubsonic(baseUrl: arg, username: "demo", password: "demo", activate: true)
+                case "add":
+                    let parts = arg.split(separator: ",", maxSplits: 1).map(String.init)
+                    _ = await profiles.connectSubsonic(baseUrl: parts.first ?? arg, username: parts.count > 1 ? parts[1] : "demo",
+                                                       password: "demo", activate: true)
                 case "switch": if let card { await profiles.switchTo(card.id) }
                 case "remove": if let card { profiles.remove(card.id) }
                 case "wait": try? await Task.sleep(for: .milliseconds(Int(arg) ?? 1000))
+                case "seed": await store.seedHistory(arg, again: true)
+                case "memories": MemoriesScript.step(arg, self)
                 case "open":
                     switch arg {
                     case "settings": if !path.contains(.settings) { openSettings() }
+                    case "all-memories": path = [.allMemories]
                     case "library": path = []; select(.library)
                     default: path = []; select(.home)
                     }
                 default: break
                 }
             }
+        }
+    }
+
+    /// `-spotifyIssueDemo install|premium` (with `-spotifyFake`): the stand-in account's QA Mix is
+    /// started as a tap on its first song would. install: the simulator has no Spotify app, so the
+    /// start is refused as on a phone without it. premium: the refusal a free account gets (there
+    /// is none to test with) is reported for it.
+    private func runSpotifyIssueDemo() {
+        guard let demo = UserDefaults.standard.string(forKey: "spotifyIssueDemo") else { return }
+        Task {
+            for _ in 0..<40 where store.spotify == nil { try? await Task.sleep(for: .milliseconds(250)) }
+            await store.loadPlaylist("pl_owned")
+            guard let p = store.playlist("pl_owned"), !p.entries.isEmpty else { return }
+            play(p.entries)
+            if demo == "premium" { playbackSystem.spotifyOutput?.demoRefuse(.premiumRequired) }
         }
     }
 
@@ -351,8 +445,9 @@ final class AppModel {
         let route = d.string(forKey: "serverRoute")
         let play = d.string(forKey: "serverPlay")
         // `-serverPlay` / `-serverRoute` without `-subsonicURL`: the saved
-        // account as it is, answering or not (offline cache QA).
-        guard url != nil || (session.isSignedIn && (route != nil || play != nil)) else { return }
+        // account as it is, answering or not (offline cache QA). With `-spotifyFake` they act on the
+        // stand-in Spotify account (its ids: `-serverPlay album:al00`).
+        guard url != nil || ((session.isSignedIn || SpotifyFake.isOn) && (route != nil || play != nil)) else { return }
         Task {
             if let url {
                 guard await profiles.connectSubsonic(baseUrl: url, username: user, password: pass,
@@ -360,6 +455,10 @@ final class AppModel {
             }
             // `-historySeed demo`: backdated plays, ratings and a note (Data/History/HistoryDebugSeed.swift).
             if let seed = d.string(forKey: "historySeed") { await store.seedHistory(seed) }
+            #if DEBUG
+            // `-lyricHighlightSeed YES`: four Lyric Cards for the account (the simulator has no on-device model).
+            if d.bool(forKey: "lyricHighlightSeed") { await seedLyricHighlights() }
+            #endif
             // Screenshots of server pages: `-serverRoute album:<id>` (artist:, playlist:),
             // `-serverPlay album:<id>` starts that album (pair with -silentAudio YES).
             try? await Task.sleep(for: .milliseconds(300))
@@ -379,6 +478,12 @@ final class AppModel {
                     let d = player.progress.durationSec > 0 ? player.progress.durationSec : player.currentTrack?.durationSec ?? 0
                     player.seek(to: max(0, d - fromEnd))
                 }
+                // `-serverRating 8.4`: the playing song rated as a released drag would (rating outbox QA: with
+                // the server off it stays owed, and goes out when the account or the network is back).
+                if d.object(forKey: "serverRating") != nil, let t = player.currentTrack {
+                    NowPlayingData.shared.dragRating(d.double(forKey: "serverRating"), t)
+                    NowPlayingData.shared.commitRating(t, client: session.client)
+                }
             }
             guard let route else { return }
             let colon = route.firstIndex(of: ":") ?? route.endIndex
@@ -390,6 +495,8 @@ final class AppModel {
             case "artist": path = [.artist(ArtistRef("", id: id))]
             case "playlist": path = [.playlist(id)]
             case "settings": path = [.settings]
+            case "all-memories": path = [.allMemories]
+            case "labs": path = [.labs]
             default: break
             }
         }
@@ -409,7 +516,7 @@ final class AppModel {
         case .album(let a): return a
         case .artist(let ref): return artistPage(ref).releases.first
         case .playlist(let id): return playlistInfo(id).asAlbum
-        case .settings, .tips, nil: return nil
+        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, nil: return nil
         }
     }
 
@@ -417,6 +524,18 @@ final class AppModel {
     /// the bar starts its detail → shell morph with the pop instead of when
     /// the pop finishes.
     func back() {
+        // iPad, two-pane Settings (wide window): a page pushed on the page side pops, then a route pushed
+        // there, then Settings closes.
+        if settingsSplitShown, let index = path.firstIndex(of: .settings) {
+            if let top = settingsPanePops.last { top.pop(); return }
+            if path.count > index + 1 { path.removeLast() } else { closeSettings() }
+            return
+        }
+        // iPad: the album picked into the detail column is the column's root; its ← closes the column.
+        if path.isEmpty, isPad, padSelection != nil {
+            withAnimation(Yoin.spatial) { padSelection = nil }
+            return
+        }
         guard !path.isEmpty else { return }
         path.removeLast()
     }
@@ -433,6 +552,7 @@ final class AppModel {
 
     func open(_ album: Album, tile: String? = nil) {
         zoomTiles[album.id] = tile
+        prefetch(.album(album.id.rawId))
         if isPad {
             withAnimation(Yoin.spatial) { padSelection = album }
         } else {
@@ -441,11 +561,30 @@ final class AppModel {
     }
 
     func openPlaylist(_ id: String) {
+        prefetch(.playlist(id))
         path.append(.playlist(id))
     }
 
     func openArtist(_ name: String, id: String? = nil) {
+        if let id { prefetch(.artist(id)) }
         path.append(.artist(ArtistRef(name, id: id)))
+    }
+
+    enum Prefetch { case album(String), artist(String), playlist(String) }
+
+    /// Tap-time prefetch (Android ui/detail/DetailPrefetch.kt): the page's load starts as the tap lands,
+    /// ahead of the push; the page then joins the load in flight (the store's single flight) or reads it.
+    func prefetch(_ target: Prefetch) {
+        guard store.isReal else { return }
+        let store = store
+        Task(priority: .userInitiated) {
+            switch target {
+            case .album(let id) where !id.hasPrefix("song:"): await store.loadAlbum(id)
+            case .artist(let id): await store.loadArtist(id)
+            case .playlist(let id): await store.loadPlaylist(id)
+            default: break
+            }
+        }
     }
 
     /// An Activities card's real target (Android `HomeEntryTarget`): its album, artist or playlist page.
@@ -465,8 +604,42 @@ final class AppModel {
         }
     }
 
-    func openSettings() {
+    /// What others say on NeoDB about [album] (Android NeoDbVoicesActivity.intent): pushed over whatever is
+    /// open, signed in or not.
+    func openNeoDBVoices(_ album: Album) {
+        if case .neoDBVoices(let open) = path.last, open.id == album.id { return }
+        path.append(.neoDBVoices(album))
+    }
+
+    /// `-screen neodb-voices`: the page on a mock album, or on `-neodbVoicesAlbum "Title|Artist"` (a real
+    /// album name, read from neodb.social signed out), in the mock album's colours.
+    static func neoDBVoicesQAAlbum(_ base: Album) -> Album {
+        guard let spec = UserDefaults.standard.string(forKey: "neodbVoicesAlbum") else { return base }
+        var album = base
+        let parts = spec.split(separator: "|", maxSplits: 1).map(String.init)
+        album.title = parts.first ?? base.title
+        album.artist = parts.count > 1 ? parts[1] : ""
+        return album
+    }
+
+    func openSettings(_ destination: SettingsDestination? = nil) {
+        settingsDestination = destination
+        if path.last == .settings { return }
+        // Two-pane Settings already up with a page pushed on its side: the destination is picked there.
+        if settingsSplitShown, path.contains(.settings) { return }
         path.append(.settings)
+    }
+
+    /// iPad: Settings takes the whole window in two panes (a wide window; SettingsSplitLayout).
+    var settingsSplitShown: Bool {
+        isPad && SettingsSplitLayout.splits(window: padWidth) && path.contains(.settings)
+    }
+
+    /// Settings and whatever was opened on it close; the page under it stays (the list's ←).
+    func closeSettings() {
+        guard let index = path.firstIndex(of: .settings) else { return }
+        settingsPanePops.removeAll()
+        withAnimation(Yoin.spatial) { path.removeSubrange(index...) }
     }
 
     // MARK: Pages' data (server when signed in, else the mock)
@@ -479,6 +652,15 @@ final class AppModel {
 
     func artistPage(_ ref: ArtistRef) -> ArtistPage {
         if store.isReal, let id = ref.id {
+            #if DEBUG
+            // `-artistDemo empty` (with `-serverRoute artist:<id>`): the loaded page as an
+            // artist without releases, for the discography's "No releases" line.
+            if UserDefaults.standard.string(forKey: "artistDemo") == "empty", var page = store.artistPage(id) {
+                page.releases = []
+                page.mostPlayed = []
+                return page
+            }
+            #endif
             return store.artistPage(id)
                 ?? ArtistPage(id: MediaId(provider: store.provider, rawId: id), name: ref.name,
                               starred: false, palette: store.placeholderPalette(coverId: nil),
@@ -500,7 +682,8 @@ final class AppModel {
     // MARK: Playing server songs
 
     /// Where the queue plays from (Android ActivityContext): the detail page
-    /// it was started on; nil from Home / Library / Search lists.
+    /// it was started on, or the memory's album for a start in Memories; nil
+    /// from Home / Library / Search lists.
     enum PlayingFrom: Equatable {
         case album(Album), playlist(id: String, title: String), artist(ArtistRef)
 
@@ -529,6 +712,18 @@ final class AppModel {
             case .artist(let ref): .artist(ref)
             }
         }
+
+        /// What a start plays from: the source it names itself ([named]: a memory's album, as
+        /// Memories is an overlay and no page), else the page it was started on ([page]).
+        static func of(named: PlayingFrom?, page: Route?, playlistTitle: (String) -> String) -> PlayingFrom? {
+            if let named { return named }
+            return switch page {
+            case .album(let a): .album(a)
+            case .playlist(let id): .playlist(id: id, title: playlistTitle(id))
+            case .artist(let ref): .artist(ref)
+            default: nil
+            }
+        }
     }
 
     private(set) var playingFrom: PlayingFrom?
@@ -536,19 +731,23 @@ final class AppModel {
     /// Replaces the queue with [entries] and plays [startAt]; shuffle on or off.
     /// [shuffle]: a Shuffle play (the list starts shuffled, shuffle on). An ordinary start keeps the
     /// remembered play mode (Codex F03; Android PlaybackManager keeps it across starts).
-    func play(_ entries: [PlaylistEntry], startAt: Int = 0, shuffle: Bool = false) {
+    /// [from]: the source of a start that isn't a page's own (Android's activityContext argument); it
+    /// wins over the page on screen, which is otherwise what the queue plays from.
+    /// A [startAt] names the song the listener picked; without one (Play, Shuffle) the list starts at its
+    /// first song. Songs Apple Music won't stream stay out of the queue (PlayableQueue.start).
+    /// [startSec] and [paused]: a Handoff's spot in the song, and whether it waits for Play (App/PlayingHandoff).
+    func play(_ entries: [PlaylistEntry], startAt: Int? = nil, shuffle: Bool = false, from: PlayingFrom? = nil,
+              startSec: Double = 0, paused: Bool = false) {
         startGeneration += 1
+        let (entries, startAt) = PlayableQueue.start(entries, startAt: startAt ?? 0, explicitStart: startAt != nil)
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
-        playingFrom = switch path.last ?? padSelection.map({ .album($0) }) {
-        case .album(let a): .album(a)
-        case .playlist(let id): .playlist(id: id, title: playlistInfo(id).title)
-        case .artist(let ref): .artist(ref)
-        default: nil
-        }
+        playingFrom = PlayingFrom.of(named: from, page: path.last ?? padSelection.map({ .album($0) }),
+                                     playlistTitle: { playlistInfo($0).title })
         playbackSystem.spotifyOutput?.contextPlan = spotifyContext(entries, tracks: tracks)
         if shuffle { player.setShuffle(true) }
-        player.play(queue: tracks, startAt: shuffle ? Int.random(in: 0..<tracks.count) : min(startAt, tracks.count - 1))
+        player.play(queue: tracks, startAt: shuffle ? Int.random(in: 0..<tracks.count) : min(startAt, tracks.count - 1),
+                    startSec: startSec, paused: paused)
     }
 
     /// The album or playlist page a Spotify queue starts from, as Spotify's own context (C-F1): this
@@ -602,12 +801,22 @@ final class AppModel {
     }
 
     /// Play next (stacked so the list keeps its order) or Add to queue.
-    func enqueue(_ entries: [PlaylistEntry], next: Bool) {
-        let tracks = entries.compactMap(store.playable)
-        guard !tracks.isEmpty else { return }
+    /// [done] says whether the songs really went in (the sheet only says so then).
+    /// Songs Apple Music won't stream are left out (PlayableQueue.queueable).
+    func enqueue(_ entries: [PlaylistEntry], next: Bool, done: (@MainActor (Bool) -> Void)? = nil) {
+        let tracks = PlayableQueue.queueable(entries).compactMap(store.playable)
+        guard !tracks.isEmpty else { done?(false); return }
+        // Spotify plays its own song: Yoin's queue isn't what plays next, Spotify's is. Add to queue
+        // goes into Spotify's queue; Play next (Android hides it on Spotify) and other services' songs
+        // can't, and never replace what plays (Codex review 2026-11-10 #16).
+        if player.externalTrack != nil {
+            guard !next, tracks.allSatisfy({ $0.provider == SpotifyMapping.provider }),
+                  let spotify = playbackSystem.spotifyOutput else { done?(false); return }
+            spotify.enqueueOnSpotify(tracks.map(\.id)) { ok in done?(ok) }
+            return
+        }
+        defer { done?(true) }
         guard player.currentItem != nil else {
-            // Spotify's own song (no queue under it) isn't something to queue after.
-            if player.externalTrack != nil { return play(entries) }
             // An empty player takes them in order and waits for Play (Android addMediaItems).
             playingFrom = nil
             playbackSystem.spotifyOutput?.contextPlan = nil
@@ -638,7 +847,7 @@ final class AppModel {
             }
             if out.isEmpty { return page.mostPlayed }
             return Array(out.prefix(limit))
-        case .settings, .tips, nil:
+        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, nil:
             return []
         }
     }
@@ -650,6 +859,22 @@ final class AppModel {
         playback.album = album
         playback.track = track
         playback.positionSec = Int(fraction * Double(track.durationSec))
+    }
+
+    /// Play, pause and song changes go to the server's now-playing view (OpenSubsonic `playbackReport`, #130).
+    private func watchPlaybackReports() {
+        let player = player
+        withObservationTracking {
+            _ = player.isPlaying
+            _ = player.currentTrack?.id
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.store.reportPlayback(track: player.currentTrack, isPlaying: player.isPlaying,
+                                          positionSec: player.progress.positionSec)
+                self.watchPlaybackReports()
+            }
+        }
     }
 
     func select(_ s: ShellSection) {
@@ -672,11 +897,40 @@ final class AppModel {
         withAnimation(Yoin.spatial) { npExpanded = expanded }
     }
 
+    /// iPad: whether the side panel fits beside the columns (Android: window − panel ≥ 744).
+    var padPanelFits: Bool {
+        padWidth - Self.padPanelWidth(padWidth) >= (padColumnOpen ? Self.padTwoColumnsMin : Self.padPanelBesideMin)
+    }
+
+    /// The side panel's width (Android: clamp(window × 0.5, 360, 420)).
+    static func padPanelWidth(_ window: CGFloat) -> CGFloat { min(max(window * 0.5, 360), 420) }
+    /// What the panel must leave beside it (Android NowPlayingPresentation): one phone column (320), or
+    /// two columns and the slot (744) while a detail column is open.
+    static let padPanelBesideMin: CGFloat = 320
+    static let padTwoColumnsMin: CGFloat = 744
+    /// iPad: a detail column is out (the window is Wide and a page is open in it).
+    var padColumnOpen: Bool { padWidth >= 840 && (padSelection != nil || !path.isEmpty) }
+    /// iPad: the side panel grows into Full Now Playing.
+    func npPanelToFull() {
+        // The Full page grows out of the panel itself (the morph starts on the panel's rect, which it covers).
+        np.fromPanel = true
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { npPanel = false }
+        setNowPlaying(expanded: true)
+    }
+    /// iPad: Full Now Playing goes back to the side panel.
+    func npFullToPanel() {
+        // The panel is back in place under the page, and the page folds into its rect.
+        np.fromPanel = true
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { npPanel = true }
+        setNowPlaying(expanded: false)
+    }
+
     /// iPad pill tap: the panel only when there is room for it beside the
     /// columns (Android rule: shell + detail + handle ≥ 744, else go Full).
     func openNowPlayingOnPad() {
-        let panel = min(max(padWidth * 0.5, 360), 420)
-        if padWidth - panel >= 744 {
+        if padPanelFits {
             withAnimation(Yoin.spatial) { npPanel = true }
         } else {
             setNowPlaying(expanded: true)

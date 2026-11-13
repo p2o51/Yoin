@@ -34,13 +34,19 @@ enum SpotifyConfig {
 
     static let clientIdKey = "spotifyClientId"
 
-    /// The Client ID in use: the one set in Settings, else the dev build's seed; nil = none yet.
+    /// The Client ID in use: the one the user set (Landing or Settings); nil = none yet.
+    /// A released build ships none (51, 11-08: a development-mode ID only lets 25 listed
+    /// accounts in, so every public tester brings their own). Debug builds keep the local seed.
     static var clientId: String? {
         let set = UserDefaults.standard.string(forKey: clientIdKey)?.trimmingCharacters(in: .whitespaces) ?? ""
         if !set.isEmpty { return set }
+        #if DEBUG
         let seed = (Bundle.main.object(forInfoDictionaryKey: "YoinSpotifyClientID") as? String)?
             .trimmingCharacters(in: .whitespaces) ?? ""
         return seed.isEmpty ? nil : seed
+        #else
+        return nil
+        #endif
     }
 
     static func setClientId(_ id: String?) {
@@ -59,6 +65,8 @@ struct SpotifyTokens: Codable, Equatable, Sendable {
     var clientId: String
     var userId: String
     var displayName: String?
+    /// The account's profile picture (`/me` images), when it has one (Android ProfileCard.photoUrl).
+    var avatarURL: String? = nil
 
     var scopes: Set<String> { Set(scope.split(separator: " ").map(String.init)) }
     /// Signed in before a required scope was added: it has to sign in again (Android NeedsReconnect).
@@ -157,7 +165,7 @@ enum SpotifyAuth {
         return SpotifyTokens(accessToken: token.access_token, refreshToken: refresh,
                              expiresAt: Date().timeIntervalSince1970 + Double(token.expires_in),
                              scope: token.scope ?? SpotifyConfig.scopes.joined(separator: " "), clientId: clientId,
-                             userId: me.id, displayName: me.display_name)
+                             userId: me.id, displayName: me.display_name, avatarURL: me.avatar)
     }
 
     /// A fresh access token for [tokens] (Spotify may rotate the refresh token too).
@@ -172,7 +180,13 @@ enum SpotifyAuth {
         return t
     }
 
-    struct Me: Decodable { let id: String; let display_name: String?; let product: String? }
+    struct Me: Decodable {
+        struct Image: Decodable { let url: String; let width: Int? }
+        let id: String; let display_name: String?; let product: String?
+        let images: [Image]?
+        /// The largest picture (Spotify lists a small and a large one).
+        var avatar: String? { images?.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url }
+    }
 
     nonisolated static func fetchMe(_ accessToken: String) async throws -> Me {
         var r = URLRequest(url: URL(string: "https://api.spotify.com/v1/me")!)

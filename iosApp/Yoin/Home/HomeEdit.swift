@@ -32,6 +32,10 @@ final class HomeEditController {
     private(set) var sway: CGFloat = 0
     /// When a long-press entered edit: the press's own release must not tap the card under it.
     @ObservationIgnored private(set) var enteredAt: Date = .distantPast
+    #if DEBUG
+    /// Screenshots: Lyric Cards' dots held open at this count (`-homeLyricCountShot 3`).
+    var lyricCountShot: Int?
+    #endif
 
     @ObservationIgnored private(set) var scope = ""
     @ObservationIgnored private let store: HomeLayoutStore
@@ -100,6 +104,10 @@ final class HomeEditController {
     /// A press under the long-press that entered edit lands on a card: drop that tap.
     var swallowsTap: Bool { isEditing || Date().timeIntervalSince(enteredAt) < 0.8 }
 
+    /// A tap on a Jump Back In card while editing (not the release of the hold that entered edit): the
+    /// "not now" menu's way in (Android's edit-mode card tap).
+    var acceptsCardTap: Bool { isEditing && carried == nil && Date().timeIntervalSince(enteredAt) >= 0.8 }
+
     // MARK: Changes (each one saved, each one an Undo step)
 
     // MARK: Row presets (D1 resize)
@@ -133,6 +141,21 @@ final class HomeEditController {
 
     /// A step by keyboard / VoiceOver: the preset written at once.
     func setRows(_ s: HomeSection, _ rows: HomeRowPreset) { commit(layout.withRows(s, rows)) }
+
+    /// Lyric Cards' dots crossing to another count: the resize's tick (Android lyricCountTick).
+    func lyricCountTick() {
+        UISelectionFeedbackGenerator().selectionChanged()
+        touched()
+    }
+
+    /// Lyric Cards at [count] cards, dropped from its dots (Android setLyricCount): one Undo step,
+    /// a confirming tap when it changed.
+    func setLyricCount(_ count: Int) {
+        let next = layout.withRows(.lyricHighlight, .lyricCards(count))
+        guard !next.sameSections(as: layout) else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        commit(next)
+    }
 
     func hide(_ s: HomeSection) { commit(layout.withEnabled(s, false)) }
     func show(_ s: HomeSection) { commit(layout.withEnabled(s, true)) }
@@ -302,6 +325,8 @@ struct HomeEditBlock<Content: View>: View {
     var covers: [CoverPalette]
     /// The section's resize handle (Activities, Jump Back In); nil = none.
     var rows: HomeRowsHandle? = nil
+    /// Lyric Cards' count handle (its dots) instead of a resize.
+    var lyricCount: Bool = false
     @ViewBuilder var content: () -> Content
     @State private var naturalHeight: CGFloat = 0
 
@@ -316,7 +341,7 @@ struct HomeEditBlock<Content: View>: View {
             content()
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { naturalHeight = $0 }
                 .opacity(1 - smoothstep(0, 0.45, f))
-                .allowsHitTesting(!edit.isEditing)
+                .allowsHitTesting(!edit.isEditing || (section == .jumpBackIn && f == 0))
                 .fixedSize(horizontal: false, vertical: true)
             if f > 0.001 {
                 if isHole {
@@ -345,6 +370,9 @@ struct HomeEditBlock<Content: View>: View {
         .overlay(alignment: .bottomTrailing) {
             if let rows, rows.stops.count > 1, p > 0.02, f < 0.5 {
                 HomeRowsHandleView(edit: edit, section: section, handle: rows, scheme: s, ripple: r)
+                    .opacity(Double(1 - smoothstep(0, 0.3, f)))
+            } else if lyricCount, p > 0.02, f < 0.5 {
+                HomeLyricCountHandleView(edit: edit, scheme: s, ripple: r)
                     .opacity(Double(1 - smoothstep(0, 0.3, f)))
             }
         }
@@ -468,6 +496,133 @@ private struct CornerGlyph: Shape {
         p.addQuadCurve(to: CGPoint(x: r.maxX - 5, y: r.maxY), control: CGPoint(x: r.maxX, y: r.maxY))
         p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
         return p
+    }
+}
+
+/// Lyric Cards' count handle (Android HomeLyricCountHandle, owner 2026-11-08): the same ⌟ as the
+/// resize, on the plate's corner, but held and pulled down it opens a column of dots beside the
+/// corner. Still held, sliding down adds a card and up takes one away, two to four, a tick at each;
+/// letting go keeps it as one Undo step. VoiceOver steps it with adjust.
+struct HomeLyricCountHandleView: View {
+    var edit: HomeEditController
+    var scheme: CoverScheme
+    var ripple: CGFloat
+    /// The count when the finger came down; nil while not held.
+    @State private var start: Int?
+    @State private var count = HomeRowPreset.default.lyricCards
+    /// 0 closed, 1 open; follows the finger down.
+    @State private var reveal: CGFloat = 0
+    /// Where the dots finished opening: further travel counts from here.
+    @State private var anchor: CGFloat?
+
+    private var saved: Int { edit.rowsOf(.lyricHighlight).lyricCards }
+
+    var body: some View {
+        #if DEBUG
+        let shot = edit.lyricCountShot
+        #else
+        let shot: Int? = nil
+        #endif
+        let held = start != nil || shot != nil
+        let shown = smoothstep(0.25, 1, ripple)
+        CornerGlyph()
+            .stroke(held ? scheme.primary : scheme.onSurfaceVariant,
+                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+            .frame(width: 14, height: 14)
+            .scaleEffect(held ? 1.25 : 1)
+            .animation(Yoin.spatial, value: held)
+            .frame(width: 44, height: 44, alignment: .bottomTrailing)
+            .padding(8)
+            .contentShape(.rect)
+            .overlay(alignment: .bottomLeading) {
+                // A tall pill just left of the corner, its bottom level with the handle's, over this
+                // section's own cards.
+                HomeLyricCountPicker(count: shot ?? count, reveal: shot != nil ? 1 : reveal, scheme: scheme)
+                    .alignmentGuide(.leading) { $0[.trailing] + 4 }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .scaleEffect(0.6 + 0.4 * shown)
+            .opacity(Double(shown))
+            // The plate's corner (outset 8 / 6), the glyph's corner inside it.
+            .offset(x: 8, y: 6)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(HomeEditController.feedSpace)) } action: {
+                edit.reportRowsHandle(.lyricHighlight, frame: $0)
+            }
+            .onDisappear { edit.reportRowsHandle(.lyricHighlight, frame: .null) }
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                .onChanged { drag in
+                    guard edit.isEditing else { return }
+                    if start == nil {
+                        start = saved
+                        count = saved
+                        anchor = nil
+                    }
+                    let dy = drag.translation.height
+                    reveal = max(reveal, min(max(dy / HomeLyricCount.revealDistance, 0), 1))
+                    guard reveal >= 1, let start else { return }
+                    let from = anchor ?? dy
+                    if anchor == nil { anchor = dy }
+                    let next = HomeLyricCount.count(start: start, travel: dy - from)
+                    if next != count {
+                        withAnimation(Yoin.spatial) { count = next }
+                        edit.lyricCountTick()
+                    }
+                }
+                .onEnded { _ in
+                    if start != nil, reveal >= 1 { edit.setLyricCount(count) }
+                    start = nil
+                    anchor = nil
+                    withAnimation(Yoin.spatial) { reveal = 0 }
+                    edit.touched()
+                })
+            .accessibilityElement()
+            .accessibilityLabel(HomeSection.lyricHighlight.title)
+            .accessibilityValue(HomeLyricCountPicker.label(saved))
+            .accessibilityAdjustableAction { direction in
+                let next = saved + (direction == .increment ? 1 : -1)
+                guard (HomeLyricCount.min...HomeLyricCount.max).contains(next) else { return }
+                edit.setLyricCount(next)
+            }
+    }
+}
+
+/// The dots, top to bottom from two to four cards to match the finger: every dot up to the count
+/// filled, the count's own one larger, its label at the top, in a rounded bar taller than wide.
+private struct HomeLyricCountPicker: View {
+    var count: Int
+    var reveal: CGFloat
+    var scheme: CoverScheme
+
+    /// "3 cards" (Android home_edit_lyric_cards).
+    static func label(_ count: Int) -> String { String(localized: "\(count) cards") }
+
+    var body: some View {
+        let r = min(max(reveal, 0), 1)
+        VStack(spacing: 8) {
+            Text(Self.label(count))
+                .homeType(Tokens.type.labelMedium)
+                .foregroundStyle(scheme.onSurface)
+                .lineLimit(1)
+                .fixedSize()
+                .contentTransition(.numericText())
+            VStack(spacing: 0) {
+                ForEach(HomeLyricCount.min...HomeLyricCount.max, id: \.self) { n in
+                    Circle()
+                        .fill(n <= count ? scheme.primary : scheme.outlineVariant)
+                        .animation(Yoin.effects, value: count)
+                        .frame(width: n == count ? 12 : 8, height: n == count ? 12 : 8)
+                        .animation(Yoin.spatial, value: count)
+                        .frame(height: 28)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 14)
+        .background(scheme.surfaceContainerHighest, in: .rect(cornerRadius: 24, style: .continuous))
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+        .scaleEffect(0.8 + 0.2 * r, anchor: .bottomTrailing)
+        .opacity(Double(r))
     }
 }
 
@@ -656,6 +811,7 @@ struct HeaderActions<Account: View>: View {
                             .background(scheme.primary, in: .capsule)
                     }
                     .buttonStyle(PressScale())
+                    .demoTarget("editDone")
                 }
                 .opacity(Double(smoothstep(0.5, 1, p)))
                 .scaleEffect(0.9 + 0.1 * smoothstep(0.5, 1, p), anchor: .trailing)
@@ -715,7 +871,24 @@ enum HomeEditScript {
     static weak var edit: HomeEditController?
 
     static func run() async {
-        guard UserDefaults.standard.bool(forKey: "homeEditScripted"), !started else { return }
+        let d = UserDefaults.standard
+        // `-homeLyricCountShot 3` (with `-lyricHighlightSeed YES`): edit mode with Lyric Cards' dots held
+        // open at that count, the section moved first; `-homeLyricCountSet 2` drops the count there as a finger would.
+        let shot = d.integer(forKey: "homeLyricCountShot"), set = d.integer(forKey: "homeLyricCountSet")
+        if (shot > 0 || set > 0), !started {
+            started = true
+            try? await Task.sleep(for: .seconds(6))
+            guard let edit else { return }
+            edit.enter()
+            try? await Task.sleep(for: .seconds(1.5))
+            // Lyric Cards first, so the shot needs no scroll.
+            edit.move(.lyricHighlight, to: 0)
+            try? await Task.sleep(for: .seconds(1))
+            if set > 0 { edit.setLyricCount(set) }
+            if shot > 0 { withAnimation(Yoin.spatial) { edit.lyricCountShot = shot } }
+            return
+        }
+        guard d.bool(forKey: "homeEditScripted"), !started else { return }
         started = true
         try? await Task.sleep(for: .seconds(3))
         guard let edit else { return }

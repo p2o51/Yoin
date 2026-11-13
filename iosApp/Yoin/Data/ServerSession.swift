@@ -51,6 +51,8 @@ final class ServerSession {
     /// The server lists OpenSubsonic `transcodeOffset`: `stream` takes `timeOffset`, so a transcode can
     /// reopen mid-song (Android `SubsonicServerTraits.timeOffset`). False until the server says so.
     private(set) var supportsTimeOffset = false
+    /// The server lists OpenSubsonic `playbackReport` (#130): play / pause / stop go to its now-playing view.
+    private(set) var supportsPlaybackReport = false
 
     var isSignedIn: Bool { client != nil }
 
@@ -82,6 +84,7 @@ final class ServerSession {
         client = probe.client
         self.account = account
         supportsTimeOffset = false
+        supportsPlaybackReport = false
         state = .ready(probe.server)
         self.scope = scope ?? AccountScope.subsonicScope(account)
         Task { await loadTraits(probe.client, gen: gen, openSubsonic: probe.openSubsonic) }
@@ -95,6 +98,7 @@ final class ServerSession {
         client = Self.makeClient(account)
         self.account = account
         supportsTimeOffset = false
+        supportsPlaybackReport = false
         state = .connecting
         self.scope = scope ?? AccountScope.subsonicScope(account)
         Task { await verify() }
@@ -108,6 +112,7 @@ final class ServerSession {
         account = nil
         scope = nil
         supportsTimeOffset = false
+        supportsPlaybackReport = false
         state = .signedOut
     }
 
@@ -132,6 +137,7 @@ final class ServerSession {
         let names = (try? await client.getOpenSubsonicExtensions()) ?? []
         guard gen == authGeneration, client === self.client else { return }
         supportsTimeOffset = names.contains("transcodeOffset")
+        supportsPlaybackReport = names.contains("playbackReport")
     }
 
     private static func makeClient(_ a: Account) -> SubsonicClient {

@@ -51,6 +51,8 @@ private struct LyricLinesBody: View {
 
     @State private var heights: [Int: CGFloat] = [:]
     @State private var labelHeight: CGFloat = 0
+    /// The list's scroll, driven on its own (see the offset below); nil until first laid out.
+    @State private var scrollY: CGFloat?
     /// Android UpNextRise / UpNextLabelGap.
     private static let rise: CGFloat = 24
     private static let labelGap: CGFloat = 20
@@ -149,7 +151,17 @@ private struct LyricLinesBody: View {
         // (a wrap) still glides, as the offset follows it.
         // No overshoot (Android animateScrollToItem): a bouncing list swung the
         // lines past their places and back on every advance.
-        .animation(handing ? Yoin.slowSpatial : Self.scroll) { $0.offset(y: anchor - 4 - above) }
+        //
+        // The offset is its own state, moved in its own transaction: the
+        // body-scoped `.animation(_:body:)` never animated it (measured on the
+        // simulator: the list jumped ~34 pt in one frame), and a value-keyed
+        // animation on the list also sprang the rows (ghosted letters).
+        .offset(y: scrollY ?? anchor - 4 - above)
+        .onAppear { scrollY = anchor - 4 - above }
+        .onChange(of: anchor - 4 - above) { _, target in
+            guard scrollY != nil else { scrollY = target; return }
+            withAnimation(handing ? Yoin.slowSpatial : Self.scroll) { scrollY = target }
+        }
     }
 
     /// The list's glide to the next line: the spatial spring's pace, critically damped.
@@ -304,7 +316,7 @@ struct NoteComposer: View {
                         .background(scheme.primary.opacity(0.12), in: Capsule())
                         .contentShape(.capsule)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .accessibilityLabel("Moment")
                 TextField(text: $text, prompt: Text("Write a note")
                     .foregroundStyle(scheme.onSurfaceVariant.opacity(0.8)), axis: .vertical) {

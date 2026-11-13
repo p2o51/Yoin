@@ -61,6 +61,14 @@ struct PhoneShell: View {
                             ServerSettingsView()
                         case .tips(let focus):
                             TipsView(focus: focus)
+                        case .tip(let id):
+                            TipView(start: id)
+                        case .allMemories:
+                            AllMemoriesView()
+                        case .labs:
+                            LabsView()
+                        case .neoDBVoices(let album):
+                            NeoDBVoicesView(album: album)
                         }
                     }
             }
@@ -164,7 +172,7 @@ struct MemoriesBarRetreat: ViewModifier {
 /// headers), so this approximates it: a material band that fades out
 /// downward, like Apple Music's top. Hidden under Now Playing, by the morph's
 /// progress (read here, so its frames re-render the band only).
-private struct StatusEdgeBand: View {
+struct StatusEdgeBand: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -191,10 +199,8 @@ private struct StatusEdgeBand: View {
 /// Reads the progress here, so a frame of the morph re-renders this modifier
 /// only, not the shell.
 struct WorldRecede: ViewModifier {
-    /// `padShell`: the iPad shell, which has no morph progress. It recedes
-    /// under a sheet (the sheet's rise, as on the phone) and under the Full
-    /// Now Playing overlay (on the spatial spring that brings that in).
-    enum Layer { case shell, nowPlaying, padShell }
+    /// `shell`: the phone's shell and the iPad's (both under the pill ⇄ page morph).
+    enum Layer { case shell, nowPlaying }
     @Environment(AppModel.self) private var model
     var layer: Layer
 
@@ -211,19 +217,12 @@ struct WorldRecede: ViewModifier {
             let depth: CGFloat = switch layer {
             case .shell: underNP ? min(max(model.np.progress, 0), 1) : rise
             case .nowPlaying: model.npExpanded ? rise : 0
-            case .padShell: model.npExpanded ? 0 : rise
             }
             // Unanimated only for the recede itself: a whole-layer
             // `.transaction { $0.animation = nil }` also cut every animation
             // inside the shell (the bar's slide, the search morph).
-            if layer == .padShell {
-                content
-                    .animation(nil) { $0.labRecede(depth, sheet: true) }
-                    .animation(Yoin.spatial) { $0.labRecede(model.npExpanded ? 1 : 0) }
-            } else {
-                content
-                    .animation(nil) { $0.labRecede(depth, sheet: !underNP) }
-            }
+            content
+                .animation(nil) { $0.labRecede(depth, sheet: !underNP) }
         } else {
             content
         }

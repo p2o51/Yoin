@@ -63,6 +63,8 @@ struct SearchView: View {
     @State private var width: CGFloat = 370
     /// The + / ✓ of Apple Music's song results.
     @State private var libraryAdder = SongLibraryAdder()
+    /// The result songs (by position and id) whose "Apple Music doesn't stream" reason is open.
+    @State private var notStreamedReasons: Set<String> = []
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
     @State private var scrollPosition = ScrollPosition()
@@ -99,11 +101,12 @@ struct SearchView: View {
         ScrollView {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, Tokens.search.RESULTS_BOTTOM_RESERVE.cg)
         }
+        // The content's width is the offered width less the 16 margins (see `offeredWidth`).
+        .offeredWidth { width = max(0, $0 - 32) }
         .scrollPosition($scrollPosition)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             offset = y
@@ -247,7 +250,7 @@ struct SearchView: View {
                                 .frame(width: 32, height: 32)
                                 .contentShape(.circle)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.plain).pointerHighlight()
                         .accessibilityLabel("Clear search")
                         .transition(.opacity.animation(Yoin.effects))
                     }
@@ -271,7 +274,7 @@ struct SearchView: View {
                         .frame(width: 48, height: 48)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .labSearchGlass(scheme: scheme, in: .circle)
                 .opacity(staged ? 1 : 0)
                 .animation(Self.fadeThrough, value: staged)
@@ -529,7 +532,7 @@ struct SearchView: View {
             .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     private func albumCount(_ n: Int?) -> String {
@@ -638,10 +641,17 @@ struct SearchView: View {
         let ids = tracks.filter { $0.1.id.provider == AppleMusicMapping.provider }.map(\.1.id.rawId)
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(tracks.enumerated()), id: \.offset) { i, item in
+                let key = "\(i)|\(item.1.id)"
+                let explain = { withAnimation(Yoin.spatial) { NotStreamedRow.toggle(key, in: &notStreamedReasons) } }
                 LibrarySongRow(album: item.0, track: item.1, current: model.playback.track.id == item.1.id,
-                               scheme: scheme, horizontalPadding: 0, libraryAdd: libraryAdd(item.1))
+                               scheme: scheme, horizontalPadding: 0, libraryAdd: libraryAdd(item.1),
+                               reasonShown: notStreamedReasons.contains(key), explain: explain)
                     .trackRow(for: PlaylistEntry(album: item.0, track: item.1)) {
-                        model.play(tracks.map { PlaylistEntry(album: $0.0, track: $0.1) }, startAt: i)
+                        // A song Apple won't stream doesn't play: its tap says why (Android SearchSongRow).
+                        switch NotStreamedRow.tap(item.1) {
+                        case .play: model.play(tracks.map { PlaylistEntry(album: $0.0, track: $0.1) }, startAt: i)
+                        case .explain: explain()
+                        }
                     }
             }
         }
@@ -676,7 +686,7 @@ struct SearchView: View {
                     .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
             }
         }
     }

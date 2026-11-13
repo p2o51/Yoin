@@ -19,6 +19,17 @@ enum DetailCacheDTO {
         var playCount: Int?
         var disc: Int?
         var bitRateKbps: Int?
+        /// The format and audio facts (quality tag, volume leveling); absent in pages cached before them.
+        var suffix: String? = nil
+        var trackGainDb: Double? = nil
+        var albumGainDb: Double? = nil
+        var trackPeak: Double? = nil
+        var albumPeak: Double? = nil
+        var samplingRate: Int? = nil
+        var bitDepth: Int? = nil
+        var channelCount: Int? = nil
+        /// Apple lists it but doesn't stream it (Track.notStreamed); nil = false, and in pages cached before it.
+        var notStreamed: Bool? = nil
     }
 
     struct Album: Codable, Sendable, Equatable {
@@ -38,6 +49,8 @@ enum DetailCacheDTO {
         var songCount: Int?
         var durationSec: Int?
         var genre: String?
+        /// The release's version tag (Album.version); absent in pages stored before it.
+        var version: String? = nil
     }
 
     struct Entry: Codable, Sendable, Equatable {
@@ -95,6 +108,8 @@ enum DetailCacheDTO {
         var highest: [Album]
         var random: [Album]
         var recentTracks: [Entry]
+        /// Jump Back In's song pool; absent in rows stored before it.
+        var trackPool: [Entry]? = nil
     }
 }
 
@@ -125,14 +140,17 @@ struct DetailCacheCodec {
     func dto(_ t: Track) -> DetailCacheDTO.Track {
         .init(provider: t.id.provider, id: t.id.rawId, number: t.number, title: t.title, durationSec: t.durationSec,
               rating: t.rating, artist: t.artist, starred: t.starred, playCount: t.playCount, disc: t.disc,
-              bitRateKbps: t.bitRateKbps)
+              bitRateKbps: t.bitRateKbps, suffix: t.suffix, trackGainDb: t.audio?.trackGainDb,
+              albumGainDb: t.audio?.albumGainDb, trackPeak: t.audio?.trackPeak, albumPeak: t.audio?.albumPeak,
+              samplingRate: t.audio?.samplingRate, bitDepth: t.audio?.bitDepth, channelCount: t.audio?.channelCount,
+              notStreamed: t.notStreamed ? true : nil)
     }
 
     func dto(_ a: Album) -> DetailCacheDTO.Album {
         .init(provider: a.id.provider, id: a.id.rawId, title: a.title, artist: a.artist, year: a.year,
               cover: coverKey(a.palette), tracks: a.tracks.map(dto), rating: a.rating, kind: a.kind.rawValue,
               artistId: a.artistId, starred: a.starred, playCount: a.playCount, created: a.created,
-              songCount: a.songCount, durationSec: a.durationSec, genre: a.genre)
+              songCount: a.songCount, durationSec: a.durationSec, genre: a.genre, version: a.version)
     }
 
     func dtoAlbums(_ a: [Album]) -> [DetailCacheDTO.Album] { a.map(dto) }
@@ -160,7 +178,8 @@ struct DetailCacheCodec {
 
     func dto(_ h: LibraryStore.HomeLists) -> DetailCacheDTO.Home {
         .init(recent: h.recent.map(dto), frequent: h.frequent.map(dto), newest: h.newest.map(dto),
-              highest: h.highest.map(dto), random: h.random.map(dto), recentTracks: h.recentTracks.map(dto))
+              highest: h.highest.map(dto), random: h.random.map(dto), recentTracks: h.recentTracks.map(dto),
+              trackPool: h.trackPool.map(dto))
     }
 
     // MARK: In
@@ -168,7 +187,15 @@ struct DetailCacheCodec {
     func track(_ t: DetailCacheDTO.Track) -> Track {
         Track(id: MediaId(provider: t.provider, rawId: t.id), number: t.number, title: t.title,
               durationSec: t.durationSec, rating: t.rating, artist: t.artist, starred: t.starred,
-              playCount: t.playCount, disc: t.disc, bitRateKbps: t.bitRateKbps)
+              playCount: t.playCount, disc: t.disc, bitRateKbps: t.bitRateKbps, suffix: t.suffix,
+              audio: Self.audio(t), notStreamed: t.notStreamed == true)
+    }
+
+    static func audio(_ t: DetailCacheDTO.Track) -> TrackAudio? {
+        let a = TrackAudio(trackGainDb: t.trackGainDb, albumGainDb: t.albumGainDb, trackPeak: t.trackPeak,
+                           albumPeak: t.albumPeak, samplingRate: t.samplingRate, bitDepth: t.bitDepth,
+                           channelCount: t.channelCount)
+        return a == TrackAudio() ? nil : a
     }
 
     func album(_ a: DetailCacheDTO.Album) -> Album {
@@ -176,7 +203,7 @@ struct DetailCacheCodec {
               palette: palette(a.cover, a.id), tracks: a.tracks.map(track), rating: a.rating,
               kind: ReleaseKind(rawValue: a.kind) ?? .album, artistId: a.artistId, starred: a.starred,
               playCount: a.playCount, created: a.created, songCount: a.songCount, durationSec: a.durationSec,
-              genre: a.genre)
+              genre: a.genre, version: a.version)
     }
 
     func entry(_ e: DetailCacheDTO.Entry) -> PlaylistEntry { PlaylistEntry(album: album(e.album), track: track(e.track)) }
@@ -203,6 +230,7 @@ struct DetailCacheCodec {
     func home(_ h: DetailCacheDTO.Home) -> LibraryStore.HomeLists {
         LibraryStore.HomeLists(recent: h.recent.map(album), frequent: h.frequent.map(album), newest: h.newest.map(album),
                                highest: h.highest.map(album), random: h.random.map(album),
-                               recentTracks: h.recentTracks.map(entry))
+                               recentTracks: h.recentTracks.map(entry),
+                               trackPool: (h.trackPool ?? h.recentTracks).map(entry))
     }
 }

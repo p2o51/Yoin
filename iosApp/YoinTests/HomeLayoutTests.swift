@@ -13,7 +13,7 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(HomeLayout.reconcile(nil), .default)
         XCTAssertEqual(HomeLayout.reconcile([]), .default)
         XCTAssertEqual(HomeLayout.default.shownSections,
-                       [.activities, .jumpBackIn, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists])
+                       [.activities, .jumpBackIn, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists, .otherProfiles, .lyricHighlight, .memoryGrid])
         XCTAssertTrue(HomeLayout.default.isDefault)
     }
 
@@ -33,7 +33,7 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(l.retained.map(\.id), ["future_thing"])
         // Appended at appendEnabled: none of these is Rediscover, so all show and none is "New".
         XCTAssertEqual(Set(l.sections.dropFirst(2).map(\.section)),
-                       [.jumpBackIn, .recentlyAdded, .recentlyPlayed, .yourPlaylists, .otherProfiles])
+                       [.jumpBackIn, .recentlyAdded, .recentlyPlayed, .yourPlaylists, .otherProfiles, .lyricHighlight, .memoryGrid])
         XCTAssertTrue(l.newSections.isEmpty)
     }
 
@@ -50,7 +50,7 @@ final class HomeLayoutTests: XCTestCase {
     func test_should_moveAmongShownKeepingHiddenSlots_when_reordering() {
         let l = HomeLayout.default.withEnabled(.jumpBackIn, false)
         let moved = l.movedShown(.rediscover, to: 0)
-        XCTAssertEqual(moved.shownSections, [.rediscover, .activities, .recentlyAdded, .recentlyPlayed, .yourPlaylists])
+        XCTAssertEqual(moved.shownSections, [.rediscover, .activities, .recentlyAdded, .recentlyPlayed, .yourPlaylists, .otherProfiles, .lyricHighlight, .memoryGrid])
         // The hidden one keeps its absolute index.
         XCTAssertEqual(moved.sections[1].section, .jumpBackIn)
         XCTAssertFalse(moved.sections[1].enabled)
@@ -164,7 +164,7 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(edit.undoStack.count, 2)
         edit.undo()
         XCTAssertEqual(store.layout("acc").shownSections,
-                       [.activities, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists])
+                       [.activities, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists, .otherProfiles, .lyricHighlight, .memoryGrid])
         edit.reset()
         XCTAssertNil(store.prefs("acc"))
         XCTAssertTrue(edit.layout.isDefault)

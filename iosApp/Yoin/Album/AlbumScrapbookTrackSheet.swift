@@ -33,9 +33,8 @@ struct ScrapTrackSheet: View {
     var scoreEditable = true
     var initialEditing: SongAboutStore.Entry.Ref? = nil
     var initialTab: ScrapSheetTab = .about
-    /// Plays the song from a note's moment (nil: from the start); the sheet closes.
+    /// Plays the song from a note's or a line's moment (nil: from the start); the sheet stays open.
     var onPlayFrom: (Int64?) -> Void = { _ in }
-    @Environment(\.dismiss) private var dismiss
     @State private var tab: ScrapSheetTab = .about
 
     @Environment(\.colorScheme) private var colorScheme
@@ -161,51 +160,11 @@ struct ScrapTrackSheet: View {
 
     // MARK: Notes
 
-    /// Every note on the song, oldest first: a tap plays the song from its moment (Android
-    /// AlbumScrapbookTrackSheet's Notes tab); a long press deletes it, with Undo.
-    @ViewBuilder
+    /// The song's notes among the lyric lines around them (Android AlbumScrapbookTrackSheet NotesTab).
     private var notesTab: some View {
-        let notes = NotesStore.shared.notes(provider: track.id.provider, trackId: track.id.rawId)
-            .sorted { ($0.positionMs ?? .max, $0.createdAt) < ($1.positionMs ?? .max, $1.createdAt) }
-        if notes.isEmpty {
-            Text("No notes on this song yet")
-                .font(.gsf(15))
-                .foregroundStyle(scheme.onSurfaceVariant)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 12)
-        }
-        ForEach(notes) { note in
-            Button {
-                onPlayFrom(note.positionMs)
-                dismiss()
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    Text(note.positionMs.map(NotesStore.formatPosition) ?? "")
-                        .font(.gsf(12, .medium)).monospacedDigit()
-                        .foregroundStyle(scheme.primary)
-                        .frame(width: 48, alignment: .leading)
-                    Text(note.content).font(.gsf(15))
-                        .foregroundStyle(scheme.onSurface)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .multilineTextAlignment(.leading)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 10)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint(note.positionMs.map { String(localized: "Play from \(NotesStore.formatPosition($0))") } ?? String(localized: "Play"))
-            .contextMenu {
-                Button("Delete", role: .destructive) {
-                    guard let gone = NotesStore.shared.delete(id: note.id) else {
-                        return toast.show(String(localized: "Couldn't delete the note. Try again"))
-                    }
-                    toast.show(String(localized: "Deleted"), action: .init(label: String(localized: "Undo")) {
-                        if !NotesStore.shared.restore(gone) { toast.show(String(localized: "Couldn't restore the note. Try again")) }
-                    })
-                }
-            }
-        }
+        ScrapNotesTab(track: track, album: album, scheme: scheme,
+                      playable: store.playable(PlaylistEntry(album: album, track: track)),
+                      onPlayFrom: onPlayFrom)
     }
 
     /// The mock's head: the number and title, no score bar.

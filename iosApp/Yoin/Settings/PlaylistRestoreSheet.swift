@@ -298,7 +298,7 @@ struct PlaylistRestoreSheet: View {
                     .frame(width: 44, height: 44)
                     .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .disabled(!enabled || !row.checkable)
                 .opacity(row.checkable ? 1 : 0.3)
                 .accessibilityLabel("Add to playlist")
@@ -397,7 +397,7 @@ struct PlaylistRestoreSheet: View {
                     .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .disabled(!enabled)
                 .animation(Yoin.effects, value: chosen)
             }
@@ -411,7 +411,7 @@ struct PlaylistRestoreSheet: View {
                 .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .disabled(!enabled)
         }
         .padding(.bottom, 8)

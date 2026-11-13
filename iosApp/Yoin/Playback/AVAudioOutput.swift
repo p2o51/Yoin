@@ -11,6 +11,8 @@ final class AVAudioOutput: AudioOutput {
     private var current: AVPlayerItem?
     private var next: AVPlayerItem?
     private var nextURL: URL?
+    /// Each item's stream URL (a cached asset's own URL is the cache's, not the stream's).
+    private var itemURLs: [ObjectIdentifier: URL] = [:]
     private var timeObserver: Any?
     private var observations: [NSKeyValueObservation] = []
     private var itemObservations: [NSKeyValueObservation] = []
@@ -49,6 +51,39 @@ final class AVAudioOutput: AudioOutput {
         observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in self?.currentItemDidChange() }
         })
+        // Volume leveling changed: the song playing and the one preloaded follow at once (Android #139).
+        endObservers.append(NotificationCenter.default.addObserver(forName: ReplayGainSettings.changed, object: nil,
+                                                                   queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                for item in [self.current, self.next].compactMap({ $0 }) { self.applyGain(item) }
+            }
+        })
+    }
+
+    /// The song id a stream URL names (Subsonic `id`); nil for other services.
+    nonisolated static func songId(_ url: URL) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value
+    }
+
+    /// ReplayGain as the item's audio mix (per item, so the preloaded next song has its own). Unity: no mix.
+    private func applyGain(_ item: AVPlayerItem) {
+        // Spatial audio for 5.1 / 7.1 files only; stereo songs are never changed (Android #139).
+        item.allowedAudioSpatializationFormats = ReplayGainSettings.shared.spatializeMultichannel ? .multichannel : []
+        guard let url = itemURLs[ObjectIdentifier(item)] ?? (item.asset as? AVURLAsset)?.url else { return }
+        let gain = ReplayGainSettings.shared.applied(songId: Self.songId(url))
+        guard gain.linear < 0.999 else { item.audioMix = nil; return }
+        let asset = item.asset
+        Task { @MainActor [weak item] in
+            guard let tracks = try? await asset.loadTracks(withMediaType: .audio), let track = tracks.first,
+                  let item else { return }
+            let params = AVMutableAudioMixInputParameters(track: track)
+            params.setVolume(Float(gain.linear), at: .zero)
+            let mix = AVMutableAudioMix()
+            mix.inputParameters = [params]
+            item.audioMix = mix
+            PlayTrace.log(String(format: "AV gain %.1f dB%@", gain.db, gain.peakLimited ? " (peak)" : ""))
+        }
     }
 
     var currentTimeSec: Double {
@@ -116,6 +151,9 @@ final class AVAudioOutput: AudioOutput {
         let item = AVPlayerItem(asset: CachedAudio.asset(for: url))
         // Buffer ahead a little so the preloaded item is ready at the hand-over.
         item.preferredForwardBufferDuration = 30
+        itemURLs[ObjectIdentifier(item)] = url
+        if itemURLs.count > 8 { itemURLs = itemURLs.filter { [current, next].compactMap { $0 }.map(ObjectIdentifier.init).contains($0.key) } }
+        applyGain(item)
         return item
     }
 

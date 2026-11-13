@@ -58,14 +58,16 @@ final class NowPlayingData {
     private(set) var about: [String: AboutState] = [:]
 
     @ObservationIgnored private let ratings: LocalRatings
+    @ObservationIgnored private let outbox: RatingOutbox
     @ObservationIgnored private var lyricsRetry: Set<String> = []
     @ObservationIgnored private var infoRequested: Set<String> = []
     /// Bumps when the Subsonic account changes: a song id is the server's own, so what was loaded for
     /// another account's song with the same id goes, and loads begun before land nowhere (Codex #9).
     @ObservationIgnored private var accountGeneration = 0
 
-    init(ratings: LocalRatings? = nil, hearts: FavoritesStore? = nil) {
+    init(ratings: LocalRatings? = nil, hearts: FavoritesStore? = nil, outbox: RatingOutbox? = nil) {
         self.ratings = ratings ?? .shared
+        self.outbox = outbox ?? .shared
         self.hearts = hearts ?? .shared
     }
 
@@ -142,7 +144,9 @@ final class NowPlayingData {
     /// QQ → NetEase → LRCLIB by title, artist and length; the hit is kept 30 days.
     private func loadProviderLyrics(_ t: PlayableTrack, _ k: String) async {
         guard lyrics[k] == nil || lyricsRetry.contains(k) else { return }
-        lyricsRetry.remove(k)
+        // A retry after a failure starts from `.none`: back to loading, or
+        // its answer would be thrown away below (Codex review #17).
+        if lyricsRetry.remove(k) != nil, lyrics[k] == LyricsState.none { lyrics[k] = .loading }
         if let a = LyricsUserStore.shared.auto(k) {
             let parsed = LrcParser.shared.parse(raw: a.lrc)
             if !parsed.lines.isEmpty {
@@ -174,7 +178,9 @@ final class NowPlayingData {
 
     private func loadLyrics(_ t: PlayableTrack, _ k: String, _ client: SubsonicClient) async {
         guard lyrics[k] == nil || lyricsRetry.contains(k) else { return }
-        lyricsRetry.remove(k)
+        // A retry after a failure starts from `.none`: back to loading, or
+        // its answer would be thrown away below (Codex review #17).
+        if lyricsRetry.remove(k) != nil, lyrics[k] == LyricsState.none { lyrics[k] = .loading }
         if lyrics[k] == nil { lyrics[k] = .loading }
         let gen = accountGeneration
         do {
@@ -279,6 +285,13 @@ final class NowPlayingData {
         AboutState.compose(server: about[Self.key(t)] ?? .loading, song: AboutSong(t))
     }
 
+    /// The server's facts the Now Playing spine reads (Subsonic `getSong`); nil until they arrive and
+    /// for every other provider.
+    func spineFacts(_ t: PlayableTrack) -> SpineSourceFacts? {
+        if case .ready(let f)? = about[Self.key(t)] { return f.spine }
+        return nil
+    }
+
     /// Gemini's About (when a key is saved; once per song, cached) alongside
     /// the server's facts.
     func loadAbout(_ t: PlayableTrack, client: SubsonicClient?) async {
@@ -286,6 +299,11 @@ final class NowPlayingData {
         let gemini = Task { await SongAboutLoader.shared.ensure(title: title, artist: artist, album: album) }
         await loadFacts(t, client: client)
         await gemini.value
+    }
+
+    /// The server's facts alone, for the spine: never a Gemini request.
+    func loadServerFacts(_ t: PlayableTrack, client: SubsonicClient?) async {
+        await loadFacts(t, client: client)
     }
 
     /// The song's facts: the server's full record where there is one, else
@@ -351,22 +369,29 @@ final class NowPlayingData {
     }
 
     /// Release: stored locally whatever happens (Android rule), then sent as
-    /// 0–5 stars.
+    /// 0–5 stars. The song stays owed to its account's server (`RatingOutbox`)
+    /// until a push lands, so one given offline goes out again later.
     func commitRating(_ t: PlayableTrack, client: SubsonicClient?) {
         let k = Self.key(t)
         guard let value = draftRating.removeValue(forKey: k) else { return }
         ratings.set(value, provider: t.provider, songId: t.id)
-        let stars = RatingScale.serverRating(local: value)
-        guard let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return }
+        guard t.provider == MediaRef.companion.PROVIDER_SUBSONIC, let scope = AccountScope.shared.subsonic else { return }
+        let entry = RatingOutbox.Entry(scope: scope, songId: t.id)
+        outbox.mark(entry)
+        guard let client else { return }
         let gen = accountGeneration
+        let ratings = ratings
         Task {
-            do {
+            var sent: Int32?
+            let outcome = await outbox.push(entry, next: {
+                let next = RatingOutbox.next(entry, ratings: ratings, activeScope: AccountScope.shared.subsonic)
+                if case .send(let stars) = next { sent = stars }
+                return next
+            }, send: { stars in
                 try await client.setRating(id: t.id, rating: stars)
-                guard gen == accountGeneration else { return }
-                serverRating[k] = Int(stars)
-            } catch {
-                // The local rating stands; the server catches up on the next rating.
-            }
+            })
+            guard outcome == .sent, gen == accountGeneration, let sent else { return }
+            serverRating[k] = Int(sent)
         }
     }
 }

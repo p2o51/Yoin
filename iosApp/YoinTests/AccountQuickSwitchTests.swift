@@ -43,9 +43,11 @@ final class AccountQuickSwitchTests: XCTestCase {
     }
 
     func test_should_listTheQuickSwitchTip_nearTheTop_when_readingTheCatalog() {
-        // The newest tips lead: the widgets' (2026-11-07), then this one.
-        XCTAssertEqual(Tips.all.prefix(2).map(\.id), ["HomeScreenWidgets", "AccountQuickSwitch"])
-        XCTAssertEqual(Tips.all[1].textZhHans, "长按头像并滑动以切换账号")
+        // The newest tips lead; this one stays among the first few.
+        let i = Tips.all.firstIndex { $0.id == "AccountQuickSwitch" }
+        XCTAssertNotNil(i)
+        XCTAssertLessThan(i ?? .max, 10)
+        XCTAssertEqual(i.map { Tips.all[$0].textZhHans }, "长按头像并滑动以切换账号")
     }
 
     func test_should_letATapThrough_when_noHoldRanRecently() {

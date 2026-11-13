@@ -60,6 +60,8 @@ final class AccountFan {
     private(set) var accounts: [Profile] = []
     private(set) var shapes: [String: Int] = [:]
     @ObservationIgnored private var onPick: (Profile) -> Void = { _ in }
+    /// Off on the tip page's demo phone, whose touch is acted out.
+    @ObservationIgnored private let haptics: Bool
     /// When the last hold ended: the release that ends a hold is no tap on the avatar.
     @ObservationIgnored private(set) var holdEndedAt = Date.distantPast
 
@@ -72,6 +74,8 @@ final class AccountFan {
         holding || endedAgo < releaseWindow
     }
 
+    init(haptics: Bool = true) { self.haptics = haptics }
+
     func begin(anchor: CGRect, accounts: [Profile], shapes: [String: Int], onPick: @escaping (Profile) -> Void) {
         guard !accounts.isEmpty else { return }
         self.anchor = anchor
@@ -79,18 +83,18 @@ final class AccountFan {
         self.shapes = shapes
         self.onPick = onPick
         hover = -1
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if haptics { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
         withAnimation(Yoin.spatial) { holding = true }
     }
 
-    /// The finger at [location] (in the window).
+    /// The finger at [location] (in the space the anchor was given in: the window's, in the app).
     func move(to location: CGPoint) {
         guard holding else { return }
         let p = CGPoint(x: location.x - anchor.minX, y: location.y - anchor.minY)
         let hit = AccountFanGeometry.hit(p, anchor: anchor.size, count: accounts.count)
         guard hit != hover else { return }
         withAnimation(Yoin.spatialFast) { hover = hit }
-        if hit >= 0 { UISelectionFeedbackGenerator().selectionChanged() }
+        if hit >= 0, haptics { UISelectionFeedbackGenerator().selectionChanged() }
     }
 
     /// Let go: on an item, its account; elsewhere, nothing.
@@ -99,7 +103,7 @@ final class AccountFan {
         let chosen = accounts.indices.contains(hover) ? accounts[hover] : nil
         close()
         if let chosen {
-            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            if haptics { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
             onPick(chosen)
         }
     }
@@ -139,31 +143,33 @@ extension AppModel {
 }
 
 extension View {
-    /// The hold on a header avatar. [accounts] empty: the tap alone.
-    func accountQuickSwitch(accounts: [Profile], shapes: [String: Int],
-                            onPick: @escaping (Profile) -> Void) -> some View {
-        modifier(AccountQuickSwitchModifier(accounts: accounts, shapes: shapes, onPick: onPick))
+    /// The hold on a header avatar. [accounts] empty: the tap alone. [fan] and [space]: the app's one column,
+    /// in the window; the tip page's demo phone has its own, in its screen's space.
+    func accountQuickSwitch(accounts: [Profile], shapes: [String: Int], fan: AccountFan = .shared,
+                            space: CoordinateSpace = .global, onPick: @escaping (Profile) -> Void) -> some View {
+        modifier(AccountQuickSwitchModifier(accounts: accounts, shapes: shapes, fan: fan, space: space, onPick: onPick))
     }
 }
 
 private struct AccountQuickSwitchModifier: ViewModifier {
     var accounts: [Profile]
     var shapes: [String: Int]
+    var fan: AccountFan
+    var space: CoordinateSpace
     var onPick: (Profile) -> Void
     @State private var frame: CGRect = .zero
     @GestureState private var pressing = false
 
     func body(content: Content) -> some View {
-        let fan = AccountFan.shared
         content
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: space) } action: { frame = $0 }
             // Beside the button's own tap (a high-priority gesture here swallowed every tap, 51 2026-11-07):
             // a short tap opens what it opened; once the hold is long enough it's the fan's, and the
             // button ignores the release that ends it (AccountFan.swallowsTap). Moving before then fails
             // the press (the scroll's).
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.45)
-                    .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+                    .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: space))
                     .updating($pressing) { value, state, _ in
                         if case .second(true, _) = value { state = true }
                     }
@@ -191,13 +197,26 @@ private struct AccountQuickSwitchModifier: ViewModifier {
 struct AccountFanLayer: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        AccountFanColumn(fan: .shared, scheme: CoverScheme(seed: model.accent, dark: colorScheme == .dark),
+                         space: .global) { model.profiles.needsSignIn($0) }
+            .ignoresSafeArea()
+    }
+}
+
+/// The accounts dropping out of the avatar: [fan]'s, its anchor read in [space] (the window in the app; the
+/// tip page's demo phone lays its own over its screen). [dimmed]: an account that needs signing in again.
+struct AccountFanColumn: View {
+    var fan: AccountFan
+    var scheme: CoverScheme
+    var space: CoordinateSpace
+    var dimmed: (Profile) -> Bool = { _ in false }
     @Environment(\.glassFlavor) private var glassFlavor
 
     var body: some View {
-        let fan = AccountFan.shared
-        let scheme = CoverScheme(seed: model.accent, dark: colorScheme == .dark)
         GeometryReader { geo in
-            let origin = geo.frame(in: .global).origin
+            let origin = geo.frame(in: space).origin
             let a = fan.anchor
             ZStack(alignment: .topLeading) {
                 ForEach(Array(fan.accounts.enumerated()), id: \.element.id) { i, p in
@@ -220,7 +239,7 @@ struct AccountFanLayer: View {
                             .offset(x: fan.holding ? (lifted ? -10 : -4) : 8)
                         AccountAvatar(profile: p, shape: fan.shapes[p.id] ?? 0, ring: scheme.surfaceContainerHigh,
                                       size: AccountFanGeometry.avatar)
-                            .opacity(model.profiles.needsSignIn(p) ? 0.5 : 1)
+                            .opacity(dimmed(p) ? 0.5 : 1)
                             .frame(width: AccountFanGeometry.item, height: AccountFanGeometry.item)
                             .yoinGlass(.circle, tint: scheme.primary, flavor: glassFlavor, interactive: false)
                             .scaleEffect((fan.holding ? 1 : 0.4) * (lifted ? 1.22 : 1))
@@ -238,7 +257,6 @@ struct AccountFanLayer: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

@@ -106,6 +106,7 @@ private struct LyricKeyPress: ButtonStyle {
             .onChange(of: configuration.isPressed) { _, down in
                 if down { pressed = index } else if pressed == index { pressed = nil }
             }
+            .pointerHighlight()
     }
 }
 
@@ -125,6 +126,16 @@ struct ExpandedLyricsList: View {
     var scheme: CoverScheme
     var onUserScroll: () -> Void
     var onTap: (Int) -> Void
+    /// Two-column focus (Android LyricsFullscreenPane halftoneFocus): every
+    /// line prints through fine dots; the current line is solid, the next
+    /// two stay readable.
+    var halftone: Bool = false
+    /// Two columns (Android LyricsFullscreenPane): the seat is read again from
+    /// the window once it holds still after a resize — focus folds the tools
+    /// away and the page grows — and the line glides to it.
+    var reseatOnResize: Bool = false
+    /// Each new current line (two-column focus's edge band swells with it).
+    var onActiveLine: ((Int) -> Void)? = nil
 
     /// Android LyricsRowInset: rows reach this far past the page edge.
     static let rowInset: CGFloat = 12
@@ -148,6 +159,8 @@ struct ExpandedLyricsList: View {
         var viewport: CGFloat = 0
         var contentHeight: CGFloat = 0
         var rows: [Int: CGRect] = [:]
+        /// The window's top on the screen (global), for the screen seat.
+        var windowTop: CGFloat = 0
         /// The seat waiting out its frame: cancelled by the reader's scroll and by any newer seat.
         var seating: Task<Void, Never>?
     }
@@ -186,10 +199,13 @@ struct ExpandedLyricsList: View {
                     .coordinateSpace(.named(Self.contentSpace))
                 }
                 .scrollPosition($position)
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { offset.windowTop = $0 }
                 .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, g in
+                    let resized = offset.viewport > 0 && abs(offset.viewport - g.containerSize.height) > 1
                     offset.y = g.contentOffset.y
                     offset.viewport = g.containerSize.height
                     offset.contentHeight = g.contentSize.height
+                    if resized && reseatOnResize { reseatWhenSettled() }
                 }
                 // A quick flick can go from tracking straight to decelerating, never reporting
                 // .interacting: the list left the line while still "following", so Recenter
@@ -203,7 +219,10 @@ struct ExpandedLyricsList: View {
                 }
                 .mask(NowPlayingAboutView.fade(top: Self.fadeTop, bottom: Self.fadeBottom))
                 .onAppear { seat(animated: false) }
-                .onChange(of: active) { seat(animated: true) }
+                .onChange(of: active) { _, line in
+                    seat(animated: true)
+                    onActiveLine?(line)
+                }
                 // Recenter (and a tapped line) also catches a list still coasting from a fling.
                 .onChange(of: recenterTick) { seat(animated: true, halt: true) }
                 .onChange(of: follow) { seat(animated: true, halt: true) }
@@ -239,14 +258,58 @@ struct ExpandedLyricsList: View {
         }
     }
 
+    /// Android LyricsSeatSettleMs: a window that moves every frame (a stage
+    /// reshape) is read once it has held still this long.
+    static let seatSettle: Duration = .milliseconds(250)
+
+    /// Android's re-seat after the window's geometry changes: wait for it to
+    /// hold still, then glide the line to the seat the new window gives
+    /// (Android seatSettleSpec: the Standard default spatial spring).
+    private func reseatWhenSettled() {
+        guard follow, active >= 0, active < lines.count else { return }
+        offset.seating?.cancel()
+        offset.seating = Task { @MainActor in
+            try? await Task.sleep(for: Self.seatSettle)
+            guard !Task.isCancelled, follow, let y = seatY(active) else { return }
+            withAnimation(Yoin.standardDefaultSpatial) { position.scrollTo(y: y) }
+        }
+    }
+
+    /// Where on the SCREEN the sung line sits, wherever the lyric page is laid out (51 2026-11-08:
+    /// 「不管在什么地方播放，歌词高亮都应该在屏幕中间靠上的位置」; Android LyricsScreenSeat, #185).
+    static let screenSeat: CGFloat = 0.4
+    /// The seat never climbs above this share of the clean band, so sung lines still show above it.
+    static let seatMinFraction: CGFloat = 0.2
+
+    /// The share of the clean band (between the fades) that puts the row's centre at [screenSeat]
+    /// of a [screen]-tall window, for a lyric window [window] tall whose top is [windowTop] below the
+    /// screen's top. Held between [seatMinFraction] and the band's middle; stepped to 2 % so a point
+    /// of drift never re-seats the list (Android lyricsScreenSeatFraction).
+    static func screenSeatFraction(windowTop: CGFloat, window: CGFloat, screen: CGFloat) -> CGFloat {
+        let band = window - fadeTop - fadeBottom
+        guard band > 0, screen > 0 else { return 0.5 }
+        let raw = (screen * screenSeat - windowTop - fadeTop) / band
+        let held = min(max(raw, seatMinFraction), 0.5)
+        return (held * 50).rounded() / 50
+    }
+
+    /// The height of the window the app is drawn in (a split iPad window, not the whole screen).
+    static var screenHeight: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap(\.windows).first { $0.isKeyWindow } ?? scenes.first?.windows.first
+        return window?.bounds.height ?? 0
+    }
+
     /// The content offset that seats row [i]; nil before it has been laid out.
     private func seatY(_ i: Int) -> CGFloat? {
         guard let row = offset.rows[i], offset.viewport > 0 else { return nil }
         let bandTop = Self.fadeTop
         let bandBottom = max(bandTop, offset.viewport - Self.fadeBottom)
+        let share = Self.screenSeatFraction(windowTop: offset.windowTop, window: offset.viewport,
+                                            screen: Self.screenHeight)
         let rowTop = row.height >= bandBottom - bandTop
             ? bandTop
-            : min(max(bandTop + (bandBottom - bandTop) * 0.5 - row.height / 2, bandTop), bandBottom - row.height)
+            : min(max(bandTop + (bandBottom - bandTop) * share - row.height / 2, bandTop), bandBottom - row.height)
         let maxY = max(0, offset.contentHeight - offset.viewport)
         return min(max(row.minY - rowTop, 0), maxY)
     }
@@ -268,6 +331,7 @@ struct ExpandedLyricsList: View {
         let runBottom = !(picked && selected.contains(i + 1))
         let translation = i < translations.count ? translations[i] : nil
         let text = lines[i]
+        let dots = halftone && !selecting ? LyricHalftone.radius(line: i, active: active) : LyricHalftone.solid
         VStack(alignment: .leading, spacing: 0) {
             Text(text.isEmpty ? " " : text)
                 .font(emphasized ? YoinFont.rounded(24, semibold: true) : .gsf(24, .medium))
@@ -284,6 +348,9 @@ struct ExpandedLyricsList: View {
             }
         }
         .scaleEffect(emphasized ? 1 : 0.96, anchor: .leading)
+        // Focus's halftone (Android lyricHalftone): solid → this line's dots.
+        .modifier(LyricHalftone(radius: dots, space: Self.contentSpace))
+        .animation(Yoin.effects, value: dots)
         .opacity(alpha)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Self.rowInset)
@@ -294,6 +361,8 @@ struct ExpandedLyricsList: View {
                                    style: .continuous)
                 .fill(scheme.primaryContainer.opacity(picked ? 1 : 0))
         }
+        // A pointer over a line (it seeks, or picks in Select): the hovered state layer, off on a picked line.
+        .hoverLayer(in: RoundedRectangle(cornerRadius: 16, style: .continuous), ink: scheme.onSurface, enabled: !picked)
         .contentShape(.rect)
         .onTapGesture { onTap(i) }
         .animation(Yoin.effects, value: picked)
@@ -700,5 +769,52 @@ struct LyricsShareSheet: View {
                                                         cardScale: cardScale))
         r.scale = 3
         image = r.uiImage
+    }
+}
+
+/// Android LyricHalftone.kt: in focus a lyric line is printed through a grid
+/// of dots `cell` apart, `radius` across; at `solid` and above the 4 pt cell is
+/// covered and no mask runs. Uses the DotDissolve shader (the same dot mask).
+nonisolated struct LyricHalftone: ViewModifier, Animatable {
+    var radius: CGFloat
+    /// The list's content coordinate space: the grid's shared origin.
+    var space: String? = nil
+
+    /// LyricDotsCell / LyricDotsSolid.
+    static let cell: CGFloat = 4
+    static let solid: CGFloat = 3
+    /// LyricDotsRestLarge: tablets (medium width and height) — the two-column player.
+    static let restLarge: CGFloat = 1.8
+    /// LyricDotsReadable, for LyricDotsReadableLines after the current one.
+    static let readable: CGFloat = 2.2
+    static let readableLines = 2
+
+    /// A line's dots in two-column focus: the current line solid, the next
+    /// two readable, the rest (sung lines included) at the tablet rest.
+    static func radius(line: Int, active: Int) -> CGFloat {
+        if line == active { return solid }
+        if active >= 0, line > active, line - active <= readableLines { return readable }
+        return restLarge
+    }
+
+    var animatableData: CGFloat {
+        get { radius }
+        set { radius = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let r = radius, on = radius < Self.solid - 0.01, space = self.space
+        content
+            .padding(2)
+            // One grid for the whole list: each line's dots are phased from
+            // its place in the list's content space (Android tiles the dots
+            // with the content, so they ride along as it scrolls).
+            .visualEffect { view, proxy in
+                let o = space.map { proxy.frame(in: .named($0)).origin } ?? .zero
+                return view.colorEffect(ShaderLibrary.yoinDotGrid(.float(Self.cell), .float(r),
+                                                                  .float2(Float(o.x), Float(o.y))),
+                                        isEnabled: on)
+            }
+            .padding(-2)
     }
 }

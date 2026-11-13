@@ -16,12 +16,30 @@ its songs are refused).
 
     python3 iosApp/scripts/fake_spotify.py            # port 4997
     python3 iosApp/scripts/fake_spotify.py --port 5001
+
+Spotify Connect (the player) is in memory too, and silent: the account's devices, the active one
+and what it plays, with a clock that runs on through the list a start handed it. There are no
+devices until some are given, so a start answers 404 as Spotify does with nothing open:
+
+    python3 iosApp/scripts/fake_spotify.py --device "QA Mac:Computer" --device "Pixel 11 Pro:Smartphone"
+    curl -X POST 127.0.0.1:4997/_qa/devices -d '{"devices":[{"name":"QA Mac","type":"Computer"}]}'
+    # a Sonos: no id, refuses transfers, missing from the list ("hidden") while me/player names it
+    curl -X POST 127.0.0.1:4997/_qa/devices -d '{"devices":[{"name":"Living Room","type":"Speaker","noId":true,"restricted":true,"hidden":true}]}'
+    curl -X POST 127.0.0.1:4997/_qa/play -d '{"device":"Pixel 11 Pro","track":"tr0003","playing":true}'
+    curl -X POST 127.0.0.1:4997/_qa/stop        # nothing active (204 from me/player)
+    curl -X POST 127.0.0.1:4997/_qa/reset       # no devices, nothing active, the command log empty
+    curl 127.0.0.1:4997/_qa/player              # what it is doing, and the commands it was sent
+
+`/_qa/play` is the listener playing something in the Spotify app on that device (not a Web API
+start); `"playing": false` leaves it paused there, still the active device.
 """
 
 import argparse
 import json
 import re
 import sys
+import threading
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
@@ -106,6 +124,83 @@ add_playlist("pl_followed", "Editorial Picks", OTHER, ALL_TRACK_IDS[150:175],
              description="Hand-picked by <a href=\"spotify:user:editor\">the editors</a>.")
 
 OWNER_NAMES = {ME: "Yoin QA", OTHER: "Someone Else"}
+
+
+class Player:
+    """Spotify Connect in memory: devices, the active one, the list it plays and where it is in it."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.devices = []      # [{"id", "name", "type"}]
+        self.active = None     # device id
+        self.playing = False
+        self.tracks = []       # track ids, as a start handed them
+        self.index = 0
+        self.base_ms = 0       # the position when the clock last started or stopped
+        self.since = time.monotonic()
+        self.shuffle = False
+        self.repeat = "off"
+        self.commands = []     # "PUT me/player/play device_id=…", newest last
+
+    def device(self, key):
+        return next((d for d in self.devices if key in (d["id"], d["name"])), None)
+
+    def set_devices(self, specs):
+        self.devices = []
+        for spec in specs:
+            name, kind = spec.get("name", "Device"), spec.get("type", "Computer")
+            did = spec.get("id") or re.sub(r"[^a-z0-9]", "", name.lower())[:12] or uuid.uuid4().hex[:8]
+            self.devices.append({"id": did, "name": name, "type": kind, "no_id": bool(spec.get("noId")),
+                                 "restricted": bool(spec.get("restricted")), "hidden": bool(spec.get("hidden"))})
+        if self.active and not self.device(self.active):
+            self.active, self.playing = None, False
+
+    @staticmethod
+    def wire(d, active):
+        """A device as Spotify answers it: a speaker on the local network (Sonos) may come with no id
+        ("noId") and refuse Web API transfers ("restricted")."""
+        return {"id": None if d["no_id"] else d["id"], "name": d["name"], "type": d["type"], "is_active": active,
+                "is_private_session": False, "is_restricted": d["restricted"],
+                "volume_percent": 60, "supports_volume": True}
+
+    def settle(self):
+        """Moves the clock on: through the handed list, stopping at 0 when it runs out."""
+        if not self.playing or not self.tracks:
+            return
+        now = time.monotonic()
+        pos = self.base_ms + int((now - self.since) * 1000)
+        while True:
+            length = TRACKS[self.tracks[self.index]]["duration_ms"]
+            if pos < length:
+                break
+            if self.repeat == "track":
+                pos -= length
+            elif self.index + 1 < len(self.tracks):
+                self.index, pos = self.index + 1, pos - length
+            elif self.repeat == "context":
+                self.index, pos = 0, pos - length
+            else:
+                self.playing, pos = False, 0
+                break
+        self.base_ms, self.since = pos, now
+
+    def hold(self, playing):
+        self.settle()
+        self.playing, self.since = playing, time.monotonic()
+
+    def state(self):
+        self.settle()
+        d = self.device(self.active) if self.active else None
+        if not d:
+            return None
+        item = TRACKS[self.tracks[self.index]] if self.tracks else None
+        return {"device": Player.wire(d, True),
+                "is_playing": self.playing and item is not None, "progress_ms": self.base_ms if item else 0,
+                "item": item, "currently_playing_type": "track", "shuffle_state": self.shuffle,
+                "repeat_state": self.repeat, "timestamp": int(time.time() * 1000), "context": None}
+
+
+PLAYER = Player()
 
 
 def owner_obj(uid):
@@ -206,6 +301,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path, q = self.route()
         b = self.base()
+        if path == "_qa/player":  # QA's own look, no token
+            with PLAYER.lock:
+                state = PLAYER.state()
+                return self.reply(200, {"devices": PLAYER.devices, "active": PLAYER.active, "state": state,
+                                        "handed": len(PLAYER.tracks), "commands": PLAYER.commands[-40:]})
         auth = self.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return self.error(401, "No token provided")
@@ -267,10 +367,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {"items": items, "next": None, "cursors": None, "limit": 50})
 
         if path == "me/player/devices":
-            return self.reply(200, {"devices": []})
+            with PLAYER.lock:
+                # A "hidden" one is missing from the list while me/player still names it (a Sonos it plays on).
+                return self.reply(200, {"devices": [
+                    Player.wire(d, d["id"] == PLAYER.active) for d in PLAYER.devices if not d["hidden"]]})
 
         if path == "me/player":
-            return self.reply(204)
+            with PLAYER.lock:
+                state = PLAYER.state()
+            return self.reply(200, state) if state else self.reply(204)
+
+        if path == "me/player/queue":
+            with PLAYER.lock:
+                state = PLAYER.state()
+                later = [TRACKS[t] for t in PLAYER.tracks[PLAYER.index + 1:]] if state else []
+            return self.reply(200, {"currently_playing": state and state["item"], "queue": later})
+
 
         m = re.fullmatch(r"playlists/([^/]+)", path)
         if m:
@@ -378,9 +490,89 @@ class Handler(BaseHTTPRequestHandler):
                 p["items"][pos:pos] = ids
             p["snapshot"] = new_snapshot()
             return self.reply(201, {"snapshot_id": p["snapshot"]})
+        if path == "_qa/devices":
+            with PLAYER.lock:
+                PLAYER.set_devices(body.get("devices") or [])
+                return self.reply(200, {"devices": PLAYER.devices})
+        if path == "_qa/play":
+            # The listener plays (or leaves paused) a song in the Spotify app on that device.
+            with PLAYER.lock:
+                d = PLAYER.device(body.get("device", ""))
+                tid = body.get("track") or ALL_TRACK_IDS[0]
+                if not d or tid not in TRACKS:
+                    return self.error(404, "No such device or track")
+                PLAYER.active, PLAYER.tracks, PLAYER.index = d["id"], [tid], 0
+                PLAYER.base_ms, PLAYER.since = int(body.get("position_ms", 0)), time.monotonic()
+                PLAYER.playing = bool(body.get("playing", True))
+                return self.reply(200, PLAYER.state())
+        if path == "_qa/stop":
+            with PLAYER.lock:
+                PLAYER.active, PLAYER.playing, PLAYER.tracks, PLAYER.index = None, False, [], 0
+            return self.reply(204)
+        if path == "_qa/reset":  # no devices, nothing active, the command log empty
+            with PLAYER.lock:
+                PLAYER.set_devices([])
+                PLAYER.active, PLAYER.playing, PLAYER.tracks, PLAYER.index = None, False, [], 0
+                PLAYER.shuffle, PLAYER.repeat, PLAYER.commands = False, "off", []
+            return self.reply(204)
+        if path in ("me/player/next", "me/player/previous"):
+            return self.player_command("POST", path, q, body)
         if path == "me/player/play":
             return self.error(404, "Player command failed: No active device found")
         self.error(404, f"Fake Spotify has no POST {path}")
+
+    def player_command(self, method, path, q, body):
+        """Spotify Connect's commands: on ?device_id, or the active device (404 when there is none)."""
+        with PLAYER.lock:
+            p = PLAYER
+            p.commands.append(f"{method} {path} " + "&".join(f"{k}={v}" for k, v in sorted(q.items())))
+            if path == "me/player":  # transfer
+                ids = body.get("device_ids") or []
+                d = p.device(ids[0]) if ids else None
+                if not d or d["no_id"]:
+                    return self.error(404, "Device not found")
+                if d["restricted"]:
+                    return self.error(403, "Player command failed: Restriction violated")
+                p.settle()
+                p.active = d["id"]
+                if body.get("play") and p.tracks:
+                    p.hold(True)
+                return self.reply(204)
+            did = q.get("device_id") or p.active
+            if not did:
+                return self.error(404, "Player command failed: No active device found")
+            if not p.device(did):
+                return self.error(404, "Device not found")
+            if path == "me/player/play":
+                uris = body.get("uris")
+                if uris is not None:
+                    ids = [u.split(":")[-1] for u in uris]
+                    if not ids or any(i not in TRACKS for i in ids):
+                        return self.error(400, "Invalid track uri")
+                    p.tracks, p.index = ids, 0
+                    p.base_ms = int(body.get("position_ms", 0))
+                elif not p.tracks:
+                    return self.error(404, "Player command failed: No active device found")
+                else:
+                    p.settle()
+                p.active, p.playing, p.since = did, True, time.monotonic()
+                return self.reply(204)
+            if did != p.active:
+                return self.error(404, "Device not found")
+            if path == "me/player/pause":
+                p.hold(False)
+            elif path == "me/player/seek":
+                p.settle()
+                p.base_ms, p.since = max(0, int(q.get("position_ms", 0))), time.monotonic()
+            elif path == "me/player/shuffle":
+                p.shuffle = q.get("state") == "true"
+            elif path == "me/player/repeat":
+                p.repeat = q.get("state", "off")
+            elif path in ("me/player/next", "me/player/previous") and p.tracks:
+                step = 1 if path.endswith("next") else -1
+                p.index = max(0, min(len(p.tracks) - 1, p.index + step))
+                p.base_ms, p.since = 0, time.monotonic()
+            return self.reply(204)
 
     def do_PUT(self):
         path, q = self.route()
@@ -413,10 +605,9 @@ class Handler(BaseHTTPRequestHandler):
                 if k in body:
                     p[k] = body[k]
             return self.reply(200)
-        if path == "me/player/play":
-            return self.error(404, "Player command failed: No active device found")
-        if path == "me/player":
-            return self.error(404, "Device not found")
+        if path in ("me/player", "me/player/play", "me/player/pause", "me/player/seek", "me/player/shuffle",
+                    "me/player/repeat"):
+            return self.player_command("PUT", path, q, body)
         self.error(404, f"Fake Spotify has no PUT {path}")
 
     def do_DELETE(self):
@@ -472,7 +663,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", type=int, default=4997)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--device", action="append", default=[], metavar="NAME:TYPE",
+                    help="a Spotify Connect device on the account (Computer, Smartphone, Tablet, Speaker); repeatable")
     args = ap.parse_args()
+    PLAYER.set_devices([{"name": n, "type": t or "Computer"} for n, _, t in (d.partition(":") for d in args.device)])
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"fake Spotify on http://{args.host}:{args.port} (launch with -spotifyFake http://{args.host}:{args.port})",
           flush=True)

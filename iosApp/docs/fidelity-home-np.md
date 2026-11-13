@@ -168,10 +168,8 @@ Same as Album page 1 except:
 - **Color scheme:** closed. Palette and MCU are the shared Kotlin and verified (see Shared).
 - **Shapes:** MaterialShapes.Bun and Ghostish are hand-drawn approximations. Bun keeps the published waist and lobe points but not RoundedPolygon's corner smoothing.
 - **Behavior not ported:**
-  - Lyrics don't scroll or sync (static mock).
-  - The repeat button has no long-press split.
-  - Tapping the cover doesn't enter focus mode.
-  - The title doesn't marquee.
-  - Pressed pills don't widen.
-  - The Home cold-start mark animation, account switcher card and memory bubble are not built.
+  - The Now Playing title doesn't marquee.
+  - Pressed pills don't widen (they scale on press, `PressScale`).
+  - On an account switch from the account card (Home/AccountSwitcherCard.swift), the picked row's avatar doesn't fly into the header (the card closes into the avatar).
+- **Since built** (were listed here before): synced, scrolling lyrics (`NowPlayingLyrics.swift`); the play-mode button's long-press split into shuffle | repeat; tapping the cover enters focus; the Home cold-start mark (`HomeView.swift`), the account quick switch from the header avatar (`AccountQuickSwitch.swift`) and the Memories bubble (`HomeMemoryBubble.swift`).
 - **Line heights:** SwiftUI can't set line height directly. Fixed-height frames mimic it where the layout depends on it (hero title 44, artist 24, section title 28); multi-line text uses SwiftUI's natural leading.

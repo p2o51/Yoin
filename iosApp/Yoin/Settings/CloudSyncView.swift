@@ -17,8 +17,11 @@ struct CloudSyncEntryRow: View {
         #endif
     }()
 
+    /// The two-pane Settings' list: the row picks Cloud sync beside it.
+    @Environment(\.settingsList) private var list
+
     var body: some View {
-        Button { open = true } label: {
+        Button { if let list { list.pick(.cloudSync) } else { open = true } } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Cloud sync")
@@ -34,7 +37,7 @@ struct CloudSyncEntryRow: View {
             }
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .background(row, in: shape)
+            .settingsSegment(shape, row: row, app: app, picked: list?.picked == .cloudSync)
             .contentShape(shape)
         }
         .buttonStyle(PressScale())
@@ -49,6 +52,27 @@ enum CloudSyncDevices {
     static func canRemove(_ device: SyncDeviceRow) -> Bool { !device.isThisDevice }
 
     static func removable(_ devices: [SyncDeviceRow]) -> [SyncDeviceRow] { devices.filter(canRemove) }
+}
+
+/// Accounts whose "Start fresh" was put off because the old account still has changes that aren't in
+/// the Drive (Android CloudSyncManager.startFreshAccount: no purge before they are uploaded). The
+/// account's row reads "Changes waiting to upload" under "Paused" for as long as that is so.
+enum CloudSyncFreshHold {
+    /// After a Start fresh on [profile] came back with [notUploaded] changes of the old account left.
+    static func after(_ held: Set<String>, profile: String, notUploaded: Int, state: CloudSyncState) -> Set<String> {
+        var next = held
+        if notUploaded > 0 { next.insert(profile) } else { next.remove(profile) }
+        return pruned(next, state: state)
+    }
+
+    /// With every new state: nothing is held once every change is up (the Start fresh's own last cycle
+    /// may have got them there), and an account that is no longer paused drops out.
+    static func pruned(_ held: Set<String>, state: CloudSyncState) -> Set<String> {
+        guard !held.isEmpty else { return held }
+        guard state.pendingChanges else { return [] }
+        let paused = state.accounts.filter { $0.status is SyncAccountStatusAccountChanged }.map(\.localProfileId)
+        return held.intersection(paused)
+    }
 }
 
 /// Android's CloudSyncTexts: labels only.
@@ -141,6 +165,7 @@ struct CloudSyncView: View {
             .animation(Yoin.spatial, value: enabled)
             .animation(Yoin.effects, value: CloudSyncTexts.summary(sync))
             .animation(Yoin.effects, value: sync.message)
+            .animation(Yoin.spatial, value: sync.freshHeld)
         }
         .safeAreaBar(edge: .top) { topBar }
         .background(app.surfaceContainer.ignoresSafeArea())
@@ -298,6 +323,8 @@ struct CloudSyncView: View {
 
     private func accountRow(_ a: SyncAccountRow) -> some View {
         let label: String
+        // A Start fresh that was put off: what this account waits for.
+        var waiting: String?
         var buttons: [(String, () -> Void)] = []
         switch a.status {
         case is SyncAccountStatusSyncing: label = String(localized: "Syncing")
@@ -312,12 +339,13 @@ struct CloudSyncView: View {
             }
         case is SyncAccountStatusAccountChanged:
             label = String(localized: "Paused")
+            if sync.freshHeld.contains(a.localProfileId) { waiting = String(localized: "Changes waiting to upload") }
             buttons.append((String(localized: "Keep syncing as before"), { Task { await sync.keepAsBefore(a.localProfileId) } }))
             buttons.append((String(localized: "Start fresh"), { confirmFresh = a }))
         default: label = ""
         }
         return VStack(alignment: .leading, spacing: 8) {
-            info(a.displayName, label)
+            info(a.displayName, label, note: waiting)
             if !buttons.isEmpty {
                 HStack(spacing: 16) {
                     ForEach(buttons.indices, id: \.self) { i in
@@ -370,10 +398,11 @@ struct CloudSyncView: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
+            .settingsPaneBack()
             Spacer()
         }
         .padding(.leading, 8)
@@ -405,11 +434,16 @@ struct CloudSyncView: View {
                                       bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular)
     }
 
-    private func info(_ title: String, _ value: String?) -> some View {
+    /// [note]: a second line that comes and goes while the row is on screen.
+    private func info(_ title: String, _ value: String?, note: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
             if let value, !value.isEmpty {
                 Text(value).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+            }
+            if let note {
+                Text(note).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                    .transition(.opacity.animation(Yoin.effects))
             }
         }
         .padding(.horizontal, 16)
