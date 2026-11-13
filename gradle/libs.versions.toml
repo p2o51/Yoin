@@ -65,7 +65,7 @@ espresso = "3.7.0"
 robolectric = "4.17"
 
 # Code quality
-ktlint = "12.1.2"
+ktlint = "14.2.0"
 
 # Icons — Yoin Symbols. Built from source via composite build (settings.gradle.kts)
 # until it is published to Maven Central.
