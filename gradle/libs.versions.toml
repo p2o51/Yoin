@@ -36,7 +36,7 @@ googleId = "1.1.1"
 okhttp = "5.5.1"
 retrofit = "3.0.0"
 kotlinxSerialization = "1.12.0"
-gson = "2.13.1"
+gson = "2.15.0"
 
 # On-device Gemini Nano (ML Kit GenAI Prompt API, AICore): Home's lyric highlights.
 genaiPrompt = "1.0.0-beta4"
