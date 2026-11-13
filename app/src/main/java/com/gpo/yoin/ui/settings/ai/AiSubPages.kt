@@ -28,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -105,16 +106,21 @@ private fun TierFacts(provider: AiProvider, tier: AiTier, chosen: Boolean, modif
         contentColor = if (chosen) scheme.onPrimaryContainer else scheme.onSurface,
         modifier = modifier,
     ) {
+        // The row labels read in the card's own on-colour: on the chosen card's primaryContainer,
+        // onSurfaceVariant (meant for surfaces) all but disappears.
+        val labelColor = if (chosen) scheme.onPrimaryContainer else scheme.onSurfaceVariant
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(tierName(tier), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Fact(stringResource(R.string.ai_row_model), model)
-            Fact(stringResource(R.string.ai_row_search), search)
+            Fact(labelColor, stringResource(R.string.ai_row_model), model)
+            Fact(labelColor, stringResource(R.string.ai_row_search), search)
             Fact(
+                labelColor,
                 stringResource(R.string.ai_row_speed),
                 point?.seconds?.let { stringResource(R.string.ai_seconds, trimNumber(it)) } ?: "—",
             )
-            Fact(stringResource(R.string.ai_row_accuracy), point?.accuracy?.let { "${trimNumber(it)}%" } ?: "—")
+            Fact(labelColor, stringResource(R.string.ai_row_accuracy), point?.accuracy?.let { "${trimNumber(it)}%" } ?: "—")
             Fact(
+                labelColor,
                 stringResource(R.string.ai_row_cost),
                 point?.costPer1000?.let {
                     if (point.costEstimated) {
@@ -129,9 +135,9 @@ private fun TierFacts(provider: AiProvider, tier: AiTier, chosen: Boolean, modif
 }
 
 @Composable
-private fun Fact(label: String, value: String) {
+private fun Fact(labelColor: Color, label: String, value: String) {
     Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = labelColor)
         Text(value, style = MaterialTheme.typography.bodyLarge)
     }
 }
