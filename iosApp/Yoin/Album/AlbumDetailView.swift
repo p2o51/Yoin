@@ -471,7 +471,7 @@ struct AlbumDetailView: View {
                 .frame(width: 40, height: 40)
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .glassEffect(glass, in: .circle)
         .accessibilityLabel("Back")
     }
@@ -517,7 +517,7 @@ struct AlbumDetailView: View {
                             Button { if demo == nil { model.openArtist(album.artist, id: album.artistId) } } label: {
                                 Text(album.artist).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.plain).pointerHighlight()
                             Text("Album").yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
                             Text(String(album.year)).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                         }
@@ -562,7 +562,7 @@ struct AlbumDetailView: View {
                             .frame(width: 40, height: 40)
                             .contentShape(.circle)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .glassEffect(glass, in: .circle)
                     .frame(width: 48, height: 48)
                     .accessibilityLabel("More actions")
@@ -584,7 +584,7 @@ struct AlbumDetailView: View {
                             .frame(width: 24, height: 20)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .accessibilityLabel(i == 0 ? String(localized: "Overview") : String(localized: "Scrapbook"))
                 }
             }
@@ -665,7 +665,7 @@ struct AlbumDetailView: View {
                 // World: the cover is a physical object (contact shadow).
                 .labCoverShadow()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .allowsHitTesting(e > 0.5 && f < 0.5)
         .accessibilityLabel("Show cover")
         .rotationEffect(.degrees(scrapCoverTilt * Double(toPage)))
@@ -843,7 +843,7 @@ struct AlbumDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .disabled(!canRate)
             .accessibilityLabel("Edit comment")
         } else {

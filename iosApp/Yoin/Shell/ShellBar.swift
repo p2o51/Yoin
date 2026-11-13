@@ -182,7 +182,7 @@ struct ShellBar: View {
             ShellNavFace(section: s, selected: selected, labelled: labelled, scheme: scheme,
                          sidePadding: pad == .nav ? 20 : 0, fills: model.isIdle && pad == nil, height: height)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .simultaneousGesture(longPress(.library, openLibrarySearch), including: s == .library && pad == nil ? .all : .subviews)
         .accessibilityActions {
             if s == .library { Button("Search library", action: openLibrarySearch) }
@@ -235,7 +235,7 @@ struct ShellBar: View {
                 }
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         return Group {
             if selected && tintedStyle {
                 button.glassEffect(.regular.tint(scheme.tertiary.opacity(lab.style("barSelected").tintOpacity)).interactive(),
@@ -258,7 +258,7 @@ struct ShellBar: View {
                 .frame(width: height, height: height)
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .labGlass("barUnselected", scheme: scheme, brand: brand, auto: scheme.tertiary, in: Circle())
         // Touch-down: Search builds while the finger is down.
         .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in model.prewarmSearch() })
@@ -344,7 +344,7 @@ struct ShellBar: View {
                 .frame(height: height)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.tint(tint).interactive(),
                          in: UnevenRoundedRectangle(topLeadingRadius: 30, bottomLeadingRadius: 30,
                                                     bottomTrailingRadius: inner, topTrailingRadius: inner))
@@ -381,7 +381,7 @@ struct ShellBar: View {
                     .frame(height: height)
                     .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.tint(tint).interactive(),
                          in: UnevenRoundedRectangle(topLeadingRadius: inner, bottomLeadingRadius: inner,
                                                     bottomTrailingRadius: 30, topTrailingRadius: 30))

@@ -329,7 +329,7 @@ struct LandingSpotoolfyScene: View {
                         .frame(minHeight: 40)
                         .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
             }
             .padding(.leading, 22)
             .padding(.top, 8)
@@ -370,7 +370,7 @@ struct SpotoolfyRecapView: View {
                             .frame(minHeight: 44)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("In Spotoolfy you wrote")

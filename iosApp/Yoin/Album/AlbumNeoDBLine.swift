@@ -149,7 +149,7 @@ struct AlbumNeoDBLine: View {
                 Button("Retry", action: onRetry)
                     .yoinRole(Tokens.type.labelLarge)
                     .foregroundStyle(scheme.primary)
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .padding(.horizontal, 12)
                     .frame(minHeight: 40)
                     .contentShape(.rect)

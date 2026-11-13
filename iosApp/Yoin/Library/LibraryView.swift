@@ -314,7 +314,7 @@ struct LibraryView: View {
             Button { model.openSearch(from: .library) } label: {
                 LibrarySearchPillLabel()
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .labSearchGlass(scheme: scheme, in: .capsule)
             // Search's field takes this exact rect. Opened from here the two
             // coincide and the pill simply stays under it; grown from the
@@ -334,7 +334,7 @@ struct LibraryView: View {
                                     needsReconnect: model.activeNeedsReconnect, error: scheme.error)
                     .opacity(AccountSwitcher.shared.shown ? 0 : 1)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { accountFrame = $0 }
             #if DEBUG
             // `-accountCardOpen library`: the card, a beat after Library shows (QA screenshots).
@@ -432,7 +432,7 @@ struct LibraryView: View {
             .frame(minHeight: 48)
             .contentShape(.rect(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .offset(x: -Tokens.library.SORT_ROW_PRESS_BLEED.cg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityLabel("Sort")
@@ -554,7 +554,7 @@ struct LibraryView: View {
                     .frame(width: 48, height: 48)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .accessibilityLabel("Reshuffle")
         }
         .padding(.leading, 16)
@@ -830,7 +830,7 @@ struct LibraryListRow<Art: View>: View {
             .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 }
 
@@ -891,7 +891,7 @@ struct PlaylistRow: View {
             .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     /// MetaLine: the owner plain; the count a Stat (number Medium tabular,

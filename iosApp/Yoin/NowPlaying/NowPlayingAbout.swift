@@ -472,6 +472,7 @@ struct AskGeminiBar: View {
         .npPillGlass("npFloating", tint: scheme.primaryContainer, strength: loading ? 0.55 : 1,
                      in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+        .pointerHighlight()
         .onTapGesture {
             switch state {
             case .error: onDismissError()

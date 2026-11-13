@@ -436,7 +436,7 @@ struct HomeView: View {
                         // Up there as the card while it is open: steps aside in the same frame.
                         .opacity(AccountSwitcher.shared.shown ? 0 : 1)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { accountFrame = $0 }
                 .accessibilityLabel("Account")
                 .accessibilityValue(model.headerAccountValue)
@@ -737,6 +737,7 @@ struct HomeView: View {
                                         TrackTile(album: tiles[i].album, track: tiles[i].track)
                                             .frame(width: (gridWidth - tileGap * CGFloat(trackCols - 1)) / CGFloat(trackCols),
                                                    alignment: .leading)
+                                            .pointerHighlight()
                                             .onTapGesture { homeTap(edit) { model.play(tiles, startAt: i) } }
                                     }
                                 }

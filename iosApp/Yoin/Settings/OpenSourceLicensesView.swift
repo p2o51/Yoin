@@ -112,7 +112,7 @@ struct OpenSourceLicensesView: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     private func licenseSheet(_ c: OssComponent) -> some View {
@@ -145,7 +145,7 @@ struct OpenSourceLicensesView: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")

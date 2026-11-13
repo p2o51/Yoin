@@ -416,7 +416,7 @@ private struct AccountCardContent: View {
                 guard switcher.takesInput, profiles.switchingTo == nil else { return }
                 switcher.close()
                 editHome()
-            } label: { itemLabel("edit", String(localized: "Edit Home")) }.buttonStyle(.plain))))
+            } label: { itemLabel("edit", String(localized: "Edit Home")) }.buttonStyle(.plain).pointerHighlight())))
         }
         return out
     }
@@ -510,7 +510,7 @@ private struct AccountCardContent: View {
             .opacity(AccountCardLogic.rowAlpha(p.id, picked: switcher.picked))
             .animation(Yoin.effects, value: switcher.picked)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityElement(children: .combine)
         .accessibilityHint(String(localized: "Switch to this account"))
     }
@@ -518,7 +518,7 @@ private struct AccountCardContent: View {
     /// One of the card's own entries: closes the card, then [action].
     private func item(_ icon: String, _ title: String, action: @escaping () -> Void) -> some View {
         Button { if switcher.takesInput { switcher.close(then: action) } } label: { itemLabel(icon, title) }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
     }
 
     private func itemLabel(_ icon: String, _ title: String) -> some View {

@@ -119,6 +119,7 @@ struct MemoryGridView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .contentShape(.rect)
+                        .pointerHighlight()
                         .onTapGesture { if !cell.isEmpty { onCell?(offset + i) } }
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(Text(cell.start.formatted(.dateTime.year().month(.wide))))

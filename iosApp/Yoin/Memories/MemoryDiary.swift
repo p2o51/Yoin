@@ -519,6 +519,7 @@ private struct DiaryRowStyle: ButtonStyle {
         configuration.label
             .background(scheme.onSurface.opacity(configuration.isPressed ? 0.06 : 0), in: .rect(cornerRadius: 12, style: .continuous))
             .animation(Yoin.effects, value: configuration.isPressed)
+            .pointerHighlight()
     }
 }
 
@@ -562,7 +563,7 @@ struct DiaryNeoDBLine: View {
             }
         }
         .font(.gsf(13, .medium))
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .disabled(!interactive)
         .padding(.horizontal, 16)
         .frame(height: 48)

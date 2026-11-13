@@ -148,7 +148,7 @@ struct NeoDBSettingsSection: View {
                 .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .disabled(disabled)
     }
 

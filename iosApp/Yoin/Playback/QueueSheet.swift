@@ -122,7 +122,7 @@ struct QueueSheet: View {
                         .frame(minWidth: 44, minHeight: 36)
                         .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
             }
         }
         .padding(.leading, 24)
@@ -191,7 +191,7 @@ struct QueueSheet: View {
             .frame(height: Self.rowHeight)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .yoinDropTarget(in: Rectangle(), ink: scheme.primary) { YoinDrag.queue($0, before: current ? nil : item.id, model: model) }
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)

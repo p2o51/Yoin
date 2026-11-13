@@ -316,7 +316,7 @@ struct NoteComposer: View {
                         .background(scheme.primary.opacity(0.12), in: Capsule())
                         .contentShape(.capsule)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .accessibilityLabel("Moment")
                 TextField(text: $text, prompt: Text("Write a note")
                     .foregroundStyle(scheme.onSurfaceVariant.opacity(0.8)), axis: .vertical) {

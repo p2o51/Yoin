@@ -94,7 +94,7 @@ struct NeoDBVoicesView: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
@@ -517,7 +517,7 @@ private struct NeoDBVoicesWaysOut: View {
                             .frame(height: 52)
                             .contentShape(.capsule)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .glassEffect(.regular.tint(scheme.primary.opacity(0.85)).interactive(), in: .capsule)
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)))
                 }
@@ -545,7 +545,7 @@ private struct NeoDBVoicesWaysOut: View {
                 .frame(height: 44)
                 .contentShape(.capsule)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .glassEffect(.regular.tint(scheme.surfaceContainerHighest.opacity(0.52)).interactive(), in: .capsule)
     }
 }

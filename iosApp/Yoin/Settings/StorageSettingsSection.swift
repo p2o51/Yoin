@@ -33,7 +33,7 @@ struct StorageSettingsSection: View {
                 Button { if let list { list.pick(.neodb) } else { neodbOpen = true } } label: {
                     SettingsRowLabel(title: "NeoDB", summary: neodbSummary, app: app, trailing: "chevron_right")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .settingsSegment(1, 3, row: row, app: app, picked: list?.picked == .neodb)
                 // Downloads (Subsonic only) are on the Subsonic account's page (SubsonicAccountSettings).
                 cacheRow

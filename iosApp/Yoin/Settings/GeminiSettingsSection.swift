@@ -105,7 +105,7 @@ struct GeminiSettingsSection: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     private var keyField: some View {
@@ -160,7 +160,7 @@ struct GeminiSettingsSection: View {
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     private var saveButton: some View {

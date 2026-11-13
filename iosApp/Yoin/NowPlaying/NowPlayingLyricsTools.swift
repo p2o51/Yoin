@@ -106,6 +106,7 @@ private struct LyricKeyPress: ButtonStyle {
             .onChange(of: configuration.isPressed) { _, down in
                 if down { pressed = index } else if pressed == index { pressed = nil }
             }
+            .pointerHighlight()
     }
 }
 

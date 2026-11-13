@@ -125,7 +125,7 @@ struct SpotifyDevicesSheet: View {
             .background(scheme.surfaceContainer, in: CloudSyncView.segment(0, 1))
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     /// The Spotify app, where its own picker reaches the speakers Yoin can't move to.
@@ -159,7 +159,7 @@ struct SpotifyDevicesSheet: View {
             .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         // The playing row keeps full strength (Android DeviceRow: alpha 1 when active); the others dim
         // while a move is under way.
         .allowsHitTesting(!d.isActive && moving == nil)

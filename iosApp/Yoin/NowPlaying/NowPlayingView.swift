@@ -764,7 +764,7 @@ struct NowPlayingView: View, Equatable {
                     .frame(width: 44, height: 44)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .labGlass("transportSecondary", scheme: scheme, brand: brand,
                       auto: scheme.surfaceContainerHighest, in: Circle())
             .frame(width: 48, height: 48)
@@ -1049,7 +1049,7 @@ struct NowPlayingView: View, Equatable {
                         .foregroundStyle(scheme.onSurfaceVariant.opacity(on ? 1 : 0.5))
                         .scaleEffect(x: on ? Tokens.np.TAB_SELECTED_STRETCH.cg : 1, y: 1, anchor: .leading)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
             }
         }
         .frame(height: Tokens.np.TAB_ROW_NOMINAL.cg, alignment: .top)
@@ -2786,6 +2786,7 @@ struct RoutePressStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 1.08 : 1, anchor: .leading)
             .animation(Yoin.spatialFast, value: configuration.isPressed)
             .contentShape(.rect)
+            .pointerHighlight()
     }
 }
 
@@ -2797,6 +2798,7 @@ struct PressReport: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .onChange(of: configuration.isPressed) { _, pressed in onPress(pressed) }
+            .pointerHighlight()
     }
 }
 
@@ -2919,6 +2921,7 @@ struct PlayModeButton: View {
                     half(lit: shuffle, leading: true, width: segment) {
                         glyph("shuffle", one: false, off: false)
                     }
+                    .pointerHighlight()
                     .onTapGesture { tick(); onShuffle(!shuffle) }
                     .accessibilityElement()
                     .accessibilityLabel("Shuffle")
@@ -2927,6 +2930,7 @@ struct PlayModeButton: View {
                     half(lit: repeatMode != .all, leading: false, width: segment) {
                         glyph("repeat", one: repeatMode == .one, off: repeatMode == .off)
                     }
+                    .pointerHighlight()
                     .onTapGesture { tick(); onRepeat(repeatMode.next) }
                     .accessibilityElement()
                     .accessibilityLabel("Repeat")
@@ -2940,6 +2944,7 @@ struct PlayModeButton: View {
                     .foregroundStyle(ink)
                     .frame(width: size, height: size)
                     .contentShape(.capsule)
+                    .pointerHighlight()
                     .onTapGesture { onCycle() }
                     .accessibilityElement()
                     .accessibilityLabel("Play mode")
@@ -3251,7 +3256,7 @@ extension NowPlayingView {
                     .frame(width: 44, height: 44)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .labGlass("transportSecondary", scheme: scheme, brand: brand,
                       auto: scheme.surfaceContainerHighest, in: Circle())
             .frame(width: 48, height: 48)

@@ -101,6 +101,7 @@ struct MemoriesTopBar: View {
                     .frame(width: 7 + 5 * near, height: 7 + 5 * near)
                     .frame(width: 18, height: 48)
                     .contentShape(.rect)
+                    .pointerHighlight()
                     .onTapGesture { onDot(i) }
                     .accessibilityLabel("Memory \(i + 1)")
                     .accessibilityAddTraits(.isButton)

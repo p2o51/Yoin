@@ -225,7 +225,7 @@ struct MemoryDiaryEntry: View {
                     .frame(height: DiaryWriterTokens.rowHit)
                     .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .accessibilityHint("Discards the draft")
             Button(action: save) {
                 Text("Save")

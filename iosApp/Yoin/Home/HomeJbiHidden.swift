@@ -157,7 +157,7 @@ private struct JbiHideMenu: ViewModifier {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .accessibilityIdentifier("jbi-hide-\(span.days)")
                 }
             }

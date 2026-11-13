@@ -53,7 +53,7 @@ struct TipsView: View {
                             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                             .contentShape(.rect)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.plain).pointerHighlight()
                         .background(app.surfaceBright, in: CloudSyncView.segment(0, 1))
                         .transition(.opacity)
                     }
@@ -110,7 +110,7 @@ struct TipsView: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityElement(children: .combine)
         .accessibilityValue(read ? String(localized: "Read") : String(localized: "Unread"))
     }
@@ -123,7 +123,7 @@ struct TipsView: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
@@ -145,10 +145,10 @@ struct TipsEntryRow: View {
     var body: some View {
         if let list {
             Button { list.pick(.tips) } label: { label }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
         } else {
             NavigationLink { TipsView(focus: nil) } label: { label }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
         }
     }
 

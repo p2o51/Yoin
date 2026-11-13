@@ -112,7 +112,7 @@ struct SongLibraryButton: View {
             .animation(Yoin.effects, value: working)
             .animation(Yoin.effects, value: membership)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .disabled(working || membership == .added)
         .accessibilityLabel(label)
     }

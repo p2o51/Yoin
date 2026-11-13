@@ -93,7 +93,7 @@ struct ServerSettingsView: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
@@ -142,7 +142,7 @@ struct ServerSettingsView: View {
             return Row(Button { list.pick(pane) } label: {
                 SettingsRowLabel(title: title, summary: summary, app: app, trailing: "chevron_right")
             }
-            .buttonStyle(.plain), pane: pane)
+            .buttonStyle(.plain).pointerHighlight(), pane: pane)
         }
         return Row(SettingsNavRow(title: title, summary: summary, app: app, destination: destination), pane: pane)
     }
@@ -187,7 +187,7 @@ struct ServerSettingsView: View {
              Row(Button { model.openWelcomeGuide() } label: {
                 SettingsRowLabel(title: String(localized: "Welcome guide"), app: app)
              }
-             .buttonStyle(.plain)),
+             .buttonStyle(.plain).pointerHighlight()),
              Row(aboutLink(String(localized: "Docs"), AboutLinks.docs(language: AboutLinks.currentLanguage))),
              Row(aboutLink(String(localized: "Send feedback"), AboutLinks.feedback)),
              // Playback diagnostics, shared from the phone (Spotify issues away from the Mac).
@@ -195,7 +195,7 @@ struct ServerSettingsView: View {
                 SettingsRowLabel(title: String(localized: "Export log"), summary: String(localized: "Playback diagnostics"),
                                  app: app, trailing: "share")
              }
-             .buttonStyle(.plain)),
+             .buttonStyle(.plain).pointerHighlight()),
              pageRow("Yoin", summary: String(localized: "Version \(AboutLinks.versionName())"), pane: .about) {
                 AboutYoinView()
              },

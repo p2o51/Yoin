@@ -359,7 +359,7 @@ struct AllMemoriesView: View {
         LazyVStack(spacing: 2) {
             ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
                 Button { open(item.albumRef, state, from: item.id) } label: { songLine(item, state) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .background(app.surfaceBright, in: CloudSyncView.segment(i, items.count))
                     .accountSwitchNotice(switchGate, anchor: item.id)
             }
@@ -731,7 +731,7 @@ private struct LedgerTopBar: View {
                     .frame(width: 40, height: 40)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .glassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")

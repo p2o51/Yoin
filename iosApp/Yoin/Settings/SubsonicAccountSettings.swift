@@ -83,7 +83,7 @@ struct SubsonicAccountSettings: View {
                     .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .accessibilityAddTraits(leveling.mode == mode ? [.isButton, .isSelected] : .isButton))
             }
         }
@@ -141,7 +141,7 @@ struct SubsonicAccountSettings: View {
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityLabel(network.title)
         .accessibilityValue(selected(network).localizedLabel)
     }
@@ -180,7 +180,7 @@ struct SubsonicAccountSettings: View {
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .transition(.opacity.combined(with: .move(edge: .top)))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }

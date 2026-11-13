@@ -139,7 +139,7 @@ struct ScrapNotesTab: View {
                 .padding(.horizontal, 8)
                 .contentShape(.rect(cornerRadius: 8))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityHint(String(localized: "New note"))
     }
 
@@ -171,7 +171,7 @@ struct ScrapNotesTab: View {
                     .padding(.top, 2)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     // MARK: Actions

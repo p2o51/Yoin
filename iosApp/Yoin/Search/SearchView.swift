@@ -250,7 +250,7 @@ struct SearchView: View {
                                 .frame(width: 32, height: 32)
                                 .contentShape(.circle)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.plain).pointerHighlight()
                         .accessibilityLabel("Clear search")
                         .transition(.opacity.animation(Yoin.effects))
                     }
@@ -274,7 +274,7 @@ struct SearchView: View {
                         .frame(width: 48, height: 48)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .labSearchGlass(scheme: scheme, in: .circle)
                 .opacity(staged ? 1 : 0)
                 .animation(Self.fadeThrough, value: staged)
@@ -532,7 +532,7 @@ struct SearchView: View {
             .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 
     private func albumCount(_ n: Int?) -> String {
@@ -686,7 +686,7 @@ struct SearchView: View {
                     .padding(.vertical, Tokens.library.ROW_PADDING_V.cg)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
             }
         }
     }

@@ -16,7 +16,7 @@ struct PressScale: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(Yoin.spatialFast, value: configuration.isPressed)
-            .hoverEffect(.lift)
+            .pointerHighlight(.lift)
     }
 }
 

@@ -181,7 +181,7 @@ struct DemoLibrarySearch: View {
                         .frame(width: 48, height: 48)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .labSearchGlass(scheme: scheme, in: .circle)
                 .demoTarget("searchClose")
             }

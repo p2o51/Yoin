@@ -573,7 +573,7 @@ struct TrackMenuBody<Player: View>: View {
     private func rowView(_ row: TrackMenuRow, shape: UnevenRoundedRectangle) -> some View {
         if let text = row.share {
             ShareLink(item: text) { rowContent(row) }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .background(rowFill, in: shape)
                 .contentShape(shape)
         } else {
@@ -635,6 +635,7 @@ private struct QuickPress: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .onChange(of: configuration.isPressed) { _, down in onPress(down) }
+            .pointerHighlight()
     }
 }
 

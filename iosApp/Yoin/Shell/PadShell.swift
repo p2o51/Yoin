@@ -539,7 +539,7 @@ private struct PadDetailPlay: View {
                         .frame(height: 56)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .glassEffect(.regular.tint(tint).interactive(),
                                  in: UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 28,
                                                             bottomTrailingRadius: inner, topTrailingRadius: inner))
@@ -569,7 +569,7 @@ private struct PadDetailPlay: View {
                             .frame(height: 56)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .glassEffect(.regular.tint(tint).interactive(),
                                  in: UnevenRoundedRectangle(topLeadingRadius: inner, bottomLeadingRadius: inner,
                                                             bottomTrailingRadius: 28, topTrailingRadius: 28))

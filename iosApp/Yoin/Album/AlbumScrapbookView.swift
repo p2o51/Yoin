@@ -346,7 +346,7 @@ struct AlbumScrapbookView: View {
             .background(s.primaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             .contentShape(.rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .disabled(isMock || onEditReview == nil)
             .accessibilityLabel("Edit comment")
             .modifier(layer(tilt("review", Tilt.paper), depth: 0.35))
@@ -633,6 +633,7 @@ struct AlbumScrapbookView: View {
             }
         }
         .contentShape(TicketShape())
+        .pointerHighlight()
         // Android Ticket: a tap plays the album from the song, a long press opens its sheet (score,
         // About, Notes). The mock's are hand-set and do neither.
         .onTapGesture { play(t) }
@@ -664,7 +665,7 @@ struct AlbumScrapbookView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .disabled(isMock)
                     .accessibilityLabel(n.time.isEmpty ? String(localized: "Note: \(n.text)") : String(localized: "Note at \(n.time): \(n.text)"))
                 }
@@ -677,7 +678,7 @@ struct AlbumScrapbookView: View {
                             .padding(.leading, 42).padding(.top, 6).padding(.bottom, 4).padding(.trailing, 8)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).pointerHighlight()
                     .disabled(isMock)
                 }
             }
@@ -736,7 +737,7 @@ struct AlbumScrapbookView: View {
                     .offset(x: -11, y: -12)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityLabel("Asked about \(t.title): \(ask.title ?? ask.question)")
         .accessibilityHint("Read all")
         .frame(maxWidth: 380)
@@ -759,7 +760,7 @@ struct AlbumScrapbookView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(s.tertiaryContainer, in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .accessibilityLabel("About \(t.title): \(line)")
         .accessibilityHint("Read all")
         .containerRelativeFrame(.horizontal) { w, _ in min(w * 0.92, 380) }
@@ -781,7 +782,7 @@ struct AlbumScrapbookView: View {
             // A capped radius, not a capsule: a long value wraps (Android FactTagShape).
             .background(s.secondaryContainer, in: .rect(cornerRadius: 16, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
         .frame(maxWidth: 340, alignment: .leading)
         .modifier(layer(tilt("\(t.number)/fact\(index)", Tilt.tag), depth: 0.7))
     }

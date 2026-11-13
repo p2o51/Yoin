@@ -48,7 +48,7 @@ struct SettingsPage<Content: View>: View {
                         .frame(width: 40, height: 40)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .glassEffect(.regular.interactive(), in: .circle)
                 .frame(width: 48, height: 48)
                 .accessibilityLabel("Back")
@@ -74,7 +74,7 @@ struct SettingsNavRow<Destination: View>: View {
         NavigationLink { destination() } label: {
             SettingsRowLabel(title: title, summary: summary, app: app, trailing: "chevron_right")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).pointerHighlight()
     }
 }
 
@@ -135,7 +135,7 @@ struct AboutYoinView: View {
                                      summary: String(localized: "The notes and ratings that came over from Spotoolfy"),
                                      app: app, trailing: "chevron_right")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .background(row, in: CloudSyncView.segment(0, 1))
                 .sheet(isPresented: $recapOpen) {
                     SpotoolfyRecapView(recap: recap, scheme: app) { recapOpen = false }
@@ -159,12 +159,12 @@ struct AboutYoinView: View {
                 Link(destination: AboutLinks.website(language: AboutLinks.currentLanguage)) {
                     SettingsRowLabel(title: String(localized: "Website"), app: app, external: true)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .background(row, in: CloudSyncView.segment(1, 3))
                 Link(destination: AboutLinks.privacyPolicy) {
                     SettingsRowLabel(title: String(localized: "Privacy policy"), app: app, external: true)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .background(row, in: CloudSyncView.segment(2, 3))
             }
     }

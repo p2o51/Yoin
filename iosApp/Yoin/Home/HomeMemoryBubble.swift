@@ -392,6 +392,7 @@ struct MemoryBubbleOverlay: View {
             .opacity(Double(rest * fade * (1 - smoothstep(0, 0.5, editProgress)) * (1 - smoothstep(0, 0.3, bubble.islandT))))
             .frame(width: t, height: t)
             .contentShape(.rect)
+            .pointerHighlight()
             .onTapGesture {
                 guard enabled else { return }
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()

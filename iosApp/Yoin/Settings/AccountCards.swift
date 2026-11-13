@@ -122,7 +122,7 @@ struct AccountsSection: View {
                     .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .settingsSegment(count - 1, count, row: row, app: app, picked: list?.picked == .addAccount)
             }
         }
@@ -233,7 +233,7 @@ struct AccountRow: View {
                 .padding(.vertical, 12)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .accessibilityAddTraits(isActive ? .isSelected : [])
             Menu {
                 if !isActive { Button("Use this account", action: onUse) }
@@ -244,7 +244,7 @@ struct AccountRow: View {
                     .frame(width: 44, height: 44)
                     .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).pointerHighlight()
             .accessibilityLabel("Options for \(profile.title)")
         }
         .padding(.leading, 16)
@@ -305,7 +305,7 @@ struct AccountCard: View {
                         .frame(width: 44, height: 44)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).pointerHighlight()
                 .offset(y: -8)
                 .accessibilityLabel("Options for \(profile.title)")
             }
@@ -328,6 +328,7 @@ struct AccountCard: View {
         .frame(width: 200, height: Self.height, alignment: .topLeading)
         .background(container, in: shapeOfCard)
         .contentShape(shapeOfCard)
+        .pointerHighlight()
         .onTapGesture(perform: onTap)
         .scaleEffect(isActive ? 1 : 0.96)
         .animation(Yoin.spatial, value: isActive)

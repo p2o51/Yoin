@@ -236,6 +236,17 @@ The same target runs on a Mac as "Designed for iPad". Rules that differ there ha
   simulator's UI tests deliver no hover (`hover:x,y` changes nothing), so `-hoverPreview YES`
   (debug, iPad) shows every hover state at once for screenshots. Not checked on a real pointer or
   a real Mac: the hover itself, and what cursor the Mac draws for the handle's pointer style.
+- Every other tappable control (owner 2026-11-13: show that it can be clicked, a preview of the press)
+  wears `pointerHighlight()` (`Theme/PointerHover.swift`): every `.plain` button, PressScale (lift),
+  the song sheet's top row, Now Playing's PressReport / route labels / shuffle-repeat-cycle / lyric
+  keys / Ask bar, Library and Home cells and tiles, the memory grid and dots, the scrapbook's tickets,
+  the account cards. On an iPad it is the system's pointer interaction (`hoverEffect(.highlight)`, or
+  `.lift` for PressScale): the pointer morphs into the control's content shape. On a Mac the iPad app
+  gets no pointer effects and no cursor control (no hand cursor: UIKit's pointer styles and SwiftUI's
+  `pointerStyle(.link)` don't reach a "Designed for iPad" app, and iPadOS itself has no hand
+  pointer), so the control's own pixels step darker (light) / lighter (dark) on the effects spring;
+  `-platformMac YES -hoverPreview YES` on the iPad simulator shows that state everywhere. The
+  system highlight can't be screenshotted on the simulator. Touch is unchanged.
 - Drag and drop (`Library/YoinDrag.swift`, the native Mac's `MacDrag`): song rows (Library, Search,
   album and playlist pages) and Library's album and playlist cells and playlist rows drag out as a
   `com.gpo.yoin.item` (other apps get the title over the artist as plain text). Drops: Now Playing's

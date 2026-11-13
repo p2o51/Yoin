@@ -22,6 +22,10 @@ enum PointerHover {
         #endif
     }()
 
+    /// The Mac's hover preview on a control's own pixels: a little darker in light, lighter in dark,
+    /// about what the 8 % state layer does to a surface.
+    static func macHoverBrightness(dark: Bool) -> Double { dark ? 0.08 : -0.05 }
+
     /// The state layer's opacity: hovered shows the layer; a press keeps the layer it already wears
     /// (a row's pressed tint is the same 8 %), so pressing under the pointer doesn't flicker.
     static func opacity(hovered: Bool, pressed: Bool = false, pressedLayer: Double = layer) -> Double {
@@ -34,6 +38,16 @@ extension View {
     /// its own fill, say) keeps the layer off without changing the view.
     func hoverLayer(in shape: some Shape, ink: Color = .primary, enabled: Bool = true) -> some View {
         modifier(HoverLayerModifier(shape: shape, ink: ink, enabled: enabled))
+    }
+
+    /// A tappable control says so under a pointer, as a preview of the press (owner 2026-11-13). On an
+    /// iPad: the system's pointer interaction ([effect]: `.highlight` by default, the pointer morphing
+    /// into the control's content shape behind it; `.lift` for what PressScale lifts). On a Mac the iPad
+    /// app gets no pointer effects from the system, so the control's own pixels light up a step instead
+    /// (`PointerHover.macHoverBrightness`, on the effects spring). Nothing for a finger or an iPhone.
+    /// Controls that wear `hoverLayer` already don't need it.
+    func pointerHighlight(_ effect: HoverEffect = .highlight) -> some View {
+        modifier(PointerHighlightModifier(effect: effect))
     }
 
     /// [action] with true when a pointer enters this view and false when it leaves; never on an
@@ -51,6 +65,26 @@ private struct PointerHoverTrigger: ViewModifier {
             content.onHover(perform: action)
         } else {
             content
+        }
+    }
+}
+
+private struct PointerHighlightModifier: ViewModifier {
+    var effect: HoverEffect
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var hovered = false
+
+    func body(content: Content) -> some View {
+        if !PointerHover.available {
+            content
+        } else if Platform.current.isMac {
+            let on = hovered || PointerHover.preview
+            content
+                .brightness(on ? PointerHover.macHoverBrightness(dark: colorScheme == .dark) : 0)
+                .animation(Yoin.effects, value: on)
+                .onHover { hovered = $0 }
+        } else {
+            content.hoverEffect(effect)
         }
     }
 }
