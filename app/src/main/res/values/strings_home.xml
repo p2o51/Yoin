@@ -52,7 +52,7 @@
     <string name="home_placeholder_recently_played">Nothing played lately</string>
     <string name="home_placeholder_your_playlists">No playlists in your library</string>
     <string name="home_placeholder_other_profiles">Nothing played on your other accounts lately</string>
-    <string name="home_placeholder_lyric_highlight">Listen a while and Gemini Nano picks the first line</string>
+    <string name="home_placeholder_lyric_highlight">No lyric cards yet</string>
     <string name="home_placeholder_memory_grid">No memories yet</string>
 
     <string name="home_other_profiles_switch_title">Switch to %1$s?</string>

@@ -503,7 +503,7 @@ internal fun homeEditPlaceholderText(section: HomeSection, resources: Resources?
             HomeSection.RecentlyPlayed -> "Nothing played lately" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.YourPlaylists -> "No playlists in your library" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.OtherProfiles -> "Nothing played on your other accounts lately" // i18n-allow: HomeEditBlockTest asserts this English
-            HomeSection.LyricHighlight -> "Listen a while and Gemini Nano picks the first line" // i18n-allow: matches the English resource
+            HomeSection.LyricHighlight -> "No lyric cards yet" // i18n-allow: matches the English resource
             HomeSection.MemoryGrid -> "No memories yet" // i18n-allow: HomeEditBlockTest asserts this English
         }
     }
