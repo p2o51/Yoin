@@ -72,6 +72,7 @@ fun DevicesSheet(
     val devicesTitle = stringResource(R.string.cmp_devices_title)
     val spotifySubtitle = stringResource(R.string.cmp_devices_subtitle_spotify)
     val subsonicSubtitle = stringResource(R.string.cmp_devices_subtitle_subsonic)
+    val subsonicNetwork = stringResource(R.string.cmp_devices_subtitle_subsonic_network)
     val otherSubtitle = stringResource(R.string.cmp_devices_subtitle_other)
     val refreshDescription = stringResource(R.string.cmp_devices_cd_refresh)
     val spotifyEmpty = stringResource(R.string.cmp_devices_empty_spotify)
@@ -151,6 +152,14 @@ fun DevicesSheet(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // Which devices, then where they must be: a second line, not a dot.
+                    if (providerId == MediaId.PROVIDER_SUBSONIC) {
+                        Text(
+                            text = subsonicNetwork,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 IconButton(
                     onClick = {
@@ -345,11 +354,20 @@ internal fun DeviceRow(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 device.statusText?.let { status ->
-                    Text(
-                        text = status,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (status == DeviceStatusDlnaProtocols) {
+                        // The two protocols a renderer speaks, set apart by space, not a dot.
+                        MetaLine(
+                            groups = DlnaProtocolNames.map { MetaGroup.Plain(it) },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text = status,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             Box(
@@ -372,3 +390,9 @@ internal fun DeviceRow(
         }
     }
 }
+
+/** [YoinDevice.statusText] of a DLNA renderer that isn't playing: the sheet shows [DlnaProtocolNames]. */
+internal const val DeviceStatusDlnaProtocols = "status:dlna-protocols"
+
+// Protocol names, the same in every language.
+private val DlnaProtocolNames = listOf("DLNA", "UPnP")

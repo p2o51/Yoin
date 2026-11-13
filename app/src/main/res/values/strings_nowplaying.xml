@@ -140,7 +140,7 @@
         <item quantity="one">Copied 1 line</item>
         <item quantity="other">Copied %1$d lines</item>
     </plurals>
-    <string name="np_lyrics_credit">%1$s · %2$s</string>
+    <string name="np_lyrics_credit">%1$s\n%2$s</string>
     <string name="np_lyrics_clipboard_with_credit">%1$s\n\n— %2$s</string>
 
     <string name="np_share_title">Share lyrics</string>
@@ -171,7 +171,7 @@
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
     <string name="np_cd_note_actions">Note actions</string>
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
-    <string name="np_note_realign">Align to now · %1$s</string>
+    <string name="np_note_realign">Align to now</string>
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
     <string name="np_note_delete">Delete</string>
     <!-- REVIEW: English drafted from the existing Chinese UI. -->
