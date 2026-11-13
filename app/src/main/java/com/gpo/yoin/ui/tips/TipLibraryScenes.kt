@@ -1,6 +1,10 @@
 package com.gpo.yoin.ui.tips
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -283,6 +287,122 @@ internal fun LibrarySearchDemo(playing: Boolean) {
     }
 }
 
+/**
+ * Keyboard shortcuts: Space pauses and plays the mini player, Ctrl + → moves
+ * it to the next song, Ctrl + K opens search — a keyboard's keys as keycaps
+ * above the bar, pressed by the dot (or the user).
+ */
+@Composable
+internal fun KeyboardShortcutsDemo(playing: Boolean) {
+    var paused by remember { mutableStateOf(false) }
+    var song by remember { mutableIntStateOf(0) }
+    var searching by remember { mutableStateOf(false) }
+    var pressed by remember { mutableStateOf<DemoKey?>(null) }
+    val album = DemoAlbums[0]
+    val cover = demoCoverUrl(album)
+    val track = remember(cover, song) { demoTrack(song, album, cover) }
+    val press: (DemoKey) -> Unit = { key ->
+        when (key) {
+            DemoKey.Space -> paused = !paused
+            DemoKey.Next -> song += 1
+            DemoKey.Search -> searching = true
+        }
+    }
+    DemoPhone(playing = playing, script = {
+        paused = false
+        song = 0
+        searching = false
+        delay(300)
+        DemoKey.entries.forEach { key ->
+            moveTo(key.name)
+            tap {
+                pressed = key
+                press(key)
+            }
+            pressed = null
+            delay(if (key == DemoKey.Search) 1_600 else 900)
+        }
+        moveTo("searchBack")
+        tap { searching = false }
+        delay(600)
+        // Space again: the bar plays on.
+        moveTo(DemoKey.Space.name)
+        tap {
+            pressed = DemoKey.Space
+            press(DemoKey.Space)
+        }
+        pressed = null
+        lift()
+        delay(500)
+    }) {
+        DemoLibraryPage(
+            gridState = rememberLazyGridState(),
+            onSearch = { searching = true },
+            nowPlaying = track,
+            playing = !paused,
+        )
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = KeycapLift),
+            horizontalArrangement = Arrangement.spacedBy(KeycapGap),
+        ) {
+            DemoKey.entries.forEach { key ->
+                DemoKeycaps(
+                    key = key,
+                    pressed = pressed == key,
+                    onPress = { press(key) },
+                    modifier = Modifier.demoTarget(key.name),
+                )
+            }
+        }
+        DemoLibrarySearch(visible = searching, onClose = { searching = false })
+    }
+}
+
+/** The three chords the demo presses (ShellShortcut: PlayPause, Next, Search). */
+private enum class DemoKey { Space, Next, Search }
+
+/** One chord as a keyboard's keycaps side by side; pressing either presses the chord. */
+@Composable
+private fun DemoKeycaps(key: DemoKey, pressed: Boolean, onPress: () -> Unit, modifier: Modifier = Modifier) {
+    val labels = when (key) {
+        DemoKey.Space -> listOf(stringResource(R.string.shortcut_key_space))
+        DemoKey.Next -> listOf("Ctrl", "→")
+        DemoKey.Search -> listOf("Ctrl", "K")
+    }
+    val scheme = MaterialTheme.colorScheme
+    val container by animateColorAsState(
+        if (pressed) scheme.primaryContainer else scheme.surfaceContainerHighest,
+        YoinMotion.fastEffectsSpec(),
+        label = "keycap",
+    )
+    val content by animateColorAsState(
+        if (pressed) scheme.onPrimaryContainer else scheme.onSurface,
+        YoinMotion.fastEffectsSpec(),
+        label = "keycapText",
+    )
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(KeycapInnerGap)) {
+        labels.forEach { label ->
+            Surface(
+                onClick = onPress,
+                shape = MaterialTheme.shapes.small,
+                color = container,
+                contentColor = content,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = KeycapMinSize, minHeight = KeycapMinSize)
+                        .wrapContentSize()
+                        .padding(horizontal = 10.dp),
+                )
+            }
+        }
+    }
+}
+
 /** Scroll Library: the cards sink under the tide line below its header. */
 @Composable
 internal fun ScrollEdgeDemo(playing: Boolean) {
@@ -544,3 +664,9 @@ private val SearchPillBand = 64.dp
 
 /** How far the scroll-edge demo scrolls Library. */
 private val ScrollTravel = 360.dp
+
+/** The keycaps sit this far above the phone's bottom edge, clear of the bar. */
+private val KeycapLift = 132.dp
+private val KeycapGap = 12.dp
+private val KeycapInnerGap = 4.dp
+private val KeycapMinSize = 40.dp
