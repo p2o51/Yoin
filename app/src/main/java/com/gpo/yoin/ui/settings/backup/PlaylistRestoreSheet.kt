@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.settings.backup
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -282,7 +283,7 @@ private fun TargetList(
                     },
                     shape = settingsSegmentShape(index, targets.size),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().handPointer(),
                 ) {
                     Row(
                         modifier = Modifier
@@ -438,7 +439,8 @@ private fun Review(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .semantics { role = Role.Tab },
+                        .semantics { role = Role.Tab }
+                        .handPointer(),
                 ) {
                     Text("${label.first} ${label.second}", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -490,7 +492,7 @@ private fun Review(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onCancel, enabled = !writing, modifier = Modifier.height(56.dp)) {
+            TextButton(onClick = onCancel, enabled = !writing, modifier = Modifier.height(56.dp).handPointer(enabled = !writing)) {
                 Text(stringResource(R.string.playlist_backup_cancel))
             }
             Button(
@@ -502,7 +504,8 @@ private fun Review(
                 shapes = ButtonDefaults.shapes(),
                 modifier = Modifier
                     .weight(1f)
-                    .height(56.dp),
+                    .height(56.dp)
+                    .handPointer(enabled = canCreate),
             ) {
                 if (writing) {
                     YoinLoadingIndicator(size = 24.dp)
@@ -624,6 +627,7 @@ private fun ReviewRowItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 72.dp)
+                    .handPointer(enabled = enabled && !notFound)
                     .clickable(enabled = enabled && !notFound) {
                         if (uncertain) showCandidates = !showCandidates else onCheck(!row.checked)
                     }
@@ -679,7 +683,7 @@ private fun ReviewRowItem(
                         enabled = enabled,
                         shapes = ButtonDefaults.shapes(),
                         contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.semantics { contentDescription = searchLabel },
+                        modifier = Modifier.semantics { contentDescription = searchLabel }.handPointer(enabled = enabled),
                     ) {
                         Icon(YoinSymbols.Search, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -738,6 +742,7 @@ private fun ReviewMark(status: ReviewStatus, checked: Boolean, enabled: Boolean,
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
+            .handPointer(enabled = enabled)
             .clickable(enabled = enabled, onClick = onToggle)
             .semantics {
                 contentDescription = label
@@ -812,7 +817,7 @@ private fun Candidates(
                 onClick = { onChoose(index) },
             )
         }
-        TextButton(onClick = onSearch, enabled = enabled, modifier = Modifier.align(Alignment.End)) {
+        TextButton(onClick = onSearch, enabled = enabled, modifier = Modifier.align(Alignment.End).handPointer(enabled = enabled)) {
             Icon(YoinSymbols.Search, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(6.dp))
             Text(searchLabel)
@@ -840,7 +845,8 @@ private fun CandidateRow(
         color = container,
         modifier = Modifier
             .fillMaxWidth()
-            .semantics { this.selected = selected },
+            .semantics { this.selected = selected }
+            .handPointer(enabled = enabled),
     ) {
         Row(
             modifier = Modifier
@@ -1049,7 +1055,8 @@ private fun Outcome(target: RestoreTarget, record: PlaylistRestoreRecord, onDone
             shapes = ButtonDefaults.shapes(),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
+                .height(56.dp)
+                .handPointer(),
         ) { Text(stringResource(R.string.playlist_restore_done_button), style = MaterialTheme.typography.titleMedium) }
     }
 }
@@ -1082,7 +1089,7 @@ private fun Failure(target: RestoreTarget, onDone: () -> Unit) {
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.End,
         ) {
-            TextButton(onClick = onDone) { Text(stringResource(R.string.playlist_restore_done_button)) }
+            TextButton(onClick = onDone, modifier = Modifier.handPointer()) { Text(stringResource(R.string.playlist_restore_done_button)) }
         }
     }
 }

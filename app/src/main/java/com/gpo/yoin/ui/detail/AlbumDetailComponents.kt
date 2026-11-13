@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.sheetScrollEdge
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
@@ -224,6 +225,7 @@ internal fun AlbumPageDots(
                         } else {
                             Modifier
                                 .clip(RoundedCornerShape(10.dp))
+                                .handPointer()
                                 .selectable(
                                     selected = i == selectedPage,
                                     role = Role.Tab,
@@ -281,6 +283,7 @@ internal fun AlbumScoreEmblem(
                 // settle window inside keeps page-open resolves silent.
                 .ratingBloom(spec.score)
                 .clip(CircleShape)
+                .handPointer(enabled = enabled)
                 .clickable(
                     enabled = enabled,
                     role = Role.Button,
@@ -549,6 +552,7 @@ internal fun AlbumTrackRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(YoinContainerShapes.ListRow)
+            .handPointer()
             .combinedClickable(
                 onClick = if (song.isUnavailable) ({ showUnavailableReason = !showUnavailableReason }) else onClick,
                 onLongClick = {
@@ -704,7 +708,8 @@ private fun AlbumCircleToggle(
         },
         modifier = modifier
             .size(36.dp)
-            .minimumTouchTarget(),
+            .minimumTouchTarget()
+            .handPointer(),
     ) {
         Box(
             modifier = Modifier
@@ -1043,7 +1048,7 @@ private fun AlbumNeoDbLine(
             .clip(RoundedCornerShape(12.dp))
             .then(
                 if (state == AlbumNeoDbSync.SignedOut) {
-                    Modifier.clickable(role = Role.Button, onClick = onSignIn)
+                    Modifier.handPointer().clickable(role = Role.Button, onClick = onSignIn)
                 } else {
                     Modifier
                 },
@@ -1072,7 +1077,7 @@ private fun AlbumNeoDbLine(
                         style = MaterialTheme.typography.bodyMedium,
                         color = scheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = onRetry) {
+                    TextButton(onClick = onRetry, modifier = Modifier.handPointer()) {
                         Text(stringResource(R.string.detail_retry))
                     }
                 }
@@ -1092,7 +1097,7 @@ private fun AlbumNeoDbLine(
             }
         }
         Spacer(Modifier.weight(1f))
-        TextButton(onClick = onVoices) {
+        TextButton(onClick = onVoices, modifier = Modifier.handPointer()) {
             Text(stringResource(R.string.neodb_voices_peek))
         }
     }

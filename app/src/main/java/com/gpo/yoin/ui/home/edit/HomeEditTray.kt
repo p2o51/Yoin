@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home.edit
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -121,7 +122,8 @@ internal fun LazyListScope.homeEditTrayItems(
                 contentPadding = PaddingValues(horizontal = FooterButtonPadding),
                 modifier = Modifier
                     .heightIn(min = FooterButtonHeight)
-                    .homeEditExclusion(deps.targets, TrayFooterKey),
+                    .homeEditExclusion(deps.targets, TrayFooterKey)
+                    .handPointer(enabled = canReset),
             ) {
                 Icon(
                     imageVector = YoinSymbols.Refresh,
@@ -162,7 +164,8 @@ internal fun LazyListScope.homeEditFooterEntry(
                 contentPadding = PaddingValues(horizontal = FooterButtonPadding),
                 modifier = Modifier
                     .heightIn(min = FooterButtonHeight)
-                    .homeEditExclusion(deps.targets, FooterEntryKey),
+                    .homeEditExclusion(deps.targets, FooterEntryKey)
+                    .handPointer(),
             ) {
                 Icon(
                     imageVector = YoinSymbols.Edit,
@@ -228,6 +231,7 @@ private fun HomeEditTrayRow(
             .seamDissolve()
             .clip(YoinContainerShapes.Panel)
             .background(colors.surfaceContainerHigh)
+            .handPointer(enabled = editing)
             .clickable(
                 enabled = editing,
                 role = Role.Button,
@@ -272,7 +276,7 @@ private fun HomeEditTrayRow(
                 disabledContainerColor = colors.secondaryContainer,
                 disabledContentColor = colors.onSecondaryContainer,
             ),
-            modifier = Modifier.size(ShowButtonSize),
+            modifier = Modifier.size(ShowButtonSize).handPointer(enabled = editing),
         ) {
             Icon(
                 imageVector = YoinSymbols.Add,

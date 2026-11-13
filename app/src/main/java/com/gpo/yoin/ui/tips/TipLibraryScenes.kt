@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.defaultMinSize
@@ -473,6 +474,7 @@ private fun DemoKeycaps(key: DemoKey, pressed: Boolean, onPress: () -> Unit, mod
                 shape = MaterialTheme.shapes.small,
                 color = container,
                 contentColor = content,
+                modifier = Modifier.handPointer(),
             ) {
                 Text(
                     text = label,
@@ -622,7 +624,7 @@ private fun BoxScope.DemoLibrarySearch(visible: Boolean, onClose: () -> Unit) {
                         .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onClose, modifier = Modifier.demoTarget("searchBack")) {
+                    IconButton(onClick = onClose, modifier = Modifier.demoTarget("searchBack").handPointer()) {
                         Icon(imageVector = YoinSymbols.Back, contentDescription = null)
                     }
                     Text(

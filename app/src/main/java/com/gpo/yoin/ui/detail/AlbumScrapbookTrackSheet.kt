@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -342,7 +343,7 @@ private fun ScoreHeader(
                 .semantics {
                     contentDescription = description
                     stateDescription = state
-                },
+                }.handPointer(),
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(
@@ -410,7 +411,7 @@ private fun ClearScoreButton(visible: Boolean, onClick: () -> Unit) {
         exit = YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard, shrinkTowards = Alignment.Start) +
             YoinMotion.fadeOut(role = YoinMotionRole.Standard),
     ) {
-        TextButton(onClick = onClick, modifier = Modifier.padding(start = 8.dp)) {
+        TextButton(onClick = onClick, modifier = Modifier.padding(start = 8.dp).handPointer()) {
             Text(stringResource(R.string.detail_scrap_clear))
         }
     }
@@ -939,6 +940,7 @@ private fun AboutEditor(
             Button(
                 onClick = { onDone(titleField.text.toString().takeIf { title != null }, textField.text.toString()) },
                 contentPadding = EditorButtonPadding,
+                modifier = Modifier.handPointer(),
             ) {
                 Text(stringResource(R.string.detail_scrap_done))
             }
@@ -952,6 +954,7 @@ private fun EditorButton(label: String, icon: ImageVector, container: Color, con
         onClick = onClick,
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = container, contentColor = content),
         contentPadding = EditorButtonPadding,
+        modifier = Modifier.handPointer(),
     ) {
         Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(6.dp))
@@ -1067,7 +1070,8 @@ private fun NewEntry(
                 ),
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 44.dp),
+                    .heightIn(min = 44.dp)
+                    .handPointer(enabled = hasTitle),
             ) {
                 Icon(imageVector = YoinSymbols.Sparkle, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
@@ -1086,7 +1090,8 @@ private fun NewEntry(
                 colors = ButtonDefaults.buttonColors(containerColor = colors.ink, contentColor = colors.onInk),
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 44.dp),
+                    .heightIn(min = 44.dp)
+                    .handPointer(enabled = hasTitle && (!typing || hasBody)),
             ) {
                 if (!typing) {
                     Icon(imageVector = YoinSymbols.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1148,6 +1153,7 @@ private fun NotesTab(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.onSurface,
                     ),
+                    modifier = Modifier.handPointer(),
                 ) {
                     Text(
                         stringResource(
@@ -1256,6 +1262,7 @@ private fun NotesTab(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.onSurface,
                     ),
+                    modifier = Modifier.handPointer(),
                 ) {
                     Icon(imageVector = YoinSymbols.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
@@ -1289,6 +1296,7 @@ private fun LyricRow(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(if (menuOpen) scheme.surfaceContainerHigh else Color.Transparent)
+                .handPointer()
                 .clickable(onClick = onTap)
                 .padding(horizontal = InnerGutter),
         )
@@ -1325,6 +1333,7 @@ private fun NoteCard(
                 .clip(RoundedCornerShape(16.dp))
                 .background(if (menuOpen) colors.note.copy(alpha = 0.8f) else colors.note)
                 .journalRail(colors.ink)
+                .handPointer()
                 .clickable(onClick = onTap)
                 .padding(start = 24.dp, end = 14.dp, top = 10.dp, bottom = 12.dp),
         ) {
@@ -1431,7 +1440,7 @@ private fun NoteEditor(
                     onClick = onDelete,
                 )
             } else {
-                TextButton(onClick = onDelete, contentPadding = EditorButtonPadding) {
+                TextButton(onClick = onDelete, contentPadding = EditorButtonPadding, modifier = Modifier.handPointer()) {
                     Text(stringResource(R.string.detail_scrap_cancel))
                 }
             }
@@ -1440,6 +1449,7 @@ private fun NoteEditor(
                 onClick = { onDone(field.text.toString()) },
                 colors = ButtonDefaults.buttonColors(containerColor = colors.ink, contentColor = colors.onInk),
                 contentPadding = EditorButtonPadding,
+                modifier = Modifier.handPointer(),
             ) {
                 Text(stringResource(R.string.detail_scrap_done))
             }
@@ -1491,7 +1501,7 @@ private fun EditButton(
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
             exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
         ) {
-            IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onClick, modifier = Modifier.size(40.dp).handPointer()) {
                 Icon(
                     imageVector = YoinSymbols.Edit,
                     contentDescription = stringResource(R.string.detail_scrap_cd_edit),

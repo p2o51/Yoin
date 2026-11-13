@@ -42,6 +42,7 @@ fun UnavailableTrackBadge(
             .size(18.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.secondaryContainer)
+            .handPointer()
             .clickable(role = Role.Button, onClickLabel = stringResource(R.string.cmp_unavailable_cd)) { onClick() },
         contentAlignment = Alignment.Center,
     ) {

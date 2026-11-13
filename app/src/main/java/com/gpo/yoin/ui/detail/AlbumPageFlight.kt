@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -112,7 +113,7 @@ internal fun AlbumHeroLastPlay(epochMillis: Long, interactive: Boolean, modifier
         modifier = if (flight == null) {
             modifier
         } else {
-            modifier.clickable(enabled = interactive, role = Role.Button, onClick = flight.openScrapbook)
+            modifier.handPointer(enabled = interactive).clickable(enabled = interactive, role = Role.Button, onClick = flight.openScrapbook)
         },
     )
 }

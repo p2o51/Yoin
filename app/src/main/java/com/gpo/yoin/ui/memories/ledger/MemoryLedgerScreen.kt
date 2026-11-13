@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.memories.ledger
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import android.text.format.DateFormat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
@@ -581,6 +583,7 @@ private fun <T> LedgerMenuButton(
                 .height(36.dp)
                 .clip(RoundedCornerShape(18.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .handPointer()
                 .clickable(role = Role.DropdownList) { expanded = true }
                 .padding(start = 10.dp, end = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -817,6 +820,7 @@ private fun TimelineAlbumCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = if (masonry) 12.dp else 16.dp)
+            .pointerPressPreview(interaction)
             .noRippleClickable(interaction) {
                 onOpen(item.album)
             },
@@ -1011,6 +1015,7 @@ private fun GridCard(enabled: Boolean, onClick: () -> Unit, content: @Composable
             .seamDissolve()
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .pointerPressPreview(interaction, enabled = enabled)
             .noRippleClickable(interaction, enabled = enabled, onClick = onClick)
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -1046,6 +1051,7 @@ private fun LedgerListRow(item: MemoryLedgerItem, state: MemoryLedgerState, onOp
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
+            .pointerPressPreview(interaction, enabled = album != null)
             .noRippleClickable(interaction, enabled = album != null) {
                 album?.let(onOpen)
             }
@@ -1118,6 +1124,7 @@ private fun NoteCard(entry: MemoryLedgerEntry, state: MemoryLedgerState, onClick
             .seamDissolve()
             .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .pointerPressPreview(interaction, enabled = opens)
             .noRippleClickable(interaction, enabled = opens, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),

@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -349,7 +351,7 @@ private fun NotePageLine(
             emphasis = NoteLineEmphasis.Page,
             distance = distance,
             meta = if (showDate) formatNoteDate(note.createdAt, resources = noteDateResources) else null,
-            modifier = Modifier.combinedClickable(
+            modifier = Modifier.pointerPressPreview(interaction).combinedClickable(
                 interactionSource = interaction,
                 indication = null,
                 onClickLabel = anchor?.let {
@@ -427,6 +429,7 @@ private fun NoteDeletedLine(onUndo: () -> Unit, modifier: Modifier = Modifier) {
                 haptics.performTick()
                 onUndo()
             },
+            modifier = Modifier.handPointer(),
         ) {
             Text(text = stringResource(R.string.np_note_undo), fontWeight = FontWeight.SemiBold)
         }

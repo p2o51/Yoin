@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.pointerPressPreview
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -76,7 +77,7 @@ internal fun Modifier.nowPlayingCoverGestures(
 ): Modifier {
     val longPress: (() -> Unit)? = if (menu.host != null) menu::show else null
     return when {
-        onClick != null -> combinedClickable(
+        onClick != null -> pointerPressPreview(interactionSource).combinedClickable(
             interactionSource = interactionSource,
             indication = null,
             onClickLabel = onClickLabel,

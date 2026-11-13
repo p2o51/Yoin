@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.continueon
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.togetherWith
@@ -253,16 +254,16 @@ private fun Actions(
             when {
                 stage == ContinueOnPrompt.Stage.Starting -> YoinLoadingIndicator(size = 40.dp)
                 asking -> {
-                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.continue_on_not_now)) }
+                    TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.continue_on_not_now)) }
                     Button(
                         onClick = onContinue,
                         enabled = account is ContinueOnPrompt.Account.Found,
-                        modifier = continueModifier,
+                        modifier = continueModifier.handPointer(enabled = account is ContinueOnPrompt.Account.Found),
                     ) {
                         Text(stringResource(R.string.continue_on_continue_here))
                     }
                 }
-                else -> TextButton(onClick = onDismiss) { Text(stringResource(R.string.continue_on_ok)) }
+                else -> TextButton(onClick = onDismiss, modifier = Modifier.handPointer()) { Text(stringResource(R.string.continue_on_ok)) }
             }
         }
     }

@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.settings.applemusic
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -78,6 +79,7 @@ private fun RegionRow(region: AppleMusicNameRegion, selected: Boolean, onSelect:
         modifier = Modifier
             .fillMaxWidth()
             .clip(LocalSettingsRowShape.current)
+            .handPointer()
             .selectable(
                 selected = selected,
                 role = Role.RadioButton,
@@ -94,7 +96,7 @@ private fun RegionRow(region: AppleMusicNameRegion, selected: Boolean, onSelect:
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = null)
+        RadioButton(selected = selected, onClick = null, modifier = Modifier.handPointer())
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = stringResource(region.titleRes),

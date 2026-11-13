@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -121,6 +122,7 @@ private fun EdgeOption(
             .semantics {
                 this.selected = selected
             }
+            .handPointer()
             .clickable(role = Role.RadioButton, onClick = onClick),
     ) {
         val shape = RoundedCornerShape(corner)

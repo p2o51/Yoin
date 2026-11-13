@@ -473,7 +473,8 @@ internal fun ExpressiveSegmentChip(
                 this.selected = selected
             }
             .heightIn(min = 44.dp)
-            .elasticPress(interactionSource),
+            .elasticPress(interactionSource)
+            .handPointer(),
         interactionSource = interactionSource,
         shape = RoundedCornerShape(18.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(

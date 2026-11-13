@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
@@ -722,6 +723,7 @@ private fun OpeningTitle(
             modifier = modifier
                 .seamFade()
                 .clip(YoinContainerShapes.ListRow)
+                .handPointer()
                 .clickable(role = Role.Button, onClickLabel = stringResource(R.string.detail_scrap_cd_rename)) {
                     editing = true
                 },
@@ -777,6 +779,7 @@ private fun OpeningTitle(
                     editing = false
                     onRestore()
                 },
+                modifier = Modifier.handPointer(),
             ) {
                 Icon(
                     imageVector = YoinSymbols.Sparkle,
@@ -1014,6 +1017,7 @@ private fun CoverWithEmblem(
                 .scrapLayer(tilt = 0f, depth = 0.6f)
                 .seamDissolve()
                 .clip(CircleShape)
+                .handPointer()
                 .clickable(
                     role = Role.Button,
                     onClickLabel = stringResource(R.string.detail_scrap_cd_rate),
@@ -1039,6 +1043,7 @@ private fun ReviewClipping(
             .seamFade()
             .clip(YoinContainerShapes.Card)
             .background(colors.review)
+            .handPointer()
             .clickable(onClickLabel = stringResource(R.string.detail_scrap_cd_edit_comment), onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1086,6 +1091,7 @@ private fun BlankReview(
                 .size(48.dp)
                 .clip(CircleShape)
                 .dashedOutline(CircleShape, color = { colors.outline }, width = 1.5.dp, gap = 5.dp)
+                .handPointer()
                 .clickable(
                     role = Role.Button,
                     onClickLabel = stringResource(R.string.detail_scrap_action_write_comment),
@@ -1307,6 +1313,7 @@ private fun Ticket(
                 .heightIn(min = if (mini) 56.dp else 64.dp)
                 .clip(TicketShape)
                 .background(container)
+                .handPointer()
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = {
@@ -1591,6 +1598,7 @@ private fun NotesClipping(
                 color = colors.ink,
                 modifier = Modifier
                     .clip(YoinContainerShapes.ListRow)
+                    .handPointer()
                     .clickable(role = Role.Button, onClick = onMore)
                     .padding(start = NoteStampColumn, top = 6.dp, bottom = 4.dp, end = 8.dp),
             )
@@ -1626,6 +1634,7 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
                     true
                 }
             }
+            .handPointer()
             .clickable(onClick = onClick)
             .padding(vertical = 4.dp),
     ) {
@@ -1685,6 +1694,7 @@ private fun AskCard(
                 .semantics(mergeDescendants = true) {
                     contentDescription = asked
                 }
+                .handPointer()
                 .clickable(role = Role.Button, onClickLabel = readAll, onClick = onClick)
                 .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
         ) {
@@ -1772,6 +1782,7 @@ private fun AboutCard(
             .clip(YoinContainerShapes.Card)
             .background(colors.ask)
             .semantics(mergeDescendants = true) { contentDescription = description }
+            .handPointer()
             .clickable(role = Role.Button, onClickLabel = readAll, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
@@ -1802,6 +1813,7 @@ private fun FactTag(
             // (owner's foldable, 2026-10-05). Single-line tags still read as pills.
             .clip(FactTagShape)
             .background(colors.tag)
+            .handPointer()
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),

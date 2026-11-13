@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -161,7 +162,7 @@ internal fun TipScreen(
                     store.setRead(current, checked)
                 },
                 shapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight),
-                modifier = Modifier.height(TipButtonHeight),
+                modifier = Modifier.height(TipButtonHeight).handPointer(),
             ) {
                 if (isRead) {
                     Icon(
@@ -188,7 +189,7 @@ internal fun TipScreen(
                     }
                 },
                 shapes = ButtonDefaults.shapes(),
-                modifier = Modifier.height(TipButtonHeight),
+                modifier = Modifier.height(TipButtonHeight).handPointer(),
             ) {
                 Text(stringResource(if (nextUnread == null) R.string.tip_done else R.string.tip_next))
                 if (nextUnread != null) {

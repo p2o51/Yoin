@@ -111,7 +111,8 @@ private fun ButtonGroupScope.TabButton(
         modifier = modifier
             .fillMaxHeight()
             .animateWidth(interactionSource)
-            .semantics { selected = isSelected },
+            .semantics { selected = isSelected }
+            .handPointer(),
         interactionSource = interactionSource,
         shape = YoinShapeTokens.Full,
         colors = ButtonDefaults.filledTonalButtonColors(

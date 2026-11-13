@@ -183,7 +183,7 @@ fun NowPlayingPill(
                     onClick()
                     true
                 }
-            },
+            }.handPointer(enabled = enabled),
         enabled = enabled,
         interactionSource = interactionSource,
         shape = MaterialTheme.shapes.extraLarge,
@@ -456,7 +456,7 @@ fun NowPlayingPillVertical(
                     onClick()
                     true
                 }
-            },
+            }.handPointer(enabled = enabled),
         enabled = enabled,
         shape = shape,
         contentPadding = PaddingValues(0.dp),

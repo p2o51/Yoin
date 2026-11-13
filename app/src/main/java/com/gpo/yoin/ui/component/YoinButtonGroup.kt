@@ -420,7 +420,8 @@ fun YoinButtonGroup(
                             .width(g.homeWidth)
                             .fillMaxHeight()
                             .graphicsLayer { alpha = navAlpha }
-                            .barEditLeftSlotSemantics(editing, editLeftSlot),
+                            .barEditLeftSlotSemantics(editing, editLeftSlot)
+                            .handPointer(),
                         interactionSource = homeInteraction,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = editHomeContainer,
@@ -758,6 +759,7 @@ private fun LibraryButton(
             .fillMaxHeight()
             // No ripple here, so the hover wash Home's button gets from its own.
             .hoverHighlight(interactionSource, shape, contentColor)
+            .handPointer()
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -1054,7 +1056,7 @@ private fun BarEditLeftSlotLayersPreview() {
 private fun BarExtraButton(action: BarExtraAction, size: Dp, onClick: () -> Unit) {
     FilledTonalIconButton(
         onClick = onClick,
-        modifier = Modifier.size(size),
+        modifier = Modifier.size(size).handPointer(),
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,

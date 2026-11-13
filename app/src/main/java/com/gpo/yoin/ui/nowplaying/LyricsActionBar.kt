@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -298,7 +299,8 @@ private fun LyricsActionIcon(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
-            .size(width = size, height = size),
+            .size(width = size, height = size)
+            .handPointer(enabled = enabled),
         interactionSource = interactionSource,
         shape = RoundedCornerShape(size * 0.31f),
         colors = IconButtonDefaults.filledTonalIconButtonColors(

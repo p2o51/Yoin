@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings.ai
 
+import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
@@ -169,7 +170,7 @@ internal fun AiTryPageContent() {
                 viewModel.runTest(TestSong(title.trim(), artist.trim(), album.trim()))
             },
             enabled = !running && title.isNotBlank() && artist.isNotBlank(),
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp).handPointer(enabled = !running && title.isNotBlank() && artist.isNotBlank()),
         ) { Text(stringResource(R.string.ai_try_run)) }
         Spacer(Modifier.height(8.dp))
         // Waiting, the answer and a failure take each other's place: they cross-fade and the

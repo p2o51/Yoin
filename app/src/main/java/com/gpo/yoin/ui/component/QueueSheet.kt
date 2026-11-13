@@ -513,7 +513,7 @@ private fun QueueSectionLabel(text: String, action: (() -> Unit)? = null) {
             modifier = Modifier.weight(1f),
         )
         if (action != null) {
-            TextButton(onClick = action) { Text(clearLabel) }
+            TextButton(onClick = action, modifier = Modifier.handPointer()) { Text(clearLabel) }
         }
     }
 }
@@ -543,7 +543,7 @@ private fun QueueTrackRow(
             .fillMaxWidth()
             .height(QueueRowHeight)
             .background(if (lifted) scheme.surfaceContainerHighest else scheme.surfaceContainer)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.handPointer().clickable(onClick = onClick) else Modifier)
             .padding(start = 24.dp, end = if (handle != null) 8.dp else 24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
