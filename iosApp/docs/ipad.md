@@ -53,7 +53,7 @@ NP 侧栏关着时，右下角是迷你播放器的玻璃胶囊。
   - Controls：播放 / 暂停（空格）、下一首（⌘→）、上一首（⌘←）、随机（⌥⌘S）、重复（子菜单）、喜欢（⌘D）、Now Playing（⇧⌘P，有空间时开侧栏）、Search（⌘K）、返回（⌘[）、Settings（⌘,）。
   - Go：Home（⌘1）、Library（⌘2）、All Memories（⌘3）。
 - **指针：** 卡片在指针下抬起（`PressScale` 的 `.hoverEffect(.lift)`）；歌曲行、展开歌词行、底栏胶囊、分栏把手用 M3 悬停状态层（8 %，effects 弹簧），进度条未播部分加深 8 %；把手的指针是竖线加左右箭头（`Theme/PointerHover.swift`）。右键（或 Control 点按）打开和长按同一张歌曲面板（`Theme/SecondaryClick.swift`）；歌曲、专辑、歌单能拖到队列或歌单上（`Library/YoinDrag.swift`）。
-- **多窗口：** `UIApplicationSupportsMultipleScenes` 已开，但所有窗口共用一个 `AppModel.shared`，所以页面路径、侧栏和 Full 的状态在窗口之间是共享的，不是 Android 的「一个窗口一棵树」。
+- **单窗口：** `UIApplicationSupportsMultipleScenes` 关着（`project.yml`），iPad 和 Mac 上都只有一个窗口，「新建窗口」（⌘N）也去掉了（`YoinCommands` 的 `CommandGroup(replacing: .newItem)`）。原因：所有场景共用一个 `AppModel.shared`，第二个窗口只是第一个的镜像（页面路径、侧栏、Full 的状态全部共享），不是 Android 的「一个窗口一棵树」。要重新开多窗口，得先让每个场景有自己的导航状态。
 - **窗口拖动缩放：** 列宽、侧栏是否放得下、Full 的档位都按实时宽高重新算；把手拖过的宽度在窗口宽度变化时作废。
 
 ## 怎么检查

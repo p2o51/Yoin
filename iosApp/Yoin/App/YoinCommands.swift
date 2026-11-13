@@ -6,6 +6,8 @@ struct YoinCommands: Commands {
     let model: AppModel
 
     var body: some Commands {
+        // One window (UIApplicationSupportsMultipleScenes is off, docs/ipad.md): no New Window (⌘N).
+        CommandGroup(replacing: .newItem) {}
         CommandMenu("Controls") {
             let p = model.player
             let idle = p.currentTrack == nil

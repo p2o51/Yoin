@@ -30,4 +30,10 @@ final class SecondaryClickTests: XCTestCase {
         let value = Bundle.main.object(forInfoDictionaryKey: "UIApplicationSupportsIndirectInputEvents")
         XCTAssertEqual(value as? Bool, true)
     }
+
+    /// One window on iPad and on a Mac (docs/ipad.md): every scene shares AppModel.shared.
+    func test_should_haveOneWindow_when_appBundleBuilt() {
+        let manifest = Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
+        XCTAssertEqual(manifest?["UIApplicationSupportsMultipleScenes"] as? Bool, false)
+    }
 }

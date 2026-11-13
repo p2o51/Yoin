@@ -96,8 +96,10 @@ targets:
         # Only HTTPS and Apple's own crypto: no export compliance paperwork per build.
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
+        # One window, on iPad and on a Mac: every scene would share AppModel.shared, so a second window
+        # only mirrored the first (docs/ipad.md).
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: true
+          UIApplicationSupportsMultipleScenes: false
         # A pointer's clicks arrive as indirect-pointer touches with their button mask (an iPad with a
         # mouse or trackpad, the iPad app on a Mac). Without it they are plain direct touches and a
         # right-click can't be told from a tap (Theme/SecondaryClick.swift).
