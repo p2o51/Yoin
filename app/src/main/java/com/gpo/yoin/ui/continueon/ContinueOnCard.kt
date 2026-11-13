@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -44,6 +43,7 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -63,9 +63,10 @@ fun ContinueOnCard(continueOn: ContinueOn, modifier: Modifier = Modifier) {
         prompt = prompt,
         onContinue = continueOn::confirm,
         onDismiss = continueOn::dismiss,
-        // The window's card clears the navigation bar. The Tips demo's phone has none, and padding
-        // the card there by this device's bar lifted it off the demo's bottom edge.
-        modifier = modifier.navigationBarsPadding(),
+        // The window's card sits above the shell's bar (and beside the edge capsules), whose space
+        // includes the navigation bar: it overlapped the bar before. The Tips demo's phone has neither,
+        // and padding the card there by this device's chrome lifted it off the demo's bottom edge.
+        modifier = modifier.padding(LocalShellChromeInsets.current),
     )
 }
 
