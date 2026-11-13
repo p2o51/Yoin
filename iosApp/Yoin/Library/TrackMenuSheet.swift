@@ -222,8 +222,10 @@ struct TrackMenuSheet: View {
             return row + [share]
         }
         // Spotify plays its own song: only its queue takes songs, and only at the end (no Play next).
-        let queue = model.player.externalTrack != nil ? [queueQuick(next: false)]
-                                                       : [queueQuick(next: true), queueQuick(next: false)]
+        // A song Apple Music won't stream can't be queued (Android TrackMenu queueAvailable).
+        let queue = track.track.notStreamed ? []
+            : model.player.externalTrack != nil ? [queueQuick(next: false)]
+            : [queueQuick(next: true), queueQuick(next: false)]
         return queue + [favoriteQuick].compactMap { $0 } + [share]
     }
 

@@ -28,6 +28,8 @@ enum DetailCacheDTO {
         var samplingRate: Int? = nil
         var bitDepth: Int? = nil
         var channelCount: Int? = nil
+        /// Apple lists it but doesn't stream it (Track.notStreamed); nil = false, and in pages cached before it.
+        var notStreamed: Bool? = nil
     }
 
     struct Album: Codable, Sendable, Equatable {
@@ -140,7 +142,8 @@ struct DetailCacheCodec {
               rating: t.rating, artist: t.artist, starred: t.starred, playCount: t.playCount, disc: t.disc,
               bitRateKbps: t.bitRateKbps, suffix: t.suffix, trackGainDb: t.audio?.trackGainDb,
               albumGainDb: t.audio?.albumGainDb, trackPeak: t.audio?.trackPeak, albumPeak: t.audio?.albumPeak,
-              samplingRate: t.audio?.samplingRate, bitDepth: t.audio?.bitDepth, channelCount: t.audio?.channelCount)
+              samplingRate: t.audio?.samplingRate, bitDepth: t.audio?.bitDepth, channelCount: t.audio?.channelCount,
+              notStreamed: t.notStreamed ? true : nil)
     }
 
     func dto(_ a: Album) -> DetailCacheDTO.Album {
@@ -185,7 +188,7 @@ struct DetailCacheCodec {
         Track(id: MediaId(provider: t.provider, rawId: t.id), number: t.number, title: t.title,
               durationSec: t.durationSec, rating: t.rating, artist: t.artist, starred: t.starred,
               playCount: t.playCount, disc: t.disc, bitRateKbps: t.bitRateKbps, suffix: t.suffix,
-              audio: Self.audio(t))
+              audio: Self.audio(t), notStreamed: t.notStreamed == true)
     }
 
     static func audio(_ t: DetailCacheDTO.Track) -> TrackAudio? {

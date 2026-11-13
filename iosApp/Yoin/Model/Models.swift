@@ -67,6 +67,10 @@ struct Track: Identifiable, Hashable, Sendable {
     /// tags and volume leveling.
     var suffix: String? = nil
     var audio: TrackAudio? = nil
+    /// An Apple Music song Apple lists but doesn't stream here (yet): a pre-release track, one the
+    /// storefront holds back, or a library song whose catalog song was pulled (Android
+    /// `appleMusicCatalogUnavailable`). Its row is dimmed with the reason, and it never goes into a queue.
+    var notStreamed: Bool = false
 
     /// The file's own format, codec first: ["FLAC 24/96"], ["MP3 320"], ["FLAC 16/44.1", "5.1"]; empty when
     /// the server says nothing (Spotify, Apple Music).

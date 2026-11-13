@@ -106,6 +106,16 @@ struct AlbumDetailView: View {
     /// The album's rate + review sheet (Android AlbumRateSheet): the pen, the
     /// comment, the emblem and the scrapbook's review all open it.
     @State private var rating = LaunchConfig.screen == "album-rate"
+    /// The rows (by index) whose "Apple Music doesn't stream this song" line is open.
+    @State private var notStreamedReasons: Set<Int> = Self.demoNotStreamedReasons
+
+    /// `-notStreamedDemo open` (DEBUG): the demo's third row opens with its reason.
+    private static var demoNotStreamedReasons: Set<Int> {
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "notStreamedDemo") == "open" { return [2] }
+        #endif
+        return []
+    }
     /// The playlist's sleeves have opened from behind its cover (once).
     /// Screenshots of a playlist open with them settled.
     @State private var sleevesOpen = LaunchConfig.screen.hasPrefix("playlist")
@@ -941,12 +951,15 @@ struct AlbumDetailView: View {
                             .padding(.bottom, 6)
                             .modifier(bandBlur)
                     }
-                    trackRow(t).modifier(bandBlur)
+                    trackRow(t, index: i).modifier(bandBlur)
                         .trackRow(for: PlaylistEntry(album: album, track: t), context: .album(viewInScrapbook: {
                             // Page 2, scrolled to the song's piece (Android onViewInScrapbook).
                             ScrapbookFocusRequest.shared.request(songId: t.id, openSheet: false)
                             settlePage(to: 1, velocity: 0)
-                        })) { playAlbum(from: i) }
+                        })) {
+                            // A song Apple won't stream doesn't play: its tap says why (Android AlbumTrackRow).
+                            if t.notStreamed { toggleNotStreamedReason(i) } else { playAlbum(from: i) }
+                        }
                 }
                 if !isOverview(w) {
                     linerNotes
@@ -992,7 +1005,36 @@ struct AlbumDetailView: View {
         .frame(width: w)
     }
 
-    private func trackRow(_ t: Track) -> some View {
+    /// Shows or hides the reason under row [index] (a song Apple won't stream).
+    private func toggleNotStreamedReason(_ index: Int) {
+        withAnimation(Yoin.spatial) {
+            if notStreamedReasons.remove(index) == nil { notStreamedReasons.insert(index) }
+        }
+    }
+
+    /// Android UnavailableTrackAlpha.
+    static let notStreamedAlpha = 0.55
+
+    private func trackRow(_ t: Track, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            trackRowLine(t, index: index)
+            // Android UnavailableTrackReason under an album row: bodySmall onSurfaceVariant, 38 / 14 / 10.
+            if t.notStreamed && notStreamedReasons.contains(index) {
+                Text("Apple Music doesn't stream this song in your region yet.")
+                    .yoinRole(Tokens.type.bodySmall)
+                    .lineSpacing(YoinType.lineSpacing(Tokens.type.bodySmall))
+                    .foregroundStyle(app.onSurfaceVariant)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 38)
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 10)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .clipped()
+    }
+
+    private func trackRowLine(_ t: Track, index: Int) -> some View {
         let playing = model.playback.track.id == t.id
         return HStack(spacing: 12) {
             Group {
@@ -1033,7 +1075,9 @@ struct AlbumDetailView: View {
                 .monospacedDigit()
                 .yoinRole(Tokens.type.labelLarge)
                 .foregroundStyle(app.onSurfaceVariant)
-            if t.id.provider == AppleMusicMapping.provider {
+            if t.notStreamed {
+                notStreamedBadge(index)
+            } else if t.id.provider == AppleMusicMapping.provider {
                 libraryButton(t)
             } else {
                 heartButton(t)
@@ -1042,7 +1086,24 @@ struct AlbumDetailView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
         .frame(minHeight: 56)
+        .opacity(t.notStreamed ? Self.notStreamedAlpha : 1)
         .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
+    }
+
+    /// Android UnavailableTrackBadge: an 18 "?" circle in the cover's secondaryContainer, labelMedium onSecondaryContainer;
+    /// a tap shows or hides the reason under the row. Kept in the heart's 36 slot so the row doesn't shift.
+    private func notStreamedBadge(_ index: Int) -> some View {
+        Button { toggleNotStreamedReason(index) } label: {
+            Text(verbatim: "?")
+                .yoinRole(Tokens.type.labelMedium)
+                .foregroundStyle(s.onSecondaryContainer)
+                .frame(width: 18, height: 18)
+                .background(s.secondaryContainer, in: .circle)
+                .frame(width: 36, height: 36)
+                .contentShape(.circle)
+        }
+        .buttonStyle(PressScale())
+        .accessibilityLabel("Why can't this play")
     }
 
     private func hasNote(_ t: Track) -> Bool {

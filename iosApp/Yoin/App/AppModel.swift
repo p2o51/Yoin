@@ -230,7 +230,16 @@ final class AppModel {
         case "library": section = .library
         case "library-albums", "library-songs", "library-scroller", "library-artists", "library-playlists",
              "library-favorites": section = .library
-        case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom": path = [.album(library.albums()[0])]
+        case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom":
+            var album = library.albums()[0]
+            #if DEBUG
+            // `-notStreamedDemo YES`: the mock album's third and fourth songs as Apple Music songs Apple won't
+            // stream; `open` also opens the third one's reason.
+            if UserDefaults.standard.string(forKey: "notStreamedDemo") != nil {
+                for i in [2, 3] where album.tracks.indices.contains(i) { album.tracks[i].notStreamed = true }
+            }
+            #endif
+            path = [.album(album)]
         case "np", "np-touch": npExpanded = true
         case "np-queue": npExpanded = true; queueSheetOpen = true
         case "np-airplay": npExpanded = true
@@ -638,8 +647,11 @@ final class AppModel {
     /// Replaces the queue with [entries] and plays [startAt]; shuffle on or off.
     /// [shuffle]: a Shuffle play (the list starts shuffled, shuffle on). An ordinary start keeps the
     /// remembered play mode (Codex F03; Android PlaybackManager keeps it across starts).
-    func play(_ entries: [PlaylistEntry], startAt: Int = 0, shuffle: Bool = false) {
+    /// A [startAt] names the song the listener picked; without one (Play, Shuffle) the list starts at its
+    /// first song. Songs Apple Music won't stream stay out of the queue (PlayableQueue.start).
+    func play(_ entries: [PlaylistEntry], startAt: Int? = nil, shuffle: Bool = false) {
         startGeneration += 1
+        let (entries, startAt) = PlayableQueue.start(entries, startAt: startAt ?? 0, explicitStart: startAt != nil)
         let tracks = entries.compactMap(store.playable)
         guard !tracks.isEmpty else { return }
         playingFrom = switch path.last ?? padSelection.map({ .album($0) }) {
@@ -705,8 +717,9 @@ final class AppModel {
 
     /// Play next (stacked so the list keeps its order) or Add to queue.
     /// [done] says whether the songs really went in (the sheet only says so then).
+    /// Songs Apple Music won't stream are left out (PlayableQueue.queueable).
     func enqueue(_ entries: [PlaylistEntry], next: Bool, done: (@MainActor (Bool) -> Void)? = nil) {
-        let tracks = entries.compactMap(store.playable)
+        let tracks = PlayableQueue.queueable(entries).compactMap(store.playable)
         guard !tracks.isEmpty else { done?(false); return }
         // Spotify plays its own song: Yoin's queue isn't what plays next, Spotify's is. Add to queue
         // goes into Spotify's queue; Play next (Android hides it on Spotify) and other services' songs

@@ -8748,6 +8748,26 @@
           }
         }
       }
+    },
+    "Apple Music doesn't stream this song in your region yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music 暂未在你所在的地区提供这首歌的播放。"
+          }
+        }
+      }
+    },
+    "Why can't this play": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法播放的原因"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
