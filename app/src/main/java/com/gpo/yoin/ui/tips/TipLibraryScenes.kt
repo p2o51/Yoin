@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -290,7 +291,7 @@ internal fun LibrarySearchDemo(playing: Boolean) {
 /**
  * Keyboard shortcuts: Space pauses and plays the mini player, Ctrl + → moves
  * it to the next song, Ctrl + K opens search — a keyboard's keys as keycaps
- * above the bar, pressed by the dot (or the user).
+ * on a tray of their own that the bar sits on, pressed by the dot (or the user).
  */
 @Composable
 internal fun KeyboardShortcutsDemo(playing: Boolean) {
@@ -340,22 +341,31 @@ internal fun KeyboardShortcutsDemo(playing: Boolean) {
             onSearch = { searching = true },
             nowPlaying = track,
             playing = !paused,
+            underBar = {
+                // The keys' own tray, filled, from the phone's bottom edge up past
+                // the album grid's last row: the bar sits on it, the keys above the bar.
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(
+                            MaterialTheme.colorScheme.surfaceContainer,
+                            RoundedCornerShape(topStart = KeycapTrayCorner, topEnd = KeycapTrayCorner),
+                        )
+                        .padding(top = KeycapTrayPadding, bottom = KeycapLift),
+                    horizontalArrangement = Arrangement.spacedBy(KeycapGap, Alignment.CenterHorizontally),
+                ) {
+                    DemoKey.entries.forEach { key ->
+                        DemoKeycaps(
+                            key = key,
+                            pressed = pressed == key,
+                            onPress = { press(key) },
+                            modifier = Modifier.demoTarget(key.name),
+                        )
+                    }
+                }
+            },
         )
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = KeycapLift),
-            horizontalArrangement = Arrangement.spacedBy(KeycapGap),
-        ) {
-            DemoKey.entries.forEach { key ->
-                DemoKeycaps(
-                    key = key,
-                    pressed = pressed == key,
-                    onPress = { press(key) },
-                    modifier = Modifier.demoTarget(key.name),
-                )
-            }
-        }
         DemoLibrarySearch(visible = searching, onClose = { searching = false })
     }
 }
@@ -432,6 +442,7 @@ private fun BoxScope.DemoLibraryPage(
     nowPlaying: Track? = null,
     playing: Boolean = false,
     onMiniPlayerLongPress: (() -> Unit)? = null,
+    underBar: @Composable BoxScope.() -> Unit = {},
 ) {
     val albums = demoLibraryAlbums()
     var tab by remember { mutableStateOf(LibraryTab.All) }
@@ -486,6 +497,7 @@ private fun BoxScope.DemoLibraryPage(
                 }
             },
     )
+    underBar()
     YoinButtonGroup(
         selectedSection = YoinSection.LIBRARY,
         currentTrackId = nowPlaying?.id?.toString(),
@@ -667,6 +679,10 @@ private val ScrollTravel = 360.dp
 
 /** The keycaps sit this far above the phone's bottom edge, clear of the bar. */
 private val KeycapLift = 132.dp
+
+/** The keycaps' tray: its top corners and the room above the keys. */
+private val KeycapTrayCorner = 28.dp
+private val KeycapTrayPadding = 16.dp
 private val KeycapGap = 12.dp
 private val KeycapInnerGap = 4.dp
 private val KeycapMinSize = 40.dp
