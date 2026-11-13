@@ -41,5 +41,4 @@
 
     <string name="memory_ledger_since">从 %1$s 开始记。所有资料算同一个人。</string>
     <string name="memory_ledger_empty_title">还没有回忆</string>
-    <string name="memory_ledger_empty_body">听歌时写下一笔，或者给专辑打个分，就会出现在这里。</string>
 </resources>

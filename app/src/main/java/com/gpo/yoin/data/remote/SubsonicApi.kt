@@ -24,6 +24,11 @@ interface SubsonicApi {
         @Query("id") id: String,
     ): SubsonicResponse
 
+    @GET("rest/getSong.view")
+    suspend fun getSong(
+        @Query("id") id: String,
+    ): SubsonicResponse
+
     @GET("rest/getArtists.view")
     suspend fun getArtists(): SubsonicResponse
 

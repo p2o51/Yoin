@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
@@ -625,6 +626,9 @@ internal fun LazyGridState.seamScrolledPx(): Float =
     if (firstVisibleItemIndex > 0) Float.POSITIVE_INFINITY else firstVisibleItemScrollOffset.toFloat()
 
 internal fun LazyListState.seamScrolledPx(): Float =
+    if (firstVisibleItemIndex > 0) Float.POSITIVE_INFINITY else firstVisibleItemScrollOffset.toFloat()
+
+internal fun LazyStaggeredGridState.seamScrolledPx(): Float =
     if (firstVisibleItemIndex > 0) Float.POSITIVE_INFINITY else firstVisibleItemScrollOffset.toFloat()
 
 /** How far the list can still scroll toward its end; only exact once the last item is laid out. */

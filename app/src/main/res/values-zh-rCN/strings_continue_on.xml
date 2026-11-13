@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="continue_on_from">来自 %1$s</string>
+    <string name="continue_on_other_device">另一台设备</string>
+    <string name="continue_on_unknown_song">未知歌曲</string>
+    <string name="continue_on_playing">正在播放</string>
+    <string name="continue_on_paused">已暂停</string>
+    <string name="continue_on_continue_here">在这里继续</string>
+    <string name="continue_on_not_now">不用了</string>
+    <string name="continue_on_ok">好</string>
+    <string name="continue_on_no_account">这台设备还没有添加这个账号。在设置里添加后就能在这里继续。</string>
+    <string name="continue_on_failed">这台读不到这首歌。</string>
+    <string name="continue_on_other_still_playing">已在这台播放。另一台没有回应，可能还在放。</string>
+</resources>

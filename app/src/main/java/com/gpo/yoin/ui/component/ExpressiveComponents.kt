@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -441,7 +442,8 @@ internal fun ExpressiveSegmentChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trailingIcon: ImageVector? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val containerColor by animateColorAsState(
@@ -489,6 +491,10 @@ internal fun ExpressiveSegmentChip(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (trailingIcon != null) {
+            Spacer(Modifier.width(6.dp))
+            Icon(trailingIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+        }
     }
 }
 

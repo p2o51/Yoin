@@ -424,11 +424,24 @@ class PlaybackManager(
         activityContext: ActivityContext = ActivityContext.None,
         shuffled: Boolean = false,
         explicitStart: Boolean = true,
+        /** Where the started track begins (a Continue On hand-off picks up mid-song); local players only. */
+        startPositionMs: Long = 0L,
+        /** Load it without playing (a hand-off of a song paused on the other device); local players only. */
+        startPaused: Boolean = false,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
         // The user chose this: a queue still being read must not take over when it lands.
         cancelLoadingStart()
-        startPlayable(tracks, startIndex, source, activityContext, shuffled, explicitStart)
+        startPlayable(
+            tracks,
+            startIndex,
+            source,
+            activityContext,
+            shuffled,
+            explicitStart,
+            startPositionMs,
+            startPaused,
+        )
     }
 
     /**
@@ -503,7 +516,9 @@ class PlaybackManager(
         source: MusicSource,
         activityContext: ActivityContext,
         shuffled: Boolean,
-        explicitStart: Boolean
+        explicitStart: Boolean,
+        startPositionMs: Long = 0L,
+        startPaused: Boolean = false,
     ) {
         val queue = playableStartQueue(
             tracks,
@@ -511,7 +526,9 @@ class PlaybackManager(
             explicitStart = explicitStart && !shuffled,
             sourceId = source.id
         )
-        startQueue(queue.tracks, queue.startIndex, source, activityContext, shuffled)
+        // The position belongs to the asked-for track: none when another one starts in its place.
+        val position = startPositionMs.takeIf { queue.tracks[queue.startIndex].id == tracks[startIndex].id } ?: 0L
+        startQueue(queue.tracks, queue.startIndex, source, activityContext, shuffled, position, startPaused)
     }
 
     private fun startQueue(
@@ -519,7 +536,9 @@ class PlaybackManager(
         startIndex: Int,
         source: MusicSource,
         activityContext: ActivityContext,
-        shuffled: Boolean
+        shuffled: Boolean,
+        startPositionMs: Long = 0L,
+        startPaused: Boolean = false,
     ) {
         val generation = ++playbackGeneration
         val profileId = repository.currentProfileId()
@@ -561,9 +580,12 @@ class PlaybackManager(
                             if (generation != playbackGeneration || profileId != repository.currentProfileId()) return@runCatching
                             val playMode = preferredPlayMode
                             executeOrQueue { player ->
-                                player.setMediaItems(items, startIndex, 0L)
+                                player.setMediaItems(items, startIndex, startPositionMs.coerceAtLeast(0L))
+                                // A player that was playing something else keeps playWhenReady through
+                                // setMediaItems: without this the paused hand-off would start by itself.
+                                if (startPaused) player.pause()
                                 player.prepare()
-                                player.play()
+                                if (!startPaused) player.play()
                                 player.applyPlayMode(playMode)
                             }
                         }
@@ -579,8 +601,8 @@ class PlaybackManager(
                                 if (generation != playbackGeneration || profileId != repository.currentProfileId()) return@runCatching
                                 val playMode = preferredPlayMode
                                 executeOrQueue { player ->
-                                    player.setMediaItems(items, startIndex, 0L)
-                                    player.playWhenReady = true
+                                    player.setMediaItems(items, startIndex, startPositionMs.coerceAtLeast(0L))
+                                    player.playWhenReady = !startPaused
                                     player.prepare()
                                     player.applyPlayMode(playMode)
                                 }
@@ -732,6 +754,15 @@ class PlaybackManager(
             }
             syncState()
         }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    /**
+     * Where the playing track is right now. [playbackState]'s position only ticks while a Yoin window is
+     * started; a Continue On pause asked for from another device can come with Yoin in the background.
+     */
+    fun livePositionMs(): Long = when (activeBackend) {
+        ActiveBackend.LOCAL -> controller?.currentPosition?.coerceAtLeast(0L) ?: _playbackState.value.position
+        else -> _playbackState.value.position
     }
 
     fun pause() {

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +53,7 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.launch
 
 /**
  * One row the user can pick inside [AddToPlaylistSheet].
@@ -84,7 +87,8 @@ data class AddToPlaylistRow(
  *   after the user types a name; implementation typically creates the
  *   playlist and then adds the pending tracks.
  * @param onAddToExisting Invoked with the chosen playlist id when the
- *   user taps an existing row.
+ *   user taps an existing row. Like [onCreateAndAdd], it runs once the
+ *   sheet has slid away.
  * @param onDismiss Called when the sheet is swiped / back-pressed away.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,6 +103,18 @@ fun AddToPlaylistSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     var showCreateDialog by remember { mutableStateOf(false) }
     val haptics = rememberYoinHaptics()
+    val scope = rememberCoroutineScope()
+    var leaving by remember { mutableStateOf(false) }
+    // The add callbacks clear the caller's target, which drops the sheet from
+    // composition: slide it away first. The action is a write, so it runs when
+    // the hide ends however it ends; a sheet that is leaving takes no more taps.
+    val confirmThenLeave: (() -> Unit) -> Unit = { action ->
+        if (!leaving) {
+            leaving = true
+            haptics.performConfirm()
+            scope.launch { sheetState.hide() }.invokeOnCompletion { action() }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -125,7 +141,11 @@ fun AddToPlaylistSheet(
             val navBottom = WindowInsets.navigationBars
                 .asPaddingValues()
                 .calculateBottomPadding()
+            val listState = rememberLazyListState()
             LazyColumn(
+                state = listState,
+                // The heading stays above; the list's top edge is the tide line (owner 2026-11-06).
+                modifier = Modifier.sheetScrollEdge(listState),
                 // No height cap and no outer bottom padding — the sheet is
                 // free to grow up to its natural max and the list runs
                 // edge-to-edge against the sheet boundary. The nav-bar
@@ -138,8 +158,10 @@ fun AddToPlaylistSheet(
                     item("create") {
                         CreateNewRow(
                             onClick = {
-                                haptics.performTick()
-                                showCreateDialog = true
+                                if (!leaving) {
+                                    haptics.performTick()
+                                    showCreateDialog = true
+                                }
                             },
                         )
                     }
@@ -150,10 +172,7 @@ fun AddToPlaylistSheet(
                 ) { row ->
                     PlaylistRow(
                         row = row,
-                        onClick = {
-                            haptics.performConfirm()
-                            onAddToExisting(row.id)
-                        },
+                        onClick = { confirmThenLeave { onAddToExisting(row.id) } },
                     )
                 }
             }
@@ -164,9 +183,8 @@ fun AddToPlaylistSheet(
         CreatePlaylistDialog(
             onDismiss = { showCreateDialog = false },
             onConfirm = { name ->
-                haptics.performConfirm()
                 showCreateDialog = false
-                onCreateAndAdd(name)
+                confirmThenLeave { onCreateAndAdd(name) }
             },
         )
     }

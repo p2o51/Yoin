@@ -10,6 +10,7 @@ import com.gpo.yoin.data.local.NeoDBConfig
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.data.remote.ai.AiProviderPrefs
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthResult
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.ui.common.UiText
@@ -83,16 +84,20 @@ class SettingsViewModel(
         val geminiApiKey: String,
         val geminiTargetLanguage: String,
         val neoDb: NeoDBSettingsBundle,
+        val aiPrefs: AiProviderPrefs,
     )
 
     private val miscSettingsBundleFlow: StateFlow<MiscSettingsBundle> = combine(
         geminiConfigFlow,
         neoDbSettingsBundleFlow,
-    ) { geminiConfig, neoDb ->
+        // The AI page writes these from its own ViewModel; the row's summary follows them live.
+        container.aiProviderStore.prefs,
+    ) { geminiConfig, neoDb, aiPrefs ->
         MiscSettingsBundle(
             geminiApiKey = geminiConfig.apiKey,
             geminiTargetLanguage = GeminiConfig.normalizeTargetLanguage(geminiConfig.targetLanguage),
             neoDb = neoDb,
+            aiPrefs = aiPrefs,
         )
     }
         .stateIn(
@@ -102,6 +107,7 @@ class SettingsViewModel(
                 "",
                 GeminiConfig.DEFAULT_TARGET_LANGUAGE,
                 NeoDBSettingsBundle(NeoDBConfig.DEFAULT_INSTANCE, ""),
+                container.aiProviderStore.prefs.value,
             ),
         )
 
@@ -139,6 +145,7 @@ class SettingsViewModel(
             cacheSizeBytes = cacheSize,
             geminiApiKey = misc.geminiApiKey,
             geminiTargetLanguage = misc.geminiTargetLanguage,
+            aiPrefs = misc.aiPrefs,
             neoDbInstance = misc.neoDb.instance,
             neoDbAccessToken = misc.neoDb.accessToken,
         )
@@ -246,26 +253,6 @@ class SettingsViewModel(
     }
 
     // ── Misc ──────────────────────────────────────────────────────────
-
-    fun saveGeminiApiKey(key: String) {
-        viewModelScope.launch {
-            val current = database.geminiConfigDao().getConfig().first()
-            database.geminiConfigDao().upsert(
-                (current ?: GeminiConfig(apiKey = "")).copy(apiKey = key.trim()),
-            )
-        }
-    }
-
-    fun saveGeminiTargetLanguage(language: String) {
-        val normalized = GeminiConfig.normalizeTargetLanguage(language)
-        viewModelScope.launch {
-            val current = database.geminiConfigDao().getConfig().first()
-            val existing = current ?: GeminiConfig(apiKey = "")
-            if (GeminiConfig.normalizeTargetLanguage(existing.targetLanguage) == normalized) return@launch
-            database.geminiConfigDao().upsert(existing.copy(targetLanguage = normalized))
-            database.songAboutEntryDao().deleteGenerated()
-        }
-    }
 
     /**
      * 保存 NeoDB BYOK 配置。Instance 落 Room；token 走 [NeoDbTokenStore]

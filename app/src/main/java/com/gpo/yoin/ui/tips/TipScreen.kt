@@ -61,7 +61,9 @@ import androidx.graphics.shapes.RoundedPolygon
 import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MorphProgressShape
+import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.YoinPageWidths
+import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.home.HomeBubbleTip
 import com.gpo.yoin.ui.settings.SettingsBackButton
@@ -89,12 +91,12 @@ internal fun TipScreen(
     val context = LocalContext.current
     val store = LocalTipReadStore.current ?: remember(context) { SharedPrefsTipReadStore.get(context) }
     val read by store.read.collectAsState()
-    val tips = HomeBubbleTip.entries
-    val pager = rememberPagerState(initialPage = tips.indexOf(startTip)) { tips.size }
+    val tips = remember { HomeBubbleTip.available() }
+    val pager = rememberPagerState(initialPage = tips.indexOf(startTip).coerceAtLeast(0)) { tips.size }
     val scope = rememberCoroutineScope()
     val haptics = rememberYoinHaptics()
     val current = tips[pager.currentPage]
-    val nextUnread = nextUnreadTip(current, read)
+    val nextUnread = nextUnreadTip(current, read, tips)
     val pageSpring = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val bars = WindowInsets.systemBars.asPaddingValues()
     val direction = LocalLayoutDirection.current
@@ -210,8 +212,12 @@ private fun TipPage(
     pager: PagerState,
     modifier: Modifier = Modifier,
 ) {
+    val scroll = rememberScrollState()
     Box(
-        modifier = modifier.verticalScroll(rememberScrollState()),
+        // A long tip scrolls under the tide line below the back button's row, as any page under fixed chrome.
+        modifier = modifier
+            .seamDissolveViewport(top = SeamTop.Chrome) { scroll.value.toFloat() }
+            .verticalScroll(scroll),
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(

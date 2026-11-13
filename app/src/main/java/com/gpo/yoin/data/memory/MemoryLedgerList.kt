@@ -167,9 +167,17 @@ sealed interface MemoryTimelineRow {
         override val key: String get() = "album:$month:${item.album.key}"
     }
 
-    /** A small card: a song note, or a mark whose album Yoin never learned. */
+    /** A small card: a song note (its album known or not). */
     data class Note(val entry: MemoryLedgerEntry) : MemoryTimelineRow {
         override val key: String get() = "note:${entry.id}"
+    }
+
+    /**
+     * The month's song scores whose album nobody could name, together on one card (owner 2026-11-12: a run of
+     * identical 「歌曲评分 · 不知道是哪张专辑」 rows was tiring to read). Newest first.
+     */
+    data class Scores(val month: YearMonth, val entries: List<MemoryLedgerEntry>) : MemoryTimelineRow {
+        override val key: String get() = "scores:$month"
     }
 
     /** Empty months, newest first: [from] is the later month, [to] the earlier (the same for one month). */
@@ -209,9 +217,13 @@ fun memoryTimelineRows(entries: List<MemoryLedgerEntry>, today: LocalDate, zone:
             val albums = inMonth.filter { it.kind != MemoryLedgerKind.SongNote && it.album != null }
                 .groupBy { it.album!!.key }
             val shown = HashSet<String>()
+            val orphanScores = inMonth.filter { it.kind == MemoryLedgerKind.TrackRating && it.album == null }
             inMonth.forEach { entry ->
                 val album = entry.album
-                if (entry.kind == MemoryLedgerKind.SongNote || album == null) {
+                if (entry.kind == MemoryLedgerKind.TrackRating && album == null) {
+                    // One card for all of them, where the newest falls.
+                    if (entry === orphanScores.first()) rows += MemoryTimelineRow.Scores(month, orphanScores)
+                } else if (entry.kind == MemoryLedgerKind.SongNote || album == null) {
                     rows += MemoryTimelineRow.Note(entry)
                 } else if (shown.add(album.key)) {
                     val item = albumItem(album, albums.getValue(album.key))

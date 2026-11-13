@@ -70,10 +70,10 @@ class MemoryLedgerTest {
         )
         val looked = mutableListOf<String>()
 
-        val entries = buildMemoryLedger(rows, profileIds = null) { profile, provider, id ->
+        val entries = buildMemoryLedger(rows, profileIds = null, lookup = { profile, provider, id ->
             looked += id
             if (id == "cached") MemoryLedgerAlbum(profile, provider, id, "From the cache", "", "c") else null
-        }
+        })
 
         val byId = entries.associate { it.id to it.album }
         assertEquals("From the note", byId["album-note:n1"]?.name)
@@ -82,6 +82,70 @@ class MemoryLedgerTest {
         assertFalse("album-note:n3" in byId)
         // The noted album has no cover: the cache is asked for one, once per album.
         assertEquals(listOf("noted", "cached", "nowhere"), looked)
+    }
+
+    @Test
+    fun should_nameAScoresAlbum_fromItsSongsLookup() = runTest {
+        val entries = buildMemoryLedger(
+            MemoryLedgerRows(
+                trackRatings = listOf(
+                    LedgerTrackRatingRow("a", "subsonic", "song1", 7.9f, at(today), linkedAlbumId = null),
+                ),
+            ),
+            profileIds = null,
+            knownTrack = { profile, provider, song ->
+                if (profile == "a" && provider == "subsonic" && song == "song1") {
+                    LedgerTrack("Pulse", "al1", "Pulse EP", "Regene", "c-al1")
+                } else {
+                    null
+                }
+            },
+        )
+
+        val entry = entries.single()
+        assertEquals("Pulse", entry.trackTitle)
+        assertEquals("al1", entry.album?.albumId)
+        assertEquals("Pulse EP", entry.album?.name)
+        assertEquals("c-al1", entry.album?.coverKey)
+    }
+
+    @Test
+    fun should_keepAnAlbumsOwnMarks_when_onlyItsSongsLookupNamesIt() = runTest {
+        // Synced from another device: the album was never played or opened here, and its note carries no name.
+        val rating = AlbumRating(
+            profileId = "a",
+            albumId = "al1",
+            rating = 8.5f,
+            review = "kept",
+            neoDbReviewUuid = null,
+            updatedAt = at(today),
+        )
+
+        val entries = buildMemoryLedger(
+            MemoryLedgerRows(
+                albumNotes = listOf(albumNote("n1", "a", "al1", today)),
+                albumRatings = listOf(rating),
+                trackRatings = listOf(trackScore("a", "song1", null, today), trackScore("a", "song2", null, today)),
+                titles = listOf(AlbumMemoryTitle("a", "subsonic", "al1", "Title", at(today))),
+            ),
+            profileIds = null,
+            knownTrack = { _, _, song -> LedgerTrack("Song $song", "al1", "Pulse EP", "Regene", "c-al1") },
+        )
+
+        // The album's note, score, review and title stand beside the two song scores that named it.
+        assertEquals(
+            listOf(
+                MemoryLedgerKind.AlbumNote,
+                MemoryLedgerKind.Review,
+                MemoryLedgerKind.Title,
+                MemoryLedgerKind.AlbumRating,
+                MemoryLedgerKind.TrackRating,
+                MemoryLedgerKind.TrackRating,
+            ),
+            entries.map { it.kind }.sorted(),
+        )
+        assertTrue(entries.all { it.album?.name == "Pulse EP" })
+        assertEquals(2, memoryLedgerStats(entries).writings)
     }
 
     @Test
@@ -321,14 +385,21 @@ class MemoryLedgerTest {
     }
 
     @Test
-    fun should_keepAScoreWithoutAlbum_asASmallCard() {
+    fun should_gatherAMonthsScoresWithoutAlbum_intoOneCard() {
         val rows = memoryTimelineRows(
-            listOf(mark("s", today, null, MemoryLedgerKind.TrackRating, song = "s", score = 8f)),
+            listOf(
+                mark("s", today, null, MemoryLedgerKind.TrackRating, song = "s", score = 8f),
+                mark("n", today.minusDays(1), null, MemoryLedgerKind.SongNote, song = "n", text = "hm"),
+                mark("t", today.minusDays(2), null, MemoryLedgerKind.TrackRating, song = "t", score = 6f),
+            ),
             today,
             zone,
         )
 
-        assertTrue(rows[1] is MemoryTimelineRow.Note)
+        val scores = rows[1] as MemoryTimelineRow.Scores
+        assertEquals(listOf("s", "t"), scores.entries.map { it.id })
+        assertTrue(rows[2] is MemoryTimelineRow.Note)
+        assertEquals(3, rows.size)
     }
 
     @Test

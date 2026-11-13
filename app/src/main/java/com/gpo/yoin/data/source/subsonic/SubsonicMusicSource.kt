@@ -65,6 +65,15 @@ class SubsonicMusicSource(
         override suspend fun getAlbum(id: MediaId): Album? =
             unwrap(api.getAlbum(id.requireSubsonic())).album?.toAlbum()
 
+        // A song the server no longer has answers with error 70, not an empty body: that is "gone" (null),
+        // as the interface says, so whoever asks stores the answer instead of asking again for ever.
+        override suspend fun getTrack(id: MediaId): Track? = try {
+            unwrap(api.getSong(id.requireSubsonic())).song?.toTrack()
+        } catch (error: SubsonicException) {
+            if (error.code != ERROR_DATA_NOT_FOUND) throw error
+            null
+        }
+
         // The server's own "recently played" list (getAlbumList2 type=recent).
         override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> =
             getAlbumList(type = "recent", size = size, offset = 0)
@@ -362,6 +371,9 @@ class SubsonicMusicSource(
     }
 
     companion object {
+        /** Subsonic's "the requested data was not found". */
+        private const val ERROR_DATA_NOT_FOUND = 70
+
         fun fromProfileCredentials(
             credentials: ProfileCredentials.Subsonic,
         ): SubsonicMusicSource = SubsonicMusicSource(

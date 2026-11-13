@@ -96,6 +96,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.ui.component.AlbumVersionTitle
 import com.gpo.yoin.ui.home.AccountSwitcherViewModel
@@ -196,8 +197,16 @@ private val LibraryLandscapeSearchWidth = 208.dp
 // Compact keeps Fixed(3) because it also spans sub-389dp windows (360dp
 // handsets, display-size scaling, split-screen narrow) where Adaptive
 // would resolve to 2 columns. Medium, Tabletop and Wide share one cell.
+//
+// A shelf too short to fill the page (owner 2026-11-12) grows its cells
+// past Compact: pass [itemCount] and the grid's [viewportHeight]
+// (LibrarySparseGrid.kt). Search results keep the usual cells.
 @Composable
-private fun libraryGridCells(): GridCells {
+private fun libraryGridCells(
+    itemCount: Int = -1,
+    viewportHeight: Dp = Dp.Unspecified,
+    leading: Dp = 0.dp,
+): GridCells {
     val windowInfo = LocalYoinWindowInfo.current
     // Height first (断点交接 §4): a landscape handset's short window takes
     // ~100dp cells — 6 columns, two whole rows on the first screen — whether
@@ -205,7 +214,12 @@ private fun libraryGridCells(): GridCells {
     if (windowInfo.isCompactHeight) return GridCells.Adaptive(minSize = LibraryGridLandscapeMinSize)
     return when (windowInfo.layoutMode) {
         LayoutMode.Compact -> GridCells.Fixed(3)
-        LayoutMode.Medium, LayoutMode.Tabletop, LayoutMode.Wide -> GridCells.Adaptive(minSize = LibraryGridMinSize)
+        LayoutMode.Medium, LayoutMode.Tabletop, LayoutMode.Wide ->
+            if (itemCount > 0 && viewportHeight.isSpecified) {
+                LibrarySparseCells(LibraryGridMinSize, itemCount, viewportHeight, leading)
+            } else {
+                GridCells.Adaptive(minSize = LibraryGridMinSize)
+            }
     }
 }
 
@@ -1322,11 +1336,15 @@ private fun ArtistsTabContent(
         return
     }
     val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
-    Box(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         // 3-column portrait grid on phones (one artist per row wasted most of
         // the width); adaptive at Medium+ — see libraryGridCells.
         LazyVerticalGrid(
-            columns = libraryGridCells(),
+            columns = libraryGridCells(
+                itemCount = artists.size,
+                viewportHeight = if (constraints.hasBoundedHeight) maxHeight - 8.dp - floatingBottomGroupContentPadding() else Dp.Unspecified,
+                leading = if (sortRow.shown) LibrarySparseSortRow else 0.dp,
+            ),
             state = gridState,
             // Items dissolve (artwork) and fade (text) into the chips above
             // instead of being cut at the grid's top edge.
@@ -1508,9 +1526,13 @@ private fun AlbumsTabContent(
         return
     }
     val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
-    Box(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         LazyVerticalGrid(
-            columns = libraryGridCells(),
+            columns = libraryGridCells(
+                itemCount = albums.size,
+                viewportHeight = if (constraints.hasBoundedHeight) maxHeight - 8.dp - floatingBottomGroupContentPadding() else Dp.Unspecified,
+                leading = if (sortRow.shown) LibrarySparseSortRow else 0.dp,
+            ),
             state = gridState,
             // Items dissolve (artwork) and fade (text) into the chips above
             // instead of being cut at the grid's top edge.
@@ -1647,9 +1669,13 @@ private fun AllTabContent(
         return
     }
     val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
-    Box(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         LazyVerticalGrid(
-            columns = libraryGridCells(),
+            columns = libraryGridCells(
+                itemCount = items.size,
+                viewportHeight = if (constraints.hasBoundedHeight) maxHeight - 8.dp - floatingBottomGroupContentPadding() else Dp.Unspecified,
+                leading = if (sortRow.shown) LibrarySparseSortRow else 0.dp,
+            ),
             state = gridState,
             modifier = Modifier
                 .fillMaxSize()

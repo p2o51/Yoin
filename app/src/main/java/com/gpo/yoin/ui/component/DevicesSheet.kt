@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -180,7 +181,11 @@ fun DevicesSheet(
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
+                val listState = rememberLazyListState()
                 LazyColumn(
+                    state = listState,
+                    // The heading stays above; the list's top edge is the tide line (owner 2026-11-06).
+                    modifier = Modifier.sheetScrollEdge(listState),
                     contentPadding = PaddingValues(
                         start = 16.dp,
                         top = 8.dp,

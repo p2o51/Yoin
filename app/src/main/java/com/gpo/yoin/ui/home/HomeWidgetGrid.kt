@@ -216,7 +216,12 @@ internal fun HomeWidgetGridSection(
                 targetState = content,
                 contentKey = { it.key },
                 transitionSpec = {
-                    if (reduced) {
+                    // A new grid SPEC is the width moving (the column or the
+                    // Now Playing panel opening or closing, a rotation): the
+                    // shelf takes its new layout in place, once — a crossfade
+                    // there ghosted the whole page at the tap (2026-11-12).
+                    // A template / removal change at the same width still fades.
+                    if (reduced || initialState.spec != targetState.spec) {
                         ContentTransform(EnterTransition.None, ExitTransition.None, sizeTransform = null)
                     } else {
                         // No SizeTransform: its animated WIDTH lags a container

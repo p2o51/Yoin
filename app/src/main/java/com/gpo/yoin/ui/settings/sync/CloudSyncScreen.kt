@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.settings.sync
 
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.SeamTop
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -278,6 +280,7 @@ fun CloudSyncContent(
 
     // Large title → app-bar title handoff, as on the other Settings pages.
     val viewportTop = remember { mutableFloatStateOf(0f) }
+    val scroll = rememberScrollState()
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
     val headlineHeight = remember { mutableFloatStateOf(1f) }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -314,7 +317,9 @@ fun CloudSyncContent(
                         .fillMaxSize()
                         .padding(innerPadding)
                         .onGloballyPositioned { viewportTop.floatValue = it.positionInWindow().y }
-                        .verticalScroll(rememberScrollState())
+                        // Rows break up and text fades under the bar, as on Settings itself.
+                        .seamDissolveViewport(top = SeamTop.Chrome) { scroll.value.toFloat() }
+                        .verticalScroll(scroll)
                         .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                 ) {
                     CloudSyncHeadline(

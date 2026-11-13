@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.settings.service
 
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.SeamTop
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -190,6 +192,8 @@ fun ServiceSetupContent(
     // and are read only inside the bar title's graphicsLayer, so scrolling
     // redraws one layer and never recomposes the page.
     val viewportTop = remember { mutableFloatStateOf(0f) }
+    val scroll = rememberScrollState()
+    val sideScroll = rememberScrollState()
     val heroTitleTop = remember { mutableFloatStateOf(Float.NaN) }
     val heroTitleHeight = remember { mutableFloatStateOf(1f) }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -295,7 +299,8 @@ fun ServiceSetupContent(
                             modifier = Modifier
                                 .weight(0.58f)
                                 .fillMaxHeight()
-                                .verticalScroll(rememberScrollState())
+                                .seamDissolveViewport(top = SeamTop.Chrome) { sideScroll.value.toFloat() }
+                                .verticalScroll(sideScroll)
                                 .padding(end = 16.dp, top = 4.dp, bottom = 24.dp + navBottom),
                             verticalArrangement = Arrangement.spacedBy(28.dp),
                         ) {
@@ -315,7 +320,9 @@ fun ServiceSetupContent(
                         .imePadding()
                         .padding(innerPadding)
                         .onGloballyPositioned { viewportTop.floatValue = it.positionInWindow().y }
-                        .verticalScroll(rememberScrollState())
+                        // Rows break up and text fades under the bar, as on Settings itself.
+                        .seamDissolveViewport(top = SeamTop.Chrome) { scroll.value.toFloat() }
+                        .verticalScroll(scroll)
                         .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                     verticalArrangement = Arrangement.spacedBy(28.dp),
                 ) {

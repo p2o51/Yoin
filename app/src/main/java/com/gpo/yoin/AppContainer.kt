@@ -37,6 +37,9 @@ import com.gpo.yoin.data.integration.neodb.NeoDBApi
 import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.integration.neodb.NeoDbRestoreGuard
 import com.gpo.yoin.data.integration.neodb.NeoDbTokenStore
+import com.gpo.yoin.data.integration.neodb.NeoDbVoicesService
+import com.gpo.yoin.data.local.AiProviderStore
+import com.gpo.yoin.data.local.FileAiProviderStore
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.LibraryRecentsSource
 import com.gpo.yoin.data.repository.RoomLibraryRecentsSource
@@ -614,6 +617,17 @@ class AppContainer(private val context: Context) {
         ExperienceSessionStore()
     }
 
+    /** Android 17's Continue On: hands playback to another device and takes it from one (docs/continue-on.md). */
+    val continueOn: com.gpo.yoin.player.continueon.ContinueOn by lazy {
+        com.gpo.yoin.player.continueon.ContinueOn(
+            context = context,
+            playback = playbackManager,
+            profiles = profileManager,
+            accountKey = { profile -> cloudSync.accountKeys.of(profile) },
+            requestNowPlaying = experienceSessionStore::requestNowPlaying,
+        )
+    }
+
     /** The mini player's progress between position ticks, shared by every window's pill. */
     val playbackProgressSmoother: com.gpo.yoin.ui.component.PlaybackProgressSmoother by lazy {
         com.gpo.yoin.ui.component.PlaybackProgressSmoother { playbackManager.playbackState.value.duration }
@@ -666,6 +680,17 @@ class AppContainer(private val context: Context) {
             tokenStore = neoDbTokenStore,
             mappingDao = database.externalMappingDao(),
             albumRatingDao = database.albumRatingDao(),
+        )
+    }
+
+    /** Others' words on an album from NeoDB (the "别人怎么说" page); reads only, works signed out. */
+    val neoDbVoicesService: NeoDbVoicesService by lazy {
+        NeoDbVoicesService(
+            api = neoDbApi,
+            configDao = database.neoDbConfigDao(),
+            tokenStore = neoDbTokenStore,
+            client = neoDbHttpClient,
+            json = neoDbJson,
         )
     }
 
@@ -774,8 +799,12 @@ class AppContainer(private val context: Context) {
             neoDbSyncService = neoDbSyncService,
             lyricsProviderRegistry = lyricsProviderRegistry,
             detailCacheStore = detailCacheStore,
+            aiProviderStore = aiProviderStore,
         )
     }
+
+    /** AI settings v2: service, tier and the non-Gemini keys (data/local/AiProviderStore). */
+    val aiProviderStore: AiProviderStore by lazy { FileAiProviderStore(context.applicationContext) }
 
     companion object {
         const val ProviderHttpCacheBytes: Long = 50L * 1024L * 1024L
