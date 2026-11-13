@@ -448,15 +448,23 @@ internal fun HomeEditorialContent(
                 if (memoriesRevealState.fraction >= 1f) return Velocity.Zero
                 isCommittedToMemories = true
                 try {
-                    val target = memoriesRevealState.settle(
+                    // Commit when the release DECIDES to open, not when the
+                    // spring lands: the next pull's touch cancels this
+                    // coroutine, and a commit waiting for the landing was lost
+                    // while the drag carried the reveal open anyway — Memories
+                    // showed with the surface still Feed, so back left the app.
+                    memoriesRevealState.settle(
                         velocityPxPerSec = available.y,
                         containerPx = containerHeightPx,
+                        onOpen = {
+                            haptics.performConfirm()
+                            onCommitMemoriesReveal()
+                        },
                     )
-                    if (target <= 0f) {
-                        haptics.performConfirm()
-                        onCommitMemoriesReveal()
-                    }
                 } finally {
+                    // Only the input lock; an interrupted settle never undoes
+                    // the commit (the shell reconciles a reveal that rests
+                    // closed again).
                     isCommittedToMemories = false
                 }
                 return available
