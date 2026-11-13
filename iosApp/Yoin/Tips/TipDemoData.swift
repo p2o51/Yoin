@@ -32,6 +32,50 @@ enum TipDemo {
         "Quiet Hours", "Lanterns", "Undertow", "Afterglow",
     ]
 
+    // MARK: Now Playing
+
+    /// The playing song's lines and when each begins, in seconds (Android demoLyrics).
+    static let lyrics: [(at: Double, text: String)] = [
+        (0, "Streetlights hum a slower song"),
+        (52, "I keep the window open wide"),
+        (60, "The harbour folds into the dark"),
+        (68, "And every light is passing by"),
+        (76, "Hold the evening, let it stay"),
+        (84, "Slow light, slow light"),
+        (92, "Carry me the long way home"),
+        (100, "Over water, under stone"),
+    ]
+
+    /// The playing song: 3:34 long, 0:58 in (Android DemoDurationMs, DemoStartMs).
+    static let songSec = 214
+    static let songStartSec: Double = 58
+
+    /// The song the demo plays (Android DemoNowPlayingTrack: the first song of the first album, a favorite,
+    /// lossless), with a playhead of its own.
+    @MainActor
+    static func nowPlaying() -> NowPlayingDemo {
+        let track = Track(id: MediaId(provider: provider, rawId: "tip-song"), number: 1, title: trackTitles[0],
+                          durationSec: songSec, rating: 8.2, starred: true)
+        return NowPlayingDemo(album: albums[0], track: track, lyrics: lyrics, startSec: songStartSec,
+                              formatTag: "FLAC 24/96")
+    }
+
+    // MARK: An album page
+
+    /// How many songs the demo's album page lists, and the one drawn with the note mark (its number).
+    static let albumPageTracks = 7
+    static let notedTrack = 4
+
+    /// The album the demo's album page shows (Android DemoAlbums[1]): seven songs, the second a favorite.
+    static let albumPage: Album = {
+        var album = albums[1]
+        album.tracks = (0..<albumPageTracks).map { i in
+            Track(id: MediaId(provider: provider, rawId: "tip-song-\(i)"), number: i + 1, title: trackTitles[i],
+                  durationSec: 180 + i * 23, rating: nil, starred: i == 1)
+        }
+        return album
+    }()
+
     /// Made-up accounts, one per service, each its own avatar shape (their index).
     static let accounts: [Profile] = [
         Profile(id: "demo-a", service: .subsonic, baseUrl: "https://music.home", username: "Mira", createdAt: 0),
@@ -40,6 +84,12 @@ enum TipDemo {
     ]
 
     static func shape(of profile: Profile) -> Int { accounts.firstIndex { $0.id == profile.id } ?? 0 }
+
+    /// A Home layout store of the demo's own: nothing a demo Home does reaches the account's saved layout.
+    @MainActor
+    static func layoutStore() -> HomeLayoutStore {
+        HomeLayoutStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("tip-demo-home-layout.json"))
+    }
 
     // MARK: Lyric Cards
 

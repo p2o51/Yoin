@@ -8,15 +8,21 @@ import YoinShared
  */
 
 /// Home's page: [action] in the header's corner (the account in use, on Home), [feed] under the header.
+/// [editing]: the scene's own edit controller (Rearrange Home), which the title follows.
 struct DemoHomePage<Action: View, Feed: View>: View {
     var scheme: CoverScheme
+    var editing: HomeEditController?
     @ViewBuilder var action: () -> Action
     @ViewBuilder var feed: () -> Feed
     /// The title's own controller, never entered: the demo's Home is not being edited.
-    @State private var edit = HomeEditController()
+    @State private var still = HomeEditController(store: TipDemo.layoutStore())
 
-    init(scheme: CoverScheme, @ViewBuilder action: @escaping () -> Action, @ViewBuilder feed: @escaping () -> Feed) {
+    private var edit: HomeEditController { editing ?? still }
+
+    init(scheme: CoverScheme, editing: HomeEditController? = nil, @ViewBuilder action: @escaping () -> Action,
+         @ViewBuilder feed: @escaping () -> Feed) {
         self.scheme = scheme
+        self.editing = editing
         self.action = action
         self.feed = feed
     }
@@ -31,6 +37,7 @@ struct DemoHomePage<Action: View, Feed: View>: View {
             }
             .padding(.horizontal, DemoHomeMetrics.margin)
             .padding(.top, DemoPhoneMetrics.statusBar)
+            .coordinateSpace(.named(HomeEditController.feedSpace))
             // The screen's size whatever the feed holds: a shelf longer than the phone runs off its foot.
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
             DemoShellBar(scheme: scheme)
@@ -72,6 +79,123 @@ extension DemoHomePage where Feed == DemoJumpBackIn {
     }
 }
 
+// MARK: - Rearrange Home
+
+/// Long-press Home: its sections come up on their plates and sway, the title reads Edit Home and the header's
+/// corner offers Undo and Done; Done ends it. Home's own block, title and header buttons (on iOS they stand
+/// in the header, where Android turns the bar into them), over the demo's Jump Back In.
+struct EditHomeDemo: View {
+    var playing: Bool
+    var scheme: CoverScheme
+    @State private var edit = HomeEditController(store: TipDemo.layoutStore())
+
+    /// How long the sections sway before the finger goes for Done.
+    static let swayMs = 2_200
+
+    var body: some View {
+        DemoPhone(playing: playing, scheme: scheme, script: { finger in
+            edit.exit()
+            try await DemoTiming.delay(300)
+            // On the first card's cover.
+            try await finger.moveTo("jbi.0", fy: 0.4)
+            try await finger.hold { edit.enter() }
+            try await finger.lift()
+            try await DemoTiming.delay(Self.swayMs)
+            try await finger.moveTo("editDone")
+            try await finger.tap { edit.exit() }
+            try await DemoTiming.delay(600)
+        }) {
+            DemoHomePage(scheme: scheme, editing: edit) {
+                HeaderActions(edit: edit, scheme: scheme) {
+                    DemoAccountAvatar(profile: TipDemo.accounts[0], scheme: scheme)
+                }
+            } feed: {
+                HomeEditBlock(edit: edit, section: .jumpBackIn, index: 0, covers: TipDemo.albums.prefix(3).map(\.palette)) {
+                    DemoJumpBackIn()
+                }
+                // The demo's block is looked at, not edited: its Hide and its cards take no touch. The hold
+                // that enters edit mode is the page's (Home's own is on its scroll view).
+                .allowsHitTesting(false)
+                .overlay {
+                    Color.clear
+                        .contentShape(.rect)
+                        .onLongPressGesture(minimumDuration: HomeEditController.holdDuration(editing: false)) { edit.enter() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Switch accounts
+
+/// Hold the header's avatar: the other accounts drop out of it in a column; slide down onto one and let go,
+/// and it is the account in use. Home's avatar, its hold and its column, laid over the phone's own screen.
+struct AccountQuickSwitchDemo: View {
+    var playing: Bool
+    var scheme: CoverScheme
+    @State private var activeId = TipDemo.accounts[0].id
+    @State private var fan = AccountFan(haptics: false)
+
+    private var accounts: [Profile] { TipDemo.accounts }
+    private var active: Profile { accounts.first { $0.id == activeId } ?? accounts[0] }
+    private var shapes: [String: Int] {
+        Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, TipDemo.shape(of: $0)) })
+    }
+
+    /// The column's items the finger slides onto, in order; it lets go on the last.
+    static let slides = [0, 1]
+
+    private func pick(_ p: Profile) {
+        withAnimation(Yoin.spatial) { activeId = p.id }
+    }
+
+    private func act(_ finger: DemoFinger) async throws {
+        fan.close()
+        withAnimation(Yoin.spatial) { activeId = accounts[0].id }
+        try await DemoTiming.delay(400)
+        try await finger.moveTo("account")
+        // Held for the long-press time (the ring fills), then the column drops out.
+        try await finger.pressAndHold()
+        guard let anchor = finger.targets.rect("account") else { return try await finger.release() }
+        fan.begin(anchor: anchor, accounts: Array(accounts.dropFirst()), shapes: shapes) { pick($0) }
+        try await DemoTiming.delay(450)
+        // Down the column, onto the first account, then the second.
+        for i in Self.slides {
+            let y = AccountFanGeometry.itemCenterY(anchorHeight: anchor.height, index: i)
+            try await finger.moveTo("account", fy: y / anchor.height)
+            fan.move(to: CGPoint(x: anchor.midX, y: anchor.minY + y))
+            try await DemoTiming.delay(380)
+        }
+        // Let go: the one under the finger is the account in use.
+        fan.end()
+        try await finger.release()
+        try await finger.lift()
+        try await DemoTiming.delay(1_800)
+    }
+
+    var body: some View {
+        DemoPhone(playing: playing, scheme: scheme, script: { finger in
+            do {
+                try await act(finger)
+            } catch {
+                // Stopped with the column out: it goes back in.
+                fan.close()
+                throw error
+            }
+        }) {
+            ZStack {
+                DemoHomePage(scheme: scheme) {
+                    DemoAccountAvatar(profile: active, scheme: scheme)
+                        .demoTarget("account")
+                        .accountQuickSwitch(accounts: accounts.filter { $0.id != activeId }, shapes: shapes, fan: fan,
+                                            space: .named(DemoTargets.space)) { pick($0) }
+                }
+                AccountFanColumn(fan: fan, scheme: scheme, space: .named(DemoTargets.space))
+            }
+        }
+    }
+}
+
 enum DemoHomeMetrics {
     static let margin: CGFloat = 16
     /// Under the bar: the phone's home indicator band, cut down to the demo's size.
@@ -90,6 +214,7 @@ struct DemoJumpBackIn: View {
                 HStack(alignment: .top, spacing: Tokens.home.JBI_COLUMN_GAP.cg) {
                     ForEach(row..<min(row + 3, albums.count), id: \.self) { i in
                         AlbumItem(album: albums[i], size: Tokens.home.JBI_COVER.cg)
+                            .demoTarget("jbi.\(i)")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }

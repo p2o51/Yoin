@@ -660,6 +660,7 @@ struct HeaderActions<Account: View>: View {
                             .background(scheme.primary, in: .capsule)
                     }
                     .buttonStyle(PressScale())
+                    .demoTarget("editDone")
                 }
                 .opacity(Double(smoothstep(0.5, 1, p)))
                 .scaleEffect(0.9 + 0.1 * smoothstep(0.5, 1, p), anchor: .trailing)

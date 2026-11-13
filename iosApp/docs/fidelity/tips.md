@@ -2,7 +2,7 @@
 
 Android source of truth: `app/src/main/java/com/gpo/yoin/ui/tips/` (`TipScreen.kt`, `TipDemoPhone.kt`, `TipIllustration.kt`, `TipDemoData.kt`, the `Tip*Scene(s).kt` files) and `ui/settings/TipsPage.kt`. iOS: `iosApp/Yoin/Tips/` and `Settings/TipsView.swift`. 1 dp = 1 pt.
 
-Pass of 2026-11-13 (slice 1 of 3). Checked on iPhone 17 Pro and iPad Pro 13 simulators, light and dark, with `-screen tips` and `-screen tip -tip <id>`.
+Pass of 2026-11-13 (slices 1 and 2 of 3). Checked on iPhone 17 Pro and iPad Pro 13 simulators, light and dark, with `-screen tips` and `-screen tip -tip <id>`.
 
 ## Where it opens
 
@@ -48,6 +48,14 @@ Scripts are `async` and step with `DemoTiming.delay`; a scene's own values chang
 | SpotifyElsewhere | `SpotifyElsewhereDemo` | Home's `SpotifyElsewherePill` and `HeaderAccountAvatar` in the demo Home header; 700, show, 1600, tap, 2000 |
 | MemoryLedger | `MemoryLedgerDemo` | `HomeMemoryLedgerSection` → `AllMemoriesView` (cross-fade); 900, tap, 1100, tap the newest week with something, 2600 |
 | LyricHighlight | `LyricHighlightDemo` | `HomeLyricCardsSection` in the demo Home; turns to card 2, 3, back to 2 (420 ms drags, 900 between), tap |
+| AccountQuickSwitch | `AccountQuickSwitchDemo` | Home's own hold (`accountQuickSwitch(fan:space:)`) and column (`AccountFanColumn`) on a fan of the phone's own, in its screen's space, haptics off; hold 550, column, 450, slide onto the first and second account (380 each), let go on the second, 1800 |
+| EditHome | `EditHomeDemo` | Home's `HomeEditBlock` (plate, sway, Hide, handle) over the demo Jump Back In, the real `EditTitleSwap` and `HeaderActions` (Undo, Done) on a `HomeEditController` with a layout file of its own; hold the first cover, 2200, tap Done, 600 |
+| SongMenu | `SongMenuDemo` | `AlbumDetailView(album:demo:)` with its list up, then `TrackMenuBody` (the sheet's own body, split out of `TrackMenuSheet`) in a sheet of the phone's own (`DemoSheetStage`); hold row 3, 1800, tap above the sheet |
+| Downloads | `DownloadsDemo` | The same, with the sheet's Download row (`OfflineDownloads.rowLabel / rowIcon`); tap Download, the row reads Remove download, sheet down, 900, hold again, point at Remove download, 1800, tap above |
+| PlayModes | `PlayModesDemo` | `NowPlayingView(demo:)`'s own `PlayModeButton` (split held by the demo, haptics off); tap, 600, tap, 600, hold to split, 250, shuffle half, 500, repeat half, merge after `holdSeconds` + 600 |
+| FocusCover | `FocusCoverDemo` | `NowPlayingView(demo:)` on the `tall` (20:9) phone; tap the cover, focus 2400, tap, 1400 |
+| CoverMenu | `CoverMenuDemo` | Hold the cover, the playing song's sheet (Favorite / Add to playlist / Share, Go to album), 1800, tap the cover above it |
+| KeepScreenOn | `CoverMenuDemo(keepScreenOn:)` | The same sheet with `TrackMenuToggleRow`; switch Keep screen on, 1200 |
 
 The demo Home (`DemoHomePage`) is Home's header row (greeting, the real `EditTitleSwap`, the account avatar), Jump Back In's `AlbumItem`s three to a row, and the idle bar drawn from `ShellNavFace` (the bar's own button face) in the bar's glass.
 
@@ -56,8 +64,16 @@ Differences kept:
 - Covers are the mock mesh covers iOS draws from a palette, in the three colours of each `tip_demo_cover_*` drawable.
 - Lyric Cards: going back a card, the finger slides rightwards with the cards (Android's slides leftwards on every turn).
 - All Memories on the phone has no glass edge blur under its top bar: the system draws it at the window's scale, over the phone's rim.
+- Edit Home: the finger taps Done in the header, where iOS keeps Undo and Done (Android's bar turns into them).
+- Now Playing's one-line hero: the artist now takes its own width up to its cap (Android `widthIn(max =)`), in the app too; a cap-wide frame had cut "Slow Light" short beside "Mira Sol".
 - Views that take a demo (`AllMemoriesView(demo:)`, `HomeLyricCardsSection(demo:)`, `HomeMemoryLedgerSection(onOpen:)`, `SpotifyElsewherePill(demoCover:)`) load, play, open and remember nothing in it.
 
-## Not done (slices 2 and 3)
+Now Playing on the phone (`NowPlaying/NowPlayingDemo.swift`): a made-up song (Android `DemoNowPlayingTrack`: Harbour Lights' first song, 3:34, from 0:58, FLAC 24/96, a favorite, 8.2) with its own playhead on a 250 ms tick, read through `PlaybackPosition` (`\.demoPlayhead`). In demo mode the page plays, loads, writes, opens and folds nothing; its rating bar and heart change only the demo's values; the pager, the seek bar and the pills take no drag (a sideways drag on the phone turns the tips).
 
-Scenes for the other tips: AccountQuickSwitch, MiniPlayerMenu, FocusCover (the `tall` phone), Downloads, EditHome, PullForMemories, CoverMenu, SongMenu, PlayModes, NoteMoments, LibrarySearch, KeepScreenOn, Name, Labs, and the iOS-only VolumeLeveling and HomeScreenWidgets (no Android scene). A new scene: a view taking `playing` and `scheme`, built on `DemoPhone`, listed in `TipIllustration.scenes` and its switch.
+The album page on the phone: `AlbumDetailView(album:demo:)` starts and stays on its track list (no hero, butterfly, scrapbook, liner notes or edge gate), its rows' hold is the demo's, and track 4 wears the note mark. The bar's Play split over its foot (`DemoPlaySplit`) is drawn from `ShellBar.playSplit`'s numbers, not the bar itself (the bar's split carries the app's menu and model), and takes no touch.
+
+The phone's sheet (`DemoSheetStage`): the system's sheet belongs to the window, so the phone's rises from its foot on the spatial spring, 8 inside the screen's edges, corner 38, the grabber 36 × 5, on regular glass (content moves under it: the page behind steps back by the system sheet's GlassLab numbers, dimmed at least 10 %). Android's Keep screen on demo scrolls its sheet first; on iOS the sheet fits the phone and the finger goes straight to the switch.
+
+## Not done (slice 3)
+
+Scenes for MiniPlayerMenu, PullForMemories, NoteMoments, LibrarySearch, Name, Labs, and the iOS-only VolumeLeveling and HomeScreenWidgets (no Android scene). A new scene: a view taking `playing` and `scheme`, built on `DemoPhone`, listed in `TipIllustration.scenes` and its switch.

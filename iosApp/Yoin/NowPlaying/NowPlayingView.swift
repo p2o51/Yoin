@@ -27,10 +27,14 @@ struct NowPlayingView: View, Equatable {
     @Environment(\.npMorph) private var npMorph
     /// Morph target: true = the full page, false = folded into the bar's pill.
     var open = true
+    /// The tip page's demo phone (NowPlayingDemo.swift): the phone column over a made-up song. The page
+    /// reads [demo] where it reads the engine and the account, opens no sheet or page, and writes nothing;
+    /// its play-mode button and its cover answer in [demo]. Pass `panel: true` with it.
+    var demo: NowPlayingDemo? = nil
 
     /// Its inputs; state, environment and the model it observes update it as usual.
     nonisolated static func == (a: NowPlayingView, b: NowPlayingView) -> Bool {
-        a.npNamespace == b.npNamespace && a.panel == b.panel && a.open == b.open
+        a.npNamespace == b.npNamespace && a.panel == b.panel && a.open == b.open && a.demo === b.demo
     }
 
     @State private var dragY: CGFloat = 0
@@ -120,7 +124,9 @@ struct NowPlayingView: View, Equatable {
     @State private var lyricsDirection = LyricsDirection()
 
     /// The engine's song; nil = the mock snapshot (screenshots) as before.
-    private var engineTrack: PlayableTrack? { model.player.currentTrack }
+    private var engineTrack: PlayableTrack? { demo == nil ? model.player.currentTrack : nil }
+    /// What the page shows: the engine's song (or the screenshots' mock); the demo phone's made-up one.
+    private var playback: PlaybackSnapshot { demo?.snapshot ?? model.playback }
     private var data: NowPlayingData { .shared }
     private var about: SongAboutLoader { .shared }
     /// The Ask bar is open (its field over the keyboard).
@@ -128,8 +134,8 @@ struct NowPlayingView: View, Equatable {
     /// The keyboard is up for the composer or the Ask bar: the page keeps its geometry.
     private var keyboardOwned: Bool { composing || asking }
 
-    private var palette: CoverPalette { model.playback.album.palette }
-    private var scheme: CoverScheme { CoverScheme(album: model.playback.album, dark: colorScheme == .dark) }
+    private var palette: CoverPalette { playback.album.palette }
+    private var scheme: CoverScheme { CoverScheme(album: playback.album, dark: colorScheme == .dark) }
     /// Full page. The radius stays under the iPhone's screen-corner radius
     /// (62 let Home peek out at the bottom corners); the display mask rounds
     /// the rest.
@@ -143,6 +149,24 @@ struct NowPlayingView: View, Equatable {
     // contrast shadow 22 %, container spacing 3.
 
     var body: some View {
+        if let demo {
+            // The demo phone: the page alone, without the app's sheets, loads, drafts and keyboard.
+            page
+                .environment(\.demoPlayhead, demo.playhead)
+                // The script (or a press on the cover) focuses it and brings it back.
+                .onChange(of: demo.focused, initial: true) { _, on in
+                    guard (stage == .focus) != on else { return }
+                    withAnimation(Yoin.stageSettle) {
+                        tab = NowPlayingDetailPage.lyrics.rawValue
+                        stage = on ? .focus : .compact
+                    }
+                }
+        } else {
+            appBody
+        }
+    }
+
+    private var appBody: some View {
         withSheets
             .onChange(of: engineTrack.map(NowPlayingData.key)) {
                 // Android: another song, the Ask bar starts over.
@@ -211,7 +235,7 @@ struct NowPlayingView: View, Equatable {
     /// lyrics (the mock counts as synced), not selecting lines.
     private var focusIdleEligible: Bool {
         guard wide, stage == .focus, !lyricsSelecting else { return false }
-        guard let t = engineTrack else { return model.playback.isPlaying }
+        guard let t = engineTrack else { return playback.isPlaying }
         guard model.player.isPlaying, case .lines(let l) = data.lyricsState(t) else { return false }
         return l.synced
     }
@@ -350,8 +374,8 @@ struct NowPlayingView: View, Equatable {
                 let key = currentNoteKey
                 if NotesStore.shared.notes(provider: key.provider, trackId: key.rawId).isEmpty {
                     NotesStore.shared.add(provider: key.provider, trackId: key.rawId, content: "Bass walks up here",
-                                          positionMs: 34_000, title: model.playback.track.title,
-                                          artist: model.playback.album.artist)
+                                          positionMs: 34_000, title: playback.track.title,
+                                          artist: playback.album.artist)
                 }
                 if let first = NotesStore.shared.notes(provider: key.provider, trackId: key.rawId).first {
                     withAnimation(Yoin.stageSettle) { tab = NowPlayingDetailPage.note.rawValue; stage = .expanded }
@@ -555,7 +579,7 @@ struct NowPlayingView: View, Equatable {
     // MARK: Content (Android CompactPlayingContent)
 
     private func content(size: CGSize, bottomInset: CGFloat) -> some View {
-        let p = model.playback
+        let p = playback
         let column = size.height - max(bottomInset, 16) + bottomInset
         // iPad Full in a Medium window: Android's enlarged phone (the column
         // grows to window − 160, ≤ 640, its rating column with it). The phone
@@ -568,7 +592,7 @@ struct NowPlayingView: View, Equatable {
         let budget = NowPlayingBudget(
             width: size.width,
             height: column,
-            forceShort: model.npForceShort,
+            forceShort: demo == nil && model.npForceShort,
             enlarged: enlargedColumn.map {
                 EnlargedSpec(columnWidth: Float($0), ratingColumn: Float(ratingColumn),
                              controlSize: Float(controlSize))
@@ -664,7 +688,9 @@ struct NowPlayingView: View, Equatable {
             // Not in focus, nor on the one-line row (Android: swipe once the
             // lyric page has room), nor while selecting, writing or asking.
             .gesture(pagerPan(enabled: stage != .focus && !(oneLine && stage == .compact)
-                                  && !lyricsSelecting && !composing && !asking))
+                                  && !lyricsSelecting && !composing && !asking
+                                  // (Not on the demo phone: a sideways drag there turns the tips.)
+                                  && demo == nil))
             .npFade(open, contentFade)
             Spacer().frame(height: slack)
             hero(p, inline: budget.inlineHero)
@@ -747,7 +773,9 @@ struct NowPlayingView: View, Equatable {
             .offset(x: docked ? 10 : 0)
             Spacer(minLength: 0)
             // The side panel's corner button: Full Now Playing (Android topBarAction).
-            if panel {
+            if demo != nil {
+                // The demo phone is a phone: no panel to open in full.
+            } else if panel {
                 panelToggle(fullscreen: false)
             } else if model.isPad, npMorph == nil, model.padPanelFits {
                 // The enlarged Full goes back to the panel where one fits.
@@ -781,7 +809,7 @@ struct NowPlayingView: View, Equatable {
     private func coverRow(_ cover: CGFloat, retreat: Bool, dock: CoverDock?, tappable: Bool,
                           ratingColumn: CGFloat = Tokens.np.PHONE_RATING_COLUMN.cg,
                           onTap: @escaping () -> Void) -> some View {
-        let p = model.playback
+        let p = playback
         return HStack(alignment: .top, spacing: retreat ? 0 : Tokens.np.RATING_GAP.cg) {
             CoverArt(palette: p.album.palette, cornerRadius: 0, seed: p.album.seed)
                 .frame(width: cover, height: cover)
@@ -797,7 +825,8 @@ struct NowPlayingView: View, Equatable {
                                            label: stage == .focus ? String(localized: "Show lyrics and rating") : String(localized: "Focus artwork"),
                                            onTap: onTap))
                 // Android NowPlayingCoverMenu: long-press = the song's sheet (+ Keep screen on).
-                .trackMenu(for: PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
+                .modifier(CoverMenuHold(entry: PlaylistEntry(album: p.album, track: p.track), demo: demo))
+                .demoTarget("cover")
             VStack(spacing: 0) {
                 RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld,
                           gestureKey: engineTrack.map(NowPlayingData.key) ?? "mock") { down in
@@ -845,7 +874,11 @@ struct NowPlayingView: View, Equatable {
     /// rated (Android reads local_ratings only, never the server's stars);
     /// the mock: the screenshot value.
     private var ratingBinding: Binding<Double?> {
-        guard let t = engineTrack else { return $rating }
+        guard let t = engineTrack else {
+            // The demo phone's song keeps its own score (a drag on its bar stays on the phone).
+            if let demo { return Binding(get: { demo.rating }, set: { demo.rating = $0 }) }
+            return $rating
+        }
         return Binding(get: { data.rating(t) }, set: { data.dragRating($0, ratingTarget ?? t) })
     }
 
@@ -861,7 +894,7 @@ struct NowPlayingView: View, Equatable {
     }
 
     private var isFavorite: Bool {
-        guard let t = engineTrack else { return favorite }
+        guard let t = engineTrack else { return demo?.favorite ?? favorite }
         return data.isFavorite(t)
     }
 
@@ -869,6 +902,8 @@ struct NowPlayingView: View, Equatable {
         withAnimation(Yoin.spatialFast) {
             if let t = engineTrack {
                 data.toggleFavorite(t, client: model.session.client, apple: model.store.apple)
+            } else if let demo {
+                demo.favorite.toggle()
             } else {
                 favorite.toggle()
             }
@@ -1240,10 +1275,14 @@ struct NowPlayingView: View, Equatable {
                 stage = .focus
             }
         }
+        // The demo phone's script reads where a press left the cover.
+        demo?.focused = stage == .focus
     }
 
     /// The small window opens its page; an empty Note page opens on the composer.
     private func openPage(_ page: NowPlayingDetailPage) {
+        // The demo phone stays on its resting player.
+        guard demo == nil else { return }
         let key = currentNoteKey
         if page == .note, NotesStore.shared.notes(provider: key.provider, trackId: key.rawId).isEmpty {
             startWriting()
@@ -1636,7 +1675,7 @@ struct NowPlayingView: View, Equatable {
             guard let t = engineTrack, case .loading = data.lyricsState(t) else { return true }
             return false
         }()
-        lyricsDirection.update(key: key, index: model.player.currentIndex)
+        lyricsDirection.update(key: key, index: demo == nil ? model.player.currentIndex : 0)
         return ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 content()
@@ -1763,7 +1802,7 @@ struct NowPlayingView: View, Equatable {
                 let grow = Self.transportKeyExpandedRatio
                 let playWidth = playRest + (pausePressed ? grow * playRest : 0) - (nextPressed ? grow * control : 0)
                 let nextWidth = control + (nextPressed ? grow * control : 0) - (pausePressed ? grow * playRest : 0)
-                Button { model.player.togglePlayPause() } label: {
+                Button { if demo == nil { model.player.togglePlayPause() } } label: {
                     playPauseLabel(playing: playing, pressed: pausePressed)
                         .frame(width: word)
                         .padding(.horizontal, pad)
@@ -1780,7 +1819,7 @@ struct NowPlayingView: View, Equatable {
                 .padding(.leading, short ? control + gap : 0)
                 roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary, label: String(localized: "Next"),
                             width: max(0, nextWidth), size: control) {
-                    model.player.next()
+                    if demo == nil { model.player.next() }
                 }
                 .animation(Yoin.standardFastSpatial, value: playing)
                 .animation(Yoin.standardDefaultSpatial, value: pausePressed)
@@ -1788,12 +1827,25 @@ struct NowPlayingView: View, Equatable {
                 Spacer(minLength: 0)
                 // Android PlayModeButton: a circle; long-press splits it
                 // into shuffle | repeat, each segment one axis.
+                if let demo {
+                    // The demo phone's: its modes and its split are the demo's own, for its script to drive.
+                    PlayModeButton(shuffle: demo.shuffle, repeatMode: demo.repeatMode,
+                                   scheme: scheme, brand: brand,
+                                   onCycle: { demo.cyclePlayMode() },
+                                   onShuffle: { demo.shuffle = $0 },
+                                   onRepeat: { demo.repeatMode = $0 },
+                                   onPress: { touch(String(localized: "Play mode"), $0) },
+                                   splitState: Binding(get: { demo.split }, set: { demo.split = $0 }),
+                                   outsideTouches: demo.splitTouches, haptics: false, size: control)
+                        .demoTarget("mode")
+                } else {
                 PlayModeButton(shuffle: model.player.shuffle, repeatMode: model.player.repeatMode,
                                scheme: scheme, brand: brand,
                                onCycle: { model.player.cyclePlayMode() },
                                onShuffle: { model.player.setShuffle($0) },
                                onRepeat: { model.player.setRepeat($0) },
                                onPress: { touch(String(localized: "Play mode"), $0) }, size: control)
+                }
             }
             .frame(height: control)
             // The progress row's place: the row itself is drawn over the
@@ -1805,7 +1857,7 @@ struct NowPlayingView: View, Equatable {
             // start of the top row in short focus.
             roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: String(localized: "Previous"),
                         size: control) {
-                model.player.previous()
+                if demo == nil { model.player.previous() }
             }
             .offset(y: short ? 0 : control + rowGap + (secondRow - control) / 2)
         }
@@ -1852,6 +1904,8 @@ struct NowPlayingView: View, Equatable {
                 model.player.seek(to: fraction * duration)
             }
                 .frame(height: 40, alignment: .bottom)
+                // The demo phone's bar is looked at: a sideways drag on it turns the tips.
+                .allowsHitTesting(demo == nil)
             Spacer().frame(width: Tokens.np.TIME_LABEL_GAP.cg)
             Text("-" + formatTime(max(0, Int(duration) - Int(position))))
                 .frame(minWidth: Tokens.np.TIME_LABEL_MIN_END.cg, alignment: .trailing)
@@ -1983,6 +2037,9 @@ struct NowPlayingView: View, Equatable {
                             }
                     }
                         .frame(maxWidth: g.size.width * Tokens.np.HERO_ONE_LINE_ARTIST_SHARE.cg, alignment: .leading)
+                        // Its own width, capped (Android widthIn(max =)): a short name leaves the title the
+                        // row (as a frame that always took the cap, it cut "Slow Light" short beside "Mira Sol").
+                        .fixedSize(horizontal: true, vertical: false)
                         // Measured first (capped); the title takes the rest.
                         .layoutPriority(2)
                         .npFade(open, contentFade)
@@ -2005,7 +2062,7 @@ struct NowPlayingView: View, Equatable {
                     }
                     .layoutPriority(1)
                     // The song's format after the artist ("FLAC 24/96", "5.1"; Android #121 #139).
-                    if let tag = model.player.currentTrack?.qualityTag {
+                    if let tag = qualityTag {
                         Text(tag)
                             .font(.gsf(11, .semibold))
                             .foregroundStyle(scheme.onSurfaceVariant.opacity(0.85))
@@ -2019,7 +2076,7 @@ struct NowPlayingView: View, Equatable {
                     }
                 }
                 .lineLimit(1)
-                .animation(Yoin.effects, value: model.player.currentTrack?.qualityTag)
+                .animation(Yoin.effects, value: qualityTag)
                 .npFade(open, contentFade)
                 routeLink(albumRoute(p), label: String(localized: "Go to album")) { heroTitle(p) }
                     .frame(height: 44, alignment: .leading)
@@ -2027,6 +2084,9 @@ struct NowPlayingView: View, Equatable {
             .lineLimit(1)
         }
     }
+
+    /// The song's format after the artist: the engine's song's, or the demo phone's.
+    private var qualityTag: String? { demo != nil ? demo?.formatTag : model.player.currentTrack?.qualityTag }
 
     /// The title is matched to the pill's title by its leading edge; folded,
     /// it scales down to the pill's 15 pt so the glyphs line up.
@@ -2075,8 +2135,9 @@ struct NowPlayingView: View, Equatable {
     /// Android PlayingFromLabel: the page the queue was started on (album, playlist, artist), or
     /// String(localized: "NOW PLAYING") alone when it came from a list or Spotify plays its own song. The mock: its album.
     private var playingFrom: (kind: String?, name: String, hint: String, route: (() -> Void)?) {
+        if demo != nil { return (String(localized: "PLAYING FROM ALBUM"), playback.album.title, "", nil) }
         if !model.store.isReal {
-            return (String(localized: "PLAYING FROM ALBUM"), model.playback.album.title, String(localized: "Go to album"), albumRoute(model.playback))
+            return (String(localized: "PLAYING FROM ALBUM"), playback.album.title, String(localized: "Go to album"), albumRoute(playback))
         }
         guard model.player.externalTrack == nil, let from = model.playingFrom, !from.title.isEmpty else {
             return (nil, String(localized: "NOW PLAYING"), "", nil)
@@ -2094,7 +2155,7 @@ struct NowPlayingView: View, Equatable {
 
     private func albumRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
         let album = p.album
-        guard !album.id.rawId.isEmpty, !album.id.rawId.hasPrefix("song:") else { return nil }
+        guard demo == nil, !album.id.rawId.isEmpty, !album.id.rawId.hasPrefix("song:") else { return nil }
         return { [model] in
             Self.leaveForRoute(model)
             model.open(album)
@@ -2104,7 +2165,7 @@ struct NowPlayingView: View, Equatable {
     /// The song's artist, when it can be resolved to a page.
     private func artistRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
         let album = p.album
-        guard !album.artist.isEmpty, album.artistId != nil || album.id.provider == "mock" else { return nil }
+        guard demo == nil, !album.artist.isEmpty, album.artistId != nil || album.id.provider == "mock" else { return nil }
         return { [model] in
             Self.leaveForRoute(model)
             model.openArtist(album.artist, id: album.artistId)
@@ -2135,20 +2196,24 @@ struct NowPlayingView: View, Equatable {
     private var pills: some View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: 2) {
-                pill("queue", String(localized: "Queue"), shape: AnyShape(Capsule())) { model.queueSheetOpen = true }
+                pill("queue", String(localized: "Queue"), shape: AnyShape(Capsule())) {
+                    if demo == nil { model.queueSheetOpen = true }
+                }
                 // Yoin as the remote of another Spotify device: the pill names it.
                 pill("devices", spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices") : String(localized: "Devices"),
                      shape: AnyShape(RoundedRectangle(cornerRadius: 20))) {
+                    guard demo == nil else { return }
                     if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
                 }
                     // The system route picker, invisible, over the pill: a
                     // finger lands on its own button (the forwarding in
                     // `present()` is the fallback). A Spotify song plays in the
                     // Spotify app: its Connect devices instead (Codex N17).
-                    .overlay { if !spotifySong { AirPlayRoutePicker(trigger: airPlay) } }
+                    .overlay { if !spotifySong, demo == nil { AirPlayRoutePicker(trigger: airPlay) } }
                 pill("note", String(localized: "Write"), shape: AnyShape(Capsule())) { startWriting() }
             }
         }
+        .demoTarget("pills")
     }
 
     private func pill(_ icon: String, _ title: String, shape: AnyShape,
@@ -2179,10 +2244,12 @@ struct NowPlayingView: View, Equatable {
     /// Notes are keyed by the song on screen: the engine's, else the mock's.
     private var currentNoteKey: MediaId {
         if let t = engineTrack { return MediaId(provider: t.provider, rawId: t.id) }
+        if let demo { return demo.track.id }
         return model.mockPlayback.track.id
     }
 
     private var playheadMs: Int64 {
+        if let demo { return Int64((demo.playhead.positionSec * 1000).rounded()) }
         let sec = engineTrack != nil ? model.player.progress.positionSec : Double(model.mockPlayback.positionSec)
         return Int64((sec * 1000).rounded())
     }
@@ -2191,6 +2258,8 @@ struct NowPlayingView: View, Equatable {
     /// the Note window comes up and the composer takes the keyboard, filed
     /// at the moment writing began.
     private func startWriting() {
+        // The demo phone writes nothing.
+        guard demo == nil else { return }
         if draft.isEmpty {
             draftAnchorMs = playheadMs
             draftTarget = currentNoteTarget
@@ -2274,7 +2343,7 @@ struct NowPlayingView: View, Equatable {
     /// The song on screen as a note target.
     private var currentNoteTarget: NoteTarget {
         let key = currentNoteKey
-        let p = model.playback
+        let p = playback
         return NoteTarget(provider: key.provider, rawId: key.rawId, title: p.track.title, artist: p.album.artist)
     }
 
@@ -2343,6 +2412,8 @@ struct NowPlayingView: View, Equatable {
     // MARK: Gesture
 
     private func collapse() {
+        // The demo phone's Now Playing has nowhere to fold to.
+        guard demo == nil else { return }
         if panel {
             withAnimation(Yoin.spatial) { model.npPanel = false }
         } else {
@@ -2737,8 +2808,15 @@ struct PlayModeButton: View {
     var onShuffle: (Bool) -> Void
     var onRepeat: (RepeatMode) -> Void
     var onPress: (Bool) -> Void
+    /// The split, held outside (the tip page's demo phone, whose script splits it); nil: the button's own.
+    var splitState: Binding<Bool>? = nil
+    /// Touches counted outside (the demo's scripted taps): the merge waits for a quiet spell after them too.
+    var outsideTouches = 0
+    /// Off where the touch is acted out.
+    var haptics = true
 
-    @State private var split = false
+    @State private var ownSplit = false
+    private var split: Bool { splitState?.wrappedValue ?? ownSplit }
     /// One more per segment tap: the merge waits for a quiet spell.
     @State private var splitTouches = 0
 
@@ -2794,14 +2872,14 @@ struct PlayModeButton: View {
         }
         .frame(width: width, height: size)
         .onLongPressGesture(minimumDuration: 0.4, perform: {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            if haptics { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
             setSplit(!split)
         }, onPressingChanged: { onPress($0) })
         .labGlass("transportSecondary", scheme: scheme, brand: brand, auto: scheme.tertiaryContainer, in: Capsule())
         .animation(Yoin.spatial, value: split)
         .animation(Yoin.effects, value: shuffle)
         .animation(Yoin.effects, value: repeatMode)
-        .task(id: split ? splitTouches : -1) {
+        .task(id: split ? splitTouches &+ outsideTouches : -1) {
             guard split else { return }
             try? await Task.sleep(for: .seconds(Self.holdSeconds / max(LaunchConfig.animationSpeed, 0.05)))
             if !Task.isCancelled { setSplit(false) }
@@ -2815,11 +2893,11 @@ struct PlayModeButton: View {
 
     private func setSplit(_ on: Bool) {
         splitTouches = 0
-        split = on
+        if let splitState { splitState.wrappedValue = on } else { ownSplit = on }
     }
 
     private func tick() {
-        UISelectionFeedbackGenerator().selectionChanged()
+        if haptics { UISelectionFeedbackGenerator().selectionChanged() }
         splitTouches += 1
     }
 
@@ -2859,6 +2937,20 @@ struct PlayModeButton: View {
     }
 }
 
+/// The cover's long-press: the song's sheet in the app; on the tip page's demo phone, the demo's own.
+private struct CoverMenuHold: ViewModifier {
+    var entry: PlaylistEntry
+    var demo: NowPlayingDemo?
+
+    func body(content: Content) -> some View {
+        if let demo {
+            content.onLongPressGesture(minimumDuration: 0.4) { demo.onCoverHold() }
+        } else {
+            content.trackMenu(for: entry, context: .nowPlaying)
+        }
+    }
+}
+
 /// A loading indicator that shows only once loading has taken a beat (Android's
 /// lyrics wait the same before their indicator).
 private struct DelayedSpinner: View {
@@ -2891,7 +2983,7 @@ extension NowPlayingView {
     /// (the bar stays when it carries the title); after FocusIdleMs without a
     /// touch the transport's buttons and times step away too.
     func wideContent(size: CGSize, top: CGFloat, bottomInset: CGFloat) -> some View {
-        let p = model.playback
+        let p = playback
         let F = DualPaneBudget.self
         let budget = wideBudget(size: size, bottomInset: bottomInset)
         let focusOffered = budget.focusOffered

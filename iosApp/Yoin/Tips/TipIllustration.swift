@@ -10,7 +10,10 @@ struct TipIllustration: View {
     var scheme: CoverScheme
 
     /// The tips that have a demo so far; the others' pages open on their title.
-    static let scenes: Set<String> = ["SpotifyElsewhere", "MemoryLedger", "LyricHighlight"]
+    static let scenes: Set<String> = [
+        "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads", "EditHome",
+        "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn",
+    ]
 
     static func has(_ id: String) -> Bool { scenes.contains(id) }
 
@@ -20,6 +23,14 @@ struct TipIllustration: View {
             case "SpotifyElsewhere": SpotifyElsewhereDemo(playing: playing, scheme: scheme)
             case "MemoryLedger": MemoryLedgerDemo(playing: playing, scheme: scheme)
             case "LyricHighlight": LyricHighlightDemo(playing: playing, scheme: scheme)
+            case "AccountQuickSwitch": AccountQuickSwitchDemo(playing: playing, scheme: scheme)
+            case "Downloads": DownloadsDemo(playing: playing, scheme: scheme)
+            case "EditHome": EditHomeDemo(playing: playing, scheme: scheme)
+            case "FocusCover": FocusCoverDemo(playing: playing, scheme: scheme)
+            case "CoverMenu": CoverMenuDemo(playing: playing, scheme: scheme, keepScreenOn: false)
+            case "SongMenu": SongMenuDemo(playing: playing, scheme: scheme)
+            case "PlayModes": PlayModesDemo(playing: playing, scheme: scheme)
+            case "KeepScreenOn": CoverMenuDemo(playing: playing, scheme: scheme, keepScreenOn: true)
             default: EmptyView()
             }
         }

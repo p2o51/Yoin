@@ -154,7 +154,10 @@ final class TipDemoTests: XCTestCase {
     }
 
     func test_should_onlyShowDemos_when_theTipExists() {
-        XCTAssertEqual(TipIllustration.scenes, ["SpotifyElsewhere", "MemoryLedger", "LyricHighlight"])
+        XCTAssertEqual(TipIllustration.scenes, [
+            "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads",
+            "EditHome", "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn",
+        ])
         for id in TipIllustration.scenes {
             XCTAssertNotNil(Tips.tip(id), "\(id) has a demo but is not a tip")
             XCTAssertTrue(TipIllustration.has(id))
@@ -228,5 +231,91 @@ final class TipDemoTests: XCTestCase {
         XCTAssertEqual(last.y, 0.75, accuracy: 0.0001)
         // The second row starts under the first.
         XCTAssertEqual(TipDemo.weekCellFraction(13).x, first.x, accuracy: 0.0001)
+    }
+
+    // MARK: Now Playing on the phone
+
+    func test_should_cycleLikeTheEngine_when_tappingThePlayModeButton() {
+        var mode: (shuffle: Bool, repeatMode: RepeatMode) = (false, .all)
+        var seen: [String] = []
+        for _ in 0..<4 {
+            mode = NowPlayingDemo.cycled(shuffle: mode.shuffle, repeatMode: mode.repeatMode)
+            seen.append("\(mode.shuffle)-\(mode.repeatMode)")
+        }
+        XCTAssertEqual(seen, ["true-all", "true-one", "false-one", "false-all"], "back where it started after four")
+        let off = NowPlayingDemo.cycled(shuffle: true, repeatMode: .off)
+        XCTAssertTrue(off.shuffle)
+        XCTAssertEqual(off.repeatMode, .all)
+    }
+
+    func test_should_singTheLastLineBegun_when_thePlayheadMoves() {
+        let starts = TipDemo.lyrics.map(\.at)
+        XCTAssertEqual(NowPlayingDemo.activeLine(starts, at: 58), 1)
+        XCTAssertEqual(NowPlayingDemo.activeLine(starts, at: 60), 2)
+        XCTAssertEqual(NowPlayingDemo.activeLine(starts, at: 500), starts.count - 1)
+        XCTAssertEqual(NowPlayingDemo.activeLine([10, 20], at: 5), -1)
+    }
+
+    func test_should_wrapAtTheSongsEnd_when_thePlayheadAdvances() {
+        let demo = TipDemo.nowPlaying()
+        XCTAssertEqual(demo.playhead.positionSec, TipDemo.songStartSec)
+        XCTAssertEqual(demo.snapshot.activeLyric, 1)
+        demo.advance(by: 2)
+        XCTAssertEqual(demo.snapshot.activeLyric, 2, "0:60 starts the third line")
+        demo.advance(by: Double(TipDemo.songSec))
+        XCTAssertEqual(demo.playhead.positionSec, TipDemo.songStartSec + 2, accuracy: 0.001)
+        XCTAssertEqual(demo.track.durationSec, 214)
+        XCTAssertTrue(demo.favorite)
+        XCTAssertEqual(demo.album.id.provider, TipDemo.provider, "nothing reaches an account")
+    }
+
+    // MARK: The song sheet on the phone
+
+    func test_should_listTheAppsRows_when_theSheetIsAnAlbumsSong() {
+        let quick = DemoSongSheetRows.quick(nowPlaying: false, favorite: false)
+        XCTAssertEqual(quick.map(\.id), ["next", "queue", "favorite", "share"])
+        let groups = DemoSongSheetRows.groups(nowPlaying: false)
+        XCTAssertEqual(groups.map { $0.map(\.icon) }, [["playlist"], ["note", "artist"]], "an album's own song has no Go to album")
+    }
+
+    func test_should_putTheFavoriteFirst_when_theSheetIsThePlayingSong() {
+        let quick = DemoSongSheetRows.quick(nowPlaying: true, favorite: true)
+        XCTAssertEqual(quick.map(\.id), ["favorite", "playlist", "share"])
+        XCTAssertTrue(quick[0].checked)
+        XCTAssertEqual(quick[0].icon, "favorite_filled")
+        XCTAssertTrue(quick[1].closes)
+        XCTAssertEqual(DemoSongSheetRows.groups(nowPlaying: true).map { $0.map(\.icon) }, [["album", "note", "artist"]])
+    }
+
+    func test_should_turnDownloadIntoRemove_when_theSongIsDownloaded() {
+        let before = DemoSongSheetRows.groups(nowPlaying: false, offline: OfflineDownloads.Status.none)
+        XCTAssertEqual(before[0].map(\.icon), ["playlist", "download"])
+        let after = DemoSongSheetRows.groups(nowPlaying: false, offline: .downloaded)
+        XCTAssertEqual(after[0].map(\.icon), ["playlist", "delete"])
+        XCTAssertEqual(after[0][1].label, OfflineDownloads.rowLabel(.downloaded))
+        XCTAssertEqual(DemoSongSheetRows.offlineTarget(.none), "menuRow.download")
+        XCTAssertEqual(DemoSongSheetRows.offlineTarget(.downloaded), "menuRow.delete")
+    }
+
+    func test_should_checkAQueueButtonForAMoment_when_tapped() {
+        let quick = DemoSongSheetRows.quick(nowPlaying: false, favorite: false, done: ["next"])
+        XCTAssertEqual(quick[0].icon, "check")
+        XCTAssertEqual(quick[1].icon, "queue")
+    }
+
+    // MARK: The album page on the phone
+
+    func test_should_listSevenSongs_when_theDemoOpensAnAlbum() {
+        let album = TipDemo.albumPage
+        XCTAssertEqual(album.title, "Paper Moons")
+        XCTAssertEqual(album.tracks.count, 7)
+        XCTAssertEqual(album.tracks.map(\.starred), [false, true, false, false, false, false, false])
+        XCTAssertTrue(album.tracks.contains { $0.number == TipDemo.notedTrack })
+        XCTAssertLessThan(SongMenuDemo.heldRow, album.tracks.count)
+    }
+
+    func test_should_slideOntoTwoAccounts_when_theDemoSwitches() {
+        XCTAssertEqual(AccountQuickSwitchDemo.slides, [0, 1])
+        XCTAssertLessThan(AccountQuickSwitchDemo.slides.max() ?? 0, TipDemo.accounts.count - 1)
     }
 }

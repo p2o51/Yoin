@@ -69,6 +69,8 @@ enum DemoTiming {
     static let holdDownMs = 90
     static let dragDownMs = 80
     static let liftMs = 220
+    /// Letting go of a hold the finger slid from (the account column's).
+    static let releaseMs = 120
 
     /// Android's `YoinMotion.spatialSpring` (the Expressive default spatial spring).
     static var spring: Spring {
@@ -109,6 +111,9 @@ final class DemoTargets {
     private var parts: [String: CGRect] = [:]
 
     func report(_ key: String, _ frame: CGRect) { parts[key] = frame }
+
+    /// Part [key]'s frame on the screen as laid out; nil until it is.
+    func rect(_ key: String) -> CGRect? { parts[key] }
 
     /// The point ([fx], [fy]) of part [key] (0…1 across it), moved by ([dx], [dy]) points of the screen, as
     /// fractions of the screen. Nil until laid out.
@@ -214,6 +219,24 @@ final class DemoFinger {
         pressed(false)
         withAnimation(DemoTiming.springAnimation) { press = 0 }
         try await DemoTiming.delay(DemoTiming.springMs)
+    }
+
+    /// Down and held where it is for the long-press time (the ring fills), and still down after: a hold the
+    /// finger then slides from. `release` lets go.
+    func pressAndHold() async throws {
+        withAnimation(DemoTiming.tween(DemoTiming.holdDownMs)) { press = 1 }
+        try await DemoTiming.delay(DemoTiming.holdDownMs)
+        snap { ring = 0 }
+        try await frame()
+        withAnimation(DemoTiming.linear(DemoTiming.holdMs)) { ring = 1 }
+        try await DemoTiming.delay(DemoTiming.holdMs)
+        snap { ring = 0 }
+    }
+
+    /// Lets go of a `pressAndHold`.
+    func release() async throws {
+        withAnimation(DemoTiming.tween(DemoTiming.releaseMs)) { press = 0 }
+        try await DemoTiming.delay(DemoTiming.releaseMs)
     }
 
     /// Down where it is, slide to ([fx], [fy]) over [ms]. What [along] changes rides the same curve: the
