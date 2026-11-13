@@ -47,14 +47,14 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
-/** The tier page (from ⓘ): both tiers of the chosen service side by side, and what they cost. */
+/** The tier page (from ⓘ): the tiers of the chosen service side by side, and what they cost. */
 @Composable
 internal fun AiTiersPageContent() {
     val app = LocalContext.current.applicationContext as YoinApplication
     val viewModel: AiSettingsViewModel = viewModel(factory = AiSettingsViewModel.Factory(app.container))
     val prefs by viewModel.state.collectAsState()
     val provider = prefs.prefs.provider.takeIf { it != AiProvider.Custom } ?: AiProvider.Gemini
-    val current = prefs.prefs.tier
+    val current = prefs.prefs.copy(provider = provider).activeTier
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
@@ -62,7 +62,7 @@ internal fun AiTiersPageContent() {
             style = MaterialTheme.typography.titleLarge,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AiTier.entries.forEach { tier ->
+            provider.tiers.forEach { tier ->
                 TierFacts(provider, tier, chosen = tier == current, modifier = Modifier.weight(1f))
             }
         }

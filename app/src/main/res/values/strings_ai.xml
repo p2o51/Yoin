@@ -13,6 +13,7 @@
     <string name="ai_axis_speed">Faster</string>
     <string name="ai_axis_cost">Cheaper</string>
     <string name="ai_axis_accuracy">More accurate</string>
+    <string name="ai_axis_overall">Accurate and fast</string>
     <string name="ai_untested">Not tested</string>
     <string name="ai_key_label">API key</string>
     <string name="ai_get_key_gemini">Get a key in Google AI Studio</string>
@@ -48,10 +49,10 @@
     <string name="ai_search_qwen">Qwen\'s own search</string>
     <string name="ai_search_deepseek_once">DeepSeek Search once, full pages</string>
     <string name="ai_search_deepseek_twice">DeepSeek Search twice, full pages</string>
-    <string name="ai_note_gemini">The first 5,000 searches each month are free; after that, about $31 per 1,000 songs. A free key without billing can\'t search and gets error 429.</string>
+    <string name="ai_note_gemini">The first 5,000 searches each month are free; after that, about $25 per 1,000 songs. A free key without billing can\'t search and gets error 429.</string>
     <string name="ai_note_deepseek">Works in mainland China without a proxy. Search uses the same key and is charged per call.</string>
-    <string name="ai_note_qwen">Works in mainland China without a proxy. Not tested yet.</string>
-    <string name="ai_tiers_source">Speed and accuracy from a 35-song test; cost at current prices.</string>
+    <string name="ai_note_qwen">Works in mainland China without a proxy. Search uses the same key and is charged per call.</string>
+    <string name="ai_tiers_source">Speed from a 500-song test, accuracy checked on 109 of them; cost at current prices.</string>
     <string name="ai_try_song">Song</string>
     <string name="ai_try_artist">Artist</string>
     <string name="ai_try_album">Album</string>

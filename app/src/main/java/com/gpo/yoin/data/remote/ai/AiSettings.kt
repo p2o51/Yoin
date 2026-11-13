@@ -3,14 +3,32 @@ package com.gpo.yoin.data.remote.ai
 /**
  * Which online AI writes the About fields, answers Ask and translates lyrics
  * (owner 2026-11-12, AI settings v2). The user only picks a service, one of
- * two tiers, and pastes a key; Custom adds an endpoint, a model, a thinking
- * level and a search service.
+ * its tiers where it has two, and pastes a key; Custom adds an endpoint, a
+ * model, a thinking level and a search service.
  *
  * Search is two kinds: the service's own (Gemini's Google Search, Qwen's
  * enable_search), or Yoin calling a search API first and putting the pages in
  * the prompt (DeepSeek, Custom). The second kind works with any model.
  */
-enum class AiProvider { Gemini, DeepSeek, Qwen, Custom }
+enum class AiProvider {
+    Gemini,
+    DeepSeek,
+    Qwen,
+    Custom,
+    ;
+
+    /**
+     * The tiers this service offers. Qwen has one (owner 2026-11-13): on the 500-song benchmark
+     * qwen-flash was more accurate, faster and cheaper than qwen-plus and qwen3.8-flash, so there
+     * was nothing for a second tier to be. Custom has none: its model is typed.
+     */
+    val tiers: List<AiTier>
+        get() = when (this) {
+            Gemini, DeepSeek -> AiTier.entries
+            Qwen -> listOf(AiTier.Good)
+            Custom -> emptyList()
+        }
+}
 
 /** 「好」/「最佳」. What each means per service is in [AiSettings.modelId] / [AiSettings.searchQueries]. */
 enum class AiTier { Good, Best }
@@ -38,6 +56,13 @@ data class AiProviderPrefs(
     val searchKeyExa: String = "",
     val searchKeyTavily: String = "",
 ) {
+    /**
+     * The tier in use: [tier] where [provider] offers it, otherwise the one it has. [tier] itself
+     * is kept as chosen, so going to Qwen and back to Gemini does not lose 「最佳」.
+     */
+    val activeTier: AiTier
+        get() = if (tier in provider.tiers) tier else provider.tiers.firstOrNull() ?: tier
+
     /** The key Custom's search [service] was given. */
     fun searchKeyFor(service: AiSearchService): String = when (service) {
         AiSearchService.DeepSeek -> searchKeyDeepSeek
@@ -78,9 +103,9 @@ data class AiSettings(
 
     val modelId: String
         get() = when (provider) {
-            AiProvider.Gemini -> if (prefs.tier == AiTier.Best) GEMINI_BEST else GEMINI_GOOD
+            AiProvider.Gemini -> if (prefs.activeTier == AiTier.Best) GEMINI_BEST else GEMINI_GOOD
             AiProvider.DeepSeek -> DEEPSEEK_MODEL
-            AiProvider.Qwen -> if (prefs.tier == AiTier.Best) QWEN_BEST else QWEN_GOOD
+            AiProvider.Qwen -> QWEN_MODEL
             AiProvider.Custom -> prefs.customModel.trim()
         }
 
@@ -113,7 +138,7 @@ data class AiSettings(
      * gain; DeepSeek's 「最佳」 adds a second query on the album.
      */
     val searchQueries: Int
-        get() = if (provider == AiProvider.DeepSeek && prefs.tier == AiTier.Best) 2 else 1
+        get() = if (provider == AiProvider.DeepSeek && prefs.activeTier == AiTier.Best) 2 else 1
 
     enum class SearchKind { BuiltIn, External, None }
 
@@ -121,8 +146,7 @@ data class AiSettings(
         const val GEMINI_GOOD = "gemini-3.1-flash-lite"
         const val GEMINI_BEST = "gemini-3.5-flash-lite"
         const val DEEPSEEK_MODEL = "deepseek-flash"
-        const val QWEN_GOOD = "qwen-flash"
-        const val QWEN_BEST = "qwen-plus"
+        const val QWEN_MODEL = "qwen-flash"
         const val DEEPSEEK_BASE_URL = "https://api.deepseek.com"
         const val QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
