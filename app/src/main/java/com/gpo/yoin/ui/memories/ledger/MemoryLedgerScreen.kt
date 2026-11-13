@@ -534,7 +534,8 @@ private fun LedgerViewBar(
             if (cell != null) {
                 ExpressiveSegmentRow {
                     ExpressiveSegmentChip(
-                        label = cellLabel(cell, scale) + " ✕",
+                        label = cellLabel(cell, scale),
+                        trailingIcon = YoinSymbols.Close,
                         selected = true,
                         onClick = onClearCell,
                     )
