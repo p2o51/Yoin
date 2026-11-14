@@ -727,7 +727,8 @@ extension PlayerEngine: AudioOutputEvents {
     }
 
     func outputDidFail(_ message: String, network: Bool) {
-        PlayTrace.log("engine failure network=\(network): \(message)")
+        // An error's words can name the server ("…hostname music.example.com…"): not in the log.
+        PlayTrace.log("engine failure network=\(network): \(PlayTrace.maskHosts(message))")
         if network { holdAfterFailure(message) } else { skipAfterFailure(message) }
     }
 

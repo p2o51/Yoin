@@ -19,15 +19,16 @@ final class AVAudioOutput: AudioOutput {
     private var endObservers: [NSObjectProtocol] = []
     static let log = Logger(subsystem: "com.gpo.yoin", category: "player")
 
-    /// A stream URL as it may be logged: host, endpoint and the song / delivery
-    /// parameters, never the credentials (`u`, `t`, `s`, `p`, `apiKey`) or anything unknown.
+    /// A stream URL as it may be logged (Android PlayTrace.describe): the scheme, the endpoint and the
+    /// song / delivery parameters, never the server's address, the credentials (`u`, `t`, `s`, `p`,
+    /// `apiKey`) or anything unknown. The exported log goes to whoever the listener sends it to.
     nonisolated static func describe(_ url: URL) -> String {
         let safe: Set<String> = ["id", "maxBitRate", "format", "timeOffset", "estimateContentLength"]
         guard let c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return "<url>" }
         let items = (c.queryItems ?? []).filter { safe.contains($0.name) }
             .map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
         let endpoint = c.path.split(separator: "/").last.map(String.init) ?? ""
-        return "\(c.scheme ?? "")://\(c.host ?? "")/…/\(endpoint)" + (items.isEmpty ? "" : "?" + items)
+        return "\(c.scheme ?? "")://…/\(endpoint)" + (items.isEmpty ? "" : "?" + items)
     }
 
     init() {
@@ -167,7 +168,7 @@ final class AVAudioOutput: AudioOutput {
                 let network = PlaybackFailureKind.isNetwork(item.error)
                 Task { @MainActor in
                     guard let self, failed, self.isCurrent(id) else { return }
-                    Self.log.error("item failed: \(message, privacy: .public) network=\(network)")
+                    Self.log.error("item failed: \(PlayTrace.maskHosts(message), privacy: .public) network=\(network)")
                     self.events?.outputDidFail(message, network: network)
                 }
             },
