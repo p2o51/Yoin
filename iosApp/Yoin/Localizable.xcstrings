@@ -1044,7 +1044,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "加入资料库"
+            "value": "已添加"
           }
         }
       }
@@ -7888,16 +7888,6 @@
         }
       }
     },
-    "Write a note while a song plays, or score an album, and it shows up here.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "听歌时写下一笔，或者给专辑打个分，就会出现在这里。"
-          }
-        }
-      }
-    },
     "Nothing kept in this stretch.": {
       "localizations": {
         "zh-Hans": {
@@ -9506,6 +9496,186 @@
           "stringUnit": {
             "state": "translated",
             "value": "有线 %1$@　蓝牙 %2$@　扬声器 %3$@"
+          }
+        }
+      }
+    },
+    "Up to %lld accounts": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多 %lld 个账号"
+          }
+        }
+      }
+    },
+    "Cancelled": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消"
+          }
+        }
+      }
+    },
+    "Couldn't save the sign-in (Keychain error %d)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存登录状态（钥匙串错误 %d）"
+          }
+        }
+      }
+    },
+    "Stream directly from your server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接从你的服务器串流播放"
+          }
+        }
+      }
+    },
+    "Synced with your server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与你的服务器保持同步"
+          }
+        }
+      }
+    },
+    "Browse and edit your playlists": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览与编辑你的播放列表"
+          }
+        }
+      }
+    },
+    "Keep albums and playlists on this device": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把专辑和播放列表保存在本机"
+          }
+        }
+      }
+    },
+    "Browse your library and search the Apple Music catalog": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览个人资料库，搜索 Apple Music 目录"
+          }
+        }
+      }
+    },
+    "Play catalog songs directly in Yoin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Yoin 内直接播放目录歌曲"
+          }
+        }
+      }
+    },
+    "Your saved albums, playlists, Liked Songs and Spotify's catalog": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你保存的专辑、播放列表、已点赞的歌曲，以及 Spotify 目录"
+          }
+        }
+      }
+    },
+    "Plays through the Spotify app, controlled from Yoin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 Spotify 应用播放，在 Yoin 里控制"
+          }
+        }
+      }
+    },
+    "The heart saves to your Spotify library": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点爱心即存进你的 Spotify 资料库"
+          }
+        }
+      }
+    },
+    "Server address, username, password": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器地址、用户名、密码"
+          }
+        }
+      }
+    },
+    "Apple Music subscription": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music 订阅"
+          }
+        }
+      }
+    },
+    "Spotify Premium, the Spotify app, and a Client ID from developer.spotify.com": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify Premium、Spotify 应用，以及 developer.spotify.com 上的 Client ID"
+          }
+        }
+      }
+    },
+    "Couldn't reach the server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接服务器"
+          }
+        }
+      }
+    },
+    "Private session": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私密会话"
+          }
+        }
+      }
+    },
+    "Refresh devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新设备"
           }
         }
       }

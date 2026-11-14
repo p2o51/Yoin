@@ -150,7 +150,7 @@ struct ServiceSetupView: View {
     private func summary(_ s: Profile.Service) -> String {
         switch s {
         case .subsonic: String(localized: "Navidrome, Airsonic and other servers")
-        case .appleMusic: appleAdded ? "Added" : "Your Apple Music library and catalog"
+        case .appleMusic: appleAdded ? String(localized: "Added") : String(localized: "Your Apple Music library and catalog")
         case .spotify: String(localized: "Your Spotify library, played in the Spotify app")
         }
     }
@@ -202,27 +202,27 @@ struct ServiceSetupView: View {
     private func highlights(_ s: Profile.Service) -> [Highlight] {
         switch s {
         case .subsonic:
-            [Highlight(icon: "equalizer", title: String(localized: "Playback"), body: "Stream directly from your server"),
-             Highlight(icon: "favorite", title: String(localized: "Favorites and ratings"), body: "Synced with your server"),
-             Highlight(icon: "playlist", title: String(localized: "Playlists"), body: "Browse and edit your playlists"),
-             Highlight(icon: "download", title: String(localized: "Downloads"), body: "Keep albums and playlists on this device")]
+            [Highlight(icon: "equalizer", title: String(localized: "Playback"), body: String(localized: "Stream directly from your server")),
+             Highlight(icon: "favorite", title: String(localized: "Favorites and ratings"), body: String(localized: "Synced with your server")),
+             Highlight(icon: "playlist", title: String(localized: "Playlists"), body: String(localized: "Browse and edit your playlists")),
+             Highlight(icon: "download", title: String(localized: "Downloads"), body: String(localized: "Keep albums and playlists on this device"))]
         case .appleMusic:
             [Highlight(icon: "search", title: String(localized: "Library and catalog"),
-                       body: "Browse your library and search the Apple Music catalog"),
-             Highlight(icon: "play_filled", title: String(localized: "Playback"), body: "Play catalog songs directly in Yoin")]
+                       body: String(localized: "Browse your library and search the Apple Music catalog")),
+             Highlight(icon: "play_filled", title: String(localized: "Playback"), body: String(localized: "Play catalog songs directly in Yoin"))]
         case .spotify:
             [Highlight(icon: "search", title: String(localized: "Library and search"),
-                       body: "Your saved albums, playlists, Liked Songs and Spotify's catalog"),
-             Highlight(icon: "play_filled", title: String(localized: "Playback"), body: "Plays through the Spotify app, controlled from Yoin"),
-             Highlight(icon: "favorite", title: String(localized: "Liked Songs"), body: "The heart saves to your Spotify library")]
+                       body: String(localized: "Your saved albums, playlists, Liked Songs and Spotify's catalog")),
+             Highlight(icon: "play_filled", title: String(localized: "Playback"), body: String(localized: "Plays through the Spotify app, controlled from Yoin")),
+             Highlight(icon: "favorite", title: String(localized: "Liked Songs"), body: String(localized: "The heart saves to your Spotify library"))]
         }
     }
 
     private func needs(_ s: Profile.Service) -> String {
         switch s {
-        case .subsonic: "Server address, username, password"
-        case .appleMusic: "Apple Music subscription"
-        case .spotify: "Spotify Premium, the Spotify app, and a Client ID from developer.spotify.com"
+        case .subsonic: String(localized: "Server address, username, password")
+        case .appleMusic: String(localized: "Apple Music subscription")
+        case .spotify: String(localized: "Spotify Premium, the Spotify app, and a Client ID from developer.spotify.com")
         }
     }
 
@@ -486,13 +486,13 @@ struct ServiceSetupView: View {
             if !apple.isAuthorized { await apple.requestAuthorization() }
             working = false
             guard apple.isAuthorized else {
-                error = "Apple Music access is off for Yoin"
+                error = String(localized: "Apple Music access is off for Yoin")
                 return
             }
             if profiles.addAppleMusic(activate: true) {
                 dismiss()
             } else {
-                error = "Up to \(ProfileStore.maxProfiles) accounts"
+                error = String(localized: "Up to \(ProfileStore.maxProfiles) accounts")
             }
         }
     }
