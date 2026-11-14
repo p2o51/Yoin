@@ -76,16 +76,7 @@ struct ArtistDetailView: View {
                     }
                 }
                 .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in scrollY = y }
-                // Content starts under the header and dissolves at its bottom
-                // edge (Android: the column sits below the header; tide line).
-                .mask {
-                    VStack(spacing: 0) {
-                        Color.clear.frame(height: headerHeight - 8)
-                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 16)
-                        Color.black
-                    }
-                    .ignoresSafeArea(edges: .bottom)
-                }
+                // Content starts below the header and scrolls up under it, into the album page's top.
                 .scrollPosition($scrollPosition)
                 .task {
                     // `-screen artist-bottom`: the default anchor settled short of
@@ -99,18 +90,13 @@ struct ArtistDetailView: View {
                 }
                 header
                     .background(alignment: .top) {
-                        // Tide line under the fixed header: a soft material
-                        // band that fades out downward once content scrolls under.
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                            .mask(LinearGradient(stops: [.init(color: .black, location: 0),
-                                                         .init(color: .black, location: 0.6),
-                                                         .init(color: .clear, location: 1)],
-                                                 startPoint: .top, endPoint: .bottom))
-                            .frame(height: geo.safeAreaInsets.top + headerHeight + 24)
+                        // The album page's top (51, 2026-11-14): its strong progressive blur in the page's
+                        // top colour, from the top of the screen through the header and 4 past it, coming
+                        // in as content goes under (the album's comes in with the list's rise).
+                        ProgressiveEdgeBlur(tint: topTint, strong: true)
+                            .frame(height: geo.safeAreaInsets.top + headerHeight + TopEdgeBlur.overhang)
                             .offset(y: -geo.safeAreaInsets.top)
-                            .opacity(min(1, max(0, scrollY / 40)))
-                            .allowsHitTesting(false)
+                            .opacity(min(1, max(0, scrollY / Self.blurIn)))
                     }
             }
         }
@@ -131,8 +117,13 @@ struct ArtistDetailView: View {
         4 + max(48, Tokens.type.headlineSmall.lineHeight.cg + (yearSpan == nil ? 0 : Tokens.type.bodyMedium.lineHeight.cg)) + 6
     }
 
+    /// The page's top colour (the album page's `topTint`): the background starts with it, the top blur is it.
+    private var topTint: Color { app.surfaceContainer.mix(with: s.primary, by: 0.18, in: .perceptual) }
+    /// How far content scrolls under the header before the top blur is all the way in.
+    private static let blurIn: CGFloat = 24
+
     private var background: some View {
-        LinearGradient(colors: [app.surfaceContainer.mix(with: s.primary, by: 0.18, in: .perceptual),
+        LinearGradient(colors: [topTint,
                                 app.background, app.surfaceContainerLow],
                        startPoint: .top, endPoint: .bottom)
             .ignoresSafeArea()

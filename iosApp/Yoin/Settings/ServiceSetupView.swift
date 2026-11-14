@@ -116,7 +116,7 @@ struct ServiceSetupView: View {
             .animation(Yoin.effects, value: apple.subscription)
         }
         .scrollDismissesKeyboard(.interactively)
-        .safeAreaBar(edge: .top) { topBar }
+        .safeAreaBar(edge: .top) { topBar.topEdgeBlur(app.surfaceContainer) }
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {

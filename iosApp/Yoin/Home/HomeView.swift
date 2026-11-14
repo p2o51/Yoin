@@ -272,6 +272,8 @@ struct HomeView: View {
         .scrollEdgeEffectHidden(memories.mounted, for: .bottom)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             scroll.scrolled = y
+            // Only the crossing is written: a scroll frame mustn't re-render the shell's band.
+            if (y > 1) != model.homeScrolledUnder { model.homeScrolledUnder = y > 1 }
         }
     }
 

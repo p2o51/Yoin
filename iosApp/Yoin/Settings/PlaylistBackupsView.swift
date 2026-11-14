@@ -586,6 +586,7 @@ enum BackupChrome {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+        .topEdgeBlur(app.surfaceContainer)
     }
 
     @MainActor

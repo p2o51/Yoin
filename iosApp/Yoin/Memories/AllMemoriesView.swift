@@ -98,7 +98,9 @@ struct AllMemoriesView: View {
         }
         .modifier(TopBar(plain: demo != nil) {
             LedgerTopBar(lift: lift, headline: headline, lifts: demo == nil && !(source.state?.isEmpty ?? true),
-                         onSurface: app.onSurface) { if let demo { demo.onBack() } else { dismiss() } }
+                         onSurface: app.onSurface, page: demo == nil ? app.surfaceContainer : nil) {
+                if let demo { demo.onBack() } else { dismiss() }
+            }
         })
         .background(app.surfaceContainer.ignoresSafeArea())
         // White icons with the bar's white back and title once the squares have formed it (Android
@@ -722,6 +724,8 @@ private struct LedgerTopBar: View {
     /// The grid has squares to rise.
     let lifts: Bool
     let onSurface: Color
+    /// The page's colour, for the album page's top under the bar (nil on the tip's demo phone).
+    let page: Color?
     let onBack: () -> Void
 
     /// 0 = the headline below the bar, 1 = wholly gone under it.
@@ -757,6 +761,14 @@ private struct LedgerTopBar: View {
         .animation(Yoin.effects, value: formed)
         .padding(.leading, 8)
         .padding(.vertical, 4)
+        .background(alignment: .top) {
+            // The album page's top (TopEdgeBlur) while what's under the bar is the page; it gives way as the
+            // grid's squares rise to make the bar.
+            if let page {
+                TopEdgeBlur(tint: page)
+                    .opacity(lifts ? 1 - min(max(lift.progress / MemoryGridLiftMath.formed, 0), 1) : 1)
+            }
+        }
     }
 }
 

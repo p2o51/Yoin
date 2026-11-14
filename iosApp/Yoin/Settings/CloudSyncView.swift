@@ -167,7 +167,7 @@ struct CloudSyncView: View {
             .animation(Yoin.effects, value: sync.message)
             .animation(Yoin.spatial, value: sync.freshHeld)
         }
-        .safeAreaBar(edge: .top) { topBar }
+        .safeAreaBar(edge: .top) { topBar.topEdgeBlur(app.surfaceContainer) }
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $setup) { ServiceSetupView(request: $0) }

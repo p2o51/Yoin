@@ -192,6 +192,8 @@ struct LibraryView: View {
             // glass press bloom) overlaps the bar and is that 4 gap.
             // The track styles keep 8 between the field and the track, so
             // the two capsules read as a pair, not one stacked slab.
+            // Under it all, the album page's top (TopEdgeBlur).
+            Group {
             if wideHeader {
                 // Android's wide Library app bar: the search field at its own width, the chips beside it,
                 // the account at the end (a full-width field read as a bar across the whole page).
@@ -218,6 +220,8 @@ struct LibraryView: View {
                     .animation(model.searchActive ? nil : Yoin.effects, value: model.searchActive)
             }
             }
+            }
+            .topEdgeBlur(scheme.surfaceContainer)
         }
         .scrollPosition($position)
         .onScrollGeometryChange(for: ScrollMetrics.self) {

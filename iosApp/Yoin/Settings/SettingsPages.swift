@@ -57,6 +57,7 @@ struct SettingsPage<Content: View>: View {
             }
             .padding(.leading, 8)
             .padding(.vertical, 4)
+            .topEdgeBlur(app.surfaceContainer, on: demoScheme == nil)
         }
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)

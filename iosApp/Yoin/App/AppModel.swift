@@ -61,6 +61,8 @@ final class AppModel {
     /// Home's Memories bubble is out of the Dynamic Island (or the notch): the soft status-bar
     /// band steps aside so the island's black meets the screen's top without a haze.
     var islandOut = false
+    /// Home's feed has scrolled up under the status bar: the band there comes in (the album page's top).
+    var homeScrolledUnder = false
     /// The Spotify sign-in the library's source was built from (account + when it signed in).
     @ObservationIgnored var spotifySignIn: String?
     /// Bumps on every start: a page read that ends after a newer start doesn't play (F02).

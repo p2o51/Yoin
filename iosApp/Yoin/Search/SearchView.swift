@@ -118,8 +118,15 @@ struct SearchView: View {
         .overlay { if showsNoResults { noResults.transition(.opacity.animation(Yoin.effects)) } }
         .scrollDismissesKeyboard(.interactively)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        // The header is a safe-area bar so the system soft edge runs under it.
-        .safeAreaBar(edge: .top) { header }
+        // The header is a safe-area bar so the system soft edge runs under it, and the album page's top
+        // (TopEdgeBlur) with it, in Search's own colour as its surface comes up.
+        .safeAreaBar(edge: .top) {
+            header.background(alignment: .top) {
+                TopEdgeBlur(tint: scheme.surfaceContainerHigh)
+                    .opacity(staged ? 1 : 0)
+                    .animation(Yoin.effects, value: staged)
+            }
+        }
         // Android ExpandedFullScreenSearchBar: SearchBarDefaults.colors()
         // container = surfaceContainerHigh of the playing scheme.
         .background(scheme.surfaceContainerHigh.opacity(staged ? 1 : 0).ignoresSafeArea())
