@@ -134,11 +134,21 @@ struct CloudSyncView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                Text("Cloud sync")
-                    .yoinRole(Tokens.type.displaySmall)
-                    .foregroundStyle(app.onSurface)
-                    .padding(.horizontal, 8)
-                    .padding(.top, 8)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Cloud sync")
+                        .yoinRole(Tokens.type.displaySmall)
+                        .foregroundStyle(app.onSurface)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                    // Android CloudSyncHeadline: the one-line pitch under the title while sync is off.
+                    if sync.isConfigured && !enabled {
+                        Text("Sync notes, ratings and translations")
+                            .yoinRole(Tokens.type.bodyLarge)
+                            .foregroundStyle(app.onSurfaceVariant)
+                            .padding(.horizontal, 8)
+                            .transition(.opacity)
+                    }
+                }
                 if !sync.isConfigured {
                     group(String(localized: "Google account")) { [AnyView(info("Not configured", nil))] }
                 } else if enabled {
@@ -157,7 +167,8 @@ struct CloudSyncView: View {
                 group(String(localized: "Playlist cloud backup")) {
                     [AnyView(PlaylistBackupsEntryRow(app: app, row: row, shape: Self.segment(0, 1)))]
                 }
-                whatSyncs
+                // Android lists what syncs with the controls of a sync that's on; off, "What you get" says it.
+                if enabled { whatSyncs }
                 goodToKnow
             }
             .padding(.horizontal, 16)
@@ -214,10 +225,38 @@ struct CloudSyncView: View {
                 .foregroundStyle(app.onSurfaceVariant)
                 .padding(.horizontal, 8)
         }
+        whatYouGet
         group(String(localized: "Google account")) {
             [AnyView(action(sync.working ? String(localized: "Waiting for Google…") : String(localized: "Turn on with Google"), ink: app.primary,
                             disabled: sync.working) { Task { await sync.turnOn() } })]
         }
+    }
+
+    /// Android's "What you get" (CloudSyncScreen OffContent): what turning sync on brings, before the button.
+    private var whatYouGet: some View {
+        group(String(localized: "What you get")) {
+            Self.benefits.map { b in
+                AnyView(HStack(spacing: 16) {
+                    YoinIcon(b.icon, size: 20)
+                        .foregroundStyle(app.onSecondaryContainer)
+                        .frame(width: 40, height: 40)
+                        .background(app.secondaryContainer, in: .circle)
+                    Text(b.title)
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(app.onSurface)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12))
+            }
+        }
+    }
+
+    /// Android's benefits, in its order (its offline icon is a cloud too).
+    static var benefits: [(icon: String, title: String)] {
+        [("edit_note", String(localized: "Notes, ratings and reviews")),
+         ("translate", String(localized: "Lyric translations")),
+         ("settings", String(localized: "Home layout and settings")),
+         ("cloud", String(localized: "Works offline"))]
     }
 
     // MARK: On
@@ -363,9 +402,22 @@ struct CloudSyncView: View {
 
     private var whatSyncs: some View {
         group(String(localized: "What syncs")) {
-            [AnyView(info(String(localized: "Syncs"), String(localized: "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups"))),
+            [AnyView(info(String(localized: "Syncs"), Self.syncedLines.joined(separator: "\n"))),
              AnyView(info(String(localized: "Stays on this device"), String(localized: "Listening history\nPasswords, sign-ins and API keys\nCaches and downloads")))]
         }
+    }
+
+    /// Everything the sync carries (SyncDomainBridge), Android's list with what iOS adds (Memory titles, About and
+    /// Ask); iOS has no scroll edge style to carry.
+    static var syncedLines: [String] {
+        [String(localized: "Notes on songs"),
+         String(localized: "Song and album ratings, album reviews"),
+         String(localized: "Memory titles, About and Ask"),
+         String(localized: "Home layout"),
+         String(localized: "AI lyric translations"),
+         String(localized: "Playlist cloud backups"),
+         String(localized: "Translation language and Spotify Client ID"),
+         String(localized: "Account names, server addresses")]
     }
 
     /// Android's "Good to know" (CloudSyncScreen, parity D-U3): where the data lives and what that means.

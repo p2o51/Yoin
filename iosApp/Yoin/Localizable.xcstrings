@@ -4267,16 +4267,6 @@
         }
       }
     },
-    "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "歌曲笔记\n歌曲与专辑评分、专辑乐评\nMemories 标题、歌曲信息与问 Gemini\n歌单云备份"
-          }
-        }
-      }
-    },
     "Nothing here yet": {
       "localizations": {
         "zh-Hans": {
@@ -10052,6 +10042,136 @@
           "stringUnit": {
             "state": "translated",
             "value": "复制诊断信息"
+          }
+        }
+      }
+    },
+    "Sync notes, ratings and translations": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步笔记、评分与翻译"
+          }
+        }
+      }
+    },
+    "Notes, ratings and reviews": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "笔记、评分与评论"
+          }
+        }
+      }
+    },
+    "Lyric translations": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌词翻译"
+          }
+        }
+      }
+    },
+    "Home layout and settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首页布局与设置"
+          }
+        }
+      }
+    },
+    "Works offline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支持离线记录"
+          }
+        }
+      }
+    },
+    "Notes on songs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲笔记"
+          }
+        }
+      }
+    },
+    "Song and album ratings, album reviews": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲与专辑评分、专辑评论"
+          }
+        }
+      }
+    },
+    "Memory titles, About and Ask": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memories 标题、歌曲信息与问 Gemini"
+          }
+        }
+      }
+    },
+    "Home layout": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首页布局"
+          }
+        }
+      }
+    },
+    "AI lyric translations": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 歌词翻译"
+          }
+        }
+      }
+    },
+    "Playlist cloud backups": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌单云备份"
+          }
+        }
+      }
+    },
+    "Translation language and Spotify Client ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻译语言与 Spotify Client ID"
+          }
+        }
+      }
+    },
+    "Account names, server addresses": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账号名称、服务器地址"
           }
         }
       }
