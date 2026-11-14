@@ -1,3 +1,6 @@
+import 'package:yoin_symbols/yoin_symbols.dart';
+import 'package:flutter/services.dart';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -8,6 +11,7 @@ import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import 'lyrics_logic.dart';
 import 'now_playing_view_model.dart';
+import 'haptics.dart';
 import 'nowplaying_strings.dart';
 import 'playhead_clock.dart';
 
@@ -148,6 +152,61 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
   bool _seated = false;
   double _viewport = 0;
 
+  /// Select mode (LyricsSelection): a long-press picks a line, taps toggle
+  /// lines, Copy puts them on the clipboard with the song's credit.
+  bool _selecting = false;
+  final Set<int> _selected = {};
+
+  /// "Copied 3 lines", shown in the select bar for a moment after Copy.
+  String? _copied;
+  Timer? _copiedTimer;
+
+  void _startSelecting(int index) {
+    YoinHaptics.contextClick();
+    widget.autoFollow?.value = false;
+    setState(() {
+      _selecting = true;
+      _copied = null;
+      _selected
+        ..clear()
+        ..add(index);
+    });
+  }
+
+  void _toggle(int index) {
+    YoinHaptics.lightTick();
+    setState(() {
+      if (!_selected.remove(index)) _selected.add(index);
+      if (_selected.isEmpty) _selecting = false;
+    });
+  }
+
+  void _endSelecting() {
+    _copiedTimer?.cancel();
+    setState(() {
+      _selecting = false;
+      _selected.clear();
+      _copied = null;
+    });
+    widget.autoFollow?.value = true;
+  }
+
+  Future<void> _copy() async {
+    final rows = widget.sheet.rows;
+    final picked = (_selected.toList()..sort()).where((i) => i >= 0 && i < rows.length).toList();
+    if (picked.isEmpty) return;
+    final strings = NowPlayingStrings.of(context);
+    final body = picked.map((i) => rows[i].text).join('\n');
+    await Clipboard.setData(ClipboardData(text: strings.lyricsClipboard(body, widget.title, widget.artist)));
+    if (!mounted) return;
+    YoinHaptics.click();
+    setState(() => _copied = strings.lyricsCopied(picked.length));
+    _copiedTimer?.cancel();
+    _copiedTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) _endSelecting();
+    });
+  }
+
   bool get _full => widget.mode == LyricsListMode.full;
 
   /// The full list's header row (title / artist) sits at index -1 → key 'header'.
@@ -177,6 +236,7 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
 
   @override
   void dispose() {
+    _copiedTimer?.cancel();
     widget.clock.removeListener(_onTick);
     widget.autoFollow?.removeListener(_onAutoFollow);
     _glide.dispose();
@@ -277,14 +337,21 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
         full: full,
         synced: synced,
       );
-      if (!full || line.startMs == null) return child;
+      if (!full) return child;
+      final picked = _selected.contains(index);
+      final shown = _PickTint(picked: picked, selecting: _selecting, child: child);
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          widget.autoFollow?.value = true;
-          widget.onSeek(line.startMs!);
-        },
-        child: child,
+        onLongPress: _selecting ? null : () => _startSelecting(index),
+        onTap: _selecting
+            ? () => _toggle(index)
+            : line.startMs == null
+            ? null
+            : () {
+                widget.autoFollow?.value = true;
+                widget.onSeek(line.startMs!);
+              },
+        child: shown,
       );
     }
 
@@ -359,7 +426,7 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
             ),
           ),
         );
-        return AnimatedBuilder(
+        final body = AnimatedBuilder(
           animation: _enter.animation,
           builder: (context, child) {
             final e = _enter.value;
@@ -379,7 +446,117 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
             child: list,
           ),
         );
+        if (!full) return body;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            body,
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 8,
+              child: Center(
+                child: _SelectBar(
+                  visible: _selecting,
+                  label: _copied ?? NowPlayingStrings.of(context).lyricsSelectCount(_selected.length, rows.length),
+                  onCopy: _copied == null ? _copy : null,
+                  onDone: _endSelecting,
+                ),
+              ),
+            ),
+          ],
+        );
       },
+    );
+  }
+}
+
+/// The select bar over the full list: the count (or "Copied N lines"),
+/// Copy and Done. Slides up and fades in on the Standard springs.
+class _SelectBar extends StatefulWidget {
+  const _SelectBar({required this.visible, required this.label, required this.onCopy, required this.onDone});
+
+  final bool visible;
+  final String label;
+  final VoidCallback? onCopy;
+  final VoidCallback onDone;
+
+  @override
+  State<_SelectBar> createState() => _SelectBarState();
+}
+
+class _SelectBarState extends State<_SelectBar> with TickerProviderStateMixin {
+  late final SpringValue _shown = SpringValue(
+    vsync: this,
+    initial: widget.visible ? 1 : 0,
+    spring: YoinSprings.standardDefaultSpatial,
+  );
+
+  @override
+  void didUpdateWidget(_SelectBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _shown.snapTo(widget.visible ? 1 : 0);
+    } else {
+      _shown.animateTo(widget.visible ? 1 : 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _shown.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final strings = NowPlayingStrings.of(context);
+    return AnimatedBuilder(
+      animation: _shown.animation,
+      builder: (context, child) {
+        final v = _shown.value.clamp(0.0, 1.0);
+        if (v <= 0.001) return const SizedBox.shrink();
+        return IgnorePointer(
+          ignoring: !widget.visible,
+          child: Opacity(
+            opacity: v,
+            child: Transform.translate(offset: Offset(0, 24 * (1 - v)), child: child),
+          ),
+        );
+      },
+      child: Material(
+        color: colors.inverseSurface,
+        shape: const StadiumBorder(),
+        elevation: 3,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 4, 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.label,
+                style: text.labelLarge!.copyWith(
+                  color: colors.onInverseSurface,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: strings.cdCopyLyrics,
+                onPressed: widget.onCopy,
+                icon: Icon(YoinSymbols.copy, color: colors.onInverseSurface),
+              ),
+              IconButton(
+                tooltip: strings.cdDoneSelecting,
+                onPressed: widget.onDone,
+                icon: Icon(YoinSymbols.check, color: colors.onInverseSurface),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -472,6 +649,63 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
           ),
         ),
       ),
+    );
+  }
+}
+
+
+/// A picked line's tint (no stroke) on the effects spring; the inset that
+/// makes room for it on the spatial spring.
+class _PickTint extends StatefulWidget {
+  const _PickTint({required this.picked, required this.selecting, required this.child});
+
+  final bool picked;
+  final bool selecting;
+  final Widget child;
+
+  @override
+  State<_PickTint> createState() => _PickTintState();
+}
+
+class _PickTintState extends State<_PickTint> with TickerProviderStateMixin {
+  late final SpringValue _tint = SpringValue(
+    vsync: this,
+    initial: widget.picked ? 1 : 0,
+    spring: YoinSprings.defaultEffects,
+  );
+  late final SpringValue _inset = SpringValue(
+    vsync: this,
+    initial: widget.selecting ? 1 : 0,
+    spring: YoinSprings.standardDefaultSpatial,
+  );
+
+  @override
+  void didUpdateWidget(_PickTint oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _tint.animateTo(widget.picked ? 1 : 0);
+    _inset.animateTo(widget.selecting ? 1 : 0);
+  }
+
+  @override
+  void dispose() {
+    _tint.dispose();
+    _inset.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return AnimatedBuilder(
+      animation: Listenable.merge([_tint.animation, _inset.animation]),
+      builder: (context, child) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.primaryContainer.withValues(alpha: _tint.value.clamp(0.0, 1.0)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(padding: EdgeInsets.symmetric(horizontal: 8 * _inset.value.clamp(0.0, 1.0)), child: child),
+      ),
+      child: widget.child,
     );
   }
 }

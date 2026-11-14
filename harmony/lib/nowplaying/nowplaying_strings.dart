@@ -35,6 +35,18 @@ class NowPlayingStrings {
   String get cdBackNowPlaying => _zh ? '返回正在播放' : 'Back to Now Playing'; // np_cd_stage_back_now_playing
   String formatDescription(String tags) => _zh ? '音频格式 $tags' : 'Audio format $tags'; // np_format_description
   String get waveNote => _zh ? '笔记' : 'Note'; // cmp_wave_note
+  String get cdCopyLyrics => _zh ? '复制所选歌词' : 'Copy selected lyrics'; // np_cd_copy_lyrics
+  String get cdDoneSelecting => _zh ? '完成选择' : 'Done selecting lyrics'; // np_cd_done_selecting
+  String lyricsSelectCount(int n, int total) => '$n / $total'; // np_lyrics_select_count
+  // np_lyrics_copied
+  String lyricsCopied(int n) => _zh ? '已复制 $n 行' : (n == 1 ? 'Copied 1 line' : 'Copied $n lines');
+
+  /// np_lyrics_clipboard_with_credit + np_lyrics_credit.
+  String lyricsClipboard(String body, String? title, String? artist) {
+    final credit = [?title, ?artist].where((s) => s.isNotEmpty).join(' · ');
+    return credit.isEmpty ? body : '$body\n\n— $credit';
+  }
+
   String get cdFullScreen => _zh ? '全屏' : 'Full screen'; // np_cd_full_screen
   String get cdBackToPanel => _zh ? '返回侧栏' : 'Back to side panel'; // np_cd_back_to_panel
 
