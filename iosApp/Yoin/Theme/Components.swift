@@ -55,11 +55,16 @@ struct CookieBadge: View {
 
 /// Format tags as small tonal blocks ("FLAC 24/96", "5.1"), one block each, no separators (Android
 /// AudioFormatTagRow: labelSmall with tabular figures, 6 × 1 inside a 6-corner block, 4 apart, in
-/// secondaryContainer). VoiceOver reads the row as one "Audio format FLAC 16/44.1 5.1".
+/// secondaryContainer). [accent] follows them in the primary tone ("Spatial" while the output spatializes
+/// the song; its colors are [accentContainer] and [accentContent]). VoiceOver reads the row as one
+/// "Audio format FLAC 16/44.1 5.1 Spatial".
 struct FormatTagRow: View {
     var tags: [String]
     var container: Color
     var content: Color
+    var accent: String? = nil
+    var accentContainer: Color = .clear
+    var accentContent: Color = .clear
 
     /// A tag's block: labelSmall's 16 line and 1 above and below.
     static let height: CGFloat = Tokens.type.labelSmall.lineHeight.cg + 2
@@ -67,20 +72,27 @@ struct FormatTagRow: View {
     var body: some View {
         HStack(spacing: 4) {
             ForEach(tags, id: \.self) { tag in
-                Text(tag)
-                    .font(.gsf(Tokens.type.labelSmall.size.cg, Font.Weight(gsf: Tokens.type.labelSmall.weight)).monospacedDigit())
-                    .tracking(Tokens.type.labelSmall.letterSpacing.cg)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .foregroundStyle(content)
-                    .padding(.horizontal, 6)
-                    .frame(height: Self.height)
-                    .background(container, in: .rect(cornerRadius: 6, style: .continuous))
-                    .transition(.opacity)
+                block(tag, container: container, content: content)
+            }
+            if let accent {
+                block(accent, container: accentContainer, content: accentContent)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Audio format \(tags.joined(separator: " "))"))
+        .accessibilityLabel(Text("Audio format \((tags + [accent].compactMap { $0 }).joined(separator: " "))"))
+    }
+
+    private func block(_ tag: String, container: Color, content: Color) -> some View {
+        Text(tag)
+            .font(.gsf(Tokens.type.labelSmall.size.cg, Font.Weight(gsf: Tokens.type.labelSmall.weight)).monospacedDigit())
+            .tracking(Tokens.type.labelSmall.letterSpacing.cg)
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundStyle(content)
+            .padding(.horizontal, 6)
+            .frame(height: Self.height)
+            .background(container, in: .rect(cornerRadius: 6, style: .continuous))
+            .transition(.opacity)
     }
 }
 

@@ -2169,12 +2169,14 @@ struct NowPlayingView: View, Equatable {
                     // NowPlayingFormatTags, #121 #139).
                     if let tags = formatTags, !tags.isEmpty {
                         FormatTagRow(tags: tags, container: scheme.secondaryContainer,
-                                     content: scheme.onSecondaryContainer)
+                                     content: scheme.onSecondaryContainer, accent: spatialTag,
+                                     accentContainer: scheme.primaryContainer, accentContent: scheme.onPrimaryContainer)
                             .transition(.opacity)
                     }
                 }
                 .lineLimit(1)
                 .animation(Yoin.effects, value: formatTags)
+                .animation(Yoin.effects, value: spatialTag)
                 .npFade(open, contentFade)
                 routeLink(albumRoute(p), label: String(localized: "Go to album")) { heroTitle(p) }
                     .frame(height: 44, alignment: .leading)
@@ -2185,6 +2187,8 @@ struct NowPlayingView: View, Equatable {
 
     /// The song's format after the artist: the engine's song's, or the demo phone's.
     private var formatTags: [String]? { demo != nil ? demo?.formatTag.map { [$0] } : model.player.currentTrack?.formatTags }
+    /// "Spatial" after the format tags while the output spatializes the song (Android NowPlayingFormatTags).
+    private var spatialTag: String? { demo != nil ? nil : SpatialAudioMonitor.shared.tag(for: model.player.currentTrack) }
 
     /// The title is matched to the pill's title by its leading edge; folded,
     /// it scales down to the pill's 15 pt so the glyphs line up.
@@ -3401,12 +3405,14 @@ extension NowPlayingView {
                 .layoutPriority(1)
                 if let tags = model.player.currentTrack?.formatTags, !tags.isEmpty {
                     FormatTagRow(tags: tags, container: scheme.secondaryContainer,
-                                 content: scheme.onSecondaryContainer)
+                                 content: scheme.onSecondaryContainer, accent: spatialTag,
+                                 accentContainer: scheme.primaryContainer, accentContent: scheme.onPrimaryContainer)
                         .transition(.opacity)
                 }
             }
             .lineLimit(1)
             .animation(Yoin.effects, value: model.player.currentTrack?.formatTags)
+            .animation(Yoin.effects, value: spatialTag)
             routeLink(albumRoute(p), label: String(localized: "Go to album")) {
                 Text(p.track.title)
                     .font(.gsf(Tokens.type.headlineMedium.size.cg))

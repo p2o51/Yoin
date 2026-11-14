@@ -9679,6 +9679,16 @@
           }
         }
       }
+    },
+    "Spatial": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空间音频"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

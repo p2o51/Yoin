@@ -35,6 +35,17 @@ final class ReplayGainTests: XCTestCase {
         let url = URL(string: "https://music.example.com/rest/stream.view?u=a&t=b&s=c&id=song-9&maxBitRate=320")!
         XCTAssertEqual(AVAudioOutput.songId(url), "song-9")
     }
+
+    /// I21, Android spatialPlaybackOf: Now Playing's "Spatial" tag only for a song of more than two channels,
+    /// with Settings › Spatial audio on, on an output that spatializes.
+    func test_should_tagSpatial_only_when_aMultichannelSongPlaysOnASpatialOutput() {
+        XCTAssertTrue(SpatialAudioMonitor.spatialized(channels: 6, settingOn: true, outputSpatializes: true))
+        XCTAssertTrue(SpatialAudioMonitor.spatialized(channels: 8, settingOn: true, outputSpatializes: true))
+        XCTAssertFalse(SpatialAudioMonitor.spatialized(channels: 2, settingOn: true, outputSpatializes: true))
+        XCTAssertFalse(SpatialAudioMonitor.spatialized(channels: nil, settingOn: true, outputSpatializes: true))
+        XCTAssertFalse(SpatialAudioMonitor.spatialized(channels: 6, settingOn: false, outputSpatializes: true))
+        XCTAssertFalse(SpatialAudioMonitor.spatialized(channels: 6, settingOn: true, outputSpatializes: false))
+    }
 }
 
 /// The per-song ReplayGain kept for the player (#213 review): song ids are per server, so nothing a song of
