@@ -180,6 +180,12 @@ struct AlbumDetailView: View {
     /// Playlists have no dots row: 4 + 52 + 6 (PlaylistTopHeader).
     private var headerContent: CGFloat { playlist == nil ? 4 + 52 + 25 + 6 : 4 + 52 + 6 }
 
+    /// The pulled-up list's room under the header, and its blur's: the album's for playlists too (their
+    /// header has no dots row), so a song scrolling up is under the full blur before it reaches the title,
+    /// and the blur falls off over empty room, not over the first song (51, 2026-11-14: every page's top
+    /// as the album's).
+    private var listTop: CGFloat { 4 + 52 + 25 + 6 }
+
     /// Android's Medium threshold for a page's own width.
     static func opensOnList(width: CGFloat) -> Bool { width >= 600 }
 
@@ -253,14 +259,14 @@ struct AlbumDetailView: View {
                     case 2:
                         // With the track list's own soft scroll edge.
                         ProgressiveEdgeBlur(tint: topTint)
-                            .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
+                            .frame(width: w, height: geo.safeAreaInsets.top + listTop + 4)
                             .offset(y: -geo.safeAreaInsets.top)
                             .opacity(smooth(p, 0.3, 0.85))
                     case 4:
                         // The layering: the progressive blur, as the blur bar.
                         // Stronger and steeper than the scrapbook's (51, 2026-11-06).
                         ProgressiveEdgeBlur(tint: topTint, strong: true)
-                            .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
+                            .frame(width: w, height: geo.safeAreaInsets.top + listTop + 4)
                             .offset(y: -geo.safeAreaInsets.top)
                             .opacity(smooth(p, 0.3, 0.85))
                         // The decoration: the cover's spectrum, safe area + a little.
@@ -1059,7 +1065,7 @@ struct AlbumDetailView: View {
         .scrollEdgeEffectStyle(.soft, for: .top)
         // (Not on the demo phone: the system draws the edge at the window's scale, over the phone's rim.)
         .scrollEdgeEffectHidden((topBar != 2 && topBar != 4) || demo != nil, for: .top)
-        .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent + bandFade) }
+        .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: listTop + bandFade) }
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top <= 1 } action: { _, top in
             listAtTop = top
         }
