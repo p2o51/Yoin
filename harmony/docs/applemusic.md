@@ -816,3 +816,60 @@ per-sample IV/subsamples → `SVPastisDecryptor::decryptSample` in memory → `O
   one).
 - The device id must be stable per install. If it is lost, the next round trip just binds keys to a
   new one.
+
+## Phase 2 native — decrypt, decode, render: PASS (2026-11-14, ~13:40 JST)
+
+> Same phone, same spike branch (`spike/am-phase1`, `615b12a61`, local only). Release build installed
+> over Yoin with `install -r` and replaced by the normal build afterwards. Silent: the renderer ran
+> at stream volume 0, and the system volume was never touched.
+
+**The stream (cbcp256, adamId 1636790756).**
+- **Playlist.** One `.mp4` addressed by `EXT-X-BYTERANGE`: an `EXT-X-MAP` init segment of 974 B,
+  then 24 segments of about 9.8 s each (235.9 s in total).
+- **Init segment.** Sample entry `enca` (original format `mp4a`), protection scheme **`cbc2`**
+  (Apple's own, not `cbcs`), no `tenc` the parser could use. The audio is AAC-LC, 44.1 kHz stereo,
+  with a 2-byte AudioSpecificConfig and a timescale of 44100.
+- **Media segments.** Each one is a `moof` + `mdat` with `default-base-is-moof` offsets and no
+  `senc`. The first three segments hold 1290 access units, 29.98 s of audio.
+
+**Result.** The same 1290 access units were run through the decoder three ways:
+
+| Run | Decoder output |
+| --- | --- |
+| Still encrypted (control) | none |
+| Decrypted, raw frames + `OH_MD_KEY_CODEC_CONFIG` | none (HarmonyOS's AAC decoder accepts the input but emits nothing) |
+| **Decrypted, behind ADTS headers** | **1291 buffers, 29.98 s PCM 44100 × 2, RMS −11.2 dBFS, peak full scale, 0 codec errors** |
+
+Decryption is checked without looking at the content:
+- Before `decryptSample`, 161 of 1290 frames start like a stereo AAC raw_data_block (a CPE,
+  `id_syn_ele` 001), which is about 1/8, the rate for random bytes.
+- After it, all 1290 do, and the first 16 bytes changed in every frame.
+
+**OHAudio.** `OH_AudioRenderer` (S16LE, `AUDIOSTREAM_USAGE_MUSIC`, stream volume 0.00) wrote
+217,088 frames (4.92 s), drained, with 0 errors.
+
+**What the protocol needs, beyond Phase 1.**
+- `SVPastisDecryptor::decryptSample(uint8_t* buf, const uint32_t& size, uint32_t* clearLen)`
+  decrypts the **whole sample in place**. It takes no IV and no subsample map; Apple's renderer
+  passes the sample as it comes out of the extractor.
+- `clearLen` reported 0 ("unchanged") for every frame here.
+- The decryptor's **track type is 0 for audio**. Track 2 is TEXT, and with it every sample fails
+  ("Pastis ERROR decrypting TEXT Sample"). Android's `playback.e.h` passes 2, so it is evidently the
+  text renderer, not the audio one.
+- Decode raw AAC on HarmonyOS by adding a 7-byte ADTS header per frame (profile, sampling index and
+  channel configuration from the ASC) and setting `OH_MD_KEY_AAC_IS_ADTS = 1`.
+
+**Rules kept.** Decrypted frames and PCM exist only in the native call's memory and are zeroed
+before it returns. Nothing is written to disk. The report carries counts and levels only.
+
+**Next: Phase 3 (integration, personal builds only).**
+1. A streaming engine: fetch → demux → decrypt → decode → render, segment by segment, with
+   back-pressure. Also seek (the segment index from `EXT-X-BYTERANGE` plus the `tfdt`s) and gapless
+   playback.
+2. License renewal per `renew-after` (780 s), and one session per key URI if a stream rotates keys.
+3. A second engine behind `ChannelPlaybackEngine`, so `PlaybackController` / AVSession drive
+   Apple Music the way they drive AVPlayer. `AppleMusicSource.handleFor` then returns an
+   `ExternalController(appleMusicKit, catalogId)`.
+4. A compile-time flag that is off by default, so none of this reaches a distributed build.
+5. The owner's first audible check: the harness takes `--ps yoinAmPhase2Volume 0.3` (without
+   `yoinQaSilent`), only with the owner present.
