@@ -911,8 +911,12 @@ before it returns. Nothing is written to disk. The report carries counts and lev
 **Open.**
 - No gapless playback: the next song's license and init load after the current one ends.
   Prefetching the next song is the fix.
-- License renewal: `renew-after` is 780 s and isn't acted on. Pausing for a long time and then
-  resuming may need a fresh round trip. Untested.
+- ~~License renewal~~ **Done (2026-11-14 night).** A 14-minute pause (past `renew-after` = 780 s)
+  made every later sample fail to decrypt: the rest of the song went silent and skipped. `AmPlayer`
+  now renews (SPC, then license, then context and decryptor) a minute before `renew-after`,
+  checking before each segment. A segment that won't decrypt at all also triggers one renewal and
+  a re-feed. Re-tested on the device: after a 14-minute pause the log shows `license renewed` and
+  playback carried on from 0:28 to 1:39 with no failures.
 - OHAudio output-device changes (headphones unplugged) aren't wired to `onDeviceGone` for Apple
   Music yet. Interrupt mapping is untested on the device.
 - The 3082 snackbar is cut off at three lines.
