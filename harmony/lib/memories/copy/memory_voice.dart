@@ -390,6 +390,7 @@ abstract final class MemoryExcerpt {
     MemoryCopyInput input, {
     required bool capped,
     required MemoryDay today,
+    bool zhDates = false,
   }) {
     final songNotes = [
       for (final n in input.notes)
@@ -399,7 +400,7 @@ abstract final class MemoryExcerpt {
     final MemoryExcerptAttribution lastAttribution;
     final review = (input.review?.trim().isEmpty ?? true) ? null : input.review!;
     if (review != null) {
-      lastAttribution = reviewAttribution(input.reviewWrittenOn, today);
+      lastAttribution = reviewAttribution(input.reviewWrittenOn, today, zh: zhDates);
       final firstParagraph = review.split('\n').first;
       final sentences = MemorySentences.split(firstParagraph);
       final most = capped
@@ -413,7 +414,7 @@ abstract final class MemoryExcerpt {
       }
     } else if (songNotes.isNotEmpty) {
       final first = albumOrder(input.notes).firstWhere((n) => n.track != null);
-      lastAttribution = noteAttribution(first, today);
+      lastAttribution = noteAttribution(first, today, zh: zhDates);
       out.add(MemoryExcerptCandidate(first.text, lastAttribution));
     } else {
       return const [];
@@ -422,7 +423,7 @@ abstract final class MemoryExcerpt {
     for (final n in songNotes) {
       if (shortest == null || n.text.length < shortest.text.length) shortest = n;
     }
-    if (shortest != null) out.add(MemoryExcerptCandidate(shortest.text, noteAttribution(shortest, today)));
+    if (shortest != null) out.add(MemoryExcerptCandidate(shortest.text, noteAttribution(shortest, today, zh: zhDates)));
     out.add(MemoryExcerptCandidate(null, lastAttribution));
     return out;
   }
@@ -446,17 +447,20 @@ abstract final class MemoryExcerpt {
     return out;
   }
 
-  static MemoryExcerptAttribution reviewAttribution(MemoryDay? writtenOn, MemoryDay today) => MemoryExcerptAttribution(
-    kind: MemoryExcerptKind.review,
-    detail: writtenOn == null ? null : MemoryDates.day(writtenOn, today),
-  );
+  static MemoryExcerptAttribution reviewAttribution(MemoryDay? writtenOn, MemoryDay today, {bool zh = false}) =>
+      MemoryExcerptAttribution(
+        kind: MemoryExcerptKind.review,
+        detail: writtenOn == null
+            ? null
+            : (zh ? MemoryDates.dayZh(writtenOn, today) : MemoryDates.day(writtenOn, today)),
+      );
 
   /// A song note's detail is the title plus its anchor ("Satellite Hearts
   /// 2:21"); an album note's is the date. An unanchored song note carries no time.
-  static MemoryExcerptAttribution noteAttribution(MemoryCopyNote note, MemoryDay today) {
+  static MemoryExcerptAttribution noteAttribution(MemoryCopyNote note, MemoryDay today, {bool zh = false}) {
     final track = note.track;
     final detail = track == null
-        ? MemoryDates.day(note.writtenOn, today)
+        ? (zh ? MemoryDates.dayZh(note.writtenOn, today) : MemoryDates.day(note.writtenOn, today))
         : '${track.title}${note.positionMs == null ? '' : ' ${anchorTime(note.positionMs!)}'}';
     return MemoryExcerptAttribution(kind: MemoryExcerptKind.note, detail: detail);
   }

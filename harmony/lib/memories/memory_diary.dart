@@ -160,7 +160,8 @@ class MemoryDiary extends StatelessWidget {
           ).createShader(rect),
           child: SingleChildScrollView(
             controller: scroll,
-            physics: const ClampingScrollPhysics(),
+            // Always takes the drag, so a pull past either edge reaches p / q even when the page fits.
+            physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
             padding: EdgeInsets.only(
               top: topInset + MemoriesTokens.diaryTopInset,
               bottom: MemoriesTokens.diaryBottomInset + MediaQuery.paddingOf(context).bottom,
@@ -376,7 +377,10 @@ class _DiaryEntryState extends State<_DiaryEntry> with TickerProviderStateMixin 
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
                 children: [
-                  Text(MemoryDates.dayWithYear(date), style: headerStyle.copyWith(fontFeatures: _tabular)),
+                  Text(
+                    strings.zh ? '${date.year}年${date.month}月${date.day}日' : MemoryDates.dayWithYear(date),
+                    style: headerStyle.copyWith(fontFeatures: _tabular),
+                  ),
                   const SizedBox(width: 8),
                   // Today → Your review, crossfaded.
                   Stack(

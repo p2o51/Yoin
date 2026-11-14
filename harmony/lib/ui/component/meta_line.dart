@@ -36,11 +36,14 @@ final class MetaStat extends MetaGroup {
 /// Groups separated by a 12dp gap — never a dot — dropping trailing groups
 /// whole when they don't fit; the first group ellipsizes instead.
 class MetaLine extends StatelessWidget {
-  const MetaLine({super.key, required this.groups, this.style, this.color});
+  const MetaLine({super.key, required this.groups, this.style, this.color, this.centered = false});
 
   final List<MetaGroup> groups;
   final TextStyle? style;
   final Color? color;
+
+  /// Sit centred in the width (a centred card's artist line) instead of at the start.
+  final bool centered;
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +86,7 @@ class MetaLine extends StatelessWidget {
         }
 
         return Row(
+          mainAxisAlignment: centered ? MainAxisAlignment.center : MainAxisAlignment.start,
           children: [
             Flexible(child: group(parts.first, flexible: true)),
             for (var i = 1; i < count; i++) ...[const SizedBox(width: MetaLineTokens.groupGap), group(parts[i])],

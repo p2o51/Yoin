@@ -17,6 +17,7 @@ import '../app/providers.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../nowplaying/haptics.dart';
+import '../shell/bar_suppression.dart';
 import '../playback/playback_controller.dart';
 import '../playback/playhead.dart';
 import '../theme/theme.dart';
@@ -42,7 +43,7 @@ Future<void> showSongNotesSheet(BuildContext context, Track track) {
     useSafeArea: true,
     showDragHandle: true,
     backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
-    builder: (_) => SongNotesSheet(track: track),
+    builder: (_) => ChromeBarSuppression(child: SongNotesSheet(track: track)),
   );
 }
 
@@ -150,8 +151,12 @@ class _SongNotesSheetState extends ConsumerState<SongNotesSheet> {
         lit = n.id;
       }
     }
-    final stampStyle = gsf(12.5, weight: 500, height: 25.6 / 12.5, letterSpacing: 0.1)
-        .copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+    final stampStyle = gsf(
+      12.5,
+      weight: 500,
+      height: 25.6 / 12.5,
+      letterSpacing: 0.1,
+    ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
     final noteStyle = gsf(15.5, weight: 400, height: 25.6 / 15.5, letterSpacing: 0);
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -184,7 +189,9 @@ class _SongNotesSheetState extends ConsumerState<SongNotesSheet> {
                       for (final n in _notes)
                         Semantics(
                           button: n.positionMs != null,
-                          onTapHint: n.positionMs == null ? null : strings.playFrom(MemoryExcerpt.anchorTime(n.positionMs!)),
+                          onTapHint: n.positionMs == null
+                              ? null
+                              : strings.playFrom(MemoryExcerpt.anchorTime(n.positionMs!)),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
                             onTap: n.positionMs == null ? null : () => _playFrom(n),
@@ -202,7 +209,9 @@ class _SongNotesSheetState extends ConsumerState<SongNotesSheet> {
                                     width: 44,
                                     child: Text(
                                       n.positionMs == null ? '' : MemoryExcerpt.anchorTime(n.positionMs!),
-                                      style: stampStyle.copyWith(color: n.id == lit ? colors.primary : colors.onSurfaceVariant),
+                                      style: stampStyle.copyWith(
+                                        color: n.id == lit ? colors.primary : colors.onSurfaceVariant,
+                                      ),
                                     ),
                                   ),
                                   Expanded(

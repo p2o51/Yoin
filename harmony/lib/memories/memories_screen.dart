@@ -274,7 +274,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     final s = _scrolls[page];
     final pos = s != null && s.hasClients ? s.position : null;
     _scrolledAtDown = (pos?.pixels ?? 0) > 0.5;
-    _atEndAtDown = pos != null && _p.fraction >= 1 && !_p.isSettling && pos.pixels >= pos.maxScrollExtent - 0.5;
+    _atEndAtDown = pos != null && _p.fraction >= 0.99 && !_p.isSettling && pos.pixels >= pos.maxScrollExtent - 0.5;
     _awards.dragStarted();
   }
 
@@ -649,6 +649,52 @@ class _MemoryPage extends ConsumerWidget {
             return Stack(
               fit: StackFit.expand,
               children: [
+                // The diary, composed once the morph starts.
+                if (p > 0.001)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      ignoring: !diaryOpen,
+                      child: ExcludeSemantics(
+                        excluding: !diaryOpen,
+                        child: Listener(
+                          onPointerDown: onDiaryDown,
+                          onPointerMove: onDiaryMove,
+                          onPointerUp: onDiaryUp,
+                          onPointerCancel: onDiaryUp,
+                          child: NotificationListener<OverscrollIndicatorNotification>(
+                            // No stretch at either edge: past the top is p's, past the end is q's.
+                            onNotification: (n) {
+                              n.disallowIndicator();
+                              return false;
+                            },
+                            child: NotificationListener<OverscrollNotification>(
+                              onNotification: onDiaryOverscroll,
+                              child: MemoryDiary(
+                                memory: memory,
+                                tones: tones,
+                                layout: layout,
+                                diary: diary.animation,
+                                scroll: scroll,
+                                topInset: barBottom,
+                                emblem: _diaryEmblem(context, tones, pc),
+                                today: today,
+                                reducedMotion: reducedMotion,
+                                interactive: diaryOpen,
+                                playingTrackId: playingHere ? playingId : null,
+                                litNoteId: litNote,
+                                onPlayTrack: onPlayTrack,
+                                onPlayNote: onPlayNote,
+                                onOpenAlbum: onOpenAlbum,
+                                onSaveReview: onSaveReview,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                // The cover: one element, flying from the card to the bar's 40 dp slot.
+                _flyingCover(cardCover.translate(0, p < 0 ? -p * MemoriesTokens.diaryMorphDistance : 0), barCover, pc),
                 // The card (the cover slot is left to the flying cover).
                 Positioned(
                   left: 0,
@@ -685,45 +731,6 @@ class _MemoryPage extends ConsumerWidget {
                     ),
                   ),
                 ),
-                // The diary, composed once the morph starts.
-                if (p > 0.001)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      ignoring: !diaryOpen,
-                      child: ExcludeSemantics(
-                        excluding: !diaryOpen,
-                        child: Listener(
-                          onPointerDown: onDiaryDown,
-                          onPointerMove: onDiaryMove,
-                          onPointerUp: onDiaryUp,
-                          onPointerCancel: onDiaryUp,
-                          child: NotificationListener<OverscrollNotification>(
-                            onNotification: onDiaryOverscroll,
-                            child: MemoryDiary(
-                              memory: memory,
-                              tones: tones,
-                              layout: layout,
-                              diary: diary.animation,
-                              scroll: scroll,
-                              topInset: barBottom,
-                              emblem: _diaryEmblem(context, tones, pc),
-                              today: today,
-                              reducedMotion: reducedMotion,
-                              interactive: diaryOpen,
-                              playingTrackId: playingHere ? playingId : null,
-                              litNoteId: litNote,
-                              onPlayTrack: onPlayTrack,
-                              onPlayNote: onPlayNote,
-                              onOpenAlbum: onOpenAlbum,
-                              onSaveReview: onSaveReview,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                // The cover: one element, flying from the card to the bar's 40 dp slot.
-                _flyingCover(cardCover.translate(0, p < 0 ? -p * MemoriesTokens.diaryMorphDistance : 0), barCover, pc),
               ],
             );
           },

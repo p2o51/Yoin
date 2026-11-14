@@ -114,6 +114,10 @@ class _Spring {
           ),
         )
         .orCancel
+        // Landed: rest exactly on the target (the tolerance leaves it a hair short).
+        .then((_) {
+          if (target == to) controller.value = to;
+        })
         .catchError((Object _) {});
   }
 

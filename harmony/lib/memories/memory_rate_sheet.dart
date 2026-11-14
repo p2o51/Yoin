@@ -10,8 +10,11 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/providers.dart';
+import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../nowplaying/haptics.dart';
+import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
 import '../theme/theme.dart';
 import 'album_score.dart';
@@ -49,7 +52,9 @@ Future<void> showAlbumRateSheet(
     useSafeArea: true,
     showDragHandle: true,
     backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
-    builder: (_) => AlbumRateSheet(albumId: albumId, albumName: albumName, palette: palette, focusReview: focusReview),
+    builder: (_) => ChromeBarSuppression(
+      child: AlbumRateSheet(albumId: albumId, albumName: albumName, palette: palette, focusReview: focusReview),
+    ),
   );
 }
 
@@ -78,18 +83,32 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
   final FocusNode _focus = FocusNode();
   final GrooveAwardController _award = GrooveAwardController();
   late final AlbumScoreNotifier _scores = ref.read(albumScoreProvider(widget.albumId).notifier);
-  late final String _initialReview = _text.text;
+
+  /// The stored review the field started from (dispose compares against it).
+  String _initialReview = '';
+  bool _seeding = false;
+  bool _edited = false;
 
   /// The score under the finger (null = the stored one).
   double? _live;
   late final SpringValue _lift = SpringValue(vsync: this, initial: 0, spring: YoinSprings.fastSpatial);
   late final SpringValue _corner = SpringValue(vsync: this, initial: 28, spring: YoinSprings.defaultSpatial);
 
+  /// The account's store, held from the start: closing the sheet saves after its providers may be gone.
+  MemoryStore? _store;
+
   @override
   void initState() {
     super.initState();
+    _initialReview = _text.text;
+    ref.read(memoryStoreProvider.future).then((store) => _store = store);
     _focus.addListener(_syncCorner);
-    _text.addListener(() => setState(_syncCorner));
+    _text.addListener(() {
+      // Seeded during build: that build already shows it.
+      if (_seeding) return;
+      _edited = true;
+      setState(_syncCorner);
+    });
     if (widget.focusReview) WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
   }
 
@@ -98,7 +117,9 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
   @override
   void dispose() {
     // Closing the sheet saves the words.
-    if (_text.text.trim() != _initialReview.trim()) _scores.setReview(_text.text);
+    if (_text.text.trim() != _initialReview.trim()) {
+      _store?.setAlbumReview(widget.albumId, _text.text, nowMs: DateTime.now().millisecondsSinceEpoch);
+    }
     _text.dispose();
     _focus.dispose();
     _award.dispose();
@@ -113,8 +134,16 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
     final dark = Theme.of(context).brightness == Brightness.dark;
     final strings = _RateStrings(Localizations.maybeLocaleOf(context)?.languageCode == 'zh');
     final score = ref.watch(albumScoreProvider(widget.albumId));
-    final stored = score.albumRating;
-    final live = _live ?? stored ?? 0;
+    // The stored review lands after the sheet opens: seed the field until the user types.
+    final stored = score.review ?? '';
+    if (!_edited && stored != _initialReview) {
+      _initialReview = stored;
+      _seeding = true;
+      _text.text = stored;
+      _seeding = false;
+    }
+    final storedScore = score.albumRating;
+    final live = _live ?? storedScore ?? 0;
     final tones = widget.palette.tones(dark);
     final kind = live > 0
         ? GrooveScoreKind.album

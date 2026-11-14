@@ -219,6 +219,7 @@ class MemoryCardFace extends StatelessWidget {
                             width: titleWidth,
                             child: Center(
                               child: MetaLine(
+                                centered: true,
                                 style: artistStyle,
                                 color: colors.onSurfaceVariant,
                                 groups: [if (artist.isNotEmpty) MetaPlain(artist), if (year != null) MetaMuted(year)],
