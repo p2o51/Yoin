@@ -623,6 +623,27 @@ class PlaybackController extends Notifier<NowPlayingState> {
     _lastRecordedTrackId = track.id;
     final event = playedActivity(track, state.context, _clock.wallMs());
     unawaited(_record(event, _queueProfileId));
+    unawaited(_recordAlbumPlay(track, _queueProfileId));
+  }
+
+  /// One play of the song's album for Memories (Android play_history): the
+  /// album's play count, first and latest play. Visits never count.
+  Future<void> _recordAlbumPlay(Track track, String? profileId) async {
+    final albumId = track.albumId;
+    if (albumId == null) return;
+    try {
+      final store = await ref.read(memoryStoreProvider.future);
+      if (store == null || (profileId != null && store.profileId != profileId)) return;
+      await store.recordAlbumPlay(
+        albumId,
+        atMs: _clock.wallMs(),
+        albumName: track.album,
+        artistName: track.artist,
+        coverArtKey: track.coverArt?.storageKey,
+      );
+    } catch (e) {
+      _log('album play not recorded: ${e.runtimeType}'); // Never affects playback.
+    }
   }
 
   Future<void> _record(ActivityEvent event, String? profileId) async {

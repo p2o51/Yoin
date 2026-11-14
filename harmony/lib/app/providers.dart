@@ -6,6 +6,7 @@ library;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/activity/activity.dart';
+import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../data/profile/profile.dart';
 import '../data/profile/profile_repository.dart';
@@ -65,6 +66,17 @@ final activityLogProvider = FutureProvider<ActivityLog?>((ref) async {
   final profile = await ref.watch(profileRepositoryProvider).activeProfile();
   if (profile == null) return null;
   return StoredActivityLog(ref.watch(keyValueStoreProvider), profileId: profile.id);
+});
+
+/// The active account's Memory rows (album scores and reviews, song notes,
+/// plays in Yoin). null with no account. Rebuilt when the account changes.
+final memoryStoreProvider = FutureProvider<MemoryStore?>((ref) async {
+  await ref.watch(activeSourceProvider.future);
+  final profile = await ref.watch(profileRepositoryProvider).activeProfile();
+  if (profile == null) return null;
+  final store = MemoryStore(ref.watch(keyValueStoreProvider), profileId: profile.id);
+  ref.onDispose(store.dispose);
+  return store;
 });
 
 /// Heart / star states toggled this session, over every surface that shows
