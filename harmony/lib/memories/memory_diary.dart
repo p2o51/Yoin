@@ -21,12 +21,18 @@ import 'memories_motion.dart';
 import 'memories_strings.dart';
 import 'memories_ui_state.dart';
 import 'memory_card_face.dart';
+import 'memory_title_editor.dart';
 import 'palette/memory_palette.dart';
 
 TextStyle _ui(double size, int weight, double height, Color color, {double spacing = 0}) =>
     gsf(size, weight: weight, height: height, letterSpacing: spacing).copyWith(color: color);
 
 const _tabular = [FontFeature.tabularFigures()];
+
+/// A written title heading the diary (Android diaryTitleStyle): the serif at
+/// the tier's size. The album name never heads it (it flew to the bar).
+TextStyle memoryDiaryTitleStyle(MemoryTitleKind kind, MemoriesType type, Color color) =>
+    memoryWrittenTitleStyle(type.diaryTitleWritten, height: 1.4, color: color);
 
 class MemoryDiary extends StatelessWidget {
   const MemoryDiary({
@@ -48,7 +54,11 @@ class MemoryDiary extends StatelessWidget {
     required this.onOpenAlbum,
     required this.onSaveReview,
     this.spread,
+    this.titleEditing,
   });
+
+  /// The deck's title editor: a written title heads the diary and opens on a tap.
+  final MemoryTitleEditing? titleEditing;
 
   /// Set: this is the spread's right page — no head (the exhibit and Yoin's
   /// words are on the left page), no Go to album, no morph; placed on the
@@ -89,8 +99,53 @@ class MemoryDiary extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: MemoriesTokens.spreadLandscapeParagraphGap),
           child: _YoinParagraph(memory: memory, size: type.paragraph),
         ),
+      // Head with a written title (the user's own, or Yoin's AI title): the title beside the 48, its edit row
+      // under the whole row, then Yoin's paragraph.
+      if (spread == null && memory.memoryTitleKind != MemoryTitleKind.album)
+        Padding(
+          padding: EdgeInsets.only(
+            bottom: paragraph != null ? MemoriesTokens.diaryHeadGapWithAsk : MemoriesTokens.diaryHeadGap,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsetsDirectional.only(end: MemoriesTokens.diaryEmblemGap),
+                      child: MemoryTitleSlot(
+                        memory: memory,
+                        surface: MemoryTitleSurface.diary,
+                        editing: titleEditing,
+                        tones: tones,
+                        style: (k) => memoryDiaryTitleStyle(k, type, Theme.of(context).colorScheme.onSurface),
+                        enabled: interactive,
+                        centred: false,
+                      ),
+                    ),
+                  ),
+                  SizedBox.square(dimension: MemoriesTokens.diaryEmblem, child: emblem),
+                ],
+              ),
+              MemoryTitleEditRow(
+                memory: memory,
+                surface: MemoryTitleSurface.diary,
+                editing: titleEditing,
+                tones: tones,
+                centred: false,
+              ),
+              if (paragraph != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: MemoriesTokens.diaryParagraphTop),
+                  child: _YoinParagraph(memory: memory, size: type.paragraph),
+                ),
+            ],
+          ),
+        ),
       // Head: Yoin's paragraph beside the 48 (the album name already flew to the bar).
-      if (spread == null)
+      if (spread == null && memory.memoryTitleKind == MemoryTitleKind.album)
         Padding(
           padding: EdgeInsets.only(
             bottom: paragraph != null ? MemoriesTokens.diaryHeadGapWithAsk : MemoriesTokens.diaryHeadGap,
@@ -496,31 +551,11 @@ class _DiaryEntryState extends State<_DiaryEntry> with TickerProviderStateMixin 
                       child: Text(strings.reviewCancel, style: _ui(14, 600, 1, colors.onSurfaceVariant)),
                     ),
                     const SizedBox(width: 8),
-                    Semantics(
-                      button: true,
-                      label: strings.cdSaveReview,
-                      excludeSemantics: true,
-                      child: Opacity(
-                        opacity: _text.text.trim().isEmpty ? 0.38 : 1,
-                        child: SizedBox(
-                          height: 36,
-                          child: Material(
-                            color: widget.tones.button,
-                            shape: const StadiumBorder(),
-                            clipBehavior: Clip.antiAlias,
-                            child: InkWell(
-                              onTap: _text.text.trim().isEmpty ? null : _save,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Center(
-                                  widthFactor: 1,
-                                  child: Text(strings.reviewSave, style: _ui(14, 600, 1, widget.tones.onButton)),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                    MemoryJournalSavePill(
+                      label: strings.reviewSave,
+                      semanticsLabel: strings.cdSaveReview,
+                      tones: widget.tones,
+                      onTap: _text.text.trim().isEmpty ? null : _save,
                     ),
                   ],
                 ),

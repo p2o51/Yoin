@@ -118,6 +118,7 @@ final class MemoryEntry {
     this.score,
     required this.memoryTitle,
     required this.memoryTitleKind,
+    this.yoinTitle,
     required this.proseLanguage,
     this.review,
     this.writings = const [],
@@ -153,9 +154,14 @@ final class MemoryEntry {
   /// The user's album score, when set.
   final double? albumRating;
 
-  /// The title over the card: Yoin's AI title, else the album name.
+  /// The title over the card: the user's own, else Yoin's AI title, else
+  /// the album name.
   final String memoryTitle;
   final MemoryTitleKind memoryTitleKind;
+
+  /// Yoin's own (AI) title under the user's, when there is one: what a
+  /// restore brings back. Null = the album name stands in.
+  final String? yoinTitle;
 
   /// Yoin's prose follows the language the user writes in.
   final MemoryProseLanguage proseLanguage;
@@ -195,4 +201,7 @@ final class MemoryEntry {
   String? get scoreText => score == null ? null : MemoryScores.text(score!);
 
   bool get isTitleSerif => memoryTitleKind != MemoryTitleKind.album;
+
+  /// The user's own title is in use.
+  bool get hasUserTitle => memoryTitleKind == MemoryTitleKind.user;
 }

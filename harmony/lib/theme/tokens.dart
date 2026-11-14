@@ -854,3 +854,89 @@ abstract final class PlaylistFabTokens {
   static const double elevation = 3;
   static const double endMargin = 16;
 }
+
+/// The user's own Memory title editor (Android showcase MemoryTitleEditor +
+/// DiaryWriterTokens it shares).
+abstract final class MemoryTitleTokens {
+  /// The empty field's hint (DiaryWriterTokens.PlaceholderAlpha).
+  static const double placeholderAlpha = 0.7;
+
+  /// Above the Cancel / Save row.
+  static const double rowTop = 6;
+
+  /// The edit row's height: its 48 dp hit row plus [rowTop].
+  static const double rowHeight = 54;
+
+  /// The journal Save pill (DiaryWriterTokens.PillHeight).
+  static const double pillHeight = 36;
+
+  /// Air kept between the title block and the keyboard (DiaryWriterTokens.ImeClearance).
+  static const double imeClearance = 24;
+
+  /// What a scrolled field keeps visible under it: the row and the clearance.
+  static const double scrollClearance = rowHeight + imeClearance;
+
+  /// Above the album name a written title brings onto the card (MemoryCardMetrics.albumTop).
+  static const double cardAlbumTop = 20;
+  static const double cardAlbumTopShort = 16;
+
+  /// The album name under a written title on the spread's left page (spreadAlbumStyle).
+  static const double spreadAlbum = 20;
+  static const double spreadAlbumTight = 18;
+}
+
+/// All Memories, the memory ledger (Android ui/memories/ledger
+/// MemoryLedgerScreen, MemoryGridView, ui/home/HomeMemoryLedger).
+abstract final class MemoryLedgerTokens {
+  // ---- the grid ----
+  static const double weekGap = 5;
+  static const double dayGap = 3;
+
+  /// The gap between a month's four quads.
+  static const double monthQuadGap = 2;
+
+  /// The grid's cap on the page: phone / large screen.
+  static const double gridMax = 640;
+  static const double gridMaxWide = 760;
+
+  // ---- the page ----
+  static const double pageSide = 16;
+  static const double pageTop = 8;
+  static const double pageBottom = 24;
+  static const double statsTop = 8;
+  static const double gridTop = 24;
+  static const double barTop = 20;
+  static const double barBottom = 4;
+  static const double sinceTop = 28;
+  static const double emptyTop = 32;
+  static const double statGap = 12;
+  static const double statGapWide = 24;
+  static const double statFigure = 24;
+  static const double statFigureWide = 40;
+
+  /// The view / sort buttons under the grid.
+  static const double menuHeight = 36;
+  static const double menuIcon = 18;
+
+  /// Month headers on the timeline, phone / large screen.
+  static const double monthHeader = 30;
+  static const double monthHeaderWide = 40;
+  static const double monthTop = 36;
+  static const double monthTopWide = 48;
+
+  /// A timeline album's cover: this share of the column on a phone, capped.
+  static const double timelineCoverShare = 0.66;
+  static const double timelineCoverMax = 300;
+  static const double timelineCoverCorner = 16;
+  static const double cardCorner = 20;
+  static const double cardCoverCorner = 12;
+  static const double noteCorner = 24;
+  static const double listAlbumCover = 56;
+  static const double listSongCover = 40;
+  static const double songCardCover = 44;
+  static const double noteCover = 32;
+
+  // ---- Home's Memories card ----
+  static const double homeCardMax = 560;
+  static const double homeCardCorner = 28;
+}

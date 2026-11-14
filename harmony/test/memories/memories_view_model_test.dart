@@ -182,4 +182,33 @@ void main() {
     expect(focused.memories.first.sessionId, last);
     expect(focused.currentPage, 0);
   });
+
+  test('should_showUserTitleInSerif_when_titleSaved', () async {
+    await MemoryStore(kv, profileId: profile.id).setAlbumReview(MediaId.subsonic('a'), 'Mine.', nowMs: now);
+    final c = container();
+    final first = (await settled(c) as MemoriesContent).memories.single;
+    expect(first.memoryTitleKind, MemoryTitleKind.album);
+
+    expect(await c.read(memoriesViewModelProvider.notifier).saveTitle(first, '  The rain year '), isTrue);
+    final titled = (c.read(memoriesViewModelProvider) as MemoriesContent).memories.single;
+    expect(titled.memoryTitle, 'The rain year');
+    expect(titled.memoryTitleKind, MemoryTitleKind.user);
+    expect(titled.isTitleSerif, isTrue);
+    expect(titled.albumName, 'Album a');
+    expect((await MemoryStore(kv, profileId: profile.id).titleOf(first.albumId))!.title, 'The rain year');
+  });
+
+  test('should_bringAlbumNameBack_when_titleRestored', () async {
+    final store = MemoryStore(kv, profileId: profile.id);
+    await store.setAlbumReview(MediaId.subsonic('a'), 'Mine.', nowMs: now);
+    await store.setTitle(MediaId.subsonic('a'), 'Mine', nowMs: now);
+    final c = container();
+    final first = (await settled(c) as MemoriesContent).memories.single;
+    expect(first.memoryTitle, 'Mine');
+
+    await c.read(memoriesViewModelProvider.notifier).restoreTitle(first);
+    final m = (c.read(memoriesViewModelProvider) as MemoriesContent).memories.single;
+    expect(m.memoryTitle, 'Album a');
+    expect(m.memoryTitleKind, MemoryTitleKind.album);
+  });
 }

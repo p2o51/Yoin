@@ -28,6 +28,7 @@ import 'memories_layout.dart';
 import 'memories_strings.dart';
 import 'memories_ui_state.dart';
 import 'memory_card_face.dart';
+import 'memory_title_editor.dart';
 import 'palette/memory_palette.dart';
 
 enum SpreadTightness { normal, tight, tight2 }
@@ -70,6 +71,21 @@ final class SpreadFit {
 TextStyle spreadTitleStyle(SpreadTightness t, Color color) =>
     gsf(t == SpreadTightness.normal ? 27 : 25, weight: 600, height: 1.3, letterSpacing: 0).copyWith(color: color);
 
+/// The left page's citation for its kind (Android spreadTitleStyle): a
+/// written title in the serif, 30 (27 when the ladder tightens); the album
+/// name 27 / 25 in GSF.
+TextStyle spreadTitleStyleFor(MemoryTitleKind kind, SpreadTightness t, Color color) => kind == MemoryTitleKind.album
+    ? spreadTitleStyle(t, color)
+    : memoryWrittenTitleStyle(t == SpreadTightness.normal ? 30 : 27, height: 1.36, color: color);
+
+/// The album name under a written title (spreadAlbumStyle).
+TextStyle spreadAlbumStyle(SpreadTightness t, Color color) => gsf(
+  t == SpreadTightness.normal ? MemoryTitleTokens.spreadAlbum : MemoryTitleTokens.spreadAlbumTight,
+  weight: 600,
+  height: 1.3,
+  letterSpacing: 0,
+).copyWith(color: color);
+
 double spreadParagraphSize(SpreadTightness t) => t == SpreadTightness.tight2 ? 16 : 17;
 
 TextStyle _artistStyle(Color color) => gsf(14, weight: 500, height: 1.35, letterSpacing: 0).copyWith(color: color);
@@ -96,15 +112,25 @@ double spreadExtent(MemoryEntry memory, MemoriesLayout layout, double cover, dou
       ? null
       : MemoryVoice.paragraph(memory.yoinNarration, memory.yoinQuestion, memory.proseLanguage);
   final artist = memory.artistName ?? memory.year?.toString() ?? '';
+  final kind = memory.memoryTitleKind;
+  final written = kind != MemoryTitleKind.album;
   return cover +
       seal * MemoriesTokens.sealOverhangBottom +
       s.citeTop +
-      _textHeight(memory.memoryTitle, spreadTitleStyle(t, const Color(0xFF000000)), cite, maxLines: 2) +
+      _textHeight(
+        memory.memoryTitle,
+        spreadTitleStyleFor(kind, t, const Color(0xFF000000)),
+        cite,
+        maxLines: memoryCardTitleLines(kind),
+      ) +
+      (written
+          ? s.albumTop + _textHeight(memory.albumName, spreadAlbumStyle(t, const Color(0xFF000000)), album, maxLines: 2)
+          : 0) +
       (paragraph == null
           ? 0
           : s.paragraphTop +
                 _textHeight(paragraph, gsf(spreadParagraphSize(t), height: 1.6, letterSpacing: 0, round: 60), cite)) +
-      (t == SpreadTightness.normal ? 8 : s.albumTop) +
+      (written ? 2 : (t == SpreadTightness.normal ? 8 : s.albumTop)) +
       (artist.isEmpty ? 0 : _textHeight(artist, _artistStyle(const Color(0xFF000000)), album, maxLines: 1)) +
       s.goTop +
       MemoriesTokens.spreadGoHeight;
@@ -152,6 +178,8 @@ class MemorySpreadExhibit extends StatelessWidget {
     required this.fit,
     required this.emblem,
     required this.onOpenAlbum,
+    this.titleEditing,
+    this.titleEnabled = false,
   });
 
   final MemoryEntry memory;
@@ -161,11 +189,26 @@ class MemorySpreadExhibit extends StatelessWidget {
   final Widget emblem;
   final VoidCallback onOpenAlbum;
 
+  /// The deck's title editor; null = the title is plain text.
+  final MemoryTitleEditing? titleEditing;
+
+  /// The page is current: its title can open.
+  final bool titleEnabled;
+
   @override
   Widget build(BuildContext context) {
+    final editor = titleEditing?.editor;
+    if (editor == null) return _build(context, false);
+    final key = memoryTitleKey(MemoryTitleSurface.spread, memory);
+    return ListenableBuilder(listenable: editor, builder: (context, _) => _build(context, editor.isEditingKey(key)));
+  }
+
+  Widget _build(BuildContext context, bool editingTitle) {
     final colors = Theme.of(context).colorScheme;
     final strings = MemoriesStrings.of(context);
     final s = fit.spacing;
+    final kind = memory.memoryTitleKind;
+    final written = kind != MemoryTitleKind.album;
     final paragraph = layout.landscape
         ? null
         : MemoryVoice.paragraph(memory.yoinNarration, memory.yoinQuestion, memory.proseLanguage);
@@ -173,6 +216,47 @@ class MemorySpreadExhibit extends StatelessWidget {
     final size = spreadParagraphSize(fit.tightness);
     final artist = memory.artistName ?? '';
     final year = memory.year?.toString();
+    // The left page doesn't scroll: while its title is open it rises over the keyboard.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        var lift = 0.0;
+        if (editingTitle) {
+          final content = layout.leftPage - MemoriesTokens.spreadPagePadding * 2;
+          final cite = content < MemoriesTokens.spreadCiteMax ? content : MemoriesTokens.spreadCiteMax;
+          final draft = titleEditing!.editor.draft.text;
+          lift = memoryTitleLiftPx(
+            blockBottom:
+                s.padTop +
+                fit.cover +
+                fit.seal * MemoriesTokens.sealOverhangBottom +
+                s.citeTop +
+                _textHeight(
+                  draft.isEmpty ? memory.memoryTitle : draft,
+                  spreadTitleStyleFor(kind, fit.tightness, colors.onSurface),
+                  cite,
+                ) +
+                MemoryTitleTokens.rowHeight,
+            visibleBottom: constraints.maxHeight - MediaQuery.viewInsetsOf(context).bottom,
+            clearance: MemoryTitleTokens.imeClearance,
+          );
+        }
+        return MemoryTitleLift(lift: lift, child: _page(context, strings, paragraph, zh, size, artist, year, written));
+      },
+    );
+  }
+
+  Widget _page(
+    BuildContext context,
+    MemoriesStrings strings,
+    String? paragraph,
+    bool zh,
+    double size,
+    String artist,
+    String? year,
+    bool written,
+  ) {
+    final colors = Theme.of(context).colorScheme;
+    final s = fit.spacing;
     return Padding(
       padding: EdgeInsets.only(
         top: s.padTop,
@@ -206,15 +290,27 @@ class MemorySpreadExhibit extends StatelessWidget {
           SizedBox(height: s.citeTop),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: MemoriesTokens.spreadCiteMax),
-            child: Semantics(
-              header: true,
-              child: Text(
-                memory.memoryTitle,
-                style: spreadTitleStyle(fit.tightness, colors.onSurface),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.fade,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MemoryTitleSlot(
+                  memory: memory,
+                  surface: MemoryTitleSurface.spread,
+                  editing: titleEditing,
+                  tones: tones,
+                  style: (k) => spreadTitleStyleFor(k, fit.tightness, colors.onSurface),
+                  maxLines: memoryCardTitleLines,
+                  enabled: titleEnabled,
+                  centred: true,
+                ),
+                MemoryTitleEditRow(
+                  memory: memory,
+                  surface: MemoryTitleSurface.spread,
+                  editing: titleEditing,
+                  tones: tones,
+                  centred: true,
+                ),
+              ],
             ),
           ),
           if (paragraph != null) ...[
@@ -244,7 +340,24 @@ class MemorySpreadExhibit extends StatelessWidget {
               ),
             ),
           ],
-          SizedBox(height: fit.tightness == SpreadTightness.normal ? 8 : s.albumTop),
+          // A written title brings the album name in (and out) on the spatial spring.
+          MemorySpringFold(
+            visible: written,
+            child: Padding(
+              padding: EdgeInsets.only(top: s.albumTop),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: MemoriesTokens.spreadAlbumMax),
+                child: Text(
+                  memory.albumName,
+                  style: spreadAlbumStyle(fit.tightness, colors.onSurface),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.fade,
+                ),
+              ),
+            ),
+          ),
+          SizedBox(height: written ? 2 : (fit.tightness == SpreadTightness.normal ? 8 : s.albumTop)),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: MemoriesTokens.spreadAlbumMax),
             child: MetaLine(

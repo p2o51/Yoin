@@ -235,8 +235,37 @@ final class AlbumPlays {
 
 String? _nonBlank(String? s) => s == null || s.trim().isEmpty ? null : s;
 
+/// The user's own title for an album's Memory (Android `album_memory_titles`,
+/// AlbumMemoryTitleStore): stored trimmed, [updatedAt] the edit time.
+/// Restoring Yoin's title is a delete of the row, never a blank title.
+@immutable
+final class MemoryTitleRow {
+  const MemoryTitleRow({required this.albumId, required this.title, required this.updatedAt});
+
+  final MediaId albumId;
+  final String title;
+  final int updatedAt;
+
+  Map<String, Object?> toJson() => {'t': title, 'u': updatedAt};
+
+  static MemoryTitleRow? fromJson(MediaId id, Object? json) {
+    if (json is! Map) return null;
+    final t = json['t'];
+    final u = json['u'];
+    if (t is! String || t.trim().isEmpty) return null;
+    return MemoryTitleRow(albumId: id, title: t, updatedAt: u is num ? u.toInt() : 0);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is MemoryTitleRow && other.albumId == albumId && other.title == title && other.updatedAt == updatedAt;
+
+  @override
+  int get hashCode => Object.hash(albumId, title, updatedAt);
+}
+
 /// Which of an account's Memory rows changed.
-enum MemoryStoreChange { albumRatings, songNotes, plays }
+enum MemoryStoreChange { albumRatings, songNotes, plays, titles }
 
 /// One account's Memory rows on a [KeyValueStore]. Writes are serialised in
 /// call order; reads after a write see it. [changes] fires after every
@@ -250,10 +279,12 @@ final class MemoryStore {
   static String albumRatingsKey(String profileId) => 'album_ratings.v1.$profileId';
   static String songNotesKey(String profileId) => 'song_notes.v1.$profileId';
   static String albumPlaysKey(String profileId) => 'album_plays.v1.$profileId';
+  static String titlesKey(String profileId) => 'memory_titles.v1.$profileId';
 
   Map<MediaId, AlbumRatingRow>? _ratings;
   List<SongNote>? _notes;
   Map<MediaId, AlbumPlays>? _plays;
+  Map<MediaId, MemoryTitleRow>? _titles;
   Future<void> _tail = Future.value();
   final _changes = StreamController<MemoryStoreChange>.broadcast();
 
@@ -296,7 +327,34 @@ final class MemoryStore {
     return (await _loadPlays())[albumId];
   }
 
+  /// The user's own Memory titles, by album.
+  Future<Map<MediaId, MemoryTitleRow>> titles() async {
+    await _tail;
+    return Map.unmodifiable(await _loadTitles());
+  }
+
+  Future<MemoryTitleRow?> titleOf(MediaId albumId) async => (await titles())[albumId];
+
   // ---- writes ----
+
+  /// The user names [albumId]'s Memory [title], stored trimmed. A blank (or
+  /// null) title restores Yoin's: the row goes. The same words as stored are
+  /// no edit and write nothing (no new `updatedAt`).
+  Future<void> setTitle(MediaId albumId, String? title, {required int nowMs}) =>
+      _write(MemoryStoreChange.titles, () async {
+        final rows = await _loadTitles();
+        final words = _nonBlank(title)?.trim();
+        if (words == null) {
+          if (rows.remove(albumId) == null) return;
+        } else {
+          if (rows[albumId]?.title == words) return;
+          rows[albumId] = MemoryTitleRow(albumId: albumId, title: words, updatedAt: nowMs);
+        }
+        await _store.write(
+          titlesKey(profileId),
+          jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()}),
+        );
+      });
 
   /// The album score: 0.0–10.0; null (or 0) clears it. The review stays.
   Future<void> setAlbumRating(MediaId albumId, double? rating, {required int nowMs}) =>
@@ -438,6 +496,20 @@ final class MemoryStore {
 
   Future<void> _saveNotes(List<SongNote> notes) =>
       _store.write(songNotesKey(profileId), jsonEncode([for (final n in notes) n.toJson()]));
+
+  Future<Map<MediaId, MemoryTitleRow>> _loadTitles() async {
+    if (_titles != null) return _titles!;
+    final decoded = await _decode(titlesKey(profileId));
+    final out = <MediaId, MemoryTitleRow>{};
+    if (decoded is Map) {
+      decoded.forEach((key, value) {
+        final id = MediaId.tryParse(key is String ? key : null);
+        final row = id == null ? null : MemoryTitleRow.fromJson(id, value);
+        if (row != null) out[id!] = row;
+      });
+    }
+    return _titles = out;
+  }
 
   Future<Map<MediaId, AlbumPlays>> _loadPlays() async {
     if (_plays != null) return _plays!;

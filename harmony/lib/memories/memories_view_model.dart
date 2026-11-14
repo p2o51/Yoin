@@ -102,6 +102,15 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
     );
   });
 
+  /// The user names [memory]'s title (MemoryTitleEditor's Save). Blank
+  /// restores Yoin's title (the row goes).
+  Future<bool> saveTitle(MemoryEntry memory, String title) =>
+      _write((store, now) => store.setTitle(memory.albumId, title, nowMs: now));
+
+  /// Takes the user's title off: Yoin's own (or the album name) shows again.
+  Future<bool> restoreTitle(MemoryEntry memory) =>
+      _write((store, now) => store.setTitle(memory.albumId, null, nowMs: now));
+
   Future<bool> _write(Future<void> Function(MemoryStore store, int nowMs) write) async {
     try {
       final store = await ref.read(memoryStoreProvider.future);
@@ -236,6 +245,10 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
   }
 
   Future<List<MemoryEntry>> _compose(AlbumMemoryInputs inputs, List<AlbumMemoryCandidate> candidates) async {
+    final store = await ref.read(memoryStoreProvider.future);
+    final titles = store == null || store.profileId != inputs.profileId
+        ? const <MediaId, MemoryTitleRow>{}
+        : await store.titles();
     final now = ref.read(memoriesClockProvider)();
     final dayOf = ref.read(memoriesDayOfProvider);
     final language = ref.read(memoriesAppLanguageProvider);
@@ -252,6 +265,7 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
           nowMs: now,
           dayOf: dayOf,
           appLanguage: language,
+          userTitle: titles[c.albumId]?.title,
         ),
     ];
   }

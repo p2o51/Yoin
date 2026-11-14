@@ -95,6 +95,9 @@ final class MemoriesType {
     required this.separatorTop,
     required this.separatorBottom,
     required this.stat,
+    required this.cardTitleWritten,
+    required this.cardAlbum,
+    required this.diaryTitleWritten,
   });
 
   final double cardTitle;
@@ -113,6 +116,17 @@ final class MemoriesType {
   final double separatorBottom;
   final double stat;
 
+  /// A written title (the user's own, or Yoin's AI title) on the card, in
+  /// the serif (Android cardTitleAi; 24 on a short card, see
+  /// [memoryCardWrittenTitleSize]).
+  final double cardTitleWritten;
+
+  /// The album name under a written title (Android cardAlbum).
+  final double cardAlbum;
+
+  /// A written title heading the diary (Android diaryTitleAi).
+  final double diaryTitleWritten;
+
   static const phone = MemoriesType(
     cardTitle: 24,
     cardArtist: 13,
@@ -129,6 +143,9 @@ final class MemoriesType {
     separatorTop: 30,
     separatorBottom: 24,
     stat: 34,
+    cardTitleWritten: 26,
+    cardAlbum: 17,
+    diaryTitleWritten: 22,
   );
 
   static const large = MemoriesType(
@@ -147,6 +164,9 @@ final class MemoriesType {
     separatorTop: 34,
     separatorBottom: 26,
     stat: 38,
+    cardTitleWritten: 30,
+    cardAlbum: 19,
+    diaryTitleWritten: 24,
   );
 }
 
@@ -317,3 +337,7 @@ int nearestDot(double x, int count, double pitch, double firstCentre) {
   final i = ((x - firstCentre) / pitch).round();
   return i.clamp(0, count - 1);
 }
+
+/// The card's written title size: the tier's, one step down on a short card
+/// (Android MemoriesTypeScale: 26 phone, 24 short, 30 on a Medium that isn't short).
+double memoryCardWrittenTitleSize(MemoriesLayout layout) => layout.short ? 24 : layout.type.cardTitleWritten;

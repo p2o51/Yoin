@@ -72,4 +72,13 @@ class MemoriesStrings {
   /// (formatMemoryChromeDate).
   String chromeDate(MemoryDay date, MemoryDay today) =>
       zh ? MemoryDates.dayZh(date, today) : MemoryDates.day(date, today);
+
+  // ---- the user's own title (MemoryTitleEditor) ----
+  String get cdEditTitle => zh ? '编辑标题' : 'Edit title'; // mem_cd_edit_title
+  String get cdTitleField => zh ? '标题' : 'Title'; // mem_cd_title_field
+  String get titleCancel => zh ? '取消' : 'Cancel'; // mem_title_cancel
+  String get cdDiscardTitle => zh ? '放弃标题修改' : 'Discard the title edit'; // mem_cd_discard_title
+  String get cdSaveTitle => zh ? '保存标题' : 'Save the title'; // mem_cd_save_title
+  String get titleSave => zh ? '保存' : 'Save'; // mem_title_save
+  String get titleRestoreAi => zh ? '恢复 AI 标题' : 'Restore AI title'; // mem_title_restore_ai
 }

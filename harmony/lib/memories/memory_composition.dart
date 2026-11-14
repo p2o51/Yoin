@@ -4,7 +4,8 @@
 ///
 /// HarmonyOS has no Gemini key (yet): Yoin's AI title is never generated,
 /// so the album name takes the title slot, and the narration is always the
-/// local template, as on Android without a key.
+/// local template, as on Android without a key. A title the user gave the
+/// memory ([userTitle], MemoryStore titles) takes the slot over either.
 library;
 
 import '../data/memory/album_memory_candidate.dart';
@@ -27,6 +28,7 @@ MemoryEntry composeAlbumMemory({
   MemoryDayOf dayOf = localMemoryDay,
   MemoryProseLanguage appLanguage = MemoryProseLanguage.en,
   String? aiTitle,
+  String? userTitle,
 }) {
   final album = candidate.album;
   final songs = album?.tracks ?? const <Track>[];
@@ -122,8 +124,10 @@ MemoryEntry composeAlbumMemory({
     scoreKind: scoreKind,
     score: albumScore ?? average,
     albumRating: albumScore,
-    memoryTitle: voice.title,
-    memoryTitleKind: voice.titleKind,
+    // The user's own title over Yoin's (Android resolveAlbumMemoryTitle: user > AI > album name).
+    memoryTitle: _written(userTitle) ?? voice.title,
+    memoryTitleKind: _written(userTitle) != null ? MemoryTitleKind.user : voice.titleKind,
+    yoinTitle: voice.titleKind == MemoryTitleKind.ai ? voice.title : null,
     proseLanguage: voice.language,
     review: review,
     writings: writings,
@@ -151,6 +155,11 @@ MemoryEntry composeAlbumMemory({
     firstHeardAt: listening == null ? null : plays!.firstPlayedAt,
     lastHeardAt: listening == null ? null : plays!.lastPlayedAt,
   );
+}
+
+String? _written(String? title) {
+  final words = title?.trim();
+  return words == null || words.isEmpty ? null : words;
 }
 
 /// Option A (owner default): only rated or noted songs, album order. Notes

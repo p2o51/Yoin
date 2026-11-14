@@ -96,4 +96,31 @@ void main() {
     kv.values[MemoryStore.albumRatingsKey('p1')] = '{nope';
     expect(await MemoryStore(kv, profileId: 'p1').albumRatings(), isEmpty);
   });
+
+  test('should_storeTitleTrimmed_when_userNamesMemory', () async {
+    final store = MemoryStore(kv, profileId: 'p1');
+    await store.setTitle(album, '  The rain year  ', nowMs: 10);
+    final row = (await MemoryStore(kv, profileId: 'p1').titleOf(album))!;
+    expect(row.title, 'The rain year');
+    expect(row.updatedAt, 10);
+    expect(kv.values[MemoryStore.titlesKey('p1')], isNotNull);
+    expect(await MemoryStore(kv, profileId: 'p2').titleOf(album), isNull);
+  });
+
+  test('should_keepEditTime_when_sameTitleSavedAgain', () async {
+    final store = MemoryStore(kv, profileId: 'p1');
+    await store.setTitle(album, 'Mine', nowMs: 10);
+    await store.setTitle(album, ' Mine ', nowMs: 20);
+    expect((await store.titleOf(album))!.updatedAt, 10);
+  });
+
+  test('should_deleteRow_when_titleBlankOrRestored', () async {
+    final store = MemoryStore(kv, profileId: 'p1');
+    await store.setTitle(album, 'Mine', nowMs: 10);
+    await store.setTitle(album, '   ', nowMs: 20);
+    expect(await store.titleOf(album), isNull);
+    await store.setTitle(album, 'Again', nowMs: 30);
+    await store.setTitle(album, null, nowMs: 40);
+    expect(await MemoryStore(kv, profileId: 'p1').titles(), isEmpty);
+  });
 }

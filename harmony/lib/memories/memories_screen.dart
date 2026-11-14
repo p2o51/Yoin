@@ -13,8 +13,9 @@
 ///  · diary body → its own scroll; a pull past the top feeds p (the first
 ///    24 dp at half speed); a new upward drag that starts at the end is q.
 /// Horizontal drags page the deck (from the bar too). HarmonyOS back has no
-/// progress: it commits through the same controllers (diary → card, card →
-/// Home).
+/// progress: it commits through the same controllers (title edit → card,
+/// diary → card, card → Home). While a title is being edited no drag pages
+/// the deck or moves q / p.
 library;
 
 import 'dart:async';
@@ -49,6 +50,7 @@ import 'memory_diary.dart';
 import 'memory_emblem_slot.dart';
 import 'memory_palettes.dart';
 import 'memory_spread.dart';
+import 'memory_title_editor.dart';
 import 'palette/memory_palette.dart';
 import '../app/providers.dart';
 import '../theme/playback_theme.dart';
@@ -129,6 +131,16 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   final MemoryAwards _awards = MemoryAwards();
   late final MemoryPalettes _palettes = MemoryPalettes(vsync: this);
   late final MemoriesRevealHandle _handle = ref.read(memoriesRevealHandleProvider);
+  final MemoryTitleEditor _titles = MemoryTitleEditor();
+  late final MemoryTitleEditing _titleEditing = MemoryTitleEditing(
+    editor: _titles,
+    onSave: (memory, title) => ref.read(memoriesViewModelProvider.notifier).saveTitle(memory, title),
+    onRestore: (memory) => ref.read(memoriesViewModelProvider.notifier).restoreTitle(memory),
+  );
+
+  /// The container's height when a title edit began: the keyboard shrinks the
+  /// page while it is up, and the tier must not change under the field.
+  double? _heightAtEdit;
 
   _Route? _route;
   double _height = 800;
@@ -148,6 +160,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     super.initState();
     _handle.deckBack = _back;
     _p.addListener(_onDiary);
+    _titles.addListener(_onTitles);
     widget.reveal.addListener(_onReveal);
     scheduleMicrotask(() {
       if (!mounted) return;
@@ -163,6 +176,8 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     widget.reveal.removeListener(_onReveal);
     _p.removeListener(_onDiary);
     _p.dispose();
+    _titles.removeListener(_onTitles);
+    _titles.dispose();
     _pages?.dispose();
     for (final s in _scrolls.values) {
       s.dispose();
@@ -175,8 +190,16 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   /// The container is a spread: no diary state, back has one level.
   bool _spread = false;
 
+  void _onTitles() {
+    if (!_titles.isEditing) FocusManager.instance.primaryFocus?.unfocus();
+    if (mounted) setState(() {});
+  }
+
   void _back() {
-    if (!_spread && _p.isDiaryLevel) {
+    // The TitleEdit level: back cancels an open title first.
+    if (_titles.isEditing) {
+      _titles.end();
+    } else if (!_spread && _p.isDiaryLevel) {
       _p.close();
     } else {
       widget.reveal.close();
@@ -216,13 +239,18 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
 
   void _verticalStart(bool bar) {
     _route = null;
+    _held = _titles.isEditing;
     _barZone = bar;
     _awards.dragStarted();
   }
 
   bool _barZone = false;
 
+  /// A drag that began while a title was open moves nothing.
+  bool _held = false;
+
   void _verticalUpdate(DragUpdateDetails d) {
+    if (_held) return;
     final dy = d.delta.dy;
     if (_route == null) {
       if (dy == 0) return;
@@ -276,7 +304,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   // ---------------------------------------------------------------- diary raw routes
 
   void _diaryDown(PointerDownEvent e, int page) {
-    if (_pointer != null) return;
+    if (_pointer != null || _titles.isEditing) return;
     _pointer = e.pointer;
     _diaryVelocity.addPosition(e.timeStamp, e.position);
     final s = _scrolls[page];
@@ -363,7 +391,13 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     return LayoutBuilder(
       builder: (context, c) {
         _height = c.maxHeight;
-        final layout = memoriesLayoutFor(c.maxWidth, c.maxHeight);
+        if (_titles.isEditing) {
+          _heightAtEdit ??= c.maxHeight;
+        } else {
+          _heightAtEdit = null;
+        }
+        final layoutHeight = _heightAtEdit ?? c.maxHeight;
+        final layout = memoriesLayoutFor(c.maxWidth, layoutHeight);
         _spread = layout.isSpread;
         final memories = state is MemoriesContent ? state.memories : const <MemoryEntry>[];
         _awards.sync(memories);
@@ -445,7 +479,8 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
                     onVerticalStart: () => _verticalStart(true),
                     onVerticalUpdate: _verticalUpdate,
                     onVerticalEnd: _verticalEnd,
-                    onHorizontalStart: (d) => _barPageDrag = _pages?.position.drag(d, () => _barPageDrag = null),
+                    onHorizontalStart: (d) =>
+                        _barPageDrag = _titles.isEditing ? null : _pages?.position.drag(d, () => _barPageDrag = null),
                     onHorizontalUpdate: (d) => _barPageDrag?.update(d),
                     onHorizontalEnd: (d) {
                       _barPageDrag?.end(d);
@@ -467,7 +502,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
         ? fitSpreadDeck(
             state.memories,
             layout,
-            _height - top - MemoriesTokens.barHeight,
+            (_heightAtEdit ?? _height) - top - MemoriesTokens.barHeight,
             navBottom: MediaQuery.paddingOf(context).bottom,
           )
         : null;
@@ -477,7 +512,10 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
       child: PageView.builder(
         controller: pages,
         itemCount: state.memories.length,
-        physics: const PageScrollPhysics(parent: ClampingScrollPhysics()),
+        // A title being edited holds the deck still.
+        physics: _titles.isEditing
+            ? const NeverScrollableScrollPhysics()
+            : const PageScrollPhysics(parent: ClampingScrollPhysics()),
         itemBuilder: (context, index) {
           final memory = state.memories[index];
           return _MemoryPage(
@@ -506,6 +544,8 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
             onPlayTrack: (t) => _playTrack(memory, t),
             onPlayNote: (t, n) => _playNote(memory, t, n),
             onSaveReview: (text) => ref.read(memoriesViewModelProvider.notifier).saveReview(memory, text),
+            titleEditing: _titleEditing,
+            current: index == state.currentPage,
           );
         },
       ),
@@ -615,7 +655,15 @@ class _MemoryPage extends ConsumerWidget {
     required this.onPlayTrack,
     required this.onPlayNote,
     required this.onSaveReview,
+    this.titleEditing,
+    this.current = false,
   });
+
+  /// The deck's title editor.
+  final MemoryTitleEditing? titleEditing;
+
+  /// This is the page the deck rests on: its titles can open.
+  final bool current;
 
   final MemoryEntry memory;
   final int index;
@@ -719,6 +767,7 @@ class _MemoryPage extends ConsumerWidget {
                                 onPlayNote: onPlayNote,
                                 onOpenAlbum: onOpenAlbum,
                                 onSaveReview: onSaveReview,
+                                titleEditing: titleEditing,
                               ),
                             ),
                           ),
@@ -757,6 +806,8 @@ class _MemoryPage extends ConsumerWidget {
                               emblem: _cardEmblem(context, tones, pc),
                               onOpenDiary: onOpenDiary,
                               onOpenAlbum: onOpenAlbum,
+                              titleEditing: titleEditing,
+                              titleEnabled: current && !diaryOpen,
                             ),
                           ),
                         ),
@@ -806,6 +857,8 @@ class _MemoryPage extends ConsumerWidget {
                 fit: fit,
                 emblem: MemoryEmblemSlot(memory: memory, size: fit.seal, awards: awards, diary: false),
                 onOpenAlbum: onOpenAlbum,
+                titleEditing: titleEditing,
+                titleEnabled: current,
               ),
             ),
           ),
