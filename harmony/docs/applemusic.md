@@ -641,3 +641,35 @@ real player would use, so it was the test that counted all along (Risk 5 above).
 
 
 **Review notes (2026-11-14):** the two-runtime crash in runs 1–3, 4 and 7 went through the probe .so's own exported static libunwind (`unw_get_proc_info`, `_Unwind_GetLanguageSpecificData`), so the harness itself interposed an unwinder. The rule still stands — no Apple exception may reach an OHOS frame; catch everything in an NDK-built bridge — and Phase 1 must also make sure no module exports its own libunwind and must test exceptions on threads Apple creates, not only the two synchronous throw sites tested here.
+
+## Phase 1 sign-in — consent blocker (2026-11-14)
+
+The ArkWeb MusicKit JS sign-in now works up to the final consent:
+- Developer token fetched from the Worker; MusicKit JS loads; the pink in-page
+  "Sign in with Apple Music" button shows (auto-authorize removed — `window.open`
+  needs a real in-page gesture).
+- Tapping it fires `onWindowNew`; the Apple ID page (`idmsa.apple.com/appleauth`)
+  loads HTTP 200 in the popup Web and the owner signed in (password + 2FA).
+- It then reaches the MusicKit consent page (`authorize.music.apple.com`,
+  `isAppleMusicSubscriber=true`), but the **"許可 / Allow" button is disabled**.
+
+Root cause (hypothesis, strong): Apple's consent page talks to its opener via
+`response_mode=web_message` postMessage and only enables Allow once that channel
+is up. The current popup is navigated with `popupController.loadUrl(targetUrl)`,
+which loads the page but severs `window.opener`, so the handshake never completes
+and Allow stays disabled.
+
+The tension: `setWebController(popupController)` alone preserves the opener but did
+NOT navigate the handed-over window (blank) in this ArkWeb build; manual `loadUrl`
+navigates but breaks the opener.
+
+Fix to try next: create the popup Web imperatively so it is attached synchronously
+in `onWindowNew` and let `setWebController` drive the navigation with the opener
+intact — i.e. a `NodeController` + `BuilderNode` same-layer Web (ArkWeb multi-window
+sample pattern), instead of a pre-declared `src: ''` Web + `loadUrl`. Do not call
+`loadUrl` in that path. Verify the consent "Allow" enables and that
+`music.authorize()` resolves with a Music User Token.
+
+Owner already authenticated once; the webview keeps the Apple session cookies, so
+re-opening sign-in should jump straight to the consent page (no password re-entry)
+while iterating on the opener fix.
