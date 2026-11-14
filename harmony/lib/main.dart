@@ -11,6 +11,7 @@ import 'data/subsonic/subsonic_music_source.dart';
 import 'platform/applemusic/apple_music_auth.dart';
 import 'platform/playback/channel_playback_engine.dart';
 import 'platform/storage/channel_stores.dart';
+import 'platform/window/window_caption.dart';
 import 'playback/playback_controller.dart';
 import 'shell/app_chrome.dart';
 import 'shell/shell_screen.dart';
@@ -70,7 +71,11 @@ class YoinApp extends ConsumerWidget {
       // Inside the theme (the builder's own context is above it), so the
       // status-bar icons follow light / dark.
       builder: (context, child) => Builder(
-        builder: (context) => YoinSystemBars(child: YoinWindowScope.measured(child: AppChrome(child: child!))),
+        builder: (context) => YoinWindowCaption(
+          child: YoinSystemBars(
+            child: YoinWindowScope.measured(child: AppChrome(child: child!)),
+          ),
+        ),
       ),
       home: const ShellScreen(),
     );

@@ -11,6 +11,8 @@ import YoinStoragePlugin from '../yoin/storage/StoragePlugin';
 import YoinI18nPlugin from '../yoin/i18n/I18nPlugin';
 import YoinAppleMusicAuthPlugin from '../yoin/applemusic/AppleMusicAuthPlugin';
 import YoinCardsPlugin, { CardsHost } from '../yoin/cards/CardsPlugin';
+import YoinWindowPlugin, { YoinWindowHost } from '../yoin/window/WindowPlugin';
+import { window } from '@kit.ArkUI';
 
 export default class EntryAbility extends FlutterAbility {
   configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -23,6 +25,23 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinI18nPlugin())
     flutterEngine.getPlugins()?.add(new YoinAppleMusicAuthPlugin())
     flutterEngine.getPlugins()?.add(new YoinCardsPlugin(this.context))
+    flutterEngine.getPlugins()?.add(new YoinWindowPlugin())
+  }
+
+  /**
+   * 2in1 / free windows: once the content is up, the system title bar gives way to the app's own ground (only the
+   * three buttons stay); Dart keeps clear of them and drags the window from that strip (yoin/window).
+   */
+  onWindowStageCreate(windowStage: window.WindowStage) {
+    super.onWindowStageCreate(windowStage)
+    let attached = false
+    windowStage.on('windowStageEvent', (event: window.WindowStageEventType) => {
+      if (attached || event !== window.WindowStageEventType.SHOWN) {
+        return
+      }
+      attached = true
+      YoinWindowHost.attach(windowStage.getMainWindowSync())
+    })
   }
 
   /** Cold start from Yoin's 播控中心 / lock-screen card: open Now Playing once Dart listens. */
