@@ -673,3 +673,68 @@ sample pattern), instead of a pre-declared `src: ''` Web + `loadUrl`. Do not cal
 Owner already authenticated once; the webview keeps the Apple session cookies, so
 re-opening sign-in should jump straight to the consent page (no password re-entry)
 while iterating on the opener fix.
+
+### Fix landed (2026-11-14, 12:00 JST): opener kept, page on an https origin
+
+There were two causes. Reading MusicKit JS v3 (`js-cdn.music.apple.com/musickit/v3/musickit.js`)
+explains both:
+
+- **The consent page talks to the opener over JSON-RPC.** Apple's `authorize.music.apple.com`
+  builds a `Dispatch` whose destination is `window.opener`. It calls the opener's `thirdPartyInfo`
+  method (app name and icon), then `authorize` / `decline`. It sends each message with
+  `opener.postMessage(msg, <origin of the opener's URL>)`.
+- **A `resource://rawfile/...` page has the opaque origin `null`.** No message can target it, so
+  even with `window.opener` intact the channel could never open. The page has to live on a real
+  https origin.
+- **The app name.** `thirdPartyName` is `window.location.host || document.referrer`, and
+  `app.name` is never read. The host of `resource://rawfile/...` is `rawfile`, which is where
+  "rawfile" on the consent page came from.
+
+**Why the popup was blank or lost its opener.** ArkWeb decides that a `Web` is a `window.open`
+window **when that `Web` is constructed**. It looks the `Web`'s controller up among the controllers
+already handed to `event.handler.setWebController`. That means:
+
+- A controller that is already attached gets refused, so the popup stays blank. That was the
+  pre-declared `src: ''` Web.
+- Building the `Web` before calling `setWebController` gives an ordinary new browser. hilog says
+  `OnAfterCreated IsPopup 0`, and the page is blank.
+- `loadUrl` navigates, but as a fresh navigation with no opener.
+
+What `AppleMusicAuthView.ets` does now:
+
+1. **The page origin.** The MusicKit page loads `https://yoin.gojyuplus.com/applemusic/signin`.
+   `onInterceptRequest` answers that exact main-frame URL with `rawfile/applemusic_auth.html`, so
+   nothing is fetched from the site.
+2. **The popup.** In `onWindowNew`, the view makes a fresh `WebviewController` and calls
+   `setWebController` with it first. Only then does it synchronously build a `BuilderNode` around
+   a `Web` that uses that controller, and it shows the node in a `NodeContainer`. It never calls
+   `loadUrl`. `onWindowExit` disposes the node.
+3. **The name.** The page wraps `_thirdPartyInfo` on this instance's
+   `_services.apiManager.store.storekit._serviceSetupView` and sets `thirdPartyName` to `Yoin`.
+   `configure` gets `app.icon` = `https://yoin.gojyuplus.com/apple-touch-icon.png`.
+
+**Device evidence (Mate 70 Air, release build, silent).** For the record, the logs read:
+
+- `popup page begin/end: https://authorize.music.apple.com`, then `https://idmsa.apple.com`.
+- `popup opener: "true"` on both pages. Before the fix, the `loadUrl` popup had lost its opener.
+- `yoin: app name hook set`.
+
+The page also logs every JSON-RPC call it receives from Apple (`yoin: rpc call <method> from <origin>`,
+method names only). None arrived before sign-in. That is expected, because the consent step is
+where the calls happen.
+
+**Still open: the final step needs the owner.** On these runs Apple no longer had a session, so
+the popup stopped at the Apple ID sign-in form (email field) instead of the consent page. The
+earlier sign-in's cookies didn't survive the app restarts. Per the rules, nobody entered
+credentials. To finish:
+
+1. Settings → 添加 → Apple Music → 连接 Apple Music → **Sign in with Apple Music**.
+2. Sign in with your Apple ID and 2FA, then check two things on the consent page: **許可 / Allow
+   is enabled, and the app is named Yoin**.
+3. Allow. Expected: `YoinAppleAuth: sign-in succeeded (storefront=…)` and an Apple Music account
+   in Settings. The ARKWEB-CONSOLE lines `yoin: rpc call thirdPartyInfo …` / `… authorize …` from
+   `https://authorize.music.apple.com` should appear first.
+
+If Allow still stays disabled with the opener intact and no `yoin: rpc` lines, then Apple is
+refusing to talk to the `yoin.gojyuplus.com` referrer. The next lever is a different https
+origin.

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Apple Music sign-in</title>
+  <title>Yoin</title>
   <style>
     :root { color-scheme: light dark; }
     html, body { margin: 0; height: 100%; }
@@ -40,7 +40,36 @@
       var musicReady = false;
       var inFlight = false;
 
+      var APP_NAME = 'Yoin';
+
       function setStatus(text) { statusEl.textContent = text; }
+
+      // MusicKit v3 ignores app.name on the consent page: it names the app after
+      // window.location.host (the "thirdPartyName" it sends in the authorize URL
+      // and answers the consent page's thirdPartyInfo call with). Rename it on
+      // this instance only; nothing else in that payload changes.
+      function nameTheApp(music) {
+        try {
+          // The instance reaches its StoreKit through the API manager's store.
+          var services = music && music._services;
+          var store = services && services.apiManager && services.apiManager.store;
+          var storekit = (store && store.storekit) || (music && music.storekit);
+          var view = storekit && storekit._serviceSetupView;
+          if (!view || typeof view._thirdPartyInfo !== 'function') {
+            console.log('yoin: app name hook unavailable');
+            return;
+          }
+          var original = view._thirdPartyInfo;
+          view._thirdPartyInfo = function () {
+            var info = JSON.parse(original.apply(view, arguments));
+            info.thirdPartyName = APP_NAME;
+            return JSON.stringify(info);
+          };
+          console.log('yoin: app name hook set');
+        } catch (e) {
+          console.log('yoin: app name hook failed');
+        }
+      }
 
       function report(method, a, b) {
         try { var br = bridge(); if (br && br[method]) { br[method](a, b); } } catch (e) {}
@@ -99,8 +128,9 @@
           }
           await MusicKit.configure({
             developerToken: developerToken,
-            app: { name: 'Yoin', build: '1.0.0' }
+            app: { name: APP_NAME, build: '1.0.0', icon: 'https://yoin.gojyuplus.com/apple-touch-icon.png' }
           });
+          nameTheApp(MusicKit.getInstance());
           musicReady = true;
           readyToSignIn();
           // No auto-authorize: window.open for the Apple ID window is gated on a
@@ -112,6 +142,16 @@
       };
 
       window.addEventListener('error', function () { report('onError', 'page_failed', 'script error'); });
+
+      // Diagnostics: Apple's consent window talks to this page over JSON-RPC
+      // postMessage. Log who called and which method — never params or results,
+      // which carry tokens.
+      window.addEventListener('message', function (e) {
+        var d = e && e.data;
+        if (d && typeof d === 'object' && d.jsonrpc === '2.0') {
+          console.log('yoin: rpc ' + (d.method ? 'call ' + d.method : 'reply') + ' from ' + e.origin);
+        }
+      });
     })();
   </script>
 </body>
