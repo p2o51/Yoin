@@ -123,6 +123,10 @@ abstract final class HomeEditMetrics {
   static const double actionGap = 4;
   static const double dragLiftScale = 1.02;
 
+  /// The lifted plate's shadow: an elevation of 6 dp (HomeEditTokens.LiftShadow), at this alpha.
+  static const double liftShadow = 6;
+  static const double liftShadowAlpha = 0.24;
+
   /// A section drag scrolls the feed while the finger is this close to its
   /// top or bottom edge, up to [autoScrollMax] dp/s (HomeRowsResize.kt AutoScrollEdge/Max).
   static const double autoScrollEdge = 64;

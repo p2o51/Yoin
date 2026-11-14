@@ -109,6 +109,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   List<double> _dragHeights = const [];
   int _dragTarget = 0;
 
+  /// The section painted in the overlay (dragged, or landing after a drop).
+  HomeSection? _lifted;
+  Size _liftSize = Size.zero;
+
+  /// 0 → 1: the lift's scale and shadow (fast spatial up, default spatial down).
+  late final SpringValue _lift = SpringValue(vsync: this, initial: 0, spring: YoinSprings.fastSpatial);
+  final Map<HomeSection, GlobalKey> _bodyKeys = {};
+  final Map<HomeSection, LayerLink> _links = {};
+  final Map<HomeSection, OverlayPortalController> _portals = {};
+
   /// The finger's global y while a section is dragged (drives auto-scroll).
   double? _dragPointerY;
   final GlobalKey _listKey = GlobalKey();
@@ -122,8 +132,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   AppLifecycleListener? _lifecycle;
 
   GlobalKey _keyFor(HomeSection s) => _itemKeys.putIfAbsent(s, GlobalKey.new);
-  SpringValue _shiftOf(HomeSection s) =>
-      _shift.putIfAbsent(s, () => SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial));
+  GlobalKey _bodyKeyFor(HomeSection s) => _bodyKeys.putIfAbsent(s, GlobalKey.new);
+  LayerLink _linkFor(HomeSection s) => _links.putIfAbsent(s, LayerLink.new);
+  OverlayPortalController _portalFor(HomeSection s) => _portals.putIfAbsent(s, OverlayPortalController.new);
+  SpringValue _shiftOf(HomeSection s) => _shift.putIfAbsent(s, () {
+    final v = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
+    (v.animation as AnimationController).addStatusListener((_) => _maybeLower());
+    return v;
+  });
 
   @override
   void initState() {
@@ -135,6 +151,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _feedRise;
     _frameBlend;
     _edit;
+    (_lift.animation as AnimationController).addStatusListener((_) => _maybeLower());
     _lifecycle = AppLifecycleListener(onHide: () {
       if (mounted) ref.read(homeEditProvider.notifier).exit();
     });
@@ -160,6 +177,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       s.dispose();
     }
     _autoScroll.dispose();
+    _lift.dispose();
     _paletteGate.dispose();
     super.dispose();
   }
@@ -473,18 +491,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   Widget _editItem(HomeSection section, HomeFeedFrame frame, double spacing, double e, int index, List<HomeSection> visible, Widget child) {
     final edit = ref.read(homeEditProvider.notifier);
     final shift = _shiftOf(section);
-    final dragging = _dragging == section;
-    return Padding(
-      key: _keyFor(section),
-      padding: EdgeInsets.only(top: spacing),
+    final lifted = _lifted == section;
+    // The section itself, under its own key: lifted, it moves (state and the
+    // drag in progress with it) from the list slot to the overlay and back.
+    final body = KeyedSubtree(
+      key: _bodyKeyFor(section),
       child: AnimatedBuilder(
-        animation: shift.animation,
-        builder: (context, child) => Transform.translate(
-          offset: Offset(0, dragging ? _dragDy : shift.value),
-          child: Transform.scale(scale: dragging ? HomeEditMetrics.dragLiftScale : 1, child: child),
-        ),
-        child: HomeEditPlate(
+        animation: lifted ? _lift.animation : const AlwaysStoppedAnimation(0.0),
+        child: child,
+        builder: (context, child) => HomeEditPlate(
           progress: e,
+          lift: lifted ? _lift.value.clamp(0.0, 1.0) : 0,
           section: section,
           start: frame.start,
           end: frame.end,
@@ -501,10 +518,87 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                   onEnd: _endDrag,
                 )
               : null,
-          child: child,
+          child: child!,
         ),
       ),
     );
+    return Padding(
+      key: _keyFor(section),
+      padding: EdgeInsets.only(top: spacing),
+      // A list paints in order, so a lifted section could never pass over the
+      // one below it: while lifted (and landing) it paints in the overlay,
+      // pinned to its slot, which keeps its place and height in the feed.
+      child: OverlayPortal(
+        controller: _portalFor(section),
+        overlayChildBuilder: (context) => lifted ? _liftedLayer(section, body) : const SizedBox.shrink(),
+        child: lifted
+            ? CompositedTransformTarget(
+                link: _linkFor(section),
+                child: SizedBox(width: _liftSize.width, height: _liftSize.height),
+              )
+            : AnimatedBuilder(
+                animation: shift.animation,
+                builder: (context, child) => Transform.translate(offset: Offset(0, shift.value), child: child),
+                child: body,
+              ),
+      ),
+    );
+  }
+
+  /// The lifted section over the page: on its slot, offset by the finger (or
+  /// the landing spring), grown by the lift.
+  Widget _liftedLayer(HomeSection section, Widget body) => Align(
+    alignment: Alignment.topLeft,
+    child: CompositedTransformFollower(
+      link: _linkFor(section),
+      showWhenUnlinked: false,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_shiftOf(section).animation, _lift.animation]),
+        child: SizedBox(width: _liftSize.width, child: body),
+        builder: (context, child) => Transform.translate(
+          offset: Offset(0, _dragging == section ? _dragDy : _shiftOf(section).value),
+          child: Transform.scale(scale: 1 + (HomeEditMetrics.dragLiftScale - 1) * _lift.value, child: child),
+        ),
+      ),
+    ),
+  );
+
+  /// Lifts [section] into the overlay at [size] (its body's measured size).
+  void _raise(HomeSection section, Size size) {
+    final previous = _lifted;
+    if (previous != null && previous != section) _portalFor(previous).hide();
+    _lifted = section;
+    _liftSize = size;
+    _portalFor(section).show();
+    if (_reduced) {
+      _lift.snapTo(1);
+    } else {
+      _lift.spring = YoinSprings.fastSpatial;
+      _lift.animateTo(1);
+    }
+  }
+
+  /// Once the landing spring and the lift have both settled, the section goes back into its slot.
+  void _maybeLower() {
+    final section = _lifted;
+    if (section == null || _dragging != null || !mounted) return;
+    final shiftMoving = (_shiftOf(section).animation as AnimationController).isAnimating;
+    final liftMoving = (_lift.animation as AnimationController).isAnimating;
+    if (shiftMoving || liftMoving) return;
+    _lowerNow();
+  }
+
+  void _lowerNow() {
+    final section = _lifted;
+    if (section == null) return;
+    // Cleared first: the snap below reports a status that lands back in _maybeLower.
+    if (mounted) {
+      setState(() => _lifted = null);
+    } else {
+      _lifted = null;
+    }
+    _portalFor(section).hide();
+    _lift.snapTo(0);
   }
 
   void _onEditing(bool on) {
@@ -535,7 +629,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final heights = List<double>.filled(order.length, 0);
     // The dragged section is under the finger, so it is built.
     if (!_measure(order, tops, heights, require: order.indexOf(section))) return;
+    final body = _bodyKeys[section]?.currentContext?.findRenderObject() as RenderBox?;
+    if (body == null || !body.hasSize) return;
     YoinHaptics.longPress();
+    _raise(section, body.size);
     setState(() {
       _dragging = section;
       _dragDy = 0;
@@ -690,7 +787,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       shift.animateTo(0);
     }
     setState(() => _dragging = null);
+    if (_reduced) {
+      _lift.snapTo(0);
+    } else {
+      _lift.spring = YoinSprings.defaultSpatial;
+      _lift.animateTo(0);
+    }
     if (b != a) ref.read(homeEditProvider.notifier).move(section, b);
+    _maybeLower();
   }
 
   void _stopAutoScroll() {
@@ -705,6 +809,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       _shiftOf(s).animateTo(0);
     }
     setState(() => _dragging = null);
+    _lift.animateTo(0);
   }
 }
 

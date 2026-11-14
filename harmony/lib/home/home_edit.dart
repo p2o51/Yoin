@@ -133,6 +133,7 @@ class HomeEditPlate extends StatelessWidget {
   const HomeEditPlate({
     super.key,
     required this.progress,
+    this.lift = 0,
     required this.section,
     required this.start,
     required this.end,
@@ -150,6 +151,9 @@ class HomeEditPlate extends StatelessWidget {
   final VoidCallback? onMoveDown;
 
   final double progress;
+
+  /// 0..1: lifted by a drag, the plate casts a shadow (HomeEditTokens LiftShadow).
+  final double lift;
   final HomeSection section;
 
   /// The page margins the plate reaches out from.
@@ -200,6 +204,15 @@ class HomeEditPlate extends StatelessWidget {
                         decoration: ShapeDecoration(
                           color: colors.surfaceContainerHigh,
                           shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(HomeEditMetrics.plateCorner)),
+                          shadows: lift <= 0
+                              ? null
+                              : [
+                                  BoxShadow(
+                                    color: colors.shadow.withValues(alpha: HomeEditMetrics.liftShadowAlpha * lift),
+                                    blurRadius: HomeEditMetrics.liftShadow * 2 * lift,
+                                    offset: Offset(0, HomeEditMetrics.liftShadow / 2 * lift),
+                                  ),
+                                ],
                         ),
                       ),
                     )

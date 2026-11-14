@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
@@ -276,6 +277,57 @@ void main() {
       await frames(tester, 30);
       final after = c.read(homeLayoutProvider).visibleV1Sections;
       expect(after.last, HomeSection.activities, reason: 'was $before');
+      expect(tester.takeException(), isNull);
+      await done(tester, c);
+    });
+
+    testWidgets('should_paintAndHitTestTheLiftedSectionAboveItsNeighbour_when_dragged', (tester) async {
+      final c = await pumpHome(tester);
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      Finder plate(HomeSection s) => find.byWidgetPredicate((w) => w is HomeEditPlate && w.section == s);
+      Set<RenderObject> subtree(Finder f) {
+        final out = <RenderObject>{};
+        void visit(RenderObject r) {
+          out.add(r);
+          r.visitChildren(visit);
+        }
+
+        visit(tester.renderObject(f));
+        return out;
+      }
+
+      // Painted by the feed's viewport, or over it (an overlay entry)?
+      bool inFeed(HomeSection s) {
+        for (RenderObject? r = tester.renderObject(plate(s)); r != null; r = r.parent) {
+          if (r is RenderViewport) return true;
+        }
+        return false;
+      }
+
+      final next = tester.getRect(plate(HomeSection.jumpBackIn));
+      final gesture = await tester.startGesture(tester.getCenter(find.byIcon(YoinSymbols.dragHandle).first));
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump(const Duration(milliseconds: 16));
+      // Down until Activities' plate lies over Jump Back In's top.
+      final from = tester.getRect(plate(HomeSection.activities));
+      await gesture.moveBy(Offset(0, next.top - from.top + 20));
+      await frames(tester, 10);
+      // Painted in the overlay, after (over) the whole feed.
+      expect(inFeed(HomeSection.activities), isFalse);
+      expect(inFeed(HomeSection.jumpBackIn), isTrue);
+      final lifted = subtree(plate(HomeSection.activities));
+      final below = subtree(plate(HomeSection.jumpBackIn));
+      final over = tester.getRect(plate(HomeSection.activities)).intersect(tester.getRect(plate(HomeSection.jumpBackIn)));
+      expect(over.isEmpty, isFalse);
+      final result = HitTestResult();
+      tester.binding.hitTestInView(result, over.center, tester.view.viewId);
+      final first = result.path.map((e) => e.target).firstWhere((t) => lifted.contains(t) || below.contains(t));
+      expect(lifted.contains(first), isTrue);
+      await gesture.up();
+      await frames(tester, 40);
+      // Landed, it is back in the feed.
+      expect(inFeed(HomeSection.activities), isTrue);
       expect(tester.takeException(), isNull);
       await done(tester, c);
     });
