@@ -70,11 +70,8 @@ struct AllMemoriesView: View {
                 if let state = ledger, !state.isEmpty {
                     content(state)
                 } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("No memories yet").yoinRole(Tokens.type.titleMedium).foregroundStyle(app.onSurface)
-                        Text("Write a note while a song plays, or score an album, and it shows up here.")
-                            .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
-                    }
+                    // One label, no second line (Android 058f629b).
+                    Text("No memories yet").yoinRole(Tokens.type.titleMedium).foregroundStyle(app.onSurface)
                 }
             }
             .frame(maxWidth: layout.maxWidth - 32, alignment: .leading)
