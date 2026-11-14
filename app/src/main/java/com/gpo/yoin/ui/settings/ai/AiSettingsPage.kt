@@ -478,10 +478,19 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier, searchService: AiS
         val y by animateFloatAsState(yAxis.fraction(dot.point, dot.set), spring, label = "dotY")
         Offset(x, y)
     }
-    // 0 → 1 as a dot becomes the chosen one: its size and halo, and a search dot's name.
+    // 0 → 1 as a dot becomes the chosen one. Its size moves on the spatial spring; its halo
+    // and a search dot's name fade on the effects spring.
     val emphasis = dots.map { dot ->
         val e by animateFloatAsState(if (dot.chosen) 1f else 0f, spring, label = "dotChosen")
         e
+    }
+    val chosenAlpha = dots.map { dot ->
+        val a by animateFloatAsState(
+            if (dot.chosen) 1f else 0f,
+            YoinMotion.defaultEffectsSpec(),
+            label = "dotChosenAlpha",
+        )
+        a
     }
     val axisLabel = mapOf(
         AiAxis.Speed to stringResource(R.string.ai_axis_speed),
@@ -606,7 +615,7 @@ private fun TradeoffChart(provider: AiProvider, tier: AiTier, searchService: AiS
                     val shown = setAlpha(dot.set)
                     if (shown <= 0.001f) return@forEach
                     val e = emphasis[i]
-                    val glow = e.coerceIn(0f, 1f)
+                    val glow = chosenAlpha[i].coerceIn(0f, 1f)
                     val alpha = (if (dot.mine) 1f else 0.3f) * shown
                     val c = at(positions[i])
                     if (glow > 0f) drawCircle(dot.color.copy(alpha = 0.18f * glow * shown), radius = 13.dp.toPx(), center = c)
