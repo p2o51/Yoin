@@ -20,13 +20,19 @@ struct SpotifyDevicesSheet: View {
     @State private var devices: [SpotifySource.Device]?
     @State private var failure: String?
     @State private var moving: String?
+    /// A read is under way: the header's refresh turns to a spinner (Android DevicesSheet loading).
+    @State private var loading = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Devices")
-                    .yoinRole(Tokens.type.headlineSmall)
-                    .foregroundStyle(scheme.onSurface)
+                HStack(spacing: 8) {
+                    Text("Devices")
+                        .yoinRole(Tokens.type.headlineSmall)
+                        .foregroundStyle(scheme.onSurface)
+                    Spacer(minLength: 0)
+                    refreshButton
+                }
                 // A failed load or move says so above the list, whether or not the list has devices
                 // (Android DevicesSheet errorMessage, parity C-U10).
                 if let failure {
@@ -74,10 +80,11 @@ struct SpotifyDevicesSheet: View {
         return failed ? nil : String(localized: "No Spotify devices found. Open Spotify on the device you want to play on.")
     }
 
-    /// A row's second line (Android localizedForSheet): moving, playing, through Spotify, recently used,
-    /// else Spotify's type.
+    /// A row's second line (Android localizedForSheet): moving, a private session (Android's status wins
+    /// over the rest), playing, through Spotify, recently used, else Spotify's type.
     static func detail(_ d: SpotifySource.Device, moving: Bool) -> String {
         if moving { return String(localized: "Moving…") }
+        if d.privateSession { return String(localized: "Private session") }
         if d.isActive { return String(localized: "Playing here") }
         if d.spotifyOnly { return String(localized: "Switch through Spotify") }
         if d.remembered { return String(localized: "Recently used · may need waking in Spotify") }
@@ -101,6 +108,25 @@ struct SpotifyDevicesSheet: View {
         case "Automobile": String(localized: "Automobile", comment: "A Spotify device type")
         default: type
         }
+    }
+
+    /// Reads the list again (Android DevicesSheet's header IconButton): a spinner while it reads, which
+    /// pulling the list down does too.
+    private var refreshButton: some View {
+        Button { Task { await load() } } label: {
+            Group {
+                if loading {
+                    ProgressView().controlSize(.small).tint(scheme.onSurfaceVariant)
+                } else {
+                    YoinIcon("refresh", size: 22).foregroundStyle(scheme.onSurfaceVariant)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain).pointerHighlight()
+        .disabled(loading)
+        .accessibilityLabel(String(localized: "Refresh devices"))
     }
 
     private var moreDevices: some View {
@@ -169,6 +195,8 @@ struct SpotifyDevicesSheet: View {
     }
 
     private func load() async {
+        loading = true
+        defer { loading = false }
         do {
             let listed = try await spotify.sheetDevices()
             let now = Int64(Date().timeIntervalSince1970 * 1000)

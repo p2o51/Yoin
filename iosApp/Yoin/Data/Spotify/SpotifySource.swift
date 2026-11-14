@@ -378,6 +378,8 @@ final class SpotifySource {
         var restricted: Bool = false
         /// Remembered from an earlier list, not in Spotify's this time (SpotifyDeviceMemory).
         var remembered: Bool = false
+        /// Spotify plays there in a private session (is_private_session; Android statusText "Private session").
+        var privateSession: Bool = false
 
         /// Moved to only through the Spotify app (Android YoinDevice.SpotifyConnect.spotifyOnly).
         var spotifyOnly: Bool { !hasId || restricted }
@@ -398,6 +400,7 @@ final class SpotifySource {
     private struct DevicesDTO: Decodable {
         struct D: Decodable {
             let id: String?; let name: String?; let type: String?; let isActive: Bool?; let isRestricted: Bool?
+            let isPrivateSession: Bool?
         }
         let devices: [D]
     }
@@ -409,7 +412,8 @@ final class SpotifySource {
         return r.devices.map { d in
             let name = d.name ?? "Device"
             return Device(id: d.id ?? Device.noIdKey(name), name: name, type: d.type ?? "",
-                          isActive: d.isActive ?? false, hasId: d.id != nil, restricted: d.isRestricted ?? false)
+                          isActive: d.isActive ?? false, hasId: d.id != nil, restricted: d.isRestricted ?? false,
+                          privateSession: d.isPrivateSession ?? false)
         }
     }
 

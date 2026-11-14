@@ -124,6 +124,17 @@ final class SpotifyDeviceMemoryTests: XCTestCase {
         XCTAssertEqual(SpotifyDevicesSheet.detail(device("d", "Desk"), moving: false), loc("Speaker"))
     }
 
+    /// Android listSpotifyDevices: a device in a private session says so, over playing and through Spotify.
+    func test_should_sayPrivateSession_when_spotifyPlaysThereInOne() {
+        var phone = device("p", "Phone", active: true)
+        phone.privateSession = true
+        XCTAssertEqual(SpotifyDevicesSheet.detail(phone, moving: false), loc("Private session"))
+        XCTAssertEqual(SpotifyDevicesSheet.detail(phone, moving: true), loc("Moving…"))
+        var sonos = device("", "Sonos", hasId: false)
+        sonos.privateSession = true
+        XCTAssertEqual(SpotifyDevicesSheet.detail(sonos, moving: false), loc("Private session"))
+    }
+
     func test_should_nameSpotifysDeviceType_when_known_and_passItThrough_when_not() {
         XCTAssertEqual(SpotifyDevicesSheet.typeLabel("Smartphone"), loc("Smartphone"))
         XCTAssertEqual(SpotifyDevicesSheet.typeLabel("GameConsole"), loc("GameConsole"))
