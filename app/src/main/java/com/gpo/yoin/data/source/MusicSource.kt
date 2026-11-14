@@ -215,6 +215,13 @@ interface MusicMetadata {
     suspend fun nativeNames(trackId: MediaId): List<TrackNames> = emptyList()
 
     /**
+     * [trackId]'s ISRC, the code a recording keeps on every service, for looking up the names it was released
+     * under elsewhere when the service's own names find no lyrics. Null when the service doesn't say (the
+     * default). Read after [nativeNames], which may already have it.
+     */
+    suspend fun isrc(trackId: MediaId): String? = null
+
+    /**
      * The album and artist [trackId] belongs to, for a song that came without them: Apple Music names them only
      * when the request included them, and its playlists, library songs and search rows don't. Null when the
      * service can't say (the default: everywhere else a song carries both already).

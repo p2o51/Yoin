@@ -70,6 +70,7 @@ import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
+import com.gpo.yoin.data.remote.musicbrainz.MusicBrainzIsrcClient
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicSource
@@ -181,6 +182,9 @@ class YoinRepository(
     private val detailCacheStore: DetailCacheStore? = null,
     /** AI settings v2 choices; null = Gemini only (tests, previews). */
     private val aiProviderStore: AiProviderStore? = null,
+    /** The names an ISRC was released under, for lyrics; see [fetchLyricUnderOtherNames]. */
+    private val isrcReleaseNames: suspend (isrc: String, durationMs: Long?) -> TrackNames? =
+        MusicBrainzIsrcClient()::names,
 ) {
     /** The AI settings for a call, or null when the chosen service has no key yet. */
     private fun readyAi(config: GeminiConfig?): AiSettings? =
@@ -2770,10 +2774,13 @@ class YoinRepository(
      * 2. The names in the languages the song is from
      *    ([com.gpo.yoin.data.source.MusicMetadata.nativeNames]): a Japanese Spotify app writes Hebe Tien as
      *    ヒビ・ティエン, and asked in Chinese, Spotify says 田馥甄.
-     * 3. With [askAi], the online AI's answer for the title and artist the song was released under, when there's
-     *    a sign the names are localized (non-Latin letters shown, or the service names it differently in another
-     *    language): Spotify calls 《摩天輪》 "Ferries wheel" in every language. A lyrics source still has to find
-     *    the answer, so a wrong guess finds nothing rather than other lyrics.
+     *
+     * The next two only when there's a sign the names are localized (non-Latin letters shown, or the service
+     * names the song differently in another language). Spotify calls 《摩天輪》 "Ferries wheel" in every language:
+     *
+     * 3. The names its ISRC was released under ([isrcReleaseNames], MusicBrainz): TWD950519106 is 摩天輪 / 田馥甄.
+     * 4. With [askAi], the online AI's answer for the title and artist the song was released under. A lyrics
+     *    source still has to find the answer, so a wrong guess finds nothing rather than other lyrics.
      */
     private suspend fun fetchLyricUnderOtherNames(
         source: MusicSource,
@@ -2798,9 +2805,13 @@ class YoinRepository(
         }
         val native = orNullOnFailure { metadata.nativeNames(trackId) }.orEmpty().filter { it != shown }
         for (names in native) tryNames(names)?.let { return it }
-        if (!askAi || (!nonLatinShown && native.isEmpty())) return null
-        val released = resolveReleaseNamesWithAi(trackId, shown, album, durationMs, native) ?: return null
-        return tryNames(released)
+        if (!nonLatinShown && native.isEmpty()) return null
+        val isrc = orNullOnFailure { metadata.isrc(trackId) }
+        val released = isrc?.let { code -> orNullOnFailure { isrcReleaseNames(code, durationMs) } }
+        if (released != null) tryNames(released)?.let { return it }
+        if (!askAi) return null
+        val named = resolveReleaseNamesWithAi(trackId, shown, album, durationMs, native) ?: return null
+        return tryNames(named)
     }
 
     /** Track → the names the AI said it was released under (null: it wasn't sure); asked once per track a run. */
@@ -2809,7 +2820,7 @@ class YoinRepository(
             size > RELEASE_NAMES_KEPT
     }
 
-    /** See [fetchLyricUnderOtherNames] step 3. Null without a ready AI service, or when the call fails. */
+    /** See [fetchLyricUnderOtherNames] step 4. Null without a ready AI service, or when the call fails. */
     private suspend fun resolveReleaseNamesWithAi(
         trackId: MediaId,
         shown: TrackNames,

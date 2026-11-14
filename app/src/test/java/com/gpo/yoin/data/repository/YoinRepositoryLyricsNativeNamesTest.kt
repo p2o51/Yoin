@@ -44,6 +44,8 @@ class YoinRepositoryLyricsNativeNamesTest {
     private val geminiService = mockk<GeminiService>(relaxed = true)
     private val ferriesWheel = MediaId.spotify("0q96DdFCFTYX2brsBFUbDO")
     private val durationMs = 244_800L
+    private val releasedByIsrc = mutableMapOf<String, TrackNames>()
+    private val isrcLookups = mutableListOf<String>()
 
     @Before
     fun setUp() {
@@ -52,6 +54,7 @@ class YoinRepositoryLyricsNativeNamesTest {
             YoinDatabase::class.java,
         ).allowMainThreadQueries().build()
         coEvery { metadata.alternateNames(any()) } returns null
+        coEvery { metadata.isrc(any()) } returns null
         coEvery { metadata.nativeNames(ferriesWheel) } returns listOf(TrackNames("Ferries wheel", "田馥甄"))
         coEvery { geminiConfigDao.getConfig() } returns
             flowOf(GeminiConfig(apiKey = "key", targetLanguage = "Simplified Chinese"))
@@ -97,6 +100,30 @@ class YoinRepositoryLyricsNativeNamesTest {
                 listOf("Ferries wheel" to "田馥甄"),
             )
         }
+    }
+
+    @Test
+    fun should_findLyricsUnderIsrcNames_withoutAi() = runTest {
+        coEvery { metadata.isrc(ferriesWheel) } returns "TWD950519106"
+        releasedByIsrc["TWD950519106"] = TrackNames("摩天輪", "田馥甄")
+        provider.lyricsFor("摩天輪", "田馥甄")
+
+        val loaded = repository().getLoadedLyrics(ferriesWheel, "Ferries wheel", "ヒビ・ティエン", durationMs)
+
+        assertEquals("named", loaded?.providerName)
+        assertEquals(Query("摩天輪", "田馥甄"), provider.queries.last())
+        coVerify(exactly = 0) { geminiService.resolveReleaseNames(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun should_notLookUpIsrc_when_namesShowNoSignOfLocalizing() = runTest {
+        val song = MediaId.spotify("4uLU6hMCjMI75M1A2tKUQC")
+        coEvery { metadata.nativeNames(song) } returns emptyList()
+        coEvery { metadata.isrc(song) } returns "USRC17607839"
+
+        repository().getLoadedLyrics(song, "Some Song", "Some Artist", askAi = true)
+
+        assertEquals(emptyList<String>(), isrcLookups)
     }
 
     @Test
@@ -185,6 +212,10 @@ class YoinRepositoryLyricsNativeNamesTest {
             neoDbSyncService = mockk<NeoDBSyncService>(relaxed = true),
             lyricsProviderRegistry = LyricsProviderRegistry(providers = listOf(provider)),
             clock = { 1_000L },
+            isrcReleaseNames = { isrc, _ ->
+                isrcLookups += isrc
+                releasedByIsrc[isrc]
+            },
         )
     }
 

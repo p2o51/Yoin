@@ -111,6 +111,9 @@ class SpotifyMusicSource(
             size > NATIVE_NAMES_KEPT
     }
 
+    /** Track id → its ISRC, as the [MusicMetadata.nativeNames] read found it (empty: it had none). */
+    private val isrcById = ConcurrentHashMap<String, String>()
+
     /** The signed-in account's Spotify profile picture, if it has one. */
     suspend fun profilePictureUrl(): String? = apiClient.getMe().avatarUrl
 
@@ -328,6 +331,7 @@ class SpotifyMusicSource(
             synchronized(nativeNamesById) { nativeNamesById[rawId]?.let { return it } }
             val device = deviceLanguage()
             val inDeviceLanguage = orNullIfNotFound { apiClient.getTrack(rawId, acceptLanguage = device) }
+            inDeviceLanguage?.let { isrcById[rawId] = it.externalIds?.isrc?.trim()?.uppercase().orEmpty() }
             val isrcLanguage = SpotifyNameLanguages.isrcLanguage(inDeviceLanguage?.externalIds?.isrc)
                 ?.takeUnless { SpotifyNameLanguages.sameLanguage(it, device) }
             val inIsrcLanguage = isrcLanguage?.let { language ->
@@ -336,6 +340,17 @@ class SpotifyMusicSource(
             val names = listOfNotNull(inIsrcLanguage?.lyricNames(), inDeviceLanguage?.lyricNames()).distinct()
             synchronized(nativeNamesById) { nativeNamesById[rawId] = names }
             return names
+        }
+
+        /** From the [nativeNames] read when there was one, else one plain read of the track. */
+        override suspend fun isrc(trackId: MediaId): String? {
+            if (trackId.provider != MediaId.PROVIDER_SPOTIFY) return null
+            val rawId = trackId.rawId.takeIf { SPOTIFY_TRACK_ID.matches(it) } ?: return null
+            isrcById[rawId]?.let { return it.ifEmpty { null } }
+            val track = orNullIfNotFound { apiClient.getTrack(rawId) } ?: return null
+            val isrc = track.externalIds?.isrc?.trim()?.uppercase().orEmpty()
+            isrcById[rawId] = isrc
+            return isrc.ifEmpty { null }
         }
 
         override suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? =

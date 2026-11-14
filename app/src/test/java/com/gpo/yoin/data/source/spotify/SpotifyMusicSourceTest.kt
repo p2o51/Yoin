@@ -98,6 +98,7 @@ class SpotifyMusicSourceTest {
             names,
         )
         assertEquals(names, again)
+        assertEquals("TWA530500106", source.metadata().isrc(MediaId.spotify(id)))
         assertEquals(
             listOf("ja-JP", "zh-TW"),
             requests.filter { it.requestUrl?.encodedPath == "/v1/tracks/$id" }.map { it.getHeader("Accept-Language") },
