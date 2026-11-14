@@ -746,7 +746,7 @@ struct ToastPill: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
-        .glassEffect(toast.action == nil ? .regular : .regular.interactive(), in: .capsule)
+        .yGlassEffect(toast.action == nil ? .regular : .regular.interactive(), in: .capsule)
         .allowsHitTesting(toast.action != nil)
     }
 }

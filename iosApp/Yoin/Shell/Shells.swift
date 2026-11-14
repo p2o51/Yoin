@@ -179,7 +179,7 @@ struct StatusEdgeBand: View {
         let shown = model.np.mounted ? 1 - min(max(model.np.progress, 0), 1) : (model.npExpanded ? 0 : 1)
         GeometryReader { g in
             Rectangle()
-                .fill(.ultraThinMaterial)
+                .fill(GlassLab.solidSurfaces ? AnyShapeStyle(Yoin.surface) : AnyShapeStyle(.ultraThinMaterial))
                 .mask(LinearGradient(stops: [.init(color: .black, location: 0),
                                              .init(color: .black, location: 0.45),
                                              .init(color: .clear, location: 1)],

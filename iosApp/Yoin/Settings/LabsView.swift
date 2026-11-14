@@ -80,10 +80,10 @@ struct LabsBody: View {
             HStack(spacing: 10) {
                 if status == .notEnabled || status == .notReady {
                     Button("Open Settings", action: onOpenSettings)
-                        .buttonStyle(.glassProminent)
+                        .yGlassButtonStyle(prominent: true)
                 }
                 Button("Check again", action: onCheckAgain)
-                    .buttonStyle(.glass)
+                    .yGlassButtonStyle()
             }
             Text("Managed and downloaded by the system. Yoin reads lyrics on this device only while open, offline.")
                 .yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant)
@@ -109,6 +109,17 @@ struct LabsBody: View {
                 Text("Lines you share or save on the lyrics page still show up on Home.")
                     .yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant)
             }
+            // Prototype (2026-11-14): copy is a placeholder until Argon writes it.
+            Toggle(isOn: Binding(get: { GlassLab.shared.solidSurfaces },
+                                 set: { on in withAnimation(Yoin.effects) { GlassLab.shared.solidSurfaces = on } })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: "Solid surfaces").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                    Text(verbatim: "Turn off Liquid Glass; buttons and bars use solid colors, like Yoin on Android")
+                        .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                }
+            }
+            .tint(app.primary)
+            .padding(.top, 8)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -331,7 +331,7 @@ struct LandingView: View {
             .opacity(handoff ? 0 : 1)
             .animation(Yoin.effects, value: handoff)
             .frame(width: rect.width, height: rect.height)
-            .background { Capsule().fill(.clear).glassEffect(.regular, in: .capsule) }
+            .background { Capsule().fill(.clear).yGlassEffect(.regular, in: .capsule) }
             .opacity(min(1, pillIn * 1.4))
             .offset(x: rect.minX, y: rect.minY + (1 - pillIn) * 120)
             .animation(Yoin.spatial, value: hello)

@@ -536,9 +536,14 @@ extension View {
         let oa = a.tintOn ? a.tintOpacity : 0, ob = b.tintOn ? b.tintOpacity : 0
         let t = Double(clamp01(q))
         let tint = ca.mix(with: cb, by: t).opacity(oa + (ob - oa) * t)
+        if lab.solidSurfaces {
+            // Solid: the folded pill is opaque; unfolded, the room's tint
+            // lets the (already blurred) cover ambient through, unfrosted.
+            background(shape.fill(ca.mix(with: cb, by: t).opacity(1 + (ob - 1) * t)))
+        } else {
         switch b.variant {
         case .regular, .clear:
-            glassEffect((b.variant == .clear && t > 0.5 ? Glass.clear : Glass.regular).tint(tint), in: shape)
+            yGlassEffect((b.variant == .clear && t > 0.5 ? Glass.clear : Glass.regular).tint(tint), in: shape)
         case .none, .material:
             background {
                 ZStack {
@@ -546,6 +551,7 @@ extension View {
                     shape.fill(tint)
                 }
             }
+        }
         }
     }
 }

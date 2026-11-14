@@ -540,7 +540,7 @@ private struct PadDetailPlay: View {
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain).pointerHighlight()
-                    .glassEffect(.regular.tint(tint).interactive(),
+                    .yGlassEffect(.regular.tint(tint).interactive(), solid: tint,
                                  in: UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 28,
                                                             bottomTrailingRadius: inner, topTrailingRadius: inner))
                     Menu {
@@ -570,7 +570,7 @@ private struct PadDetailPlay: View {
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain).pointerHighlight()
-                    .glassEffect(.regular.tint(tint).interactive(),
+                    .yGlassEffect(.regular.tint(tint).interactive(), solid: tint,
                                  in: UnevenRoundedRectangle(topLeadingRadius: inner, bottomLeadingRadius: inner,
                                                             bottomTrailingRadius: 28, topTrailingRadius: 28))
                     .accessibilityLabel("More play options")

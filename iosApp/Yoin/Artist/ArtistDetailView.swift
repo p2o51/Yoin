@@ -102,7 +102,7 @@ struct ArtistDetailView: View {
                         // Tide line under the fixed header: a soft material
                         // band that fades out downward once content scrolls under.
                         Rectangle()
-                            .fill(.ultraThinMaterial)
+                            .fill(GlassLab.solidSurfaces ? AnyShapeStyle(Yoin.surface) : AnyShapeStyle(.ultraThinMaterial))
                             .mask(LinearGradient(stops: [.init(color: .black, location: 0),
                                                          .init(color: .black, location: 0.6),
                                                          .init(color: .clear, location: 1)],
@@ -156,7 +156,7 @@ struct ArtistDetailView: View {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .yGlassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
             Spacer().frame(width: Tokens.detail.HEADER_TITLE_GAP.cg)
@@ -190,7 +190,7 @@ struct ArtistDetailView: View {
             }
             .buttonStyle(.plain).pointerHighlight()
             // Pinned header button over scrolling content: a glass circle.
-            .glassEffect(.regular.interactive(), in: .circle)
+            .yGlassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel(following ? String(localized: "Favorited") : String(localized: "Favorite"))
             .transition(.opacity)

@@ -153,6 +153,11 @@ final class GlassLab {
     var sharedMotion = UserDefaults.standard.bool(forKey: "glassLab.sharedMotion") {
         didSet { UserDefaults.standard.set(sharedMotion, forKey: "glassLab.sharedMotion") }
     }
+    /// Solid surfaces (prototype): every glass surface becomes Android's
+    /// opaque tonal fill. `-solidSurfaces YES` or Settings › Labs.
+    var solidSurfaces = UserDefaults.standard.bool(forKey: "solidSurfaces") {
+        didSet { UserDefaults.standard.set(solidSurfaces, forKey: "solidSurfaces") }
+    }
     var panelOpen = false
     var panelAtTop = false
     var panelCollapsed = false
@@ -487,7 +492,7 @@ extension View {
     /// glass tinted surfaceContainerHighest so it groups with the chip row.
     func labSearchGlass<S: Shape>(scheme: CoverScheme, in shape: S) -> some View {
         let o = GlassLab.shared.extra("searchChromeTint")
-        return glassEffect(o > 0 ? .regular.tint(scheme.surfaceContainerHighest.opacity(o)).interactive()
+        return yGlassEffect(o > 0 ? .regular.tint(scheme.surfaceContainerHighest.opacity(o)).interactive()
                                  : .regular.interactive(), in: shape)
     }
 
@@ -510,6 +515,12 @@ private struct LabGlass<S: Shape>: ViewModifier {
         let st = lab.style(id)
         let tint = st.role.color(in: scheme, brand: brand, auto: auto)
         let opacity = st.tintOn ? lab.tintOpacity(id, dark: colorScheme == .dark) : 0
+        if lab.solidSurfaces {
+            // Solid surfaces: Android's opaque tonal fill, no shadow. A
+            // surface whose glass was untinted (or barely tinted) takes the
+            // neutral container; an accent keeps its colour, fully opaque.
+            content.background(shape.fill(lab.solidFill(id, tint: tint, opacity: opacity, scheme: scheme)))
+        } else {
         Group {
             switch st.variant {
             case .none:
@@ -524,10 +535,27 @@ private struct LabGlass<S: Shape>: ViewModifier {
             case .regular, .clear:
                 let base: Glass = st.variant == .clear ? .clear : .regular
                 let tinted = st.tintOn ? base.tint(tint.opacity(opacity)) : base
-                content.glassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
+                content.yGlassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
             }
         }
         .shadow(color: lab.shadowColor(tint).opacity(st.shadowOpacity), radius: st.shadowRadius, y: st.shadowY)
+        }
+    }
+}
+
+extension GlassLab {
+    /// The opaque fill a Glass Lab surface gets with solid surfaces on.
+    func solidFill(_ id: String, tint: Color, opacity: Double, scheme: CoverScheme) -> Color {
+        let st = style(id)
+        if !st.tintOn || opacity < 0.05 { return scheme.surfaceContainerHigh }
+        switch st.role {
+        case .surface, .surfaceContainer, .surfaceContainerHighest, .surfaceVariant, .background:
+            return tint
+        default:
+            // An accent (PAUSE, selected tab): Android's container colour, so
+            // the glyph on it (onPrimaryContainer-ish) stays readable.
+            return opacity >= 0.6 ? tint : scheme.secondaryContainer
+        }
     }
 }
 
@@ -554,7 +582,7 @@ extension View {
                     shape.fill(tint.opacity(lab.extra("liftRestOpacity")))
                         .opacity(lifted ? 0 : 1)
                 }
-                .glassEffect(lifted ? glass : .identity, in: shape)
+                .yGlassEffect(glass, in: shape, enabled: lifted)
                 .shadow(color: .black.opacity(lifted ? st.shadowOpacity : 0), radius: st.shadowRadius, y: st.shadowY)
                 .animation(Yoin.effects, value: lifted)
         } else {
@@ -577,7 +605,7 @@ extension View {
             .ignoresSafeArea()
             .overlay { self }
             // Blur inside the corner mask, so the plane's silhouette stays crisp.
-            .blur(radius: lab.extra(k + "Blur") * d)
+            .blur(radius: lab.solidSurfaces ? 0 : lab.extra(k + "Blur") * d)
             // The world behind keeps the display's corners as it steps back,
             // and gives up the status-bar and home-indicator bands (the look
             // behind a sheet) by the same depth: they slide away with what
@@ -653,7 +681,7 @@ struct GlassLabPanel: View {
             }
             .frame(width: min(geo.size.width - 24, 400))
             .background(.regularMaterial, in: .rect(cornerRadius: 24, style: .continuous))
-            .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+            .yGlassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
             .offset(x: settled.width + drag.width, y: settled.height + drag.height)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: lab.panelAtTop ? .top : .bottom)
             .padding(.top, lab.panelAtTop ? 54 : 0)

@@ -355,7 +355,7 @@ public struct WavyProgressBar: View {
             case .tint:
                 active.stroke(tint, style: StrokeStyle(lineWidth: metrics.stroke, lineCap: .round, lineJoin: .round))
             case .glassTube:
-                Color.clear.glassEffect(
+                Color.clear.yGlassEffect(
                     .regular.tint(tint.opacity(0.55)),
                     in: active.stroke(style: StrokeStyle(lineWidth: metrics.stroke * 2.2, lineCap: .round, lineJoin: .round))
                 )
@@ -393,7 +393,7 @@ public struct WavyProgressBar: View {
             .foregroundStyle(onNote ? noteInk : Color.primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .glassEffect(.regular.tint(tint.opacity(onNote ? 0.9 : 0.35)), in: .capsule)
+            .yGlassEffect(.regular.tint(tint.opacity(onNote ? 0.9 : 0.35)), solid: tint, in: .capsule)
             .fixedSize()
             .animation(.spring(duration: 0.3, bounce: 0), value: onNote)
     }
@@ -512,7 +512,7 @@ public struct WavyProgressBar: View {
             ) { position = $0 }
 
             Button(playing ? String(localized: "Pause") : String(localized: "Play")) { playing.toggle() }
-                .buttonStyle(.glassProminent)
+                .yGlassButtonStyle(prominent: true)
                 .tint(cover)
         }
         .padding(24)

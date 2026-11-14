@@ -142,7 +142,7 @@ struct LibraryFastScroller: View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12,
                                            bottomTrailingRadius: 4, topTrailingRadius: 4)
         return ZStack {
-            shape.fill(.clear).glassEffect(.regular.interactive(), in: shape)
+            shape.fill(.clear).yGlassEffect(.regular.interactive(), in: shape)
             if held { SelectionPill(cornerRadius: 9) }
             Path { p in
                 // Up and down chevrons: tips at ±6.5, half-width 4, rise 3.

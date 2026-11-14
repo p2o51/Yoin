@@ -95,7 +95,7 @@ struct NeoDBVoicesView: View {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .yGlassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
             VStack(alignment: .leading, spacing: 0) {
@@ -518,7 +518,7 @@ private struct NeoDBVoicesWaysOut: View {
                             .contentShape(.capsule)
                     }
                     .buttonStyle(.plain).pointerHighlight()
-                    .glassEffect(.regular.tint(scheme.primary.opacity(0.85)).interactive(), in: .capsule)
+                    .yGlassEffect(.regular.tint(scheme.primary.opacity(0.85)).interactive(), solid: scheme.primary, in: .capsule)
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)))
                 }
                 HStack(spacing: Self.gap) {
@@ -546,7 +546,7 @@ private struct NeoDBVoicesWaysOut: View {
                 .contentShape(.capsule)
         }
         .buttonStyle(.plain).pointerHighlight()
-        .glassEffect(.regular.tint(scheme.surfaceContainerHighest.opacity(0.52)).interactive(), in: .capsule)
+        .yGlassEffect(.regular.tint(scheme.surfaceContainerHighest.opacity(0.52)).interactive(), solid: scheme.surfaceContainerHighest, in: .capsule)
     }
 }
 

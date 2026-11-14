@@ -106,12 +106,12 @@ struct HomeLyricCardsSection: View {
                 Spacer()
                 if status == .unsupported {
                     Button("Got it") { withAnimation(Yoin.spatial) { store.introSeen = true } }
-                        .buttonStyle(.glass).controlSize(.small)
+                        .yGlassButtonStyle().controlSize(.small)
                 } else {
                     Button("Not now") { withAnimation(Yoin.spatial) { store.introSeen = true } }
-                        .buttonStyle(.glass).controlSize(.small)
+                        .yGlassButtonStyle().controlSize(.small)
                     Button("Turn on") { withAnimation(Yoin.spatial) { processor.setOptedIn(true) } }
-                        .buttonStyle(.glassProminent).controlSize(.small)
+                        .yGlassButtonStyle(prominent: true).controlSize(.small)
                 }
             }
         }

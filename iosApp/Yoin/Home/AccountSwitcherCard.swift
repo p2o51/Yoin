@@ -297,7 +297,7 @@ private struct AccountCardMorph: ViewModifier, @preconcurrency Animatable {
             .opacity(measured ? (reduced ? Double(p) : AccountCardLogic.contentAlpha(Double(p))) : 0)
             .background(alignment: .topLeading) {
                 shape.fill(seed.opacity(seedAlpha))
-                    .glassEffect(SheetSurface.glass, in: shape)
+                    .yGlassEffect(SheetSurface.glass, in: shape)
                     .frame(width: max(local.width, 0), height: max(local.height, 0))
                     .offset(x: local.minX, y: local.minY)
                     .opacity(measured ? (reduced ? Double(p) : 1) : 0)

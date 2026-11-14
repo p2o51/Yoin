@@ -1554,7 +1554,7 @@ struct SegmentChipRow<ID: Hashable>: View {
                     let accent = i == groups.count - 1
                     let r = f.insetBy(dx: 0, dy: trackInset)
                     Capsule().fill(.clear)
-                        .glassEffect(accent
+                        .yGlassEffect(accent
                                      ? .regular.tint(scheme.secondary.opacity(lozengeOpacity)).interactive()
                                      : .regular.tint(scheme.surfaceContainerHighest.opacity(0.7)).interactive(),
                                      in: .capsule)
@@ -1585,7 +1585,7 @@ private struct TrackGlass: ViewModifier {
     func body(content: Content) -> some View {
         let o = GlassLab.shared.extra("searchChromeTint")
         let glass: Glass = o > 0 ? .regular.tint(scheme.surfaceContainerHighest.opacity(o)) : .regular
-        content.glassEffect(lit ? glass : .identity, in: .capsule)
+        content.yGlassEffect(glass, in: .capsule, enabled: lit)
     }
 }
 
@@ -1600,7 +1600,7 @@ private struct ChipPillGlass<S: Shape>: ViewModifier {
 
     func body(content: Content) -> some View {
         if let on {
-            content.glassEffect(
+            content.yGlassEffect(
                 on && accent ? .regular.tint(scheme.secondary.opacity(GlassLab.shared.tintOpacity("barSelected", dark: colorScheme == .dark))).interactive()
                     : on ? .regular.tint(scheme.surfaceContainerHighest.opacity(0.9)).interactive()
                     : .regular.tint(scheme.surfaceContainerHighest.opacity(GlassLab.shared.extra("searchChromeTint"))).interactive(),

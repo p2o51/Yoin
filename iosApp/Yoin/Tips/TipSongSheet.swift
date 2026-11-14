@@ -102,7 +102,7 @@ struct DemoSongSheet<Player: View>: View {
                 .frame(width: DemoSheetMetrics.grabber.width, height: DemoSheetMetrics.grabber.height)
                 .padding(.top, DemoSheetMetrics.grabberTop)
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: DemoSheetMetrics.corner, style: .continuous))
+        .yGlassEffect(.regular, in: .rect(cornerRadius: DemoSheetMetrics.corner, style: .continuous))
         .padding(.horizontal, DemoSheetMetrics.inset)
         .padding(.bottom, DemoSheetMetrics.inset)
         .onChange(of: track) { favorite = false }

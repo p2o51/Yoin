@@ -239,7 +239,7 @@ struct PlaylistBackupView: View {
                 .contentShape(.circle)
         }
         .buttonStyle(.plain).pointerHighlight()
-        .glassEffect(.regular.interactive(), in: .circle)
+        .yGlassEffect(.regular.interactive(), in: .circle)
         .frame(width: 48, height: 48)
         .accessibilityLabel("More options")
     }
@@ -577,7 +577,7 @@ enum BackupChrome {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .yGlassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
             .settingsPaneBack()

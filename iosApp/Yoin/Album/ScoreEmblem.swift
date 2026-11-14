@@ -183,7 +183,7 @@ struct ScoreEmblem: View {
     /// Tinted and Frosted): a clear Liquid Glass lens, the cover's colour seen through it, refracted.
     /// Still a solid object on the content plane: the label and score keep their solid ink.
     private var glassGround: some View {
-        Circle().fill(.clear).glassEffect(.clear, in: .circle)
+        Circle().fill(.clear).yGlassEffect(.clear, in: .circle)
     }
 
     /// The light on the lens, from the one source (top-left): a lit rim and an inner highlight.

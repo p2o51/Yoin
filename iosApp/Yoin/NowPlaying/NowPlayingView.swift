@@ -1809,7 +1809,7 @@ struct NowPlayingView: View, Equatable {
     private func lyricWindow<C: View>(clear: CGFloat, under: CGFloat, fadeTop: Bool, interactive: Bool = false,
                                       @ViewBuilder _ lines: () -> C) -> some View {
         let total = clear + under
-        let underStrength = GlassLab.shared.extra("lyricsUnder")
+        let underStrength = GlassLab.solidSurfaces ? 0 : GlassLab.shared.extra("lyricsUnder")
         return lines()
         .frame(height: total, alignment: .top)
         .clipped()
@@ -2702,7 +2702,7 @@ struct RatingHeartLift: View {
                     ZStack {
                         if lifted {
                             Capsule().fill(.clear)
-                                .glassEffect(.regular.tint(tint.opacity(st.tintOpacity)).interactive(), in: .capsule)
+                                .yGlassEffect(.regular.tint(tint.opacity(st.tintOpacity)).interactive(), solid: tint, in: .capsule)
                                 .glassEffectTransition(.materialize)
                         }
                     }
@@ -2711,7 +2711,7 @@ struct RatingHeartLift: View {
                     ZStack {
                         if lifted {
                             Circle().fill(.clear)
-                                .glassEffect(.regular.tint(heartTint.opacity(0.8)).interactive(), in: .circle)
+                                .yGlassEffect(.regular.tint(heartTint.opacity(0.8)).interactive(), solid: heartTint, in: .circle)
                                 .glassEffectTransition(.materialize)
                         }
                     }
@@ -2825,7 +2825,7 @@ extension View {
             case .regular, .clear:
                 let base: Glass = st.variant == .clear ? .clear : .regular
                 let tinted = st.tintOn ? base.tint(tint.opacity(st.tintOpacity * strength)) : base
-                glassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
+                yGlassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
             case .none, .material:
                 background(shape.fill(tint.opacity(strength)))
             }
@@ -2850,7 +2850,7 @@ extension View {
             let tint = st.role.color(in: scheme, brand: .brand(dark: false), auto: auto)
             let base: Glass = st.variant == .clear ? .clear : .regular
             let tinted = st.tintOn ? base.tint(tint.opacity(st.tintOpacity * (held ? 0.6 : 1))) : base
-            glassEffect(held || st.interactive ? tinted.interactive() : tinted, in: shape)
+            yGlassEffect(held || st.interactive ? tinted.interactive() : tinted, in: shape)
         case .none, .material:
             labGlass(id, scheme: scheme, brand: .brand(dark: false), auto: auto, in: shape)
         }
