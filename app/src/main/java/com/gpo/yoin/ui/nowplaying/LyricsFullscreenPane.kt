@@ -673,8 +673,7 @@ private fun LyricsFullscreenList(
                                 null
                             },
                             distance = if (focusItem >= 0) abs(item - focusItem) else 0,
-                            upcoming = focusItem >= 0 && item > focusItem &&
-                                item - focusItem <= LyricDotsReadableLines,
+                            readable = isReadableLyricLine(item, focusItem),
                             onTap = if (selecting) {
                                 { tapInSelectMode(index) }
                             } else {
@@ -811,14 +810,15 @@ private fun LyricRow(
     lastLineStretch: Float? = null,
     // Focus (two columns): 0..1, read in the draw phase.
     focus: () -> Float = { 0f },
-    // One of the next lines: its focus dots stay readable (LyricDotsReadable).
-    upcoming: Boolean = false,
+    // One of the next lines, or the line just sung: its focus dots stay
+    // readable (LyricDotsReadable, see isReadableLyricLine).
+    readable: Boolean = false,
 ) {
     val selected = selectMode && selectRole == LyricSelectionRole.Picked
     // Focus's halftone (see LyricHalftone.kt): the current line develops
     // from dots to solid, a sung line breaks back into dots, the rest stay
     // fine dots. A line that is current when it first shows starts solid.
-    val restDots = lyricDotsRest(upcoming)
+    val restDots = lyricDotsRest(readable)
     val dots = remember { Animatable(if (isActive) LyricDotsSolid else restDots) }
     val shownBefore = remember { booleanArrayOf(false) }
     LaunchedEffect(isActive, restDots) {
