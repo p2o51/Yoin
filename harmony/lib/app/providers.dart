@@ -10,6 +10,7 @@ import '../data/model/model.dart';
 import '../data/profile/profile.dart';
 import '../data/profile/profile_repository.dart';
 import '../data/source/music_source.dart';
+import '../platform/applemusic/apple_music_auth.dart';
 import '../platform/playback/playback_engine.dart';
 import '../platform/storage/stores.dart';
 
@@ -23,6 +24,12 @@ final secretStoreProvider = Provider<SecretStore>(
 
 final playbackEngineProvider = Provider<PlaybackEngine>(
   (ref) => throw UnimplementedError('Override playbackEngineProvider in main() or the test.'),
+);
+
+/// Runs the Apple Music ArkWeb sign-in. main() wires the real channel; tests
+/// and previews pass a fake.
+final appleMusicAuthProvider = Provider<AppleMusicAuth>(
+  (ref) => throw UnimplementedError('Override appleMusicAuthProvider in main() or the test.'),
 );
 
 final profileRepositoryProvider = Provider<ProfileRepository>(

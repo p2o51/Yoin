@@ -1,14 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/model/media_id.dart';
 import '../data/profile/profile.dart';
 import 'account_identity.dart';
 
 /// One account as Settings shows it (ProfileCards.kt ProfileCard): Subsonic
-/// leads with the username and puts the server's host on the service line.
+/// leads with the username and puts the server's host on the service line;
+/// Apple Music leads with the service name and has no host line.
 final class AccountCard {
   const AccountCard({
     required this.id,
+    required this.provider,
     required this.displayName,
     required this.title,
     required this.host,
@@ -17,6 +20,9 @@ final class AccountCard {
   });
 
   final String id;
+
+  /// [MediaId] provider token: decides the card's colour and mark.
+  final String provider;
 
   /// The stored name ("user @ host"), as the remove dialog quotes it.
   final String displayName;
@@ -28,6 +34,9 @@ final class AccountCard {
   final String? host;
   final bool isActive;
   final int avatarShape;
+
+  /// The service's face (colour and mark).
+  ServiceIdentity get identity => ServiceIdentity.forProvider(provider);
 }
 
 /// Settings (Android SettingsScreen, v1: the account list). Lists, switches
@@ -84,11 +93,14 @@ class SettingsViewModel extends Notifier<SettingsUiState> {
   }
 
   static AccountCard _card(Profile p, ProfileCredentials? credentials, {required bool isActive, required int avatarShape}) {
+    // Subsonic leads with the username and shows its host; other providers
+    // (Apple Music) lead with the stored name and have no host line.
     final subsonic = credentials is SubsonicCredentials ? credentials : null;
     final host = subsonic == null ? null : Uri.tryParse(subsonic.baseUrl)?.host;
     final username = subsonic?.username.trim();
     return AccountCard(
       id: p.id,
+      provider: p.provider,
       displayName: p.displayName,
       title: (username == null || username.isEmpty) ? p.displayName : username,
       host: (host == null || host.isEmpty) ? null : host,
@@ -120,6 +132,7 @@ class SettingsViewModel extends Notifier<SettingsUiState> {
         for (final a in current.accounts)
           AccountCard(
             id: a.id,
+            provider: a.provider,
             displayName: a.displayName,
             title: a.title,
             host: a.host,

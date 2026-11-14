@@ -9,6 +9,7 @@ import YoinPlaybackPlugin from '../yoin/playback/PlaybackPlugin';
 import { YOIN_ACTION_KEY, YOIN_ACTION_OPEN_NOW_PLAYING } from '../yoin/playback/SystemSession';
 import YoinStoragePlugin from '../yoin/storage/StoragePlugin';
 import YoinI18nPlugin from '../yoin/i18n/I18nPlugin';
+import YoinAppleMusicAuthPlugin from '../yoin/applemusic/AppleMusicAuthPlugin';
 
 export default class EntryAbility extends FlutterAbility {
   configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -19,6 +20,7 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinPlaybackPlugin(this.context))
     flutterEngine.getPlugins()?.add(new YoinStoragePlugin())
     flutterEngine.getPlugins()?.add(new YoinI18nPlugin())
+    flutterEngine.getPlugins()?.add(new YoinAppleMusicAuthPlugin())
   }
 
   /** Cold start from Yoin's 播控中心 / lock-screen card: open Now Playing once Dart listens. */

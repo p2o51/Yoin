@@ -16,14 +16,14 @@ import 'dart:collection';
 import 'package:http/http.dart' as http;
 
 import '../model/model.dart';
+import '../profile/profile.dart';
 import '../source/music_source.dart';
 import 'apple_music_api.dart';
-import 'apple_music_credentials.dart';
 import 'apple_music_developer_token.dart';
 import 'apple_music_mappers.dart';
 
+export '../profile/profile.dart' show AppleMusicCredentials;
 export 'apple_music_api.dart' show AppleMusicApi, AppleMusicApiException, AppleMusicFailure, AppleMusicStorefront;
-export 'apple_music_credentials.dart';
 export 'apple_music_developer_token.dart' show AppleMusicDeveloperTokenProvider, developerTokenExpiry;
 export 'apple_music_mappers.dart' show AppleMusicSongFacts;
 

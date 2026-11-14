@@ -32,6 +32,31 @@ class SettingsStrings {
   String get removeCancel => _zh ? '取消' : 'Cancel'; // settings_remove_cancel
   String get switchFailed => _zh ? '无法切换账号' : "Couldn't switch account"; // settings_switch_failed
   String get serviceNameSubsonic => 'Subsonic'; // settings_service_name_subsonic (translatable="false")
+  String get serviceNameApple => 'Apple Music'; // settings_service_name_apple (translatable="false")
+
+  // ── Add-account service picker ──────────────────────────────────────
+  String get addServiceTitle => _zh ? '选择服务' : 'Choose a service'; // (picker heading, no Android counterpart: v1 Android had one service)
+
+  // ── Apple Music setup page ──────────────────────────────────────────
+  String get introAppleName => 'Apple Music'; // settings_intro_apple_name (translatable="false")
+  String get introAppleTagline =>
+      _zh ? '你的 Apple Music 资料库与目录' : 'Your Apple Music library and catalog'; // settings_intro_apple_tagline
+  String get introAppleNeedSub => _zh ? 'Apple Music 订阅' : 'Apple Music subscription'; // settings_intro_apple_need_sub
+  String get introAppleNeedToken => _zh ? '开发者令牌服务' : 'Developer token service'; // settings_intro_apple_need_token
+  String get appleEndpointLabel => _zh ? '开发者令牌服务' : 'Developer token service'; // settings_apple_endpoint_label
+  String get appleEndpointPlaceholder => 'https://…/token'; // settings_apple_endpoint_placeholder (translatable="false")
+  String get appleConnect => _zh ? '连接 Apple Music' : 'Connect Apple Music'; // settings_apple_connect
+  String get appleWorking => _zh ? '正在处理…' : 'Working…'; // settings_apple_working
+  String get appleStatusNeedService =>
+      _zh ? '将你的 Apple Music 账号连接至 Yoin。' : 'Connect your Apple Music account to Yoin.'; // settings_apple_status_need_service
+  String get appleStatusAuthorize =>
+      _zh ? '请在 Apple Music 中完成授权。' : 'Complete authorization in Apple Music.'; // settings_apple_status_authorize
+  String get appleStatusConnected => _zh ? '已连接' : 'Connected'; // settings_apple_status_connected_profiles
+  String get appleStatusFailed => _zh ? '无法连接' : "Couldn't connect"; // settings_apple_status_failed
+  String get appleStatusCancelled => _zh ? '无法连接' : "Couldn't connect"; // settings_apple_status_cancelled
+  String get appleEndpointRequired =>
+      _zh ? '需要填写令牌服务地址' : 'Token service address is required'; // (field validation; mirrors settings_setup_address_required)
+  String get appleEndpointInvalid => _zh ? '地址无效' : 'Invalid address'; // (mirrors settings_setup_check_address)
 
   // ── Subsonic setup page ─────────────────────────────────────────────
   String get introSubsonicName => 'Subsonic'; // settings_intro_subsonic_name (translatable="false")

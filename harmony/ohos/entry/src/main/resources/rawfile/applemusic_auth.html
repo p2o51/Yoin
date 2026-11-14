@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Apple Music sign-in</title>
+  <style>
+    :root { color-scheme: light dark; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 20px; padding: 24px; box-sizing: border-box;
+      font-family: -apple-system, system-ui, "HarmonyOS Sans", sans-serif;
+      background: #faf7f8; color: #1c1b1c; text-align: center;
+    }
+    @media (prefers-color-scheme: dark) { body { background: #141213; color: #ece6e8; } }
+    #status { font-size: 16px; opacity: 0.8; min-height: 22px; }
+    #signin {
+      appearance: none; border: 0; border-radius: 28px; padding: 14px 28px;
+      font-size: 17px; font-weight: 600; color: #fff;
+      background: linear-gradient(135deg, #fb5c74, #fa586a); cursor: pointer;
+      display: none;
+    }
+    #signin[disabled] { opacity: 0.5; }
+  </style>
+  <!-- MusicKit JS v3 from Apple's CDN. The developer token is injected from
+       ArkTS (never in this page's URL) and MusicKit is configured below. -->
+  <script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" data-web-components></script>
+</head>
+<body>
+  <div id="status">Loading Apple Music…</div>
+  <button id="signin" disabled>Sign in with Apple Music</button>
+
+  <script>
+    (function () {
+      var bridge = function () { return window.yoinAuthBridge; };
+      var statusEl = document.getElementById('status');
+      var button = document.getElementById('signin');
+      var developerToken = null;
+      var musicReady = false;
+      var inFlight = false;
+
+      function setStatus(text) { statusEl.textContent = text; }
+
+      function report(method, a, b) {
+        try { var br = bridge(); if (br && br[method]) { br[method](a, b); } } catch (e) {}
+      }
+
+      function readyToSignIn() {
+        if (developerToken && musicReady && !inFlight) {
+          button.disabled = false;
+          button.style.display = 'inline-block';
+          setStatus('');
+          report('onReady');
+        }
+      }
+
+      async function doAuthorize() {
+        if (inFlight || !developerToken || !musicReady) return;
+        inFlight = true;
+        button.disabled = true;
+        setStatus('Opening Apple ID…');
+        try {
+          var music = MusicKit.getInstance();
+          // Opens the Apple ID sign-in window; ArkWeb routes it through onWindowNew.
+          var mut = await music.authorize();
+          if (!mut) { throw new Error('no token'); }
+          var storefront = '';
+          try { storefront = music.storefrontId || ''; } catch (e) {}
+          if (!storefront) {
+            try {
+              var r = await fetch('https://api.music.apple.com/v1/me/storefront', {
+                headers: { 'Authorization': 'Bearer ' + developerToken, 'Music-User-Token': mut }
+              });
+              var j = await r.json();
+              if (j && j.data && j.data[0] && j.data[0].id) { storefront = j.data[0].id; }
+            } catch (e) {}
+          }
+          report('onToken', String(mut), String(storefront || 'us'));
+        } catch (e) {
+          inFlight = false;
+          button.disabled = false;
+          setStatus('Sign-in did not finish.');
+          var msg = (e && e.message) ? String(e.message) : 'authorize failed';
+          report('onError', 'auth_failed', msg);
+        }
+      }
+
+      button.addEventListener('click', doAuthorize);
+
+      // Called by ArkTS (runJavaScript) with the developer token once fetched.
+      window.__yoinStartAuth = async function (token) {
+        developerToken = token;
+        try {
+          if (!window.MusicKit) {
+            await new Promise(function (resolve) {
+              document.addEventListener('musickitloaded', resolve, { once: true });
+            });
+          }
+          await MusicKit.configure({
+            developerToken: developerToken,
+            app: { name: 'Yoin', build: '1.0.0' }
+          });
+          musicReady = true;
+          readyToSignIn();
+          // Try once automatically; if the window is blocked, the button stays
+          // for the user to tap (a real gesture always opens the window).
+          doAuthorize();
+        } catch (e) {
+          var msg = (e && e.message) ? String(e.message) : 'configure failed';
+          report('onError', 'page_failed', msg);
+        }
+      };
+
+      window.addEventListener('error', function () { report('onError', 'page_failed', 'script error'); });
+    })();
+  </script>
+</body>
+</html>

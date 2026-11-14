@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../data/model/media_id.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'material_shapes.dart';
@@ -26,6 +27,16 @@ final class ServiceIdentity {
   /// Subsonic: Android draws it with the Cloud symbol (Spotify and Apple Music
   /// have redrawn marks in ServiceMarks.kt; Subsonic has none there).
   static const subsonic = ServiceIdentity(name: 'Subsonic', glyph: YoinSymbols.cloud, hue: SettingsHue.blue);
+
+  /// Apple Music. Android has a redrawn brand mark in ServiceMarks.kt; that
+  /// artwork isn't ported to HarmonyOS yet, so a Yoin music symbol stands in
+  /// (brand marks are artwork, not symbols — AGENTS.md). Rose hue, so it never
+  /// reads as the Subsonic blue.
+  static const appleMusic = ServiceIdentity(name: 'Apple Music', glyph: YoinSymbols.musicNote, hue: SettingsHue.rose);
+
+  /// The identity for a [MediaId] provider token; Subsonic for anything else.
+  static ServiceIdentity forProvider(String provider) =>
+      provider == MediaId.providerAppleMusic ? appleMusic : subsonic;
 }
 
 /// How many avatar shapes there are.

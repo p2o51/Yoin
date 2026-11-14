@@ -4,8 +4,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/providers.dart';
+import 'data/applemusic/apple_music_source.dart';
 import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
+import 'platform/applemusic/apple_music_auth.dart';
 import 'platform/playback/channel_playback_engine.dart';
 import 'platform/storage/channel_stores.dart';
 import 'playback/playback_controller.dart';
@@ -26,9 +28,11 @@ void main() {
         keyValueStoreProvider.overrideWithValue(const ChannelKeyValueStore()),
         secretStoreProvider.overrideWithValue(const ChannelSecretStore()),
         playbackEngineProvider.overrideWithValue(ChannelPlaybackEngine()),
+        appleMusicAuthProvider.overrideWithValue(const ChannelAppleMusicAuth()),
         musicSourceFactoryProvider.overrideWithValue(
           (credentials) => switch (credentials) {
             SubsonicCredentials() => SubsonicMusicSource(credentials),
+            AppleMusicCredentials() => AppleMusicSource(credentials),
           },
         ),
       ],

@@ -10,6 +10,7 @@ import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
+import 'apple_music_setup_screen.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'settings_metrics.dart';
@@ -22,10 +23,33 @@ import 'subsonic_setup_screen.dart';
 Future<void> openSettings(BuildContext context) =>
     Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => const SettingsScreen()));
 
-/// Opens the Subsonic setup page to add an account. Android opens a service
-/// picker first; v1 has one service, so Add goes straight to its page.
-Future<void> openAddAccount(BuildContext context) =>
-    Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => const SubsonicSetupScreen()));
+enum _Service { subsonic, appleMusic }
+
+/// Add an account: Android opens a service picker first. v1 shipped one
+/// service; with Apple Music there are two, so Add shows a short menu anchored
+/// to the tapped control, then opens that service's setup page. [anchorContext]
+/// is the control's own context (for the menu anchor).
+Future<void> openAddAccount(BuildContext anchorContext) async {
+  final strings = SettingsStrings.of(anchorContext);
+  final navigator = Navigator.of(anchorContext);
+  final choice = await showYoinDropdownMenu<_Service>(
+    context: anchorContext,
+    anchor: globalRectOf(anchorContext),
+    semanticLabel: strings.addServiceTitle,
+    items: [
+      YoinMenuItem(value: _Service.subsonic, label: strings.serviceNameSubsonic, icon: ServiceIdentity.subsonic.glyph),
+      YoinMenuItem(value: _Service.appleMusic, label: strings.serviceNameApple, icon: ServiceIdentity.appleMusic.glyph),
+    ],
+  );
+  switch (choice) {
+    case _Service.subsonic:
+      await navigator.push(YoinPushRoute<void>(builder: (_) => const SubsonicSetupScreen()));
+    case _Service.appleMusic:
+      await navigator.push(YoinPushRoute<void>(builder: (_) => const AppleMusicSetupScreen()));
+    case null:
+      break;
+  }
+}
 
 /// Settings, v1: Android SettingsScreen's page chrome and its Accounts
 /// section (the account switcher). Tap an account to use it, its menu uses or
@@ -127,11 +151,13 @@ class _EmptyAccountsCard extends StatelessWidget {
           children: [
             Text(strings.accountsEmptyTitle, style: theme.textTheme.titleLarge!.copyWith(color: colors.onPrimaryContainer)),
             const SizedBox(height: SettingsMetrics.emptyGap),
-            FilledButton.icon(
-              onPressed: () => openAddAccount(context),
-              icon: const Icon(YoinSymbols.add, size: SettingsMetrics.emptyButtonIcon),
-              label: Text(strings.accountsAdd),
-              style: FilledButton.styleFrom(iconSize: SettingsMetrics.emptyButtonIcon),
+            Builder(
+              builder: (anchorContext) => FilledButton.icon(
+                onPressed: () => openAddAccount(anchorContext),
+                icon: const Icon(YoinSymbols.add, size: SettingsMetrics.emptyButtonIcon),
+                label: Text(strings.accountsAdd),
+                style: FilledButton.styleFrom(iconSize: SettingsMetrics.emptyButtonIcon),
+              ),
             ),
           ],
         ),
@@ -285,7 +311,7 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final card = widget.card;
-    const identity = ServiceIdentity.subsonic; // v1 ships Subsonic only.
+    final identity = card.identity;
     final tone = identity.hue.tone(theme.brightness);
     final line = serviceLine(identity.name, card.title, card.host);
     return AnimatedBuilder(
@@ -386,8 +412,9 @@ class _AddAccountTile extends StatelessWidget {
         color: settingsRowColor(colors),
         shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.card)),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => openAddAccount(context),
+        child: Builder(
+          builder: (anchorContext) => InkWell(
+          onTap: () => openAddAccount(anchorContext),
           child: Semantics(
             button: true,
             label: strings.accountsAdd,
@@ -400,6 +427,7 @@ class _AddAccountTile extends StatelessWidget {
                 Text(strings.accountsAddShort, style: theme.textTheme.labelLarge!.copyWith(color: colors.primary)),
               ],
             ),
+          ),
           ),
         ),
       ),
