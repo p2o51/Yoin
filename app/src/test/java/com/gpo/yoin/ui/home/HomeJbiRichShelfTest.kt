@@ -69,7 +69,7 @@ class HomeJbiRichShelfTest {
     }
 
     @Test
-    fun should_standNewSignalsInTheGrownRows_when_aTemplateHasSpareSignals() {
+    fun should_layNewSignalsInTheGrownRows_when_aTemplateHasSpareSignals() {
         val grewWithSignals = IntArray(11)
         for (columns in 3..10) for (seed in 0 until 30) {
             val spec = jbiGridSpec(feedUnits = 4, coverColumns = columns, isCompactHeight = false)
@@ -87,27 +87,27 @@ class HomeJbiRichShelfTest {
             }
             assertTrue(at, seen.all { row -> row.all { it == 1 } })
             assertEquals(at, xl.template.pieces, xl.cells.map { it.piece })
-            // The grown rows brought signal cards of their own, standing over the old bottom row.
+            // The grown rows brought signal cards of their own, lying in the
+            // right-hand lane under a lying card already there, a row apart.
             val added = xl.cells.filter { it.piece.kind.isSignal && it.card.stableId !in ids(base) }
             if (added.isNotEmpty()) grewWithSignals[columns]++
             added.forEach { cell ->
-                assertEquals(at, JbiPieceKind.TallSignal, cell.piece.kind)
-                assertEquals(at, base.template.rows - 1, cell.piece.row)
+                assertEquals(at, JbiPieceKind.WideSignal, cell.piece.kind)
+                assertEquals(at, columns - 2, cell.piece.column)
+                assertTrue(at, cell.piece.row >= base.template.rows)
                 assertTrue(at, cell.card.expanded)
             }
-            // Never two signal cards side by side on the old bottom row.
-            val bottom = base.template.rows - 1
-            val bottomSignalColumns = xl.cells
-                .filter { it.piece.kind.isSignal && bottom in it.piece.row until it.piece.endRow }
-                .flatMap { it.piece.column until it.piece.endColumn }
+            val laneRows = xl.cells
+                .filter { it.piece.kind.isSignal && it.piece.column == columns - 2 }
+                .map { it.piece.row }
                 .sorted()
-            assertTrue(at, added.all { cell -> (cell.piece.column + 1) !in bottomSignalColumns })
+            assertTrue("$at $laneRows", laneRows.zipWithNext().all { (a, b) -> b - a >= 2 })
             // Reading order holds.
             val order = xl.cells.map { xl.template.topOf(it.piece) to it.piece.column }
             assertEquals(at, order.sortedWith(compareBy({ it.first }, { it.second })), order)
         }
-        // A lane is free for a new card on most shelves (on three lanes the two
-        // first cards can leave none).
+        // The right-hand lane holds a lying card on most shelves, so a longer
+        // shelf keeps its memories coming at every width.
         for (columns in 3..10) assertTrue("K=$columns", grewWithSignals[columns] > 0)
     }
 

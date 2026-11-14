@@ -79,7 +79,7 @@ class HomeJbiTemplateTest {
     }
 
     @Test
-    fun should_levelBesideStandingCopyAndDropBesideLyingCopy_when_drifting() {
+    fun should_dropBesideLyingCopyAndDriftElsewhere_when_drifting() {
         for (columns in 3..10) {
             for (signals in 0..2) {
                 for (seed in 0 until 150) {
@@ -88,37 +88,80 @@ class HomeJbiTemplateTest {
                     val at = "K=$columns s=$signals seed=$seed: $template"
                     val offsets = template.offsets
                     assertEquals(at, 0f, offsets.first())
-                    // A standing card's both sides start level with it.
+                    // Boundaries inside a lying card's lane stay level.
                     val level = mutableSetOf<Int>()
                     // Boundaries that may stay level: left of a lying card (its cover side).
                     val mayLevel = mutableSetOf<Int>()
-                    val dropped = mutableSetOf<Int>()
-                    template.pieces.forEach { p ->
-                        when (p.kind) {
-                            JbiPieceKind.TallSignal -> {
-                                if (p.column > 0) level += p.column - 1
-                                if (p.column < columns - 1) level += p.column
-                            }
-                            JbiPieceKind.WideSignal -> {
-                                level += p.column
-                                if (p.column > 0) mayLevel += p.column - 1
-                                if (p.endColumn < columns) dropped += p.endColumn - 1
-                            }
-                            JbiPieceKind.Cover -> Unit
-                        }
+                    template.pieces.filter { it.kind == JbiPieceKind.WideSignal }.forEach { p ->
+                        level += p.column
+                        if (p.column > 0) mayLevel += p.column - 1
                     }
                     // A lying card's right neighbour: half a row lower, and the card on the top row.
                     template.pieces.filter { it.kind == JbiPieceKind.WideSignal && it.endColumn < columns }
                         .forEach { p ->
-                            val right = p.endColumn
-                            if (right - 1 in dropped && right - 1 !in level) {
-                                assertEquals(at, offsets[p.column] + 0.5f, offsets[right])
-                                assertEquals(at, 0, p.row)
-                            }
+                            assertEquals(at, offsets[p.column] + 0.5f, offsets[p.endColumn])
+                            assertEquals(at, 0, p.row)
                         }
                     level.forEach { c -> assertEquals(at, offsets[c], offsets[c + 1]) }
+                    // Drift ("Drift" runs): neighbouring lanes never start level.
                     (0 until columns - 1).filter { it !in level && it !in mayLevel }.forEach { c ->
                         assertNotEquals("$at | $c", offsets[c], offsets[c + 1])
+                    }
+                    offsets.forEach { assertTrue(at, it in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun should_keepTheTwoCardsApart_when_bothPresent() {
+        for (columns in 3..10) {
+            for (seed in 0 until 150) {
+                val template = jbiTemplate(columns, jbiTemplateRows(columns), 2, seed)
+                val signals = template.pieces.filter { it.kind.isSignal }
+                assertEquals(2, signals.size)
+                val (a, b) = signals
+                val at = "K=$columns seed=$seed: $template"
+                if (columns >= 4) {
+                    // Side by side, in different lanes.
+                    assertTrue(at, a.endColumn <= b.column || b.endColumn <= a.column)
+                } else {
+                    // Three lanes can't hold two side by side: stacked in the
+                    // right-hand lane with a row of covers between them.
+                    assertEquals(at, columns - 2, a.column)
+                    assertEquals(at, a.column, b.column)
+                    assertTrue(at, kotlin.math.abs(a.row - b.row) >= 2)
+                }
+                // A lane apart wherever the width allows (their copies never side by side).
+                if (columns >= 5) {
+                    assertTrue(at, a.endColumn < b.column || b.endColumn < a.column)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun should_neverStandACard_when_anyWidthPresetOrSeed() {
+        // Owner 2026-11-14: no memory under its album's title — every card lies, cover beside copy.
+        assertEquals(listOf(JbiPieceKind.Cover, JbiPieceKind.WideSignal), JbiPieceKind.entries.toList())
+        for (columns in 3..10) for (seed in 0 until 40) {
+            val spec = jbiGridSpec(feedUnits = 4, coverColumns = columns, isCompactHeight = false)
+            val cards = shelf(signals = 6, covers = 40)
+            val base = jbiLayout(cards, spec.columns, spec.rows, seed) ?: continue
+            jbiTemplateLadder(spec, base, cards).forEach { stop ->
+                val layout = stop.payload
+                assertTiles(layout.template)
+                layout.cells.filter { it.piece.kind.isSignal }.forEach { cell ->
+                    assertEquals(JbiPieceKind.WideSignal, cell.piece.kind)
+                    assertEquals(1, cell.piece.kind.rowSpan)
+                    assertEquals(2, cell.piece.kind.columnSpan)
+                    // Its right neighbour (if any) still sits half a row lower, the card on top.
+                    if (cell.piece.endColumn < columns) {
+                        assertEquals(0, cell.piece.row)
+                        assertEquals(
+                            layout.template.offsets[cell.piece.column] + 0.5f,
+                            layout.template.offsets[cell.piece.endColumn],
+                        )
                     }
                 }
             }
@@ -126,20 +169,12 @@ class HomeJbiTemplateTest {
     }
 
     @Test
-    fun should_keepTheTwoCardsInDifferentLanes_when_bothPresent() {
-        for (columns in 3..10) {
-            for (seed in 0 until 150) {
-                val template = jbiTemplate(columns, jbiTemplateRows(columns), 2, seed)
-                val signals = template.pieces.filter { it.kind.isSignal }
-                assertEquals(2, signals.size)
-                val (a, b) = signals
-                assertTrue("K=$columns seed=$seed", a.endColumn <= b.column || b.endColumn <= a.column)
-                // A lane apart wherever the width allows (their copies never side by side).
-                if (columns >= 5) {
-                    assertTrue("K=$columns seed=$seed: $template", a.endColumn < b.column || b.endColumn < a.column)
-                }
-            }
-        }
+    fun should_runTheCaptionAcrossTheCard_when_theCopyEndsAboveIt() {
+        // A 2×1 on a 5-lane tablet: card 300px, cover 128px, caption from 133px.
+        assertEquals(300, jbiWideCaptionWidth(cardWidth = 300, coverSide = 128, copyHeight = 90, captionTop = 133))
+        assertEquals(300, jbiWideCaptionWidth(cardWidth = 300, coverSide = 128, copyHeight = 133, captionTop = 133))
+        // A note running past the cover keeps the caption under the cover only.
+        assertEquals(128, jbiWideCaptionWidth(cardWidth = 300, coverSide = 128, copyHeight = 150, captionTop = 133))
     }
 
     @Test
@@ -165,7 +200,15 @@ class HomeJbiTemplateTest {
             val distinct = (0 until 40).map { seed ->
                 jbiTemplate(columns, jbiTemplateRows(columns), 2, seed)
             }.toSet()
-            assertTrue("K=$columns: ${distinct.size}", distinct.size >= 8)
+            // Every card lies now, one in the right-hand lane above its bottom
+            // row: four and five lanes leave a single placement (0–1 and 2–3;
+            // 0–1 and 3–4), so only that card's row and the drift vary there.
+            val floor = when (columns) {
+                4 -> 2
+                5 -> 4
+                else -> 6
+            }
+            assertTrue("K=$columns: ${distinct.size}", distinct.size >= floor)
         }
     }
 

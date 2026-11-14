@@ -93,6 +93,7 @@ import androidx.compose.runtime.LaunchedEffect
 // out around it. The wide "1×2" card reuses that same 100dp cover on the left.
 // Panes of 3+ feed units size it off the column instead (HomeWidgetGridAdaptive.kt).
 private val WidgetCoverSize = 100.dp
+private const val WidgetCommentMaxLines = 3
 private const val WidgetArtworkFraction = 0.72f
 
 // Column counts (jbiGridSpec): a phone keeps the Figma 3-column, 12-cell
@@ -145,7 +146,7 @@ internal fun HomeSectionTitle(
  * phone: a masonry over a 3-column grid where a wide "1×2" card spans two
  * columns and shares its row with compact "1×1" covers; unpaired covers fill
  * full rows. On panes of 3+ feed units: a seeded template of phone-sized
- * columns mixing 2×2 features, standing / lying signal cards and covers
+ * columns mixing lying signal cards and covers
  * (HomeJbiTemplate.kt). Cards are plain taps — album/playlist push their
  * detail, songs play, memory cards push into the Memories deck. No
  * predictive-back choreography.
@@ -364,8 +365,8 @@ private val JbiHideSpan.labelRes: Int
         JbiHideSpan.OneWeek -> R.string.home_jbi_hide_week
     }
 
-/** What a Jump Back In card renders as, for the row resize's matching (a cover, or a lying / standing signal card). */
-private enum class JbiCardLook { Cover, Wide, Tall }
+/** What a Jump Back In card renders as, for the row resize's matching (a cover, or a lying signal card). */
+private enum class JbiCardLook { Cover, Wide }
 
 /** A seeded template of phone-sized columns (HomeJbiTemplate.kt). */
 @Composable
@@ -387,7 +388,6 @@ private fun JbiTemplateGrid(
     JbiSpanGrid(layout = seated, fit = templateFit, modifier = Modifier.fillMaxWidth()) { cell ->
         val card = cell.card
         val look = when (cell.piece.kind) {
-            JbiPieceKind.TallSignal -> JbiCardLook.Tall
             JbiPieceKind.WideSignal -> JbiCardLook.Wide
             JbiPieceKind.Cover -> JbiCardLook.Cover
         }
@@ -397,13 +397,12 @@ private fun JbiTemplateGrid(
             .homeEditCard(index)
             .jbiCardPlace(places, index, card.stableId)
         when (cell.piece.kind) {
-            JbiPieceKind.TallSignal, JbiPieceKind.WideSignal -> WidgetCard12(
+            JbiPieceKind.WideSignal -> WidgetCard12(
                 card = card,
                 extractBackdropColors = extractBackdropColors,
                 onClick = { onCardClick(card.target) },
                 modifier = editCard,
                 followColumn = true,
-                tall = cell.piece.kind == JbiPieceKind.TallSignal,
                 coverFit = templateFit,
                 coverRequestPx = coverRequestPx,
             )
@@ -571,45 +570,70 @@ private inline fun <T> List<T>.editCardIndex(card: (T) -> HomeWidgetCard): Map<S
  * Pack the grid into rows of [columns] units — a 1×2 is two units, a 1×1 is
  * one. Each 1×2 shares its row with the next `columns - 2` 1×1 covers taken in
  * list order (alternating which side the wide card hugs so it doesn't always
- * cling to the same edge, mirroring the Figma masonry); leftover 1×1 covers
- * fill full rows. Order otherwise follows the incoming ranking, so the
+ * cling to the same edge, mirroring the Figma masonry); the other rows are
+ * full rows of 1×1 covers. Order otherwise follows the incoming ranking, so the
  * strongest cards still lead.
  *
- * GOLDEN INVARIANT: at 3 columns this reproduces the shipped
- * phone packing exactly — one compact per wide row, same alternation — pinned
- * by `HomeWidgetGridPackTest`. Do not drift the 3-column output.
+ * The 1×2 rows are spread over the shelf ([jbiSpreadRows]) rather than
+ * stacked at its top (owner 2026-11-14: a phone shelf pulled to six rows had
+ * every memory in its first three, 「我希望它们出现得更均匀一些」): the first
+ * on the first row, the next ones about rows ÷ cards apart.
  */
 internal fun packWidgetRows(
     cards: List<HomeWidgetCard>,
     columns: Int,
 ): List<List<HomeWidgetCard>> {
-    val wide = cards.filter { it.expanded }.toMutableList()
-    val compact = cards.filterNot { it.expanded }.toMutableList()
+    val wide = cards.filter { it.expanded }
+    val compact = cards.filterNot { it.expanded }
+    val fillPerWide = (columns - 2).coerceAtLeast(0)
+    // The shelf's row count, as if every 1×2 row came first.
+    var left = compact.size
+    wide.forEach { _ -> left -= minOf(fillPerWide, left) }
+    val rowCount = wide.size + (left + columns - 1) / columns
+    val wideRows = jbiSpreadRows(wide.size, rowCount)
     val rows = mutableListOf<List<HomeWidgetCard>>()
-    var pairIndex = 0
-    while (wide.isNotEmpty()) {
-        val big = wide.removeAt(0)
-        val fill = mutableListOf<HomeWidgetCard>()
-        while (fill.size < columns - 2 && compact.isNotEmpty()) {
-            fill += compact.removeAt(0)
+    var w = 0
+    var c = 0
+    while (w < wide.size || c < compact.size) {
+        // A wide row when its turn has come, or when the covers ran out.
+        if (w < wide.size && (rows.size >= wideRows[w] || c >= compact.size)) {
+            val big = wide[w]
+            val fill = compact.subList(c, minOf(c + fillPerWide, compact.size))
+            c += fill.size
+            rows += when {
+                fill.isEmpty() -> listOf(big)
+                w % 2 == 0 -> listOf(big) + fill
+                else -> fill + big
+            }
+            w++
+        } else {
+            val end = minOf(c + columns, compact.size)
+            rows += compact.subList(c, end).toList()
+            c = end
         }
-        rows += when {
-            fill.isEmpty() -> listOf(big)
-            pairIndex % 2 == 0 -> listOf(big) + fill
-            else -> fill + big
-        }
-        pairIndex++
     }
-    compact.chunked(columns).forEach { chunk -> rows += chunk }
     return rows
 }
 
 /**
- * The wide "1×2" card: the 1×1 cover block on the left, and a column on the
- * right with the rating (tinted to the cover), what it's based on, and — when
- * present — the review/note copy in a serif face echoing the Figma.
- * [followColumn] (Medium+ panes) sizes the cover off the column instead of the
- * fixed 100dp — see [JbiWideCardLayout].
+ * The rows [count] cards take on a shelf of [rows] rows, spread evenly: card
+ * `i` on row ⌈i × rows ÷ count⌉ — the first on the top row, the rest about
+ * rows ÷ count apart, never two on one row. More cards than rows: one per
+ * row from the top.
+ */
+internal fun jbiSpreadRows(count: Int, rows: Int): List<Int> =
+    if (count > rows) {
+        List(count) { it }
+    } else {
+        List(count) { i -> (i * rows + count - 1) / count }
+    }
+
+/**
+ * The wide "1×2" card: the cover artwork on the left, a column on its right
+ * with the rating (tinted to the cover), what it's based on, and — when
+ * present — the review/note copy; the cover's title and subtitle run under
+ * both, across the whole card ([JbiWideCardLayout]). [followColumn] (Medium+
+ * panes) sizes the cover off the column instead of the fixed 100dp.
  */
 @Composable
 private fun WidgetCard12(
@@ -618,9 +642,6 @@ private fun WidgetCard12(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     followColumn: Boolean = false,
-    // Standing (templated grids): the cover block over its copy, one column
-    // and two rows, instead of side by side.
-    tall: Boolean = false,
     coverFit: JbiCoverFit = LocalHomeHintVariant.current.coverFit,
     coverRequestPx: Int? = null,
 ) {
@@ -633,65 +654,25 @@ private fun WidgetCard12(
     )
     // No tap haptic: browsing taps stay silent (haptic-feedback.md §D); the
     // press and the page it opens are the answer.
-    val cardModifier = modifier
-        .noRippleClickable(
+    JbiWideCardLayout(
+        fit = coverFit,
+        fixedCover = if (followColumn) null else WidgetCoverSize,
+        modifier = modifier.noRippleClickable(
             interactionSource = interactionSource,
             enabled = homeEditInteractive(),
             onClick = onClick,
-        )
-    if (tall) {
-        Column(modifier = cardModifier) {
-            WidgetCoverBlock(
-                card = card,
-                extractBackdropColors = extractBackdropColors,
-                interactionSource = interactionSource,
-                artworkModifier = Modifier.jbiCoverSquare(coverFit),
-                artworkRequestSizePx = coverRequestPx,
-            )
-            Spacer(modifier = Modifier.height(JbiTallCopyGap))
-            WidgetRatingColumn(
-                card = card,
-                backdropColors = backdropColors,
-                commentMaxLines = JbiTallCommentMaxLines,
-            )
-        }
-        return
-    }
-    if (followColumn) {
-        JbiWideCardLayout(
-            fit = coverFit,
-            modifier = cardModifier,
-        ) {
-            WidgetCoverBlock(
-                card = card,
-                extractBackdropColors = extractBackdropColors,
-                interactionSource = interactionSource,
-                artworkModifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f),
-                artworkRequestSizePx = coverRequestPx,
-            )
-            WidgetRatingColumn(card = card, backdropColors = backdropColors)
-        }
-        return
-    }
-    Row(
-        modifier = cardModifier,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        // Hang the rating from the cover's top edge (Figma), not the row centre.
-        verticalAlignment = Alignment.Top,
+        ),
     ) {
-        WidgetCoverBlock(
-            card = card,
+        WidgetBackdropArtwork(
+            model = card.coverArtUrl,
+            kind = card.entityType.toWidgetShapeKind(),
+            contentDescription = card.title,
             extractBackdropColors = extractBackdropColors,
             interactionSource = interactionSource,
-            modifier = Modifier.width(WidgetCoverSize),
+            requestSizePx = coverRequestPx,
         )
-        WidgetRatingColumn(
-            card = card,
-            backdropColors = backdropColors,
-            modifier = Modifier.weight(1f),
-        )
+        WidgetRatingColumn(card = card, backdropColors = backdropColors)
+        WidgetCoverCaption(card = card)
     }
 }
 
@@ -701,7 +682,6 @@ private fun WidgetRatingColumn(
     card: HomeWidgetCard,
     backdropColors: ExpressiveBackdropColors,
     modifier: Modifier = Modifier,
-    commentMaxLines: Int = 3,
 ) {
     Column(
         modifier = modifier.seamFade(),
@@ -754,7 +734,7 @@ private fun WidgetRatingColumn(
                     MaterialTheme.typography.bodyMedium
                 },
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = commentMaxLines,
+                maxLines = WidgetCommentMaxLines,
                 overflow = TextOverflow.Ellipsis,
             )
         }
