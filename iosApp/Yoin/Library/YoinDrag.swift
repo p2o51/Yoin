@@ -33,8 +33,9 @@ struct YoinDragItem: Codable, Hashable, Transferable {
 /// Most Played), album cards (Library, Favorites, Search, Home, the artist page's releases), Home's song
 /// cards, and playlist cells and rows (Library, Search, Home). Where it drops: the queue, and a writable
 /// playlist's cell or row (Library, Search, Home) or its page's header. A pointer drags at once (the iPad
-/// app on a Mac, an iPad with a trackpad); a finger lifts the row after the long press that opens its sheet,
-/// as before. An iPad and a Mac only ([available]).
+/// app on a Mac, an iPad with a trackpad). A finger on an iPad lifts a song row with its hold, and the row's
+/// sheet waits for the finger to let go where it was (`HoldReleaseRecognizer`). An iPad and a Mac only
+/// ([available]): an iPhone's long press opens the sheet.
 @MainActor
 enum YoinDrag {
     /// Drag and drop is the iPad's and the Mac's (what it was made for). On an iPhone a draggable song row's

@@ -255,9 +255,11 @@ The same target runs on a Mac as "Designed for iPad". Rules that differ there ha
   before it), and a writable playlist's cell or row (the song sheet's Remove rule; "Added to …").
   A drag from another account (or another run) drops nothing. The target wears M3's dragged state
   layer (16 %, effects spring) while a drag is over it; `-dropPreview YES` (debug, iPad) lights every
-  target for screenshots. A pointer drags at once; a finger on a song row gets its long press (the
-  sheet) and never lifts it, while album and playlist cells lift after a hold. `PadLayoutShotsUITests`
-  drives it with `clickdrag:x,y,x2,y2` (pointer) and `lift:x,y,x2,y2` (touch). Checked on the iPad
+  target for screenshots. A pointer drags at once. On an iPad a finger's hold lifts a song row as it
+  lifts album and playlist cells: carried off it drops, let go in place it opens the song's sheet
+  (`HoldReleaseRecognizer`, decided when the finger lifts); an iPhone's long press still opens the sheet
+  while the finger is down. `PadLayoutShotsUITests` drives it with `clickdrag:x,y,x2,y2` (pointer) and
+  `lift:x,y,x2,y2` (touch). Checked on the iPad
   simulator against the demo server: album cell → playlist cell (touch), song row → playlist cell
   and song row → Queue pill (pointer). Not checked on a real Mac.
 

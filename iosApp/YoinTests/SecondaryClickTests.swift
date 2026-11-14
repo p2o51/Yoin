@@ -24,6 +24,15 @@ final class SecondaryClickTests: XCTestCase {
         XCTAssertFalse(SecondaryClickRecognizer.isClick(from: .zero, to: CGPoint(x: 8, y: 8)))
     }
 
+    /// An iPad song row's hold: held the long-press time and let go where it went down opens the sheet;
+    /// a quicker press is the row's tap, and one that wandered off is a scroll or a drag.
+    func test_should_openTheSheet_when_aRowIsHeldAndLetGoInPlace() {
+        XCTAssertTrue(HoldReleaseRecognizer.isHold(elapsed: 0.4, travel: 0))
+        XCTAssertTrue(HoldReleaseRecognizer.isHold(elapsed: 1.2, travel: 10))
+        XCTAssertFalse(HoldReleaseRecognizer.isHold(elapsed: 0.39, travel: 0))
+        XCTAssertFalse(HoldReleaseRecognizer.isHold(elapsed: 1.2, travel: 10.5))
+    }
+
     /// Without the opt-in a pointer click is a direct touch with no button mask, and the recognizer
     /// (which needs `.indirectPointer` and `.secondary`) never fires.
     func test_should_optIntoIndirectInputEvents_when_appBundleBuilt() {

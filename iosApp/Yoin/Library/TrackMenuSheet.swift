@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 /// Where a song's sheet was opened: decides the rows it leaves out (Android
 /// TrackMenuHost: an album row has no Go to album, it is that album).
@@ -35,7 +36,9 @@ extension View {
 
     /// A song row of a list (Android SongListItem / AlbumTrackRow combinedClickable): the
     /// whole row plays on a tap and opens the song's sheet on a long press, and wears the
-    /// pressed tint while a finger is on it.
+    /// pressed tint while a finger is on it. On an iPad (and the iPad app on a Mac) the hold lifts the
+    /// row instead, as iPadOS lists do: carried away it drops onto the queue or a playlist, let go where
+    /// it was it opens the sheet (`HoldReleaseRecognizer`).
     /// [menu]: what the long press does in place of the song's sheet (the tip page's demo phone raises its own).
     func trackRow(for entry: PlaylistEntry, context: TrackMenuContext = .library,
                   play: @escaping () -> Void, menu: (() -> Void)? = nil) -> some View {
@@ -53,15 +56,26 @@ private struct TrackRowGestures: ViewModifier {
     @State private var hovered = false
     @State private var pressed = 0
 
+    /// Where rows drag (`YoinDrag.available`: an iPad, the iPad app on a Mac): the hold lifts the row to drag
+    /// it, and the sheet waits for the finger to let go where it was. Fixed for the run, so the branch below
+    /// never changes the view.
+    private static let holdLifts = YoinDrag.available
+
     private func openMenu() {
         if let menu { menu() } else { PlaylistActions.shared.openMenu(entry, context: context) }
     }
 
+    /// The long press (iPhone) or the hold let go in place (iPad): the sheet, with the press's tick.
+    private func held() {
+        pressed += 1
+        openMenu()
+    }
+
     func body(content: Content) -> some View {
         let layer = PointerHover.opacity(hovered: hovered || PointerHover.preview, pressed: pressing)
-        content
-            // Dragged onto the queue or a playlist (a pointer at once; a finger after the long press), on an
-            // iPad or a Mac: an iPhone keeps the hold for the sheet (YoinDrag.available).
+        let row = content
+            // Dragged onto the queue or a playlist: a pointer at once; a finger once the hold lifts the row
+            // (iPad). An iPhone has no drag (YoinDrag.available): its long press opens the sheet.
             .yoinDraggable { YoinDrag.song(entry, model: model) }
             .background {
                 // The pressed tint, and the same 8 % under a pointer (iPad, the iPad app on a Mac).
@@ -73,14 +87,118 @@ private struct TrackRowGestures: ViewModifier {
             .onPointerHover { hovered = $0 }
             // A right-click (pointer, the iPad app on a Mac): the same sheet, never a play.
             .onSecondaryClick { openMenu() }
-            .onTapGesture(perform: play)
-            .onLongPressGesture(minimumDuration: 0.4) {
-                pressed += 1
-                openMenu()
-            } onPressingChanged: { pressing = $0 }
-            .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction(named: "More") { openMenu() }
+        Group {
+            if Self.holdLifts {
+                // Inside the tap, so a hold is never also a play. It opens the sheet only once the finger
+                // lets go: until then the hold may still become a drag (the drag's own lift, at its own time).
+                row.gesture(HoldRelease(onPress: { pressing = $0 }, onHold: held))
+                    .onTapGesture(perform: play)
+            } else {
+                row.onTapGesture(perform: play)
+                    .onLongPressGesture(minimumDuration: HoldReleaseRecognizer.hold, perform: held,
+                                        onPressingChanged: { pressing = $0 })
+            }
+        }
+        .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "More") { openMenu() }
+    }
+}
+
+/// The song row's hold on an iPad (`TrackRowGestures`): [onHold] once a press held for the long-press time
+/// is let go where it began; [onPress] tells the row's pressed tint when a finger goes down and up.
+private struct HoldRelease: UIGestureRecognizerRepresentable {
+    var onPress: @MainActor (Bool) -> Void
+    var onHold: @MainActor () -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> HoldReleaseRecognizer {
+        let recognizer = HoldReleaseRecognizer()
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.onPress = onPress
+        return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: HoldReleaseRecognizer, context: Context) {
+        recognizer.onPress = onPress
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: HoldReleaseRecognizer, context: Context) {
+        if recognizer.state == .ended { onHold() }
+    }
+}
+
+/// A press held at least `hold` and let go within `slop` of where it went down: an iPad song row's "open the
+/// sheet", decided when the finger lifts rather than while it is down, because a held row may still be
+/// carried off (iPadOS lifts it for drag and drop, then the drag takes the touch). Shorter presses fail, so
+/// the row's tap plays; a press that travels fails, so the list scrolls or the drag goes on.
+///
+/// No other gesture's start ends it (`canBePrevented(by:)`): the drag's lift begins while the finger is still
+/// down, and a lift let go in place has to reach `touchesEnded` here. A secondary click is never its own:
+/// SecondaryClick opens the same sheet at once.
+final class HoldReleaseRecognizer: UIGestureRecognizer {
+    /// The long-press time (an iPhone row's `onLongPressGesture`, Android's long click).
+    static let hold: TimeInterval = 0.4
+    /// How far the finger may wander and still be holding in place (UIKit's long-press allowance).
+    static let slop: CGFloat = 10
+
+    var onPress: (@MainActor (Bool) -> Void)?
+    private var start: CGPoint?
+    private var downAt: TimeInterval = 0
+
+    /// Whether a press that lasted [elapsed] and ended [travel] points from where it began is a hold.
+    nonisolated static func isHold(elapsed: TimeInterval, travel: CGFloat) -> Bool {
+        elapsed >= hold && travel <= slop
+    }
+
+    override func shouldReceive(_ event: UIEvent) -> Bool {
+        !(event.type == .touches
+            && SecondaryClickRecognizer.isSecondary(buttons: event.buttonMask, modifiers: event.modifierFlags))
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard start == nil, touches.count == 1, let touch = touches.first else {
+            give(up: .failed)
+            return
+        }
+        start = touch.location(in: nil)
+        downAt = touch.timestamp
+        onPress?(true)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let start, let touch = touches.first else { return }
+        if travel(from: start, to: touch) > Self.slop { give(up: .failed) }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let start, let touch = touches.first else {
+            give(up: .failed)
+            return
+        }
+        let hold = Self.isHold(elapsed: touch.timestamp - downAt, travel: travel(from: start, to: touch))
+        give(up: hold ? .ended : .failed)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { give(up: .failed) }
+
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+
+    override func reset() {
+        super.reset()
+        start = nil
+    }
+
+    private func travel(from start: CGPoint, to touch: UITouch) -> CGFloat {
+        let p = touch.location(in: nil)
+        return hypot(p.x - start.x, p.y - start.y)
+    }
+
+    /// Ends the press (the tint lifts) with [state].
+    private func give(up state: UIGestureRecognizer.State) {
+        if start != nil { onPress?(false) }
+        start = nil
+        self.state = state
     }
 }
 
