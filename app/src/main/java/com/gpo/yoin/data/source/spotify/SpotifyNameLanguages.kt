@@ -14,6 +14,9 @@ import java.util.Locale
  *    the one their lyrics sources speak (a Chinese phone on a Japanese Spotify app).
  * 2. The language of the country in the ISRC, for the places whose lyrics the sources carry: TW → zh-TW,
  *    JP → ja, KR → ko. Skipped when it's the device's language already.
+ *
+ * A song from a country not listed (US, GB…) is read in English instead, unless the device speaks it: lyrics
+ * sources know Katy Perry, not ケイティ・ペリー.
  */
 internal object SpotifyNameLanguages {
 

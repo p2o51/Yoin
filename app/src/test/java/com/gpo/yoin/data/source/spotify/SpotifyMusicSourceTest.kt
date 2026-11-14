@@ -123,6 +123,47 @@ class SpotifyMusicSourceTest {
     }
 
     @Test
+    fun should_readEnglishNamesToo_when_songIsFromCountryWithoutLanguage() = runTest {
+        val id = "4lCv7b86sLynZbXhfScfm2"
+        routes["/v1/tracks/$id"] = {
+            val artist = if (lastAcceptLanguage == "en") "Katy Perry" else "ケイティ・ペリー"
+            ok(
+                """{"id":"$id","name":"Firework","artists":[{"id":"a","name":"$artist"}],""" +
+                    """"external_ids":{"isrc":"USCA21001262"}}""",
+            )
+        }
+        val source = newSource(deviceLanguage = "ja-JP")
+
+        val names = source.metadata().nativeNames(MediaId.spotify(id))
+
+        assertEquals(
+            listOf(TrackNames("Firework", "ケイティ・ペリー"), TrackNames("Firework", "Katy Perry")),
+            names,
+        )
+        assertEquals(
+            listOf("ja-JP", "en"),
+            requests.filter { it.requestUrl?.encodedPath == "/v1/tracks/$id" }.map { it.getHeader("Accept-Language") },
+        )
+    }
+
+    @Test
+    fun should_readNamesOnce_when_englishDeviceAndSongFromCountryWithoutLanguage() = runTest {
+        val id = "4lCv7b86sLynZbXhfScfm2"
+        routes["/v1/tracks/$id"] = {
+            ok(
+                """{"id":"$id","name":"Firework","artists":[{"id":"a","name":"Katy Perry"}],""" +
+                    """"external_ids":{"isrc":"USCA21001262"}}""",
+            )
+        }
+        val source = newSource(deviceLanguage = "en-US")
+
+        val names = source.metadata().nativeNames(MediaId.spotify(id))
+
+        assertEquals(listOf(TrackNames("Firework", "Katy Perry")), names)
+        assertEquals(1, requestsTo("/v1/tracks/$id"))
+    }
+
+    @Test
     fun should_haveNoNativeNames_when_trackIsLocal() = runTest {
         val names = newSource().metadata().nativeNames(MediaId.spotify("local:track"))
 

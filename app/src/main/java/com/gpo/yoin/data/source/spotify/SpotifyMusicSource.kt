@@ -322,7 +322,8 @@ class SpotifyMusicSource(
         /**
          * The track read again with `Accept-Language` set, first to the device's language (which also brings
          * the ISRC), then to the language of the ISRC's country when that's another one; see
-         * [SpotifyNameLanguages]. The ISRC country's names come first. A 404 or a local file has none. Kept
+         * [SpotifyNameLanguages]. The ISRC country's names come first. A song whose ISRC country has no
+         * language there is read in English too, last, unless the device speaks it. A 404 or a local file has none. Kept
          * per track id, misses too; a failed read isn't kept.
          */
         override suspend fun nativeNames(trackId: MediaId): List<TrackNames> {
@@ -337,7 +338,17 @@ class SpotifyMusicSource(
             val inIsrcLanguage = isrcLanguage?.let { language ->
                 orNullIfNotFound { apiClient.getTrack(rawId, acceptLanguage = language) }
             }
-            val names = listOfNotNull(inIsrcLanguage?.lyricNames(), inDeviceLanguage?.lyricNames()).distinct()
+            // A song from elsewhere (US, GB…) on a device in another language: Spotify writes its artist the
+            // device's way (ケイティ・ペリー), which lyrics sources rarely know; the English names they do.
+            val inEnglish = inDeviceLanguage
+                ?.takeIf { SpotifyNameLanguages.isrcLanguage(it.externalIds?.isrc) == null }
+                ?.takeUnless { SpotifyNameLanguages.sameLanguage(device, ENGLISH) }
+                ?.let { orNullIfNotFound { apiClient.getTrack(rawId, acceptLanguage = ENGLISH) } }
+            val names = listOfNotNull(
+                inIsrcLanguage?.lyricNames(),
+                inDeviceLanguage?.lyricNames(),
+                inEnglish?.lyricNames(),
+            ).distinct()
             synchronized(nativeNamesById) { nativeNamesById[rawId] = names }
             return names
         }
@@ -876,6 +887,9 @@ class SpotifyMusicSource(
     }
 
     companion object {
+        /** The extra read for songs from countries [SpotifyNameLanguages] has no language for. */
+        private const val ENGLISH = "en"
+
         /** Tracks whose names [MusicMetadata.nativeNames] keeps: a few albums' worth. */
         private const val NATIVE_NAMES_KEPT = 256
 
