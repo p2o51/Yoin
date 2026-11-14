@@ -179,7 +179,8 @@ final class AppleMusicNameRegionStore {
 
 /// Renames songs and albums after another storefront's names, as the account's region asks (Android
 /// AppleMusicNameResolver). Items are grouped by the storefront they ask (`OriginalNameTarget.forRegion`);
-/// each group is one request per batch of catalog ids (`GET /v1/catalog/{storefront}/songs?ids=…&l=…`), and
+/// the storefronts are asked at once, each group one request per batch of catalog ids in turn
+/// (`GET /v1/catalog/{storefront}/songs?ids=…&l=…`), and
 /// songs that storefront doesn't know by their id are asked for once more by ISRC. Answers, misses included,
 /// are kept in memory, so a list read again costs nothing. Names are a nicety: a batch that fails or takes
 /// longer than [batchTimeout] keeps the names it had, and a storefront the account is in already is never asked.
@@ -270,11 +271,12 @@ final class AppleMusicNameResolver {
         }
     }
 
-    /// An album page: the album and its tracklist, renamed together.
+    /// An album page: the album and its tracklist, renamed together (both asked at once, as on Android).
     func album(_ region: AppleMusicNameRegion, accountStorefront: String?, _ album: AMAlbum) async -> AMAlbum {
         guard region != .off else { return album }
+        async let tracks = songs(region, accountStorefront: accountStorefront, album.tracks)
         var out = await albums(region, accountStorefront: accountStorefront, [album])[0]
-        out.tracks = await songs(region, accountStorefront: accountStorefront, album.tracks)
+        out.tracks = await tracks
         return out
     }
 
@@ -283,28 +285,40 @@ final class AppleMusicNameResolver {
         return found.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Catalog id → its names, for every request that has an answer (cached or read now).
+    /// Catalog id → its names, for every request that has an answer (cached or read now). The storefronts
+    /// are asked at once (Android: one async per target, awaited together), so a mixed list waits for its
+    /// slowest storefront rather than for all of them one after another.
     private func resolve(_ kind: Kind, _ requests: [Request]) async -> [String: Names] {
-        var known: [String: Names] = [:]
         let groups = Dictionary(grouping: requests, by: \.target)
-        for target in groups.keys.sorted(by: { $0.storefront < $1.storefront }) {
-            var unread: [Request] = []
-            for request in groups[target] ?? [] {
-                let key = Self.key(kind, target, request.id)
-                if let hit = cache[key] {
-                    if let names = hit { known[request.id] = names }
-                } else {
-                    unread.append(request)
-                }
+        return await withTaskGroup(of: [String: Names].self) { group in
+            for (target, share) in groups {
+                group.addTask { @MainActor [self] in await self.resolve(kind, target, share) }
             }
-            // Batch by batch, each kept as it lands: a long list that runs out of time keeps what it read.
-            for start in stride(from: 0, to: unread.count, by: kind.batch) {
-                let batch = Array(unread[start..<min(start + kind.batch, unread.count)])
-                guard !Task.isCancelled, let read = await withTimeout({ [self] in try await self.read(kind, target, batch) })
-                else { break }
-                for request in batch { store(Self.key(kind, target, request.id), read[request.id]) }
-                known.merge(read) { _, new in new }
+            var known: [String: Names] = [:]
+            for await found in group { known.merge(found) { _, new in new } }
+            return known
+        }
+    }
+
+    /// One storefront's share of [resolve]: cached answers, then the rest batch by batch, each kept as it
+    /// lands, so a long list that runs out of time keeps what it read.
+    private func resolve(_ kind: Kind, _ target: OriginalNameTarget, _ requests: [Request]) async -> [String: Names] {
+        var known: [String: Names] = [:]
+        var unread: [Request] = []
+        for request in requests {
+            let key = Self.key(kind, target, request.id)
+            if let hit = cache[key] {
+                if let names = hit { known[request.id] = names }
+            } else {
+                unread.append(request)
             }
+        }
+        for start in stride(from: 0, to: unread.count, by: kind.batch) {
+            let batch = Array(unread[start..<min(start + kind.batch, unread.count)])
+            guard !Task.isCancelled, let read = await withTimeout({ [self] in try await self.read(kind, target, batch) })
+            else { break }
+            for request in batch { store(Self.key(kind, target, request.id), read[request.id]) }
+            known.merge(read) { _, new in new }
         }
         return known
     }
