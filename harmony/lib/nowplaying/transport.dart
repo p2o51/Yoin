@@ -6,6 +6,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import 'focus_idle.dart';
 import 'haptics.dart';
 import 'play_mode_cycle.dart';
 import 'nowplaying_strings.dart';
@@ -49,7 +50,12 @@ class TransportControls extends StatefulWidget {
     this.showPlayModeSplitOnFullCycle = false,
     this.noteAnchorsMs = const [],
     this.onShowedPlayModeSplit,
+    this.atEase,
   });
+
+  /// Focus at ease (0 → 1): the buttons and times step away, the progress
+  /// bar stays; the first tap on the hidden buttons only wakes them.
+  final Animation<double>? atEase;
 
   final bool isPlaying;
   final bool isWavePlaying;
@@ -95,6 +101,20 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
     _nextPress.animateTo(key == TransportKey.next ? 1 : 0);
   }
 
+  /// What steps away at ease: fades out and takes no taps while hidden.
+  Widget _away(Widget child) {
+    final ease = widget.atEase;
+    if (ease == null) return child;
+    return AtEaseWakeGuard(
+      atEase: ease,
+      child: AnimatedBuilder(
+        animation: ease,
+        child: child,
+        builder: (context, child) => Opacity(opacity: (1 - ease.value).clamp(0.0, 1.0), child: child),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const size = NowPlayingTokens.controlSize;
@@ -104,29 +124,31 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            height: size,
-            child: Row(
-              children: [
-                AnimatedBuilder(
-                  animation: Listenable.merge([_playPress.animation, _nextPress.animation]),
-                  builder: (context, _) => _PlayNextGroup(
-                    isPlaying: widget.isPlaying,
-                    playPress: _playPress.value,
-                    nextPress: _nextPress.value,
-                    onPlayPause: widget.onPlayPause,
-                    onNext: widget.onNext,
-                    onPressed: _setPressed,
+          _away(
+            SizedBox(
+              height: size,
+              child: Row(
+                children: [
+                  AnimatedBuilder(
+                    animation: Listenable.merge([_playPress.animation, _nextPress.animation]),
+                    builder: (context, _) => _PlayNextGroup(
+                      isPlaying: widget.isPlaying,
+                      playPress: _playPress.value,
+                      nextPress: _nextPress.value,
+                      onPlayPause: widget.onPlayPause,
+                      onNext: widget.onNext,
+                      onPressed: _setPressed,
+                    ),
                   ),
-                ),
-                const Spacer(),
-                PlayModeButton(
-                  mode: widget.playMode,
-                  onSetPlayMode: widget.onSetPlayMode,
-                  showSplitOnFullCycle: widget.showPlayModeSplitOnFullCycle,
-                  onShowedSplit: widget.onShowedPlayModeSplit,
-                ),
-              ],
+                  const Spacer(),
+                  PlayModeButton(
+                    mode: widget.playMode,
+                    onSetPlayMode: widget.onSetPlayMode,
+                    showSplitOnFullCycle: widget.showPlayModeSplitOnFullCycle,
+                    onShowedSplit: widget.onShowedPlayModeSplit,
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: NowPlayingTokens.controlRowGap),
@@ -134,17 +156,19 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
             height: size,
             child: Row(
               children: [
-                _RoundKey(
-                  icon: YoinSymbols.skipPreviousFilled,
-                  semantics: NowPlayingStrings.of(context).cdSkipPrevious,
-                  onTap: () {
-                    YoinHaptics.tick();
-                    widget.onPrevious();
-                  },
+                _away(
+                  _RoundKey(
+                    icon: YoinSymbols.skipPreviousFilled,
+                    semantics: NowPlayingStrings.of(context).cdSkipPrevious,
+                    onTap: () {
+                      YoinHaptics.tick();
+                      widget.onPrevious();
+                    },
+                  ),
                 ),
                 const SizedBox(width: NowPlayingTokens.transportGap),
                 if (!widget.labelsUnder) ...[
-                  _TimeLabel(clock: widget.clock, durationMs: widget.durationMs, remaining: false),
+                  _away(_TimeLabel(clock: widget.clock, durationMs: widget.durationMs, remaining: false)),
                   const SizedBox(width: NowPlayingTokens.timeLabelGap),
                 ],
                 Expanded(
@@ -163,20 +187,22 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
                 ),
                 if (!widget.labelsUnder) ...[
                   const SizedBox(width: NowPlayingTokens.timeLabelGap),
-                  _TimeLabel(clock: widget.clock, durationMs: widget.durationMs, remaining: true),
+                  _away(_TimeLabel(clock: widget.clock, durationMs: widget.durationMs, remaining: true)),
                 ],
               ],
             ),
           ),
           if (widget.labelsUnder)
-            Padding(
-              padding: const EdgeInsets.only(left: size + NowPlayingTokens.transportGap),
-              child: Row(
-                children: [
-                  _TimeLabel(clock: widget.clock, durationMs: widget.durationMs, remaining: false),
-                  const Spacer(),
-                  _TimeLabel(clock: widget.clock, durationMs: widget.durationMs, remaining: true),
-                ],
+            _away(
+              Padding(
+                padding: const EdgeInsets.only(left: size + NowPlayingTokens.transportGap),
+                child: Row(
+                  children: [
+                    _TimeLabel(clock: widget.clock, durationMs: widget.durationMs, remaining: false),
+                    const Spacer(),
+                    _TimeLabel(clock: widget.clock, durationMs: widget.durationMs, remaining: true),
+                  ],
+                ),
               ),
             ),
         ],

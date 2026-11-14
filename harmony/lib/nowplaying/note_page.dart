@@ -264,6 +264,7 @@ class _NotePageState extends State<NotePage> with TickerProviderStateMixin {
               behavior: HitTestBehavior.opaque,
               onTap: note.positionMs == null ? null : () => _notes.playFrom(note),
               onLongPress: () => _openMenu(rowContext, note),
+              onSecondaryTap: () => _openMenu(rowContext, note),
               child: NoteLine(
                 stamp: note.positionMs == null ? null : formatNotePosition(note.positionMs!),
                 text: note.content,

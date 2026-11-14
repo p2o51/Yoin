@@ -116,6 +116,39 @@ void main() {
     expect((s.lyrics as LyricsReady).sheet.rows.first.text, 'one');
   });
 
+  test('should_prefetchNextSongLyrics_when_songPlays', () async {
+    final tracks = nowPlayingTracks(2);
+    controller = NowPlayingFakeController(playingState(tracks));
+    source = NowPlayingFakeSource(
+      lyrics: {
+        't0': const SyncedLyrics([LyricLine(1000, 'zero')]),
+        't1': const SyncedLyrics([LyricLine(500, 'one'), LyricLine(1500, 'one two')]),
+      },
+    );
+    c = ProviderContainer(
+      overrides: [
+        ...nowPlayingOverrides(controller: controller, source: source),
+        upNextPrefetchDelayProvider.overrideWithValue(Duration.zero),
+      ],
+    );
+    c.listen(nowPlayingViewModelProvider, (_, _) {});
+    await c.read(activeSourceProvider.future);
+    await settle();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await settle();
+    final s = c.read(nowPlayingViewModelProvider) as NowPlayingContent;
+    expect(s.upNext?.title, 'Song 1');
+    expect(s.upNext?.sheet.rows.first.text, 'one');
+    expect(source.lyricRequests, containsAll(['t0', 't1']));
+
+    // The next song starts with its lyrics already there (no second request).
+    controller.emit(playingState(tracks, index: 1));
+    await settle();
+    final next = c.read(nowPlayingViewModelProvider) as NowPlayingContent;
+    expect(next.lyrics, isA<LyricsReady>());
+    expect(source.lyricRequests.where((id) => id == 't1').length, 1);
+  });
+
   test('should_pause_when_toggledWhileIntentIsPlay', () async {
     c = make(playingState(nowPlayingTracks(1)));
     await c.read(nowPlayingViewModelProvider.notifier).togglePlayPause();

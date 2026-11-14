@@ -13,6 +13,14 @@ import '../playback/playback_controller.dart';
 import 'lyrics_logic.dart';
 import '../playback/play_mode.dart';
 import 'player_snapshot.dart';
+import 'up_next_timing.dart';
+import '../theme/tokens.dart';
+
+/// How long the next song waits before its lyrics are fetched ahead (tests
+/// override it with zero).
+final upNextPrefetchDelayProvider = Provider<Duration>(
+  (ref) => const Duration(milliseconds: NowPlayingFocusTokens.upNextPrefetchDelayMs),
+);
 
 /// The lyrics of the playing song.
 sealed class LyricsState {
@@ -68,6 +76,7 @@ final class NowPlayingContent extends NowPlayingUiState {
     required this.playMode,
     required this.context,
     required this.isWavePlaying,
+    this.upNext,
   });
 
   final Track track;
@@ -91,6 +100,9 @@ final class NowPlayingContent extends NowPlayingUiState {
   final PlayMode playMode;
   final PlaybackContext context;
 
+  /// The next song's lyrics, fetched ahead for the outro hand-over.
+  final UpNextLyrics? upNext;
+
   String get songKey => track.id.toString();
 
   @override
@@ -109,7 +121,8 @@ final class NowPlayingContent extends NowPlayingUiState {
       other.currentIndex == currentIndex &&
       listEquals(other.upcoming, upcoming) &&
       other.playMode == playMode &&
-      identical(other.context, context);
+      identical(other.context, context) &&
+      other.upNext == upNext;
 
   @override
   int get hashCode => Object.hash(
@@ -127,6 +140,7 @@ final class NowPlayingContent extends NowPlayingUiState {
     Object.hashAll(upcoming),
     playMode,
     context,
+    upNext,
   );
 }
 
@@ -140,6 +154,12 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
   String? _lyricsFetchFor;
   int _lyricsGeneration = 0;
 
+  /// The next song whose lyrics are being fetched ahead, and its wait. A
+  /// rebuild (or disposal) cancels a wait that hasn't fired; the rebuild
+  /// schedules it again.
+  String? _prefetchFor;
+  Timer? _prefetchTimer;
+
   PlaybackController get _controller => ref.read(playbackControllerProvider.notifier);
 
   @override
@@ -151,11 +171,19 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     final key = track.id.toString();
     final caps = source?.capabilities ?? const <Capability>{};
 
+    ref.onDispose(() {
+      if (_prefetchTimer?.isActive ?? false) {
+        _prefetchTimer!.cancel();
+        _prefetchFor = null;
+      }
+    });
     final cached = _lyricsCache[key];
     // No source yet (still loading): wait for it, build re-runs when it lands.
     if (cached == null && _lyricsFetchFor != key && source != null) {
       _fetchLyrics(track, source, caps);
     }
+    final next = snapshot.upcoming.isEmpty ? null : _at(snapshot.queue, snapshot.upcoming.first);
+    final upNext = _upNextFor(next, source, caps);
     return NowPlayingContent(
       track: track,
       isPlaying: snapshot.playWhenReady,
@@ -176,7 +204,85 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       upcoming: snapshot.upcoming,
       playMode: snapshot.playMode,
       context: snapshot.context,
+      upNext: upNext,
     );
+  }
+
+  static Track? _at(List<Track> queue, int index) => index >= 0 && index < queue.length ? queue[index] : null;
+
+  /// The next song's prefetched lyrics, or null — and a fetch ahead
+  /// scheduled when they aren't cached yet (Android _prefetchedLyrics:
+  /// wait, then try up to three times; the outro is minutes away).
+  UpNextLyrics? _upNextFor(Track? next, MusicSource? source, Set<Capability> caps) {
+    if (next == null) {
+      _prefetchTimer?.cancel();
+      _prefetchFor = null;
+      return null;
+    }
+    final key = next.id.toString();
+    final sheet = _lyricsCache[key];
+    if (sheet != null) {
+      return sheet.isEmpty
+          ? null
+          : UpNextLyrics(songKey: key, title: next.title ?? '', artist: next.artist ?? '', sheet: sheet);
+    }
+    if (_prefetchFor != key && source != null && caps.contains(Capability.lyrics)) {
+      _prefetchTimer?.cancel();
+      _prefetchFor = key;
+      _schedulePrefetch(next, source, key, attempt: 0, delay: ref.read(upNextPrefetchDelayProvider));
+    }
+    return null;
+  }
+
+  void _schedulePrefetch(Track next, MusicSource source, String key, {required int attempt, required Duration delay}) {
+    _prefetchTimer = Timer(delay, () async {
+      if (!ref.mounted || _prefetchFor != key) return;
+      LyricSheet? sheet;
+      try {
+        sheet = lyricSheetOf(await source.metadata.getLyrics(next));
+      } catch (_) {
+        if (!ref.mounted || _prefetchFor != key) return;
+        if (attempt < NowPlayingFocusTokens.upNextPrefetchRetries) {
+          _schedulePrefetch(
+            next,
+            source,
+            key,
+            attempt: attempt + 1,
+            delay: Duration(milliseconds: NowPlayingFocusTokens.upNextPrefetchRetryMs * (attempt + 1)),
+          );
+        }
+        return;
+      }
+      if (!ref.mounted) return;
+      _cacheLyrics(key, sheet);
+      // Landed: an eviction later may fetch it again.
+      if (_prefetchFor == key) _prefetchFor = null;
+      final current = state;
+      if (current is NowPlayingContent && !sheet.isEmpty) {
+        final upcoming = current.upcoming.isEmpty ? null : _at(current.queue, current.upcoming.first);
+        if (upcoming?.id.toString() == key) {
+          state = _copy(
+            current,
+            upNext: UpNextLyrics(
+              songKey: key,
+              title: upcoming!.title ?? '',
+              artist: upcoming.artist ?? '',
+              sheet: sheet,
+            ),
+          );
+        }
+      }
+    });
+  }
+
+  void _cacheLyrics(String key, LyricSheet sheet) {
+    _lyricsCache[key] = sheet;
+    _lyricsOrder
+      ..remove(key)
+      ..add(key);
+    while (_lyricsOrder.length > 3) {
+      _lyricsCache.remove(_lyricsOrder.removeAt(0));
+    }
   }
 
   void _fetchLyrics(Track track, MusicSource source, Set<Capability> caps) {
@@ -201,13 +307,7 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
 
   void _landLyrics(int generation, String key, LyricSheet sheet) {
     if (!ref.mounted) return;
-    _lyricsCache[key] = sheet;
-    _lyricsOrder
-      ..remove(key)
-      ..add(key);
-    while (_lyricsOrder.length > 3) {
-      _lyricsCache.remove(_lyricsOrder.removeAt(0));
-    }
+    _cacheLyrics(key, sheet);
     // A skip moved on: keep the sheet cached, but don't touch the state.
     if (generation != _lyricsGeneration) return;
     _lyricsFetchFor = null;
@@ -283,23 +383,29 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     }
   }
 
-  NowPlayingContent _copy(NowPlayingContent c, {LyricsState? lyrics, bool? isStarred, double? rating}) =>
-      NowPlayingContent(
-        track: c.track,
-        isPlaying: c.isPlaying,
-        isWavePlaying: c.isWavePlaying,
-        durationMs: c.durationMs,
-        rating: rating ?? c.rating,
-        isStarred: isStarred ?? c.isStarred,
-        canFavorite: c.canFavorite,
-        canRate: c.canRate,
-        lyrics: lyrics ?? c.lyrics,
-        queue: c.queue,
-        currentIndex: c.currentIndex,
-        upcoming: c.upcoming,
-        playMode: c.playMode,
-        context: c.context,
-      );
+  NowPlayingContent _copy(
+    NowPlayingContent c, {
+    LyricsState? lyrics,
+    bool? isStarred,
+    double? rating,
+    UpNextLyrics? upNext,
+  }) => NowPlayingContent(
+    track: c.track,
+    isPlaying: c.isPlaying,
+    isWavePlaying: c.isWavePlaying,
+    durationMs: c.durationMs,
+    rating: rating ?? c.rating,
+    isStarred: isStarred ?? c.isStarred,
+    canFavorite: c.canFavorite,
+    canRate: c.canRate,
+    lyrics: lyrics ?? c.lyrics,
+    queue: c.queue,
+    currentIndex: c.currentIndex,
+    upcoming: c.upcoming,
+    playMode: c.playMode,
+    context: c.context,
+    upNext: upNext ?? c.upNext,
+  );
 }
 
 final nowPlayingViewModelProvider = NotifierProvider<NowPlayingViewModel, NowPlayingUiState>(NowPlayingViewModel.new);

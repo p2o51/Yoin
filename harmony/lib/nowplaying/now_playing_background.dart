@@ -12,6 +12,10 @@ abstract final class RoomMetrics {
   static const double auraAlpha = 0.36;
   static const double veilAlpha = 0.40;
   static const Duration washDuration = Duration(milliseconds: 820);
+
+  /// Focus's plain colour field: the points' peak alpha.
+  static const double focusFieldAlphaDark = 0.36;
+  static const double focusFieldAlphaLight = 0.30;
 }
 
 /// Now Playing's reactive room: STILL at rest (no frame callbacks). On a
@@ -21,9 +25,12 @@ abstract final class RoomMetrics {
 /// lifted colours. Light: the "iOS room" — neighbour blobs, a blurred cover
 /// aura and a veil, under a 1.8 saturation boost.
 class NowPlayingBackground extends StatefulWidget {
-  const NowPlayingBackground({super.key, required this.field});
+  const NowPlayingBackground({super.key, required this.field, this.focus});
 
   final CoverField? field;
+
+  /// Focus (tap the cover): the room fills with the cover's colours.
+  final Animation<double>? focus;
 
   @override
   State<NowPlayingBackground> createState() => _NowPlayingBackgroundState();
@@ -58,7 +65,13 @@ class _NowPlayingBackgroundState extends State<NowPlayingBackground> with Single
     final scheme = Theme.of(context).colorScheme;
     return RepaintBoundary(
       child: CustomPaint(
-        painter: _RoomPainter(scheme: scheme, from: _from, to: widget.field, wash: _eased),
+        painter: _RoomPainter(
+          scheme: scheme,
+          from: _from,
+          to: widget.field,
+          wash: _eased,
+          focus: widget.focus ?? kAlwaysDismissedAnimation,
+        ),
         child: const SizedBox.expand(),
       ),
     );
@@ -66,12 +79,14 @@ class _NowPlayingBackgroundState extends State<NowPlayingBackground> with Single
 }
 
 class _RoomPainter extends CustomPainter {
-  _RoomPainter({required this.scheme, required this.from, required this.to, required this.wash}) : super(repaint: wash);
+  _RoomPainter({required this.scheme, required this.from, required this.to, required this.wash, required this.focus})
+    : super(repaint: Listenable.merge([wash, focus]));
 
   final ColorScheme scheme;
   final CoverField? from;
   final CoverField? to;
   final Animation<double> wash;
+  final Animation<double> focus;
 
   static Color _lift(Color c) {
     double ch(double v) => math.min(1, v * 1.15 + 25 / 255);
@@ -102,6 +117,47 @@ class _RoomPainter extends CustomPainter {
     if (!dark) {
       canvas.drawRect(rect, Paint()..color = scheme.surface.withValues(alpha: RoomMetrics.veilAlpha));
       canvas.restore();
+    }
+    final f = focus.value.clamp(0.0, 1.0);
+    if (f > 0.001) _paintFocusField(canvas, size, to, f, dark);
+  }
+
+  /// Focus's colour field, plain (FocusField.kt's 16-point animated field
+  /// is not ported): the cover's main hues and its most vivid colour as soft
+  /// points round the room, opening out from the cover with the focus.
+  void _paintFocusField(Canvas canvas, Size size, CoverField? field, double f, bool dark) {
+    final w = size.width, h = size.height;
+    final palette = field?.palette ?? [scheme.primary, scheme.tertiary, scheme.secondary, scheme.primaryContainer];
+    final accent = field?.accent ?? scheme.primary;
+    const origin = Offset(0.5, 0.3);
+    final points = <(Color, Offset, double)>[
+      (palette[0], const Offset(0.08, 0.12), 0.75),
+      (palette[1 % palette.length], const Offset(0.92, 0.18), 0.70),
+      (palette[2 % palette.length], const Offset(0.05, 0.62), 0.65),
+      (palette[3 % palette.length], const Offset(0.95, 0.70), 0.65),
+      (accent, const Offset(0.5, 0.98), 0.80),
+    ];
+    final cap = dark ? RoomMetrics.focusFieldAlphaDark : RoomMetrics.focusFieldAlphaLight;
+    for (final (c, at, r) in points) {
+      final p = Offset.lerp(origin, at, f)!;
+      final center = Offset(w * p.dx, h * p.dy);
+      final radius = w * r * (0.6 + 0.4 * f);
+      final color = dark ? _lift(c) : c;
+      final a = cap * f;
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..blendMode = dark ? BlendMode.screen : BlendMode.srcOver
+          ..shader = RadialGradient(
+            colors: [
+              color.withValues(alpha: a),
+              color.withValues(alpha: a * 0.4),
+              color.withValues(alpha: 0),
+            ],
+            stops: const [0, 0.6, 1],
+          ).createShader(Rect.fromCircle(center: center, radius: radius)),
+      );
     }
   }
 

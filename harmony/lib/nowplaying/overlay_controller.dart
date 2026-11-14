@@ -10,7 +10,9 @@ import '../ui/adaptive/yoin_window_info.dart';
 import 'flight.dart';
 import 'now_playing_presentation.dart';
 
-enum NowPlayingStage { compact, expanded }
+/// The stage: Compact (rest), Expanded (the lyrics / note page), Immersive
+/// (FOCUS: tap the cover — it grows, the chrome around it retreats).
+enum NowPlayingStage { compact, expanded, immersive }
 
 /// Release past this drag commits the dismiss (Android 240 px ≈ 91 dp @2.625×).
 const double nowPlayingDismissDistance = 90;
@@ -71,6 +73,7 @@ class NowPlayingOverlayController extends ChangeNotifier {
       bar = OverlaySpring(vsync: vsync, initial: 0),
       dragDy = OverlaySpring(vsync: vsync, initial: 0),
       detail = OverlaySpring(vsync: vsync, initial: 0),
+      focus = OverlaySpring(vsync: vsync, initial: 0),
       flight = OverlaySpring(vsync: vsync, initial: 0),
       full = OverlaySpring(vsync: vsync, initial: 0),
       inset = OverlaySpring(vsync: vsync, initial: 0),
@@ -94,6 +97,10 @@ class NowPlayingOverlayController extends ChangeNotifier {
 
   /// Stage detail progress: 0 = Compact, 1 = Expanded lyrics.
   final OverlaySpring detail;
+
+  /// Focus (Immersive) progress: 0 = rest, 1 = the cover grown. Driven, like
+  /// [detail], only by [_reconcileStage].
+  final OverlaySpring focus;
 
   /// Shared pill ⇄ player flight: 0 = at the pill, 1 = at the player.
   final OverlaySpring flight;
@@ -140,6 +147,10 @@ class NowPlayingOverlayController extends ChangeNotifier {
 
   bool get expanded => _expanded;
   NowPlayingStage get stage => _stage;
+
+  /// The cover can focus in the body shown now (it grows by max(40, 12 %)).
+  /// The body sets it on every layout; a stale Immersive drops back there.
+  bool focusOffered = false;
 
   /// The frame the player is shown in (see [_shown]).
   NowPlayingFrame get frame => _shown;
@@ -389,11 +400,13 @@ class NowPlayingOverlayController extends ChangeNotifier {
 
   /// System back / back key / side swipe (no progress on HarmonyOS: it
   /// commits). Returns false when the overlay isn't open. One level at a
-  /// time: an inner sheet, the Expanded stage, Full → panel, then close.
+  /// time: an inner sheet, the Expanded stage, focus, Full → panel, then close.
   bool handleBack() {
     if (!_expanded) return false;
     if (handleInnerBack?.call() ?? false) return true;
     if (_stage == NowPlayingStage.expanded && _shown.presentation != NowPlayingPresentation.dualPane) {
+      stepBackStage();
+    } else if (_stage == NowPlayingStage.immersive) {
       stepBackStage();
     } else if (_fullscreen && _live.panelAvailable) {
       _setFullscreen(false);
@@ -419,23 +432,46 @@ class NowPlayingOverlayController extends ChangeNotifier {
     _reconcileStage();
   }
 
+  /// Tap the cover: focus where it is offered (Compact → Immersive), back
+  /// to rest from focus.
+  void toggleFocus() {
+    if (!_expanded) return;
+    if (_stage == NowPlayingStage.immersive) {
+      stepBackStage();
+    } else if (_stage == NowPlayingStage.compact && focusOffered) {
+      _stage = NowPlayingStage.immersive;
+      _reconcileStage();
+    }
+  }
+
+  /// The body can't focus (any more): a stale Immersive drops back to rest.
+  void dropFocusIfUnoffered() {
+    if (_stage == NowPlayingStage.immersive && !focusOffered) stepBackStage();
+  }
+
+  /// The one settle owner of the stage: both progresses spring toward the
+  /// stage's pose (memory project_np_stage_settle_owner).
   void _reconcileStage() {
-    final target = _stage == NowPlayingStage.expanded ? 1.0 : 0.0;
+    final detailTarget = _stage == NowPlayingStage.expanded ? 1.0 : 0.0;
+    final focusTarget = _stage == NowPlayingStage.immersive ? 1.0 : 0.0;
     if (_reduceMotion) {
-      detail.snapTo(target);
+      detail.snapTo(detailTarget);
+      focus.snapTo(focusTarget);
     } else {
-      detail.animateTo(target, YoinSprings.of(MotionTokens.stageSettle));
+      final spring = YoinSprings.of(MotionTokens.stageSettle);
+      detail.animateTo(detailTarget, spring);
+      focus.animateTo(focusTarget, spring);
     }
     notifyListeners();
   }
 
-  // Drag-to-dismiss (disabled in Expanded: the lyric list scrolls). Down on
+  // Drag-to-dismiss (disabled in Expanded: the lyric list scrolls; focus keeps it). Down on
   // the full-window player; toward the end on the side panel; none on the
   // panel's Full states (top bar and back close them).
-  bool get canDrag => _expanded && _stage == NowPlayingStage.compact && !_shown.panelFamily;
+  bool get canDrag => _expanded && _stage != NowPlayingStage.expanded && !_shown.panelFamily;
 
   bool get canDragPanel =>
-      _expanded && _stage == NowPlayingStage.compact && _shown.presentation == NowPlayingPresentation.panel;
+      _expanded && _stage != NowPlayingStage.expanded && _shown.presentation == NowPlayingPresentation.panel;
 
   /// Fraction of the dismiss distance the panel has been dragged.
   double get panelDismissFraction => (dragDx.value / NowPlayingPanelTokens.dismissDistance).clamp(0.0, 1.0);
@@ -494,9 +530,10 @@ class NowPlayingOverlayController extends ChangeNotifier {
     }
     // Disposed pose: reset the stage only once the exit has finished.
     if (!_expanded && !open.isAnimating && !fade.isAnimating && open.value <= 0.0005) {
-      if (_stage != NowPlayingStage.compact || detail.value != 0) {
+      if (_stage != NowPlayingStage.compact || detail.value != 0 || focus.value != 0) {
         _stage = NowPlayingStage.compact;
         detail.snapTo(0);
+        focus.snapTo(0);
       }
       // Gone: the next open starts as the panel from frame one.
       _fullscreen = false;
@@ -516,6 +553,7 @@ class NowPlayingOverlayController extends ChangeNotifier {
     bar.dispose();
     dragDy.dispose();
     detail.dispose();
+    focus.dispose();
     flight.dispose();
     full.dispose();
     inset.dispose();

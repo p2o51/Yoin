@@ -8,6 +8,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../data/model/model.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/desktop_input.dart';
 import '../playback/playback_strings.dart';
 import 'cover_swap.dart';
 import 'flight.dart';
@@ -135,121 +136,129 @@ class _NowPlayingPillState extends ConsumerState<NowPlayingPill> with TickerProv
         (shown == null && errorKind != null ? PlaybackStrings.of(context).errorMessage(errorKind) : '');
     final dpr = MediaQuery.devicePixelRatioOf(context);
 
+    final VoidCallback? long = switch ((widget.onLongPress, shown)) {
+      (final long?, final track?) => () => long(track),
+      _ => null,
+    };
     return Semantics(
       button: true,
       label: shown?.title == null ? strings.pillTapOpen : '${shown!.title}, ${strings.pillTapOpen}',
       excludeSemantics: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => widget.onPressChanged?.call(true),
-        onTapUp: (_) => widget.onPressChanged?.call(false),
-        onTapCancel: () => widget.onPressChanged?.call(false),
+      // Mouse / keyboard: hover layer, click cursor, focus ring, Enter opens,
+      // right click = the long-press song sheet.
+      child: YoinHover(
         onTap: _open,
-        onLongPress: switch ((widget.onLongPress, shown)) {
-          (final long?, final track?) => () => long(track),
-          _ => null,
-        },
-        child: AnimatedBuilder(
-          animation: _presence.animation,
-          builder: (context, child) {
-            final p = _presence.value.clamp(0.0, 1.0);
-            return DecoratedBox(
-              decoration: ShapeDecoration(
-                color: Color.lerp(colors.surfaceContainerHighest, colors.primaryContainer, p),
-                shape: const StadiumBorder(),
-              ),
-              child: IconTheme.merge(
-                data: IconThemeData(color: Color.lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, p)),
-                child: child!,
-              ),
-            );
-          },
-          child: ClipPath(
-            clipper: const ShapeBorderClipper(shape: StadiumBorder()),
-            child: SizedBox(
-              height: BarTokens.buttonHeight,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (shown != null)
-                    RepaintBoundary(
-                      child: CustomPaint(
-                        painter: _WashPainter(
-                          clock: clock,
-                          amplitude: _amplitude,
-                          color: colors.primary.withValues(alpha: PillMetrics.washAlpha),
+        onSecondaryTap: long,
+        focusStadium: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) => widget.onPressChanged?.call(true),
+          onTapUp: (_) => widget.onPressChanged?.call(false),
+          onTapCancel: () => widget.onPressChanged?.call(false),
+          onTap: _open,
+          onLongPress: long,
+          child: AnimatedBuilder(
+            animation: _presence.animation,
+            builder: (context, child) {
+              final p = _presence.value.clamp(0.0, 1.0);
+              return DecoratedBox(
+                decoration: ShapeDecoration(
+                  color: Color.lerp(colors.surfaceContainerHighest, colors.primaryContainer, p),
+                  shape: const StadiumBorder(),
+                ),
+                child: IconTheme.merge(
+                  data: IconThemeData(color: Color.lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, p)),
+                  child: child!,
+                ),
+              );
+            },
+            child: ClipPath(
+              clipper: const ShapeBorderClipper(shape: StadiumBorder()),
+              child: SizedBox(
+                height: BarTokens.buttonHeight,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (shown != null)
+                      RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _WashPainter(
+                            clock: clock,
+                            amplitude: _amplitude,
+                            color: colors.primary.withValues(alpha: PillMetrics.washAlpha),
+                          ),
+                        ),
+                      ),
+                    AnimatedBuilder(
+                      animation: _push,
+                      builder: (context, child) {
+                        final p = _push.value;
+                        return Opacity(
+                          opacity: (1 - 0.9 * p.abs()).clamp(0.0, 1.0),
+                          child: Transform.translate(offset: Offset(-PillMetrics.pushTravel * p, 0), child: child),
+                        );
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: PillMetrics.rowPadding),
+                        child: Row(
+                          children: [
+                            FlightSlot(
+                              element: FlightElement.cover,
+                              pill: true,
+                              child: _PillCover(
+                                cover: shown?.coverArt,
+                                requestSize: (pillCoverRequestDp * dpr).round(),
+                                label: shown?.title ?? strings.pillCurrentTrack,
+                              ),
+                            ),
+                            const SizedBox(width: PillMetrics.gap),
+                            Expanded(
+                              child: Builder(
+                                builder: (context) {
+                                  final content = Color.lerp(
+                                    colors.onSurfaceVariant,
+                                    colors.onPrimaryContainer,
+                                    _presence.value.clamp(0.0, 1.0),
+                                  )!;
+                                  return Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      FlightSlot(
+                                        element: FlightElement.title,
+                                        pill: true,
+                                        child: Marquee(
+                                          key: ValueKey('pill-title-${shown?.id}'),
+                                          text: title,
+                                          enabled: shown?.title != null,
+                                          style: text.labelLarge!.copyWith(color: content),
+                                        ),
+                                      ),
+                                      if (artist.isNotEmpty)
+                                        FlightSlot(
+                                          element: FlightElement.artist,
+                                          pill: true,
+                                          child: Marquee(
+                                            key: ValueKey('pill-artist-${shown?.id}'),
+                                            text: artist,
+                                            enabled: shown != null,
+                                            initialDelay: const Duration(milliseconds: 2500),
+                                            style: text.labelSmall!.copyWith(
+                                              color: content.withValues(alpha: PillMetrics.artistAlpha),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  AnimatedBuilder(
-                    animation: _push,
-                    builder: (context, child) {
-                      final p = _push.value;
-                      return Opacity(
-                        opacity: (1 - 0.9 * p.abs()).clamp(0.0, 1.0),
-                        child: Transform.translate(offset: Offset(-PillMetrics.pushTravel * p, 0), child: child),
-                      );
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: PillMetrics.rowPadding),
-                      child: Row(
-                        children: [
-                          FlightSlot(
-                            element: FlightElement.cover,
-                            pill: true,
-                            child: _PillCover(
-                              cover: shown?.coverArt,
-                              requestSize: (pillCoverRequestDp * dpr).round(),
-                              label: shown?.title ?? strings.pillCurrentTrack,
-                            ),
-                          ),
-                          const SizedBox(width: PillMetrics.gap),
-                          Expanded(
-                            child: Builder(
-                              builder: (context) {
-                                final content = Color.lerp(
-                                  colors.onSurfaceVariant,
-                                  colors.onPrimaryContainer,
-                                  _presence.value.clamp(0.0, 1.0),
-                                )!;
-                                return Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    FlightSlot(
-                                      element: FlightElement.title,
-                                      pill: true,
-                                      child: Marquee(
-                                        key: ValueKey('pill-title-${shown?.id}'),
-                                        text: title,
-                                        enabled: shown?.title != null,
-                                        style: text.labelLarge!.copyWith(color: content),
-                                      ),
-                                    ),
-                                    if (artist.isNotEmpty)
-                                      FlightSlot(
-                                        element: FlightElement.artist,
-                                        pill: true,
-                                        child: Marquee(
-                                          key: ValueKey('pill-artist-${shown?.id}'),
-                                          text: artist,
-                                          enabled: shown != null,
-                                          initialDelay: const Duration(milliseconds: 2500),
-                                          style: text.labelSmall!.copyWith(
-                                            color: content.withValues(alpha: PillMetrics.artistAlpha),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

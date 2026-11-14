@@ -4,6 +4,7 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/foundation.dart';
 
 import '../theme/tokens.dart';
+import 'focus_budget.dart';
 import 'now_playing_presentation.dart';
 
 /// Text line heights the budget needs, read from the live text styles at the
@@ -422,6 +423,7 @@ final class DualPaneBudget {
     required this.coverToTransport,
     required this.transportToTitle,
     required this.title,
+    this.focusCover,
   });
 
   final double frameTop;
@@ -438,9 +440,18 @@ final class DualPaneBudget {
   /// 0 when the title folded into the top bar.
   final double title;
 
+  /// Focus: the rating column retreats, the gap under the cover closes and
+  /// the cover grows (≤ 1.5×, the lyrics keep 320) into the stack's width.
+  /// Null when it can't grow by max(40, 12 %): the cover is a plain image.
+  final double? focusCover;
+
+  /// The left stack's width in focus.
+  double get focusSlot => math.max(DualPaneTokens.stackWidth, focusCover ?? cover);
+
   @override
   bool operator ==(Object other) =>
       other is DualPaneBudget &&
+      other.focusCover == focusCover &&
       other.frameTop == frameTop &&
       other.barGap == barGap &&
       other.frameBottom == frameBottom &&
@@ -452,8 +463,18 @@ final class DualPaneBudget {
       other.title == title;
 
   @override
-  int get hashCode =>
-      Object.hash(frameTop, barGap, frameBottom, titleForm, slot, cover, coverToTransport, transportToTitle, title);
+  int get hashCode => Object.hash(
+    frameTop,
+    barGap,
+    frameBottom,
+    titleForm,
+    slot,
+    cover,
+    coverToTransport,
+    transportToTitle,
+    title,
+    focusCover,
+  );
 }
 
 /// The transport's height in the 312 stack (labels drop under the wave
@@ -515,7 +536,24 @@ DualPaneBudget resolveDualPaneBudget({
     final frameTop = take(DualPaneTokens.frameNominal, DualPaneTokens.frameMin);
     final barGap = take(DualPaneTokens.barGapNominal, DualPaneTokens.barGapMin);
     final coverToTransport = take(DualPaneTokens.coverToTransportNominal, DualPaneTokens.coverToTransportMin);
+    final focusHeight =
+        contentHeight -
+        barHeight -
+        transport -
+        navBottom -
+        frameTop -
+        barGap -
+        frameBottom -
+        DualPaneTokens.coverToTransportMin -
+        transportToTitle -
+        title;
+    final focusCover = [
+      cover * NowPlayingTokens.coverFocusMaxScale,
+      rowWidth - DualPaneTokens.columnGap - DualPaneTokens.rightColumnMin,
+      focusHeight,
+    ].reduce(math.min);
     return DualPaneBudget(
+      focusCover: coverFocusOffered(cover, focusCover) ? focusCover : null,
       frameTop: frameTop,
       barGap: barGap,
       frameBottom: frameBottom,
@@ -528,8 +566,15 @@ DualPaneBudget resolveDualPaneBudget({
     );
   }
 
-  if (coverFor(titleTwoLines) >= DualPaneTokens.stackWidth) return budgetFor(DualPaneTitleForm.twoLines, titleTwoLines);
-  if (coverFor(titleOneLine) >= DualPaneTokens.coverMin) return budgetFor(DualPaneTitleForm.oneLine, titleOneLine);
+  // Two lines give way to one where only one line leaves the cover room to focus.
+  final twoLines = coverFor(titleTwoLines) >= DualPaneTokens.stackWidth
+      ? budgetFor(DualPaneTitleForm.twoLines, titleTwoLines)
+      : null;
+  final oneLine = coverFor(titleOneLine) >= DualPaneTokens.coverMin
+      ? budgetFor(DualPaneTitleForm.oneLine, titleOneLine)
+      : null;
+  if (twoLines != null && (twoLines.focusCover != null || oneLine?.focusCover == null)) return twoLines;
+  if (oneLine != null) return oneLine;
   return budgetFor(DualPaneTitleForm.topBar, 0);
 }
 
@@ -552,6 +597,11 @@ abstract final class LandscapeTokens {
   static const double headerHeight = 40;
   static const double tabRow = 40;
   static const double lyricsToTransport = 8;
+
+  /// Focus: the right column keeps this much; on the narrower windows the
+  /// cover stays within this share of the width ("封面可以不铺那么满").
+  static const double focusColumnMin = 300;
+  static const double focusCoverShare = 0.44;
 }
 
 /// The landscape handset's frame (resolveLandscapeLayout, rest pose).
@@ -568,10 +618,19 @@ final class LandscapeLayout {
     required this.leftWidth,
     required this.columnX,
     required this.transport,
-  });
+    double? focusCover,
+    double? focusColumnX,
+  }) : focusCover = focusCover ?? cover,
+       focusColumnX = focusColumnX ?? columnX;
 
   final bool stacked;
   final double cover;
+
+  /// Focus (every landscape window): the header, tabs and rating step away;
+  /// the cover takes the height on an ordinary phone, stays within 44 % of
+  /// the width elsewhere; the right column starts at [focusColumnX].
+  final double focusCover;
+  final double focusColumnX;
 
   /// The left column (cover + rating; stacked: at least its floor).
   final double leftWidth;
@@ -589,10 +648,12 @@ final class LandscapeLayout {
       other.cover == cover &&
       other.leftWidth == leftWidth &&
       other.columnX == columnX &&
-      other.transport == transport;
+      other.transport == transport &&
+      other.focusCover == focusCover &&
+      other.focusColumnX == focusColumnX;
 
   @override
-  int get hashCode => Object.hash(stacked, cover, leftWidth, columnX, transport);
+  int get hashCode => Object.hash(stacked, cover, leftWidth, columnX, transport, focusCover, focusColumnX);
 }
 
 /// The transport's height at [width] (labels under the wave when narrow).
@@ -613,9 +674,19 @@ LandscapeLayout resolveLandscapeLayout({
       math.min(height, width - LandscapeTokens.columnGap - rating - LandscapeTokens.restColumnMin),
     );
     final columnX = cover + rating + LandscapeTokens.columnGap;
+    final focusCover = math.max(
+      LandscapeTokens.coverFloor,
+      [
+        height,
+        width - LandscapeTokens.columnGap - LandscapeTokens.focusColumnMin,
+        width * LandscapeTokens.focusCoverShare,
+      ].reduce(math.min),
+    );
     return LandscapeLayout(
       stacked: false,
       cover: cover,
+      focusCover: focusCover,
+      focusColumnX: focusCover + LandscapeTokens.columnGap,
       leftWidth: cover + rating,
       columnX: columnX,
       transport: transportHeightAt(width - columnX + 2 * NowPlayingTokens.columnPadding, metrics),

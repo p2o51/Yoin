@@ -45,6 +45,61 @@ void main() {
     expect(c.handleBack(), isFalse, reason: 'closed: back belongs to the app again');
   });
 
+  testWidgets('should_stepOutOfFocusFirst_when_back', (tester) async {
+    await setUpController(tester);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.focusOffered = true;
+    c.toggleFocus();
+    expect(c.stage, NowPlayingStage.immersive);
+    await tester.pumpAndSettle();
+    expect(c.focus.value, closeTo(1, 0.001));
+    expect(c.detail.value, closeTo(0, 0.001));
+    expect(c.canDrag, isTrue, reason: 'focus keeps drag-to-dismiss');
+
+    expect(c.handleBack(), isTrue);
+    expect(c.stage, NowPlayingStage.compact);
+    expect(c.expanded, isTrue, reason: 'back leaves focus before it closes');
+    await tester.pumpAndSettle();
+    expect(c.focus.value, closeTo(0, 0.001));
+  });
+
+  testWidgets('should_ignoreCoverTap_when_focusNotOffered', (tester) async {
+    await setUpController(tester);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.focusOffered = false;
+    c.toggleFocus();
+    expect(c.stage, NowPlayingStage.compact);
+  });
+
+  testWidgets('should_dropStaleFocus_when_bodyStopsOffering', (tester) async {
+    await setUpController(tester);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.focusOffered = true;
+    c.toggleFocus();
+    await tester.pumpAndSettle();
+    c.focusOffered = false;
+    c.dropFocusIfUnoffered();
+    expect(c.stage, NowPlayingStage.compact);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('should_expandFromFocus_when_lyricsTapped', (tester) async {
+    await setUpController(tester);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.focusOffered = true;
+    c.toggleFocus();
+    await tester.pumpAndSettle();
+    c.expandStage();
+    await tester.pumpAndSettle();
+    expect(c.stage, NowPlayingStage.expanded);
+    expect(c.detail.value, closeTo(1, 0.001));
+    expect(c.focus.value, closeTo(0, 0.001), reason: 'one settle owner drives both');
+  });
+
   testWidgets('should_springBack_when_dragReleasedBeforeThreshold', (tester) async {
     await setUpController(tester);
     c.openPlayer();

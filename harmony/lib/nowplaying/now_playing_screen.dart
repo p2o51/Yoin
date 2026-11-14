@@ -21,6 +21,8 @@ import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/audio_format_tags.dart';
 import 'cover_swap.dart';
 import 'flight.dart';
+import 'focus_budget.dart';
+import 'focus_idle.dart';
 import 'haptics.dart';
 import 'lyrics_view.dart';
 import 'marquee.dart';
@@ -47,6 +49,34 @@ import 'transport.dart';
 double _smooth(double edge0, double edge1, double x) {
   final t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
   return t * t * (3 - 2 * t);
+}
+
+/// An [Animation] whose value is [map] of several parents' values (derived
+/// reads for layout / paint; no status of its own).
+class _Derived extends Animation<double> {
+  _Derived(this.parents, this.map) : _merged = Listenable.merge(parents);
+
+  final List<Listenable> parents;
+  final Listenable _merged;
+  final double Function() map;
+
+  @override
+  double get value => map();
+
+  @override
+  AnimationStatus get status => AnimationStatus.forward;
+
+  @override
+  void addListener(VoidCallback listener) => _merged.addListener(listener);
+
+  @override
+  void removeListener(VoidCallback listener) => _merged.removeListener(listener);
+
+  @override
+  void addStatusListener(AnimationStatusListener listener) {}
+
+  @override
+  void removeStatusListener(AnimationStatusListener listener) {}
 }
 
 /// An [Animation] whose value is [map] of its parent's (no rebuilds, just
@@ -112,6 +142,26 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
   MediaId? _scheduledTrack;
   MemoryStore? _lastStore;
 
+  /// Focus at ease: the idle count and its shown progress (Standard slow spatial).
+  final FocusIdle _focusIdle = FocusIdle();
+  late final SpringValue _atEase = SpringValue(
+    vsync: this,
+    initial: 0,
+    spring: YoinSprings.of(MotionTokens.standardSlowSpatial),
+  );
+  bool _idleEligible = false;
+
+  /// At ease as shown: capped by the focus itself and gone in Expanded, so
+  /// leaving focus unwinds it on the focus's own clock.
+  late final Animation<double> _atEaseShown = _Derived(
+    [_atEase.animation, widget.controller.focus.animation, widget.controller.detail.animation],
+    () {
+      final c = widget.controller;
+      final f = c.focus.value.clamp(0.0, 1.0);
+      return (math.min(_atEase.value, f) * (1 - c.detail.value.clamp(0.0, 1.0))).clamp(0.0, 1.0);
+    },
+  );
+
   @override
   void initState() {
     super.initState();
@@ -120,6 +170,44 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     widget.controller.full.animation.addListener(_onFull);
     _page.animation.addListener(_gateFocus);
     _notes.addListener(_onNotes);
+    _focusIdle.addListener(_onIdle);
+  }
+
+  void _onIdle() {
+    if (!mounted) return;
+    final target = _focusIdle.idle ? 1.0 : 0.0;
+    if (_reduced) {
+      _atEase.snapTo(target);
+    } else {
+      _atEase.animateTo(target);
+    }
+  }
+
+  /// Focus at ease is armed while synced lyrics play in focus.
+  void _trackIdle(NowPlayingUiState state) {
+    final eligible =
+        widget.controller.stage == NowPlayingStage.immersive &&
+        state is NowPlayingContent &&
+        state.isPlaying &&
+        state.lyrics is LyricsReady &&
+        (state.lyrics as LyricsReady).sheet.isSynced;
+    if (eligible == _idleEligible) return;
+    _idleEligible = eligible;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusIdle.track(_idleEligible);
+    });
+  }
+
+  /// The body tells the controller whether its cover can focus; a stale
+  /// Immersive drops back to rest after this frame.
+  void _offerFocus(bool offered) {
+    final c = widget.controller;
+    c.focusOffered = offered;
+    if (!offered && c.stage == NowPlayingStage.immersive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) c.dropFocusIfUnoffered();
+      });
+    }
   }
 
   @override
@@ -143,6 +231,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     _page.dispose();
     _heroYield.dispose();
     _barHeight.dispose();
+    _focusIdle
+      ..removeListener(_onIdle)
+      ..dispose();
+    _atEase.dispose();
     _pressed.dispose();
     _autoFollow.dispose();
     super.dispose();
@@ -293,6 +385,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
   Widget build(BuildContext context) {
     final state = ref.watch(nowPlayingViewModelProvider);
     _syncNotes(state);
+    _trackIdle(state);
     ref.listen(memoryStoreProvider, (_, next) {
       final store = next.value;
       if (!next.hasValue || identical(store, _lastStore)) return;
@@ -323,21 +416,42 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     } else {
       _heroYield.animateTo(yieldHero ? 1 : 0);
     }
-    return ColoredBox(
-      color: colors.surface,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          NowPlayingBackground(field: field),
-          switch (state) {
-            NowPlayingIdle() => Center(
-              child: Text(
-                strings.emptyNothingPlaying,
-                style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurfaceVariant),
+    return FocusIdleTouchTracker(
+      idle: _focusIdle,
+      child: ColoredBox(
+        color: colors.surface,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            NowPlayingBackground(field: field, focus: widget.controller.focus.animation),
+            switch (state) {
+              NowPlayingIdle() => Center(
+                child: Text(
+                  strings.emptyNothingPlaying,
+                  style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurfaceVariant),
+                ),
               ),
-            ),
-            NowPlayingContent() when widget.controller.frame.presentation == NowPlayingPresentation.landscape =>
-              _LandscapePane(
+              NowPlayingContent() when widget.controller.frame.presentation == NowPlayingPresentation.landscape =>
+                _LandscapePane(
+                  state: state,
+                  controller: widget.controller,
+                  insets: insets,
+                  metrics: _metrics(context),
+                  pressed: _pressed,
+                  autoFollow: _autoFollow,
+                  notes: _notes,
+                  page: _page.animation,
+                  pageTarget: _pageTarget,
+                  onSelectPage: _selectPage,
+                  onPageDrag: _onPageDrag,
+                  onPageDragEnd: _onPageDragEnd,
+                  onWrite: _writeLandscape,
+                  onBarHeight: _onBarHeight,
+                  barHeight: _barHeight.animation,
+                  atEase: _atEaseShown,
+                  onOfferFocus: _offerFocus,
+                ),
+              NowPlayingContent() when (_lastDual = _dualBody()) => _DualPane(
                 state: state,
                 controller: widget.controller,
                 insets: insets,
@@ -350,88 +464,91 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                 onSelectPage: _selectPage,
                 onPageDrag: _onPageDrag,
                 onPageDragEnd: _onPageDragEnd,
-                onWrite: _writeLandscape,
+                onWrite: _write,
                 onBarHeight: _onBarHeight,
                 barHeight: _barHeight.animation,
+                atEase: _atEaseShown,
+                onOfferFocus: _offerFocus,
               ),
-            NowPlayingContent() when (_lastDual = _dualBody()) => _DualPane(
-              state: state,
-              controller: widget.controller,
-              insets: insets,
-              metrics: _metrics(context),
-              pressed: _pressed,
-              autoFollow: _autoFollow,
-              notes: _notes,
-              page: _page.animation,
-              pageTarget: _pageTarget,
-              onSelectPage: _selectPage,
-              onPageDrag: _onPageDrag,
-              onPageDragEnd: _onPageDragEnd,
-              onWrite: _write,
-              onBarHeight: _onBarHeight,
-              barHeight: _barHeight.animation,
-            ),
-            NowPlayingContent() => Padding(
-              padding: insets,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final budget = resolveStageColumnBudget(
-                    width: constraints.maxWidth,
-                    height: constraints.maxHeight,
-                    metrics: _metrics(context),
-                    devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                    previousFrame: _lastFrame,
-                    enlarged: _enlargedSpec(),
-                  );
-                  _lastFrame = budget.lyricFrame;
-                  // The enlarged phone narrows to its cover row, centred.
-                  final stage = _Stage(
-                    budget: budget,
-                    state: state,
-                    controller: widget.controller,
-                    pressed: _pressed,
-                    autoFollow: _autoFollow,
-                    windowTop: insets.top,
-                    notes: _notes,
-                    page: _page.animation,
-                    pageTarget: _pageTarget,
-                    onSelectPage: _selectPage,
-                    onPageDrag: _onPageDrag,
-                    onPageDragEnd: _onPageDragEnd,
-                    onWrite: _write,
-                    heroYield: _heroYield.animation,
-                    barHeight: _barHeight.animation,
-                    onBarHeight: _onBarHeight,
-                    imeLift: imeLift,
-                  );
-                  if (budget.stageWidth >= constraints.maxWidth) return stage;
-                  return Center(
-                    child: SizedBox(width: budget.stageWidth, child: stage),
-                  );
-                },
+              NowPlayingContent() => Padding(
+                padding: insets,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final budget = resolveStageColumnBudget(
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight,
+                      metrics: _metrics(context),
+                      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                      previousFrame: _lastFrame,
+                      enlarged: _enlargedSpec(),
+                    );
+                    _lastFrame = budget.lyricFrame;
+                    final focus = resolveStageFocus(
+                      rest: budget,
+                      metrics: _metrics(context),
+                      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                      enlarged: _enlargedSpec(),
+                    );
+                    _offerFocus(focus != null);
+                    // The enlarged phone narrows to its cover row, centred (the
+                    // stage lays its column out in the middle of the width).
+                    return _Stage(
+                      budget: budget,
+                      focus: focus,
+                      atEase: _atEaseShown,
+                      state: state,
+                      controller: widget.controller,
+                      pressed: _pressed,
+                      autoFollow: _autoFollow,
+                      windowTop: insets.top,
+                      notes: _notes,
+                      page: _page.animation,
+                      pageTarget: _pageTarget,
+                      onSelectPage: _selectPage,
+                      onPageDrag: _onPageDrag,
+                      onPageDragEnd: _onPageDragEnd,
+                      onWrite: _write,
+                      heroYield: _heroYield.animation,
+                      barHeight: _barHeight.animation,
+                      onBarHeight: _onBarHeight,
+                      imeLift: imeLift,
+                    );
+                  },
+                ),
               ),
-            ),
-          },
-        ],
+            },
+          ],
+        ),
       ),
     );
   }
 }
 
-enum _Slot { topBar, cover, rating, tabs, lyricsWindow, lyricsFull, controls, hero, accessory }
+enum _Slot { topBar, cover, rating, tabs, lyricsWindow, lyricsFocus, lyricsFull, controls, hero, accessory }
 
 class _StageDelegate extends MultiChildLayoutDelegate {
   _StageDelegate({
     required this.budget,
+    required this.focusPose,
     required this.detail,
+    required this.focus,
+    required this.atEase,
     required this.page,
     required this.heroYield,
     required this.barHeight,
     required this.imeLift,
-  }) : super(relayout: Listenable.merge([detail, page, heroYield, barHeight]));
+  }) : super(relayout: Listenable.merge([detail, focus, atEase, page, heroYield, barHeight]));
 
   final StageColumnBudget budget;
+
+  /// The focus pose (null: the cover is a plain image).
+  final StageFocusPose? focusPose;
   final Animation<double> detail;
+  final Animation<double> focus;
+
+  /// Focus at ease as shown: the transport's first row steps away and the
+  /// focus lyrics run on into its place.
+  final Animation<double> atEase;
 
   /// The pager (0 Lyrics → 1 Note): the write bar's extra height is the Note page's.
   final Animation<double> page;
@@ -446,11 +563,17 @@ class _StageDelegate extends MultiChildLayoutDelegate {
   @override
   void performLayout(Size size) {
     final d = detail.value.clamp(0.0, 1.0);
+    final fp = focusPose;
+    final f = fp == null ? 0.0 : focus.value.clamp(0.0, 1.0);
     final p = page.value.clamp(0.0, 1.0);
     final y = heroYield.value.clamp(0.0, 1.0);
-    final s = StageSlots.lerp(budget, d);
+    final s = stageSlotsAt(budget, fp, f: f, d: d);
     final full = StageSlots.lerp(budget, 1);
-    final w = size.width;
+    // The column: centred, narrowing to the focus cover.
+    final live = liveStageWidth(budget, fp, f: f, d: d);
+    final x0 = (size.width - live) / 2;
+    final restX = (size.width - budget.stageWidth) / 2;
+    final w = live;
     // The open write bar grows the accessory slot (Expanded, Note page).
     final bar = barHeight.value + NowPlayingNoteTokens.barTopGap;
     final barExtra = d * p * math.max(0.0, bar - s.accessory);
@@ -458,69 +581,118 @@ class _StageDelegate extends MultiChildLayoutDelegate {
     final heroH = s.hero * (1 - y);
     final accessoryH = s.accessory + barExtra;
 
-    layoutChild(_Slot.topBar, BoxConstraints.tight(Size(w, s.topBar)));
-    positionChild(_Slot.topBar, Offset.zero);
+    // The top bar keeps its 48 row; as it retreats over a shorter slot it
+    // rides up with the slot's bottom edge.
+    final barH = math.max(s.topBar, NowPlayingTokens.topBarMin);
+    layoutChild(_Slot.topBar, BoxConstraints.tight(Size(w, barH)));
+    positionChild(_Slot.topBar, Offset(x0, s.topBar - barH));
 
-    // The cover flies from its row to the docked slot; it only moves and scales.
-    final f = _smooth(0, 1, d);
-    final coverSize = lerpDouble(budget.cover, _dockedCover, f)!;
+    // The cover grows (focus) or flies to the docked slot (Expanded); it only moves and scales.
+    final g = _smooth(0, 1, d);
+    final baseCover = fp == null ? budget.cover : lerpDouble(budget.cover, fp.cover, f)!;
+    final coverSize = lerpDouble(baseCover, _dockedCover, g)!;
     if (hasChild(_Slot.cover)) {
+      final baseX = fp == null
+          ? restX + NowPlayingTokens.columnPadding
+          : lerpDouble(restX + NowPlayingTokens.columnPadding, (size.width - fp.cover) / 2, f)!;
+      final baseY = fp == null ? budget.topBar : lerpDouble(budget.topBar, fp.top, f)!;
       layoutChild(_Slot.cover, BoxConstraints.tight(Size.square(math.max(0, coverSize))));
       positionChild(
         _Slot.cover,
-        Offset(
-          lerpDouble(NowPlayingTokens.columnPadding, _dockedCoverX, f)!,
-          lerpDouble(budget.topBar, _dockedCoverY, f)!,
-        ),
+        Offset(lerpDouble(baseX, x0 + _dockedCoverX, g)!, lerpDouble(baseY, _dockedCoverY, g)!),
       );
     }
     if (hasChild(_Slot.rating)) {
       layoutChild(_Slot.rating, BoxConstraints.tight(Size(budget.ratingColumn, budget.cover)));
-      positionChild(_Slot.rating, Offset(w - NowPlayingTokens.columnPadding - budget.ratingColumn, s.topBar));
+      positionChild(
+        _Slot.rating,
+        Offset(restX + budget.stageWidth - NowPlayingTokens.columnPadding - budget.ratingColumn, s.topBar),
+      );
     }
 
     final tabsTop = s.topBar + s.coverRow + s.coverGap;
     if (hasChild(_Slot.tabs)) {
       layoutChild(_Slot.tabs, BoxConstraints.tight(Size(w, math.max(0, s.tabs))));
-      positionChild(_Slot.tabs, Offset(0, tabsTop));
+      positionChild(_Slot.tabs, Offset(x0, tabsTop));
     }
 
     final lyricsTop = tabsTop + s.tabs + s.tabGap;
     final lyrics = math.max(0.0, size.height - imeLift - lyricsTop - s.controls - heroH - accessoryH);
-    layoutChild(_Slot.lyricsWindow, BoxConstraints.tight(Size(w, lyrics)));
-    positionChild(_Slot.lyricsWindow, Offset(0, lyricsTop));
+    // The resting window keeps the resting width (no re-wrap while focus narrows the column).
+    layoutChild(_Slot.lyricsWindow, BoxConstraints.tight(Size(budget.stageWidth, lyrics)));
+    positionChild(_Slot.lyricsWindow, Offset(restX, lyricsTop));
+    if (hasChild(_Slot.lyricsFocus) && fp != null) {
+      // Laid out at its focus width; at ease it runs on under the transport's first row.
+      final runOn = atEase.value.clamp(0.0, 1.0) * (NowPlayingTokens.controlSize + NowPlayingTokens.controlRowGap);
+      layoutChild(_Slot.lyricsFocus, BoxConstraints.tight(Size(fp.stageWidth, math.max(0, fp.lyrics + runOn))));
+      positionChild(_Slot.lyricsFocus, Offset((size.width - fp.stageWidth) / 2, lyricsTop));
+    }
     if (hasChild(_Slot.lyricsFull)) {
       // Laid out at its FINAL height always; only clipped / moved during the reshape.
       final fullH = math.max(0.0, full.lyrics - imeLift - fullBarExtra + full.hero * y);
-      layoutChild(_Slot.lyricsFull, BoxConstraints.tight(Size(w, fullH)));
-      positionChild(_Slot.lyricsFull, Offset(0, lyricsTop + (lyrics - fullH)));
+      layoutChild(_Slot.lyricsFull, BoxConstraints.tight(Size(budget.stageWidth, fullH)));
+      positionChild(_Slot.lyricsFull, Offset(restX, lyricsTop + (lyrics - fullH)));
     }
 
     final controlsTop = lyricsTop + lyrics;
-    layoutChild(_Slot.controls, BoxConstraints.tightFor(width: w, height: budget.controls));
-    positionChild(_Slot.controls, Offset(0, controlsTop));
+    final controlsH = math.max(budget.controls, fp?.controls ?? 0);
+    layoutChild(_Slot.controls, BoxConstraints.tightFor(width: w, height: controlsH));
+    positionChild(_Slot.controls, Offset(x0, controlsTop));
 
     final heroTop = controlsTop + s.controls;
     layoutChild(_Slot.hero, BoxConstraints.tight(Size(w, heroH)));
-    positionChild(_Slot.hero, Offset(0, heroTop));
+    positionChild(_Slot.hero, Offset(x0, heroTop));
 
     layoutChild(_Slot.accessory, BoxConstraints.tight(Size(w, accessoryH)));
-    positionChild(_Slot.accessory, Offset(0, heroTop + heroH));
+    positionChild(_Slot.accessory, Offset(x0, heroTop + heroH));
   }
 
   @override
   bool shouldRelayout(_StageDelegate old) =>
       old.budget != budget ||
+      old.focusPose != focusPose ||
       old.detail != detail ||
+      old.focus != focus ||
+      old.atEase != atEase ||
       old.page != page ||
       old.heroYield != heroYield ||
       old.barHeight != barHeight ||
       old.imeLift != imeLift;
 }
 
+/// What steps away in focus (FocusRetreat.kt): [progress] 0 = here, 1 =
+/// gone. It fades over the first 1/1.4 of the way, moves by [shift], and
+/// stops taking taps once mostly gone.
+class _Retreat extends StatelessWidget {
+  const _Retreat({required this.progress, required this.child, this.shift = Offset.zero});
+
+  final Animation<double> progress;
+  final Offset shift;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: progress,
+    child: child,
+    builder: (context, child) {
+      final p = progress.value.clamp(0.0, 1.0);
+      final fade = math.min(1.0, p * NowPlayingFocusTokens.retreatFadeRate);
+      return IgnorePointer(
+        ignoring: p > 0.5,
+        child: Opacity(
+          opacity: (1 - fade * fade * (3 - 2 * fade)).clamp(0.0, 1.0),
+          child: Transform.translate(offset: shift * p, child: child),
+        ),
+      );
+    },
+  );
+}
+
 class _Stage extends ConsumerWidget {
   const _Stage({
     required this.budget,
+    required this.focus,
+    required this.atEase,
     required this.state,
     required this.controller,
     required this.pressed,
@@ -540,6 +712,10 @@ class _Stage extends ConsumerWidget {
   });
 
   final StageColumnBudget budget;
+
+  /// The focus pose, or null: the cover is a plain image (no tap).
+  final StageFocusPose? focus;
+  final Animation<double> atEase;
   final NowPlayingContent state;
   final NowPlayingOverlayController controller;
   final ValueNotifier<TransportKey> pressed;
@@ -564,15 +740,39 @@ class _Stage extends ConsumerWidget {
     final vm = ref.read(nowPlayingViewModelProvider.notifier);
     final clock = ref.watch(playheadClockProvider);
     final detail = controller.detail.animation;
+    final focusAnim = controller.focus.animation;
     final compact = _Mapped(detail, (d) => (1 - d).clamp(0.0, 1.0));
     final expandedStage = controller.stage == NowPlayingStage.expanded;
+    final inFocus = controller.stage == NowPlayingStage.immersive;
+    final restStage = controller.stage == NowPlayingStage.compact;
+    final focusPose = focus;
     final track = state.track;
     // The one-line lyric row is not a pager page: no swipe over it.
     final compactSwipe = budget.lyricFrame == LyricFrame.list;
+    // Focus shown (0 = rest), less the Expanded share; what retreats with it.
+    double focusShown() => focusPose == null
+        ? 0
+        : (controller.focus.value.clamp(0.0, 1.0) * (1 - controller.detail.value.clamp(0.0, 1.0)));
+    final retreat = _Derived([focusAnim, detail], focusShown);
+    final ratingRetreat = _Derived([focusAnim, detail], () {
+      final f = focusPose == null ? 0.0 : controller.focus.value.clamp(0.0, 1.0);
+      return math.max(f, controller.detail.value.clamp(0.0, 1.0));
+    });
+    // The resting window gives way to the Expanded list and to the focus list.
+    final windowShown = _Derived([focusAnim, detail], () {
+      final f = focusPose == null ? 0.0 : controller.focus.value.clamp(0.0, 1.0);
+      return ((1 - controller.detail.value.clamp(0.0, 1.0)) * (1 - f)).clamp(0.0, 1.0);
+    });
+    final coverTap = expandedStage
+        ? controller.stepBackStage
+        : (focusPose != null || inFocus ? controller.toggleFocus : null);
 
     return CustomMultiChildLayout(
       delegate: _StageDelegate(
         budget: budget,
+        focusPose: focusPose,
+        focus: focusAnim,
+        atEase: atEase,
         detail: detail,
         page: page,
         heroYield: heroYield,
@@ -582,24 +782,28 @@ class _Stage extends ConsumerWidget {
       children: [
         LayoutId(
           id: _Slot.topBar,
-          child: _TopBar(
-            controller: controller,
-            context0: state.context,
-            onContextTap: _contextTarget(state.context, controller),
+          child: _Retreat(
+            progress: retreat,
+            shift: const Offset(0, -NowPlayingFocusTokens.retreatLift),
+            child: _TopBar(
+              controller: controller,
+              context0: state.context,
+              onContextTap: _contextTarget(state.context, controller),
+            ),
           ),
         ),
         if (!budget.coverHidden)
           LayoutId(
             id: _Slot.cover,
             child: GestureDetector(
-              onTap: expandedStage ? controller.stepBackStage : null,
+              onTap: coverTap,
               child: FlightSlot(
                 element: FlightElement.cover,
                 pill: false,
                 child: _StageCover(
                   state: state,
                   detail: detail,
-                  requestEdge: budget.cover,
+                  requestEdge: math.max(budget.cover, focusPose?.cover ?? 0),
                   onLongPress: () => showNowPlayingTrackMenu(context, controller, state.track),
                 ),
               ),
@@ -609,14 +813,17 @@ class _Stage extends ConsumerWidget {
           LayoutId(
             id: _Slot.rating,
             child: IgnorePointer(
-              ignoring: expandedStage,
+              ignoring: !restStage,
               child: AnimatedBuilder(
-                animation: detail,
+                animation: ratingRetreat,
                 builder: (context, child) {
-                  final d = detail.value.clamp(0.0, 1.0);
+                  final r = ratingRetreat.value.clamp(0.0, 1.0);
                   return Opacity(
-                    opacity: 1 - d,
-                    child: Transform.translate(offset: Offset(72 * d, 0), child: child),
+                    opacity: 1 - r,
+                    child: Transform.translate(
+                      offset: Offset(NowPlayingFocusTokens.ratingRetreatShift * r, 0),
+                      child: child,
+                    ),
                   );
                 },
                 child: Column(
@@ -637,14 +844,19 @@ class _Stage extends ConsumerWidget {
           ),
         LayoutId(
           id: _Slot.tabs,
-          child: StageTabs(selected: pageTarget, detail: detail, onSelect: onSelectPage),
+          child: ClipRect(
+            child: _Retreat(
+              progress: retreat,
+              child: StageTabs(selected: pageTarget, detail: detail, onSelect: onSelectPage),
+            ),
+          ),
         ),
         LayoutId(
           id: _Slot.lyricsWindow,
           child: IgnorePointer(
-            ignoring: expandedStage,
+            ignoring: !restStage,
             child: FadeTransition(
-              opacity: compact,
+              opacity: windowShown,
               child: _PagerSurface(
                 page: page,
                 swipe: compactSwipe,
@@ -666,6 +878,31 @@ class _Stage extends ConsumerWidget {
             ),
           ),
         ),
+        if (focusPose != null && (inFocus || controller.focus.value > 0.01))
+          LayoutId(
+            id: _Slot.lyricsFocus,
+            child: IgnorePointer(
+              ignoring: !inFocus,
+              child: FadeTransition(
+                opacity: _Mapped(retreat, (r) => _smooth(0.15, 1, r)),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  // A tap on the focus lyrics opens them (the lyric window's tap).
+                  onTap: controller.expandStage,
+                  child: LyricsView(
+                    mode: LyricsListMode.focus,
+                    lyrics: state.lyrics,
+                    songKey: state.songKey,
+                    clock: clock,
+                    onSeek: vm.seekTo,
+                    upNext: state.upNext,
+                    durationMs: state.durationMs,
+                    horizontalInset: focusPose.lyricInset,
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (expandedStage || controller.detail.value > 0.01)
           LayoutId(
             id: _Slot.lyricsFull,
@@ -692,6 +929,8 @@ class _Stage extends ConsumerWidget {
                   title: track.title,
                   artist: track.artist,
                   autoFollow: autoFollow,
+                  upNext: state.upNext,
+                  durationMs: state.durationMs,
                   windowTop:
                       windowTop +
                       NowPlayingTokens.topBarNominal +
@@ -727,8 +966,9 @@ class _Stage extends ConsumerWidget {
                     playMode: state.playMode,
                     clock: clock,
                     durationMs: state.durationMs,
-                    labelsUnder: budget.labelsUnderWave,
+                    labelsUnder: inFocus && focusPose != null ? focusPose.labelsUnderWave : budget.labelsUnderWave,
                     waveVisible: !expandedStage,
+                    atEase: atEase,
                     onPlayPause: vm.togglePlayPause,
                     onNext: vm.next,
                     onPrevious: vm.previous,
@@ -771,6 +1011,7 @@ class _Stage extends ConsumerWidget {
           child: _Accessory(
             controller: controller,
             compact: compact,
+            retreat: retreat,
             autoFollow: autoFollow,
             onSkip: vm.skipTo,
             page: page,
@@ -889,7 +1130,8 @@ class _StageCover extends StatelessWidget {
     );
     final onLongPress = this.onLongPress;
     if (onLongPress == null) return cover;
-    return GestureDetector(onLongPress: onLongPress, child: cover);
+    // The right click / two-finger tap opens the same song sheet.
+    return GestureDetector(onLongPress: onLongPress, onSecondaryTap: onLongPress, child: cover);
   }
 }
 
@@ -956,6 +1198,7 @@ class _TopBar extends StatelessWidget {
                 label: expanded ? strings.cdBackNowPlaying : strings.cdCloseNowPlaying,
                 excludeSemantics: true,
                 child: IconButton(
+                  tooltip: expanded ? strings.cdBackNowPlaying : strings.cdCloseNowPlaying,
                   onPressed: onClose ?? controller.onChevron,
                   icon: AnimatedBuilder(
                     animation: Listenable.merge([controller.dragDy.animation, controller.detail.animation]),
@@ -1371,6 +1614,7 @@ class _Accessory extends StatelessWidget {
   const _Accessory({
     required this.controller,
     required this.compact,
+    required this.retreat,
     required this.autoFollow,
     required this.onSkip,
     required this.page,
@@ -1382,6 +1626,9 @@ class _Accessory extends StatelessWidget {
 
   final NowPlayingOverlayController controller;
   final Animation<double> compact;
+
+  /// Focus: the pills step away (fade and sink).
+  final Animation<double> retreat;
   final ValueNotifier<bool> autoFollow;
   final ValueChanged<int> onSkip;
   final Animation<double> page;
@@ -1393,33 +1640,50 @@ class _Accessory extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final expanded = controller.stage == NowPlayingStage.expanded;
+    final rest = controller.stage == NowPlayingStage.compact;
+    final pillSlot = NowPlayingTokens.pillHeight + NowPlayingTokens.accessoryAirMin;
     return Stack(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-          child: Align(
-            alignment: AlignmentDirectional.bottomStart,
-            child: IgnorePointer(
-              ignoring: expanded,
-              child: FadeTransition(
-                opacity: compact,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _QueuePill(
-                      onTap: () {
-                        YoinHaptics.contextClick();
-                        showQueueSheet(context, onSkip: onSkip);
-                      },
+        // Focus shrinks the slot under the pills: they keep their place and sink away.
+        LayoutBuilder(
+          builder: (context, constraints) => OverflowBox(
+            alignment: Alignment.topCenter,
+            minHeight: 0,
+            maxHeight: math.max(constraints.maxHeight, pillSlot),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+              child: Align(
+                alignment: AlignmentDirectional.bottomStart,
+                child: IgnorePointer(
+                  ignoring: !rest,
+                  child: FadeTransition(
+                    opacity: _Derived([compact, retreat], () => (compact.value * (1 - retreat.value)).clamp(0.0, 1.0)),
+                    child: AnimatedBuilder(
+                      animation: retreat,
+                      builder: (context, child) => Transform.translate(
+                        offset: Offset(0, NowPlayingFocusTokens.pillRetreatDrop * retreat.value.clamp(0.0, 1.0)),
+                        child: child,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _QueuePill(
+                            onTap: () {
+                              YoinHaptics.contextClick();
+                              showQueueSheet(context, onSkip: onSkip);
+                            },
+                          ),
+                          const SizedBox(width: NowPlayingTokens.pillGap),
+                          _WritePill(
+                            onTap: () {
+                              YoinHaptics.contextClick();
+                              onWrite();
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(width: NowPlayingTokens.pillGap),
-                    _WritePill(
-                      onTap: () {
-                        YoinHaptics.contextClick();
-                        onWrite();
-                      },
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1642,6 +1906,8 @@ class _RecenterKey extends StatelessWidget {
 /// chevron closes, back steps to the panel.
 class _DualPane extends ConsumerWidget {
   const _DualPane({
+    required this.atEase,
+    required this.onOfferFocus,
     required this.state,
     required this.controller,
     required this.insets,
@@ -1660,6 +1926,12 @@ class _DualPane extends ConsumerWidget {
   });
 
   final Animation<double> barHeight;
+
+  /// Focus at ease as shown (the transport's buttons step away).
+  final Animation<double> atEase;
+
+  /// Tells the controller whether this body's cover can focus.
+  final ValueChanged<bool> onOfferFocus;
   final NowPlayingContent state;
   final NowPlayingOverlayController controller;
   final EdgeInsets insets;
@@ -1696,6 +1968,9 @@ class _DualPane extends ConsumerWidget {
             metrics: metrics,
             navBottom: insets.bottom,
           );
+          onOfferFocus(budget.focusCover != null);
+          final inFocus = controller.stage == NowPlayingStage.immersive;
+          final restStage = controller.stage == NowPlayingStage.compact;
           final titleInBar = budget.titleForm == DualPaneTitleForm.topBar;
           void openAlbum() {
             final id = track.albumId;
@@ -1752,126 +2027,168 @@ class _DualPane extends ConsumerWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // LEFT — passive.
-                      SizedBox(
-                        width: budget.slot,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              height: budget.cover,
-                              child: Row(
-                                children: [
-                                  FlightSlot(
-                                    element: FlightElement.cover,
-                                    pill: false,
-                                    child: SizedBox.square(
-                                      dimension: budget.cover,
-                                      child: _StageCover(
-                                        state: state,
-                                        detail: const AlwaysStoppedAnimation(0),
-                                        requestEdge: budget.cover,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: DualPaneTokens.ratingSide - DualPaneTokens.ratingColumn),
-                                  SizedBox(
-                                    width: DualPaneTokens.ratingColumn,
-                                    child: Column(
-                                      children: [
-                                        Expanded(
-                                          child: RatingSlider(
-                                            rating: state.rating,
-                                            songKey: state.songKey,
-                                            onCommit: vm.commitRating,
+                      // LEFT — passive; focus grows the cover into the stack (TabletNP focus).
+                      AnimatedBuilder(
+                        animation: controller.focus.animation,
+                        builder: (context, _) {
+                          final f = budget.focusCover == null ? 0.0 : controller.focus.value.clamp(0.0, 1.0);
+                          final slot = lerpDouble(budget.slot, budget.focusSlot, f)!;
+                          final cover = lerpDouble(budget.cover, budget.focusCover ?? budget.cover, f)!;
+                          return SizedBox(
+                            width: slot,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  height: cover,
+                                  child: Row(
+                                    children: [
+                                      GestureDetector(
+                                        onTap: budget.focusCover != null || inFocus ? controller.toggleFocus : null,
+                                        child: FlightSlot(
+                                          element: FlightElement.cover,
+                                          pill: false,
+                                          child: SizedBox.square(
+                                            dimension: cover,
+                                            child: _StageCover(
+                                              state: state,
+                                              detail: const AlwaysStoppedAnimation(0),
+                                              requestEdge: math.max(budget.cover, budget.focusCover ?? 0),
+                                            ),
                                           ),
                                         ),
-                                        if (state.canFavorite) ...[
-                                          const SizedBox(height: NowPlayingTokens.ratingToHeartGap - 2),
-                                          FavoriteHeart(starred: state.isStarred, onToggle: vm.toggleFavorite),
-                                        ],
-                                        const SizedBox(height: NowPlayingTokens.heartBottomGap - 2),
-                                      ],
-                                    ),
+                                      ),
+                                      // The rating column retreats in focus (its slot closes, it fades).
+                                      SizedBox(
+                                        width: DualPaneTokens.ratingSide * (1 - f),
+                                        child: ClipRect(
+                                          child: OverflowBox(
+                                            alignment: AlignmentDirectional.centerEnd,
+                                            minWidth: DualPaneTokens.ratingSide,
+                                            maxWidth: DualPaneTokens.ratingSide,
+                                            child: IgnorePointer(
+                                              ignoring: !restStage,
+                                              child: Opacity(
+                                                opacity: (1 - f).clamp(0.0, 1.0),
+                                                child: Row(
+                                                  children: [
+                                                    const SizedBox(
+                                                      width: DualPaneTokens.ratingSide - DualPaneTokens.ratingColumn,
+                                                    ),
+                                                    SizedBox(
+                                                      width: DualPaneTokens.ratingColumn,
+                                                      child: Column(
+                                                        children: [
+                                                          Expanded(
+                                                            child: RatingSlider(
+                                                              rating: state.rating,
+                                                              songKey: state.songKey,
+                                                              onCommit: vm.commitRating,
+                                                            ),
+                                                          ),
+                                                          if (state.canFavorite) ...[
+                                                            const SizedBox(
+                                                              height: NowPlayingTokens.ratingToHeartGap - 2,
+                                                            ),
+                                                            FavoriteHeart(
+                                                              starred: state.isStarred,
+                                                              onToggle: vm.toggleFavorite,
+                                                            ),
+                                                          ],
+                                                          const SizedBox(height: NowPlayingTokens.heartBottomGap - 2),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            ),
-                            SizedBox(height: budget.coverToTransport),
-                            // The transport pads itself by the column padding: let it
-                            // overhang so its controls span exactly the stack.
-                            SizedBox(
-                              width: budget.slot,
-                              height: dualPaneTransportHeight(metrics),
-                              child: OverflowBox(
-                                alignment: Alignment.topCenter,
-                                minWidth: budget.slot + 2 * NowPlayingTokens.columnPadding,
-                                maxWidth: budget.slot + 2 * NowPlayingTokens.columnPadding,
-                                child: TransportControls(
-                                  noteAnchorsMs: [for (final n in notes.notes) ?n.positionMs],
-                                  isPlaying: state.isPlaying,
-                                  isWavePlaying: state.isWavePlaying,
-                                  playMode: state.playMode,
-                                  clock: clock,
-                                  durationMs: state.durationMs,
-                                  labelsUnder: budget.slot < transportLabelsInlineMinWidth,
-                                  waveVisible: true,
-                                  onPlayPause: vm.togglePlayPause,
-                                  onNext: vm.next,
-                                  onPrevious: vm.previous,
-                                  onSetPlayMode: vm.setPlayMode,
-                                  showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
-                                  onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
-                                  onSeek: vm.seekToFraction,
-                                  pressed: pressed,
                                 ),
-                              ),
-                            ),
-                            const Spacer(),
-                            if (!titleInBar) ...[
-                              SizedBox(height: budget.transportToTitle),
-                              Row(
-                                children: [
-                                  Flexible(
-                                    child: GestureDetector(
-                                      onTap: track.artistId == null ? null : openArtist,
-                                      child: Text(
-                                        track.artist ?? '',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: text.titleMedium!.copyWith(color: colors.onSurfaceVariant),
-                                      ),
+                                SizedBox(
+                                  height: lerpDouble(budget.coverToTransport, DualPaneTokens.coverToTransportMin, f),
+                                ),
+                                // The transport pads itself by the column padding: let it
+                                // overhang so its controls span exactly the stack.
+                                SizedBox(
+                                  width: slot,
+                                  height: dualPaneTransportHeight(metrics),
+                                  child: OverflowBox(
+                                    alignment: Alignment.topCenter,
+                                    minWidth: slot + 2 * NowPlayingTokens.columnPadding,
+                                    maxWidth: slot + 2 * NowPlayingTokens.columnPadding,
+                                    child: TransportControls(
+                                      noteAnchorsMs: [for (final n in notes.notes) ?n.positionMs],
+                                      isPlaying: state.isPlaying,
+                                      isWavePlaying: state.isWavePlaying,
+                                      playMode: state.playMode,
+                                      clock: clock,
+                                      durationMs: state.durationMs,
+                                      labelsUnder: budget.slot < transportLabelsInlineMinWidth,
+                                      waveVisible: true,
+                                      atEase: atEase,
+                                      onPlayPause: vm.togglePlayPause,
+                                      onNext: vm.next,
+                                      onPrevious: vm.previous,
+                                      onSetPlayMode: vm.setPlayMode,
+                                      showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
+                                      onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
+                                      onSeek: vm.seekToFraction,
+                                      pressed: pressed,
                                     ),
                                   ),
-                                  if (audioFormatTags(track.audioFormat).isNotEmpty) ...[
-                                    const SizedBox(width: 8),
-                                    AudioFormatTagRow(
-                                      tags: audioFormatTags(track.audioFormat),
-                                      description: strings.formatDescription(
-                                        audioFormatTags(track.audioFormat).join(' '),
+                                ),
+                                const Spacer(),
+                                if (!titleInBar) ...[
+                                  SizedBox(height: budget.transportToTitle),
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: GestureDetector(
+                                          onTap: track.artistId == null ? null : openArtist,
+                                          child: Text(
+                                            track.artist ?? '',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: text.titleMedium!.copyWith(color: colors.onSurfaceVariant),
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      if (audioFormatTags(track.audioFormat).isNotEmpty) ...[
+                                        const SizedBox(width: 8),
+                                        AudioFormatTagRow(
+                                          tags: audioFormatTags(track.audioFormat),
+                                          description: strings.formatDescription(
+                                            audioFormatTags(track.audioFormat).join(' '),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: DualPaneTokens.titleLineGap),
+                                  GestureDetector(
+                                    onTap: track.albumId == null ? null : openAlbum,
+                                    child: budget.titleForm == DualPaneTitleForm.twoLines
+                                        ? Text(
+                                            track.title ?? '',
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: text.headlineMedium!.copyWith(color: colors.onSurface),
+                                          )
+                                        : Marquee(
+                                            text: track.title ?? '',
+                                            style: text.headlineMedium!.copyWith(color: colors.onSurface),
+                                          ),
+                                  ),
                                 ],
-                              ),
-                              const SizedBox(height: DualPaneTokens.titleLineGap),
-                              GestureDetector(
-                                onTap: track.albumId == null ? null : openAlbum,
-                                child: budget.titleForm == DualPaneTitleForm.twoLines
-                                    ? Text(
-                                        track.title ?? '',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: text.headlineMedium!.copyWith(color: colors.onSurface),
-                                      )
-                                    : Marquee(
-                                        text: track.title ?? '',
-                                        style: text.headlineMedium!.copyWith(color: colors.onSurface),
-                                      ),
-                              ),
-                            ],
-                          ],
-                        ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(width: DualPaneTokens.columnGap),
                       // RIGHT — always expanded: tabs, pager, the page's tools.
@@ -2023,6 +2340,8 @@ class _DualTools extends StatelessWidget {
 /// the right column a full page of lyrics. Queue and Write ride the header.
 class _LandscapePane extends ConsumerWidget {
   const _LandscapePane({
+    required this.atEase,
+    required this.onOfferFocus,
     required this.state,
     required this.controller,
     required this.insets,
@@ -2056,6 +2375,12 @@ class _LandscapePane extends ConsumerWidget {
   final ValueChanged<double> onBarHeight;
   final Animation<double> barHeight;
 
+  /// Focus at ease as shown (the transport's buttons step away).
+  final Animation<double> atEase;
+
+  /// Tells the controller whether this body's cover can focus (always, in landscape).
+  final ValueChanged<bool> onOfferFocus;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final vm = ref.read(nowPlayingViewModelProvider.notifier);
@@ -2064,6 +2389,10 @@ class _LandscapePane extends ConsumerWidget {
     final text = Theme.of(context).textTheme;
     final strings = NowPlayingStrings.of(context);
     final track = state.track;
+    // Focus works on every landscape window (the header, tabs and rating step away).
+    onOfferFocus(true);
+    final inFocus = controller.stage == NowPlayingStage.immersive;
+    final restStage = controller.stage == NowPlayingStage.compact;
     // Side insets: the cutout side's inset, at least the column padding.
     final padding = EdgeInsets.fromLTRB(
       math.max(insets.left, NowPlayingTokens.columnPadding),
@@ -2072,27 +2401,64 @@ class _LandscapePane extends ConsumerWidget {
       math.max(insets.bottom, 8),
     );
 
-    Widget cover(double edge) => FlightSlot(
-      element: FlightElement.cover,
-      pill: false,
-      child: SizedBox.square(
-        dimension: edge,
-        child: _StageCover(state: state, detail: const AlwaysStoppedAnimation(0), requestEdge: edge),
+    // [request]: decoded once at the larger of the rest / focus edges.
+    Widget cover(double edge, double request) => GestureDetector(
+      onTap: controller.toggleFocus,
+      child: FlightSlot(
+        element: FlightElement.cover,
+        pill: false,
+        child: SizedBox.square(
+          dimension: edge,
+          child: _StageCover(state: state, detail: const AlwaysStoppedAnimation(0), requestEdge: request),
+        ),
       ),
     );
 
-    Widget ratingColumn() => SizedBox(
-      width: LandscapeTokens.ratingColumn,
-      child: Column(
-        children: [
-          Expanded(
-            child: RatingSlider(rating: state.rating, songKey: state.songKey, onCommit: vm.commitRating),
+    // The rating column with its gap; focus fades it and ([closes]) closes its slot.
+    Widget ratingColumn(double f, {bool closes = true}) => SizedBox(
+      width: (LandscapeTokens.ratingGap + LandscapeTokens.ratingColumn) * (closes ? 1 - f : 1),
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: AlignmentDirectional.centerEnd,
+          minWidth: LandscapeTokens.ratingGap + LandscapeTokens.ratingColumn,
+          maxWidth: LandscapeTokens.ratingGap + LandscapeTokens.ratingColumn,
+          child: IgnorePointer(
+            ignoring: !restStage,
+            child: Opacity(
+              opacity: (1 - f).clamp(0.0, 1.0),
+              child: Padding(
+                padding: const EdgeInsetsDirectional.only(start: LandscapeTokens.ratingGap),
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: RatingSlider(rating: state.rating, songKey: state.songKey, onCommit: vm.commitRating),
+                    ),
+                    if (state.canFavorite) ...[
+                      const SizedBox(height: NowPlayingTokens.ratingToHeartGap - 2),
+                      FavoriteHeart(starred: state.isStarred, onToggle: vm.toggleFavorite),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ),
-          if (state.canFavorite) ...[
-            const SizedBox(height: NowPlayingTokens.ratingToHeartGap - 2),
-            FavoriteHeart(starred: state.isStarred, onToggle: vm.toggleFavorite),
-          ],
-        ],
+        ),
+      ),
+    );
+
+    // What steps away in focus: its slot closes from [height] and it fades.
+    Widget retreating(double f, double height, Widget child) => SizedBox(
+      height: height * (1 - f),
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.bottomCenter,
+          minHeight: height,
+          maxHeight: height,
+          child: IgnorePointer(
+            ignoring: !restStage,
+            child: Opacity(opacity: (1 - f).clamp(0.0, 1.0), child: child),
+          ),
+        ),
       ),
     );
 
@@ -2112,6 +2478,7 @@ class _LandscapePane extends ConsumerWidget {
           durationMs: state.durationMs,
           labelsUnder: width < transportLabelsInlineMinWidth,
           waveVisible: true,
+          atEase: atEase,
           onPlayPause: vm.togglePlayPause,
           onNext: vm.next,
           onPrevious: vm.previous,
@@ -2243,88 +2610,122 @@ class _LandscapePane extends ConsumerWidget {
       bottom: 0,
     );
 
+    // Focus: the focus lyrics (current line on the third row, two above it
+    // fading) take the pager's place; the resting pager fades out under it.
+    Widget focusLyrics(double f) => Opacity(
+      opacity: _smooth(0.15, 1, f),
+      child: IgnorePointer(
+        ignoring: !inFocus,
+        child: LyricsView(
+          mode: LyricsListMode.focus,
+          lyrics: state.lyrics,
+          songKey: state.songKey,
+          clock: clock,
+          onSeek: vm.seekTo,
+          upNext: state.upNext,
+          durationMs: state.durationMs,
+          linesAbove: 2,
+        ),
+      ),
+    );
+
+    Widget pagerOrFocus({required bool full, required double f}) {
+      if (f <= 0.001) return pager(full: full);
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          if (f < 0.999)
+            IgnorePointer(
+              ignoring: !restStage,
+              child: Opacity(
+                opacity: (1 - f).clamp(0.0, 1.0),
+                child: pager(full: full),
+              ),
+            ),
+          focusLyrics(f),
+        ],
+      );
+    }
+
     return Padding(
       padding: padding,
       child: LayoutBuilder(
-        builder: (context, constraints) {
-          final l = resolveLandscapeLayout(
-            width: constraints.maxWidth,
-            height: constraints.maxHeight,
-            metrics: metrics,
-          );
-          final rightWidth = constraints.maxWidth - l.columnX;
-          final left = l.stacked
-              ? SizedBox(
-                  width: l.leftWidth,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        height: l.cover,
-                        child: Row(
-                          children: [
-                            cover(l.cover),
-                            const SizedBox(width: LandscapeTokens.ratingGap),
-                            ratingColumn(),
-                          ],
+        builder: (context, constraints) => AnimatedBuilder(
+          animation: controller.focus.animation,
+          builder: (context, _) {
+            final l = resolveLandscapeLayout(
+              width: constraints.maxWidth,
+              height: constraints.maxHeight,
+              metrics: metrics,
+            );
+            final f = controller.focus.value.clamp(0.0, 1.0);
+            final request = math.max(l.cover, l.focusCover);
+            final coverEdge = l.stacked ? l.cover : lerpDouble(l.cover, l.focusCover, f)!;
+            final columnX = lerpDouble(l.columnX, l.focusColumnX, f)!;
+            final rightWidth = constraints.maxWidth - columnX;
+            final left = l.stacked
+                ? SizedBox(
+                    width: l.leftWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          height: l.cover,
+                          child: Row(children: [cover(l.cover, request), ratingColumn(f, closes: false)]),
+                        ),
+                        const SizedBox(height: LandscapeTokens.coverToTransport),
+                        transport(l.leftWidth),
+                        const SizedBox(height: LandscapeTokens.transportToTitle),
+                        title(),
+                      ],
+                    ),
+                  )
+                : SizedBox(
+                    width: coverEdge + (LandscapeTokens.ratingGap + LandscapeTokens.ratingColumn) * (1 - f),
+                    height: coverEdge,
+                    child: Row(children: [cover(coverEdge, request), ratingColumn(f)]),
+                  );
+            final right = SizedBox(
+              width: rightWidth,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  retreating(f, LandscapeTokens.headerHeight, header()),
+                  retreating(f, LandscapeTokens.tabRow, tabs()),
+                  Expanded(
+                    child: pagerOrFocus(full: l.stacked, f: f),
+                  ),
+                  if (!l.stacked) ...[
+                    // The write bar opens under the Note page only.
+                    AnimatedBuilder(
+                      animation: page,
+                      builder: (context, child) => ClipRect(
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          heightFactor: (page.value * (1 - f)).clamp(0.0, 1.0),
+                          child: child,
                         ),
                       ),
-                      const SizedBox(height: LandscapeTokens.coverToTransport),
-                      transport(l.leftWidth),
-                      const SizedBox(height: LandscapeTokens.transportToTitle),
-                      title(),
-                    ],
-                  ),
-                )
-              : SizedBox(
-                  width: l.leftWidth,
-                  height: l.cover,
-                  child: Row(
-                    children: [
-                      cover(l.cover),
-                      const SizedBox(width: LandscapeTokens.ratingGap),
-                      ratingColumn(),
-                    ],
-                  ),
-                );
-          final right = SizedBox(
-            width: rightWidth,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                header(),
-                tabs(),
-                Expanded(child: pager(full: l.stacked)),
-                if (!l.stacked) ...[
-                  // The write bar opens under the Note page only.
-                  AnimatedBuilder(
-                    animation: page,
-                    builder: (context, child) => ClipRect(
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        heightFactor: page.value.clamp(0.0, 1.0),
-                        child: child,
-                      ),
+                      child: tools(),
                     ),
-                    child: tools(),
-                  ),
-                  const SizedBox(height: LandscapeTokens.lyricsToTransport),
-                  transport(rightWidth),
-                  title(),
-                ] else
-                  tools(),
+                    const SizedBox(height: LandscapeTokens.lyricsToTransport),
+                    transport(rightWidth),
+                    title(),
+                  ] else
+                    retreating(f, DualPaneTokens.accessoryHeight, tools()),
+                ],
+              ),
+            );
+            return Row(
+              crossAxisAlignment: l.stacked ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+              children: [
+                left,
+                const SizedBox(width: LandscapeTokens.columnGap),
+                right,
               ],
-            ),
-          );
-          return Row(
-            crossAxisAlignment: l.stacked ? CrossAxisAlignment.start : CrossAxisAlignment.center,
-            children: [
-              left,
-              const SizedBox(width: LandscapeTokens.columnGap),
-              right,
-            ],
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
