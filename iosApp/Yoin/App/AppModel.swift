@@ -75,6 +75,10 @@ final class AppModel {
     /// The side-by-side surfaces in the order they opened, oldest first: ⌘[ closes the newest
     /// (ShellBackOrder, Android #200).
     @ObservationIgnored var backRecency: [ShellBackSurface] = []
+    /// ⌘[ inside Now Playing: each presented player's own step back (its stage), registered while it is up.
+    @ObservationIgnored var npStageBack: [NowPlayingBackSlot: NowPlayingStageBack] = [:]
+    /// Home's edit mode, for ⌘[ (HomeView registers it).
+    @ObservationIgnored weak var homeEdit: HomeEditController?
     @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024

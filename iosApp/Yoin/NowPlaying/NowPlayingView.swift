@@ -47,6 +47,11 @@ struct NowPlayingView: View, Equatable {
     /// Android NowPlayingStageMode (NowPlayingStage.swift): compact, the
     /// expanded detail page, or the focused cover.
     @State private var stage: NowPlayingStage = .compact
+    /// The expanded page was opened from focus: stepping back returns to focus, not to the resting
+    /// player (Android NowPlayingViewModel.expandedFromFocus, owner 2026-11-03: expanded → focus → normal).
+    @State private var expandedFromFocus = false
+    /// This player's ⌘[ registration with the shell (NowPlayingStageBack.token).
+    @State private var backToken = UUID()
     /// Android short focus (NowPlayingBudget.ShortFocus): the cover tap's
     /// focus where the regular one isn't offered. Compact only.
     @State private var shortFocus = false
@@ -334,7 +339,18 @@ struct NowPlayingView: View, Equatable {
             lyricsEditing = false
         }
         .onChange(of: stage) { _, s in if s != .expanded { leaveLyricsSelect(follow: true) } }
+        .onChange(of: stage) { old, s in if s == .expanded, old != .expanded { expandedFromFocus = old == .focus } }
         .onChange(of: tab) { _, t in if t != NowPlayingDetailPage.lyrics.rawValue { leaveLyricsSelect(follow: false) } }
+        // ⌘[ steps back inside this player before the shell closes it (AppModel.backFromKeyboard).
+        .onAppear {
+            guard demo == nil else { return }
+            let token = backToken
+            model.npStageBack[panel ? .panel : .full] = NowPlayingStageBack(token: token) { keyboardStageBack() }
+        }
+        .onDisappear {
+            let slot: NowPlayingBackSlot = panel ? .panel : .full
+            if model.npStageBack[slot]?.token == backToken { model.npStageBack[slot] = nil }
+        }
         .task(id: engineTrack.map(NowPlayingData.key)) {
             guard let t = engineTrack else { return }
             await data.prepare(t, client: model.session.client, apple: model.store.apple)
@@ -1391,7 +1407,8 @@ struct NowPlayingView: View, Equatable {
         }
     }
 
-    /// The chevron: back to the resting player, or (at rest) collapse.
+    /// The chevron: back a stage (the expanded page opened from focus goes back to focus, as on Android),
+    /// or (at rest) collapse.
     private func stageBack() {
         if asking {
             askFieldFocused = false
@@ -1402,8 +1419,20 @@ struct NowPlayingView: View, Equatable {
         composerFocused = false
         withAnimation(Yoin.stageSettle) {
             if draft.isEmpty { composing = false }
-            stage = .compact
+            let back: NowPlayingStage = stage == .expanded && expandedFromFocus ? .focus : .compact
+            // Focus shows the lyrics, as a cover tap into it does.
+            if back == .focus { tab = NowPlayingDetailPage.lyrics.rawValue }
+            stage = back
         }
+    }
+
+    /// ⌘[ inside this player (Android NowPlayingOverlayHost's stage level): one stage back, as the chevron
+    /// and two columns' back do; false at rest, where the shell takes it (Full to the panel, or closed).
+    private func keyboardStageBack() -> Bool {
+        guard demo == nil,
+              NowPlayingStageBackRule.previous(stage, fromFocus: expandedFromFocus, wide: wide) != nil else { return false }
+        if wide { wideBack() } else { stageBack() }
+        return true
     }
 
     /// Unsynced lyrics scroll by hand in the small window: their own tap opens the page.

@@ -69,8 +69,11 @@ extension AppModel {
     }
 
     /// ⌘[ (Android #200, ShellBackOrder): whatever covers the window goes first (search, Full Now
-    /// Playing, a page pushed over the shell), then the surfaces beside one another close newest first:
-    /// the Now Playing side panel, the detail column (its stack, then the column), Memories.
+    /// Playing, a page pushed over the shell), then Home's edit mode, then the surfaces beside one another
+    /// close newest first: the Now Playing side panel, the detail column (its stack, then the column),
+    /// Memories. Now Playing steps back inside itself before it closes (Android NowPlayingOverlayHost's
+    /// layered back): lyrics opened from focus to focus, focus or the expanded page to the resting player,
+    /// then Full to its side panel where one fits, then closed.
     func backFromKeyboard() {
         let wideColumn = isPad && padWidth >= 840
         let step = ShellBackOrder.step(
@@ -81,15 +84,21 @@ extension AppModel {
             panelOpen: isPad && npPanel,
             columnOpen: wideColumn && (padSelection != nil || !path.isEmpty),
             memoriesOpen: section == .home && memories.isOpen,
+            homeEditing: section == .home && homeEdit?.isEditing == true,
             staleSelection: isPad && padSelection != nil,
             recency: backRecency
         )
         switch step {
         case .closeSearch: withAnimation(Yoin.spatial) { searchActive = false }
-        case .closeFullNowPlaying: setNowPlaying(expanded: false)
+        case .closeFullNowPlaying:
+            if npStageBack[.full]?.step() == true { return }
+            if isPad, padPanelFits { npFullToPanel() } else { setNowPlaying(expanded: false) }
         case .popPage, .column: back()
-        case .closePanel: withAnimation(Yoin.spatial) { npPanel = false }
+        case .closePanel:
+            if npStageBack[.panel]?.step() == true { return }
+            withAnimation(Yoin.spatial) { npPanel = false }
         case .closeMemories: memories.close()
+        case .exitHomeEdit: homeEdit?.exit()
         case .clearSelection: withAnimation(Yoin.spatial) { padSelection = nil }
         case .none: break
         }

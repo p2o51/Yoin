@@ -125,7 +125,11 @@ struct HomeView: View {
             // The ledger names songs from the album pages just loaded.
             MemoryLedgerSource.shared.reload(model: model)
         }
-        .onAppear { edit.load(scope: model.store.homeScope) }
+        .onAppear {
+            edit.load(scope: model.store.homeScope)
+            // ⌘[ ends edit mode (ShellBackOrder.exitHomeEdit).
+            model.homeEdit = edit
+        }
         // One look each time the app opens or comes back; none outlives leaving or a switch.
         .task { spotifyElsewhere.look(model) }
         .onChange(of: scenePhase) { _, phase in
@@ -222,7 +226,9 @@ struct HomeView: View {
                     ForEach(Array(shown.enumerated()), id: \.element) { i, section in
                         HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed),
                                       rows: rowsHandle(section, feed),
-                                      lyricCount: section == .lyricHighlight && !lyricCards.isEmpty) {
+                                      // Whenever the block shows anything, the Beta intro alone included
+                                      // (Android HomeEditBlock: every block that isn't a placeholder).
+                                      lyricCount: section == .lyricHighlight && hasContent(section, feed)) {
                             sectionView(section, feed)
                         }
                     }

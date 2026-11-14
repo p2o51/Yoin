@@ -5,11 +5,31 @@ import XCTest
 @MainActor
 final class ShellBackOrderTests: XCTestCase {
     private func step(search: Bool = false, full: Bool = false, page: Bool = false,
-                      panel: Bool = false, column: Bool = false, memories: Bool = false,
+                      panel: Bool = false, column: Bool = false, memories: Bool = false, editing: Bool = false,
                       stale: Bool = false, recency: [ShellBackSurface] = []) -> ShellBackStep {
         ShellBackOrder.step(searchActive: search, fullNowPlaying: full, pageCoversShell: page,
-                            panelOpen: panel, columnOpen: column, memoriesOpen: memories,
+                            panelOpen: panel, columnOpen: column, memoriesOpen: memories, homeEditing: editing,
                             staleSelection: stale, recency: recency)
+    }
+
+    /// I06, Android resolveShellBackOwner: Home's edit mode answers before the column and Memories, after
+    /// an open Now Playing.
+    func test_should_endHomeEdit_beforeTheColumn_butAfterNowPlaying() {
+        XCTAssertEqual(step(column: true, memories: true, editing: true, recency: [.memories, .column]), .exitHomeEdit)
+        XCTAssertEqual(step(panel: true, column: true, editing: true, recency: [.nowPlaying, .column]), .closePanel)
+        XCTAssertEqual(step(full: true, editing: true), .closeFullNowPlaying)
+        XCTAssertEqual(step(search: true, editing: true), .closeSearch)
+    }
+
+    /// Android stepBackStage: lyrics opened from focus go back to focus, focus to the resting player; two
+    /// columns rest on the expanded page.
+    func test_should_stepBackOneStage_insideNowPlaying() {
+        XCTAssertEqual(NowPlayingStageBackRule.previous(.expanded, fromFocus: true, wide: false), .focus)
+        XCTAssertEqual(NowPlayingStageBackRule.previous(.expanded, fromFocus: false, wide: false), .compact)
+        XCTAssertEqual(NowPlayingStageBackRule.previous(.focus, fromFocus: false, wide: false), .compact)
+        XCTAssertNil(NowPlayingStageBackRule.previous(.compact, fromFocus: false, wide: false))
+        XCTAssertEqual(NowPlayingStageBackRule.previous(.focus, fromFocus: false, wide: true), .expanded)
+        XCTAssertNil(NowPlayingStageBackRule.previous(.expanded, fromFocus: true, wide: true))
     }
 
     func test_should_closePanelFirst_when_panelOpenedAfterColumn() {

@@ -16,6 +16,8 @@ enum ShellBackStep: Equatable {
     /// The column's own stack pops, then the column closes (`AppModel.back()`).
     case column
     case closeMemories
+    /// Home's edit mode ends (Done).
+    case exitHomeEdit
     /// An album left picked with no column to show it (a narrowed iPad) is let go.
     case clearSelection
     case none
@@ -27,7 +29,9 @@ enum ShellBackStep: Equatable {
 /// shell saw them open, and the latest one still open answers. Going further inside an open one
 /// (another page in the column, Now Playing's lyrics or focus, the panel growing to Full) counts
 /// as entering it again. One missing from `recency` ranks oldest; ties fall back to
-/// Now Playing › column › Memories, Android's order.
+/// Now Playing › column › Memories, Android's order. Home's edit mode comes before them all, but
+/// after an open Now Playing (Android: the cards wait while editing, and closing the column would
+/// re-tier the shell mid-edit).
 enum ShellBackOrder {
     static func step(
         searchActive: Bool,
@@ -36,12 +40,14 @@ enum ShellBackOrder {
         panelOpen: Bool,
         columnOpen: Bool,
         memoriesOpen: Bool,
+        homeEditing: Bool = false,
         staleSelection: Bool = false,
         recency: [ShellBackSurface] = []
     ) -> ShellBackStep {
         if searchActive { return .closeSearch }
         if fullNowPlaying { return .closeFullNowPlaying }
         if pageCoversShell { return .popPage }
+        if homeEditing { return panelOpen ? .closePanel : .exitHomeEdit }
         var open: [ShellBackSurface] = []
         if panelOpen { open.append(.nowPlaying) }
         if columnOpen { open.append(.column) }
@@ -67,6 +73,32 @@ enum ShellBackOrder {
         var r = recency.filter { $0 != surface }
         if open { r.append(surface) }
         return r
+    }
+}
+
+/// Where a Now Playing that answers ⌘[ is presented: Full (the phone's, or the iPad's grown page) or the
+/// iPad's side panel.
+enum NowPlayingBackSlot: Hashable { case full, panel }
+
+/// One presented Now Playing's step back inside itself (its stage), kept by the shell under its slot.
+/// `token` tells the player that registered it from one that left since, so a player going away clears
+/// only its own.
+struct NowPlayingStageBack {
+    var token: UUID
+    /// Steps back one stage; false when it was at rest and ⌘[ goes on (to the panel, or closed).
+    var step: @MainActor () -> Bool
+}
+
+/// Android NowPlayingViewModel.stepBackStage, as Now Playing's stage steps back: lyrics opened from focus
+/// go back to focus, focus and the expanded page to the resting player; two columns rest on the
+/// expanded page, so focus goes back to it and the expanded page doesn't step back. Nil: at rest.
+enum NowPlayingStageBackRule {
+    static func previous(_ stage: NowPlayingStage, fromFocus: Bool, wide: Bool) -> NowPlayingStage? {
+        switch stage {
+        case .compact: nil
+        case .focus: wide ? .expanded : .compact
+        case .expanded: wide ? nil : (fromFocus ? .focus : .compact)
+        }
     }
 }
 
