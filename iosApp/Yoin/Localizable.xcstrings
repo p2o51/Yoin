@@ -10175,6 +10175,26 @@
           }
         }
       }
+    },
+    "Creating on %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在 %@ 上创建"
+          }
+        }
+      }
+    },
+    "%lld added": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加 %lld 首"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

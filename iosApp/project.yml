@@ -83,6 +83,8 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.json]
         LSSupportsOpeningDocumentsInPlace: false
+        # A playlist restore's progress on the Lock Screen and in the Dynamic Island (Data/Backup/RestoreLiveActivity.swift).
+        NSSupportsLiveActivities: true
         # Handoff of what's playing (App/PlayingHandoff.swift), the native Mac's activity type.
         NSUserActivityTypes:
           - com.gpo.yoin.playing
@@ -186,6 +188,9 @@ targets:
       - path: YoinWidgets
       - path: Yoin/Widgets/WidgetSnapshot.swift
       - path: Yoin/Widgets/WidgetIntents.swift
+      # A playlist restore's Live Activity: its data, and the mascot that rides its bar.
+      - path: Yoin/Widgets/RestoreActivity.swift
+      - path: Yoin/Theme/YoinMarkPaths.swift
       - path: Yoin/Localizable.xcstrings
     entitlements:
       path: YoinWidgets/YoinWidgets.entitlements
