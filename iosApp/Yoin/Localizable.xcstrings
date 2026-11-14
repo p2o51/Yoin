@@ -10025,6 +10025,26 @@
           }
         }
       }
+    },
+    "On. Multichannel songs are spatialized on this output.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已开启。当前输出上，多声道歌曲会被空间化。"
+          }
+        }
+      }
+    },
+    "Ready. The current output can't be spatialized; it starts on headphones that support spatial audio.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已就绪。当前输出不支持空间化，戴上支持空间音频的耳机后自动生效。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

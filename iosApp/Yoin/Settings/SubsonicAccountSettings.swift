@@ -68,25 +68,43 @@ struct SubsonicAccountSettings: View {
         }
     }
 
-    /// Android Settings › Spatial audio: 5.1 / 7.1 files spatialized on headphones that support it.
+    /// Android Settings › Spatial audio: 5.1 / 7.1 files spatialized on headphones that support it. The
+    /// switch says what a 5.1 song would get right now, on the output in use; what the setting covers sits
+    /// under the group.
     private var spatialGroup: some View {
         let s = ReplayGainSettings.shared
-        return group(String(localized: "Spatial audio")) {
-            [AnyView(Toggle(isOn: Binding(get: { s.spatializeMultichannel },
-                                          set: { on in withAnimation(Yoin.effects) { s.spatializeMultichannel = on } })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Spatialize 5.1 and 7.1 songs").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
-                    Text(s.spatializeMultichannel
-                         ? String(localized: "Only for songs that are 5.1 or 7.1 files, played as the original. Stereo songs aren't changed.")
-                         : String(localized: "Off. Multichannel songs play folded down to stereo."))
-                        .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
-                        .contentTransition(.opacity)
+        let status = Self.spatialStatus(settingOn: s.spatializeMultichannel,
+                                        outputSpatializes: SpatialAudioMonitor.shared.outputSpatializes)
+        return VStack(alignment: .leading, spacing: 8) {
+            group(String(localized: "Spatial audio")) {
+                [AnyView(Toggle(isOn: Binding(get: { s.spatializeMultichannel },
+                                              set: { on in withAnimation(Yoin.effects) { s.spatializeMultichannel = on } })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Spatialize 5.1 and 7.1 songs").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                        Text(status)
+                            .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                            .contentTransition(.opacity)
+                            .animation(Yoin.effects, value: status)
+                    }
                 }
+                .tint(app.primary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14))]
             }
-            .tint(app.primary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14))]
+            Text("Only for songs that are 5.1 or 7.1 files, played as the original. Stereo songs aren't changed.")
+                .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                .padding(.horizontal, 8)
         }
+    }
+
+    /// Android `spatialAudioStatus`, as far as iOS tells: off by choice, on and spatialized on this output, or
+    /// ready for headphones with Spatial Audio (iOS says it per output, switched per headset; it doesn't say
+    /// whether the head is tracked).
+    nonisolated static func spatialStatus(settingOn: Bool, outputSpatializes: Bool) -> String {
+        guard settingOn else { return String(localized: "Off. Multichannel songs play folded down to stereo.") }
+        return outputSpatializes
+            ? String(localized: "On. Multichannel songs are spatialized on this output.")
+            : String(localized: "Ready. The current output can't be spatialized; it starts on headphones that support spatial audio.")
     }
 
     private func selected(_ network: QualityNetwork) -> StreamQuality {

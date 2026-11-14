@@ -46,6 +46,15 @@ final class ReplayGainTests: XCTestCase {
         XCTAssertFalse(SpatialAudioMonitor.spatialized(channels: 6, settingOn: false, outputSpatializes: true))
         XCTAssertFalse(SpatialAudioMonitor.spatialized(channels: 6, settingOn: true, outputSpatializes: false))
     }
+
+    func test_should_sayWhatA51SongGetsNow_when_theSpatialSettingShows() {
+        XCTAssertEqual(SubsonicAccountSettings.spatialStatus(settingOn: false, outputSpatializes: true),
+                       loc("Off. Multichannel songs play folded down to stereo."))
+        XCTAssertEqual(SubsonicAccountSettings.spatialStatus(settingOn: true, outputSpatializes: true),
+                       loc("On. Multichannel songs are spatialized on this output."))
+        XCTAssertEqual(SubsonicAccountSettings.spatialStatus(settingOn: true, outputSpatializes: false),
+                       loc("Ready. The current output can't be spatialized; it starts on headphones that support spatial audio."))
+    }
 }
 
 /// The per-song ReplayGain kept for the player (#213 review): song ids are per server, so nothing a song of
