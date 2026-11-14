@@ -6,16 +6,19 @@ import androidx.lifecycle.ViewModelStore
 import com.gpo.yoin.data.local.AiProviderStore
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.GeminiConfigDao
+import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.data.remote.ai.AiSearchService
 import com.gpo.yoin.data.remote.ai.AiSettings
 import com.gpo.yoin.testutil.MainDispatcherRule
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -23,6 +26,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.flow.launchIn
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -38,6 +42,7 @@ class AiSettingsViewModelTest {
     private val dao = FakeGeminiConfigDao(GeminiConfig(apiKey = "old", targetLanguage = "Japanese"))
     private val store = AiProviderStore.InMemory()
     private val service = mockk<GeminiService>(relaxed = true)
+    private val recent = MutableStateFlow<List<RecentTestSong>>(emptyList())
 
     /** Stands in for the page's Activity: clearing it is the page being closed. */
     private val page = ViewModelStore()
@@ -51,7 +56,7 @@ class AiSettingsViewModelTest {
                 geminiDao = dao,
                 geminiService = service,
                 clearGeneratedAbout = {},
-                nowPlayingSong = { null },
+                recentSongs = recent,
                 saveScope = CoroutineScope(mainDispatcherRule.dispatcher),
             ) as T
         },
@@ -193,6 +198,75 @@ class AiSettingsViewModelTest {
     }
 
     @Test
+    fun should_runOneTestAtATime_when_anotherSongIsTappedWhileOneRuns() = runTest {
+        val answer = CompletableDeferred<GeminiService.AboutRun>()
+        coEvery { service.runCanonicalAbout(any(), any(), any(), any(), any()) } coAnswers { answer.await() }
+        val vm = viewModel()
+        val first = TestSong("Lemon", "Kenshi Yonezu", "STRAY SHEEP")
+
+        vm.runTest(first)
+        runCurrent()
+        vm.runTest(TestSong("Plastic Love", "Mariya Takeuchi", "Variety"))
+        runCurrent()
+
+        assertEquals(TestRun.Running(first), vm.test.value)
+        answer.complete(
+            GeminiService.AboutRun(
+                values = emptyList(),
+                rawText = "",
+                searchKind = AiSettings.SearchKind.BuiltIn,
+                searchQueries = emptyList(),
+                pagesRead = 0,
+            ),
+        )
+        runCurrent()
+        assertEquals(first, (vm.test.value as TestRun.Done).song)
+        coVerify(exactly = 1) { service.runCanonicalAbout(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun should_offerTheRecentSongs_when_thePageWatchesThem() = runTest {
+        val vm = viewModel()
+        assertNull(vm.recentSongs.value)
+        vm.recentSongs.launchIn(backgroundScope)
+        val songs = listOf(RecentTestSong("s1", TestSong("Lemon", "Kenshi Yonezu", "STRAY SHEEP"), null))
+
+        recent.value = songs
+        runCurrent()
+
+        assertEquals(songs, vm.recentSongs.value)
+    }
+
+    @Test
+    fun should_offerSixSongsNewestFirstEachOnce_from_playHistory() {
+        val rows = listOf("a", "b", "a", "c", "d", "b", "e", "f", "g", "h").mapIndexed { i, id ->
+            PlayHistory(
+                songId = id,
+                title = "Song $id",
+                artist = "Artist $id",
+                album = "Album $id",
+                albumId = "",
+                coverArtId = "cover-$id".takeIf { id != "c" },
+                playedAt = 1_000L - i,
+                durationMs = 0,
+                completedPercent = 1f,
+            )
+        }
+
+        val songs = recentTestSongs(rows) { key -> key?.let { "https://img/$it" } }
+
+        assertEquals(listOf("a", "b", "c", "d", "e", "f"), songs.map { it.key })
+        assertEquals(TestSong("Song a", "Artist a", "Album a"), songs.first().song)
+        assertEquals("https://img/cover-a", songs.first().coverUrl)
+        assertNull(songs[2].coverUrl)
+    }
+
+    @Test
+    fun should_offerNoSongs_when_thereIsNoPlayHistory() {
+        assertEquals(emptyList<RecentTestSong>(), recentTestSongs(emptyList()) { it })
+    }
+
+    @Test
     fun should_keepEachSearchServicesKey_when_anotherServicesKeyIsTyped() = runTest {
         val vm = viewModel()
 
@@ -203,6 +277,15 @@ class AiSettingsViewModelTest {
         assertEquals("ds-key", store.prefs.value.searchKeyDeepSeek)
         assertEquals("exa-key", store.prefs.value.searchKeyExa)
         assertEquals("", store.prefs.value.searchKeyTavily)
+
+        vm.setSearchService(AiSearchService.Doubao)
+        vm.setSearchKey(AiSearchService.Doubao, " db-key ")
+        vm.setSearchKey(AiSearchService.Brave, "br-key")
+
+        assertEquals(AiSearchService.Doubao, store.prefs.value.searchService)
+        assertEquals("db-key", store.prefs.value.searchKeyDoubao)
+        assertEquals("br-key", store.prefs.value.searchKeyBrave)
+        assertEquals("exa-key", store.prefs.value.searchKeyExa)
     }
 }
 
