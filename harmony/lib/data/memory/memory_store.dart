@@ -233,6 +233,98 @@ final class AlbumPlays {
   int get hashCode => Object.hash(albumId, playCount, firstPlayedAt, lastPlayedAt, albumName, artistName, coverArtKey);
 }
 
+/// One song's plays in Yoin (Android `play_history` grouped by song:
+/// PlayHistoryDao.getArtistTopSongs). Every started song adds one play, the
+/// same start that adds an [AlbumPlays] play; the row keeps the song's last
+/// known title, album and artist so Most Played lists it without a read.
+@immutable
+final class TrackPlays {
+  const TrackPlays({
+    required this.trackId,
+    required this.playCount,
+    required this.lastPlayedAt,
+    this.title = '',
+    this.album = '',
+    this.albumId,
+    this.artist = '',
+    this.coverArtKey,
+    this.durationSec,
+  });
+
+  final MediaId trackId;
+  final int playCount;
+  final int lastPlayedAt;
+  final String title;
+  final String album;
+  final MediaId? albumId;
+  final String artist;
+  final String? coverArtKey;
+  final int? durationSec;
+
+  TrackPlays plus(Track track, {required int atMs}) => TrackPlays(
+    trackId: trackId,
+    playCount: playCount + 1,
+    lastPlayedAt: atMs > lastPlayedAt ? atMs : lastPlayedAt,
+    title: _nonBlank(track.title)?.trim() ?? title,
+    album: _nonBlank(track.album)?.trim() ?? album,
+    albumId: track.albumId ?? albumId,
+    artist: _nonBlank(track.artist)?.trim() ?? artist,
+    coverArtKey: track.coverArt?.storageKey ?? coverArtKey,
+    // Android keeps MAX(durationMs).
+    durationSec: switch ((track.durationSec, durationSec)) {
+      (final a?, final b?) => a > b ? a : b,
+      (final a, final b) => a ?? b,
+    },
+  );
+
+  Map<String, Object?> toJson() => {
+    'n': playCount,
+    'l': lastPlayedAt,
+    't': title,
+    'al': album,
+    'a': albumId?.toString(),
+    'ar': artist,
+    'c': coverArtKey,
+    'd': durationSec,
+  };
+
+  static TrackPlays? fromJson(MediaId id, Object? json) {
+    if (json is! Map) return null;
+    final n = json['n'];
+    final l = json['l'];
+    if (n is! num || l is! num) return null;
+    final d = json['d'];
+    return TrackPlays(
+      trackId: id,
+      playCount: n.toInt(),
+      lastPlayedAt: l.toInt(),
+      title: (json['t'] as String?) ?? '',
+      album: (json['al'] as String?) ?? '',
+      albumId: MediaId.tryParse(json['a'] as String?),
+      artist: (json['ar'] as String?) ?? '',
+      coverArtKey: json['c'] as String?,
+      durationSec: d is num ? d.toInt() : null,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is TrackPlays &&
+      other.trackId == trackId &&
+      other.playCount == playCount &&
+      other.lastPlayedAt == lastPlayedAt &&
+      other.title == title &&
+      other.album == album &&
+      other.albumId == albumId &&
+      other.artist == artist &&
+      other.coverArtKey == coverArtKey &&
+      other.durationSec == durationSec;
+
+  @override
+  int get hashCode =>
+      Object.hash(trackId, playCount, lastPlayedAt, title, album, albumId, artist, coverArtKey, durationSec);
+}
+
 String? _nonBlank(String? s) => s == null || s.trim().isEmpty ? null : s;
 
 /// The user's own title for an album's Memory (Android `album_memory_titles`,
@@ -280,11 +372,13 @@ final class MemoryStore {
   static String songNotesKey(String profileId) => 'song_notes.v1.$profileId';
   static String albumPlaysKey(String profileId) => 'album_plays.v1.$profileId';
   static String titlesKey(String profileId) => 'memory_titles.v1.$profileId';
+  static String trackPlaysKey(String profileId) => 'track_plays.v1.$profileId';
 
   Map<MediaId, AlbumRatingRow>? _ratings;
   List<SongNote>? _notes;
   Map<MediaId, AlbumPlays>? _plays;
   Map<MediaId, MemoryTitleRow>? _titles;
+  Map<MediaId, TrackPlays>? _trackPlays;
   Future<void> _tail = Future.value();
   final _changes = StreamController<MemoryStoreChange>.broadcast();
 
@@ -325,6 +419,18 @@ final class MemoryStore {
   Future<AlbumPlays?> playsOf(MediaId albumId) async {
     await _tail;
     return (await _loadPlays())[albumId];
+  }
+
+  /// The account's plays by song (keys are provider-namespaced ids), most
+  /// played first, then most recently played.
+  Future<List<TrackPlays>> trackPlays() async {
+    await _tail;
+    final rows = (await _loadTrackPlays()).values.toList()
+      ..sort((a, b) {
+        final byCount = b.playCount.compareTo(a.playCount);
+        return byCount != 0 ? byCount : b.lastPlayedAt.compareTo(a.lastPlayedAt);
+      });
+    return List.unmodifiable(rows);
   }
 
   /// The user's own Memory titles, by album.
@@ -430,6 +536,18 @@ final class MemoryStore {
     );
   });
 
+  /// One started [track] at [atMs] (one `play_history` row on Android). Fires
+  /// [MemoryStoreChange.plays], as the album play written beside it does.
+  Future<void> recordTrackPlay(Track track, {required int atMs}) => _write(MemoryStoreChange.plays, () async {
+    final rows = await _loadTrackPlays();
+    final old = rows[track.id];
+    rows[track.id] = (old ?? TrackPlays(trackId: track.id, playCount: 0, lastPlayedAt: atMs)).plus(track, atMs: atMs);
+    await _store.write(
+      trackPlaysKey(profileId),
+      jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()}),
+    );
+  });
+
   void dispose() => _changes.close();
 
   // ---- internals ----
@@ -523,5 +641,19 @@ final class MemoryStore {
       });
     }
     return _plays = out;
+  }
+
+  Future<Map<MediaId, TrackPlays>> _loadTrackPlays() async {
+    if (_trackPlays != null) return _trackPlays!;
+    final decoded = await _decode(trackPlaysKey(profileId));
+    final out = <MediaId, TrackPlays>{};
+    if (decoded is Map) {
+      decoded.forEach((key, value) {
+        final id = MediaId.tryParse(key is String ? key : null);
+        final row = id == null ? null : TrackPlays.fromJson(id, value);
+        if (row != null) out[id!] = row;
+      });
+    }
+    return _trackPlays = out;
   }
 }

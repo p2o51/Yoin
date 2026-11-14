@@ -2,13 +2,17 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/model/model.dart';
+import '../memories/album_score.dart';
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
 import '../theme/theme.dart';
+import '../ui/component/spring_cross_fade.dart';
 import 'detail_palette.dart';
+import 'dot_dissolve.dart';
 import 'detail_strings.dart';
 
 /// Album hero numbers (Android AlbumDetailScreen AlbumHeroDetails /
@@ -21,6 +25,9 @@ abstract final class AlbumHeroTokens {
   /// Under the emblem row, before the track-count line (the row itself sits
   /// in the hero column's existing 8dp top padding).
   static const double metaBottom = 28;
+
+  /// Emblem → "X/N rated" (AlbumScoreEmblem spacedBy).
+  static const double coverageGap = 10;
 
   /// AlbumPageEmblemSize.
   static const double emblem = 64;
@@ -46,8 +53,9 @@ abstract final class AlbumHeroTokens {
 /// Compact): the mark's first and third arms scaled up about the hero band
 /// and squashed wide so they bleed off the page's sides. Arm 0 wears the
 /// cover scheme's primary, arm 2 its secondary; the centre lines are the page
-/// surface at 0.65. [leaving] (0 = whole, 1 = gone) follows the pull-up; v1
-/// fades where Android breaks the blocks into dots (no dot dissolve here yet).
+/// surface at 0.65. [leaving] (0 = whole, 1 = gone) follows the pull-up: the
+/// blocks stay where they are and break up into fine dots (DotDissolve);
+/// reduced motion fades them instead.
 class AlbumButterfly extends StatelessWidget {
   const AlbumButterfly({super.key, required this.leaving});
 
@@ -56,18 +64,22 @@ class AlbumButterfly extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final surface = Theme.of(context).colorScheme.surface;
+    final reduce = MediaQuery.disableAnimationsOf(context);
     final shown = (1 - leaving).clamp(0.0, 1.0);
     if (shown <= 0) return const SizedBox.shrink();
     return DetailColorsBuilder(
-      builder: (context, page) => Opacity(
-        opacity: shown,
-        child: CustomPaint(
-          painter: AlbumButterflyPainter(
-            blockA: page.accent,
-            blockB: page.secondary,
-            line: surface.withValues(alpha: AlbumHeroTokens.butterflyLineAlpha),
+      builder: (context, page) => DotDissolve(
+        progress: () => reduce ? 0 : leaving,
+        child: Opacity(
+          opacity: reduce ? shown : 1,
+          child: CustomPaint(
+            painter: AlbumButterflyPainter(
+              blockA: page.accent,
+              blockB: page.secondary,
+              line: surface.withValues(alpha: AlbumHeroTokens.butterflyLineAlpha),
+            ),
+            size: Size.infinite,
           ),
-          size: Size.infinite,
         ),
       ),
     );
@@ -507,6 +519,7 @@ class AlbumHeroMetaRow extends StatelessWidget {
                     size: AlbumHeroTokens.emblem,
                   ),
                 ),
+                AlbumRatedCoverage(albumId: albumId),
                 const SizedBox(width: AlbumHeroTokens.metaGap),
                 AlbumCommentPen(onTap: () => open(review: true)),
               ],
@@ -516,4 +529,44 @@ class AlbumHeroMetaRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// How many tracks a computed average stands on ("2/4 rated", Android
+/// AlbumRatedCoverage) beside the emblem. Only for the average: a manual
+/// album score stands alone, and "not rated" says nothing (owner 2026-10-05).
+class AlbumRatedCoverage extends ConsumerWidget {
+  const AlbumRatedCoverage({super.key, required this.albumId});
+
+  final MediaId albumId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final score = ref.watch(albumScoreProvider(albumId));
+    final text = albumRatedCoverageText(score, DetailStrings.of(context));
+    final theme = Theme.of(context);
+    return SpringCrossFade(
+      childKey: text ?? const Object(),
+      fit: StackFit.loose,
+      child: text == null
+          ? const SizedBox.shrink()
+          : Padding(
+              padding: const EdgeInsetsDirectional.only(start: AlbumHeroTokens.coverageGap),
+              child: Text(
+                text,
+                maxLines: 1,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+    );
+  }
+}
+
+/// "X/N rated" when the emblem shows the track average, else null. N is the
+/// loaded track count (the rated count is taken over the loaded tracks).
+String? albumRatedCoverageText(AlbumScore score, DetailStrings strings) {
+  if (score.albumRating != null || score.average == null || score.trackCount == 0) return null;
+  return strings.albumRated(score.ratedCount, score.trackCount);
 }

@@ -10,6 +10,8 @@ import '../theme/tokens.dart';
 import '../ui/component/meta_line.dart';
 import 'album_detail_view_model.dart';
 import 'album_hero_marks.dart';
+import 'album_scrapbook_page.dart';
+import 'detail_listening.dart';
 import 'detail_page.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
@@ -110,6 +112,8 @@ class AlbumDetailScreen extends ConsumerWidget {
       listChildren: list,
       // The album's family mark behind the cover (owner 2026-11-06: one mark, three readings).
       backdrop: (cover, leaving) => AlbumButterfly(leaving: leaving),
+      // Page 2: the scrapbook of what the listener left on this album.
+      secondPage: (context, page) => AlbumScrapbookPage(album: state.album, coverUrl: coverUrl, page: page),
       heroBelow: (links) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -132,10 +136,8 @@ class AlbumDetailScreen extends ConsumerWidget {
             ),
           ),
           if (tracks.isNotEmpty) ...[
-            // Android follows this with Last Play ("Today 22:45", MAX(play_history.playedAt) for the
-            // album). Harmony keeps no per-song play history (the activity log folds plays and visits
-            // into one row per entity), so it is left out rather than shown wrong.
-            TrackCountLine(count: state.trackCount, totalSec: state.totalDurationSec),
+            // Total count + runtime, then when it was last played (owner 2026-10-29).
+            AlbumHeroCountLine(albumId: state.album.id, count: state.trackCount, totalSec: state.totalDurationSec),
             const SizedBox(height: 6),
           ],
           FlowingTitles(
@@ -223,4 +225,32 @@ List<DetailMenuAction> albumMenuItems(BuildContext context, WidgetRef ref, Album
         onTap: () => DetailRoutes.openArtist(context, artistId, name: state.album.artist),
       ),
   ];
+}
+
+/// The hero's track-count line with Last Play after it ("Yesterday 12:02",
+/// AlbumHeroLastPlay): caption-less, in the line's full ink, 12 after the
+/// runtime (tap: the scrapbook). Never played, the line is the count alone.
+class AlbumHeroCountLine extends ConsumerWidget {
+  const AlbumHeroCountLine({super.key, required this.albumId, required this.count, required this.totalSec});
+
+  final MediaId albumId;
+  final int count;
+  final int totalSec;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final at = ref.watch(albumLastPlayedProvider(albumId));
+    final label = at == null ? null : lastPlayLabels(at, DetailStrings.of(context));
+    final line = TrackCountLine(
+      count: count,
+      totalSec: totalSec,
+      trailing: label == null
+          ? null
+          : MetaKind('${label.$1} ${label.$2}', color: Theme.of(context).colorScheme.onSurface),
+    );
+    // Tapping it opens the scrapbook page, where Last Play reads in full.
+    final pager = ReshapePager.maybeOf(context);
+    if (label == null || pager == null) return line;
+    return GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => pager.openPage(1), child: line);
+  }
 }

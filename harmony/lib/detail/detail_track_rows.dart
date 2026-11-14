@@ -19,11 +19,20 @@ const _tabular = [FontFeature.tabularFigures()];
 
 /// "n tracks" + total duration stats (AlbumTrackCountLabel), labelMedium.
 class TrackCountLine extends StatelessWidget {
-  const TrackCountLine({super.key, required this.count, required this.totalSec, this.showDuration = true});
+  const TrackCountLine({
+    super.key,
+    required this.count,
+    required this.totalSec,
+    this.showDuration = true,
+    this.trailing,
+  });
 
   final int count;
   final int totalSec;
   final bool showDuration;
+
+  /// One more group after the runtime (the album hero's Last Play).
+  final MetaGroup? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +42,7 @@ class TrackCountLine extends StatelessWidget {
       groups: [
         MetaStat('$count', s.unitTrack(count)),
         if (showDuration) ...durationStatGroups(totalSec, hourUnit: s.unitHour, minuteUnit: s.unitMinute),
+        ?trailing,
       ],
     );
   }
@@ -90,6 +100,7 @@ class AlbumTrackRow extends ConsumerWidget {
         child: InkWell(
           onTap: onTap,
           onLongPress: onLongPress,
+          onSecondaryTap: onLongPress,
           customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 56),
@@ -301,6 +312,7 @@ class PlaylistTrackRow extends ConsumerWidget {
         child: InkWell(
           onTap: onTap,
           onLongPress: onLongPress,
+          onSecondaryTap: onLongPress,
           customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),

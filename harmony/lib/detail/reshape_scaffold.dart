@@ -1,11 +1,17 @@
 import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show Drag;
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
+import 'album_scrapbook_page.dart' show AlbumPageDots, AlbumPageDotsTokens;
+import 'album_spectrum_layer.dart';
 import 'detail_page.dart';
 import 'detail_palette.dart';
 import 'pull_up_reveal.dart';
@@ -18,6 +24,7 @@ final class ReshapeContent {
     required this.listChildren,
     this.backdrop,
     this.fallbackIcon = YoinSymbols.album,
+    this.secondPage,
   });
 
   /// The hero cover (decoded at 640 px), flying into the stamp on pull-up.
@@ -33,6 +40,24 @@ final class ReshapeContent {
 
   /// The pulled-up track list.
   final List<Widget> listChildren;
+
+  /// Page 2 (the Album's scrapbook), beside the reshape in a horizontal
+  /// pager with page dots under the header; given the pager position
+  /// (0 = overview, 1 = page 2). Page 2 is an in-page state, not a place:
+  /// back leaves the page from either page, so no back handler is added.
+  final Widget Function(BuildContext context, ValueListenable<double> page)? secondPage;
+}
+
+/// The reshape's pager, for a page-1 control that opens page 2 (Last Play).
+class ReshapePager extends InheritedWidget {
+  const ReshapePager({super.key, required this.openPage, required super.child});
+
+  final ValueChanged<int> openPage;
+
+  static ReshapePager? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<ReshapePager>();
+
+  @override
+  bool updateShouldNotify(ReshapePager old) => old.openPage != openPage;
 }
 
 /// The Album / Playlist page on Compact (D1 + D3): header, page wash, and —
@@ -64,11 +89,51 @@ class ReshapeDetailScaffold extends StatefulWidget {
 class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with TickerProviderStateMixin {
   late final RevealController _reveal = RevealController(vsync: this);
   late final RevealScrollPhysics _physics = RevealScrollPhysics(_reveal);
+  final _pager = PageController();
+
+  /// The pager position, 0 = overview, 1 = page 2.
+  final _page = ValueNotifier<double>(0);
+
+  /// A dot tap's (or Last Play's) page change, on the spatial spring.
+  late final AnimationController _pageSpring = AnimationController.unbounded(vsync: this)
+    ..addListener(() {
+      if (_pager.hasClients) _pager.position.jumpTo(_pageSpring.value * _pager.position.viewportDimension);
+    });
+
+  @override
+  void initState() {
+    super.initState();
+    _pager.addListener(() {
+      if (_pager.hasClients && _pager.position.haveDimensions) _page.value = _pager.page ?? 0;
+    });
+  }
 
   @override
   void dispose() {
     _reveal.dispose();
+    _pageSpring.dispose();
+    _pager.dispose();
+    _page.dispose();
     super.dispose();
+  }
+
+  Drag? _pageDrag;
+
+  void _pageDragStart(DragStartDetails details) {
+    if (!_pager.hasClients) return;
+    _pageSpring.stop();
+    _pageDrag = _pager.position.drag(details, () => _pageDrag = null);
+  }
+
+  void _openPage(int page) {
+    if (!_pager.hasClients) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pager.jumpToPage(page);
+      return;
+    }
+    _pageSpring
+      ..value = _page.value
+      ..animateWith(SpringSimulation(YoinSprings.defaultSpatial, _page.value, page.toDouble(), 0));
   }
 
   @override
@@ -80,7 +145,10 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
         final w = constraints.maxWidth;
         final h = constraints.maxHeight;
         final topInset = media.padding.top;
-        final headerBottom = topInset + DetailHeaderMetrics.bandHeight;
+        final content = widget.content;
+        final paged = content?.secondPage != null;
+        // Two pages: the dots take a row of their own under the header's meta (Compact).
+        final headerBottom = topInset + DetailHeaderMetrics.bandHeight + (paged ? AlbumPageDotsTokens.cellHeight : 0);
         final side = PullUpMath.heroCoverSide(
           w,
           fraction: DetailTokens.albumCoverWidthFraction,
@@ -97,36 +165,55 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
           DetailTokens.albumStamp,
         );
         _reveal.travelPx = PullUpMath.travel(h);
-        final content = widget.content;
+        final body = content == null
+            ? null
+            : _Body(
+                reveal: _reveal,
+                physics: _physics,
+                content: content,
+                slotHeight: side + PullUpTokens.heroBand,
+                coverInSlot: Rect.fromLTWH((w - side) / 2, DetailTokens.albumCoverTopGap, side, side),
+              );
+        // Page 0's flying pieces (the spectrum, the cover) go with page 0 as the pager drags.
+        double shift() => paged ? -_page.value * w : 0;
         return Stack(
           children: [
             const Positioned.fill(child: DetailPageBackground()),
-            // Docked: the header band fills with the accent (v1 stand-in for the spectrum bar).
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              height: headerBottom,
-              child: DetailColorsBuilder(
-                builder: (context, page) => AnimatedBuilder(
-                  animation: _reveal,
-                  builder: (context, _) {
-                    final t = content == null ? 0.0 : PullUpMath.textProgress(_reveal.expand);
-                    return ColoredBox(color: page.accent.withValues(alpha: t));
-                  },
+            // The cover → spectrum bar (AlbumSpectrumBar.kt): as the cover leaves, a copy of it breaks
+            // into strips that sort themselves into the cover's tone-locked bands, filling the header.
+            if (content != null)
+              Positioned.fill(
+                child: AnimatedBuilder(
+                  animation: _page,
+                  builder: (context, child) => Transform.translate(offset: Offset(shift(), 0), child: child),
+                  child: AlbumSpectrumLayer(
+                    reveal: _reveal,
+                    coverUrl: content.coverUrl,
+                    cover: restCover,
+                    bar: Rect.fromLTWH(0, 0, w, headerBottom),
+                    reduce: reduce,
+                  ),
                 ),
               ),
-            ),
             Positioned.fill(
               top: headerBottom,
-              child: content == null
+              child: body == null
                   ? (widget.stateView ?? const SizedBox.shrink())
-                  : _Body(
-                      reveal: _reveal,
-                      physics: _physics,
-                      content: content,
-                      slotHeight: side + PullUpTokens.heroBand,
-                      coverInSlot: Rect.fromLTWH((w - side) / 2, DetailTokens.albumCoverTopGap, side, side),
+                  : !paged
+                  ? body
+                  : ReshapePager(
+                      openPage: _openPage,
+                      child: Listener(
+                        // A finger on the pager takes over from a dot's spring.
+                        onPointerDown: (_) => _pageSpring.stop(),
+                        child: PageView(
+                          controller: _pager,
+                          children: [
+                            body,
+                            Builder(builder: (context) => content!.secondPage!(context, _page)),
+                          ],
+                        ),
+                      ),
                     ),
             ),
             Positioned(
@@ -136,6 +223,7 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
               height: DetailHeaderMetrics.bandHeight,
               child: _Header(
                 reveal: _reveal,
+                page: _page,
                 docks: content != null,
                 reduce: reduce,
                 title: widget.title,
@@ -144,12 +232,50 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                 endPadding: widget.headerEndPadding,
               ),
             ),
+            if (paged)
+              Positioned(
+                top: topInset + DetailHeaderMetrics.bandHeight,
+                height: AlbumPageDotsTokens.cellHeight,
+                left: 0,
+                right: 0,
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Padding(
+                    // Under the title column: past the back button and its gap (less the cell's own inset).
+                    padding: const EdgeInsetsDirectional.only(
+                      start:
+                          DetailHeaderMetrics.paddingStart +
+                          48 +
+                          DetailHeaderMetrics.titleGap -
+                          4 -
+                          (AlbumPageDotsTokens.cellWidth / 2 - AlbumPageDotsTokens.dot),
+                    ),
+                    child: DetailColorsBuilder(
+                      builder: (context, colors) => AnimatedBuilder(
+                        animation: Listenable.merge([_reveal, _page]),
+                        builder: (context, _) {
+                          final ink = PullUpMath.textProgress(_reveal.expand) * (1 - _page.value).clamp(0.0, 1.0);
+                          final scheme = Theme.of(context).colorScheme;
+                          return AlbumPageDots(
+                            page: _page,
+                            active: Color.lerp(colors.accent, Colors.white, ink)!,
+                            inactive: Color.lerp(scheme.outlineVariant, Colors.white.withValues(alpha: 0.45), ink)!,
+                            onPage: _openPage,
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (content != null)
               AnimatedBuilder(
-                animation: _reveal,
+                animation: Listenable.merge([_reveal, _page]),
                 builder: (context, _) {
                   final expand = _reveal.expand;
-                  final rect = reduce ? restCover : PullUpMath.coverRect(restCover, stamp, expand);
+                  final rect = (reduce ? restCover : PullUpMath.coverRect(restCover, stamp, expand)).shift(
+                    Offset(shift(), 0),
+                  );
                   final alpha = reduce ? PullUpMath.heroAlpha(expand) : 1.0;
                   final docked = expand >= 0.5;
                   return Positioned.fromRect(
@@ -161,6 +287,11 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                         onTap: docked ? () => _reveal.setExpanded(false) : null,
                         onVerticalDragUpdate: docked ? null : (d) => _reveal.dragBy(d.delta.dy),
                         onVerticalDragEnd: docked ? null : (d) => _reveal.release(d.velocity.pixelsPerSecond.dy),
+                        // The cover sits over the pager: a sideways drag on it still turns the page.
+                        onHorizontalDragStart: paged ? _pageDragStart : null,
+                        onHorizontalDragUpdate: paged ? (d) => _pageDrag?.update(d) : null,
+                        onHorizontalDragEnd: paged ? (d) => _pageDrag?.end(d) : null,
+                        onHorizontalDragCancel: paged ? () => _pageDrag?.cancel() : null,
                         child: Material(
                           type: MaterialType.transparency,
                           elevation: 0,
@@ -316,6 +447,7 @@ class _HeroBelowState extends State<_HeroBelow> {
 class _Header extends StatelessWidget {
   const _Header({
     required this.reveal,
+    required this.page,
     required this.docks,
     required this.reduce,
     required this.title,
@@ -325,6 +457,9 @@ class _Header extends StatelessWidget {
   });
 
   final RevealController reveal;
+
+  /// The pager: off page 0 the bar slides away with it, so the ink goes back.
+  final ValueListenable<double> page;
   final bool docks;
   final bool reduce;
   final String title;
@@ -337,13 +472,15 @@ class _Header extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return DetailColorsBuilder(
       builder: (context, page) => AnimatedBuilder(
-        animation: reveal,
+        animation: Listenable.merge([reveal, this.page]),
         builder: (context, _) {
           final expand = docks ? reveal.expand : 0.0;
           final p = reduce ? 0.0 : PullUpMath.smoothStep(0, 1, expand);
-          final ink = PullUpMath.textProgress(expand);
-          final titleColor = Color.lerp(page.accent, page.onAccent, ink)!;
-          final metaColor = Color.lerp(colors.onSurfaceVariant, page.onAccent, ink)!;
+          // Over the formed spectrum the header turns white (AlbumBarHeader: every band holds ≥ 7:1).
+          final ink = PullUpMath.textProgress(expand) * (1 - this.page.value).clamp(0.0, 1.0);
+          const onBar = Colors.white;
+          final titleColor = Color.lerp(page.accent, onBar, ink)!;
+          final metaColor = Color.lerp(colors.onSurfaceVariant, onBar.withValues(alpha: 0.82), ink)!;
           return Padding(
             padding: EdgeInsetsDirectional.only(
               start: DetailHeaderMetrics.paddingStart,
@@ -354,8 +491,8 @@ class _Header extends StatelessWidget {
             child: Row(
               children: [
                 DetailBackButton(
-                  container: Color.lerp(colors.surfaceContainer, page.onAccent.withValues(alpha: 0.2), ink),
-                  content: Color.lerp(colors.onSurface, page.onAccent, ink),
+                  container: Color.lerp(colors.surfaceContainer, onBar.withValues(alpha: 0.2), ink),
+                  content: Color.lerp(colors.onSurface, onBar, ink),
                 ),
                 const SizedBox(width: DetailHeaderMetrics.titleGap - 4),
                 Expanded(
@@ -374,7 +511,7 @@ class _Header extends StatelessWidget {
                               groups: [
                                 for (final g in meta)
                                   if (g case MetaKind(:final text, color: null))
-                                    MetaKind(text, color: Color.lerp(page.accent, page.onAccent, ink))
+                                    MetaKind(text, color: Color.lerp(page.accent, onBar.withValues(alpha: 0.88), ink))
                                   else
                                     g,
                               ],
@@ -386,7 +523,12 @@ class _Header extends StatelessWidget {
                     ),
                   ),
                 ),
-                SizedBox(width: (DetailTokens.albumStamp + DetailTokens.albumBarTitleGap) * (docks ? p : 0)),
+                SizedBox(
+                  width:
+                      (DetailTokens.albumStamp + DetailTokens.albumBarTitleGap) *
+                      (docks ? p : 0) *
+                      (1 - this.page.value).clamp(0.0, 1.0),
+                ),
               ],
             ),
           );

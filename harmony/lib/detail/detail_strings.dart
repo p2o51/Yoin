@@ -80,4 +80,54 @@ class DetailStrings {
   String get emblemUnrated => zh ? '未评分' : 'Unrated'; // mem_emblem_unrated
   String get emblemCdUnrated => zh ? '未评分' : 'Not rated'; // mem_cd_emblem_unrated
   String get albumCdRate => zh ? '评分与评论' : 'Rate and comment'; // detail_album_cd_rate
+
+  // The album's Last Play and rated coverage; the artist's Most Played.
+  String get albumLastPlay => zh ? '上次播放' : 'Last Play'; // detail_album_last_play
+  String get albumNever => zh ? '从未' : 'Never'; // detail_album_never
+  String get relativeToday => zh ? '今天' : 'Today'; // detail_relative_today
+  String get relativeYesterday => zh ? '昨天' : 'Yesterday'; // detail_relative_yesterday
+
+  /// detail_relative_days_ago (plurals).
+  String relativeDaysAgo(int n) => zh ? '$n 天前' : (n == 1 ? '$n day ago' : '$n days ago');
+
+  /// Android getBestDateTimePattern(locale, "MMMd"): "Nov 3" / "11月3日".
+  String monthDay(int month, int day) => zh ? '$month月$day日' : '${_months[month - 1]} $day';
+  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  String albumRated(int rated, int total) => zh ? '已评 $rated/$total' : '$rated/$total rated'; // detail_album_rated
+  String get artistMostPlayed => zh ? '最常播放' : 'Most Played'; // detail_artist_most_played
+
+  /// detail_artist_plays_total / detail_artist_plays (plurals, same words).
+  String artistPlays(int n) => zh ? '$n 次播放' : (n == 1 ? '$n play' : '$n plays');
+
+  // The album's page 2, the scrapbook, and its page dots.
+  String get albumPageOverview => zh ? '概览' : 'Overview'; // detail_album_page_overview
+  String get albumPageScrapbook => zh ? '剪贴簿' : 'Scrapbook'; // detail_album_page_scrapbook
+  String albumPageN(int n) => zh ? '第 $n 页' : 'Page $n'; // detail_album_page_n
+  String get scrapCdRate => zh ? '评分与评论' : 'Rate and comment'; // detail_scrap_cd_rate
+  String get scrapCdEditComment => zh ? '编辑评论' : 'Edit comment'; // detail_scrap_cd_edit_comment
+  String get scrapCdWriteComment => zh ? '写评论' : 'Write a comment'; // detail_scrap_cd_write_comment
+  String get scrapNotYet => zh ? '暂无内容' : 'Nothing yet'; // detail_scrap_not_yet
+  String get scrapCdPlaying => zh ? '正在播放' : 'Playing'; // detail_scrap_cd_playing
+  String scrapCdNote(String text) => zh ? '笔记：$text' : 'Note: $text'; // detail_scrap_cd_note
+  String scrapCdNoteAt(String at, String text) =>
+      zh ? '$at 的笔记：$text' : 'Note at $at: $text'; // detail_scrap_cd_note_at
+
+  /// detail_scrap_hidden_notes (plurals).
+  String scrapHiddenNotes(int n) => zh ? '+$n 条笔记' : (n == 1 ? '+$n note' : '+$n notes');
+
+  /// detail_unit_play (plurals).
+  String unitPlay(int n) => zh ? '次' : (n == 1 ? 'play' : 'plays');
+
+  /// detail_scrap_cd_track / _rated / _liked / _plays and their combinations.
+  String scrapCdTrack(int n, String title, {String? score, bool liked = false, int plays = 0}) {
+    final parts = <String>[
+      zh ? '第 $n 首' : 'Track $n',
+      title,
+      if (score != null) zh ? '评分 $score' : 'rated $score',
+      if (liked) zh ? '已喜欢' : 'liked',
+      if (plays > 0) zh ? '播放 $plays 次' : 'played $plays times',
+    ];
+    return parts.join(zh ? '，' : ', ');
+  }
 }

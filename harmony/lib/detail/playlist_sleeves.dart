@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../ui/component/media_artwork.dart';
+import 'dot_dissolve.dart';
 import 'pull_up_reveal.dart';
 
 /// Playlist sleeves (Android PlaylistSleeves.kt): up to two album covers
@@ -40,7 +41,7 @@ abstract final class PlaylistSleeveGeometry {
 }
 
 /// Draws [urls] (at most two) behind a cover at [cover] (slot space); they
-/// leave on the pull-up by fading with [leaving] (v1: no dot dissolve).
+/// leave on the pull-up by breaking into dots with [leaving] (reduced motion: a fade).
 class PlaylistSleeves extends StatelessWidget {
   const PlaylistSleeves({
     super.key,
@@ -65,29 +66,33 @@ class PlaylistSleeves extends StatelessWidget {
         final spread = PlaylistSleeveGeometry.spread(sideRoom, cover.width);
         final side = cover.width * PlaylistSleeveGeometry.sideShare;
         final dpr = MediaQuery.devicePixelRatioOf(context);
-        return Opacity(
-          opacity: 1 - leaving,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              for (final (i, url) in urls.take(2).indexed.toList().reversed)
-                Positioned.fromRect(
-                  rect: Rect.fromCenter(
-                    center: cover.center + PlaylistSleeveGeometry.centerOffset(i, cover.width, spread, rtl: rtl),
-                    width: side,
-                    height: side,
-                  ),
-                  child: Transform.rotate(
-                    angle: (i == 0 ? -1 : 1) * (rtl ? -1 : 1) * PlaylistSleeveGeometry.tiltDegrees * math.pi / 180,
-                    child: MediaArtwork(
-                      url: url,
-                      fallbackIcon: YoinSymbols.album,
-                      radius: corner,
-                      decodeWidth: (side * dpr).round(),
+        final reduce = MediaQuery.disableAnimationsOf(context);
+        return DotDissolve(
+          progress: () => reduce ? 0 : leaving,
+          child: Opacity(
+            opacity: reduce ? 1 - leaving : 1,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                for (final (i, url) in urls.take(2).indexed.toList().reversed)
+                  Positioned.fromRect(
+                    rect: Rect.fromCenter(
+                      center: cover.center + PlaylistSleeveGeometry.centerOffset(i, cover.width, spread, rtl: rtl),
+                      width: side,
+                      height: side,
+                    ),
+                    child: Transform.rotate(
+                      angle: (i == 0 ? -1 : 1) * (rtl ? -1 : 1) * PlaylistSleeveGeometry.tiltDegrees * math.pi / 180,
+                      child: MediaArtwork(
+                        url: url,
+                        fallbackIcon: YoinSymbols.album,
+                        radius: corner,
+                        decodeWidth: (side * dpr).round(),
+                      ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         );
       },

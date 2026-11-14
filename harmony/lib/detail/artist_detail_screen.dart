@@ -14,7 +14,10 @@ import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/spring_cross_fade.dart';
 import 'artist_detail_view_model.dart';
+import 'artist_most_played.dart';
+import 'detail_listening.dart';
 import 'detail_page.dart';
+import 'dot_dissolve.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
 import 'detail_routes.dart';
@@ -178,6 +181,7 @@ class _ArtistBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final listening = ref.watch(artistListeningProvider(artistId));
     return LayoutBuilder(
       builder: (context, constraints) {
         final portrait = math.min(
@@ -196,6 +200,17 @@ class _ArtistBody extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 32),
+              // The personal layer: arrives after the page paints, grows in instead of popping.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _VerticalSpringReveal(
+                  visible: listening.mostPlayed.isNotEmpty,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: ArtistMostPlayedTokens.bottomGap),
+                    child: ArtistMostPlayed(artist: content.artist, listening: listening),
+                  ),
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: _Discography(content: content, artistId: artistId),
@@ -209,8 +224,9 @@ class _ArtistBody extends ConsumerWidget {
 }
 
 /// The open-ring portrait (DetailBackdrops.kt ArtistOpenRing): ring and
-/// dot turn with scroll (0.06°/px) and fade as the band leaves (v1 fades
-/// instead of breaking into dots); read at paint time, no rebuild.
+/// dot turn with scroll (0.06°/px) and break up into fine dots as the band
+/// leaves (DotDissolve); read at paint time, no rebuild. Reduced motion: no
+/// turn and no dissolve, the hero just scrolls away whole.
 class _RingPortrait extends StatelessWidget {
   const _RingPortrait({required this.portrait, required this.url, required this.scroll});
 
@@ -221,13 +237,29 @@ class _RingPortrait extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
+    final reduce = MediaQuery.disableAnimationsOf(context);
     final reach = portrait * ArtistRingGeometry.reach;
     return SizedBox.square(
       dimension: reach * 2,
-      child: DetailColorsBuilder(
-        builder: (context, page) => CustomPaint(
-          painter: _RingPainter(scroll: scroll, portrait: portrait, ring: page.accent, dot: page.ring),
-          child: Center(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DotDissolve(
+            repaint: scroll,
+            progress: () => reduce ? 0 : ArtistRingGeometry.leaving(scroll),
+            child: DetailColorsBuilder(
+              builder: (context, page) => CustomPaint(
+                painter: _RingPainter(
+                  scroll: scroll,
+                  portrait: portrait,
+                  ring: page.accent,
+                  dot: page.ring,
+                  turns: !reduce,
+                ),
+              ),
+            ),
+          ),
+          Center(
             child: SizedBox.square(
               dimension: portrait,
               child: Material(
@@ -244,7 +276,7 @@ class _RingPortrait extends StatelessWidget {
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -266,23 +298,31 @@ abstract final class ArtistRingGeometry {
   static double stroke(double portrait) => room(portrait) * 0.59;
   static double radius(double portrait) => portrait / 2 + room(portrait) * 0.41 + stroke(portrait) / 2;
   static double dotRadius(double portrait) => stroke(portrait) * 0.45;
+
+  /// How far the ring has left (0 = whole, 1 = dissolved) at the page's scroll.
+  static double leaving(ScrollController scroll) =>
+      PullUpMath.smoothStep(0, leaveDistance, scroll.hasClients ? scroll.offset.clamp(0.0, double.infinity) : 0.0);
 }
 
 class _RingPainter extends CustomPainter {
-  _RingPainter({required this.scroll, required this.portrait, required this.ring, required this.dot})
-    : super(repaint: scroll);
+  _RingPainter({
+    required this.scroll,
+    required this.portrait,
+    required this.ring,
+    required this.dot,
+    required this.turns,
+  }) : super(repaint: scroll);
 
   final ScrollController scroll;
   final double portrait;
   final Color ring;
   final Color dot;
+  final bool turns;
 
   @override
   void paint(Canvas canvas, Size size) {
     final offset = scroll.hasClients ? scroll.offset.clamp(0.0, double.infinity) : 0.0;
-    final leaving = PullUpMath.smoothStep(0, ArtistRingGeometry.leaveDistance, offset);
-    if (leaving >= 1) return;
-    final turn = offset * DetailTokens.artistMarkDegreesPerPx * math.pi / 180;
+    final turn = turns ? offset * DetailTokens.artistMarkDegreesPerPx * math.pi / 180 : 0.0;
     final c = size.center(Offset.zero);
     final r = ArtistRingGeometry.radius(portrait);
     final stroke = ArtistRingGeometry.stroke(portrait);
@@ -295,7 +335,7 @@ class _RingPainter extends CustomPainter {
       sweep,
       false,
       Paint()
-        ..color = ring.withValues(alpha: ring.a * (1 - leaving))
+        ..color = ring
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke
         ..strokeCap = StrokeCap.round,
@@ -303,13 +343,13 @@ class _RingPainter extends CustomPainter {
     canvas.drawCircle(
       c + Offset(math.cos(gapCenter), math.sin(gapCenter)) * r,
       ArtistRingGeometry.dotRadius(portrait),
-      Paint()..color = dot.withValues(alpha: dot.a * (1 - leaving)),
+      Paint()..color = dot,
     );
   }
 
   @override
   bool shouldRepaint(_RingPainter old) =>
-      old.ring != ring || old.dot != dot || old.portrait != portrait || old.scroll != scroll;
+      old.ring != ring || old.dot != dot || old.portrait != portrait || old.scroll != scroll || old.turns != turns;
 }
 
 class _Discography extends ConsumerWidget {

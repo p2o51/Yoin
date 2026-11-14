@@ -653,10 +653,12 @@ class PlaybackController extends Notifier<NowPlayingState> {
   /// album's play count, first and latest play. Visits never count.
   Future<void> _recordAlbumPlay(Track track, String? profileId) async {
     final albumId = track.albumId;
-    if (albumId == null) return;
     try {
       final store = await ref.read(memoryStoreProvider.future);
       if (store == null || (profileId != null && store.profileId != profileId)) return;
+      // The song's own play too (the artist page's Most Played), album or not.
+      await store.recordTrackPlay(track, atMs: _clock.wallMs());
+      if (albumId == null) return;
       await store.recordAlbumPlay(
         albumId,
         atMs: _clock.wallMs(),
