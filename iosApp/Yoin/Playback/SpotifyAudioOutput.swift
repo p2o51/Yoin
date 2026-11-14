@@ -1470,6 +1470,15 @@ final class SpotifyAudioOutput: AudioOutput {
         var artist: String? = nil
         var album: String? = nil
         var coverURL: URL? = nil
+        /// The song's album id, when Spotify says (a hand-off of a song Spotify plays on its own names it).
+        var albumId: String? = nil
+    }
+
+    /// `spotify:album:<id>` → `<id>`; nil for anything else (an episode's show, a local file's empty album).
+    nonisolated static func albumId(fromURI uri: String?) -> String? {
+        guard let uri, uri.hasPrefix("spotify:album:") else { return nil }
+        let id = String(uri.dropFirst("spotify:album:".count))
+        return id.isEmpty ? nil : id
     }
 
     private func playerState(_ s: RemotePlayerState) {
@@ -1480,7 +1489,8 @@ final class SpotifyAudioOutput: AudioOutput {
         guard SpotifyPlayingDevice.shared.name == nil else { return }
         apply(State(uri: uri, isPaused: s.isPaused, positionMs: s.positionMs, durationMs: s.durationMs,
                     shuffling: s.shuffling, repeatRaw: s.repeatRaw, title: s.title, artist: s.artist,
-                    album: s.album, coverURL: Self.coverURL(imageIdentifier: s.imageIdentifier)))
+                    album: s.album, coverURL: Self.coverURL(imageIdentifier: s.imageIdentifier),
+                    albumId: Self.albumId(fromURI: s.albumURI)))
     }
 
     /// A Web API read: nothing active is Spotify stopped where it was.
@@ -1523,7 +1533,7 @@ final class SpotifyAudioOutput: AudioOutput {
         }
         apply(State(uri: uri, isPaused: !now.isPlaying, positionMs: now.progressMs, durationMs: now.durationMs,
                     shuffling: now.shuffle, repeatRaw: repeatRaw, title: now.trackName, artist: now.artistName,
-                    album: now.albumName, coverURL: now.coverURL))
+                    album: now.albumName, coverURL: now.coverURL, albumId: now.albumId))
     }
 
     /// App Remote names a cover `spotify:image:<id>`; Spotify serves it at i.scdn.co/image/<id>.
@@ -1538,7 +1548,8 @@ final class SpotifyAudioOutput: AudioOutput {
         guard let id = s.uri.split(separator: ":").last.map(String.init), !id.isEmpty,
               s.uri.hasPrefix("spotify:track:") || s.uri.hasPrefix("spotify:episode:") else { return nil }
         return PlayableTrack(id: id, provider: SpotifyMapping.provider, title: s.title ?? "Spotify",
-                             artist: s.artist ?? "", album: s.album ?? "", albumId: nil,
+                             artist: s.artist ?? "", album: s.album ?? "",
+                             albumId: s.uri.hasPrefix("spotify:track:") ? s.albumId : nil,
                              durationSec: Double(s.durationMs) / 1000, streamURL: streamURL(trackId: id),
                              coverURL: s.coverURL)
     }

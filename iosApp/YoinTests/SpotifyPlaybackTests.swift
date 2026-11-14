@@ -103,4 +103,24 @@ final class SpotifyPlaybackTests: XCTestCase {
         XCTAssertEqual(SpotifyAudioOutput.coverURL(imageIdentifier: "spotify:image:ab67616d0000b273")?.absoluteString,
                        "https://i.scdn.co/image/ab67616d0000b273")
     }
+
+    /// A song Spotify plays on its own is handed off with its album, so the other device opens the album
+    /// rather than a one-song queue.
+    func test_should_carryTheAlbum_when_mirroringSpotifysOwnSong() {
+        XCTAssertEqual(SpotifyAudioOutput.albumId(fromURI: "spotify:album:6akEvsycLGftJxYudPjmqK"), "6akEvsycLGftJxYudPjmqK")
+        XCTAssertNil(SpotifyAudioOutput.albumId(fromURI: nil))
+        XCTAssertNil(SpotifyAudioOutput.albumId(fromURI: ""))
+        XCTAssertNil(SpotifyAudioOutput.albumId(fromURI: "spotify:album:"))
+        XCTAssertNil(SpotifyAudioOutput.albumId(fromURI: "spotify:show:5CfCWKI5pZ28U0uOzXkDHe"))
+
+        let song = SpotifyAudioOutput.State(uri: "spotify:track:1IEKU3WzzShCxANW5Jfv6g", isPaused: false, positionMs: 0,
+                                            durationMs: 171172, shuffling: false, repeatRaw: 0, title: "Song",
+                                            artist: "Artist", album: "Album", albumId: "6akEvsycLGftJxYudPjmqK")
+        XCTAssertEqual(SpotifyAudioOutput.externalTrack(song)?.albumId, "6akEvsycLGftJxYudPjmqK")
+
+        let episode = SpotifyAudioOutput.State(uri: "spotify:episode:512ojhOuo1ktJprKbVcKyQ", isPaused: false, positionMs: 0,
+                                               durationMs: 1_800_000, shuffling: false, repeatRaw: 0, title: "Episode",
+                                               artist: "Show", album: "Show", albumId: "5CfCWKI5pZ28U0uOzXkDHe")
+        XCTAssertNil(SpotifyAudioOutput.externalTrack(episode)?.albumId)
+    }
 }

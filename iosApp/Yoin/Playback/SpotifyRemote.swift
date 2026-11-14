@@ -15,6 +15,8 @@ struct RemotePlayerState: Equatable, Sendable {
     var artist: String? = nil
     var album: String? = nil
     var imageIdentifier: String = ""
+    /// The song's album, `spotify:album:<id>` (empty for a podcast episode or a local file).
+    var albumURI: String? = nil
 }
 
 /// One App Remote connection to the Spotify app as SpotifyRemote drives it: the SDK's SPTAppRemote, or a
@@ -470,7 +472,7 @@ final class SDKAppRemoteLink: NSObject, AppRemoteLink {
                           durationMs: Int(s.track.duration), shuffling: s.playbackOptions.isShuffling,
                           repeatRaw: s.playbackOptions.repeatMode.rawValue, title: s.track.name,
                           artist: s.track.artist.name, album: s.track.album.name,
-                          imageIdentifier: s.track.imageIdentifier)
+                          imageIdentifier: s.track.imageIdentifier, albumURI: s.track.album.uri)
     }
 }
 

@@ -154,6 +154,17 @@ final class SpotifySource {
         }
     }
 
+    /// One song with its album as Spotify lists it (`GET /tracks/{id}`, the single-track read Development
+    /// Mode apps keep; Android SpotifyApiClient.getTrack). An id Spotify doesn't have reads as nil.
+    func track(_ rawId: String) async throws -> PlaylistEntry? {
+        do {
+            let t = try await api.get("tracks/\(rawId)", as: SpotifyDTO.Track.self)
+            return SpotifyMapping.entry(t, saved: liked)
+        } catch let e as SpotifyAPIError where e.isNotFound {
+            return nil
+        }
+    }
+
     /// The artist and its own releases (albums, singles, compilations; at most
     /// 60, 10 a request since the 2026-02 migration; `appears_on` left out).
     func artist(_ rawId: String) async throws -> ArtistPage? {
@@ -264,13 +275,15 @@ final class SpotifySource {
         var artistName: String? = nil
         var albumName: String? = nil
         var coverURL: URL? = nil
+        /// The song's album (its Spotify id), for a hand-off of a song Spotify plays on its own.
+        var albumId: String? = nil
     }
 
     private struct PlayerDTO: Decodable {
         struct D: Decodable { let id: String?; let name: String?; let type: String? }
         struct Named: Decodable { let name: String? }
         struct Image: Decodable { let url: String?; let width: Int? }
-        struct Album: Decodable { let name: String?; let images: [Image]? }
+        struct Album: Decodable { let id: String?; let name: String?; let images: [Image]? }
         struct Linked: Decodable { let uri: String? }
         struct I: Decodable {
             let uri: String?
@@ -301,7 +314,8 @@ final class SpotifySource {
                          artistName: r.item?.artists?.compactMap(\.name).joined(separator: ", "),
                          albumName: r.item?.album?.name,
                          // The largest picture first (Spotify lists them biggest first; not relied on).
-                         coverURL: r.item?.album?.images?.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url.flatMap(URL.init(string:)))
+                         coverURL: r.item?.album?.images?.max { ($0.width ?? 0) < ($1.width ?? 0) }?.url.flatMap(URL.init(string:)),
+                         albumId: r.item?.album?.id.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     // Transport on a Connect device (Android SpotifyApiClient pause / resume / seek).
