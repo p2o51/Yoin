@@ -785,15 +785,27 @@ nonisolated struct LyricHalftone: ViewModifier, Animatable {
     static let solid: CGFloat = 3
     /// LyricDotsRestLarge: tablets (medium width and height) — the two-column player.
     static let restLarge: CGFloat = 1.8
-    /// LyricDotsReadable, for LyricDotsReadableLines after the current one.
+    /// LyricDotsReadable: the next LyricDotsReadableLines after the current one
+    /// (owner 2026-11-05) and the LyricDotsReadableLinesAbove just sung (owner
+    /// 2026-11-14, 「上面一行应该是清楚一点比较好」).
     static let readable: CGFloat = 2.2
     static let readableLines = 2
+    static let readableLinesAbove = 1
+
+    /// Android isReadableLyricLine: whether [line] prints readable while
+    /// [active] is sung. The current line itself is solid, and nothing is
+    /// readable while no line is current.
+    static func isReadable(line: Int, active: Int) -> Bool {
+        guard active >= 0, line != active else { return false }
+        let gap = line - active
+        return gap > 0 ? gap <= readableLines : -gap <= readableLinesAbove
+    }
 
     /// A line's dots in two-column focus: the current line solid, the next
-    /// two readable, the rest (sung lines included) at the tablet rest.
+    /// two and the one just sung readable, the rest at the tablet rest.
     static func radius(line: Int, active: Int) -> CGFloat {
         if line == active { return solid }
-        if active >= 0, line > active, line - active <= readableLines { return readable }
+        if isReadable(line: line, active: active) { return readable }
         return restLarge
     }
 
