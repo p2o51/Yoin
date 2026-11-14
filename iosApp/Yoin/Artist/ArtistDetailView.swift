@@ -372,6 +372,8 @@ struct ArtistDetailView: View {
                     .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
                 }
                 .buttonStyle(PressScale())
+                // Dragged onto the queue or a playlist, as a song row is.
+                .yoinDraggable { YoinDrag.song(entries[i], model: model) }
             }
         }
     }
@@ -507,5 +509,6 @@ struct ArtistDetailView: View {
             .contentShape(.rect(cornerRadius: Tokens.shape.LIST_ROW.cg))
         }
         .buttonStyle(PressScale())
+        .yoinDraggable { YoinDrag.album(r, model: model) }
     }
 }

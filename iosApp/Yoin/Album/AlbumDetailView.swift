@@ -297,7 +297,7 @@ struct AlbumDetailView: View {
                     }
                     .zIndex(1)
                 }
-                Group {
+                ZStack(alignment: .topLeading) {
                     header(white: false, w: w)
                         .opacity(1 - white * (1 - f))
                     header(white: true, w: w)
@@ -309,6 +309,8 @@ struct AlbumDetailView: View {
                         .padding(.leading, 8)
                         .padding(.top, 4)
                 }
+                // A playlist's header takes songs, albums and playlists dropped on it, as its Library row does.
+                .modifier(PlaylistHeaderDrop(playlist: demo == nil ? playlist : nil, ink: s.primary))
                 .zIndex(3)
             }
             .coordinateSpace(.named(Self.pageSpace))
@@ -1874,4 +1876,24 @@ enum AlbumPullHaptics {
 extension EnvironmentValues {
     /// The page sits in iPad's detail column (PadShell).
     @Entry var inPadColumn = false
+}
+
+/// A playlist page's header as a drop target (YoinDrag): what's dropped on it goes into the playlist, lit
+/// behind the header while a drag is over it. An album's header, or a playlist the user can't write, takes
+/// nothing.
+private struct PlaylistHeaderDrop: ViewModifier {
+    var playlist: PlaylistInfo?
+    var ink: Color
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        if let playlist {
+            content.yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous).inset(by: 4),
+                                   ink: ink, accepts: YoinDrag.accepts(playlist, model: model)) {
+                YoinDrag.add($0, to: playlist, model: model)
+            }
+        } else {
+            content
+        }
+    }
 }

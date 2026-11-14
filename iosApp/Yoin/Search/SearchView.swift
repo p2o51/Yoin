@@ -596,8 +596,18 @@ struct SearchView: View {
         }
     }
 
-    /// AlbumCard / ArtistGridItem: cover, 5, titleSmall, bodySmall (12).
+    /// AlbumCard / ArtistGridItem: cover, 5, titleSmall, bodySmall (12). An album drags out onto the queue
+    /// or a playlist, as Library's cells do; an artist doesn't.
+    @ViewBuilder
     private func gridCell(_ a: Album, isArtist: Bool) -> some View {
+        if isArtist {
+            gridButton(a, isArtist: true)
+        } else {
+            gridButton(a, isArtist: false).yoinDraggable { YoinDrag.album(a, model: model) }
+        }
+    }
+
+    private func gridButton(_ a: Album, isArtist: Bool) -> some View {
         Button {
             if isArtist {
                 focused = false
@@ -687,6 +697,13 @@ struct SearchView: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain).pointerHighlight()
+                // As Library's playlist row: dragged onto the queue; a playlist the user can write takes
+                // songs, albums and playlists dropped on it.
+                .yoinDraggable { YoinDrag.playlist(p, model: model) }
+                .yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous),
+                                ink: scheme.primary, accepts: YoinDrag.accepts(p, model: model)) {
+                    YoinDrag.add($0, to: p, model: model)
+                }
             }
         }
     }

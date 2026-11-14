@@ -28,9 +28,12 @@ struct YoinDragItem: Codable, Hashable, Transferable {
 /// The dragged items' full values for this run (a drag carries ids only), and the drops: the queue
 /// (Now Playing's Queue pill and the queue sheet) and playlist rows.
 ///
-/// Where a drag starts: song rows (Library, Search, album and playlist pages: `trackRow`), and Library's
-/// album and playlist cells and playlist rows. A pointer drags at once (the iPad app on a Mac, an iPad
-/// with a trackpad); a finger lifts the row after the long press that opens its sheet, as before.
+/// Where a drag starts: song rows (Library, Search, album and playlist pages: `trackRow`; the artist page's
+/// Most Played), album cards (Library, Favorites, Search, Home, the artist page's releases), Home's song
+/// cards, and playlist cells and rows (Library, Search, Home). Where it drops: the queue, and a writable
+/// playlist's cell or row (Library, Search, Home) or its page's header. A pointer drags at once (the iPad
+/// app on a Mac, an iPad with a trackpad); a finger lifts the row after the long press that opens its sheet,
+/// as before.
 @MainActor
 enum YoinDrag {
     /// What one account's drags remember. A new account (a new store generation) starts empty, and its
@@ -173,6 +176,14 @@ enum YoinDrag {
         return subsonicAccepts(owner: p.owner, username: store.session.account?.username)
     }
 
+    /// The playlist a page shows: the account's own, as above; signed out, the mock's.
+    static func accepts(_ p: PlaylistInfo, model: AppModel) -> Bool {
+        guard !p.id.rawId.hasPrefix("pending:") else { return false }
+        let store = model.store
+        guard store.isReal else { return p.id.provider == "mock" }
+        return PlaylistActions.shared.canEditSongs(p, store: store)
+    }
+
     /// A Subsonic playlist not read yet: the user's, or nobody's.
     nonisolated static func subsonicAccepts(owner: String?, username: String?) -> Bool {
         guard let owner, !owner.isEmpty else { return true }
@@ -182,12 +193,23 @@ enum YoinDrag {
     /// Adds the items' songs to playlist [p] ("Added to …" or "Couldn't add to …"); a playlist dropped on
     /// itself adds nothing.
     static func add(_ items: [YoinDragItem], to p: LibraryItem, model: AppModel) {
-        let items = registry.accepted(items).filter { !($0.kind == .playlist && $0.id == p.id.rawId) }
+        add(items, to: PlaylistActions.Pick(id: p.id.rawId, name: p.title, songCount: p.count, palette: p.palette),
+            model: model)
+    }
+
+    /// The same, for the playlist a page shows.
+    static func add(_ items: [YoinDragItem], to p: PlaylistInfo, model: AppModel) {
+        add(items, to: PlaylistActions.Pick(id: p.id.rawId, name: p.title, songCount: p.songCount ?? p.entries.count,
+                                            palette: p.palette),
+            model: model)
+    }
+
+    private static func add(_ items: [YoinDragItem], to pick: PlaylistActions.Pick, model: AppModel) {
+        let items = registry.accepted(items).filter { !($0.kind == .playlist && $0.id == pick.id) }
         guard !items.isEmpty else { return }
         Task {
             let entries = await entries(items, model: model)
             guard !entries.isEmpty else { return }
-            let pick = PlaylistActions.Pick(id: p.id.rawId, name: p.title, songCount: p.count, palette: p.palette)
             PlaylistActions.shared.add(entries, to: pick, store: model.store)
         }
     }

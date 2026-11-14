@@ -747,6 +747,7 @@ struct HomeView: View {
                                             .frame(width: (gridWidth - tileGap * CGFloat(trackCols - 1)) / CGFloat(trackCols),
                                                    alignment: .leading)
                                             .pointerHighlight()
+                                            .yoinDraggable { YoinDrag.song(tiles[i], model: model) }
                                             .onTapGesture { homeTap(edit) { model.play(tiles, startAt: i) } }
                                     }
                                 }
@@ -1167,18 +1168,22 @@ private struct JBICell: View {
                 .zoomSource(album.id, zoomNS, tile: zoomTile.key)
             }
             .buttonStyle(PressScale())
+            // Dragged onto the queue or a playlist, as Library's cells are.
+            .yoinDraggable { YoinDrag.album(album, model: model) }
         case let .track(entry):
             Button { jbiTap { model.play([entry]) } } label: {
                 plainCover(entity: .song, palette: entry.album.palette, seed: entry.album.seed, title: entry.track.title,
                            subtitle: KindLine.make(String(localized: "Track"), entry.track.artist ?? entry.album.artist))
             }
             .buttonStyle(PressScale())
+            .yoinDraggable { YoinDrag.song(entry, model: model) }
         case let .playlist(playlist):
             Button { jbiTap { model.openPlaylist(playlist.id.rawId) } } label: {
                 plainCover(entity: .playlist, palette: playlist.palette, seed: playlist.id.rawId.count, title: playlist.title,
                            subtitle: KindLine.make(String(localized: "Playlist"), playlist.owner ?? ""))
             }
             .buttonStyle(PressScale())
+            .yoinDraggable { YoinDrag.playlist(playlist, model: model) }
         }
     }
 
@@ -1389,6 +1394,8 @@ private struct SignalCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(PressScale())
+        // Dragged out as what a tap opens: the noted song, else the album.
+        .yoinDraggable { signal.song.map { YoinDrag.song($0, model: model) } ?? YoinDrag.album(album, model: model) }
     }
 }
 
@@ -1436,6 +1443,7 @@ private struct AlbumMini: View {
             .zoomSource(album.id, zoomNS, tile: zoomTile.key)
         }
         .buttonStyle(PressScale())
+        .yoinDraggable { YoinDrag.album(album, model: model) }
     }
 }
 
@@ -1470,6 +1478,12 @@ private struct PlaylistMini: View {
             .frame(width: size, alignment: .leading)
         }
         .buttonStyle(PressScale())
+        // As Library's playlist cell: dragged onto the queue; songs, albums and playlists dropped here go in.
+        .yoinDraggable { YoinDrag.playlist(item, model: model) }
+        .yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous).inset(by: -6),
+                        ink: s.primary, accepts: YoinDrag.accepts(item, model: model)) {
+            YoinDrag.add($0, to: item, model: model)
+        }
         .accessibilityLabel(item.title)
     }
 }
@@ -1542,6 +1556,7 @@ private struct RediscoverCard: View {
             .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())
+        .yoinDraggable { YoinDrag.album(album, model: model) }
     }
 }
 
@@ -1601,6 +1616,7 @@ private struct RediscoverSongCard: View {
             .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())
+        .yoinDraggable { YoinDrag.song(entry, model: model) }
         .accessibilityHint(String(localized: "Play"))
     }
 

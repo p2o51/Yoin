@@ -649,6 +649,7 @@ struct LibraryView: View {
                                 .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
                                 .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
                         } action: { model.open(a) }
+                        .yoinDraggable { YoinDrag.album(a, model: model) }
                         .transition(.opacity.animation(Yoin.effects))
                     }
                 }
