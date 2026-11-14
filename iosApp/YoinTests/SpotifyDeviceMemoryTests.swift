@@ -125,6 +125,7 @@ final class SpotifyDeviceMemoryTests: XCTestCase {
     }
 
     /// Android listSpotifyDevices: a device in a private session says so, over playing and through Spotify.
+    @MainActor
     func test_should_sayPrivateSession_when_spotifyPlaysThereInOne() {
         var phone = device("p", "Phone", active: true)
         phone.privateSession = true

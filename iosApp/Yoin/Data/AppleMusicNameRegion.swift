@@ -290,13 +290,19 @@ final class AppleMusicNameResolver {
     /// slowest storefront rather than for all of them one after another.
     private func resolve(_ kind: Kind, _ requests: [Request]) async -> [String: Names] {
         let groups = Dictionary(grouping: requests, by: \.target)
-        return await withTaskGroup(of: [String: Names].self) { group in
-            for (target, share) in groups {
-                group.addTask { @MainActor [self] in await self.resolve(kind, target, share) }
-            }
+        // One task a storefront, all started before any is awaited; the caller's cancellation reaches them all.
+        let tasks = groups.map { target, share in
+            Task { @MainActor [self] in await self.resolve(kind, target, share) }
+        }
+        return await withTaskCancellationHandler {
             var known: [String: Names] = [:]
-            for await found in group { known.merge(found) { _, new in new } }
+            for t in tasks {
+                let found = await t.value
+                known.merge(found) { _, new in new }
+            }
             return known
+        } onCancel: {
+            for t in tasks { t.cancel() }
         }
     }
 
