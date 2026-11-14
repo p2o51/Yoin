@@ -872,7 +872,18 @@ struct AlbumDetailView: View {
         } else {
             FlowingTrackTitles(titles: album.tracks.map(\.title), primary: app.onSurface, variant: app.onSurfaceVariant,
                                onPick: p < 0.5 ? { i in
-                                   if let playlist { model.play(playlist.entries, startAt: i) } else { playAlbum(from: i) }
+                                   // A song Apple won't stream never starts from here either (MusicKit would
+                                   // drop it and play the next one without a word): the reason, as a toast,
+                                   // since its row may be out of sight.
+                                   let t = playlist.flatMap { $0.entries.indices.contains(i) ? $0.entries[i].track : nil }
+                                       ?? (album.tracks.indices.contains(i) ? album.tracks[i] : nil)
+                                   if let t, NotStreamedRow.tap(t) == .explain {
+                                       PlaylistActions.shared.show(String(localized: "Apple Music doesn't stream this song in your region yet."))
+                                   } else if let playlist {
+                                       model.play(playlist.entries, startAt: i)
+                                   } else {
+                                       playAlbum(from: i)
+                                   }
                                } : nil)
         }
     }
