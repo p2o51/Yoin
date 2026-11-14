@@ -88,6 +88,9 @@ final class ReplayGainSettings {
         }
     }
 
+    /// The songs queued from the Subsonic account in use, by raw song id: ids are per server, so another
+    /// account starts empty (`accountChanged`), and a song listed without tags clears what was kept for
+    /// its id (an untagged song plays as it is, never at another song's gain).
     @ObservationIgnored private var audio: [String: TrackAudio] = [:]
 
     init() {
@@ -97,7 +100,12 @@ final class ReplayGainSettings {
     }
 
     func remember(_ a: TrackAudio?, songId: String) {
-        if let a { audio[songId] = a }
+        audio[songId] = a
+    }
+
+    /// The Subsonic account in use changed (AccountScope): another server's song ids mean other songs.
+    func accountChanged() {
+        audio = [:]
     }
 
     func audio(songId: String) -> TrackAudio? { audio[songId] }

@@ -37,6 +37,49 @@ final class ReplayGainTests: XCTestCase {
     }
 }
 
+/// The per-song ReplayGain kept for the player (#213 review): song ids are per server, so nothing a song of
+/// one account was tagged with ever plays on another account's song with the same id.
+@MainActor
+final class ReplayGainMemoryTests: XCTestCase {
+    private let tagged = TrackAudio(trackGainDb: -9, albumGainDb: -7, trackPeak: 0.9, albumPeak: 1)
+    private var scopeBefore: String?
+    private var adoptsBefore = true
+
+    override func setUp() async throws {
+        scopeBefore = AccountScope.shared.subsonic
+        adoptsBefore = AccountScope.shared.adoptsLegacyRows
+        AccountScope.shared.adoptsLegacyRows = false
+    }
+
+    override func tearDown() async throws {
+        AccountScope.shared.subsonic = scopeBefore
+        AccountScope.shared.adoptsLegacyRows = adoptsBefore
+    }
+
+    func test_should_playAsIs_when_theSameIdComesBackUntagged() {
+        let s = ReplayGainSettings.shared
+        let id = "rg-\(UUID().uuidString)"
+        s.remember(tagged, songId: id)
+        XCTAssertNotEqual(s.applied(songId: id), .unity)
+        s.remember(nil, songId: id)
+        XCTAssertNil(s.audio(songId: id))
+        XCTAssertEqual(s.applied(songId: id), .unity)
+    }
+
+    func test_should_forgetEverySong_when_theSubsonicAccountChanges() {
+        let s = ReplayGainSettings.shared
+        let id = "rg-\(UUID().uuidString)"
+        AccountScope.shared.subsonic = "https://a.example|me"
+        s.remember(tagged, songId: id)
+        XCTAssertEqual(s.audio(songId: id), tagged)
+        AccountScope.shared.subsonic = "https://a.example|me"
+        XCTAssertEqual(s.audio(songId: id), tagged, "the same account keeps it")
+        AccountScope.shared.subsonic = "https://b.example|me"
+        XCTAssertNil(s.audio(songId: id))
+        XCTAssertEqual(s.applied(songId: id), .unity)
+    }
+}
+
 /// The format tags (Playback/ReplayGain.swift; Android AudioFormatTagsTest and SubsonicReplayGainVersionTest,
 /// #121 #139).
 final class FormatTagsTests: XCTestCase {
