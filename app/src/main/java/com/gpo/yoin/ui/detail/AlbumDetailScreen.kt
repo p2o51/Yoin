@@ -682,8 +682,10 @@ private fun AlbumDetailContent(
                 pageShift = pageShift,
                 // Short screens (Fold outer, 16:9) set the cover beside the meta on the
                 // 16dp line: the mark could only hug it there, the old look the redo
-                // left behind, so they go without it (owner 2026-11-07).
-                butterfly = barLayout != AlbumBarLayout.Short,
+                // left behind, so they go without it (owner 2026-11-07). Tablets too:
+                // on Medium the hugging blocks only peek out round the cover (owner
+                // 2026-11-14, 「平板上面这个蝴蝶还没下」).
+                butterfly = barLayout != AlbumBarLayout.Short && barLayout != AlbumBarLayout.Medium,
                 // The blocks sit behind the cover on their own layer: cubed, so
                 // they fade out ahead of it (and in after it) and never show
                 // through the half-faded cover as loose shapes.
@@ -843,8 +845,6 @@ private fun AlbumDetailContent(
                             if (useWideOverview) {
                                 AlbumWideOverview(
                                     content = content,
-                                    primaryBlock = primaryBlock,
-                                    secondaryBlock = secondaryBlock,
                                     accent = primaryBlock,
                                     notedSongIds = notedSongIds,
                                     currentTrackId = currentTrackId,
@@ -1773,8 +1773,6 @@ private val AlbumWideListMaxWidth = 800.dp
 @Composable
 private fun AlbumWideOverview(
     content: AlbumDetailUiState.Content,
-    primaryBlock: Color,
-    secondaryBlock: Color,
     accent: Color,
     notedSongIds: Set<String>,
     currentTrackId: String?,
@@ -1799,16 +1797,12 @@ private fun AlbumWideOverview(
                 .verticalScroll(rememberScrollState())
                 .padding(top = 24.dp, bottom = 120.dp),
         ) {
+            // No hugging blocks on tablets (owner 2026-11-14): they only peeked
+            // out round the cover. The box keeps its size, so nothing moves.
             Box(
                 modifier = Modifier.size(AlbumWideCoverSide + 40.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                AlbumArrowBackdropHugging(
-                    primaryBlock = primaryBlock,
-                    secondaryBlock = secondaryBlock,
-                    lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
-                    modifier = Modifier.matchParentSize(),
-                )
                 ExpressiveMediaArtwork(
                     model = content.coverArtUrl,
                     contentDescription = content.albumName,
