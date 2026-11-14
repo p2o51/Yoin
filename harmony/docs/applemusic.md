@@ -873,3 +873,50 @@ before it returns. Nothing is written to disk. The report carries counts and lev
 4. A compile-time flag that is off by default, so none of this reaches a distributed build.
 5. The owner's first audible check: the harness takes `--ps yoinAmPhase2Volume 0.3` (without
    `yoinQaSilent`), only with the owner present.
+
+## Phase 3 — Apple Music songs play in Yoin (personal builds): PASS (2026-11-14, ~14:45 JST)
+
+> The spike branch `spike/am-phase1` (`ee40c3517`, local only, rebased onto `feat/harmony-flutter`
+> so it carries the Play card too). Built with `--dart-define=YOIN_AM_PLAYBACK=true` and installed
+> on the owner's phone. Silent QA: stream volume 0.
+
+**How it fits.**
+- **One engine, two players.** `PlaybackEngine` now drives an `EnginePlayer` interface.
+  - `AvEnginePlayer` passes AVPlayer through unchanged, so Subsonic was re-tested and still plays.
+  - `EnginePlayers.register(scheme, factory)` routes a URI scheme to another player. The queue,
+    play order, repeat, AVSession, interrupts and the auto-advance state machine stay the
+    engine's.
+- **The Dart side.** `AppleMusicSource.handleFor` returns `DirectStream('yoin-am:<catalogId>')`
+  only when the build sets `YOIN_AM_PLAYBACK`. Otherwise it refuses as before.
+- **`AmPlayer`** (spike) prepares one track at a time:
+  - **Prepare.** It runs the Phase 1 round trip, then `amOpen` with the init segment.
+  - **Play.** It feeds segments about 20 s ahead (an HTTP range per segment; decrypt and decode
+    on a TaskPool thread) and polls the native stream every 250 ms for the time, the end and
+    OHAudio interrupts.
+- **The native stream** (`napi_p2.cpp`) is one process-wide stream: a PCM ring, ADTS AAC decode
+  and an OHAudio renderer. Seek flushes the decoder and renderer, then drops frames before the
+  target. The position is the seek base plus frames played.
+
+**Verified.**
+- *THE BEST* (少女時代) plays track after track: GENIE, Gee, Run Devil Run, MR.TAXI. Playback
+  starts about 1 s after `prepared`.
+- Seek: dragging to about 2:00 carried on from there.
+- Next re-runs the license round trip. Auto-advance at the end of a song works, and so does pause.
+- About 26 s in the background kept playing.
+- A Subsonic album still plays through AVPlayer.
+- *Access All Areas* (FLO) is refused with failureType **3082**, the account's explicit-content
+  restriction (Android branch `claude/am-3082-explicit`). The player tags it, and the shell
+  snackbar shows Android's `player_apple_music_content_restricted` copy.
+
+**Open.**
+- No gapless playback: the next song's license and init load after the current one ends.
+  Prefetching the next song is the fix.
+- License renewal: `renew-after` is 780 s and isn't acted on. Pausing for a long time and then
+  resuming may need a fresh round trip. Untested.
+- OHAudio output-device changes (headphones unplugged) aren't wired to `onDeviceGone` for Apple
+  Music yet. Interrupt mapping is untested on the device.
+- The 3082 snackbar is cut off at three lines.
+- **Merging.** The `EnginePlayer` refactor and the Dart flag are safe for the main branch. The
+  Apple libraries, the NAPI module and `AmPlayer` must stay out of anything distributed. One option
+  is a personal-build HAR module plus the flag; it needs an owner decision.
+- Audible check: still to do, by the owner.
