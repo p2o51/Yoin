@@ -138,12 +138,18 @@ void main() {
 
   testWidgets('should_queueAlbumAndConfirm_when_addToQueueChosen', (tester) async {
     final (c, engine) = await _open(tester);
+    final messages = <String>[];
+    final sub = c.read(playbackControllerProvider.notifier).notices.listen((n) {
+      if (n is TextNotice) messages.add(n.text);
+    });
+    addTearDown(sub.cancel);
     c.read(topDetailActionsProvider)!.menuItems[1].onTap();
     await _settle(tester);
 
     // Nothing was loaded: the queued tracks become the queue, paused.
     expect(engine.queue.map((i) => i.id), ['subsonic:t1', 'subsonic:t2', 'subsonic:t3']);
-    expect(find.text('Added 3 songs to the queue'), findsOneWidget);
+    // The confirmation goes to the window's one snackbar (the shell's host).
+    expect(messages, ['Added 3 songs to the queue']);
     await _close(tester);
   });
 

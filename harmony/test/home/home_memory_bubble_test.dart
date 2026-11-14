@@ -41,7 +41,21 @@ class _NoChain implements math.Random {
   bool nextBool() => false;
 }
 
-Future<ProviderContainer> _pump(WidgetTester tester, HomeMemoryPillState pill) async {
+class _Chain implements math.Random {
+  @override
+  double nextDouble() => 0;
+  @override
+  int nextInt(int max) => 0;
+  @override
+  bool nextBool() => false;
+}
+
+Future<ProviderContainer> _pump(
+  WidgetTester tester,
+  HomeMemoryPillState pill, {
+  math.Random? random,
+  Widget? header,
+}) async {
   final container = ProviderContainer(
     overrides: [
       homeMemoryPillProvider.overrideWith(() => _FixedPill(pill)),
@@ -61,8 +75,8 @@ Future<ProviderContainer> _pump(WidgetTester tester, HomeMemoryPillState pill) a
                 rowTop: 12,
                 trailingReserve: 50,
                 timings: const MemoryBubbleTimings(idleMs: 4500, chatterDwellMs: 2500),
-                random: _NoChain(),
-                child: const SizedBox(height: 90, width: double.infinity, child: Text('Home')),
+                random: random ?? _NoChain(),
+                child: header ?? const SizedBox(height: 90, width: double.infinity, child: Text('Home')),
               ),
               const Expanded(child: SizedBox.expand()),
             ],
@@ -140,4 +154,60 @@ void main() {
     expect(handle.pendingFocus, isNull);
     expect(find.text('Pang'), findsNothing);
   });
+  // The header's title as Home lays it: at the row's start, in MemoryBubbleTitle.
+  const titled = SizedBox(
+    height: 90,
+    width: double.infinity,
+    child: Align(alignment: Alignment.bottomLeft, child: MemoryBubbleTitle(child: Text('Good evening\nHome'))),
+  );
+  double titleOpacity(WidgetTester tester) => tester
+      .widget<Opacity>(find.ancestor(of: find.text('Good evening\nHome'), matching: find.byType(Opacity)).first)
+      .opacity;
+
+  testWidgets('should_keepTheTitle_when_theBubbleLandsClearOfItOnAWideWindow', (tester) async {
+    tester.view.physicalSize = const Size(1400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pump(tester, memoryPill, header: titled);
+    await _frames(tester, const Duration(milliseconds: 5500));
+    expect(find.text('Pang'), findsOneWidget);
+    expect(titleOpacity(tester), 1);
+  });
+
+  testWidgets('should_letTheTitleGiveWay_when_theBubbleSpeaksOverItOnAPhone', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await _pump(tester, memoryPill, header: titled);
+    expect(titleOpacity(tester), 1);
+    await _frames(tester, const Duration(milliseconds: 5500));
+    expect(find.text('Pang'), findsOneWidget);
+    expect(titleOpacity(tester), lessThan(0.01));
+  });
+
+  testWidgets('should_labelWhatItShows_when_aMemoryHandsOverToTheNextLine', (tester) async {
+    final harbor = AlbumMemoryCandidate(
+      profileId: 'p1',
+      albumId: MediaId.subsonic('harbor'),
+      albumName: 'Harbor Lights',
+      totalTracks: 10,
+      ratedTrackCount: 0,
+      ratingCoverage: 0,
+      hasAlbumReview: true,
+      noteCount: 0,
+      isMemoryEligible: true,
+    );
+    final pill = HomeMemoryPillState(latest: _pang, recall: [harbor], noteCount: 1, resolved: true, scope: 'subsonic|p1');
+    await _pump(tester, pill, random: _Chain());
+    await _frames(tester, const Duration(milliseconds: 5500));
+    // The idle turn brings back a memory from the recall, and says that one.
+    expect(find.text('Harbor Lights'), findsOneWidget);
+    expect(find.bySemanticsLabel('Memories. Latest: Harbor Lights'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('Pang')), findsNothing);
+    // It chains on to a tip: the label moves with it.
+    await _frames(tester, const Duration(milliseconds: 3500));
+    expect(find.text('Refresh Library'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('Harbor Lights')), findsNothing);
+  });
 }
+

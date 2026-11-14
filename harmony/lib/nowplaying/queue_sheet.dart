@@ -558,66 +558,79 @@ class _QueueRowContent extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final strings = NowPlayingStrings.of(context);
-    return Material(
-      color: lifted ? colors.surfaceContainerHighest : colors.surfaceContainer,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          height: SheetTokens.queueRowHeight,
-          child: Padding(
-            padding: EdgeInsetsDirectional.only(
-              start: SheetTokens.queueRowPaddingH,
-              end: handle != null ? SheetTokens.queueHandlePaddingEnd : SheetTokens.queueRowPaddingH,
-            ),
-            child: Row(
-              children: [
-                track.coverArt == null
-                    ? Container(
-                        width: SheetTokens.queueCover,
-                        height: SheetTokens.queueCover,
-                        decoration: BoxDecoration(
-                          color: colors.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(ShapeTokens.thumb),
-                        ),
-                        child: Icon(YoinSymbols.musicNote, color: colors.onSurfaceVariant),
-                      )
-                    : CoverArt(cover: track.coverArt, size: SheetTokens.queueCover, radius: ShapeTokens.thumb),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+    // The drag handle sits outside the row's ink: holding it lifts the row
+    // (the overlay copy) instead of greying the row in place.
+    final handle = this.handle;
+    final body = InkWell(
+      onTap: onTap,
+      child: SizedBox(
+        height: SheetTokens.queueRowHeight,
+        child: Padding(
+          padding: EdgeInsetsDirectional.only(
+            start: SheetTokens.queueRowPaddingH,
+            end: handle != null ? 0 : SheetTokens.queueRowPaddingH,
+          ),
+          child: Row(
+            children: [
+              track.coverArt == null
+                  ? Container(
+                      width: SheetTokens.queueCover,
+                      height: SheetTokens.queueCover,
+                      decoration: BoxDecoration(
+                        color: colors.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(ShapeTokens.thumb),
+                      ),
+                      child: Icon(YoinSymbols.musicNote, color: colors.onSurfaceVariant),
+                    )
+                  : CoverArt(cover: track.coverArt, size: SheetTokens.queueCover, radius: ShapeTokens.thumb),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.title ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodyLarge!.copyWith(
+                        fontWeight: current ? FontWeight.w600 : FontWeight.w500,
+                        color: current ? colors.primary : colors.onSurface,
+                      ),
+                    ),
+                    if (track.artist != null)
                       Text(
-                        track.title ?? '',
+                        track.artist!,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: text.bodyLarge!.copyWith(
-                          fontWeight: current ? FontWeight.w600 : FontWeight.w500,
-                          color: current ? colors.primary : colors.onSurface,
-                        ),
+                        style: text.bodyMedium!.copyWith(color: colors.onSurfaceVariant),
                       ),
-                      if (track.artist != null)
-                        Text(
-                          track.artist!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.bodyMedium!.copyWith(color: colors.onSurfaceVariant),
-                        ),
-                    ],
-                  ),
+                  ],
                 ),
-                if (current)
-                  Semantics(
-                    label: playing ? strings.queueCdPlaying : strings.queueCdPaused,
-                    child: Icon(YoinSymbols.equalizer, size: 22, color: colors.primary),
-                  ),
-                ?handle,
-              ],
-            ),
+              ),
+              if (current)
+                Semantics(
+                  label: playing ? strings.queueCdPlaying : strings.queueCdPaused,
+                  child: Icon(YoinSymbols.equalizer, size: 22, color: colors.primary),
+                ),
+            ],
           ),
         ),
       ),
+    );
+    return Material(
+      color: lifted ? colors.surfaceContainerHighest : colors.surfaceContainer,
+      child: handle == null
+          ? body
+          : Row(
+              children: [
+                Expanded(child: body),
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(end: SheetTokens.queueHandlePaddingEnd),
+                  child: handle,
+                ),
+              ],
+            ),
     );
   }
 }
@@ -628,7 +641,9 @@ class _QueueRowContent extends StatelessWidget {
 Future<void> showQueueSheet(BuildContext navigatorContext, {required ValueChanged<int> onSkip}) =>
     showModalBottomSheet<void>(
       context: navigatorContext,
-      useSafeArea: false,
+      // Clear of the status bar / the 2in1 window caption (its three buttons),
+      // like Android's sheet with its top window insets.
+      useSafeArea: true,
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: Theme.of(navigatorContext).colorScheme.surfaceContainer,

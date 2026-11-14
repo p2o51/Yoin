@@ -6,6 +6,7 @@ import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../detail/detail_track_menu.dart';
 import '../detail/playback_projection.dart';
+import '../detail/playlist_detail_view_model.dart' show playlistHeroCover;
 import '../theme/tokens.dart';
 import '../ui/component/elastic_press.dart';
 import '../ui/component/media_artwork.dart';
@@ -62,7 +63,7 @@ class PlaylistGridCell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final owner = playlist.owner?.trim();
     return _SquareCell(
-      url: libraryCoverUrl(ref, playlist.coverArt),
+      url: libraryCoverUrl(ref, playlistHeroCover(playlist)),
       fallbackIcon: YoinSymbols.playlist,
       title: playlist.name,
       subtitle: owner == null || owner.isEmpty ? LibraryStrings.of(context).playlistFallback : owner,

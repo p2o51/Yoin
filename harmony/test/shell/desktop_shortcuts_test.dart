@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/library/library_search_view.dart' show librarySearchRouteName;
 import 'package:yoin/playback/now_playing_state.dart';
 import 'package:yoin/playback/playback_context.dart';
 import 'package:yoin/shell/app_chrome.dart';
@@ -127,5 +128,41 @@ void main() {
     await keys(tester, [LogicalKeyboardKey.controlLeft], LogicalKeyboardKey.keyK);
     expect(container.read(shellSectionProvider), YoinSection.library);
     expect(container.read(librarySearchRequestsProvider), before + 1);
+  });
+
+  testWidgets('should_leaveFieldButKeepPage_when_escapePressedWhileTyping', (tester) async {
+    await pump(tester, playingState(nowPlayingTracks(2), context: _album));
+    appNavigatorKey.currentState!.push(
+      MaterialPageRoute<void>(builder: (_) => const Scaffold(body: Center(child: TextField(autofocus: true)))),
+    );
+    await tester.pumpAndSettle();
+    expect(FocusManager.instance.primaryFocus?.context?.findAncestorStateOfType<EditableTextState>(), isNotNull);
+    await keys(tester, const [], LogicalKeyboardKey.escape);
+    expect(find.byType(TextField), findsOneWidget, reason: 'the page stays');
+    expect(FocusManager.instance.primaryFocus?.context?.findAncestorStateOfType<EditableTextState>(), isNull);
+  });
+
+  testWidgets('should_closeSearch_when_escapePressedInSearchField', (tester) async {
+    await pump(tester, playingState(nowPlayingTracks(2), context: _album));
+    appNavigatorKey.currentState!.push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: librarySearchRouteName),
+        builder: (_) => const Scaffold(body: Center(child: TextField(autofocus: true))),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await keys(tester, const [], LogicalKeyboardKey.escape);
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('should_ringBackButton_when_focusedByKeyboard', (tester) async {
+    await pump(tester, playingState(nowPlayingTracks(2), context: _album));
+    appNavigatorKey.currentState!.push(
+      MaterialPageRoute<void>(builder: (_) => Scaffold(appBar: AppBar(leading: const BackButton()))),
+    );
+    await tester.pumpAndSettle();
+    await keys(tester, const [], LogicalKeyboardKey.tab);
+    final ring = find.byWidgetPredicate((w) => w is CustomPaint && w.painter.runtimeType.toString() == '_RingPainter');
+    expect(ring, paints..rrect(style: PaintingStyle.stroke));
   });
 }

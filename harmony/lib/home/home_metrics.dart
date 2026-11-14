@@ -122,6 +122,14 @@ abstract final class HomeEditMetrics {
   static const double trayRowGap = 8;
   static const double actionGap = 4;
   static const double dragLiftScale = 1.02;
+
+  /// A section drag scrolls the feed while the finger is this close to its
+  /// top or bottom edge, up to [autoScrollMax] dp/s (HomeRowsResize.kt AutoScrollEdge/Max).
+  static const double autoScrollEdge = 64;
+  static const double autoScrollMax = 900;
+
+  /// The feed's cache extent while a section is lifted: the whole feed.
+  static const double dragCacheExtent = 100000;
 }
 
 abstract final class HomeSectionMetrics {

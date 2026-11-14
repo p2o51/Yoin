@@ -171,29 +171,53 @@ Path memoryBubbleOutline(
   return path;
 }
 
-/// Put around the header's title: it gives way while the bubble speaks over it.
-class MemoryBubbleTitle extends StatelessWidget {
+/// Put around the header's title: it gives way while the bubble speaks over
+/// it. Where the body lands clear of the title (a wide window, the arrow at
+/// the page's centre) the title stays: there is nothing to make room for.
+class MemoryBubbleTitle extends StatefulWidget {
   const MemoryBubbleTitle({super.key, required this.child});
 
   final Widget child;
 
   @override
+  State<MemoryBubbleTitle> createState() => _MemoryBubbleTitleState();
+}
+
+class _MemoryBubbleTitleState extends State<MemoryBubbleTitle> {
+  final GlobalKey _box = GlobalKey();
+
+  @override
   Widget build(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<_MemoryBubbleScope>();
+    final child = KeyedSubtree(key: _box, child: widget.child);
     if (scope == null) return child;
     return AnimatedBuilder(
       animation: scope.motion,
       child: child,
-      builder: (context, child) => Opacity(opacity: scope.titleAlpha().clamp(0.0, 1.0), child: child),
+      builder: (context, child) {
+        final box = _box.currentContext?.findRenderObject() as RenderBox?;
+        final alpha = scope.titleAlpha(box);
+        return Opacity(opacity: alpha.clamp(0.0, 1.0), child: child);
+      },
     );
   }
+}
+
+/// How much of the title the body covers: 0 when the body starts past the
+/// title's end ([titleEnd], its breathing included), 1 once it reaches a
+/// breathing's width into it; a missing measure counts as covered.
+double memoryBubbleTitleCover({required double bodyLeft, required double? titleEnd}) {
+  if (titleEnd == null) return 1;
+  return ((titleEnd - bodyLeft) / HomeTokens.headerTitleBreathing).clamp(0.0, 1.0);
 }
 
 class _MemoryBubbleScope extends InheritedWidget {
   const _MemoryBubbleScope({required this.motion, required this.titleAlpha, required super.child});
 
   final Listenable motion;
-  final double Function() titleAlpha;
+
+  /// The title's opacity, given its box (last frame's layout; null = not laid out yet).
+  final double Function(RenderBox? title) titleAlpha;
 
   @override
   bool updateShouldNotify(_MemoryBubbleScope oldWidget) => !identical(oldWidget.motion, motion);
@@ -266,6 +290,10 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
 
   BubbleSay? _shown;
   BubbleSay? _previous;
+
+  /// The last laid-out geometry and the box it is in: the title asks whether the body covers it.
+  MemoryBubbleGeometry? _geometry;
+  final GlobalKey _stackKey = GlobalKey();
   int _shownCount = 0;
   bool _wasSpeaking = false;
   bool _reduced = false;
@@ -600,11 +628,14 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
     final motion = Listenable.merge([_springs, ?reveal, ?_scroll]);
     return _MemoryBubbleScope(
       motion: _springs,
-      titleAlpha: () {
+      titleAlpha: (title) {
         final s = _unroll.value.clamp(0.0, 1.0);
-        return 1 - _smoothstep(0, 0.45, s) * (1 - _fly.value.clamp(0.0, 1.0)) * _fade.value.clamp(0.0, 1.0);
+        final leave = _smoothstep(0, 0.45, s) * (1 - _fly.value.clamp(0.0, 1.0)) * _fade.value.clamp(0.0, 1.0);
+        if (leave <= 0) return 1;
+        return 1 - leave * _titleCover(title);
       },
       child: Stack(
+        key: _stackKey,
         clipBehavior: Clip.none,
         children: [
           widget.child,
@@ -617,6 +648,7 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
                   rowTop: widget.rowTop,
                   trailingReserve: widget.trailingReserve,
                 );
+                _geometry = geometry;
                 return AnimatedBuilder(animation: motion, builder: (context, _) => _layers(context, geometry, colors));
               },
             ),
@@ -624,6 +656,15 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
         ],
       ),
     );
+  }
+
+  /// 0..1: how much of the header's title the body lands on (1 = all of it, or unmeasured).
+  double _titleCover(RenderBox? title) {
+    final g = _geometry;
+    final stack = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (g == null || title == null || stack == null || !title.attached || !title.hasSize || !stack.attached) return 1;
+    final end = title.localToGlobal(Offset(title.size.width, 0), ancestor: stack).dx;
+    return memoryBubbleTitleCover(bodyLeft: g.body.left, titleEnd: end);
   }
 
   Widget _layers(BuildContext context, MemoryBubbleGeometry g, ColorScheme colors) {
@@ -707,6 +748,9 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
         if (speaking)
           Positioned.fromRect(
             rect: g.body,
+            // A fresh node for each thing said: a reader that keeps a node's
+            // first label never reads the last memory over the new one.
+            key: ValueKey(_shownCount),
             child: Semantics(
               button: true,
               label: _description(strings),

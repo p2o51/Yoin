@@ -4,6 +4,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../ui/navigation/yoin_push_route.dart';
 import 'settings_metrics.dart';
+import 'settings_pane.dart';
 import 'settings_page.dart';
 import 'settings_rows.dart';
 import 'settings_strings.dart';
@@ -35,19 +36,29 @@ class StreamQualityRow extends ConsumerWidget {
               streamQualityLabel(strings, settings.wifi),
               streamQualityLabel(strings, settings.mobile),
             ),
-      onTap: () => Navigator.of(context)
-          .push(YoinPushRoute<void>(builder: (_) => StreamQualityScreen(profileId: profileId))),
+      onTap: () {
+        // In the wide window's right pane, the page opens there (like every
+        // Settings page on a wide window); otherwise it is pushed.
+        final openInPane = SettingsPaneScope.maybeOf(context);
+        if (openInPane != null) {
+          openInPane(StreamQualityPane(profileId));
+        } else {
+          Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => StreamQualityScreen(profileId: profileId)));
+        }
+      },
     );
   }
 }
 
 /// Settings › account › Streaming quality (StreamQualityPage.kt), a PushPage:
 /// two groups, Wi‑Fi and mobile data, one choice each; it applies from the
-/// next song that opens.
+/// next song that opens. On a wide window it is the Settings list-detail's
+/// right pane ([inPane]).
 class StreamQualityScreen extends ConsumerWidget {
-  const StreamQualityScreen({super.key, required this.profileId});
+  const StreamQualityScreen({super.key, required this.profileId, this.inPane = false});
 
   final String profileId;
+  final bool inPane;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -55,6 +66,7 @@ class StreamQualityScreen extends ConsumerWidget {
     final settings = ref.watch(streamQualityProvider(profileId));
     return SettingsSubPage(
       title: strings.streamQualityTitle,
+      inPane: inPane,
       children: [
         _QualityGroup(
           title: strings.streamQualityWifi,

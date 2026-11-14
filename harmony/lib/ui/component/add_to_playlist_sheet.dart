@@ -8,6 +8,7 @@ import '../../theme/tokens.dart';
 import 'component_strings.dart';
 import 'cover_art.dart';
 import 'expressive_text_field.dart';
+import 'yoin_dialog.dart';
 import 'yoin_loading_indicator.dart';
 
 /// Add to playlist (component/AddToPlaylistSheet.kt): "Create new playlist…"
@@ -200,7 +201,7 @@ Future<String?> showPlaylistNameDialog(
   required String confirmLabel,
   required String cancelLabel,
   String initial = '',
-}) => showDialog<String>(
+}) => showYoinDialog<String>(
   context: context,
   builder: (context) =>
       _NameDialog(title: title, label: label, confirmLabel: confirmLabel, cancelLabel: cancelLabel, initial: initial),

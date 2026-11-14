@@ -81,6 +81,37 @@ void main() {
     store.dispose();
   });
 
+  testWidgets('should_dropWritingRow_when_savedOrTappedAway', (tester) async {
+    setUpNotes();
+    await pumpPage(tester);
+    await tester.tap(find.byType(NoteWriteBar));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'Bridge');
+    await tester.pumpAndSettle();
+    expect(find.text('Writing…'), findsOneWidget);
+
+    // Saved: the field keeps focus (the next line) but no empty ghost row stays.
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(notes.focused, isTrue);
+    expect(find.text('Writing…'), findsNothing);
+
+    // Typing again brings the row back where the words will land.
+    await tester.enterText(find.byType(TextField), 'Outro');
+    await tester.pumpAndSettle();
+    expect(find.text('Writing…'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pumpAndSettle();
+
+    // A click away from the bar over an empty draft puts the field down.
+    await tester.tapAt(const Offset(400, 40));
+    await tester.pumpAndSettle();
+    expect(notes.focused, isFalse);
+    expect(find.text('Writing…'), findsNothing);
+    notes.dispose();
+    store.dispose();
+  });
+
   testWidgets('should_bringNoteBack_when_deletedThenUndone', (tester) async {
     setUpNotes();
     await store.putSongNote(

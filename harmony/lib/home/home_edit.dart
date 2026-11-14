@@ -218,10 +218,18 @@ class HomeEditPlate extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             ?dragHandle,
-                            IconButton(
-                              tooltip: strings.hideSectionCd(name),
-                              onPressed: onHide,
-                              icon: Icon(YoinSymbols.visibilityOff, color: colors.onSurfaceVariant),
+                            // A tooltip alone is no label on HarmonyOS' reader: say it.
+                            Semantics(
+                              container: true,
+                              button: true,
+                              label: strings.hideSectionCd(name),
+                              onTap: onHide,
+                              excludeSemantics: true,
+                              child: IconButton(
+                                tooltip: strings.hideSectionCd(name),
+                                onPressed: onHide,
+                                icon: Icon(YoinSymbols.visibilityOff, color: colors.onSurfaceVariant),
+                              ),
                             ),
                           ],
                         ),

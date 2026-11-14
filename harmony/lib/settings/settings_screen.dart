@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../playback/playback_controller.dart';
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/component/spring_cross_fade.dart';
+import '../ui/component/yoin_dialog.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/adaptive/yoin_window_info.dart';
@@ -19,11 +21,15 @@ import 'settings_components.dart';
 import 'licenses.dart';
 import 'material_shapes.dart';
 import 'settings_metrics.dart';
+import 'settings_pane.dart';
 import 'settings_rows.dart';
 import 'settings_strings.dart';
 import 'settings_view_model.dart';
+import 'stream_quality_screen.dart';
 import 'subsonic_setup_screen.dart';
 import 'tips.dart';
+
+export 'settings_pane.dart';
 
 /// Opens Settings (PushPage). The Home avatar, Home's and Library's error
 /// "Settings" and Library's settings button all come here.
@@ -61,41 +67,6 @@ Future<void> openAddAccount(BuildContext anchorContext) async {
       break;
   }
 }
-
-/// What the wide window's right pane shows (SettingsTablet): an account's
-/// page, or one of the Help and about pages.
-sealed class SettingsPane {
-  const SettingsPane();
-}
-
-final class AccountPane extends SettingsPane {
-  const AccountPane(this.profileId);
-  final String profileId;
-
-  @override
-  bool operator ==(Object other) => other is AccountPane && other.profileId == profileId;
-  @override
-  int get hashCode => profileId.hashCode;
-}
-
-final class TipsPane extends SettingsPane {
-  const TipsPane();
-  @override
-  bool operator ==(Object other) => other is TipsPane;
-  @override
-  int get hashCode => 1;
-}
-
-final class LicensesPane extends SettingsPane {
-  const LicensesPane();
-  @override
-  bool operator ==(Object other) => other is LicensesPane;
-  @override
-  int get hashCode => 2;
-}
-
-/// Opens [pane]'s page: in the right pane on a wide window, else pushed.
-typedef OpenSettingsPane = void Function(SettingsPane pane);
 
 /// Settings (Android SettingsScreen): the account switcher, then Help and
 /// about. Tap an account to use it (the one in use, or one that needs
@@ -137,6 +108,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         navigator.push(YoinPushRoute<void>(builder: (_) => const TipsScreen()));
       case LicensesPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const LicensesScreen()));
+      case StreamQualityPane(:final profileId):
+        navigator.push(YoinPushRoute<void>(builder: (_) => StreamQualityScreen(profileId: profileId)));
     }
   }
 
@@ -148,7 +121,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final wide = _wide;
     // An account that went away takes its page with it.
     var pane = wide ? _pane : null;
-    if (pane is AccountPane && state is SettingsContent && !state.accounts.any((a) => a.id == (pane as AccountPane).profileId)) {
+    final paneProfile = switch (pane) {
+      AccountPane(:final profileId) || StreamQualityPane(:final profileId) => profileId,
+      _ => null,
+    };
+    if (paneProfile != null && state is SettingsContent && !state.accounts.any((a) => a.id == paneProfile)) {
       pane = null;
     }
     final list = ListView(
@@ -190,7 +167,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         body: SafeArea(
           top: false,
           bottom: false,
-          child: wide ? _ListDetail(list: list, pane: pane, onDone: () => setState(() => _pane = null)) : list,
+          child: wide ? _ListDetail(list: list, pane: pane, onOpen: _open, onDone: () => setState(() => _pane = null)) : list,
         ),
       ),
     );
@@ -201,10 +178,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 /// on the right on its own panel in the page colour, cross-fading as the
 /// pick changes.
 class _ListDetail extends StatelessWidget {
-  const _ListDetail({required this.list, required this.pane, required this.onDone});
+  const _ListDetail({required this.list, required this.pane, required this.onOpen, required this.onDone});
 
   final Widget list;
   final SettingsPane? pane;
+  final OpenSettingsPane onOpen;
   final VoidCallback onDone;
 
   @override
@@ -219,6 +197,7 @@ class _ListDetail extends StatelessWidget {
         SubsonicSetupScreen(key: ValueKey(profileId), profileId: profileId, inPane: true, onDone: onDone),
       TipsPane() => const TipsScreen(inPane: true),
       LicensesPane() => const LicensesScreen(inPane: true),
+      StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
     };
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -230,13 +209,19 @@ class _ListDetail extends StatelessWidget {
               right: SettingsMetrics.pageHorizontal,
               bottom: SettingsMetrics.pageHorizontal + MediaQuery.paddingOf(context).bottom,
             ),
-            child: Material(
+            // The page scrolls under the panel's corners: clipped by the
+            // superellipse clip itself (as covers are), with the panel colour
+            // painted inside it. Material's shape clip left the rows square
+            // past the corners on the MateBook, with a dark seam at the edge.
+            child: SettingsPanePanel(
               color: settingsPageColor(colors),
-              shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.panel)),
-              clipBehavior: Clip.antiAlias,
               child: YoinWindowScope(
                 info: window.forPaneWidth(window.width - listWidth),
-                child: SpringCrossFade(childKey: pane ?? 'placeholder', child: page),
+                // A page here opens the next one here too (Streaming quality).
+                child: SettingsPaneScope(
+                  open: onOpen,
+                  child: SpringCrossFade(childKey: pane ?? 'placeholder', child: page),
+                ),
               ),
             ),
           ),
@@ -244,6 +229,26 @@ class _ListDetail extends StatelessWidget {
       ],
     );
   }
+}
+
+/// The right pane's panel: [child] clipped to the panel's superellipse, on
+/// [color] painted inside the same clip (no edge where the two could part).
+class SettingsPanePanel extends StatelessWidget {
+  const SettingsPanePanel({super.key, required this.color, required this.child});
+
+  final Color color;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => ClipRSuperellipse(
+    borderRadius: BorderRadius.circular(ShapeTokens.panel),
+    clipBehavior: Clip.antiAlias,
+    child: ColoredBox(
+      color: color,
+      // Ink (row splashes) still needs a Material; a transparent one paints nothing.
+      child: Material(type: MaterialType.transparency, child: child),
+    ),
+  );
 }
 
 /// The right pane before anything is picked (SettingsPlaceholderPane): an
@@ -476,10 +481,9 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
   }
 
   Future<void> _switch() async {
-    final messenger = ScaffoldMessenger.maybeOf(context);
     final failed = SettingsStrings.of(context).switchFailed;
     final ok = await ref.read(settingsViewModelProvider.notifier).switchTo(widget.card.id);
-    if (!ok) messenger?.showSnackBar(SnackBar(content: Text(failed)));
+    if (!ok) ref.read(playbackControllerProvider.notifier).showMessage(failed);
   }
 
   Future<void> _options(BuildContext anchorContext) async {
@@ -511,7 +515,7 @@ class _AccountCardTileState extends ConsumerState<_AccountCardTile> with TickerP
 
   Future<bool?> _confirmRemove() {
     final strings = SettingsStrings.of(context);
-    return showDialog<bool>(
+    return showYoinDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(strings.removeTitle),

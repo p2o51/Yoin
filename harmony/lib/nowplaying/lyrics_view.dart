@@ -28,6 +28,64 @@ abstract final class LyricsPaneMetrics {
   static const double focusFraction = 0.5;
   static const double screenPull = 0.4;
   static const double windowFadeTop = 16;
+
+  /// The window's (and focus's) bottom fade ends this far inside the
+  /// window, so no line is ever cut by the edge the transport sits on.
+  static const double windowFadeClear = 4;
+}
+
+/// The lyric list's edge mask (LyricsDisplay `edgeFade(top, bottom)`) for a
+/// box [height] tall: opaque between the fades, transparent at the top edge
+/// and [clearBottom] above the bottom edge. The bottom fade eases out (alpha
+/// (1 − t)²), so a line straddling it dissolves instead of reading as cut.
+({List<Color> colors, List<double> stops}) lyricsEdgeMask(
+  double height, {
+  required double fadeTop,
+  required double fadeBottom,
+  double clearBottom = 0,
+  bool easeBottom = false,
+}) {
+  const clear = Color(0x00000000);
+  const opaque = Color(0xFF000000);
+  if (height <= 0) return (colors: const [opaque, opaque], stops: const [0.0, 1.0]);
+  final top = (fadeTop / height).clamp(0.0, 0.5);
+  final end = (1 - clearBottom / height).clamp(0.5, 1.0);
+  final start = (end - fadeBottom / height).clamp(top, end);
+  final colors = <Color>[clear, opaque, opaque];
+  final stops = <double>[0, top, start];
+  if (easeBottom) {
+    const steps = 4;
+    for (var i = 1; i < steps; i++) {
+      final t = i / steps;
+      colors.add(opaque.withValues(alpha: (1 - t) * (1 - t)));
+      stops.add(start + (end - start) * t);
+    }
+  }
+  colors.add(clear);
+  stops.add(end);
+  if (end < 1) {
+    colors.add(clear);
+    stops.add(1);
+  }
+  return (colors: colors, stops: stops);
+}
+
+/// The focus list's scroll offset: the current line pinned under the lines
+/// just sung ([aboveTop] is the first of them), unless that would push the
+/// current line into the bottom fade — then the sung lines give way, so the
+/// whole current line always clears the fade and the transport under it
+/// (LyricsDisplay: `roomAbove = shown − listTopPad − current`).
+double focusSeatOffset({
+  required double currentTop,
+  required double currentHeight,
+  required double aboveTop,
+  required double viewport,
+}) {
+  const pad = NowPlayingTokens.lyricsListPadding;
+  final bottomBand = NowPlayingTokens.lyricsFadeBottom + LyricsPaneMetrics.windowFadeClear;
+  final roomAbove = math.max(0.0, viewport - pad - currentHeight - bottomBand);
+  final wanted = math.max(0.0, currentTop - aboveTop);
+  return currentTop - pad - math.min(wanted, roomAbove);
 }
 
 /// Which list: the Compact window (read-only, anchored at 22 %), the
@@ -187,6 +245,11 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
   bool _seated = false;
   double _viewport = 0;
 
+  /// What the seat depends on besides the rows: the viewport, the screen
+  /// height (the full list's 40 % pull) and [windowTop]. Any change re-seats
+  /// at once, before a frame shows the list off its line.
+  (Size, double, double)? _seatInputs;
+
   /// The song the last outro staged in place (LyricsTrackTransition): a list
   /// that opens for it swaps in without the entrance slide.
   static String? _stagedTo;
@@ -284,6 +347,13 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     _evaluateOutro(initial: true);
     widget.clock.addListener(_onTick);
     widget.autoFollow?.addListener(_onAutoFollow);
+    if (_full) {
+      // A list that opens (Expanded, Full, a new song) follows the playhead,
+      // as Android's pane does (its auto-scroll is remembered per pane).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.autoFollow?.value = true;
+      });
+    }
     if (_stagedTo != null && _stagedTo == widget.songKey) {
       // The previous song handed over to this one: swap in place.
       _enter.snapTo(1);
@@ -443,7 +513,14 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
       // Pinned to the top with the line just sung whole above it.
       if (focus <= 0) return 0;
       final above = _rowTop(math.max(0, focus - widget.linesAbove));
-      return above == null ? current : above - NowPlayingTokens.lyricsListPadding;
+      final top = _rowTop(focus);
+      if (above == null || top == null) return current;
+      return focusSeatOffset(
+        currentTop: top,
+        currentHeight: _rowHeight(focus) ?? 0,
+        aboveTop: above,
+        viewport: _viewport,
+      );
     }
     final top = _rowTop(focus);
     if (top == null) return current;
@@ -465,6 +542,15 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     }
     _glide.value = _scroll.offset;
     _glide.animateWith(SpringSimulation(YoinSprings.standardDefaultSpatial, _scroll.offset, target, 0));
+  }
+
+  /// The content changed size (re-wrapped to a new width, a line's type
+  /// stepped): re-seat at once unless a glide is already on its way.
+  bool _onContentResized(SizeChangedLayoutNotification n) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_glide.isAnimating) _seat(animate: false);
+    });
+    return true;
   }
 
   bool _onScrollNotification(ScrollNotification n) {
@@ -607,39 +693,58 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
           )
         : EdgeInsets.symmetric(horizontal: side, vertical: NowPlayingTokens.lyricsListPadding);
 
+    final screenH = MediaQuery.sizeOf(context).height;
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewport = constraints.maxHeight;
-        if (viewport > 0 && viewport != _viewport) {
+        final inputs = (constraints.biggest, screenH, widget.windowTop);
+        if (viewport > 0 && inputs != _seatInputs) {
           _viewport = viewport;
-          // The window is resized in place by the stage reshape: re-anchor instantly.
-          WidgetsBinding.instance.addPostFrameCallback((_) => _seat(animate: false));
+          _seatInputs = inputs;
+          // Resized in place (the stage reshape, Full, a window resize): re-anchor instantly.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _glide.stop();
+            _seat(animate: false);
+          });
         }
         final fadeTop = full
             ? math.min(LyricsPaneMetrics.fade, viewport * LyricsPaneMetrics.fadeMaxShare)
             : (focusMode ? NowPlayingFocusTokens.fadeTop : LyricsPaneMetrics.windowFadeTop);
         final fadeBottom = full ? fadeTop : NowPlayingTokens.lyricsFadeBottom;
+        final mask = lyricsEdgeMask(
+          viewport,
+          fadeTop: fadeTop,
+          fadeBottom: fadeBottom,
+          clearBottom: full ? 0 : LyricsPaneMetrics.windowFadeClear,
+          easeBottom: !full,
+        );
         final list = NotificationListener<ScrollNotification>(
           onNotification: _onScrollNotification,
           child: SingleChildScrollView(
             controller: _scroll,
             physics: full || !synced ? const BouncingScrollPhysics() : const NeverScrollableScrollPhysics(),
             padding: padding,
-            child: Column(
-              key: _content,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                AnimatedBuilder(
-                  animation: _currentBlock.animation,
-                  builder: (context, child) => Opacity(opacity: _currentBlock.value.clamp(0.0, 1.0), child: child),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: spaced(current)),
+            child: NotificationListener<SizeChangedLayoutNotification>(
+              onNotification: _onContentResized,
+              child: SizeChangedLayoutNotifier(
+                child: Column(
+                  key: _content,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AnimatedBuilder(
+                      animation: _currentBlock.animation,
+                      builder: (context, child) => Opacity(opacity: _currentBlock.value.clamp(0.0, 1.0), child: child),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: spaced(current)),
+                    ),
+                    if (staged) ...[
+                      ...spaced(upNextRows),
+                      // Long enough that the hand-over can park the next title where its own list opens.
+                      SizedBox(height: viewport),
+                    ],
+                  ],
                 ),
-                if (staged) ...[
-                  ...spaced(upNextRows),
-                  // Long enough that the hand-over can park the next title where its own list opens.
-                  SizedBox(height: viewport),
-                ],
-              ],
+              ),
             ),
           ),
         );
@@ -657,8 +762,8 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
             shaderCallback: (rect) => LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: const [Color(0x00000000), Color(0xFF000000), Color(0xFF000000), Color(0x00000000)],
-              stops: [0, (fadeTop / rect.height).clamp(0.0, 0.5), 1 - (fadeBottom / rect.height).clamp(0.0, 0.5), 1],
+              colors: mask.colors,
+              stops: mask.stops,
             ).createShader(rect),
             child: list,
           ),

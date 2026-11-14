@@ -10,6 +10,7 @@ import '../memories/memories_reveal_scope.dart';
 import '../nowplaying/flight.dart';
 import '../nowplaying/now_playing_overlay.dart';
 import '../nowplaying/now_playing_pill.dart';
+import '../nowplaying/now_playing_presentation.dart' show NowPlayingPanelTokens;
 import '../nowplaying/now_playing_screen.dart' show heroRestScale, showNowPlayingTrackMenu;
 import '../nowplaying/overlay_controller.dart';
 import '../nowplaying/player_snapshot.dart';
@@ -22,6 +23,8 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/pane/detail_pane.dart';
+import '../ui/navigation/pane/pane_split.dart';
+import 'app_messages.dart';
 import 'bar_suppression.dart';
 import 'chrome_back.dart';
 import 'desktop_shortcuts.dart';
@@ -50,7 +53,13 @@ class AppChrome extends ConsumerStatefulWidget {
 
 class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateMixin {
   late final NowPlayingOverlayController _controller = NowPlayingOverlayController(vsync: this);
-  late final ChromeBackEntry _back = ChromeBackEntry(() => _controller.handleBack());
+  /// Arbitrated above every other window-level owner (principle 8): the
+  /// side panel / player takes system back before the detail column.
+  late final ChromeBackEntry _back = ChromeBackEntry(
+    () => _controller.handleBack(),
+    owns: () => _controller.expanded,
+    priority: ChromeBackPriority.nowPlaying,
+  );
   late final OverlayEntry _entry = OverlayEntry(builder: _buildLayers);
 
   /// 0 = the bar may show, 1 = a bar-less page (setup, search) sent it away.
@@ -60,6 +69,8 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   void initState() {
     super.initState();
     _controller.addListener(_syncBack);
+    DetailPaneController.columnOpen.addListener(_syncPanelFloor);
+    _syncPanelFloor();
   }
 
   @override
@@ -71,12 +82,19 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   @override
   void dispose() {
     _controller.removeListener(_syncBack);
+    DetailPaneController.columnOpen.removeListener(_syncPanelFloor);
     _back.dispose();
     _barAway.dispose();
     _controller.dispose();
     // _entry lives and dies with this chrome's own Overlay (already unmounted here).
     super.dispose();
   }
+
+  /// Beside the side panel the content keeps a phone column — two columns
+  /// and the gutter while the detail column is open (adaptive-principles §4).
+  void _syncPanelFloor() => _controller.minContentWidth = DetailPaneController.columnOpen.value
+      ? PaneTokens.twoColumnsMinWidth
+      : NowPlayingPanelTokens.minContentWidth;
 
   /// Now Playing open asks the window to stay awake (while playing and when
   /// the user chose it; NowPlayingKeepScreenOn decides).
@@ -287,7 +305,12 @@ class BesideNowPlayingPanel extends StatelessWidget {
       builder: (context, child) {
         final window = YoinWindowInfo.of(context);
         final info = controller.panelOpen ? window.forPaneWidth(window.width - controller.frame.panelWidth) : window;
-        return YoinWindowScope(info: info, child: child!);
+        // The window itself stays readable: the detail column belongs to it,
+        // not to the width the panel leaves.
+        return NowPlayingHostWindowScope(
+          window: window,
+          child: YoinWindowScope(info: info, child: child!),
+        );
       },
       child: laid,
     );
@@ -461,7 +484,14 @@ class _PlaybackSnackbarHostState extends ConsumerState<PlaybackSnackbarHost> {
   }
 
   void _gone(_ShownSnackbar s) {
-    if (mounted) setState(() => _shown.remove(s));
+    if (!mounted) return;
+    setState(() => _shown.remove(s));
+    if (_shown.isEmpty) _lift(0);
+  }
+
+  /// Library's FAB rises over the snackbar showing now (snackbarLiftProvider).
+  void _lift(double height) {
+    if (mounted) ref.read(snackbarLiftProvider.notifier).set(height);
   }
 
   @override
@@ -480,19 +510,23 @@ class _PlaybackSnackbarHostState extends ConsumerState<PlaybackSnackbarHost> {
           child: child!,
         );
       },
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          for (final s in _shown)
-            YoinSnackbar(
-              key: ValueKey(s.id),
-              message: s.message,
-              leaving: s.leaving,
-              dismissLabel: PlaybackStrings.of(context).snackbarDismiss,
-              onDismiss: s.leaving ? null : _dismissCurrent,
-              onGone: () => _gone(s),
-            ),
-        ],
+      child: SnackbarLiftReporter(
+        active: _current != null,
+        onLift: _lift,
+        child: Stack(
+          alignment: Alignment.bottomCenter,
+          children: [
+            for (final s in _shown)
+              YoinSnackbar(
+                key: ValueKey(s.id),
+                message: s.message,
+                leaving: s.leaving,
+                dismissLabel: PlaybackStrings.of(context).snackbarDismiss,
+                onDismiss: s.leaving ? null : _dismissCurrent,
+                onGone: () => _gone(s),
+              ),
+          ],
+        ),
       ),
     );
   }

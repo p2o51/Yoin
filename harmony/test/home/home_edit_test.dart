@@ -9,6 +9,7 @@ import 'package:yoin/home/home_edit.dart';
 import 'package:yoin/home/home_grid_pool_store.dart';
 import 'package:yoin/home/home_screen.dart';
 import 'package:yoin/home/home_section.dart';
+import 'package:yoin/home/home_shelves.dart';
 import 'package:yoin/home/home_view_model.dart';
 import 'package:yoin/home/jump_back_in.dart';
 import 'package:yoin/platform/storage/stores.dart';
@@ -116,8 +117,8 @@ void main() {
       HomeScreen.resetProcessState();
     });
 
-    Future<ProviderContainer> pumpHome(WidgetTester tester) async {
-      tester.view.physicalSize = const Size(400, 1400);
+    Future<ProviderContainer> pumpHome(WidgetTester tester, {Size size = const Size(400, 1400)}) async {
+      tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final store = InMemoryStore();
@@ -219,6 +220,74 @@ void main() {
       final after = c.read(homeLayoutProvider).visibleV1Sections;
       expect(after.indexOf(HomeSection.jumpBackIn), greaterThan(1));
       expect(tester.takeException(), isNull);
+      await done(tester, c);
+    });
+
+    testWidgets('should_moveSection_when_otherSectionsAreOffScreen', (tester) async {
+      // Short window: the lazy feed has not built the sections below the fold.
+      final c = await pumpHome(tester, size: const Size(400, 640));
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      final before = c.read(homeLayoutProvider).visibleV1Sections;
+      expect(before.first, HomeSection.activities);
+      expect(find.byType(YourPlaylistsSection), findsNothing); // off screen, not built
+      final handle = find.byIcon(YoinSymbols.dragHandle).first;
+      final gesture = await tester.startGesture(tester.getCenter(handle));
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump(const Duration(milliseconds: 16));
+      // Past one neighbour on screen.
+      for (var i = 0; i < 6; i++) {
+        await gesture.moveBy(const Offset(0, 50));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await frames(tester, 30);
+      final after = c.read(homeLayoutProvider).visibleV1Sections;
+      expect(after.indexOf(HomeSection.activities), greaterThan(0));
+      expect(tester.takeException(), isNull);
+      await done(tester, c);
+    });
+
+    testWidgets('should_autoScrollAndMoveToTheEnd_when_heldAtTheBottomEdge', (tester) async {
+      final c = await pumpHome(tester, size: const Size(400, 640));
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      final before = c.read(homeLayoutProvider).visibleV1Sections;
+      final handle = find.byIcon(YoinSymbols.dragHandle).first;
+      final gesture = await tester.startGesture(tester.getCenter(handle));
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump(const Duration(milliseconds: 16));
+      // Down to the feed's bottom edge, then hold there while the feed scrolls.
+      final bottom = tester.getBottomLeft(find.byType(CustomScrollView)).dy;
+      await gesture.moveTo(Offset(tester.getCenter(handle).dx, bottom - 100));
+      await tester.pump(const Duration(milliseconds: 16));
+      for (var i = 0; i < 300; i++) {
+        await gesture.moveBy(Offset(0, i.isEven ? 1 : -1));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final scrolled = tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      expect(scrolled.pixels, greaterThan(0));
+      // Then down past the last section.
+      await gesture.moveTo(Offset(tester.getCenter(handle).dx, bottom - 5));
+      for (var i = 0; i < 120; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await frames(tester, 30);
+      final after = c.read(homeLayoutProvider).visibleV1Sections;
+      expect(after.last, HomeSection.activities, reason: 'was $before');
+      expect(tester.takeException(), isNull);
+      await done(tester, c);
+    });
+
+    testWidgets('should_labelHideAndHandle_when_editing', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final c = await pumpHome(tester);
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      expect(find.bySemanticsLabel('Hide Jump Back In'), findsOneWidget);
+      expect(find.bySemanticsLabel('Reorder Jump Back In'), findsOneWidget);
+      semantics.dispose();
       await done(tester, c);
     });
   });

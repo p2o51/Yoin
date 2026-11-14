@@ -117,6 +117,11 @@ class _NoteWriteBarState extends State<NoteWriteBar> with TickerProviderStateMix
       maxLines: open ? _N.barOpenMaxLines : 1,
       style: text.bodyLarge!.copyWith(color: colors.onSurface),
       cursorColor: colors.primary,
+      // A click / tap away from the bar over an empty draft puts the field
+      // down (no soft keyboard to dismiss on a 2in1 with its keyboard on).
+      onTapOutside: (_) {
+        if (_notes.focused && _notes.draft.text.trim().isEmpty) _notes.focus.unfocus();
+      },
       decoration: InputDecoration.collapsed(
         hintText: strings.notePlaceholder,
         hintStyle: text.bodyLarge!.copyWith(color: colors.onSurfaceVariant.withValues(alpha: 0.8)),
@@ -175,28 +180,31 @@ class _NoteWriteBarState extends State<NoteWriteBar> with TickerProviderStateMix
         ],
       ),
     );
-    return Semantics(
-      textField: !open,
-      label: open ? null : strings.notePlaceholder,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: open ? null : _notes.focus.requestFocus,
-        child: AnimatedBuilder(
-          animation: _corner.animation,
-          builder: (context, child) => ClipRRect(
-            borderRadius: BorderRadius.circular(_corner.value),
-            child: ColoredBox(
-              color: colors.surfaceContainerHigh.withValues(alpha: _N.barVeilAlpha),
-              child: child,
+    // The whole bar (stamp, Save) counts as inside the field for onTapOutside.
+    return TextFieldTapRegion(
+      child: Semantics(
+        textField: !open,
+        label: open ? null : strings.notePlaceholder,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: open ? null : _notes.focus.requestFocus,
+          child: AnimatedBuilder(
+            animation: _corner.animation,
+            builder: (context, child) => ClipRRect(
+              borderRadius: BorderRadius.circular(_corner.value),
+              child: ColoredBox(
+                color: colors.surfaceContainerHigh.withValues(alpha: _N.barVeilAlpha),
+                child: child,
+              ),
             ),
-          ),
-          // However short the slot (mid-spring), the card keeps its natural
-          // layout; the clip reveals it as the slot grows.
-          child: OverflowBox(
-            alignment: Alignment.topCenter,
-            minHeight: 0,
-            maxHeight: double.infinity,
-            child: _SizeReporter(onSize: _report, child: content),
+            // However short the slot (mid-spring), the card keeps its natural
+            // layout; the clip reveals it as the slot grows.
+            child: OverflowBox(
+              alignment: Alignment.topCenter,
+              minHeight: 0,
+              maxHeight: double.infinity,
+              child: _SizeReporter(onSize: _report, child: content),
+            ),
           ),
         ),
       ),

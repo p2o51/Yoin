@@ -103,9 +103,17 @@ NowPlayingPresentation resolveNowPlayingPresentation(
 final class NowPlayingFrame {
   const NowPlayingFrame({required this.presentation, required this.panelAvailable, required this.windowWidth});
 
-  factory NowPlayingFrame.resolve(YoinWindowInfo window, {required bool fullscreen}) => NowPlayingFrame(
-    presentation: resolveNowPlayingPresentation(window, fullscreen: fullscreen),
-    panelAvailable: canOpenNowPlayingPanel(window),
+  /// [minContentWidth] is what the host must keep beside the panel: a phone
+  /// column, or two columns and the gutter while the detail column is open
+  /// (adaptive-principles §4, Android rememberNowPlayingFrame(minContentWidth)).
+  /// Where that cannot fit, the panel does not exist and Full opens directly.
+  factory NowPlayingFrame.resolve(
+    YoinWindowInfo window, {
+    required bool fullscreen,
+    double minContentWidth = _P.minContentWidth,
+  }) => NowPlayingFrame(
+    presentation: resolveNowPlayingPresentation(window, fullscreen: fullscreen, minContentWidth: minContentWidth),
+    panelAvailable: canOpenNowPlayingPanel(window, minContentWidth: minContentWidth),
     windowWidth: window.width,
   );
 

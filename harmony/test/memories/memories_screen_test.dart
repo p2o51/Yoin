@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/memories/copy/memory_voice.dart';
+import 'package:yoin/memories/memories_layout.dart';
 import 'package:yoin/memories/memories_motion.dart';
 import 'package:yoin/memories/memories_screen.dart';
 import 'package:yoin/memories/memories_ui_state.dart';
@@ -107,6 +109,54 @@ void main() {
       }
     });
   }
+
+  test('should_clearSlotsUpToThePillsEnd_when_maskingTheBar', () {
+    final (a, b) = memoriesBarSlotMaskStops(400, 104);
+    expect(a * 400, closeTo(104, 1e-9));
+    expect(b * 400, closeTo(104 + memoriesBarSlotFade, 1e-9));
+    // At rest slot A (pillStart + 100) starts where the fade has ended.
+    final (_, rest) = memoriesBarSlotMaskStops(400, 16 + 88);
+    expect(rest * 400, lessThanOrEqualTo(16 + 100));
+    expect(memoriesBarSlotMaskStops(0, 10), (0.0, 0.0));
+  });
+
+  testWidgets('should_fadeTheTitleAtThePill_when_pagesSlideUnderIt', (tester) async {
+    await pumpAt(tester, const Size(392, 850));
+    final title = find.text('Memories').first;
+    expect(find.ancestor(of: title, matching: find.byType(ShaderMask)), findsOneWidget);
+    // The pill sits outside the mask, over it.
+    expect(find.ancestor(of: find.text('Home'), matching: find.byType(ShaderMask)), findsNothing);
+  });
+
+  testWidgets('should_leaveHomeOutOfTheReader_when_memoriesIsOpen', (tester) async {
+    final handle = tester.ensureSemantics();
+    late MemoriesRevealController reveal;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: _BehindHost(onReveal: (r) => reveal = r),
+      ),
+    );
+    bool read() {
+      var found = false;
+      bool visit(SemanticsNode node) {
+        if (node.label.contains('Home feed')) found = true;
+        node.visitChildren(visit);
+        return true;
+      }
+
+      visit(tester.binding.renderViews.first.owner!.semanticsOwner!.rootSemanticsNode!);
+      return found;
+    }
+
+    expect(read(), isTrue);
+    reveal.snapTo(0);
+    await tester.pump();
+    expect(read(), isFalse);
+    reveal.snapTo(1);
+    await tester.pump();
+    expect(read(), isTrue);
+    handle.dispose();
+  });
 }
 
 class _Host extends StatefulWidget {
@@ -135,4 +185,32 @@ class _HostState extends State<_Host> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) => MemoriesLayer(reveal: _reveal);
+}
+
+class _BehindHost extends StatefulWidget {
+  const _BehindHost({required this.onReveal});
+
+  final void Function(MemoriesRevealController) onReveal;
+
+  @override
+  State<_BehindHost> createState() => _BehindHostState();
+}
+
+class _BehindHostState extends State<_BehindHost> with TickerProviderStateMixin {
+  late final MemoriesRevealController _reveal = MemoriesRevealController(vsync: this);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.onReveal(_reveal);
+  }
+
+  @override
+  void dispose() {
+    _reveal.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MemoriesHomeBehind(reveal: _reveal, child: const Text('Home feed'));
 }

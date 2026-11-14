@@ -37,6 +37,11 @@ class NowPlayingNotes extends ChangeNotifier {
   NoteSortMode _sortMode = NoteSortMode.timeline;
   NoteDraft _draft = const NoteDraft();
   bool _pendingFocus = false;
+
+  /// A save just emptied the draft: no "Writing…" row until the reader
+  /// types again or takes the field afresh (the keyboard may well be down —
+  /// a hardware keyboard, a floating one — with the field still focused).
+  bool _justSaved = false;
   bool _listHeld = false;
   bool _commitWhenLifted = false;
   bool _disposed = false;
@@ -59,6 +64,10 @@ class NowPlayingNotes extends ChangeNotifier {
 
   /// Writing: focused, or words waiting in the draft.
   bool get open => noteWriteBarOpen(focused: focused, draftText: _draft.text);
+
+  /// The "Writing…" row on the Note page: words waiting, or the field just
+  /// taken for a new note — never the empty draft a save leaves behind.
+  bool get showDraftRow => draftHere && (_draft.text.isNotEmpty || (focused && !_justSaved));
 
   /// The Write pill asked for the keyboard; the stage hasn't landed yet.
   bool get pendingFocus => _pendingFocus;
@@ -139,6 +148,7 @@ class NowPlayingNotes extends ChangeNotifier {
   void _onText() {
     final current = _current;
     if (current == null || text.text == _draft.text) return;
+    if (text.text.isNotEmpty) _justSaved = false;
     _draft = _draft.edit(text.text, current, positionMs());
     _notify();
   }
@@ -148,6 +158,7 @@ class NowPlayingNotes extends ChangeNotifier {
     // The moment writing begins is the moment the note means.
     if (focus.hasFocus && current != null) _draft = _draft.followIfEmpty(current, positionMs());
     if (focus.hasFocus) _pendingFocus = false;
+    if (!focus.hasFocus) _justSaved = false;
     _notify();
   }
 
@@ -181,6 +192,7 @@ class NowPlayingNotes extends ChangeNotifier {
     );
     YoinHaptics.confirm();
     _draft = _draft.cleared(current, positionMs());
+    _justSaved = true;
     text.clear();
     // Shown at once; the store's change event confirms it.
     if (note.trackId == current.trackId) _stored = [..._stored, note];

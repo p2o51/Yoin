@@ -10,7 +10,9 @@
 /// cards, the pills).
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
@@ -64,7 +66,6 @@ class YoinHover extends StatefulWidget {
 class _YoinHoverState extends State<YoinHover> with SingleTickerProviderStateMixin {
   late final SpringValue _layer = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
   bool _hovered = false;
-  bool _focused = false;
 
   bool get _interactive => widget.onTap != null || widget.onSecondaryTap != null;
 
@@ -80,28 +81,16 @@ class _YoinHoverState extends State<YoinHover> with SingleTickerProviderStateMix
     super.dispose();
   }
 
-  void _retarget() {
-    final target = _focused
-        ? DesktopInputTokens.focusStateLayerAlpha
-        : (_hovered ? DesktopInputTokens.hoverStateLayerAlpha : 0.0);
+  void _onHover(bool value) {
+    if (_hovered == value) return;
+    _hovered = value;
+    widget.onHoverChanged?.call(value);
+    final target = value ? DesktopInputTokens.hoverStateLayerAlpha : 0.0;
     if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
       _layer.snapTo(target);
     } else {
       _layer.animateTo(target);
     }
-  }
-
-  void _onHover(bool value) {
-    if (_hovered == value) return;
-    _hovered = value;
-    widget.onHoverChanged?.call(value);
-    _retarget();
-  }
-
-  void _onFocus(bool value) {
-    if (_focused == value) return;
-    setState(() => _focused = value);
-    _retarget();
   }
 
   @override
@@ -113,10 +102,6 @@ class _YoinHoverState extends State<YoinHover> with SingleTickerProviderStateMix
       animation: _layer.animation,
       builder: (context, child) => _StateLayer(
         color: (widget.layerColor ?? colors.onSurface).withValues(alpha: _layer.value.clamp(0.0, 1.0)),
-        ring: _focused ? colors.secondary : null,
-        ringRadius: widget.focusStadium
-            ? null
-            : (widget.focusRadius ?? BorderRadius.circular(DesktopInputTokens.focusRingCorner)),
         child: child,
       ),
       child: widget.child,
@@ -125,24 +110,29 @@ class _YoinHoverState extends State<YoinHover> with SingleTickerProviderStateMix
       // Only the secondary button: primary taps stay with the child's own detector.
       child = GestureDetector(behavior: HitTestBehavior.translucent, onSecondaryTap: onSecondary, child: child);
     }
-    return FocusableActionDetector(
-      enabled: _interactive,
-      mouseCursor: widget.cursor ?? (_interactive ? SystemMouseCursors.click : MouseCursor.defer),
-      includeFocusSemantics: false,
-      // Hover is read from the pointer itself: the detector's own hover
-      // highlight waits for keyboard highlight mode, which a touch-first
-      // platform (HarmonyOS) never enters from mouse movement alone.
-      onShowFocusHighlight: _onFocus,
-      actions: {
-        if (onTap != null) ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) => onTap()),
-        if (onSecondary != null)
-          ContextMenuIntent: CallbackAction<ContextMenuIntent>(onInvoke: (_) => onSecondary()),
-      },
-      child: MouseRegion(
-        opaque: false,
-        onEnter: _interactive ? (_) => _onHover(true) : null,
-        onExit: (_) => _onHover(false),
-        child: child,
+    // Keyboard focus shows as the ring ([YoinFocusRingLayer]) in this shape.
+    return YoinFocusRing(
+      radius: widget.focusStadium
+          ? null
+          : (widget.focusRadius ?? BorderRadius.circular(DesktopInputTokens.focusRingCorner)),
+      child: FocusableActionDetector(
+        enabled: _interactive,
+        mouseCursor: widget.cursor ?? (_interactive ? SystemMouseCursors.click : MouseCursor.defer),
+        includeFocusSemantics: false,
+        // Hover is read from the pointer itself: the detector's own hover
+        // highlight waits for keyboard highlight mode, which a touch-first
+        // platform (HarmonyOS) never enters from mouse movement alone.
+        actions: {
+          if (onTap != null) ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) => onTap()),
+          if (onSecondary != null)
+            ContextMenuIntent: CallbackAction<ContextMenuIntent>(onInvoke: (_) => onSecondary()),
+        },
+        child: MouseRegion(
+          opaque: false,
+          onEnter: _interactive ? (_) => _onHover(true) : null,
+          onExit: (_) => _onHover(false),
+          child: child,
+        ),
       ),
     );
   }
@@ -160,35 +150,22 @@ const Map<ShortcutActivator, Intent> contextMenuShortcuts = {
   SingleActivator(LogicalKeyboardKey.f10, shift: true): ContextMenuIntent(),
 };
 
-/// Paints [child], tinted by [color] (srcATop: only where the child paints)
-/// and ringed by [ring] when set. Structure-stable: no layer while clear.
+/// Paints [child] tinted by [color] (srcATop: only where the child paints).
+/// Structure-stable: no layer while clear.
 class _StateLayer extends SingleChildRenderObjectWidget {
-  const _StateLayer({required this.color, required this.ring, required this.ringRadius, super.child});
+  const _StateLayer({required this.color, super.child});
 
   final Color color;
-  final Color? ring;
-
-  /// null = a stadium.
-  final BorderRadius? ringRadius;
 
   @override
-  RenderObject createRenderObject(BuildContext context) =>
-      _RenderStateLayer(color: color, ring: ring, ringRadius: ringRadius);
+  RenderObject createRenderObject(BuildContext context) => _RenderStateLayer(color);
 
   @override
-  void updateRenderObject(BuildContext context, _RenderStateLayer renderObject) {
-    renderObject
-      ..color = color
-      ..ring = ring
-      ..ringRadius = ringRadius;
-  }
+  void updateRenderObject(BuildContext context, _RenderStateLayer renderObject) => renderObject.color = color;
 }
 
 class _RenderStateLayer extends RenderProxyBox {
-  _RenderStateLayer({required Color color, required Color? ring, required BorderRadius? ringRadius})
-    : _color = color,
-      _ring = ring,
-      _ringRadius = ringRadius;
+  _RenderStateLayer(this._color);
 
   Color _color;
   set color(Color value) {
@@ -199,21 +176,6 @@ class _RenderStateLayer extends RenderProxyBox {
     markNeedsPaint();
   }
 
-  Color? _ring;
-  set ring(Color? value) {
-    if (value == _ring) return;
-    _ring = value;
-    markNeedsPaint();
-  }
-
-  BorderRadius? _ringRadius;
-  set ringRadius(BorderRadius? value) {
-    if (value == _ringRadius) return;
-    _ringRadius = value;
-    markNeedsPaint();
-  }
-
-  // Painting outside our bounds (the ring) is fine; the layer is ours only while tinted.
   @override
   bool get alwaysNeedsCompositing => child != null && _visible(_color);
 
@@ -235,71 +197,158 @@ class _RenderStateLayer extends RenderProxyBox {
       layer = null;
       context.paintChild(child, offset);
     }
-    final ring = _ring;
-    if (ring != null) {
-      const inset = DesktopInputTokens.focusRingOffset + DesktopInputTokens.focusRingWidth / 2;
-      final rect = (offset & size).inflate(inset);
-      final rrect = (_ringRadius ?? BorderRadius.circular(rect.shortestSide / 2)).toRRect(rect);
-      context.canvas.drawRRect(
-        rrect,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = DesktopInputTokens.focusRingWidth
-          ..color = ring,
-      );
-    }
   }
 }
 
-/// A visible keyboard focus ring around a Material control (IconButton,
-/// InkWell surfaces) whose own focus overlay is too faint on a cover-tinted
-/// page. Shows only in keyboard highlight mode, while focus is inside.
-class YoinFocusRing extends StatefulWidget {
-  const YoinFocusRing({super.key, required this.child, this.radius});
+/// The focus ring's shape for the focusable inside [child] (the ring itself
+/// is drawn once, by [YoinFocusRingLayer]). Without a marker the ring guesses:
+/// a circle / stadium for small controls (icon buttons), the token corner for
+/// rows and cards.
+class YoinFocusRing extends InheritedWidget {
+  const YoinFocusRing({super.key, this.radius, required super.child});
 
-  final Widget child;
-
-  /// Default: a stadium (half the shorter side).
+  /// null = a stadium (half the shorter side).
   final BorderRadius? radius;
 
   @override
-  State<YoinFocusRing> createState() => _YoinFocusRingState();
+  bool updateShouldNotify(YoinFocusRing oldWidget) => oldWidget.radius != radius;
 }
 
-class _YoinFocusRingState extends State<YoinFocusRing> {
-  bool _inside = false;
-  late bool _keyboard = FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+/// Draws the keyboard focus ring (M3 focus indicator: 3 dp in `secondary`,
+/// 2 dp outside the target) around whatever has primary focus, over [child],
+/// only in keyboard highlight mode. One ring for every focusable — Material
+/// buttons and InkWells included — so the back buttons and rows show it too.
+/// Follows the target while it moves (scroll, springs).
+class YoinFocusRingLayer extends StatefulWidget {
+  const YoinFocusRingLayer({super.key, required this.child, this.ignore});
+
+  final Widget child;
+
+  /// A node that never gets a ring (the shortcuts' focus anchor).
+  final FocusNode? ignore;
+
+  @override
+  State<YoinFocusRingLayer> createState() => _YoinFocusRingLayerState();
+}
+
+class _YoinFocusRingLayerState extends State<YoinFocusRingLayer> {
+  final GlobalKey _box = GlobalKey();
+  final ValueNotifier<RRect?> _ring = ValueNotifier(null);
+  bool _following = false;
 
   @override
   void initState() {
     super.initState();
+    FocusManager.instance.addListener(_sync);
     FocusManager.instance.addHighlightModeListener(_onMode);
   }
 
   @override
   void dispose() {
+    FocusManager.instance.removeListener(_sync);
     FocusManager.instance.removeHighlightModeListener(_onMode);
+    _ring.dispose();
     super.dispose();
   }
 
-  void _onMode(FocusHighlightMode mode) {
-    final keyboard = mode == FocusHighlightMode.traditional;
-    if (keyboard != _keyboard && mounted) setState(() => _keyboard = keyboard);
+  void _onMode(FocusHighlightMode _) => _sync();
+
+  FocusNode? get _target {
+    if (FocusManager.instance.highlightMode != FocusHighlightMode.traditional) return null;
+    final node = FocusManager.instance.primaryFocus;
+    if (node == null || node is FocusScopeNode || node == widget.ignore) return null;
+    final context = node.context;
+    if (context == null || !context.mounted) return null;
+    // Text fields show their caret; no ring.
+    if (context.widget is EditableText || context.findAncestorStateOfType<EditableTextState>() != null) return null;
+    return node;
+  }
+
+  void _sync() {
+    if (!mounted) return;
+    if (_target == null) {
+      _ring.value = null;
+    } else {
+      _measure();
+      _follow();
+    }
+  }
+
+  /// After every frame the app draws anyway (scroll, springs) while a ring
+  /// shows: re-measure. Never asks for frames of its own.
+  void _follow() {
+    if (_following) return;
+    _following = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _following = false;
+      if (!mounted || _target == null) return;
+      _measure();
+      _follow();
+    });
+  }
+
+  void _measure() {
+    final node = _target;
+    final host = _box.currentContext?.findRenderObject() as RenderBox?;
+    final box = node?.context?.findRenderObject();
+    if (node == null || host == null || !host.attached || box is! RenderBox || !box.attached || !box.hasSize) {
+      _ring.value = null;
+      return;
+    }
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: host);
+    const inset = DesktopInputTokens.focusRingOffset + DesktopInputTokens.focusRingWidth / 2;
+    final rect = (topLeft & box.size).inflate(inset);
+    final marker = node.context!.getInheritedWidgetOfExactType<YoinFocusRing>();
+    final BorderRadius radius;
+    if (marker != null) {
+      final own = marker.radius;
+      radius = own == null ? BorderRadius.circular(rect.shortestSide / 2) : own + BorderRadius.circular(inset);
+    } else {
+      // Small square-ish controls (icon buttons, back) are round; the rest
+      // take the token corner.
+      final small = box.size.shortestSide <= 64 && box.size.longestSide <= 64 * 1.5;
+      radius = small
+          ? BorderRadius.circular(rect.shortestSide / 2)
+          : BorderRadius.circular(DesktopInputTokens.focusRingCorner + inset);
+    }
+    final rrect = radius.toRRect(rect);
+    if (_ring.value != rrect) _ring.value = rrect;
   }
 
   @override
-  Widget build(BuildContext context) => Focus(
-    canRequestFocus: false,
-    skipTraversal: true,
-    includeSemantics: false,
-    onFocusChange: (inside) {
-      if (inside != _inside) setState(() => _inside = inside);
-    },
-    child: _StateLayer(
-      color: const Color(0x00000000),
-      ring: _inside && _keyboard ? Theme.of(context).colorScheme.secondary : null,
-      ringRadius: widget.radius,
-      child: widget.child,
-    ),
+  Widget build(BuildContext context) => Stack(
+    key: _box,
+    fit: StackFit.passthrough,
+    children: [
+      widget.child,
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(painter: _RingPainter(_ring, Theme.of(context).colorScheme.secondary)),
+        ),
+      ),
+    ],
   );
+}
+
+class _RingPainter extends CustomPainter {
+  _RingPainter(this.ring, this.color) : super(repaint: ring);
+
+  final ValueListenable<RRect?> ring;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final r = ring.value;
+    if (r == null) return;
+    canvas.drawRRect(
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = DesktopInputTokens.focusRingWidth
+        ..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter old) => old.ring != ring || old.color != color;
 }

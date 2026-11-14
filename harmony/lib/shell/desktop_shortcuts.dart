@@ -16,7 +16,7 @@
 /// | Ctrl+F | Now Playing focus (opens it first; where the cover can focus) |
 /// | Ctrl+K | Library search |
 /// | Ctrl+, | Settings |
-/// | Esc | back (the system back's path: the Navigator's maybePop) |
+/// | Esc | back (the system back's path: the Navigator's maybePop); in a text field it leaves the field first (the Library search closes) |
 /// | ← / → | seek −5 s / +5 s while Now Playing is open |
 /// | Shift+F10, Menu key | the focused item's menu (its right click) |
 library;
@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../library/library_search_view.dart' show librarySearchRouteName;
 import '../nowplaying/overlay_controller.dart';
 import '../nowplaying/player_snapshot.dart';
 import '../playback/playback_controller.dart';
@@ -207,6 +208,22 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
     openSettings(navigator.context);
   }
 
+  /// Esc: out of a text field first (the Library search closes outright, as
+  /// on Android and the Mac), otherwise the system back's path.
+  void _back() {
+    if (isTypingIntoTextField()) {
+      final field = FocusManager.instance.primaryFocus!;
+      final route = ModalRoute.of(field.context!);
+      if (route?.settings.name == librarySearchRouteName) {
+        route!.navigator?.maybePop();
+      } else {
+        field.unfocus();
+      }
+      return;
+    }
+    widget.navigator.currentState?.maybePop();
+  }
+
   void _openSearch() {
     _clearNowPlayingForPage();
     ref.read(shellSectionProvider.notifier).select(YoinSection.library);
@@ -239,14 +256,25 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
       ),
       OpenSearchIntent: _KeyAction<OpenSearchIntent>((_) => _openSearch()),
       OpenSettingsIntent: _KeyAction<OpenSettingsIntent>((_) => _openSettings()),
-      YoinBackIntent: _KeyAction<YoinBackIntent>((_) => widget.navigator.currentState?.maybePop()),
+      YoinBackIntent: _KeyAction<YoinBackIntent>((_) => _back(), whileTyping: true),
       SeekByIntent: _KeyAction<SeekByIntent>((i) => _seekBy(i.deltaMs), when: () => _np.expanded && _hasTrack),
+      // Tab never leaves the Flutter view: at the end of the order it wraps
+      // instead of handing the key to ArkUI, whose own focus box then drew a
+      // grey band over the window (device QA n_12/n_13).
+      NextFocusIntent: _TraversalAction<NextFocusIntent>((n) => n.nextFocus()),
+      PreviousFocusIntent: _TraversalAction<PreviousFocusIntent>((n) => n.previousFocus()),
     };
     return Shortcuts(
       shortcuts: yoinShortcuts,
       child: Actions(
         actions: actions,
-        child: Focus(focusNode: _anchor, autofocus: true, includeSemantics: false, child: widget.child),
+        child: Focus(
+          focusNode: _anchor,
+          autofocus: true,
+          includeSemantics: false,
+          // The keyboard focus ring, drawn once for whatever has focus.
+          child: YoinFocusRingLayer(ignore: _anchor, child: widget.child),
+        ),
       ),
     );
   }
@@ -255,17 +283,43 @@ class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
 /// A shortcut's action: off while typing or while [when] says it can't act,
 /// so the key goes on to the field / the focused control.
 class _KeyAction<T extends Intent> extends Action<T> {
-  _KeyAction(this._invoke, {bool Function()? when}) : _when = when;
+  _KeyAction(this._invoke, {bool Function()? when, this.whileTyping = false}) : _when = when;
 
   final void Function(T intent) _invoke;
   final bool Function()? _when;
 
+  /// Esc acts in a text field too (it leaves the field).
+  final bool whileTyping;
+
   @override
-  bool isEnabled(T intent) => !isTypingIntoTextField() && (_when?.call() ?? true);
+  bool isEnabled(T intent) => (whileTyping || !isTypingIntoTextField()) && (_when?.call() ?? true);
 
   @override
   Object? invoke(T intent) {
     _invoke(intent);
+    return null;
+  }
+}
+
+/// Tab / Shift+Tab: move focus and always keep the key, wrapping at the ends
+/// (the framework hands an unmoved Tab to the platform).
+class _TraversalAction<T extends Intent> extends Action<T> {
+  _TraversalAction(this._move);
+
+  final bool Function(FocusNode node) _move;
+
+  @override
+  Object? invoke(T intent) {
+    final node = FocusManager.instance.primaryFocus;
+    if (node == null) return null;
+    if (!_move(node)) {
+      // At the end: start over from the top of the nearest scope.
+      final scope = node.nearestScope;
+      if (scope != null) {
+        final order = scope.traversalDescendants.where((n) => n.canRequestFocus && !n.skipTraversal).toList();
+        if (order.isNotEmpty) (intent is PreviousFocusIntent ? order.last : order.first).requestFocus();
+      }
+    }
     return null;
   }
 }

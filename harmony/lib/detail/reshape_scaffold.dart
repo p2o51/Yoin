@@ -255,11 +255,16 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                         animation: Listenable.merge([_reveal, _page]),
                         builder: (context, _) {
                           final ink = PullUpMath.textProgress(_reveal.expand) * (1 - _page.value).clamp(0.0, 1.0);
-                          final scheme = Theme.of(context).colorScheme;
+                          // One palette, the cover scheme's (AlbumPageDots): its secondary for the page
+                          // shown, its onSurfaceVariant at 0.3 for the other; white twins over the bar.
                           return AlbumPageDots(
                             page: _page,
-                            active: Color.lerp(colors.accent, Colors.white, ink)!,
-                            inactive: Color.lerp(scheme.outlineVariant, Colors.white.withValues(alpha: 0.45), ink)!,
+                            active: Color.lerp(colors.secondary, Colors.white, ink)!,
+                            inactive: Color.lerp(
+                              colors.muted.withValues(alpha: AlbumPageDotsTokens.inactiveAlpha),
+                              Colors.white.withValues(alpha: AlbumPageDotsTokens.inactiveOnBarAlpha),
+                              ink,
+                            )!,
                             onPage: _openPage,
                           );
                         },

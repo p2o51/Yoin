@@ -36,8 +36,10 @@ abstract final class WaveBarMetrics {
   /// `waveSpeed = SeekWaveLength`: one wavelength per second while playing.
   static const double speed = 24;
 
-  /// Track colour = surfaceContainerHighest at this alpha (0.20 once a
-  /// buffered value runs ahead; the HarmonyOS engine reports none).
+  /// The track's alpha (WaveProgressBar.kt: 0.14, 0.20 once a buffered value
+  /// runs ahead; the HarmonyOS engine reports none). Android's role is
+  /// surfaceContainerHighest; here it is onSurfaceVariant at the same alpha
+  /// (see [waveTrackColor]).
   static const double trackAlpha = 0.14;
 
   /// The preview bubble stays this long after the finger lifts.
@@ -51,6 +53,13 @@ abstract final class WaveBarMetrics {
   static const Curve amplitudeIncreasing = Cubic(0.2, 0, 0, 1);
   static const Curve amplitudeDecreasing = Cubic(0.3, 0, 0.8, 0.15);
 }
+
+/// The track behind the head. Android tints surfaceContainerHighest at 14 %,
+/// which is lighter than the light room behind the transport (and the
+/// same tone as the dark one), so it vanishes on the aurora. The ink role
+/// (onSurfaceVariant) at the same 14 % reads as a faint groove on either
+/// room — the quiet track Android intends, actually visible.
+Color waveTrackColor(ColorScheme colors) => colors.onSurfaceVariant.withValues(alpha: WaveBarMetrics.trackAlpha);
 
 /// A horizontal run of the indicator or the track, in the painter's x.
 @immutable
@@ -344,9 +353,8 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        return Semantics(
-          slider: true,
-          value: formatPlaybackTime(widget.clock.positionMs()),
+        return _SliderSemantics(
+          clock: widget.clock,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapDown: _canSeek ? (d) => _press(_fractionAt(d.localPosition, width)) : null,
@@ -398,7 +406,7 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
                           isPlaying: widget.isPlaying,
                           visible: widget.visible,
                           progressColor: colors.primary,
-                          trackColor: colors.surfaceContainerHighest.withValues(alpha: WaveBarMetrics.trackAlpha),
+                          trackColor: waveTrackColor(colors),
                         ),
                       ),
                     ),
@@ -422,6 +430,54 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
       },
     );
   }
+}
+
+/// The slider's semantics value: the playhead's second, kept current as the
+/// clock moves (playback, a seek from the keyboard's ← / →), rebuilding only
+/// when the second changes.
+class _SliderSemantics extends StatefulWidget {
+  const _SliderSemantics({required this.clock, required this.child});
+
+  final PlayheadClock clock;
+  final Widget child;
+
+  @override
+  State<_SliderSemantics> createState() => _SliderSemanticsState();
+}
+
+class _SliderSemanticsState extends State<_SliderSemantics> {
+  late int _second = widget.clock.positionMs() ~/ 1000;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.clock.addListener(_onTick);
+  }
+
+  @override
+  void didUpdateWidget(_SliderSemantics oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.clock != widget.clock) {
+      oldWidget.clock.removeListener(_onTick);
+      widget.clock.addListener(_onTick);
+      _onTick();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.clock.removeListener(_onTick);
+    super.dispose();
+  }
+
+  void _onTick() {
+    final second = widget.clock.positionMs() ~/ 1000;
+    if (second != _second && mounted) setState(() => _second = second);
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      Semantics(slider: true, value: formatPlaybackTime(_second * 1000), child: widget.child);
 }
 
 /// M3E's amplitude Animatable: a 500 ms tween from wherever it is, eased

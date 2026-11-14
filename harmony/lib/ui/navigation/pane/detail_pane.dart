@@ -3,7 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../nowplaying/overlay_controller.dart' show OverlaySpring;
+import '../../../nowplaying/overlay_controller.dart'
+    show NowPlayingHostWindowScope, NowPlayingOverlayScope, OverlaySpring;
 import '../../../shell/chrome_back.dart';
 import '../../../theme/motion.dart';
 import '../../adaptive/yoin_window_info.dart';
@@ -187,10 +188,32 @@ class DetailPaneController extends ChangeNotifier {
   }
 }
 
+/// A transient surface pushed over the shell (Library's full-screen search)
+/// that steps aside when one of its results opens in the detail column: the
+/// page goes where the grid's would, not on top as a pushed page
+/// (adaptive-principles §5: search collapses first, keeping its query).
+mixin DetailPaneYieldingRoute<T> on ModalRoute<T> {
+  /// The surface left for the column (not dismissed by the user).
+  bool handedToColumn = false;
+
+  /// Collapses the surface (its own pop motion) for the column.
+  void yieldToDetailColumn() {
+    handedToColumn = true;
+    final nav = navigator;
+    if (nav == null) return;
+    if (isCurrent) {
+      nav.pop();
+    } else {
+      nav.removeRoute(this);
+    }
+  }
+}
+
 /// Opens detail pages where they belong (used by DetailRoutes only).
 abstract final class DetailPane {
   /// True when [builder] went to the column (a Wide, tall window, opened
-  /// from the shell, from a page in the column, or from above the shell).
+  /// from the shell, from a page in the column, from a surface that yields
+  /// to the column, or from above the shell).
   static bool open(BuildContext context, WidgetBuilder builder) {
     final scope = context.getInheritedWidgetOfExactType<_DetailPaneScope>();
     final pane = scope?.controller ?? DetailPaneController.active;
@@ -199,12 +222,27 @@ abstract final class DetailPane {
       pane.push(builder);
       return true;
     }
-    // A page pushed over the shell (an earlier narrow window's) keeps pushing.
     final route = ModalRoute.of(context);
-    if (scope == null && route != null) return false;
+    if (scope == null && route != null) {
+      // Library search over the shell: it collapses and the column opens.
+      if (route is DetailPaneYieldingRoute && route.isActive) {
+        route.yieldToDetailColumn();
+        _openRoot(context, pane, builder);
+        return true;
+      }
+      // A page pushed over the shell (an earlier narrow window's) keeps pushing.
+      return false;
+    }
     if (!pane.shellIsTop) return false;
-    pane.openRoot(builder);
+    _openRoot(context, pane, builder);
     return true;
+  }
+
+  static void _openRoot(BuildContext context, DetailPaneController pane, WidgetBuilder builder) {
+    // The page asked for must be visible: Now Playing steps back to the
+    // panel where the panel fits beside two columns, else it closes.
+    NowPlayingOverlayScope.read(context)?.yieldToColumn(PaneTokens.twoColumnsMinWidth);
+    pane.openRoot(builder);
   }
 }
 
@@ -232,8 +270,13 @@ class DetailPaneHost extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     controller.reduceMotion = MediaQuery.disableAnimationsOf(context);
+    // The width tiers read the content's own (rest) width: beside a Now
+    // Playing side panel that is the narrowed window.
     final window = YoinWindowInfo.of(context);
-    controller.enabled = window.layoutMode == LayoutMode.wide && !window.isCompactHeight;
+    // Whether the column exists at all belongs to the window: the side
+    // panel narrowing the content never turns the column off.
+    final host = NowPlayingHostWindowScope.of(context);
+    controller.enabled = host.layoutMode == LayoutMode.wide && !host.isCompactHeight;
     final colors = Theme.of(context).colorScheme;
     // Persistent shell: same widget, same place, so it keeps its state.
     final shellSide = _DetailPaneScope(controller: controller, inColumn: false, child: shell);
@@ -241,68 +284,77 @@ class DetailPaneHost extends StatelessWidget {
       listenable: controller,
       builder: (context, _) {
         final holds = controller.holdsColumn;
-        final budget = resolvePaneBudget(window.width, controller.shellFraction);
-        final shellInfo = holds ? window.forPaneWidth(budget.shellWidth) : window;
-        final columnInfo = window.forPaneWidth(budget.paneWidth);
-        return AnimatedBuilder(
-          animation: controller.open.animation,
-          builder: (context, _) {
-            final o = controller.open.value.clamp(0.0, 1.0);
-            final w = window.width;
-            final shellW = holds ? w - (w - budget.shellWidth) * o : w;
-            final columnLeft = shellW + PaneTokens.gutter * o;
-            return Stack(
-              children: [
-                Positioned(
-                  key: const ValueKey('shell'),
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: shellW,
-                  child: YoinWindowScope(info: shellInfo, child: shellSide),
-                ),
-                if (holds) ...[
-                  // The gutter: the shell's own page colour, and the handle.
-                  Positioned(
-                    key: const ValueKey('gutter'),
-                    left: shellW,
-                    top: 0,
-                    bottom: 0,
-                    width: PaneTokens.gutter * o,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [colors.surfaceContainer, colors.surface, colors.surfaceContainerLow],
+        final rest = resolvePaneBudget(window.width, controller.shellFraction);
+        final shellInfo = holds ? window.forPaneWidth(rest.shellWidth) : window;
+        final columnInfo = window.forPaneWidth(rest.paneWidth);
+        // Positions read the live width this layout gets: while the side
+        // panel is dragged away the content beside it widens 1:1 and both
+        // columns follow, so no window background ever shows between them
+        // and the panel (principle 5). The tiers above stay at rest.
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.hasBoundedWidth ? constraints.maxWidth : window.width;
+            final budget = resolvePaneBudget(w, controller.shellFraction);
+            return AnimatedBuilder(
+              animation: controller.open.animation,
+              builder: (context, _) {
+                final o = controller.open.value.clamp(0.0, 1.0);
+                final shellW = holds ? w - (w - budget.shellWidth) * o : w;
+                final columnLeft = shellW + PaneTokens.gutter * o;
+                return Stack(
+                  children: [
+                    Positioned(
+                      key: const ValueKey('shell'),
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: shellW,
+                      child: YoinWindowScope(info: shellInfo, child: shellSide),
+                    ),
+                    if (holds) ...[
+                      // The gutter: the shell's own page colour, and the handle.
+                      Positioned(
+                        key: const ValueKey('gutter'),
+                        left: shellW,
+                        top: 0,
+                        bottom: 0,
+                        width: PaneTokens.gutter * o,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [colors.surfaceContainer, colors.surface, colors.surfaceContainerLow],
+                            ),
+                          ),
+                          child: Opacity(
+                            opacity: o,
+                            child: _PaneHandle(controller: controller, windowWidth: w),
+                          ),
                         ),
                       ),
-                      child: Opacity(
-                        opacity: o,
-                        child: _PaneHandle(controller: controller, windowWidth: w),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    key: ValueKey('column${controller.generation}'),
-                    left: columnLeft,
-                    top: 0,
-                    bottom: 0,
-                    width: budget.paneWidth,
-                    child: IgnorePointer(
-                      ignoring: !controller.hasEntries,
-                      child: YoinWindowScope(
-                        info: columnInfo,
-                        child: _DetailPaneScope(
-                          controller: controller,
-                          inColumn: true,
-                          child: ClipRect(child: _ColumnNavigator(controller: controller)),
+                      Positioned(
+                        key: ValueKey('column${controller.generation}'),
+                        left: columnLeft,
+                        top: 0,
+                        bottom: 0,
+                        width: budget.paneWidth,
+                        child: IgnorePointer(
+                          ignoring: !controller.hasEntries,
+                          child: YoinWindowScope(
+                            info: columnInfo,
+                            child: _DetailPaneScope(
+                              controller: controller,
+                              inColumn: true,
+                              child: ClipRect(child: _ColumnNavigator(controller: controller)),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
-              ],
+                    ],
+                  ],
+                );
+              },
             );
           },
         );

@@ -81,6 +81,7 @@ final class DetailColors {
     required this.wash,
     required this.ring,
     required this.secondary,
+    required this.muted,
   });
 
   /// Title, Kind group, equalizer, hearts on: the cover scheme's primary.
@@ -97,12 +98,16 @@ final class DetailColors {
   /// the first block is [accent]).
   final Color secondary;
 
+  /// The cover scheme's onSurfaceVariant (the page dots' resting ink).
+  final Color muted;
+
   static DetailColors from(ColorScheme scheme, ColorScheme page) => DetailColors(
     accent: scheme.primary,
     onAccent: scheme.onPrimary,
     wash: Color.lerp(page.surfaceContainer, scheme.primary, 0.18)!,
     ring: scheme.tertiary,
     secondary: scheme.secondary,
+    muted: scheme.onSurfaceVariant,
   );
 
   static DetailColors lerp(DetailColors a, DetailColors b, double t) => DetailColors(
@@ -111,6 +116,7 @@ final class DetailColors {
     wash: Color.lerp(a.wash, b.wash, t)!,
     ring: Color.lerp(a.ring, b.ring, t)!,
     secondary: Color.lerp(a.secondary, b.secondary, t)!,
+    muted: Color.lerp(a.muted, b.muted, t)!,
   );
 }
 

@@ -795,17 +795,15 @@ class _Stage extends ConsumerWidget {
         if (!budget.coverHidden)
           LayoutId(
             id: _Slot.cover,
-            child: GestureDetector(
-              onTap: coverTap,
-              child: FlightSlot(
-                element: FlightElement.cover,
-                pill: false,
-                child: _StageCover(
-                  state: state,
-                  detail: detail,
-                  requestEdge: math.max(budget.cover, focusPose?.cover ?? 0),
-                  onLongPress: () => showNowPlayingTrackMenu(context, controller, state.track),
-                ),
+            child: FlightSlot(
+              element: FlightElement.cover,
+              pill: false,
+              child: _StageCover(
+                state: state,
+                detail: detail,
+                requestEdge: math.max(budget.cover, focusPose?.cover ?? 0),
+                onTap: coverTap,
+                onLongPress: () => showNowPlayingTrackMenu(context, controller, state.track),
               ),
             ),
           ),
@@ -1078,14 +1076,24 @@ VoidCallback? _contextTarget(PlaybackContext context, NowPlayingOverlayControlle
 /// in CoverSwap on the slow artworkDissolve spring (the DotDissolve sweep is
 /// deferred).
 class _StageCover extends StatelessWidget {
-  const _StageCover({required this.state, required this.detail, required this.requestEdge, this.onLongPress});
+  const _StageCover({
+    required this.state,
+    required this.detail,
+    required this.requestEdge,
+    required this.onTap,
+    required this.onLongPress,
+  });
 
   final NowPlayingContent state;
   final Animation<double> detail;
   final double requestEdge;
 
-  /// Long-press: the song sheet for the playing song (showTrackMenuSheet, nowPlaying: true).
-  final VoidCallback? onLongPress;
+  /// Tap: focus / step back (null: the cover takes no tap).
+  final VoidCallback? onTap;
+
+  /// Long-press and right click: the song sheet for the playing song
+  /// (showTrackMenuSheet, nowPlaying: true). Every NP cover has it.
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1128,10 +1136,16 @@ class _StageCover extends StatelessWidget {
         },
       ),
     );
-    final onLongPress = this.onLongPress;
-    if (onLongPress == null) return cover;
-    // The right click / two-finger tap opens the same song sheet.
-    return GestureDetector(onLongPress: onLongPress, onSecondaryTap: onLongPress, child: cover);
+    // One detector for tap, long-press and right click (two-finger tap): a
+    // nested tap detector around it never competes for the press.
+    return GestureDetector(
+      key: const ValueKey('np-stage-cover'),
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      onLongPress: onLongPress,
+      onSecondaryTap: onLongPress,
+      child: cover,
+    );
   }
 }
 
@@ -1853,40 +1867,106 @@ class _QueuePillState extends State<_QueuePill> with TickerProviderStateMixin {
   }
 }
 
-class _RecenterKey extends StatelessWidget {
+class _RecenterKey extends StatefulWidget {
   const _RecenterKey({required this.autoFollow});
 
   final ValueNotifier<bool> autoFollow;
 
   @override
+  State<_RecenterKey> createState() => _RecenterKeyState();
+}
+
+/// Shown only while the reader has scrolled away (auto-follow off): it
+/// fades on the effects spring and grows from 0.8 on the spatial spring;
+/// while the list follows the playhead it is gone (no taps, no semantics).
+class _RecenterKeyState extends State<_RecenterKey> with TickerProviderStateMixin {
+  late final SpringValue _alpha = SpringValue(
+    vsync: this,
+    initial: widget.autoFollow.value ? 0 : 1,
+    spring: YoinSprings.defaultEffects,
+  );
+  late final SpringValue _scale = SpringValue(
+    vsync: this,
+    initial: widget.autoFollow.value ? 0 : 1,
+    spring: YoinSprings.fastSpatial,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    widget.autoFollow.addListener(_onFollow);
+  }
+
+  @override
+  void didUpdateWidget(_RecenterKey oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.autoFollow != widget.autoFollow) {
+      oldWidget.autoFollow.removeListener(_onFollow);
+      widget.autoFollow.addListener(_onFollow);
+      _onFollow();
+    }
+  }
+
+  void _onFollow() {
+    if (!mounted) return;
+    final shown = widget.autoFollow.value ? 0.0 : 1.0;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _alpha.snapTo(shown);
+      _scale.snapTo(shown);
+    } else {
+      _alpha.animateTo(shown);
+      _scale.animateTo(shown);
+    }
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.autoFollow.removeListener(_onFollow);
+    _alpha.dispose();
+    _scale.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final strings = NowPlayingStrings.of(context);
-    return ValueListenableBuilder<bool>(
-      valueListenable: autoFollow,
-      builder: (context, following, _) => Semantics(
-        button: true,
-        enabled: !following,
-        label: strings.cdReturnCurrentLine,
-        excludeSemantics: true,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Material(
-            color: following ? colors.primaryContainer.withValues(alpha: 0.38) : colors.primaryContainer,
-            shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(52 * 0.31)),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: following
-                  ? null
-                  : () {
-                      YoinHaptics.tick();
-                      autoFollow.value = true;
-                    },
-              child: SizedBox.square(
-                dimension: 52,
-                child: Icon(
-                  YoinSymbols.recenter,
-                  color: colors.onPrimaryContainer.withValues(alpha: following ? 0.38 : 1),
+    final following = widget.autoFollow.value;
+    return IgnorePointer(
+      ignoring: following,
+      child: ExcludeSemantics(
+        excluding: following,
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_alpha.animation, _scale.animation]),
+          builder: (context, child) {
+            final a = _alpha.value.clamp(0.0, 1.0);
+            if (a <= 0.001) return const SizedBox.square(dimension: 52 + 8);
+            return Opacity(
+              opacity: a,
+              child: Transform.scale(scale: 0.8 + 0.2 * _scale.value, alignment: Alignment.center, child: child),
+            );
+          },
+          child: Semantics(
+            button: true,
+            label: strings.cdReturnCurrentLine,
+            excludeSemantics: true,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                key: const ValueKey('np-recenter-key'),
+                color: colors.primaryContainer,
+                shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(52 * 0.31)),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () {
+                    YoinHaptics.tick();
+                    widget.autoFollow.value = true;
+                  },
+                  child: SizedBox.square(
+                    dimension: 52,
+                    child: Icon(YoinSymbols.recenter, color: colors.onPrimaryContainer),
+                  ),
                 ),
               ),
             ),
@@ -2043,18 +2123,18 @@ class _DualPane extends ConsumerWidget {
                                   height: cover,
                                   child: Row(
                                     children: [
-                                      GestureDetector(
-                                        onTap: budget.focusCover != null || inFocus ? controller.toggleFocus : null,
-                                        child: FlightSlot(
-                                          element: FlightElement.cover,
-                                          pill: false,
-                                          child: SizedBox.square(
-                                            dimension: cover,
-                                            child: _StageCover(
-                                              state: state,
-                                              detail: const AlwaysStoppedAnimation(0),
-                                              requestEdge: math.max(budget.cover, budget.focusCover ?? 0),
-                                            ),
+                                      FlightSlot(
+                                        element: FlightElement.cover,
+                                        pill: false,
+                                        child: SizedBox.square(
+                                          dimension: cover,
+                                          child: _StageCover(
+                                            state: state,
+                                            detail: const AlwaysStoppedAnimation(0),
+                                            requestEdge: math.max(budget.cover, budget.focusCover ?? 0),
+                                            onTap: budget.focusCover != null || inFocus ? controller.toggleFocus : null,
+                                            onLongPress: () =>
+                                                showNowPlayingTrackMenu(context, controller, state.track),
                                           ),
                                         ),
                                       ),
@@ -2402,14 +2482,17 @@ class _LandscapePane extends ConsumerWidget {
     );
 
     // [request]: decoded once at the larger of the rest / focus edges.
-    Widget cover(double edge, double request) => GestureDetector(
-      onTap: controller.toggleFocus,
-      child: FlightSlot(
-        element: FlightElement.cover,
-        pill: false,
-        child: SizedBox.square(
-          dimension: edge,
-          child: _StageCover(state: state, detail: const AlwaysStoppedAnimation(0), requestEdge: request),
+    Widget cover(double edge, double request) => FlightSlot(
+      element: FlightElement.cover,
+      pill: false,
+      child: SizedBox.square(
+        dimension: edge,
+        child: _StageCover(
+          state: state,
+          detail: const AlwaysStoppedAnimation(0),
+          requestEdge: request,
+          onTap: controller.toggleFocus,
+          onLongPress: () => showNowPlayingTrackMenu(context, controller, state.track),
         ),
       ),
     );

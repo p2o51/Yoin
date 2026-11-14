@@ -11,6 +11,7 @@ import 'package:flutter/rendering.dart';
 
 import '../data/model/model.dart';
 import '../nowplaying/haptics.dart';
+import '../shell/app_messages.dart';
 import '../theme/motion.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
@@ -465,7 +466,7 @@ class _DiaryEntryState extends State<_DiaryEntry> with TickerProviderStateMixin 
       _focus.unfocus();
       _text.clear();
     } else {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(widget.strings.snackbarSaveReview)));
+      showAppMessage(context, widget.strings.snackbarSaveReview);
     }
   }
 

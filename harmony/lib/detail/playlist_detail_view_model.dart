@@ -38,14 +38,20 @@ final class PlaylistDetailContent extends PlaylistDetailState {
   int get totalDurationSec => playlist.durationSec ?? tracks.fold(0, (sum, t) => sum + (t.durationSec ?? 0));
 
   /// The hero cover: the playlist's own cover id (Subsonic maps it to the
-  /// playlist id), else the first track's cover or album id.
+  /// playlist id), else the first track's cover or album id; none (the
+  /// placeholder) for an empty playlist.
   CoverRef? get heroCover => playlistHeroCover(playlist);
 
   /// The cover the play context carries.
   CoverRef? get contextCover => heroCover;
 }
 
+/// The cover a playlist shows everywhere (Library row and cell, detail hero).
+/// A playlist known to be empty has none: the server's art for it is a blank
+/// (black) square, so it gets the placeholder with the playlist symbol, as
+/// Android's artwork does when there is nothing to show.
 CoverRef? playlistHeroCover(Playlist playlist) {
+  if (playlist.songCount == 0 && playlist.tracks.isEmpty) return null;
   if (playlist.coverArt case final cover?) return cover;
   final first = playlist.tracks.firstOrNull;
   if (first == null) return null;

@@ -11,6 +11,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'license_ofl.dart';
+import 'license_packages.dart';
 import 'settings_metrics.dart';
 import 'settings_page.dart';
 import 'settings_rows.dart';
@@ -32,13 +33,19 @@ final class OssComponent {
 }
 
 /// The font first (Android lists it first too), then every package the
-/// registry knows, by name. Packages with several license texts keep them
-/// together, one after the other.
-Future<List<OssComponent>> loadOssComponents({Stream<LicenseEntry>? entries}) async {
+/// registry knows that ships in the app, by name — the build's dev-only
+/// tooling ([notShipped], default [notShippedDartPackages]) is left out.
+/// Packages with several license texts keep them together, one after the other.
+Future<List<OssComponent>> loadOssComponents({
+  Stream<LicenseEntry>? entries,
+  Set<String> notShipped = notShippedDartPackages,
+}) async {
   final texts = <String, List<String>>{};
   await for (final entry in entries ?? LicenseRegistry.licenses) {
+    final packages = entry.packages.where((p) => !notShipped.contains(p)).toList();
+    if (packages.isEmpty) continue;
     final text = entry.paragraphs.map((p) => '${'  ' * p.indent.clamp(0, 8)}${p.text}').join('\n\n');
-    for (final package in entry.packages) {
+    for (final package in packages) {
       texts.putIfAbsent(package, () => []).add(text);
     }
   }

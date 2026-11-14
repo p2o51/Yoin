@@ -9,6 +9,7 @@ import '../shell/detail_chrome.dart';
 import '../ui/component/add_to_playlist_sheet.dart';
 import '../ui/component/component_strings.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/yoin_dialog.dart';
 import 'detail_page.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
@@ -259,7 +260,7 @@ List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, Pl
       icon: YoinSymbols.delete,
       label: strings.playlistDeleteMenu,
       onTap: () async {
-        final confirmed = await showDialog<bool>(
+        final confirmed = await showYoinDialog<bool>(
           context: context,
           builder: (dialog) => AlertDialog(
             title: Text(strings.playlistDeleteTitle),

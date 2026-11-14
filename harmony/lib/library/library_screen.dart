@@ -5,6 +5,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../app/providers.dart';
 import '../data/source/music_source.dart';
 import '../l10n/strings.dart';
+import '../playback/playback_controller.dart';
 import '../settings/settings_screen.dart';
 import '../shell/desktop_shortcuts.dart';
 import '../shell/shell_state.dart';
@@ -80,7 +81,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     ref.listen(libraryViewModelProvider.select((s) => s is LibraryContent ? s.notice : null), (previous, notice) {
       if (notice == null || notice.serial == previous?.serial) return;
       final strings = LibraryStrings.of(context);
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(_tabError(strings, notice.tab))));
+      ref.read(playbackControllerProvider.notifier).showMessage(_tabError(strings, notice.tab));
     });
     final colors = Theme.of(context).colorScheme;
     return DecoratedBox(

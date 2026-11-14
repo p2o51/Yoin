@@ -335,7 +335,8 @@ HomeWidgetCard playlistCard(Playlist p) => HomeWidgetCard(
       kind: HomeCardKind.playlist,
       title: p.name,
       subtitle: p.owner == null || p.owner == _placeholderOwner ? '' : p.owner!,
-      cover: p.coverArt,
+      // An empty playlist's server art is a black square: the placeholder instead.
+      cover: p.songCount == 0 ? null : p.coverArt,
       target: HomeOpenPlaylist(p),
     );
 

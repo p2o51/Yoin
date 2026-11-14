@@ -113,7 +113,7 @@ class _NotePageState extends State<NotePage> with TickerProviderStateMixin {
     if (!mounted) return;
     final writing = _notes.open;
     Object? target;
-    if (writing && _notes.draftHere) {
+    if (writing && _notes.showDraftRow) {
       target = const NoteDraftRow(null).key;
     } else {
       final index = _shown.indexWhere((r) => r is NoteLineRow && r.note.id == _lit);
@@ -200,7 +200,7 @@ class _NotePageState extends State<NotePage> with TickerProviderStateMixin {
       _notes.sortMode,
       deleted: _notes.pendingDeletion,
       draftAnchorMs: _notes.draft.anchorMs,
-      showDraft: _notes.open && _notes.draftHere,
+      showDraft: _notes.showDraftRow,
     );
     final keys = {for (final r in rows) r.key};
     for (var i = 0; i < _shown.length; i++) {

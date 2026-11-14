@@ -43,6 +43,20 @@ void main() {
       expect((pieces.first as ScrapOpening).review, isNull);
     });
 
+    test('should_dropNothingYet_when_reviewOrPlaysLeft', () {
+      List<Type> kinds(AlbumScrapbookData d) => [
+        for (final p in buildAlbumScrapbook(_album, d, nowMs: _now)) p.runtimeType,
+      ];
+      expect(kinds(const AlbumScrapbookData(review: 'Late-night record.')), [ScrapOpening]);
+      expect(kinds(const AlbumScrapbookData(title: 'Winter')), [ScrapOpening]);
+      expect(
+        kinds(
+          AlbumScrapbookData(plays: AlbumPlays(albumId: _album.id, playCount: 1, firstPlayedAt: 1, lastPlayedAt: 1)),
+        ),
+        [ScrapOpening, ScrapReceipt],
+      );
+    });
+
     test('should_pairScoreOnlyTracksAndClusterNotedOnes_when_built', () {
       final pieces = buildAlbumScrapbook(
         _album,
@@ -176,6 +190,16 @@ void main() {
       // No Memory title (HarmonyOS has no AI title): Last Play follows the blank pen instead.
       expect(find.text('Never'), findsOneWidget);
       semantics.dispose();
+      await close(tester);
+    });
+
+    testWidgets('should_paintDotsFromOnePalette_when_twoPages', (tester) async {
+      await open(tester);
+      final dots = tester.widget<AlbumPageDots>(find.byType(AlbumPageDots));
+      final scheme = Theme.of(tester.element(find.byType(AlbumPageDots))).colorScheme;
+      // Until the cover resolves the page stands on the app scheme: secondary, and onSurfaceVariant at 0.3.
+      expect(dots.active, scheme.secondary);
+      expect(dots.inactive, scheme.onSurfaceVariant.withValues(alpha: AlbumPageDotsTokens.inactiveAlpha));
       await close(tester);
     });
 

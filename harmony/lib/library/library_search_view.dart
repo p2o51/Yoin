@@ -15,6 +15,7 @@ import '../ui/component/empty_state_panel.dart';
 import '../ui/component/expressive_segment_chip.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
+import '../ui/navigation/pane/detail_pane.dart';
 import 'library_cells.dart';
 import 'library_search.dart';
 import 'library_sort.dart';
@@ -26,12 +27,17 @@ const _allSectionCap = 40;
 
 /// Opens the full-screen search, morphing out of the pill at [pillRect]
 /// (global). Its own route: the back arrow and the system back both pop it
-/// through the same spring (no PopScope).
+/// through the same spring (no PopScope). On a Wide window a result opens in
+/// the detail column like the grid's: the search collapses first and keeps
+/// its query (adaptive-principles §5).
 Future<void> openLibrarySearch(BuildContext context, Rect pillRect) =>
     Navigator.of(context).push(_SearchRoute(pillRect: pillRect));
 
-class _SearchRoute extends PageRoute<void> {
-  _SearchRoute({required this.pillRect});
+/// The search route's name: Esc in its field leaves the search (Android/Mac).
+const librarySearchRouteName = 'library-search';
+
+class _SearchRoute extends PageRoute<void> with DetailPaneYieldingRoute<void> {
+  _SearchRoute({required this.pillRect}) : super(settings: const RouteSettings(name: librarySearchRouteName));
 
   final Rect pillRect;
 
@@ -125,10 +131,28 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
   late final LibrarySearchNotifier _search = ref.read(librarySearchProvider.notifier);
   final _scrolls = <LibrarySearchFilter, ScrollController>{};
 
+  /// The route this surface lives on (read while mounted; dispose can't).
+  DetailPaneYieldingRoute<dynamic>? _route;
+
+  @override
+  void initState() {
+    super.initState();
+    // A search that stepped aside for the detail column comes back as it was.
+    _field.text = ref.read(librarySearchProvider).query;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    _route = route is DetailPaneYieldingRoute ? route : null;
+  }
+
   @override
   void dispose() {
-    // Collapsing clears the query and the type filter.
-    _search.clear();
+    // Collapsing clears the query and the type filter — unless a result
+    // went to the detail column, which keeps them (adaptive-principles §5).
+    if (!(_route?.handedToColumn ?? false)) _search.clear();
     _field.dispose();
     for (final c in _scrolls.values) {
       c.dispose();

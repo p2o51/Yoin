@@ -284,4 +284,98 @@ void main() {
     await tester.pumpAndSettle();
     expect(c.isMounted, isFalse);
   });
+
+  testWidgets('should_openFullDirectly_when_detailColumnLeavesNoRoomForPanel', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1100, 800);
+    c.minContentWidth = 744;
+    c.openPlayer();
+    expect(c.panelOpen, isFalse);
+    expect(c.presentation, NowPlayingPresentation.dualPane);
+    expect(c.frame.panelAvailable, isFalse, reason: 'no corner toggle: there is no panel to go back to');
+    await tester.pumpAndSettle();
+    expect(c.besideInset, 0, reason: 'the columns under a Full player are never narrowed');
+    expect(c.handleBack(), isTrue);
+    expect(c.expanded, isFalse, reason: 'back from this Full closes (no panel step)');
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('should_narrowBothColumns_when_panelFitsBesideThem', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1280, 800);
+    c.minContentWidth = 744;
+    c.openPlayer();
+    expect(c.panelOpen, isTrue);
+    await tester.pumpAndSettle();
+    expect(c.besideInset, closeTo(420, 0.5));
+  });
+
+  testWidgets('should_keepFull_when_columnLeavesUnderFullPlayer', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1100, 800);
+    c.minContentWidth = 744;
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.minContentWidth = 320;
+    await tester.pump();
+    expect(c.presentation, NowPlayingPresentation.dualPane, reason: 'the floor dropping never turns Full into a panel');
+    expect(c.frame.panelAvailable, isTrue, reason: 'the toggle (and back to the panel) exists again');
+    expect(c.handleBack(), isTrue);
+    expect(c.presentation, NowPlayingPresentation.panel);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('should_keepLatchedPanelFrame_when_columnOpensDuringClose', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1100, 800);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.close();
+    c.minContentWidth = 744;
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(c.presentation, NowPlayingPresentation.panel, reason: 'a leaving panel stays a panel');
+    expect(c.offsetY, 0);
+    await tester.pumpAndSettle();
+    expect(c.isMounted, isFalse);
+    expect(c.frame.presentation, NowPlayingPresentation.dualPane, reason: 'the next open goes straight to Full');
+  });
+
+  testWidgets('should_closePanel_when_columnOpensWherePanelCannotStay', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1100, 800);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.yieldToColumn(744);
+    expect(c.expanded, isFalse);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('should_stepFullBackToPanel_when_columnOpensWherePanelFits', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1440, 900);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.toggleFullscreen();
+    await tester.pumpAndSettle();
+    c.yieldToColumn(744);
+    expect(c.expanded, isTrue);
+    expect(c.presentation, NowPlayingPresentation.panel);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('should_giveWidthBack1to1_when_panelDraggedOnWideWindow', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1100, 800);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    final panel = c.frame.panelWidth;
+    for (final dx in [10.0, 40.0, 90.0]) {
+      c.panelDragUpdate(dx - c.dragDx.value);
+      expect(c.besideInset + c.offsetX, closeTo(panel, 0.5), reason: 'content edge meets panel edge at $dx');
+    }
+    c.panelDragEnd(0);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(c.besideInset + c.offsetX, closeTo(panel, 1), reason: 'and keeps meeting it through the exit');
+    await tester.pumpAndSettle();
+  });
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
@@ -97,13 +98,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   final Map<HomeSection, GlobalKey> _itemKeys = {};
   final Map<HomeSection, SpringValue> _shift = {};
 
-  // A section being dragged to a new place (edit mode).
+  // A section being dragged to a new place (edit mode). The feed is lazy:
+  // sections off screen are not built, so their places are estimated from
+  // the built ones and refined as they scroll in. Tops are in the feed's
+  // content space (global y + scroll offset), so auto-scroll keeps them valid.
   HomeSection? _dragging;
   double _dragDy = 0;
   List<HomeSection> _dragOrder = const [];
   List<double> _dragTops = const [];
   List<double> _dragHeights = const [];
   int _dragTarget = 0;
+
+  /// The finger's global y while a section is dragged (drives auto-scroll).
+  double? _dragPointerY;
+  final GlobalKey _listKey = GlobalKey();
+  late final Ticker _autoScroll = createTicker(_onAutoScrollTick);
+  Duration? _autoScrollLast;
+
+  /// The feed's bottom padding (the bar's room): auto-scroll's lower edge sits above it.
+  double _feedBottomInset = 0;
 
   /// The app going to the background folds edit mode away.
   AppLifecycleListener? _lifecycle;
@@ -146,6 +159,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     for (final s in _shift.values) {
       s.dispose();
     }
+    _autoScroll.dispose();
     _paletteGate.dispose();
     super.dispose();
   }
@@ -253,10 +267,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           _lastInsets = insets;
           final frame = homeFeedFrame(width, density, insets: insets);
           final bottom = (frame.landscape ? HomeFeedMetrics.landscapeBottomPadding : LibraryTokens.bottomGroupPadding) + padding.bottom;
+          _feedBottomInset = bottom;
           final e = _edit.value;
           final spacing = frame.itemSpacing + (HomeEditMetrics.editItemSpacing - frame.itemSpacing) * homeEditSmoothstep(e);
           final list = CustomScrollView(
+            key: _listKey,
             controller: _scroll,
+            // While a section is lifted every section stays laid out: the lifted
+            // one never leaves the tree under auto-scroll, and the others are
+            // measured instead of guessed from the next frame on.
+            cacheExtent: _dragging == null ? null : HomeEditMetrics.dragCacheExtent,
             slivers: [
               SliverPadding(
                 padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end),
@@ -474,7 +494,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           onMoveUp: index > 0 ? () => edit.move(section, index - 1) : null,
           onMoveDown: index < visible.length - 1 ? () => edit.move(section, index + 1) : null,
           dragHandle: visible.length > 1
-              ? _DragHandle(onStart: () => _startDrag(section, visible), onUpdate: _updateDrag, onEnd: _endDrag)
+              ? _DragHandle(
+                  label: HomeStrings.of(context).reorderSectionCd(HomeStrings.of(context).sectionTitle(section)),
+                  onStart: (y) => _startDrag(section, visible, y),
+                  onUpdate: _updateDrag,
+                  onEnd: _endDrag,
+                )
               : null,
           child: child,
         ),
@@ -505,15 +530,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     ref.read(homeEditProvider.notifier).enter();
   }
 
-  void _startDrag(HomeSection section, List<HomeSection> order) {
-    final tops = <double>[];
-    final heights = <double>[];
-    for (final s in order) {
-      final box = _itemKeys[s]?.currentContext?.findRenderObject() as RenderBox?;
-      if (box == null || !box.hasSize) return;
-      tops.add(box.localToGlobal(Offset.zero).dy);
-      heights.add(box.size.height);
-    }
+  void _startDrag(HomeSection section, List<HomeSection> order, double pointerY) {
+    final tops = List<double>.filled(order.length, 0);
+    final heights = List<double>.filled(order.length, 0);
+    // The dragged section is under the finger, so it is built.
+    if (!_measure(order, tops, heights, require: order.indexOf(section))) return;
     YoinHaptics.longPress();
     setState(() {
       _dragging = section;
@@ -522,13 +543,64 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       _dragTops = tops;
       _dragHeights = heights;
       _dragTarget = order.indexOf(section);
+      _dragPointerY = pointerY;
     });
   }
 
-  void _updateDrag(double dy) {
+  /// Fills [tops] (content space) and [heights] for [order]: built sections
+  /// measured, the rest stacked on from their nearest built neighbour at the
+  /// built ones' mean height. False when [require] is not built.
+  bool _measure(List<HomeSection> order, List<double> tops, List<double> heights, {required int require}) {
+    final offset = _scroll.hasClients ? _scroll.offset : 0.0;
+    final built = List<bool>.filled(order.length, false);
+    var sum = 0.0;
+    var n = 0;
+    for (var i = 0; i < order.length; i++) {
+      final box = _itemKeys[order[i]]?.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached || !box.hasSize) continue;
+      tops[i] = box.localToGlobal(Offset.zero).dy + offset;
+      heights[i] = box.size.height;
+      built[i] = true;
+      sum += heights[i];
+      n++;
+    }
+    if (require < 0 || !built[require]) return false;
+    final estimate = sum / n;
+    final first = built.indexOf(true);
+    final last = built.lastIndexOf(true);
+    for (var i = first - 1; i >= 0; i--) {
+      heights[i] = estimate;
+      tops[i] = tops[i + 1] - estimate;
+    }
+    for (var i = last + 1; i < order.length; i++) {
+      heights[i] = estimate;
+      tops[i] = tops[i - 1] + heights[i - 1];
+    }
+    return true;
+  }
+
+  void _updateDrag(double dy, double pointerY) {
+    if (_dragging == null) return;
+    _dragPointerY = pointerY;
+    _dragBy(dy);
+    if (_autoScrollSpeed() != 0 && !_autoScroll.isActive) {
+      _autoScrollLast = null;
+      _autoScroll.start();
+    }
+  }
+
+  /// Moves the lifted section by [dy] (content space) and re-targets the others.
+  void _dragBy(double dy) {
     final section = _dragging;
     if (section == null) return;
     final a = _dragOrder.indexOf(section);
+    // Sections scrolled into view since the lift replace their estimates.
+    final tops = List<double>.of(_dragTops);
+    final heights = List<double>.of(_dragHeights);
+    if (_measure(_dragOrder, tops, heights, require: a)) {
+      _dragTops = tops;
+      _dragHeights = heights;
+    }
     final h = _dragHeights[a];
     final center = _dragTops[a] + _dragDy + dy + h / 2;
     var target = a;
@@ -552,9 +624,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     });
   }
 
+  /// dp/s the feed scrolls at for the finger's place: 0 away from the edges,
+  /// ramping to [HomeEditMetrics.autoScrollMax] at them (negative = up).
+  double _autoScrollSpeed() {
+    final y = _dragPointerY;
+    final box = _listKey.currentContext?.findRenderObject() as RenderBox?;
+    if (y == null || box == null || !box.hasSize || !_scroll.hasClients) return 0;
+    final topEdge = box.localToGlobal(Offset.zero).dy + MediaQuery.viewPaddingOf(context).top;
+    final bottomEdge = box.localToGlobal(Offset(0, box.size.height)).dy - _feedBottomInset;
+    const edge = HomeEditMetrics.autoScrollEdge;
+    final position = _scroll.position;
+    if (y < topEdge + edge && position.pixels > position.minScrollExtent) {
+      return -HomeEditMetrics.autoScrollMax * ((topEdge + edge - y) / edge).clamp(0.0, 1.0);
+    }
+    if (y > bottomEdge - edge && position.pixels < position.maxScrollExtent) {
+      return HomeEditMetrics.autoScrollMax * ((y - (bottomEdge - edge)) / edge).clamp(0.0, 1.0);
+    }
+    return 0;
+  }
+
+  void _onAutoScrollTick(Duration elapsed) {
+    final last = _autoScrollLast;
+    _autoScrollLast = elapsed;
+    final speed = _dragging == null ? 0.0 : _autoScrollSpeed();
+    if (speed == 0) {
+      _autoScroll.stop();
+      return;
+    }
+    if (last == null) return;
+    final dt = (elapsed - last).inMicroseconds / Duration.microsecondsPerSecond;
+    final position = _scroll.position;
+    final to = (position.pixels + speed * dt).clamp(position.minScrollExtent, position.maxScrollExtent);
+    final moved = to - position.pixels;
+    if (moved == 0) return;
+    position.jumpTo(to);
+    // The lifted section rides the finger, not the content.
+    _dragBy(moved);
+  }
+
   void _endDrag() {
     final section = _dragging;
     if (section == null) return;
+    _stopAutoScroll();
     final a = _dragOrder.indexOf(section);
     final b = _dragTarget;
     var moved = 0.0;
@@ -582,8 +693,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if (b != a) ref.read(homeEditProvider.notifier).move(section, b);
   }
 
+  void _stopAutoScroll() {
+    _dragPointerY = null;
+    if (_autoScroll.isActive) _autoScroll.stop();
+  }
+
   void _cancelDrag() {
     if (_dragging == null) return;
+    _stopAutoScroll();
     for (final s in _dragOrder) {
       _shiftOf(s).animateTo(0);
     }
@@ -593,22 +710,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
 
 /// A section's drag handle: hold and drag to move the section.
 class _DragHandle extends StatelessWidget {
-  const _DragHandle({required this.onStart, required this.onUpdate, required this.onEnd});
+  const _DragHandle({required this.label, required this.onStart, required this.onUpdate, required this.onEnd});
 
-  final VoidCallback onStart;
-  final ValueChanged<double> onUpdate;
+  final String label;
+  final ValueChanged<double> onStart;
+  final void Function(double dy, double pointerY) onUpdate;
   final VoidCallback onEnd;
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onVerticalDragStart: (_) => onStart(),
-    onVerticalDragUpdate: (d) => onUpdate(d.delta.dy),
-    onVerticalDragEnd: (_) => onEnd(),
-    onVerticalDragCancel: onEnd,
-    child: SizedBox.square(
-      dimension: HomeHeaderMetrics.touchBox,
-      child: Icon(YoinSymbols.dragHandle, color: Theme.of(context).colorScheme.onSurfaceVariant),
+  Widget build(BuildContext context) => Semantics(
+    // Reading it moves nothing: the plate's Move up / Move down actions do.
+    container: true,
+    label: label,
+    excludeSemantics: true,
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (d) => onStart(d.globalPosition.dy),
+      onVerticalDragUpdate: (d) => onUpdate(d.delta.dy, d.globalPosition.dy),
+      onVerticalDragEnd: (_) => onEnd(),
+      onVerticalDragCancel: onEnd,
+      child: SizedBox.square(
+        dimension: HomeHeaderMetrics.touchBox,
+        child: Icon(YoinSymbols.dragHandle, color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ),
     ),
   );
 }

@@ -377,8 +377,13 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
   }
   flushRun();
 
-  // Only an album with nothing on any track gets the "Nothing yet" line.
-  if (tracks.isNotEmpty && !tracks.any(touched)) pieces.add(const ScrapNotYet());
+  // Only an album with nothing on it at all gets the "Nothing yet" line: once anything is left (a review,
+  // a title, a score, a note, a play), page 2 shows just what was left (owner 2026-10-05: "Not yet" read as
+  // unexplained; the receipt already says "Rated 0 / N"). No heading, no sticker: one muted line.
+  final played = (data.plays?.playCount ?? 0) > 0;
+  if (tracks.isNotEmpty && !tracks.any(touched) && !hasReview && (data.title?.trim().isEmpty ?? true) && !played) {
+    pieces.add(const ScrapNotYet());
+  }
 
   final plays = data.plays;
   if (plays != null && plays.playCount > 0) {

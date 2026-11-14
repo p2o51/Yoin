@@ -183,14 +183,54 @@ class NowPlayingOverlayController extends ChangeNotifier {
     if (_expanded && _shown != before) {
       _reconcileFrame();
       // Set from a build: tell the overlay's listeners after this frame.
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (!_disposed) notifyListeners();
-      });
+      _notifyAfterFrame();
     }
   }
 
   YoinWindowInfo get window => _window;
   bool _disposed = false;
+
+  double _minContentWidth = NowPlayingPanelTokens.minContentWidth;
+
+  /// What the host keeps beside the side panel (adaptive-principles §4): a
+  /// phone column, or two columns + gutter while the detail column is open.
+  /// Where it can't fit there is no panel and Full opens directly; the
+  /// column is never dropped or rearranged for Now Playing. A change while
+  /// open keeps a Full player Full (the floor dropping under it never turns
+  /// it into a panel by itself); a panel that no longer fits goes Full.
+  double get minContentWidth => _minContentWidth;
+  set minContentWidth(double value) {
+    if (value == _minContentWidth) return;
+    _minContentWidth = value;
+    if (_expanded && _shown.presentation != NowPlayingPresentation.panel) _fullscreen = true;
+    final before = _shown;
+    _resolveFrame(settle: false);
+    if (_expanded && _shown != before) {
+      _reconcileFrame();
+      _notifyAfterFrame();
+    }
+  }
+
+  /// Set from a build or a listener mid-frame: tell the listeners after it.
+  void _notifyAfterFrame() {
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!_disposed) notifyListeners();
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  /// A detail column is about to open (adaptive-principles §4: the page
+  /// asked for is always visible). Where the panel fits beside two columns
+  /// ([columnsMinWidth]) a Full player steps back to the panel; where it
+  /// doesn't, the player closes.
+  void yieldToColumn(double columnsMinWidth) {
+    if (!_expanded) return;
+    if (canOpenNowPlayingPanel(_window, minContentWidth: columnsMinWidth)) {
+      if (_shown.presentation != NowPlayingPresentation.panel) _setFullscreen(false);
+    } else {
+      close();
+    }
+  }
 
   /// A resize while open moved the player to another frame: the container,
   /// the content beside it and the bar follow on their springs.
@@ -277,7 +317,7 @@ class NowPlayingOverlayController extends ChangeNotifier {
   }
 
   void _resolveFrame({required bool settle}) {
-    _live = NowPlayingFrame.resolve(_window, fullscreen: _fullscreen);
+    _live = NowPlayingFrame.resolve(_window, fullscreen: _fullscreen, minContentWidth: _minContentWidth);
     if (_expanded) _shown = _live;
     if (settle) notifyListeners();
   }
@@ -573,4 +613,22 @@ class NowPlayingOverlayScope extends InheritedNotifier<NowPlayingOverlayControll
   /// Without subscribing to its changes.
   static NowPlayingOverlayController? read(BuildContext context) =>
       context.getInheritedWidgetOfExactType<NowPlayingOverlayScope>()?.notifier;
+}
+
+/// The window as it is before the Now Playing side panel takes its share
+/// (BesideNowPlayingPanel provides it next to the narrowed [YoinWindowScope]).
+/// Decisions that belong to the window rather than to the content's width —
+/// whether the detail column exists at all — read this, so opening the panel
+/// never hands the column's pages over as pushed pages.
+class NowPlayingHostWindowScope extends InheritedWidget {
+  const NowPlayingHostWindowScope({super.key, required this.window, required super.child});
+
+  final YoinWindowInfo window;
+
+  /// The host window, or [YoinWindowInfo.of] where no panel host is above.
+  static YoinWindowInfo of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<NowPlayingHostWindowScope>()?.window ?? YoinWindowInfo.of(context);
+
+  @override
+  bool updateShouldNotify(NowPlayingHostWindowScope oldWidget) => oldWidget.window != window;
 }

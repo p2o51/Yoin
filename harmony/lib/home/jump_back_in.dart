@@ -299,6 +299,13 @@ class JbiSignalCard extends ConsumerWidget {
   }
 }
 
+/// The signal card's big line (Android HomeWidgetCard.shownRating): the
+/// score, or N/A when there is none. Android's cards always carry a rating
+/// text — formatMemoryScore gives "N/A" for no rating and ratingUnavailable
+/// swaps in home_widget_rating_na — so an unrated note or memory reads N/A
+/// there too; a null [JbiSignal.scoreText] is that same unrated case.
+String jbiSignalHeadline(JbiSignal signal, HomeStrings strings) => signal.scoreText ?? strings.widgetRatingNa;
+
 class _SignalCopy extends ConsumerWidget {
   const _SignalCopy({required this.card, required this.coverSide, required this.commentMaxLines});
 
@@ -334,7 +341,7 @@ class _SignalCopy extends ConsumerWidget {
             spacing: HomeJbiMetrics.signalBasisGap,
             children: [
               SeamText(
-                signal.scoreText ?? strings.widgetRatingNa,
+                jbiSignalHeadline(signal, strings),
                 style: theme.textTheme.headlineSmall!.copyWith(fontWeight: FontWeight.w700, color: ink, fontFeatures: tabular),
               ),
               if (basis != null)

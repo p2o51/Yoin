@@ -4,6 +4,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
+import '../detail/playlist_detail_view_model.dart' show playlistHeroCover;
 import '../playback/playback_context.dart';
 import '../playback/playback_controller.dart';
 import '../theme/tokens.dart';
@@ -280,7 +281,7 @@ class LibraryPlaylistsView extends ConsumerWidget {
         ];
         return LibraryListRow(
           key: ValueKey(item.key),
-          url: libraryCoverUrl(ref, p.coverArt),
+          url: libraryCoverUrl(ref, playlistHeroCover(p)),
           fallbackIcon: YoinSymbols.playlist,
           title: p.name,
           meta: meta.isEmpty ? [MetaPlain(strings.playlistFallback)] : meta,

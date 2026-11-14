@@ -104,9 +104,13 @@ class MemoriesHomeBehind extends StatelessWidget {
         final q = reveal.fraction.clamp(0.0, 1.0);
         final alpha = MemoriesTokens.homeBehindAlpha + (1 - MemoriesTokens.homeBehindAlpha) * q;
         final scale = reduced ? 1.0 : MemoriesTokens.homeBehindScale + (1 - MemoriesTokens.homeBehindScale) * q;
-        return Opacity(
-          opacity: alpha,
-          child: Transform.scale(scale: scale, alignment: Alignment.topCenter, child: child),
+        // Open (or heading open), Memories covers Home: readers skip what lies under it.
+        return ExcludeSemantics(
+          excluding: reveal.ownsBack,
+          child: Opacity(
+            opacity: alpha,
+            child: Transform.scale(scale: scale, alignment: Alignment.topCenter, child: child),
+          ),
         );
       },
     );
@@ -1053,27 +1057,50 @@ class _TopBar extends ConsumerWidget {
               : (pages?.initialPage.toDouble() ?? 0);
           final width = MediaQuery.sizeOf(context).width;
           final slotEnd = layout.dotsEnd - MemoriesTokens.dotOverhang + dotsWidth + MemoriesTokens.slotClearOfDots;
+          // The Home pill: 88 → 36 over the cover's flight, its label first.
+          final pillWidth = lerpDouble(
+            MemoriesTokens.pillWidth,
+            MemoriesTokens.pillWidthDiary,
+            smoothstep(0, MemoriesTokens.pillNarrowTo, p),
+          );
           return Padding(
             padding: EdgeInsets.only(top: statusTop),
             child: Stack(
               children: [
-                for (var i = 0; i < count; i++)
-                  if ((i - page).abs() < 1.6)
-                    _PageSlots(
-                      memory: memories[i],
-                      rel: i - page,
-                      width: width,
-                      p: p,
-                      layout: layout,
-                      dark: dark,
-                      slotEnd: slotEnd,
-                      reducedMotion: reducedMotion,
-                      lastHeard: memories[i].lastHeardAt == null
-                          ? null
-                          : strings.topbarLastHeard(strings.chromeDate(dayOf(memories[i].lastHeardAt!), dayOf(now))),
-                      onCloseDiary: onCloseDiary,
+                // A page's slots ride the swipe toward the pill: they fade out
+                // at its trailing edge, never showing beside or under it.
+                Positioned.fill(
+                  child: ShaderMask(
+                    blendMode: BlendMode.dstIn,
+                    shaderCallback: (bounds) {
+                      final (a, b) = memoriesBarSlotMaskStops(bounds.width, layout.pillStart + pillWidth);
+                      return LinearGradient(
+                        colors: const [Color(0x00000000), Color(0x00000000), Color(0xFF000000), Color(0xFF000000)],
+                        stops: [0, a, b, 1],
+                      ).createShader(bounds);
+                    },
+                    child: Stack(
+                      children: [
+                        for (var i = 0; i < count; i++)
+                          if ((i - page).abs() < 1.6)
+                            _PageSlots(
+                              memory: memories[i],
+                              rel: i - page,
+                              width: width,
+                              p: p,
+                              layout: layout,
+                              dark: dark,
+                              slotEnd: slotEnd,
+                              reducedMotion: reducedMotion,
+                              lastHeard: memories[i].lastHeardAt == null
+                                  ? null
+                                  : strings.topbarLastHeard(strings.chromeDate(dayOf(memories[i].lastHeardAt!), dayOf(now))),
+                              onCloseDiary: onCloseDiary,
+                            ),
+                      ],
                     ),
-                // The Home pill: 88 → 36 over the cover's flight, its label first.
+                  ),
+                ),
                 Positioned(
                   left: layout.pillStart,
                   top: (MemoriesTokens.barHeight - MemoriesTokens.pillHeight) / 2,
@@ -1082,11 +1109,7 @@ class _TopBar extends ConsumerWidget {
                     label: strings.cdCloseHome,
                     excludeSemantics: true,
                     child: SizedBox(
-                      width: lerpDouble(
-                        MemoriesTokens.pillWidth,
-                        MemoriesTokens.pillWidthDiary,
-                        smoothstep(0, MemoriesTokens.pillNarrowTo, p),
-                      ),
+                      width: pillWidth,
                       height: MemoriesTokens.pillHeight,
                       child: Material(
                         color: colors.surfaceContainerHigh,

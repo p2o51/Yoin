@@ -139,6 +139,7 @@ class HomeStrings {
   String get editReset => _zh ? '重置首页' : 'Reset Home'; // home_edit_reset
   String get editAllHiddenTitle => _zh ? '首页是空的' : 'Home is empty'; // home_edit_all_hidden_title
   String hideSectionCd(String name) => _zh ? '隐藏 $name' : 'Hide $name'; // home_cd_hide_section
+  String reorderSectionCd(String name) => _zh ? '调整“$name”的顺序' : 'Reorder $name'; // landing_home_drag
   String showSectionCd(String name) => _zh ? '显示 $name' : 'Show $name'; // home_cd_show_section
   String get editMoveUp => _zh ? '上移' : 'Move up'; // home_edit_move_up
   String get editMoveDown => _zh ? '下移' : 'Move down'; // home_edit_move_down

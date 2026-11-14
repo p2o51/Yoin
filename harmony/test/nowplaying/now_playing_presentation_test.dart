@@ -78,4 +78,25 @@ void main() {
     expect(NowPlayingPresentation.enlarged.pillMorph, PillMorph.coverAndText);
     expect(NowPlayingPresentation.dualPane.pillMorph, PillMorph.cover);
   });
+
+  test('should_openFullDirectly_when_panelCannotSitBesideTwoColumns', () {
+    // adaptive-principles §4 table: 1000/1100 + detail column → straight to Full two-column.
+    const twoColumns = 744.0;
+    for (final width in [1000.0, 1100.0, 1163.0]) {
+      final frame = NowPlayingFrame.resolve(
+        YoinWindowInfo(width, 800),
+        fullscreen: false,
+        minContentWidth: twoColumns,
+      );
+      expect(frame.panelAvailable, isFalse, reason: '$width');
+      expect(frame.presentation, NowPlayingPresentation.dualPane, reason: '$width');
+      expect(frame.panelFamily, isFalse);
+    }
+    // 1164 − 420 = 744: both columns fit beside the panel.
+    final fits = NowPlayingFrame.resolve(const YoinWindowInfo(1164, 800), fullscreen: false, minContentWidth: twoColumns);
+    expect(fits.presentation, NowPlayingPresentation.panel);
+    // Without the column the same 1100 window keeps its panel.
+    expect(NowPlayingFrame.resolve(const YoinWindowInfo(1100, 800), fullscreen: false).presentation,
+        NowPlayingPresentation.panel);
+  });
 }

@@ -37,14 +37,25 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   /// bar's hide and system back all feed this one controller.
   late final MemoriesRevealController _memories = MemoriesRevealController(vsync: this);
   late final MemoriesRevealHandle _memoriesHandle = ref.read(memoriesRevealHandleProvider);
-  late final ChromeBackEntry _memoriesBack = ChromeBackEntry(_memoriesHandle.back);
+  late final ChromeBackEntry _memoriesBack = ChromeBackEntry(
+    _memoriesHandle.back,
+    owns: () => _memories.ownsBack,
+    priority: ChromeBackPriority.memories,
+  );
 
   /// 1 = the shell is the top page; 0 = a page pushed over it (from Memories) has the bar.
   late final SpringValue _uncovered = SpringValue(vsync: this, initial: 1, spring: YoinSprings.standardDefaultSpatial);
 
   /// The Wide window's detail column (adaptive-principles §3).
   late final DetailPaneController _pane = DetailPaneController(vsync: this);
-  late final ChromeBackEntry _paneBack = ChromeBackEntry(_onPaneBack);
+  /// Arbitrated below Now Playing and Memories (principle 8): with the
+  /// side panel or the player open, system back is theirs, whatever order
+  /// the entries were registered in.
+  late final ChromeBackEntry _paneBack = ChromeBackEntry(
+    _onPaneBack,
+    owns: () => _pane.hasEntries,
+    priority: ChromeBackPriority.detailColumn,
+  );
 
   @override
   void initState() {
@@ -108,8 +119,10 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
     // A page over the shell takes the bar back from Memories (and gives it back when it pops).
     final top = ModalRoute.isCurrentOf(context) ?? true;
     _pane.shellIsTop = top;
-    // Narrowed out of Wide with the column open: its pages become pushed pages.
-    final window = YoinWindowInfo.of(context);
+    // Narrowed out of Wide with the column open: its pages become pushed
+    // pages. The window, not the width beside a Now Playing side panel: the
+    // panel never takes the column away (adaptive-principles §4).
+    final window = NowPlayingHostWindowScope.of(context);
     if (_pane.holdsColumn && (window.layoutMode != LayoutMode.wide || window.isCompactHeight)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final nav = appNavigatorKey.currentState;

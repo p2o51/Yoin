@@ -1613,4 +1613,8 @@ abstract final class AlbumPageDotsTokens {
   static const double cellWidth = 24;
   static const double cellHeight = 20;
   static const double dot = 4;
+
+  /// The other page's dot: onSurfaceVariant at this alpha; over the formed bar, white at this one.
+  static const double inactiveAlpha = 0.3;
+  static const double inactiveOnBarAlpha = 0.4;
 }

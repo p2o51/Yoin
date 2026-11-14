@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
-import '../theme/tokens.dart';
+import '../shell/app_messages.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import 'detail_palette.dart';
 import 'detail_strings.dart';
@@ -152,20 +152,5 @@ class DetailErrorView extends StatelessWidget {
 }
 
 /// A page's short confirmation (Android postMessage on the window's
-/// snackbar): floating, lifted clear of the bar that sits over the page.
-void showDetailMessage(BuildContext context, String text) {
-  ScaffoldMessenger.maybeOf(context)
-    ?..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(text),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(
-          BarTokens.horizontalMargin,
-          0,
-          BarTokens.horizontalMargin,
-          BarTokens.height + 2 * BarTokens.portraitVerticalMargin,
-        ),
-      ),
-    );
-}
+/// snackbar): the shell's one snackbar, above the bar.
+void showDetailMessage(BuildContext context, String text) => showAppMessage(context, text);

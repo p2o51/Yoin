@@ -14,6 +14,19 @@ import '../theme/tokens.dart';
 
 enum MemoriesTier { phone, medium, spread }
 
+/// The bar's page slots fade out over this much as they slide under the
+/// Home pill's trailing edge (a slot never shows beside or through the pill).
+const double memoriesBarSlotFade = 12;
+
+/// The bar slots' mask stops along a bar [width] wide: clear up to
+/// [clearTo] (the pill's end), opaque from [memoriesBarSlotFade] past it.
+(double, double) memoriesBarSlotMaskStops(double width, double clearTo) {
+  if (width <= 0) return (0, 0);
+  final a = (clearTo / width).clamp(0.0, 1.0);
+  final b = ((clearTo + memoriesBarSlotFade) / width).clamp(a, 1.0);
+  return (a, b);
+}
+
 @immutable
 final class MemoriesLayout {
   const MemoriesLayout({
