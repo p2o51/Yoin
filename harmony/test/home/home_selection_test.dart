@@ -3,10 +3,12 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/activity/activity.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/home/home_feed_density.dart';
 import 'package:yoin/home/home_grid_pool_store.dart';
 import 'package:yoin/home/home_selection.dart';
 import 'package:yoin/home/home_strings.dart';
 import 'package:yoin/home/home_ui_state.dart';
+import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
 import 'home_fakes.dart';
 
@@ -255,54 +257,68 @@ void main() {
   });
 
   group('geometry', () {
+    /// The frame of a resting [width] × [height] container.
+    HomeFeedFrame frameAt(double width, {double height = 1000}) =>
+        homeFeedFrame(width, HomeFeedDensity.of(YoinWindowInfo(width, height)));
+
     test('should_useSixteenMargins_when_phonePortrait', () {
-      expect(homeFeedFrame(360, compactHeight: false), const HomeFeedFrame(start: 16, content: 328, end: 16, landscape: false));
+      final frame = frameAt(360);
+      expect((frame.start, frame.content, frame.end, frame.landscape, frame.units), (16.0, 328.0, 16.0, false, 2));
     });
 
-    test('should_capAndCentre_when_containerWide', () {
-      final frame = homeFeedFrame(800, compactHeight: false);
+    test('should_capAndCentre_when_containerMedium', () {
+      final frame = frameAt(800);
       expect(frame.start, 56);
       expect(frame.content, 688);
       expect(frame.end, 56);
-      final wide = homeFeedFrame(1280, compactHeight: false);
-      expect(wide.start, 296);
-      expect(wide.content, 688);
-      expect(wide.end, 296);
+    });
+
+    test('should_fillCanvasInside32Margins_when_containerWide', () {
+      final wide = frameAt(1280);
+      expect((wide.start, wide.content, wide.end), (32.0, 1216.0, 32.0));
+      expect(wide.density.frameClass, FeedFrameClass.wide);
     });
 
     test('should_useTwentyFourMarginsFullWidth_when_landscapeHandset', () {
-      final frame = homeFeedFrame(800, compactHeight: true);
+      final frame = frameAt(800, height: 400);
       expect((frame.start, frame.content, frame.landscape), (24.0, 752.0, true));
       expect(frame.itemSpacing, 10);
     });
 
-    test('should_pickRecipeByContentWidth_when_bento', () {
-      expect(bentoRecipeFor(homeFeedFrame(320, compactHeight: false)), BentoRecipe.phoneNarrow);
-      expect(bentoRecipeFor(homeFeedFrame(360, compactHeight: false)), BentoRecipe.phone);
-      expect(bentoRecipeFor(homeFeedFrame(800, compactHeight: true)), BentoRecipe.landscape);
+    test('should_pickRecipeByFeedUnits_when_bento', () {
+      expect(bentoRecipeFor(frameAt(320)), BentoRecipe.phoneNarrow);
+      expect(bentoRecipeFor(frameAt(360)), BentoRecipe.phone);
+      expect(bentoRecipeFor(frameAt(479)), BentoRecipe.phone);
+      expect(bentoRecipeFor(frameAt(480)), BentoRecipe.units);
+      expect(bentoRecipeFor(frameAt(800)), BentoRecipe.units);
+      expect(bentoRecipeFor(frameAt(800, height: 400)), BentoRecipe.landscape);
     });
 
     test('should_layThreeByFourCappedAt100_when_phone', () {
-      final g = jbiGeometry(homeFeedFrame(360, compactHeight: false));
-      expect((g.columns, g.rows, g.cells), (3, 4, 12));
+      final g = jbiGeometry(frameAt(360));
+      expect((g.columns, g.rows, g.cells, g.templated), (3, 4, 12, false));
       expect(g.coverSide, 100);
     });
 
-    test('should_useMoreColumnsNotBiggerCovers_when_containerWide', () {
-      final g = jbiGeometry(homeFeedFrame(800, compactHeight: false));
-      expect(g.columns, 5);
-      expect(g.coverSide, inInclusiveRange(100, 128));
+    test('should_templateMoreLanesNotBiggerCovers_when_containerWide', () {
+      final medium = jbiGeometry(frameAt(800));
+      expect((medium.columns, medium.rows, medium.templated), (5, 3, true));
+      expect(medium.coverSide, inInclusiveRange(100, 128));
+      final wide = jbiGeometry(frameAt(1280));
+      expect((wide.columns, wide.rows, wide.templated), (9, 2, true));
+      expect(wide.coverSide, inInclusiveRange(100, 128));
     });
 
     test('should_useTwoRowsUpToSixColumns_when_landscape', () {
-      final g = jbiGeometry(homeFeedFrame(900, compactHeight: true));
+      final g = jbiGeometry(frameAt(900, height: 400));
       expect(g.rows, 2);
       expect(g.columns, 6);
+      expect(g.templated, isFalse);
     });
 
     test('should_clampTrackGridWidth_when_phone', () {
-      expect(recentlyAddedGridWidth(homeFeedFrame(360, compactHeight: false)), closeTo((328 - 14) * 2.6 / 3.6, 0.01));
-      expect(recentlyAddedGridWidth(homeFeedFrame(800, compactHeight: false)), 340);
+      expect(recentlyAddedGridWidth(328, compactHeight: false), closeTo((328 - 14) * 2.6 / 3.6, 0.01));
+      expect(recentlyAddedGridWidth(688, compactHeight: false), 340);
     });
 
     test('should_countCoverColumns_when_contentGiven', () {

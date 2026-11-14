@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/model/model.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
+import 'home_feed_density.dart';
 import 'home_header.dart';
 import 'home_metrics.dart';
 import 'home_selection.dart';
@@ -15,6 +16,7 @@ import 'widgets/elastic_press.dart';
 import 'widgets/home_artwork.dart';
 import 'widgets/home_motion.dart';
 import 'widgets/home_text.dart';
+import 'widgets/spring_height.dart';
 
 /// A shelf card's height: the 82 cover, 6, then two caption lines.
 double _cardHeight(BuildContext context) {
@@ -48,8 +50,12 @@ class _ShelfSection extends StatelessWidget {
       );
 }
 
-/// Recently Added: one shelf (no edge fade) whose first item is a 2 × 2
-/// track grid, then album cards. Either half alone takes the full width.
+/// Recently Added: one shelf (no edge fade) whose first item is the track
+/// grid, then album cards. Phone: 2 × 2 tracks beside single cards. Wider
+/// feeds (N ≥ 3) seat up to 3 / 4 columns (by the resting cover columns) × 4
+/// rows of the same 166 dp tile, beside album cards stacked two high and a
+/// deeper shelf (HomeFeedDensity.kt); cards never grow. Either half alone
+/// takes the full width.
 class RecentlyAddedSection extends StatelessWidget {
   const RecentlyAddedSection({super.key, required this.tracks, required this.albums, required this.frame});
 
@@ -59,36 +65,57 @@ class RecentlyAddedSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shownTracks = tracks.take(HomeShelfMetrics.phoneTrackRows * HomeShelfMetrics.phoneTrackColumns).toList();
-    final shownAlbums = albums.take(HomeShelfMetrics.phoneAlbums).toList();
-    final columns = recentlyAddedGridColumns(shownTracks.length);
+    final maxColumns = recentlyAddedTrackColumns(frame.units, frame.coverColumns, compactHeight: frame.landscape);
+    final trackRows = recentlyAddedTrackRows(frame.units, compactHeight: frame.landscape);
+    final shownTracks = tracks.take(maxColumns * trackRows).toList();
+    final albumStack = recentlyAddedAlbumStack(trackRows);
+    final shownAlbums = albums.take(recentlyAddedAlbumLimit(maxColumns)).toList();
+    final stacks = <List<Album>>[
+      for (var i = 0; i < shownAlbums.length; i += albumStack) shownAlbums.sublist(i, math.min(i + albumStack, shownAlbums.length)),
+    ];
+    final columns = recentlyAddedGridColumns(shownTracks.length, rows: trackRows, maxColumns: maxColumns);
     final rows = (shownTracks.length / columns).ceil();
     final scaler = MediaQuery.textScalerOf(context);
     final tileHeight = math.max(HomeTokens.recentlyAddedTrackCover,
         scaler.scale(TypeTokens.bodyMedium.lineHeight) + scaler.scale(TypeTokens.labelSmall.lineHeight));
     final gridHeight = rows * tileHeight + math.max(0, rows - 1) * HomeShelfMetrics.trackGridRowGap;
-    final gridWidth = shownAlbums.isEmpty ? frame.content : recentlyAddedGridWidth(frame);
-    final height = math.max(shownTracks.isEmpty ? 0.0 : gridHeight, shownAlbums.isEmpty ? 0.0 : _cardHeight(context));
+    final gridWidth = shownAlbums.isEmpty
+        ? frame.content
+        : recentlyAddedGridWidth(frame.content, compactHeight: frame.landscape, columns: columns);
+    final stackDepth = stacks.isEmpty ? 0 : stacks.map((s) => s.length).reduce(math.max);
+    final stackHeight = stackDepth * _cardHeight(context) + math.max(0, stackDepth - 1) * HomeShelfMetrics.albumStackGap;
+    final height = math.max(shownTracks.isEmpty ? 0.0 : gridHeight, stackHeight);
     final hasGrid = shownTracks.isNotEmpty;
     return _ShelfSection(
       title: HomeStrings.of(context).sectionRecentlyAdded,
       frame: frame,
       gap: HomeSectionMetrics.shelfSpacing,
-      shelf: EdgeFadeShelf(
-        fade: false,
-        height: height,
-        padding: _shelfPadding(frame),
-        itemCount: shownAlbums.length + (hasGrid ? 1 : 0),
-        itemBuilder: (context, i) {
-          if (hasGrid && i == 0) {
+      shelf: SpringHeight(
+        heightKey: (maxColumns, trackRows),
+        child: EdgeFadeShelf(
+          fade: false,
+          height: height,
+          padding: _shelfPadding(frame),
+          itemCount: stacks.length + (hasGrid ? 1 : 0),
+          itemBuilder: (context, i) {
+            if (hasGrid && i == 0) {
+              return Align(
+                alignment: Alignment.topCenter,
+                child: SizedBox(width: gridWidth, child: _TrackGrid(tracks: shownTracks, columns: columns, tileHeight: tileHeight)),
+              );
+            }
+            final stack = stacks[i - (hasGrid ? 1 : 0)];
             return Align(
+              key: ValueKey(stack.first.id),
               alignment: Alignment.topCenter,
-              child: SizedBox(width: gridWidth, child: _TrackGrid(tracks: shownTracks, columns: columns, tileHeight: tileHeight)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                spacing: HomeShelfMetrics.albumStackGap,
+                children: [for (final album in stack) AlbumShelfCard(key: ValueKey(album.id), album: album)],
+              ),
             );
-          }
-          final album = shownAlbums[i - (hasGrid ? 1 : 0)];
-          return Align(alignment: Alignment.topCenter, child: AlbumShelfCard(key: ValueKey(album.id), album: album));
-        },
+          },
+        ),
       ),
     );
   }

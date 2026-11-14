@@ -10,6 +10,7 @@ import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/expressive/loading_indicator.dart';
 import 'activity_bento.dart';
+import 'home_feed_density.dart';
 import 'home_header.dart';
 import 'home_metrics.dart';
 import 'home_section.dart';
@@ -65,6 +66,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   /// False until the first Content frame of a scope is up: sections in that frame don't grow in.
   bool _sectionsSeeded = false;
 
+  /// The feed's resting shape (frame class, N, cover columns) from YoinWindowInfo.
+  HomeFeedDensity? _density;
+
+  /// A frame-class change eases the margins from the old formula to the new
+  /// one (HomeFeedFrame.kt): 0 = [_blendFrom], 1 = the current class's insets.
+  late final SpringValue _frameBlend = SpringValue(vsync: this, initial: 1, spring: YoinSprings.defaultSpatial);
+  FeedFrameInsets? _blendFrom;
+
+  /// The margins last laid out, so an interrupted blend leaves from where it stood.
+  FeedFrameInsets? _lastInsets;
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +85,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _reveal;
     _feedAlpha;
     _feedRise;
+    _frameBlend;
     _scroll.addListener(() => _flow.onScroll(_scroll.position.pixels));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _onState(ref.read(homeViewModelProvider));
@@ -87,8 +100,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _reveal.dispose();
     _feedAlpha.dispose();
     _feedRise.dispose();
+    _frameBlend.dispose();
     _paletteGate.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = HomeFeedDensity.of(YoinWindowInfo.of(context));
+    final previous = _density;
+    _density = next;
+    if (previous == null || previous.frameClass == next.frameClass) return;
+    // Only a resting-width threshold changes the class; the margins blend
+    // from where they stand (mid-blend too) to the new formula.
+    if (_lastInsets == null || MediaQuery.disableAnimationsOf(context)) {
+      _blendFrom = null;
+      _frameBlend.snapTo(1);
+      return;
+    }
+    _blendFrom = _lastInsets;
+    _frameBlend.snapTo(0);
+    _frameBlend.animateTo(1);
   }
 
   void _onState(HomeUiState state) {
@@ -155,13 +188,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final state = ref.watch(homeViewModelProvider);
     final layout = ref.watch(homeLayoutProvider);
     final colors = Theme.of(context).colorScheme;
-    final window = YoinWindowInfo.of(context);
+    final density = _density ?? HomeFeedDensity.of(YoinWindowInfo.of(context));
     final padding = MediaQuery.viewPaddingOf(context);
     final content = state is HomeContent ? state : _lastContent;
 
-    final feed = LayoutBuilder(
+    final feed = AnimatedBuilder(
+      animation: _frameBlend.animation,
+      builder: (context, _) => LayoutBuilder(
       builder: (context, constraints) {
-        final frame = homeFeedFrame(constraints.maxWidth, compactHeight: window.isCompactHeight);
+        // Margins and widths follow the LIVE width; N and the cover columns the resting one.
+        final width = constraints.maxWidth;
+        final target = feedFrameInsets(width, density.frameClass);
+        final from = _blendFrom;
+        final blend = _frameBlend.value;
+        final insets = from == null || blend >= 1 ? target : FeedFrameInsets.lerp(from, target, blend);
+        _lastInsets = insets;
+        final frame = homeFeedFrame(width, density, insets: insets);
         final bottom = (frame.landscape ? HomeFeedMetrics.landscapeBottomPadding : LibraryTokens.bottomGroupPadding) + padding.bottom;
         return CustomScrollView(
           controller: _scroll,
@@ -177,6 +219,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           ],
         );
       },
+      ),
     );
 
     return DecoratedBox(

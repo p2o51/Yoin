@@ -5,6 +5,8 @@
 /// editable from the Home task.
 library;
 
+import '../theme/tokens.dart';
+
 /// The feed frame and list (FeedUnits.kt, HomeEditorialContent.kt).
 abstract final class HomeFeedMetrics {
   /// FeedCappedMargin / FeedLandscapeMargin / FeedWideMargin.
@@ -28,12 +30,35 @@ abstract final class HomeFeedMetrics {
   /// The feed rises this far on its first entrance (and settles back on leave).
   static const double entranceRise = 16;
 
-  /// Feed units (FeedUnits.kt): content narrower than this is PhoneNarrow.
+  /// FeedWideMargin: the Wide frame fills the canvas inside these margins.
+  static const double wideMargin = 32;
+
+  /// FeedCappedRestMax: the widest resting Capped container; past it the Capped margins stop centring.
+  static const double cappedRestMax = 840;
+
+  /// Feed units (FeedUnits.kt): content narrower than this is N = 1 (PhoneNarrow).
   static const double phoneNarrowBelow = 310;
+
+  /// Content narrower than this is N = 2 (the phone).
+  static const double threeUnitsMinContent = 448;
+
+  /// N = floor((C + unitGap) / unitPitch): a unit is ≥ 130 wide, 10 apart.
+  static const double unitGap = 10;
+  static const double unitPitch = 140;
+
+  /// N's ranges: non-Wide 3..4 past the phone, Wide 5..8.
+  static const int cappedMaxUnits = 4;
+  static const int wideMinUnits = 5;
+  static const int maxUnits = 8;
 
   /// feedCoverColumns = floor((c + 12) / 124) in 3..10.
   static const double coverColumnUnit = 124;
   static const double coverColumnGutter = 12;
+  static const int minCoverColumns = 3;
+  static const int maxCoverColumns = 10;
+
+  /// Float-sum guard (FEED_EDGE_EPSILON): an ulp below a breakpoint keeps its tier.
+  static const double edgeEpsilon = 0.01;
 }
 
 /// Account control (HomeAccountSwitcher.kt).
@@ -90,6 +115,13 @@ abstract final class HomeBentoMetrics {
 
   /// Seated supporting cards at the default L preset on a phone.
   static const int phoneSupporting = 3;
+
+  /// Units grid (feed units ≥ 3): row 1 is 124 for N ≤ 4 and 128 from N = 5.
+  static const double unitsRow1HeightWide = 128;
+
+  /// Units grid: the hero is found in the first 16 entries; at most 20 are read (ActivityBentoUnits*Entries).
+  static const int unitsHeroWindow = 16;
+  static const int unitsEntries = 20;
 }
 
 /// Jump Back In (HomeWidgetGrid.kt, HomeRowPresets.kt).
@@ -106,6 +138,13 @@ abstract final class HomeJbiMetrics {
   static const double wideCoverMax = 128;
   static const int landscapeMaxColumns = 6;
   static const int landscapeRows = 2;
+
+  /// Templated lanes (HomeJbiTemplate.kt): rows by lane count — ≤ 3 lanes 4, ≤ 5 lanes 3, else 2.
+  static const int fourRowMaxColumns = 3;
+  static const int threeRowMaxColumns = 5;
+
+  /// Lane start offsets, in row pitches: each lane drifts to one of these, never its left neighbour's.
+  static const List<double> driftSteps = [0, 0.25, 0.5];
 }
 
 /// Recently Added / Recently Played / Your Playlists (HomeEditorialContent.kt, HomeFeedDensity.kt).
@@ -121,6 +160,20 @@ abstract final class HomeShelfMetrics {
   static const int phoneTrackRows = 2;
   static const int phoneTrackColumns = 2;
   static const int phoneAlbums = 12;
+
+  /// Wider feeds (feed units ≥ 3): four track rows beside album cards stacked two high, 14 apart.
+  static const int tallTrackRows = 4;
+  static const double albumStackGap = 14;
+
+  /// Track columns by cover columns: ≤ 4 → 2, ≤ 7 → 3, else 4; 3+ columns are whole 166 cells.
+  static const int threeColumnsMaxCoverColumns = 7;
+  static const int twoColumnsMaxCoverColumns = 4;
+  static const int maxTrackColumns = 4;
+  static const double trackTileWidth = (trackGridMax - HomeTokens.recentlyAddedTileGap) / 2;
+
+  /// Album shelf depth under a 3 / 4-column grid (2 columns: [phoneAlbums]).
+  static const int threeColumnAlbums = 16;
+  static const int fourColumnAlbums = 20;
 
   /// horizontalEdgeFadeOnScroll width.
   static const double edgeFade = 24;

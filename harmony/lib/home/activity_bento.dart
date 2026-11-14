@@ -5,6 +5,7 @@ import '../data/activity/activity.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
+import 'home_feed_density.dart';
 import 'home_header.dart';
 import 'home_metrics.dart';
 import 'home_selection.dart';
@@ -15,6 +16,7 @@ import 'widgets/elastic_press.dart';
 import 'widgets/home_artwork.dart';
 import 'widgets/home_text.dart';
 import 'widgets/seam.dart';
+import 'widgets/spring_height.dart';
 
 /// Activities: the title and the phone bento, or one "No activity yet" card
 /// (no title) when there is no history.
@@ -29,35 +31,178 @@ class ActivitiesSection extends StatelessWidget {
     final entries = content.activityEntries;
     final strings = HomeStrings.of(context);
     if (entries.isEmpty) return HomeEmptyCard(title: strings.activitiesEmptyTitle);
-    final rows = bentoRows(entries, bentoRecipeFor(frame));
+    final recipe = bentoRecipeFor(frame);
     final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, double.infinity);
+    final title = Padding(
+      padding: const EdgeInsets.only(bottom: HomeSectionMetrics.titleBottomPadding),
+      child: HomeSectionTitle(strings.sectionActivities),
+    );
+    if (recipe == BentoRecipe.units) {
+      final unitEntries = entries.take(HomeBentoMetrics.unitsEntries).toList();
+      final heroIndex = selectHeroIndex(unitEntries, window: HomeBentoMetrics.unitsHeroWindow);
+      final hero = heroIndex < 0 ? null : unitEntries[heroIndex];
+      final spec = activityBentoSpec(
+        feedUnits: frame.units,
+        compactHeight: false,
+        seed: activityLayoutSeed(hero?.entityKey),
+        hasHero: hero != null,
+      );
+      final supporting = [
+        for (var i = 0; i < unitEntries.length; i++)
+          if (i != heroIndex) unitEntries[i],
+      ].take(seatedSupportingCount(spec, hasHero: hero != null)).toList();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          title,
+          const SizedBox(height: HomeSectionMetrics.activitiesSpacing),
+          // A width class (N) re-seats in place — no crossfade (2026-11-12) —
+          // and the section's height springs between the two.
+          SpringHeight(
+            heightKey: spec,
+            child: _UnitGrid(
+              spec: spec,
+              slots: activityUnitSlots(spec, hasHero: hero != null, supportingCount: supporting.length),
+              hero: hero,
+              supporting: supporting,
+              scale: scale,
+              nowMs: content.activitiesAtMs,
+              footnote: content.heroFootnote,
+            ),
+          ),
+        ],
+      );
+    }
+    final rows = bentoRows(entries, recipe);
     final landscape = frame.landscape;
     final gap = landscape ? HomeBentoMetrics.landscapeGap : HomeTokens.activityRowGap;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: HomeSectionMetrics.titleBottomPadding),
-          child: HomeSectionTitle(strings.sectionActivities),
-        ),
+        title,
         const SizedBox(height: HomeSectionMetrics.activitiesSpacing),
-        for (var r = 0; r < rows.length; r++) ...[
-          if (r > 0) SizedBox(height: gap),
-          _BentoRow(
-            cells: rows[r],
-            gap: gap,
-            height: switch (rows[r].first.size) {
-              BentoCardSize.strip => null,
-              _ when landscape => HomeBentoMetrics.landscapeRowHeight * scale,
-              BentoCardSize.hero => HomeBentoMetrics.heroHeight * scale,
-              _ => HomeTokens.activityRowHeight * scale,
-            },
-            nowMs: content.activitiesAtMs,
-            footnote: content.heroFootnote,
+        SpringHeight(
+          heightKey: recipe,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var r = 0; r < rows.length; r++) ...[
+                if (r > 0) SizedBox(height: gap),
+                _BentoRow(
+                  cells: rows[r],
+                  gap: gap,
+                  height: switch (rows[r].first.size) {
+                    BentoCardSize.strip => null,
+                    _ when landscape => HomeBentoMetrics.landscapeRowHeight * scale,
+                    BentoCardSize.hero => HomeBentoMetrics.heroHeight * scale,
+                    _ => HomeTokens.activityRowHeight * scale,
+                  },
+                  nowMs: content.activitiesAtMs,
+                  footnote: content.heroFootnote,
+                ),
+              ],
+            ],
           ),
-        ],
+        ),
       ],
     );
+  }
+}
+
+/// The bento on true feed units (N ≥ 3, ActivityUnitGrid): each card on the
+/// unit grid — a small on one unit, a wide or the hero on two or three — at
+/// fixed row heights (row 1 [ActivityBentoSpec.row1Height], the others 118,
+/// × font scale); strips share the last row in equal shares on the same
+/// snapped lines. Widths come from the live width.
+class _UnitGrid extends StatelessWidget {
+  const _UnitGrid({
+    required this.spec,
+    required this.slots,
+    required this.hero,
+    required this.supporting,
+    required this.scale,
+    required this.nowMs,
+    required this.footnote,
+  });
+
+  final ActivityBentoSpec spec;
+  final List<ActivitySlot> slots;
+  final HomeActivityEntry? hero;
+  final List<HomeActivityEntry> supporting;
+  final double scale;
+  final int nowMs;
+  final HeroFootnote? footnote;
+
+  @override
+  Widget build(BuildContext context) {
+    const gap = HomeTokens.activityRowGap;
+    final placed = <(ActivitySlot, HomeActivityEntry)>[
+      for (final slot in slots)
+        if ((slot.kind == SlotKind.hero ? hero : (slot.entryIndex < supporting.length ? supporting[slot.entryIndex] : null))
+            case final entry?)
+          (slot, entry),
+    ];
+    final rowIndices = {for (final p in placed) p.$1.row}.toList()..sort();
+    final rows = [for (final r in rowIndices) placed.where((p) => p.$1.row == r).toList()];
+    Widget card(ActivitySlot slot, HomeActivityEntry entry) {
+      final ago = HomeStrings.of(context).timeAgo(timeAgoOf(nowMs: nowMs, timestampMs: entry.timestampMs));
+      return KeyedSubtree(
+        key: ValueKey(entry.stableId),
+        child: switch (slot.kind) {
+          SlotKind.hero => ActivityHeroCard(entry: entry, timeAgo: ago, footnote: footnote),
+          SlotKind.wide => ActivityWideCard(entry: entry, timeAgo: ago),
+          SlotKind.small => ActivitySmallCard(entry: entry, timeAgo: ago),
+          SlotKind.strip => ActivityStripCard(entry: entry, timeAgo: ago),
+        },
+      );
+    }
+
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = constraints.maxWidth;
+      // Column pitch (col + gap) and a cell's snapped left / width (JbiCellPlacement).
+      double pitchOf(int columns) => (width - gap * (columns - 1)) / columns + gap;
+      final unitPitch = pitchOf(spec.units);
+      final stripPitch = pitchOf(spec.strips < 1 ? 1 : spec.strips);
+      double left(ActivitySlot s, double pitch) => s.startUnit * pitch;
+      double cellWidth(ActivitySlot s, double pitch) => (s.startUnit + s.span) * pitch - gap - left(s, pitch);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < rowIndices.length; i++) ...[
+            if (i > 0) const SizedBox(height: gap),
+            if (rows[i].first.$1.kind == SlotKind.strip)
+              Row(
+                children: [
+                  for (final (slot, entry) in rows[i])
+                    Padding(
+                      padding: EdgeInsetsDirectional.only(
+                        start: identical(slot, rows[i].first.$1) ? left(slot, stripPitch) : gap,
+                      ),
+                      child: SizedBox(width: cellWidth(slot, stripPitch), child: card(slot, entry)),
+                    ),
+                ],
+              )
+            else
+              SizedBox(
+                height: (rowIndices[i] == 0 ? spec.row1Height : HomeTokens.activityRowHeight) * scale,
+                child: Stack(
+                  children: [
+                    for (final (slot, entry) in rows[i])
+                      PositionedDirectional(
+                        key: ValueKey(entry.stableId),
+                        start: left(slot, unitPitch),
+                        top: 0,
+                        bottom: 0,
+                        width: cellWidth(slot, unitPitch),
+                        child: card(slot, entry),
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ],
+      );
+    });
   }
 }
 

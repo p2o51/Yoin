@@ -7,6 +7,7 @@ import 'dart:math' as math;
 import '../data/activity/activity.dart';
 import '../data/model/model.dart';
 import '../theme/tokens.dart';
+import 'home_feed_density.dart';
 import 'home_grid_pool_store.dart';
 import 'home_metrics.dart';
 import 'home_ui_state.dart';
@@ -224,9 +225,6 @@ final class BentoCell {
   final double weight;
 }
 
-/// Which bento recipe the content width asks for.
-enum BentoRecipe { phone, phoneNarrow, landscape }
-
 /// The phone bento's rows (ActivityBentoRows): [hero] / [small | wide] /
 /// [strip] (narrow: two equal smalls). A row whose first card is past the
 /// supply is dropped; otherwise its last card takes the missing weight.
@@ -425,76 +423,79 @@ List<T> recentlyAddedFrom<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Geometry.
+// Geometry (the density rules themselves: home_feed_density.dart).
 
-/// The feed frame for a container: margins and the content column.
+/// The feed frame for a container: its live margins and content column, and
+/// the discrete [density] read from its resting width.
 final class HomeFeedFrame {
-  const HomeFeedFrame({required this.start, required this.content, required this.end, required this.landscape});
+  const HomeFeedFrame({required this.start, required this.content, required this.end, required this.density});
 
   final double start;
   final double content;
   final double end;
+  final HomeFeedDensity density;
 
   /// A landscape handset (height < 480).
-  final bool landscape;
+  bool get landscape => density.compactHeight;
+
+  /// Feed units N and phone-sized cover columns K (resting).
+  int get units => density.units;
+  int get coverColumns => density.coverColumns;
 
   double get itemSpacing => landscape ? HomeFeedMetrics.itemSpacingLandscape : HomeFeedMetrics.itemSpacing;
 
   @override
   bool operator ==(Object other) =>
-      other is HomeFeedFrame && other.start == start && other.content == content && other.end == end && other.landscape == landscape;
+      other is HomeFeedFrame && other.start == start && other.content == content && other.end == end && other.density == density;
 
   @override
-  int get hashCode => Object.hash(start, content, end, landscape);
+  int get hashCode => Object.hash(start, content, end, density);
 
   @override
-  String toString() => 'HomeFeedFrame($start, $content, $end, landscape: $landscape)';
+  String toString() => 'HomeFeedFrame($start, $content, $end, $density)';
 }
 
-/// feedFrameInsets. Capped: start = 16 + max(0, (W − 720) / 2),
-/// content = min(W − start − 16, 688). Landscape handset: 24 each side, full width.
-HomeFeedFrame homeFeedFrame(double width, {required bool compactHeight}) {
-  if (compactHeight) {
-    const m = HomeFeedMetrics.landscapeMargin;
-    return HomeFeedFrame(start: m, content: math.max(0, width - 2 * m), end: m, landscape: true);
-  }
-  const m = HomeFeedMetrics.cappedMargin;
-  // Android caps the centring at 840 because wider containers switch to the
-  // Wide frame; v1 ships the Capped frame there too, so it keeps centring.
-  final start = m + math.max(0, (width - HomeFeedMetrics.cappedContainerMax) / 2);
-  final content = math.max(0.0, math.min(width - start - m, HomeFeedMetrics.cappedContainerMax - 2 * m));
-  return HomeFeedFrame(start: start, content: content, end: math.max(0, width - start - content), landscape: false);
+/// The frame of a [width]-wide container (the LIVE width) whose resting
+/// shape is [density]. [insets] overrides the class's margins while a frame
+/// class change blends between two formulas.
+HomeFeedFrame homeFeedFrame(double width, HomeFeedDensity density, {FeedFrameInsets? insets}) {
+  final m = insets ?? feedFrameInsets(width, density.frameClass);
+  final content = math.max(0.0, width - m.start - m.end);
+  return HomeFeedFrame(start: m.start, content: content, end: math.max(0.0, width - m.start - content), density: density);
 }
 
+/// The bento recipe for a frame (units ≥ 3 → the units grid).
 BentoRecipe bentoRecipeFor(HomeFeedFrame frame) => frame.landscape
     ? BentoRecipe.landscape
-    : frame.content < HomeFeedMetrics.phoneNarrowBelow
+    : frame.units <= 1
         ? BentoRecipe.phoneNarrow
-        : BentoRecipe.phone;
+        : frame.units == 2
+            ? BentoRecipe.phone
+            : BentoRecipe.units;
 
-/// feedCoverColumns = floor((c + 12) / 124) in 3..10.
-int feedCoverColumns(double content) =>
-    ((content + HomeFeedMetrics.coverColumnGutter) / HomeFeedMetrics.coverColumnUnit).floor().clamp(3, 10);
-
-/// Jump Back In's grid: columns, rows and the cover's side.
+/// Jump Back In's grid: columns, rows and the cover's side. [templated] =
+/// the seeded lanes (home_jbi_template.dart); otherwise a packed grid.
 final class JbiGeometry {
-  const JbiGeometry({required this.columns, required this.rows, required this.columnWidth, required this.coverSide});
+  const JbiGeometry({required this.columns, required this.rows, required this.columnWidth, required this.coverSide, this.templated = false});
   final int columns;
   final int rows;
   final double columnWidth;
   final double coverSide;
+  final bool templated;
   int get cells => columns * rows;
 }
 
+/// jbiGridSpec: landscape handset min(K, 6) × 2 at ≤ 100; N ≤ 2 the phone's
+/// 3 × 4 at ≤ 100; N ≥ 3 K templated lanes × [jbiTemplateRows], covers 100–128
+/// following the live column.
 JbiGeometry jbiGeometry(HomeFeedFrame frame) {
   double columnWidth(int k) => (frame.content - HomeTokens.jbiColumnGap * (k - 1)) / k;
   if (frame.landscape) {
-    final k = math.min(feedCoverColumns(frame.content), HomeJbiMetrics.landscapeMaxColumns);
+    final k = math.min(frame.coverColumns, HomeJbiMetrics.landscapeMaxColumns);
     final w = columnWidth(k);
     return JbiGeometry(columns: k, rows: HomeJbiMetrics.landscapeRows, columnWidth: w, coverSide: math.min(w, HomeTokens.jbiCover));
   }
-  final k = feedCoverColumns(frame.content);
-  if (k <= HomeJbiMetrics.phoneColumns) {
+  if (frame.units <= 2) {
     final w = columnWidth(HomeJbiMetrics.phoneColumns);
     return JbiGeometry(
       columns: HomeJbiMetrics.phoneColumns,
@@ -503,24 +504,7 @@ JbiGeometry jbiGeometry(HomeFeedFrame frame) {
       coverSide: math.min(w, HomeTokens.jbiCover),
     );
   }
-  // Medium / Wide fallback: a plain K-column grid, covers 100–128.
+  final k = frame.coverColumns;
   final w = columnWidth(k);
-  final rows = k <= 3 ? 4 : (k <= 5 ? 3 : 2);
-  return JbiGeometry(
-    columns: k,
-    rows: rows,
-    columnWidth: w,
-    coverSide: (w * HomeJbiMetrics.wideCoverFraction).clamp(HomeTokens.jbiCover, HomeJbiMetrics.wideCoverMax),
-  );
+  return JbiGeometry(columns: k, rows: jbiTemplateRows(k), columnWidth: w, coverSide: jbiTemplateCoverSide(w), templated: true);
 }
-
-/// Recently Added's track grid width.
-double recentlyAddedGridWidth(HomeFeedFrame frame) {
-  const gap = HomeShelfMetrics.itemGap;
-  if (frame.landscape) return math.min((frame.content - gap) * HomeShelfMetrics.trackGridLandscapeShare, HomeShelfMetrics.trackGridMax);
-  return ((frame.content - gap) * HomeShelfMetrics.trackGridShare).clamp(HomeShelfMetrics.trackGridMin, HomeShelfMetrics.trackGridMax);
-}
-
-/// gridColumns = clamp(ceil(n / rows), 2, maxColumns).
-int recentlyAddedGridColumns(int tracks, {int rows = HomeShelfMetrics.phoneTrackRows, int maxColumns = HomeShelfMetrics.phoneTrackColumns}) =>
-    (tracks / rows).ceil().clamp(2, maxColumns);
