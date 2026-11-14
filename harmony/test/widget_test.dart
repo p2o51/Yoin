@@ -10,9 +10,10 @@ import 'package:yoin/platform/storage/stores.dart';
 import 'support/fake_music_source.dart';
 import 'support/fake_playback_engine.dart';
 
+/// The page's shown alpha: every Opacity above it (the shell's crossfade and Memories' Home-behind) multiplied.
 double _pageOpacity(WidgetTester tester, Type page) => tester
-    .widget<Opacity>(find.ancestor(of: find.byType(page), matching: find.byType(Opacity)).first)
-    .opacity;
+    .widgetList<Opacity>(find.ancestor(of: find.byType(page), matching: find.byType(Opacity)))
+    .fold(1.0, (a, o) => a * o.opacity);
 
 void main() {
   testWidgets('should_showLibrary_when_libraryHalfTapped', (tester) async {

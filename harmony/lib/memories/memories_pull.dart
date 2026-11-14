@@ -1,0 +1,103 @@
+/// Home's pull-down into Memories (Android HomeScreen's nested-scroll
+/// onPreScroll feeding the shell's RevealState): with the feed at its top, a
+/// downward drag moves q 1:1 with the finger, and the release springs to the
+/// closer end (or the fling's) with the finger's velocity. While the pull
+/// owns the gesture the feed holds still at its top.
+library;
+
+import 'package:flutter/gestures.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../nowplaying/haptics.dart';
+import 'memories_reveal_scope.dart';
+
+class MemoriesPullDetector extends ConsumerStatefulWidget {
+  const MemoriesPullDetector({super.key, required this.scroll, required this.child, this.enabled = true});
+
+  final ScrollController scroll;
+  final Widget child;
+
+  /// Off while Home can't open Memories (edit mode, no account).
+  final bool enabled;
+
+  @override
+  ConsumerState<MemoriesPullDetector> createState() => _MemoriesPullDetectorState();
+}
+
+class _MemoriesPullDetectorState extends ConsumerState<MemoriesPullDetector> {
+  int? _pointer;
+  Offset _travel = Offset.zero;
+  bool _atTopAtDown = false;
+  bool _pulling = false;
+  bool _decided = false;
+  bool _crossed = false;
+  final VelocityTracker _velocity = VelocityTracker.withKind(PointerDeviceKind.touch);
+
+  bool get _atTop => !widget.scroll.hasClients || widget.scroll.position.pixels <= 0.5;
+
+  void _down(PointerDownEvent e) {
+    if (_pointer != null || !widget.enabled) return;
+    final reveal = ref.read(memoriesRevealHandleProvider).controller;
+    if (reveal == null || reveal.ownsBack) return;
+    _pointer = e.pointer;
+    _travel = Offset.zero;
+    _atTopAtDown = _atTop;
+    _pulling = false;
+    _decided = false;
+    _crossed = false;
+    _velocity.addPosition(e.timeStamp, e.position);
+  }
+
+  void _move(PointerMoveEvent e) {
+    if (e.pointer != _pointer || !mounted) return;
+    _velocity.addPosition(e.timeStamp, e.position);
+    final reveal = ref.read(memoriesRevealHandleProvider).controller;
+    if (reveal == null) return;
+    final height = context.size?.height ?? 800;
+    if (!_decided) {
+      _travel += e.delta;
+      if (_travel.distance < kTouchSlop) return;
+      _decided = true;
+      // Down, mostly vertical, from the very top: the pull takes it.
+      _pulling = _atTopAtDown && _atTop && _travel.dy > 0 && _travel.dy.abs() > _travel.dx.abs();
+      if (!_pulling) return;
+    }
+    if (!_pulling) return;
+    // The feed lets go of this drag and holds at its top.
+    if (widget.scroll.hasClients && widget.scroll.position.pixels != 0) widget.scroll.jumpTo(0);
+    reveal.dragBy(e.delta.dy, height);
+    final past = reveal.fraction < 0.5;
+    if (past != _crossed) {
+      _crossed = past;
+      YoinHaptics.tick();
+    }
+  }
+
+  void _up(PointerEvent e) {
+    if (e.pointer != _pointer) return;
+    _pointer = null;
+    if (!mounted) return;
+    if (!_pulling) return;
+    _pulling = false;
+    final reveal = ref.read(memoriesRevealHandleProvider).controller;
+    final height = context.size?.height ?? 800;
+    reveal?.settle(_velocity.getVelocity().pixelsPerSecond.dy, height);
+  }
+
+  @override
+  Widget build(BuildContext context) => Listener(
+    onPointerDown: _down,
+    onPointerMove: _move,
+    onPointerUp: _up,
+    onPointerCancel: _up,
+    child: NotificationListener<OverscrollIndicatorNotification>(
+      // No stretch at the top: the pull is Memories'.
+      onNotification: (n) {
+        if (n.leading) n.disallowIndicator();
+        return false;
+      },
+      child: widget.child,
+    ),
+  );
+}

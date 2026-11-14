@@ -6,6 +6,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../memories/memories_reveal_scope.dart';
 import '../nowplaying/flight.dart';
 import '../nowplaying/now_playing_overlay.dart';
 import '../nowplaying/now_playing_pill.dart';
@@ -166,20 +167,28 @@ class _ChromeBar extends ConsumerWidget {
     final hasTrack = ref.watch(playerSnapshotProvider.select((s) => s.hasTrack));
     final actions = ref.watch(topDetailActionsProvider);
     final navBottom = MediaQuery.paddingOf(context).bottom;
+    final memoriesHide = ref.watch(memoriesRevealHandleProvider).barHide;
     return AnimatedBuilder(
       // The controller too: the flight landing releases the bar (barComposed).
-      animation: Listenable.merge([controller, controller.bar.animation, away.animation]),
+      animation: Listenable.merge([controller, controller.bar.animation, away.animation, memoriesHide]),
       builder: (context, child) {
         // Not composed while the player is fully up (its wave stops ticking)
         // or while a bar-less page has sent it away.
         if (!controller.barComposed || (away.value >= 0.999 && !away.isAnimating)) return const SizedBox.shrink();
         final b = math.max(controller.bar.value, away.value).clamp(0.0, 1.0);
         final travel = BarTokens.height + 2 * BarTokens.portraitVerticalMargin + navBottom;
+        // Memories takes the bar with its reveal: it slides and fades with q (YoinNavHost).
+        final hide = memoriesHide.value;
+        if (hide >= 0.999) return const SizedBox.shrink();
+        final hideAlpha = (1 - hide * MemoriesTokens.barHideAlphaGain).clamp(0.0, 1.0);
         return IgnorePointer(
-          ignoring: b > 0.01,
+          ignoring: b > 0.01 || hide > 0.01,
           child: Opacity(
-            opacity: 1 - b,
-            child: Transform.translate(offset: Offset(0, travel * b), child: child),
+            opacity: (1 - b) * hideAlpha,
+            child: Transform.translate(
+              offset: Offset(0, travel * b + hide * MemoriesTokens.barHideTravel),
+              child: child,
+            ),
           ),
         );
       },

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/source/music_source.dart';
+import '../memories/memories_pull.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
@@ -189,7 +190,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       child: Stack(
         fit: StackFit.expand,
         children: [
-          NotificationListener<ScrollNotification>(
+          MemoriesPullDetector(
+            scroll: _scroll,
+            enabled: state is HomeContent,
+            child: NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
             child: HomePaletteGate(
               open: _paletteGate,
@@ -209,6 +213,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                 ),
               ),
             ),
+          ),
           ),
           Positioned.fill(
             child: IgnorePointer(

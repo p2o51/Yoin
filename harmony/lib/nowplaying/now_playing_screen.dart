@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../detail/detail_routes.dart';
+import '../memories/song_notes_sheet.dart';
 import '../playback/playback_context.dart';
 import '../shell/shell_state.dart';
 import '../theme/motion.dart';
@@ -21,6 +22,7 @@ import 'now_playing_background.dart';
 import 'now_playing_view_model.dart';
 import 'nowplaying_strings.dart';
 import 'overlay_controller.dart';
+import 'player_snapshot.dart';
 import 'play_mode_cycle.dart';
 import 'playhead_clock.dart';
 import 'queue_sheet.dart';
@@ -798,11 +800,31 @@ class _Accessory extends StatelessWidget {
               ignoring: expanded,
               child: FadeTransition(
                 opacity: compact,
-                child: _QueuePill(
-                  onTap: () {
-                    YoinHaptics.contextClick();
-                    showQueueSheet(context, onSkip: onSkip);
-                  },
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _QueuePill(
+                      onTap: () {
+                        YoinHaptics.contextClick();
+                        showQueueSheet(context, onSkip: onSkip);
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    // The song's notes, pinned to the second (stands in for Android's Note page).
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final track = ref.watch(playerSnapshotProvider.select((s) => s.track));
+                        return track == null
+                            ? const SizedBox.shrink()
+                            : _NotePill(
+                                onTap: () {
+                                  YoinHaptics.contextClick();
+                                  showSongNotesSheet(context, track);
+                                },
+                              );
+                      },
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -816,6 +838,51 @@ class _Accessory extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The Note pill beside Queue: tonal, the edit-note glyph.
+class _NotePill extends StatelessWidget {
+  const _NotePill({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final strings = NowPlayingStrings.of(context);
+    const icon = NowPlayingTokens.pillHeight * 0.36;
+    return Semantics(
+      button: true,
+      label: strings.pillNote,
+      excludeSemantics: true,
+      child: Material(
+        color: colors.secondaryContainer,
+        shape: const StadiumBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            height: NowPlayingTokens.pillHeight,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 13.2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(YoinSymbols.editNote, size: icon, color: colors.onSecondaryContainer),
+                  const SizedBox(width: 8),
+                  Text(
+                    strings.pillNote,
+                    style: Theme.of(context).textTheme.labelMedium!.copyWith(color: colors.onSecondaryContainer),
+                    maxLines: 1,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

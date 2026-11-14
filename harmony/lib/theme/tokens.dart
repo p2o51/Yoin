@@ -303,6 +303,158 @@ abstract final class HomeTokens {
   static const double rediscoverBadgeHang = 6;
 }
 
+/// Memories, the album-first journal pulled down from Home (Android
+/// BackMotionTokens.Memories*, MemoriesTopBarTokens, MemoryCardTokens,
+/// MemoryDiaryTokens, MemoriesLayoutTokens, MemoriesMorphTokens).
+abstract final class MemoriesTokens {
+  // ---- the reveal q (Home ⇄ Memories) ----
+  /// Pull from Home: release past this fraction of the page, or faster than
+  /// [revealFlingFraction] page heights a second, opens (RevealState defaults).
+  static const double revealPositionThreshold = 0.5;
+  static const double revealFlingFraction = 1.6;
+
+  /// Overshoot past closed saturates at this fraction (iOS rubber band).
+  static const double revealRubberBand = 0.30;
+
+  /// Retreat to Home from the card body: commit past this travel (also the
+  /// system back's full travel) or an upward release faster than [dismissFling] dp/s.
+  static const double dismissTrigger = 112;
+  static const double dismissFling = 600;
+
+  /// The same from the 64 dp top bar.
+  static const double barDismissTrigger = 56;
+  static const double barDismissFling = 450;
+
+  /// A flick back the other way at this speed (dp/s) returns, past any threshold.
+  static const double flickBack = 350;
+
+  /// Home waits behind the open deck at this scale / alpha.
+  static const double homeBehindScale = 0.94;
+  static const double homeBehindAlpha = 0.5;
+
+  /// The bar leaves with the reveal: alpha 1 − hide × this, and slides this far.
+  static const double barHideAlphaGain = 1.4;
+  static const double barHideTravel = 120;
+
+  // ---- the diary p (card ⇄ diary) ----
+  /// p = travel / this.
+  static const double diaryMorphDistance = 320;
+
+  /// The first dp of a pull past the top of the diary text move p at half speed.
+  static const double diaryPullBand = 24;
+
+  /// The card's own pull-down: 0.3× rubber band, floored at −90 dp.
+  static const double diaryRubberBand = 0.3;
+  static const double diaryRubberBandFloor = 90;
+
+  /// Touch slop of the router (prototype 8 dp).
+  static const double touchSlop = 8;
+
+  // ---- layout ----
+  static const double mediumFrom = 600;
+  static const double shortBelow = 760;
+  static const double phoneCover = 256;
+  static const double phoneCoverShort = 168;
+  static const double phoneSeal = 96;
+  static const double phoneSealShort = 72;
+  static const double phoneAir1 = 59;
+  static const double phoneAir1Short = 24;
+  static const double mediumCoverMax = 360;
+  static const double mediumCoverOffset = 580;
+  static const double mediumSealRatio = 0.375;
+  static const double sealMin = 96;
+  static const double sealMax = 124;
+  static const double mediumAir1Min = 24;
+  static const double mediumAir1Max = 120;
+  static const double mediumAir1Ratio = 0.2;
+
+  /// Medium: the card in a 480 column, the diary in a 640 one.
+  static const double cardColumn = 480;
+  static const double diaryColumn = 640;
+
+  // ---- top bar ----
+  static const double barHeight = 64;
+  static const double pillHeight = 36;
+  static const double pillWidth = 88;
+  static const double pillWidthDiary = 36;
+  static const double hitHeight = 48;
+  static const double pillStartPhone = 16;
+  static const double pillStartMedium = 24;
+  static const double dotsEndPhone = 12;
+  static const double dotsEndMedium = 18;
+  static const double dotPitch = 18;
+  static const double dotBox = 32;
+  static const double dotOverhang = 7;
+  static const double dotSize = 7;
+  static const double dotSizeCurrent = 12;
+  static const double barCover = 40;
+  static const double slotClearOfDots = 12;
+
+  // ---- card ----
+  static const double cardSidePadding = 28;
+  static const double sealOverhangRight = 0.3;
+  static const double sealOverhangBottom = 0.24;
+  static const double excerptClear = 24;
+  static const double excerptGap = 16;
+  static const double excerptAttributionGap = 8;
+  static const double buttonHeight = 48;
+  static const double buttonGap = 10;
+  static const double teaserBottom = 40;
+  static const double teaserBottomShort = 28;
+  static const double diaryTonalAlpha = 0.14;
+  static const double coverCornerCard = 8;
+  static const double coverCornerBar = 4;
+
+  // ---- diary ----
+  static const double diarySide = 24;
+  static const double diaryTopInset = 12;
+  static const double diaryBottomInset = 100;
+  static const double diaryEmblem = 48;
+  static const double diaryEmblemGap = 14;
+  static const double diaryHeadGap = 28;
+  static const double diaryHeadGapWithAsk = 24;
+  static const double diaryParagraphTop = 10;
+  static const double diaryRowMin = 48;
+  static const double diaryRowBleed = 12;
+  static const double diaryEndGap = 56;
+  static const double diaryRunOut = 28;
+  static const double diaryRunOutBottom = 22;
+  static const double diaryStatGap = 48;
+  static const double diaryGoTop = 32;
+  static const double diaryBottomFade = 40;
+  static const double diaryLinerColumn = 40;
+  static const double diaryWriterInset = 14;
+  static const double diaryRailWidth = 2;
+
+  // ---- morph (choreography windows of p, not back thresholds) ----
+  static const double titleHold = 0.2;
+  static const double titleSwapFrom = 0.42;
+  static const double titleSwapTo = 0.78;
+  static const double emblemSwapFrom = 0.6;
+  static const double emblemSwapTo = 0.95;
+  static const double albumRowLift = 36;
+  static const double albumRowFadeTo = 0.32;
+  static const double teaserDrop = 56;
+  static const double teaserFadeTo = 0.3;
+  static const double excerptFadeTo = 0.26;
+  static const double blockFadeFrom = 0.26;
+  static const double blockFadeStep = 0.04;
+  static const double blockFadeTo = 0.92;
+  static const double blockStagger = 28;
+  static const double blockLagExtra = 36;
+  static const double slotAFadeTo = 0.45;
+  static const double slotALift = 6;
+  static const double slotBFadeFrom = 0.55;
+  static const double slotBFadeTo = 0.92;
+  static const double slotBDrop = 10;
+  static const double pillNarrowTo = 0.6;
+  static const double pillLabelFadeTo = 0.4;
+  static const double reducedSwap = 0.5;
+
+  /// The award starts once the reveal is this open (q ≤ this).
+  static const double awardRevealGate = 0.15;
+}
+
 /// Library root, Compact (LibraryScreen.kt, LibraryFilterRow.kt, ExpressiveComponents.kt, SongListItem.kt; iOS LibraryView, SearchView).
 abstract final class LibraryTokens {
   /// ExpressiveSegmentChip: height, corner, padding (h / v), gap between chips.

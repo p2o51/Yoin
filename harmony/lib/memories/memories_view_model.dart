@@ -153,7 +153,10 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
       if (focus != null && byId.containsKey(focus)) {
         ids = [focus, ...ids.where((id) => id != focus)];
         if (ids.length == 1) {
-          ids = [focus, ..._sample(pool, exclude: {focus})].take(memoryDeckSize).toList();
+          ids = [
+            focus,
+            ..._sample(pool, exclude: {focus}),
+          ].take(memoryDeckSize).toList();
         }
         _page = 0;
       } else if (ids.isEmpty) {

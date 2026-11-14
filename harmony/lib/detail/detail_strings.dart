@@ -79,4 +79,5 @@ class DetailStrings {
   // The album hero's score emblem.
   String get emblemUnrated => zh ? '未评分' : 'Unrated'; // mem_emblem_unrated
   String get emblemCdUnrated => zh ? '未评分' : 'Not rated'; // mem_cd_emblem_unrated
+  String get albumCdRate => zh ? '评分与评论' : 'Rate and comment'; // detail_album_cd_rate
 }

@@ -70,6 +70,7 @@ class NowPlayingStrings {
 
   // Queue.
   String get pillQueue => _zh ? '队列' : 'Queue'; // np_pill_queue
+  String get pillNote => _zh ? '笔记' : 'Note'; // np_tab_note
   String get queueTitle => _zh ? '队列' : 'Queue'; // cmp_queue_title
   String get queuePlayingFrom => _zh ? '播放自' : 'Playing from'; // cmp_queue_playing_from
   String get queueSectionNow => _zh ? '正在播放' : 'Now playing'; // cmp_queue_section_now

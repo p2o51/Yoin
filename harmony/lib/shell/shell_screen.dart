@@ -3,7 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../home/home_screen.dart';
 import '../library/library_screen.dart';
+import '../memories/memories_motion.dart';
+import '../memories/memories_reveal_scope.dart';
+import '../memories/memories_screen.dart';
 import '../theme/motion.dart';
+import 'chrome_back.dart';
 import 'shell_state.dart';
 import 'yoin_section.dart';
 
@@ -26,8 +30,38 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
     spring: YoinSprings.defaultEffects,
   );
 
+  /// Memories' q (ShellOverlayUp over Home): Home's pull, the deck, the
+  /// bar's hide and system back all feed this one controller.
+  late final MemoriesRevealController _memories = MemoriesRevealController(vsync: this);
+  late final MemoriesRevealHandle _memoriesHandle = ref.read(memoriesRevealHandleProvider);
+  late final ChromeBackEntry _memoriesBack = ChromeBackEntry(_memoriesHandle.back);
+
+  @override
+  void initState() {
+    super.initState();
+    _memoriesHandle.attach(_memories);
+    _memories.addListener(_syncMemoriesBack);
+  }
+
+  /// Back belongs to Memories exactly while it is open or opening.
+  void _syncMemoriesBack() {
+    final navigator = appNavigatorKey.currentState;
+    if (_memories.ownsBack && navigator != null) {
+      _memoriesBack.attach(navigator);
+    } else if (!_memories.ownsBack && _memoriesBack.isAttached) {
+      // Not synchronously: a close can come from inside the route's pop-entry loop.
+      Future.microtask(() {
+        if (!_memories.ownsBack) _memoriesBack.detach();
+      });
+    }
+  }
+
   @override
   void dispose() {
+    _memories.removeListener(_syncMemoriesBack);
+    _memoriesHandle.detach(_memories);
+    _memoriesBack.dispose();
+    _memories.dispose();
     _homeVisibility.dispose();
     super.dispose();
   }
@@ -44,7 +78,16 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
             fit: StackFit.expand,
             children: [
               _Page(visibility: 1 - home, child: const LibraryScreen()),
-              _Page(visibility: home, child: const HomeScreen()),
+              _Page(
+                visibility: home,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    MemoriesHomeBehind(reveal: _memories, child: const HomeScreen()),
+                    MemoriesLayer(reveal: _memories),
+                  ],
+                ),
+              ),
             ],
           );
         },

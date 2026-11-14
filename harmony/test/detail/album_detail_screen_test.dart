@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/memories/memory_rate_sheet.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/detail/album_detail_screen.dart';
-import 'package:yoin/detail/album_hero_marks.dart';
 import 'package:yoin/detail/detail_routes.dart';
 import 'package:yoin/detail/pull_up_reveal.dart';
 import 'package:yoin/playback/playback_context.dart';
@@ -123,7 +123,7 @@ void main() {
   testWidgets('should_showUnratedEmblem_when_loaded', (tester) async {
     final semantics = tester.ensureSemantics();
     await _open(tester);
-    expect(find.byType(AlbumUnratedEmblem), findsOneWidget);
+    expect(find.byType(AlbumScoreEmblem), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp('Not rated')), findsOneWidget);
     semantics.dispose();
     await _close(tester);

@@ -4,6 +4,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../data/model/model.dart';
+import '../memories/memory_rate_sheet.dart';
+import '../memories/palette/memory_palette.dart';
 import '../theme/theme.dart';
 import 'detail_palette.dart';
 import 'detail_strings.dart';
@@ -424,46 +427,93 @@ Path cookie12Path(Offset centre, double radius) {
 // Comment pen.
 // ---------------------------------------------------------------------------
 
-/// The album comment's pen (Android AlbumHeroComment, nothing written yet):
-/// a 40dp tonal round button with the Edit glyph. Inert in v1 — album
-/// comments live with Memories / notes, which the owner left out of v1 — so
-/// it is drawn but takes no tap and is hidden from accessibility.
+/// The album comment's pen (Android AlbumHeroComment): a 40dp tonal round
+/// button with the Edit glyph; opens the rate sheet with the caret in the review.
 class AlbumCommentPen extends StatelessWidget {
-  const AlbumCommentPen({super.key});
+  const AlbumCommentPen({super.key, this.onTap});
+
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return ExcludeSemantics(
-      child: Container(
-        width: AlbumHeroTokens.pen,
-        height: AlbumHeroTokens.pen,
-        decoration: BoxDecoration(color: colors.secondaryContainer, shape: BoxShape.circle),
-        alignment: Alignment.center,
-        child: Icon(YoinSymbols.edit, size: AlbumHeroTokens.penGlyph, color: colors.onSecondaryContainer),
+    return Semantics(
+      button: onTap != null,
+      label: DetailStrings.of(context).albumCdRate,
+      excludeSemantics: true,
+      child: Material(
+        color: colors.secondaryContainer,
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            width: AlbumHeroTokens.pen,
+            height: AlbumHeroTokens.pen,
+            child: Icon(YoinSymbols.edit, size: AlbumHeroTokens.penGlyph, color: colors.onSecondaryContainer),
+          ),
+        ),
       ),
     );
   }
 }
 
 /// The emblem and the pen on one row, the cover's width (scoreBesideComment).
+/// The emblem is the album's live score (ScoreEmblem: album score, else the
+/// track average, else the empty mould); it and the pen open the rate and
+/// review sheet (AlbumRateSheet), the pen with the caret in the review.
 class AlbumHeroMetaRow extends StatelessWidget {
-  const AlbumHeroMetaRow({super.key, required this.width, required this.trackCount});
+  const AlbumHeroMetaRow({
+    super.key,
+    required this.width,
+    required this.trackCount,
+    required this.albumId,
+    required this.albumName,
+    this.coverUrl,
+  });
 
   final double width;
   final int trackCount;
+  final MediaId albumId;
+  final String albumName;
+  final String? coverUrl;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: SizedBox(
-      width: width,
-      child: Row(
-        children: [
-          AlbumUnratedEmblem(trackCount: trackCount),
-          const SizedBox(width: AlbumHeroTokens.metaGap),
-          const AlbumCommentPen(),
-        ],
+  Widget build(BuildContext context) {
+    final url = coverUrl;
+    return Center(
+      child: SizedBox(
+        width: width,
+        child: MemoryPaletteBuilder(
+          cacheKey: url,
+          image: url == null ? null : ResizeImage(NetworkImage(url), width: 200, height: 200),
+          builder: (context, palette) {
+            void open({bool review = false}) => showAlbumRateSheet(
+              context,
+              albumId: albumId,
+              albumName: albumName,
+              palette: palette,
+              focusReview: review,
+            );
+            return Row(
+              children: [
+                Semantics(
+                  button: true,
+                  label: DetailStrings.of(context).albumCdRate,
+                  child: AlbumScoreEmblem(
+                    albumId: albumId,
+                    palette: palette,
+                    onTap: open,
+                    size: AlbumHeroTokens.emblem,
+                  ),
+                ),
+                const SizedBox(width: AlbumHeroTokens.metaGap),
+                AlbumCommentPen(onTap: () => open(review: true)),
+              ],
+            );
+          },
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
