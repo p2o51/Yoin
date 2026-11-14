@@ -15,6 +15,10 @@ enum PlaybackErrorKind {
 
   /// The queue could not even be started (player_play_failed).
   playFailed,
+
+  /// Apple refused the song for the account's explicit-content restriction (webPlayback
+  /// failureType 3082; player_apple_music_content_restricted).
+  appleMusicContentRestricted,
 }
 
 /// What the app knows about playback (Android PlaybackState, trimmed).

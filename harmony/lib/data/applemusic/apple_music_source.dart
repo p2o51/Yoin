@@ -621,6 +621,9 @@ final class _AppleMusicWriteActions implements MusicWriteActions {
       throw const UnsupportedSourceOperation('Manage this in Apple Music.');
 }
 
+/// The personal-build switch for Apple Music playback (see [_AppleMusicPlayback.handleFor]).
+const bool appleMusicNativePlayback = bool.fromEnvironment('YOIN_AM_PLAYBACK');
+
 final class _AppleMusicPlayback implements MusicPlayback {
   _AppleMusicPlayback(this._s);
   final AppleMusicSource _s;
@@ -632,7 +635,10 @@ final class _AppleMusicPlayback implements MusicPlayback {
   /// other song as unsupported playback.
   @override
   Future<PlaybackHandle> handleFor(Track track) async {
-    _s.catalogIdForPlayback(track);
+    final catalogId = _s.catalogIdForPlayback(track);
+    // Personal builds only (--dart-define=YOIN_AM_PLAYBACK=true): the native player behind the
+    // `yoin-am:` scheme (docs/applemusic.md, Phase 3). Off by default, so no distributed build plays.
+    if (appleMusicNativePlayback) return DirectStream('yoin-am:$catalogId');
     throw const UnsupportedSourceOperation('Apple Music playback is not available on HarmonyOS yet');
   }
 

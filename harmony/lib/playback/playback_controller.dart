@@ -552,7 +552,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
       clearError: e.phase != PlaybackPhase.error,
     );
     if (e.phase == PlaybackPhase.error) {
-      next = next.copyWith(errorKind: PlaybackErrorKind.interrupted, errorMessage: e.errorMessage);
+      next = next.copyWith(errorKind: errorKindOf(e.errorMessage), errorMessage: e.errorMessage);
     }
     if (index < 0) next = next.copyWith(context: const NoPlaybackContext());
     _publish(_derive(base: next));
@@ -876,5 +876,15 @@ class PlaybackController extends Notifier<NowPlayingState> {
 
 Track _withRating(Track t, int? rating) =>
     rating == null || rating <= 0 ? t.copyWith(clearUserRating: true) : t.copyWith(userRating: rating);
+
+/// What a mid-play engine failure means to the user. The Apple Music player tags Apple's
+/// content-restriction refusal (failureType 3082) so the message can say what to change.
+PlaybackErrorKind errorKindOf(String? engineMessage) =>
+    engineMessage != null && engineMessage.contains(appleMusicContentRestrictedTag)
+        ? PlaybackErrorKind.appleMusicContentRestricted
+        : PlaybackErrorKind.interrupted;
+
+/// The tag the HarmonyOS Apple Music player puts in its error text for failureType 3082.
+const appleMusicContentRestrictedTag = 'apple_music_content_restricted';
 
 final playbackControllerProvider = NotifierProvider<PlaybackController, NowPlayingState>(PlaybackController.new);

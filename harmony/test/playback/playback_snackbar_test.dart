@@ -94,4 +94,11 @@ void main() {
       await tester.pumpAndSettle();
     });
   });
+
+  test('should_nameTheContentRestriction_when_appleRefusedWith3082', () {
+    expect(errorKindOf('5400103: apple_music_content_restricted (3082)'), PlaybackErrorKind.appleMusicContentRestricted);
+    expect(errorKindOf('5400103: segment 3 fetch failed'), PlaybackErrorKind.interrupted);
+    expect(PlaybackStrings.zhHans.noticeMessage(const PlaybackFailed(PlaybackErrorKind.appleMusicContentRestricted)),
+        contains('家长控制'));
+  });
 }

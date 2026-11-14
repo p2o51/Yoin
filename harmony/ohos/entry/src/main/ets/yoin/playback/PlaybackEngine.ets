@@ -1,8 +1,8 @@
-import { media } from '@kit.MediaKit';
 import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { QueueItem } from './QueueItem';
+import { AvEnginePlayer, EnginePlayer, EnginePlayerEvents, EnginePlayers } from './EnginePlayer';
 
 const DOMAIN = 0x5901;
 const TAG = 'YoinPlayback';
@@ -96,8 +96,10 @@ export class PlaybackEngine {
   /** Generation whose source is currently set on the player. */
   private sourceGeneration: number = -1;
   private opChain: Promise<void> = Promise.resolve();
-  private player: media.AVPlayer | null = null;
-  private playerPromise: Promise<media.AVPlayer> | null = null;
+  /** The player of the current item. */
+  private player: EnginePlayer | null = null;
+  /** One player per kind ('' = AVPlayer, else a registered URI scheme), made on first use. */
+  private players: Map<string, Promise<EnginePlayer>> = new Map();
   private ticker: number = -1;
   /** Set when the system paused us for a transient interruption; a resume hint then restarts playback. */
   private resumeOnFocusGain: boolean = false;
@@ -286,7 +288,7 @@ export class PlaybackEngine {
       return;
     }
     const p = this.player;
-    if (this.phase === 'ready' && p !== null && this.isSourceCurrent() && canPlay(p.state)) {
+    if (this.phase === 'ready' && p !== null && this.isSourceCurrent() && canPlay(p.state())) {
       p.play().catch((e: BusinessError) => this.onCommandFailed('play', e));
     } else {
       // Still loading: the 'prepared' handler reads playWhenReady.
@@ -319,13 +321,13 @@ export class PlaybackEngine {
     let resumed = false;
     if (this.phase === 'loading') {
       this.pendingStartMs = target;
-    } else if (p !== null && this.isSourceCurrent() && canSeek(p.state)) {
+    } else if (p !== null && this.isSourceCurrent() && canSeek(p.state())) {
       const wasEnded = this.phase === 'ended';
       if (wasEnded) {
         this.phase = 'ready';
       }
-      p.seek(target, media.SeekMode.SEEK_CLOSEST);
-      if (wasEnded && this.playWhenReady && canPlay(p.state)) {
+      p.seek(target);
+      if (wasEnded && this.playWhenReady && canPlay(p.state())) {
         resumed = true;
         p.play().catch((e: BusinessError) => this.onCommandFailed('play', e));
       }
@@ -394,22 +396,23 @@ export class PlaybackEngine {
     this.stopTicker();
     this.enqueue(async (): Promise<void> => {
       const p = this.player;
-      if (p !== null && p.state !== 'idle' && p.state !== 'released') {
+      if (p !== null && p.state() !== 'idle' && p.state() !== 'released') {
         await p.reset();
       }
     });
     this.emit();
   }
 
-  /** Process teardown: stops and frees the AVPlayer. */
+  /** Process teardown: stops and frees every player. */
   release(): void {
     this.stop();
     this.released = true;
     this.enqueue(async (): Promise<void> => {
-      const p = this.player;
+      const all = Array.from(this.players.values());
       this.player = null;
-      this.playerPromise = null;
-      if (p !== null) {
+      this.players.clear();
+      for (const pending of all) {
+        const p = await pending;
         await p.release();
       }
     });
@@ -462,27 +465,29 @@ export class PlaybackEngine {
       if (gen !== this.generation || this.released) {
         return;
       }
-      const p = await this.ensurePlayer();
+      const p = await this.ensurePlayer(item);
       if (gen !== this.generation) {
         return;
       }
-      if (p.state !== 'idle') {
+      // Switching kind (AVPlayer <-> a registered player): silence the other one first.
+      const previous = this.player;
+      if (previous !== null && previous !== p && previous.state() !== 'idle' && previous.state() !== 'released') {
+        await previous.reset();
+      }
+      this.player = p;
+      if (p.state() !== 'idle') {
         await p.reset();
       }
       if (gen !== this.generation) {
         return;
       }
       this.sourceGeneration = gen;
-      if (item.headerCount > 0) {
-        await p.setMediaSource(media.createMediaSourceWithUrl(item.uri, item.headers));
-      } else {
-        p.url = item.uri;
-      }
+      await p.setSource(item);
     }, gen);
   }
 
   /** Repeat one (or a queue of one under repeat all): the same item again from 0, counted as a repeat. */
-  private replayCurrent(p: media.AVPlayer): void {
+  private replayCurrent(p: EnginePlayer): void {
     this.repeatPlays++;
     this.lastPositionMs = 0;
     const gen = this.generation;
@@ -507,64 +512,78 @@ export class PlaybackEngine {
     });
   }
 
-  private ensurePlayer(): Promise<media.AVPlayer> {
-    if (this.playerPromise === null) {
-      this.playerPromise = media.createAVPlayer().then((p: media.AVPlayer) => {
-        this.attach(p);
-        this.player = p;
-        return p;
-      });
+  private ensurePlayer(item: QueueItem): Promise<EnginePlayer> {
+    const kind = EnginePlayers.kindOf(item.uri);
+    let pending = this.players.get(kind);
+    if (pending === undefined) {
+      const holder = new PlayerHolder();
+      const events = this.eventsFor(holder);
+      const factory = EnginePlayers.factory(kind);
+      pending = (factory !== undefined ? factory(events) : AvEnginePlayer.create(events))
+        .then((p: EnginePlayer) => {
+          holder.player = p;
+          return p;
+        });
+      this.players.set(kind, pending);
     }
-    return this.playerPromise;
+    return pending;
   }
 
-  private attach(p: media.AVPlayer): void {
-    p.on('stateChange', (state: media.AVPlayerState) => this.onPlayerState(p, state));
-    p.on('error', (e: BusinessError) => {
-      if (this.isSourceCurrent()) {
-        this.fail(e);
-      }
-    });
-    p.on('timeUpdate', (time: number) => {
-      if (this.isSourceCurrent() && this.phase !== 'loading') {
-        this.lastPositionMs = time;
-      }
-    });
-    p.on('seekDone', (time: number) => {
-      if (this.isSourceCurrent() && this.phase !== 'loading') {
-        this.lastPositionMs = time;
-        this.emit();
-      }
-    });
-    p.on('durationUpdate', (duration: number) => {
-      if (this.isSourceCurrent() && duration > 0 && duration !== this.durationMs) {
-        this.durationMs = duration;
-        this.emit();
-      }
-    });
-    p.on('audioInterrupt', (event: audio.InterruptEvent) => this.onInterrupt(event));
-    // Headphones unplugged / Bluetooth gone (Android setHandleAudioBecomingNoisy): pause, never auto-resume.
-    p.on('audioOutputDeviceChangeWithInfo', (info: audio.AudioStreamDeviceChangeInfo) => {
-      if (info.changeReason === audio.AudioStreamDeviceChangeReason.REASON_OLD_DEVICE_UNAVAILABLE) {
-        this.onBecomingNoisy();
-      }
-    });
+  /** A player's events, acted on only while it is the current item's player. */
+  private eventsFor(holder: PlayerHolder): EnginePlayerEvents {
+    const current = (): EnginePlayer | null =>
+      holder.player !== null && holder.player === this.player ? holder.player : null;
+    const events: EnginePlayerEvents = {
+      onState: (state: string) => {
+        const p = current();
+        if (p !== null) {
+          this.onPlayerState(p, state);
+        }
+      },
+      onError: (e: BusinessError) => {
+        if (current() !== null && this.isSourceCurrent()) {
+          this.fail(e);
+        }
+      },
+      onTime: (time: number) => {
+        if (current() !== null && this.isSourceCurrent() && this.phase !== 'loading') {
+          this.lastPositionMs = time;
+        }
+      },
+      onSeekDone: (time: number) => {
+        if (current() !== null && this.isSourceCurrent() && this.phase !== 'loading') {
+          this.lastPositionMs = time;
+          this.emit();
+        }
+      },
+      onDuration: (duration: number) => {
+        if (current() !== null && this.isSourceCurrent() && duration > 0 && duration !== this.durationMs) {
+          this.durationMs = duration;
+          this.emit();
+        }
+      },
+      onInterrupt: (event: audio.InterruptEvent) => {
+        if (current() !== null) {
+          this.onInterrupt(event);
+        }
+      },
+      onDeviceGone: () => {
+        if (current() !== null) {
+          this.onBecomingNoisy();
+        }
+      },
+    };
+    return events;
   }
 
-  private onPlayerState(p: media.AVPlayer, state: media.AVPlayerState): void {
+  private onPlayerState(p: EnginePlayer, state: string): void {
     if (!this.isSourceCurrent()) {
       return;
     }
     switch (state) {
       case 'initialized': {
-        // Usage must be set before prepare(); MUSIC gets the music focus strategy and the AUDIO_PLAYBACK task.
-        const info: audio.AudioRendererInfo = {
-          usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
-          rendererFlags: 0
-        };
-        p.audioRendererInfo = info;
         const gen = this.generation;
-        p.prepare().catch((e: BusinessError) => {
+        p.prepareForMusic().catch((e: BusinessError) => {
           if (gen === this.generation) {
             this.fail(e);
           }
@@ -574,11 +593,11 @@ export class PlaybackEngine {
       case 'prepared': {
         this.phase = 'ready';
         p.setVolume(outVolume(1.0));
-        if (p.duration > 0) {
-          this.durationMs = p.duration;
+        if (p.duration() > 0) {
+          this.durationMs = p.duration();
         }
         if (this.pendingStartMs > 0) {
-          p.seek(this.pendingStartMs, media.SeekMode.SEEK_CLOSEST);
+          p.seek(this.pendingStartMs);
         }
         this.pendingStartMs = 0;
         if (this.playWhenReady) {
@@ -690,7 +709,7 @@ export class PlaybackEngine {
 
   private pauseInternal(): void {
     const p = this.player;
-    if (p !== null && this.isSourceCurrent() && p.state === 'playing') {
+    if (p !== null && this.isSourceCurrent() && p.state() === 'playing') {
       p.pause().catch((e: BusinessError) => this.onCommandFailed('pause', e));
     } else {
       this.emit();
@@ -704,8 +723,8 @@ export class PlaybackEngine {
   private readPosition(): number {
     const p = this.player;
     if (p !== null && this.isSourceCurrent() && this.phase !== 'loading' && this.phase !== 'ended' &&
-      canSeek(p.state)) {
-      return p.currentTime;
+      canSeek(p.state())) {
+      return p.currentTime();
     }
     return this.lastPositionMs;
   }
@@ -751,11 +770,11 @@ export class PlaybackEngine {
   }
 }
 
-function canPlay(state: media.AVPlayerState): boolean {
+function canPlay(state: string): boolean {
   return state === 'prepared' || state === 'paused' || state === 'completed';
 }
 
-function canSeek(state: media.AVPlayerState): boolean {
+function canSeek(state: string): boolean {
   return state === 'prepared' || state === 'playing' || state === 'paused' || state === 'completed';
 }
 
@@ -799,6 +818,11 @@ function movedIndex(i: number, from: number, to: number): number {
     return i + 1;
   }
   return i;
+}
+
+/** Fills in a player once its factory resolves (events can arrive before that). */
+class PlayerHolder {
+  player: EnginePlayer | null = null;
 }
 
 /** Code and message for logs; any URL in the text is masked (it would carry the token). */

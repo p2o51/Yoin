@@ -25,12 +25,18 @@ class PlaybackStrings {
   String get couldntRemoveFavorite =>
       zh ? '无法从收藏移除' : "Couldn't remove from favorites"; // np_msg_couldnt_remove_favorite
 
+  String get appleMusicContentRestricted => zh
+      ? '你的 Apple 账号的内容限制不允许其他 App 播放这首歌。请在 music.apple.com 的「家长控制」里允许不良内容，然后重试。'
+      : "Your Apple account's content restrictions block this song in other apps. "
+          'Allow explicit content under Parental Controls at music.apple.com, then try again.'; // player_apple_music_content_restricted
+
   String get snackbarDismiss => zh ? '关闭' : 'Dismiss'; // cmp_snackbar_dismiss
 
   /// What to show for [kind] (never the engine's raw text).
   String errorMessage(PlaybackErrorKind kind) => switch (kind) {
         PlaybackErrorKind.interrupted => playbackInterrupted,
         PlaybackErrorKind.playFailed => playFailed,
+        PlaybackErrorKind.appleMusicContentRestricted => appleMusicContentRestricted,
       };
 
   /// The failure toast for a heart write that tried to set [favorite].
