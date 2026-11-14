@@ -95,6 +95,13 @@ final class NowPlayingData {
         let k = Self.key(t)
         if let s = t.starred { hearts.report(s, provider: t.provider, songId: t.id) }
         if let r = t.userRating, serverRating[k] == nil { serverRating[k] = r }
+        #if DEBUG
+        // `-lyricsCreditsDemo YES`: the song's lyrics carry the credits a lyrics source writes into them, for
+        // screenshots of the credits on the spine and in About and of the lyrics without them.
+        if lyrics[k] == nil, UserDefaults.standard.bool(forKey: "lyricsCreditsDemo") {
+            lyrics[k] = .lines(LoadedLyrics(LrcParser.shared.parse(raw: Self.creditsDemoLRC)))
+        }
+        #endif
         // Lyrics the user chose (search / editor) win over every provider's.
         if lyrics[k] == nil, let lrc = LyricsUserStore.shared.chosen(k) {
             let parsed = LrcParser.shared.parse(raw: lrc)
@@ -221,6 +228,25 @@ final class NowPlayingData {
     }
 
     func lyricsState(_ t: PlayableTrack) -> LyricsState { lyrics[Self.key(t)] ?? .loading }
+
+    #if DEBUG
+    /// `-lyricsCreditsDemo`'s lyrics: credits at the head and a notice at the foot, as NetEase writes them.
+    static let creditsDemoLRC = """
+    [00:00.00]作词 : Mina Asahi
+    [00:00.40]作曲 : Mina Asahi / Ren Kudo
+    [00:00.80]编曲 : Ren Kudo
+    [00:01.20]制作人 : Ren Kudo
+    [00:01.60]吉他 : Sora Ito
+    [00:02.00]混音 : Kei Mori
+    [00:02.40]录音 : Studio Lantern
+    [00:06.00]The last train hums below the bridge
+    [00:12.00]I count the windows going dark
+    [00:18.00]Your coat still smells of rain and smoke
+    [00:24.00]We never said the station's name
+    [00:30.00]So let it keep us here a while
+    [00:36.00]℗ 2026 Yoin Demo Records
+    """
+    #endif
 
     /// The credits the song's lyrics carried (Android NowPlayingViewModel `lyricCredits`): they answer
     /// lyricist, composer and producer on the spine and in About before Gemini does. Nil until the
