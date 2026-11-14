@@ -8,6 +8,8 @@ final class MemoryLedgerWideTests: XCTestCase {
     private let sub = LedgerAccount(provider: "subsonic", scope: "https://a|me")
     private let spotify = LedgerAccount(provider: "spotify", scope: "spotify|u")
     private let day: Int64 = 86_400_000
+    /// The songs a resolver pass asked about, in order (its lookups run on the main actor).
+    private var asked: [String] = []
     private var cal: Calendar {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(identifier: "UTC")!
@@ -122,6 +124,65 @@ final class MemoryLedgerWideTests: XCTestCase {
         let resolver = LedgerTrackResolver()
         let pass = await resolver.resolve([.init(account: sub, songId: "gone")]) { _ in nil }
         XCTAssertEqual(pass, .init(answered: 1, found: false))
+    }
+
+    /// I14, Android LedgerTrackResolver: the streaming account in use is asked too.
+    func test_should_askTheStreamingAccountInUse_when_itIsTheService() {
+        let entries = [
+            LedgerEntry(id: "1", kind: .trackRating, at: now, account: spotify, album: nil, songId: "s4", score: 7),
+            LedgerEntry(id: "2", kind: .trackRating, at: now, account: sub, album: nil, songId: "s1", score: 7),
+        ]
+        XCTAssertEqual(LedgerTrackResolver.pending(entries, asked: [], service: spotify).map(\.songId), ["s4", "s1"])
+        XCTAssertEqual(LedgerTrackResolver.pending(entries, asked: [], service: nil).map(\.songId), ["s1"])
+    }
+
+    /// A streaming account is asked one song at a time, the newest of a pass, and no more than its budget a
+    /// process (Android ServicePerPass / ServiceBudget): a big import never costs a request per song each launch.
+    func test_should_askAStreamingAccountWithinItsBudget_when_manySongsWait() async {
+        let resolver = LedgerTrackResolver()
+        let wanted = (0..<25).map { LedgerTrackResolver.Wanted(account: spotify, songId: "t\($0)") }
+        let first = await resolver.resolve(wanted, spacing: .zero) { [unowned self] w in
+            asked.append(w.songId)
+            return LedgerTrack(title: w.songId, albumId: "al", albumName: "Al", artist: nil, coverKey: nil)
+        }
+        XCTAssertEqual(first, .init(answered: LedgerTrackResolver.servicePerPass, found: true))
+        XCTAssertEqual(asked, (0..<20).map { "t\($0)" })
+        // The budget is spent: the rest wait for the next launch.
+        let rest = Array(wanted.dropFirst(20))
+        let second = await resolver.resolve(rest, spacing: .zero) { [unowned self] w in
+            asked.append(w.songId)
+            return nil
+        }
+        XCTAssertEqual(second, .init(answered: 0, found: false))
+        XCTAssertEqual(asked.count, 20)
+    }
+
+    func test_should_stopAskingAStreamingAccount_when_itFails() async {
+        let resolver = LedgerTrackResolver()
+        let wanted = (0..<3).map { LedgerTrackResolver.Wanted(account: spotify, songId: "t\($0)") }
+        let pass = await resolver.resolve(wanted, spacing: .zero) { [unowned self] w in
+            asked.append(w.songId)
+            throw URLError(.notConnectedToInternet)
+        }
+        XCTAssertEqual(pass, .init(answered: 0, found: false))
+        XCTAssertEqual(asked, ["t0"], "rate limited or offline: its other songs would fail the same way")
+        XCTAssertTrue(resolver.answers.isEmpty)
+    }
+
+    func test_should_nameASpotifySongsAlbum_when_spotifyAnswers() {
+        let album = Album(id: MediaId(provider: "spotify", rawId: "al1"), title: "Album", artist: "A", year: 2020,
+                          palette: CoverPalette(a: .red, b: .green, c: .blue), tracks: [])
+        let track = Track(id: MediaId(provider: "spotify", rawId: "t1"), number: 1, title: "Song", durationSec: 200)
+        let named = MemoryLedgerSource.ledgerTrack(PlaylistEntry(album: album, track: track))
+        XCTAssertEqual(named.albumId, "al1")
+        XCTAssertEqual(named.albumName, "Album")
+        XCTAssertEqual(named.title, "Song")
+        XCTAssertEqual(named.artist, "A")
+        XCTAssertTrue(named.isNews)
+        // Filed under no album: the song is named, the album isn't made up.
+        var loose = album
+        loose.id = MediaId(provider: "spotify", rawId: "song:t1")
+        XCTAssertNil(MemoryLedgerSource.ledgerTrack(PlaylistEntry(album: loose, track: track)).albumId)
     }
 
     // MARK: Layout

@@ -124,6 +124,9 @@ struct HomeView: View {
             await model.store.hydrateMemoryAlbums()
             // The ledger names songs from the album pages just loaded.
             MemoryLedgerSource.shared.reload(model: model)
+            // Songs nothing here names the album of, asked of their service: the grid reads the same ledger,
+            // so this runs when the app opens, not only on All Memories (Android LedgerTrackResolver).
+            await MemoryLedgerSource.shared.resolveSongs(model: model)
         }
         .onAppear {
             edit.load(scope: model.store.homeScope)
