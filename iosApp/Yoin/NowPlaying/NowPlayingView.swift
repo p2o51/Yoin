@@ -2583,6 +2583,16 @@ struct RatingBar: View {
     @State private var down = false
     @State private var downKey: String?
 
+    /// The number as the bar draws it, over the whole bar (so a mask in the bar's own frame lines up).
+    private func ratingLabel(_ label: String) -> some View {
+        Text(label)
+            .yoinRole(Tokens.type.titleLarge)
+            .monospacedDigit()
+            .frame(minWidth: 36)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
     /// The bar's number: none while unrated, "10" at the top, else one decimal.
     static func label(_ value: Double?) -> String? {
         guard let value else { return nil }
@@ -2593,8 +2603,8 @@ struct RatingBar: View {
         GeometryReader { geo in
             let h = geo.size.height
             let fraction = (value ?? 0) / 10
-            let crossover = Tokens.np.RATING_LABEL_CROSSOVER
             let inset: CGFloat = held ? 4 : 0
+            let fillHeight = max(48 - inset * 2, (h - inset * 2) * fraction)
             ZStack(alignment: .top) {
                 // Track: glass tinted with the container role, so the
                 // background shows through; the fill (the score) stays solid.
@@ -2621,21 +2631,25 @@ struct RatingBar: View {
                     // Held, the fill goes full strength (World rests it lower).
                     .fill(scheme.primary.opacity(held ? 1 : GlassLab.shared.extra("ratingFill")))
                     // Unrated: no fill at all; rated, at least the 48 pt cap.
-                    .frame(height: value == nil ? 0 : max(48 - inset * 2, (h - inset * 2) * fraction))
+                    .frame(height: value == nil ? 0 : fillHeight)
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .padding(inset)
                     .animation(Yoin.spatial, value: value == nil)
-                // titleLarge (22/28) tabular; the color crosses from
-                // onSurfaceVariant to onPrimary as the fill goes 80 → 100 %.
+                // titleLarge (22/28) tabular, onSurfaceVariant over the track and onPrimary where the fill runs
+                // behind it, split along the fill's own edge. Crossing by the score alone (80 → 100 %, Android
+                // RatingSlider) left 8.6 on a short bar half covered by a fill the number didn't follow.
                 if let label = Self.label(value) {
-                    Text(label)
-                        .yoinRole(Tokens.type.titleLarge)
-                        .monospacedDigit()
-                        .foregroundStyle(scheme.onSurfaceVariant.mix(with: scheme.onPrimary,
-                                                                     by: min(1, max(0, (fraction - crossover) / (1 - crossover)))))
-                        .frame(minWidth: 36)
-                        .padding(.top, 8)
-                        .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .top)).animation(Yoin.effects))
+                    ZStack(alignment: .top) {
+                        ratingLabel(label).foregroundStyle(scheme.onSurfaceVariant)
+                        ratingLabel(label).foregroundStyle(scheme.onPrimary)
+                            .mask {
+                                Capsule()
+                                    .frame(height: fillHeight)
+                                    .frame(maxHeight: .infinity, alignment: .bottom)
+                                    .padding(inset)
+                            }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .top)).animation(Yoin.effects))
                 }
             }
             .contentShape(.capsule)
