@@ -31,6 +31,8 @@ final class BarGeometryInput {
     this.centered = false,
     this.promotedCount = 0,
     this.navOnly = 0,
+    this.pane = 0,
+    this.mergedCount = 0,
   });
 
   /// The row's width inside the surface's padding (window − 2 × 16 − 2 × 10 on a phone).
@@ -64,6 +66,14 @@ final class BarGeometryInput {
   /// 1 = the Now Playing side panel is open: the pill folds away and the
   /// surface hugs the remaining slots (resolveBarGeometry navOnly).
   final double navOnly;
+
+  /// 1 = the Wide window's detail column is open with a page in it: the
+  /// merged pose [Home][Library][pill][Play ▾][Shuffle] — the shell's nav on
+  /// its side, the column page's Play on the other (adaptive-principles §2).
+  final double pane;
+
+  /// Round buttons after the split in the merged pose (Shuffle).
+  final int mergedCount;
 }
 
 /// Widths of one bar frame (the phone subset of resolveBarGeometry: morph 0,
@@ -85,6 +95,8 @@ final class BarGeometry {
     required this.pillAlpha,
     required this.composePill,
     required this.surfaceInner,
+    required this.pane,
+    required this.rightMergedWidth,
   });
 
   /// The Home button's width (fades out into the Play split in detail pose).
@@ -120,6 +132,12 @@ final class BarGeometry {
   /// The row width the surface wraps this frame (= the slots' sum).
   final double surfaceInner;
 
+  /// The merged pose's progress (clamped).
+  final double pane;
+
+  /// The merged right slot at rest: gap + split + its round buttons.
+  final double rightMergedWidth;
+
   double get leadingSlotWidth => splitWidth;
 }
 
@@ -150,9 +168,13 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
   final splitDetailW = i.centered
       ? math.max(BarTokens.splitWidth, i.innerWidth - BarTokens.detailPillWidth - gap - extrasWidth)
       : BarTokens.splitWidth;
-  final splitW = lerpDouble(homeW, splitDetailW, detail)!;
-  final extrasSlot = lerpDouble(0, extrasWidth, detail)!;
-  final librarySlot = lerpDouble(gap + libW, 0, detail)!;
+  final pane = _clamp01(i.pane);
+  final rightMerged = gap + BarTokens.splitWidth + (i.buttonHeight + gap) * math.max(0, i.mergedCount);
+  // LEFT: Home → Play split (detail) / Home + Library (merged).
+  final splitW = lerpDouble(lerpDouble(homeW, splitDetailW, detail)!, homeRest + gap + libRest, pane)!;
+  final extrasSlot = lerpDouble(0, extrasWidth, detail)! * (1 - pane);
+  // RIGHT: Library → nothing (detail) / Play split + Shuffle (merged).
+  final librarySlot = lerpDouble(lerpDouble(gap + libW, 0, detail)!, rightMerged, pane)!;
   // With the pill folding away beside the side panel the surface hugs the
   // slots exactly — never a lerp between two resting widths, which would
   // disagree with the slots mid-spring and leave a hole where the pill was.
@@ -168,12 +190,14 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
     libraryWidth: libW,
     extrasSlotWidth: extrasSlot,
     splitDetailWidth: splitDetailW,
-    navAlpha: _clamp01(1 - detail / 0.6),
-    splitAlpha: _clamp01((detail - 0.4) / 0.6),
+    navAlpha: _clamp01(1 - detail / 0.6) * (1 - pane),
+    splitAlpha: _clamp01((detail - 0.4) / 0.6) * (1 - pane),
     labelAlpha: _clamp01((idle - 0.55) / 0.45),
     // Any detail pose shows the pill whole ("Nothing playing" when idle).
     pillAlpha: (detail > 0.005 ? 1.0 : _clamp01(1 - idle / 0.5)) * _clamp01(1 - navOnly / 0.5),
     composePill: (idle < 0.995 || detail > 0.005) && navOnly < 0.995,
     surfaceInner: fixed + pillW,
+    pane: pane,
+    rightMergedWidth: rightMerged,
   );
 }

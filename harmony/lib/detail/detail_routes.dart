@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/model/model.dart';
+import '../ui/navigation/pane/detail_pane.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'album_detail_screen.dart';
 import 'artist_detail_screen.dart';
@@ -16,17 +17,24 @@ import 'playlist_detail_screen.dart';
 abstract final class DetailRoutes {
   static Future<void> openAlbum(BuildContext context, MediaId id, {Album? preview}) {
     _cache(context)?.prefetchAlbum(id);
-    return Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => AlbumDetailScreen(albumId: id)));
+    return _open(context, (_) => AlbumDetailScreen(albumId: id));
   }
 
   static Future<void> openArtist(BuildContext context, MediaId id, {String? name}) {
     _cache(context)?.prefetchArtist(id);
-    return Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => ArtistDetailScreen(artistId: id)));
+    return _open(context, (_) => ArtistDetailScreen(artistId: id));
   }
 
   static Future<void> openPlaylist(BuildContext context, MediaId id, {Playlist? preview}) {
     _cache(context)?.prefetchPlaylist(id);
-    return Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => PlaylistDetailScreen(playlistId: id)));
+    return _open(context, (_) => PlaylistDetailScreen(playlistId: id));
+  }
+
+  /// A Wide, tall window opens the page as the shell's detail column
+  /// (adaptive-principles §3); everywhere else it is pushed.
+  static Future<void> _open(BuildContext context, WidgetBuilder builder) {
+    if (DetailPane.open(context, builder)) return Future.value();
+    return Navigator.of(context).push(YoinPushRoute<void>(builder: builder));
   }
 
   static DetailCache? _cache(BuildContext context) {

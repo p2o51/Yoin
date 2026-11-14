@@ -20,6 +20,7 @@ import '../playback/system_requests.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/navigation/pane/detail_pane.dart';
 import 'bar_suppression.dart';
 import 'chrome_back.dart';
 import 'detail_chrome.dart';
@@ -176,9 +177,17 @@ class _ChromeBar extends ConsumerWidget {
     final actions = ref.watch(topDetailActionsProvider);
     final navBottom = MediaQuery.paddingOf(context).bottom;
     final memoriesHide = ref.watch(memoriesRevealHandleProvider).barHide;
+    final selected = ref.watch(shellSectionProvider);
+    final onSelect = ref.read(shellSectionProvider.notifier).select;
     return AnimatedBuilder(
       // The controller too: the flight landing releases the bar (barComposed).
-      animation: Listenable.merge([controller, controller.bar.animation, away.animation, memoriesHide]),
+      animation: Listenable.merge([
+        controller,
+        controller.bar.animation,
+        away.animation,
+        memoriesHide,
+        DetailPaneController.columnOpen,
+      ]),
       builder: (context, child) {
         // Not composed while the player is fully up (its wave stops ticking)
         // or while a bar-less page has sent it away.
@@ -204,16 +213,21 @@ class _ChromeBar extends ConsumerWidget {
         top: false,
         child: Material(
           type: MaterialType.transparency,
-          child: LayoutBuilder(
-            builder: (context, constraints) => YoinBottomBar(
-              availableWidth: constraints.maxWidth,
-              selected: ref.watch(shellSectionProvider),
-              onSelect: ref.read(shellSectionProvider.notifier).select,
-              hasTrack: hasTrack,
-              detailActions: actions,
-              // The pill became the side panel: only the two destinations stay.
-              navOnly: controller.panelOpen,
-              pillBuilder: (context, onPress) => NowPlayingPill(onPressChanged: onPress),
+          child: ListenableBuilder(
+            // The side panel folds the pill; the detail column merges the pose.
+            listenable: Listenable.merge([controller, DetailPaneController.columnOpen]),
+            builder: (context, _) => LayoutBuilder(
+              builder: (context, constraints) => YoinBottomBar(
+                availableWidth: constraints.maxWidth,
+                selected: selected,
+                onSelect: onSelect,
+                hasTrack: hasTrack,
+                detailActions: actions,
+                // The pill became the side panel: only the two destinations stay.
+                navOnly: controller.panelOpen,
+                paneOpen: DetailPaneController.columnOpen.value,
+                pillBuilder: (context, onPress) => NowPlayingPill(onPressChanged: onPress),
+              ),
             ),
           ),
         ),

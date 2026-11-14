@@ -53,6 +53,9 @@ abstract final class BarTokens {
 
   /// CenteredBar: width cap.
   static const double centeredMaxWidth = 600;
+
+  /// The merged bar (Wide detail column open) spans both columns: up to 720.
+  static const double mergedMaxWidth = 720;
 }
 
 /// Now Playing: the phone column's component sizes and the height budget's slots (NowPlayingBudget.kt, NowPlayingMetrics.kt, NowPlayingScreen.kt; iOS NowPlayingView). `_NOMINAL` is a slot's resting height, `_MIN` what it compresses to.

@@ -41,7 +41,12 @@ class YoinBottomBar extends StatefulWidget {
     this.pillBuilder,
     this.navOnly = false,
     this.availableWidth,
+    this.paneOpen = false,
   });
+
+  /// The Wide window's detail column is open: with page actions the bar
+  /// takes the merged pose and widens to [BarTokens.mergedMaxWidth].
+  final bool paneOpen;
 
   /// The width of the box the bar sits in, when narrower than the window.
   final double? availableWidth;
@@ -88,6 +93,11 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
     initial: widget.detailActions == null ? 0 : 1,
     spring: YoinSprings.standardDefaultSpatial,
   );
+  late final SpringValue _pane = SpringValue(
+    vsync: this,
+    initial: widget.paneOpen && widget.detailActions != null ? 1 : 0,
+    spring: YoinSprings.standardDefaultSpatial,
+  );
   late final SpringValue _navOnly = SpringValue(
     vsync: this,
     initial: widget.navOnly ? 1 : 0,
@@ -114,17 +124,30 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
     _selectionColor.animateTo(home);
     _idle.animateTo(widget.hasTrack ? 0 : 1);
     _detail.animateTo(widget.detailActions == null ? 0 : 1);
+    final pane = widget.paneOpen && widget.detailActions != null ? 1.0 : 0.0;
     if (MediaQuery.disableAnimationsOf(context)) {
       _navOnly.snapTo(widget.navOnly ? 1 : 0);
+      _pane.snapTo(pane);
     } else {
       _navOnly.animateTo(widget.navOnly ? 1 : 0);
+      _pane.animateTo(pane);
     }
     if (widget.detailActions != null) _lastActions = widget.detailActions;
   }
 
   @override
   void dispose() {
-    for (final s in [_selection, _selectionColor, _idle, _detail, _navOnly, _homePress, _libraryPress, _pillPress]) {
+    for (final s in [
+      _selection,
+      _selectionColor,
+      _idle,
+      _detail,
+      _pane,
+      _navOnly,
+      _homePress,
+      _libraryPress,
+      _pillPress,
+    ]) {
       s.dispose();
     }
     super.dispose();
@@ -144,7 +167,10 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
     // laid in (the content beside the Now Playing side panel).
     final room = math.min(window.width, widget.availableWidth ?? window.width);
     final barWidth = centered
-        ? (room - 2 * BarTokens.centeredHorizontalMargin).clamp(0.0, BarTokens.centeredMaxWidth)
+        ? (room - 2 * BarTokens.centeredHorizontalMargin).clamp(
+            0.0,
+            widget.paneOpen ? BarTokens.mergedMaxWidth : BarTokens.centeredMaxWidth,
+          )
         : room - 2 * BarTokens.horizontalMargin;
     final innerWidth = (barWidth - 2 * rowPadding).clamp(0.0, double.infinity);
     // The centred bar promotes Shuffle out of the ▾ menu into its own button.
@@ -165,6 +191,7 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
           _selectionColor.animation,
           _idle.animation,
           _detail.animation,
+          _pane.animation,
           _navOnly.animation,
           _homePress.animation,
           _libraryPress.animation,
@@ -184,11 +211,39 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
               centered: centered,
               promotedCount: promoted,
               navOnly: _navOnly.value,
+              pane: _pane.value,
+              mergedCount: _lastActions?.onShuffle != null ? 1 : 0,
             ),
           );
           final colorSelection = _selectionColor.value.clamp(0.0, 1.0);
           final detail = _detail.value.clamp(0.0, 1.0);
           final actions = _lastActions;
+          Widget homeButton() => _BarButton(
+            icon: colorSelection > 0.5 ? YoinSymbols.homeFilled : YoinSymbols.home,
+            label: strings.barLabelHome,
+            semantics: npStrings.barCdHome,
+            labelAlpha: g.labelAlpha,
+            selection: colorSelection,
+            onPress: (down) => _homePress.animateTo(down ? 1 : 0),
+            onTap: () {
+              YoinHaptics.click();
+              widget.onSelect(YoinSection.home);
+            },
+          );
+          Widget libraryButton() => _BarButton(
+            icon: colorSelection < 0.5 ? YoinSymbols.libraryFilled : YoinSymbols.library,
+            label: strings.barLabelLibrary,
+            semantics: npStrings.barCdLibrary,
+            labelAlpha: g.labelAlpha,
+            selection: 1 - colorSelection,
+            ripple: false,
+            onPress: (down) => _libraryPress.animateTo(down ? 1 : 0),
+            onTap: () {
+              YoinHaptics.click();
+              widget.onSelect(YoinSection.library);
+            },
+          );
+          final merged = g.pane;
           return Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -200,26 +255,35 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                   children: [
                     if (g.navAlpha > 0)
                       IgnorePointer(
-                        ignoring: detail > 0.5,
+                        ignoring: detail > 0.5 || merged > 0.5,
+                        child: Opacity(opacity: g.navAlpha, child: homeButton()),
+                      ),
+                    // MERGED: the shell's two destinations, side by side.
+                    if (merged > 0)
+                      IgnorePointer(
+                        ignoring: merged < 0.5,
                         child: Opacity(
-                          opacity: g.navAlpha,
-                          child: _BarButton(
-                            icon: colorSelection > 0.5 ? YoinSymbols.homeFilled : YoinSymbols.home,
-                            label: strings.barLabelHome,
-                            semantics: npStrings.barCdHome,
-                            labelAlpha: g.labelAlpha,
-                            selection: colorSelection,
-                            onPress: (down) => _homePress.animateTo(down ? 1 : 0),
-                            onTap: () {
-                              YoinHaptics.click();
-                              widget.onSelect(YoinSection.home);
-                            },
+                          opacity: merged,
+                          child: ClipRect(
+                            child: OverflowBox(
+                              alignment: AlignmentDirectional.centerStart,
+                              minWidth: g.homeWidth + BarTokens.itemGap + g.libraryWidth,
+                              maxWidth: g.homeWidth + BarTokens.itemGap + g.libraryWidth,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  SizedBox(width: g.homeWidth, child: homeButton()),
+                                  const SizedBox(width: BarTokens.itemGap),
+                                  SizedBox(width: g.libraryWidth, child: libraryButton()),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     if (g.splitAlpha > 0 && actions != null)
                       IgnorePointer(
-                        ignoring: detail < 0.5,
+                        ignoring: detail < 0.5 || merged > 0.5,
                         child: Opacity(
                           opacity: g.splitAlpha,
                           // Laid out at its resting width while the slot morphs; the slot clips it.
@@ -294,26 +358,59 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                   width: g.librarySlotWidth,
                   height: buttonHeight,
                   child: ClipRect(
-                    child: OverflowBox(
-                      alignment: AlignmentDirectional.centerEnd,
-                      minWidth: g.libraryWidth,
-                      maxWidth: g.libraryWidth,
-                      child: Opacity(
-                        opacity: g.navAlpha,
-                        child: _BarButton(
-                          icon: colorSelection < 0.5 ? YoinSymbols.libraryFilled : YoinSymbols.library,
-                          label: strings.barLabelLibrary,
-                          semantics: npStrings.barCdLibrary,
-                          labelAlpha: g.labelAlpha,
-                          selection: 1 - colorSelection,
-                          ripple: false,
-                          onPress: (down) => _libraryPress.animateTo(down ? 1 : 0),
-                          onTap: () {
-                            YoinHaptics.click();
-                            widget.onSelect(YoinSection.library);
-                          },
-                        ),
-                      ),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (g.navAlpha > 0)
+                          OverflowBox(
+                            alignment: AlignmentDirectional.centerEnd,
+                            minWidth: g.libraryWidth,
+                            maxWidth: g.libraryWidth,
+                            child: IgnorePointer(
+                              ignoring: g.navAlpha < 0.5,
+                              child: Opacity(opacity: g.navAlpha, child: libraryButton()),
+                            ),
+                          ),
+                        // MERGED: the column page's Play split and Shuffle on its side.
+                        if (merged > 0 && actions != null)
+                          OverflowBox(
+                            alignment: AlignmentDirectional.centerEnd,
+                            minWidth: g.rightMergedWidth,
+                            maxWidth: g.rightMergedWidth,
+                            child: IgnorePointer(
+                              ignoring: merged < 0.5,
+                              child: Opacity(
+                                opacity: merged,
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    const SizedBox(width: BarTokens.itemGap),
+                                    SizedBox(
+                                      width: BarTokens.splitWidth,
+                                      child: _PlaySplit(
+                                        actions: actions,
+                                        height: buttonHeight,
+                                        shuffleInMenu: actions.onShuffle == null,
+                                      ),
+                                    ),
+                                    if (actions.onShuffle != null) ...[
+                                      const SizedBox(width: BarTokens.itemGap),
+                                      _BarExtraButton(
+                                        icon: YoinSymbols.shuffle,
+                                        label: npStrings.playMenuShuffle,
+                                        size: buttonHeight,
+                                        onTap: () {
+                                          YoinHaptics.click();
+                                          actions.onShuffle!();
+                                        },
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
