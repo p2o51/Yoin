@@ -334,16 +334,21 @@ final class TipDemoTests: XCTestCase {
 
     func test_should_dealAnotherAccountsMemorySecond_when_theDemoDeckIsBuilt() {
         let deck = TipDemo.memoryDeck
-        XCTAssertEqual(deck.map(\.album.title), ["Night Garden", "Harbour Lights", "Low Tide"])
+        XCTAssertEqual(deck.map(\.album.title), ["Blue Rooms", "Paper Moons", "Low Tide"])
         XCTAssertEqual(deck.map(\.fromOther), [false, true, false])
         XCTAssertEqual(deck[1].owner?.name, "Okto")
         XCTAssertEqual(deck[1].owner?.service, .spotify)
         XCTAssertEqual(deck[1].owner?.shape, TipDemo.shape(of: TipDemo.accounts[1]))
-        // The quote only on the first: the other account's card has its From line instead.
+        // "From Okto" can't read as an artist: no card on the way to it is by one named like an account.
+        let names = Set(TipDemo.accounts.map(\.title))
+        XCTAssertTrue(deck.prefix(2).allSatisfy { !names.contains($0.album.artist) })
+        // Two cards, two memories: their own titles, scores and lines.
+        XCTAssertNotEqual(deck[0].title, deck[1].title)
+        XCTAssertNotEqual(deck[0].score, deck[1].score)
         XCTAssertEqual(deck[0].excerpt?.kind, .review)
-        XCTAssertNil(deck[1].excerpt)
+        XCTAssertEqual(deck[1].excerpt?.kind, .note)
         XCTAssertEqual(Set(deck.map(\.id)).count, deck.count, "each card has its own morph")
-        XCTAssertTrue(deck.allSatisfy { $0.album.id.provider == TipDemo.provider && $0.score == 8.6 && $0.emblemKind == .album })
+        XCTAssertTrue(deck.allSatisfy { $0.album.id.provider == TipDemo.provider && $0.emblemKind == .album })
     }
 
     func test_should_openMemories_when_theDemosPullGoesPastTheOpeningPoint() {

@@ -128,32 +128,36 @@ enum TipDemo {
 
     // MARK: Memories
 
-    /// The demo's Memories deck (Android DemoMemoriesPage): your Night Garden memory with your review's line;
-    /// then Harbour Lights, another account's (Okto, the switcher demo's Spotify account), which drops the quote
-    /// to leave the small phone room; then Low Tide, a dot on the bar.
+    /// The demo's Memories deck (Android DemoMemoriesPage): your Blue Rooms memory with your review's line; then
+    /// Paper Moons, another account's (Okto, the switcher demo's Spotify account), with its own title, score and
+    /// a note of its own; then Low Tide, a dot on the bar. No card is by an artist named like an account, so
+    /// "From Okto" can only be the account (Android's first card is Night Garden, by Okto).
     static var memoryDeck: [MemoryCard] {
-        [
-            memoryCard(albums[3], quote: true),
-            memoryCard(albums[0], owner: MemoryCard.Account(profileId: accounts[1].id, name: "Okto", service: .spotify,
-                                                             shape: shape(of: accounts[1]))),
-            memoryCard(albums[2]),
+        let okto = MemoryCard.Account(profileId: accounts[1].id, name: "Okto", service: .spotify,
+                                      shape: shape(of: accounts[1]))
+        return [
+            memoryCard(albums[5], title: "Night walks in the rain", score: 8.6,
+                       excerpt: .init(kind: .review, text: "The second side is the one I keep coming back to.",
+                                      detail: "Oct 12")),
+            memoryCard(albums[1], title: "Late trains home", score: 7.8,
+                       excerpt: .init(kind: .note, text: "The bridge sounds like the sea.", detail: trackTitles[1]),
+                       owner: okto),
+            memoryCard(albums[2], title: "Low Tide", score: 8.2, excerpt: nil),
         ]
     }
 
-    /// A memory of [album] (Android's demo MemoryEntry): "Night walks in the rain", the album's own 8.6 on its
-    /// emblem, seven of ten songs rated. [owner]: whose it is when it is another account's.
-    private static func memoryCard(_ album: Album, quote: Bool = false, owner: MemoryCard.Account? = nil) -> MemoryCard {
+    /// A memory of [album] (Android's demo MemoryEntry): its own score on the emblem, seven of ten songs rated.
+    /// [owner]: whose it is when it is another account's.
+    private static func memoryCard(_ album: Album, title: String, score: Double, excerpt: MemoryCard.Excerpt?,
+                                   owner: MemoryCard.Account? = nil) -> MemoryCard {
         let rated = (0..<10).map { $0 % 3 != 2 }
         let mine = MemoryCard.Account(profileId: accounts[0].id, name: "Mira", service: .subsonic, shape: 0)
         let memory = AlbumMemory(album: album, totalTracks: rated.count, ratedTrackCount: rated.filter { $0 }.count,
                                  coverage: Double(rated.filter { $0 }.count) / Double(rated.count),
-                                 averageSongRating: 8.4, albumRating: 8.6, noteCount: 2, lastWrittenAt: nil,
+                                 averageSongRating: score - 0.2, albumRating: score, noteCount: 2, lastWrittenAt: nil,
                                  playCount: 12, firstPlayedAt: nil, lastPlayedAt: nil, isMemoryEligible: true,
-                                 hasAlbumReview: quote)
-        let excerpt = quote
-            ? MemoryCard.Excerpt(kind: .review, text: "The second side is the one I keep coming back to.", detail: "Oct 12")
-            : nil
-        return MemoryCard(album: album, title: "Night walks in the rain", titleKind: .user, score: 8.6, emblemKind: .album,
+                                 hasAlbumReview: excerpt?.kind == .review)
+        return MemoryCard(album: album, title: title, titleKind: .user, score: score, emblemKind: .album,
                           rated: rated, excerpt: excerpt, noteCount: 2, lastHeardAt: nil, memory: memory, review: nil,
                           yoinTitle: nil, paragraph: nil, diaryTracks: [], playCount: 12, firstPlayedAt: nil,
                           account: owner ?? mine, fromOther: owner != nil)

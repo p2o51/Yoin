@@ -59,7 +59,8 @@ final class AboutParityTests: XCTestCase {
             entry(SongAboutStore.Kind.canonical, SongAboutStore.Canon.creationTime, answer: "2009"),
         ], facts: nil, expanded: true, credits: SongCredits(lyricist: "唐恬", arranger: "钱雷", producer: "钱雷"))
         XCTAssertEqual(rows.map(\.value), ["唐恬", "Gemini C", "钱雷", "钱雷", "2009"])
-        XCTAssertEqual(rows.map(\.label), ["Lyricist", "Composer", "Arranger", "Producer", "Creation Time"])
+        XCTAssertEqual(rows.map(\.label), [loc("Lyricist"), loc("Composer"), loc("Arranger"), loc("Producer"),
+                                            loc("Creation Time")])
         // The lyrics' rows are no Gemini rows: no long-press sheet.
         XCTAssertNil(rows[0].entry)
         XCTAssertNotNil(rows[1].entry)
