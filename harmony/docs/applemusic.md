@@ -723,18 +723,35 @@ The page also logs every JSON-RPC call it receives from Apple (`yoin: rpc call <
 method names only). None arrived before sign-in. That is expected, because the consent step is
 where the calls happen.
 
-**Still open: the final step needs the owner.** On these runs Apple no longer had a session, so
-the popup stopped at the Apple ID sign-in form (email field) instead of the consent page. The
-earlier sign-in's cookies didn't survive the app restarts. Per the rules, nobody entered
-credentials. To finish:
+On those runs Apple no longer had a session, so the popup stopped at the Apple ID sign-in form;
+the earlier sign-in's cookies didn't survive the app restarts. Nobody but the owner entered
+credentials.
 
-1. Settings → 添加 → Apple Music → 连接 Apple Music → **Sign in with Apple Music**.
-2. Sign in with your Apple ID and 2FA, then check two things on the consent page: **許可 / Allow
-   is enabled, and the app is named Yoin**.
-3. Allow. Expected: `YoinAppleAuth: sign-in succeeded (storefront=…)` and an Apple Music account
-   in Settings. The ARKWEB-CONSOLE lines `yoin: rpc call thirdPartyInfo …` / `… authorize …` from
-   `https://authorize.music.apple.com` should appear first.
+### Sign-in completed (2026-11-14, 12:22 JST)
 
-If Allow still stays disabled with the opener intact and no `yoin: rpc` lines, then Apple is
-refusing to talk to the `yoin.gojyuplus.com` referrer. The next lever is a different https
-origin.
+The owner signed in (Apple ID + 2FA) and allowed on the consent page. The log, in order:
+
+```
+YoinAppleAuth: popup page end: https://authorize.music.apple.com
+YoinAppleAuth: popup opener: "true"
+ARKWEB-CONSOLE: yoin: rpc call thirdPartyInfo from https://authorize.music.apple.com
+ARKWEB-CONSOLE: yoin: rpc call authorize from https://authorize.music.apple.com
+ARKWEB-CONSOLE: yoin: rpc call close from https://authorize.music.apple.com
+YoinAppleAuth: popup closed by page
+YoinAppleAuth: sign-in succeeded (storefront=jp)
+```
+
+- **The account works.** Settings shows the Apple Music account as active. Home ("接着听", recent
+  albums and playlists), Library (artists with catalogue portraits) and a playlist detail all load
+  from `AppleMusicSource`.
+- **Playback refuses cleanly.** The bar reads 无法播放此歌曲, as designed for browse-only.
+- **The token persists.** After a cold relaunch (`aa force-stop` + start), the same content loads
+  again, so the Music User Token is persisted.
+- **No token in the logs.** The app's whole hilog was checked and contains no `Music-User-Token` /
+  `musicUserToken` text, no unmasked `eyJ…` JWT and no `media-user-token` cookie. The developer
+  token appears only masked (`eyJhbG…(206)`).
+- **Sign-in probably needs a fresh Apple ID login each time.** Apple's web session cookies appear
+  not to survive an app restart in this ArkWeb setup: the morning sign-in was gone after a
+  reinstall. Not proven; it could also be Apple's own session expiry. Either way, a later
+  Reconnect likely asks for the Apple ID sign-in again. The
+  Music User Token itself lasts months, so this only matters when reconnecting.
