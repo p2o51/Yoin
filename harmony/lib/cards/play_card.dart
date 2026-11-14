@@ -10,7 +10,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart' show BuildContext;
+import 'package:flutter/widgets.dart' show BuildContext, Navigator;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:yoin_symbols/yoin_symbols.dart';
@@ -21,10 +21,12 @@ import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../detail/detail_play.dart';
 import '../detail/detail_routes.dart';
+import '../memories/memories_reveal_scope.dart';
 import '../platform/cards/cards_channel.dart';
 import '../shell/shell_state.dart';
 import '../theme/color_scheme.dart';
 import '../theme/theme.dart';
+import 'memory_card.dart';
 
 /// Items the Play card holds (Android playItems(limit = 6): the hero plus a shelf).
 const playCardLimit = 6;
@@ -73,6 +75,8 @@ final class PlayCardPublisher {
       if (e is! MissingPluginException) debugPrint('cards: listen failed: $e');
     });
     _ref.listen<AsyncValue<ActivityLog?>>(activityLogProvider, (_, next) => _attach(next.value), fireImmediately: true);
+    // The Memory card shares the start (and this publisher's tap listener).
+    _ref.read(memoryCardPublisherProvider);
   }
 
   void dispose() {
@@ -152,6 +156,8 @@ final class PlayCardPublisher {
     switch (action) {
       case CardOpenApp():
         return;
+      case CardOpenMemory(:final sessionId):
+        await _openMemory(sessionId);
       case CardOpen(:final entity, :final id):
         final mediaId = MediaId.tryParse(id);
         final context = await _navigatorContext();
@@ -177,6 +183,19 @@ final class PlayCardPublisher {
           await playFromDetail(player, album.tracks, context: albumPlaybackContext(album));
         }
     }
+  }
+
+  /// Memories on [sessionId] (the Home pill's way in): back to the shell
+  /// first, then the reveal, once the shell has registered it (cold start).
+  Future<void> _openMemory(int? sessionId) async {
+    final context = await _navigatorContext();
+    if (context == null || !context.mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    final handle = _ref.read(memoriesRevealHandleProvider);
+    for (var i = 0; i < 40 && handle.controller == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    handle.open(focus: sessionId);
   }
 
   /// The app navigator's context; on a cold start from a card it appears a

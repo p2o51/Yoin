@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show AppLifecycleListener;
+import 'package:flutter/widgets.dart' show AppLifecycleListener, AppLifecycleState, WidgetsBinding;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
@@ -11,10 +11,12 @@ import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../platform/playback/playback_engine.dart';
 import '../platform/storage/stores.dart';
+import '../platform/window/window_controls.dart';
 import 'now_playing_state.dart';
 import 'play_history.dart';
 import 'play_mode.dart';
 import 'playback_context.dart';
+import 'playback_strings.dart';
 import 'playhead.dart';
 import 'queue_order.dart';
 import 'scrobble.dart';
@@ -97,6 +99,11 @@ class PlaybackController extends Notifier<NowPlayingState> {
   Future<void>? _rehydrating;
   final Map<MediaId, int> _ratingWrites = {};
   int _entrySeq = 0;
+
+  /// The app's window is in front (lifecycle resumed / inactive): a notice
+  /// can go to the shell's snackbar. Behind the lock screen or 播控中心 it
+  /// goes to a system toast instead (Android SessionQuickActions.toast).
+  bool _foreground = true;
   final String _entryPrefix = Random().nextInt(1 << 32).toRadixString(36);
 
   PlaybackEngine get _engine => ref.read(playbackEngineProvider);
@@ -137,7 +144,9 @@ class PlaybackController extends Notifier<NowPlayingState> {
     // album row, the artist page, Now Playing or the system heart lands here.
     ref.listen(favoriteOverridesProvider, (_, next) => _applyFavoriteOverrides(next));
     try {
-      _lifecycle = AppLifecycleListener(onResume: _onResume);
+      final now = WidgetsBinding.instance.lifecycleState;
+      _foreground = now == null || now == AppLifecycleState.resumed || now == AppLifecycleState.inactive;
+      _lifecycle = AppLifecycleListener(onResume: _onResume, onStateChange: _onLifecycle);
     } catch (_) {
       _lifecycle = null; // No binding (plain unit tests).
     }
@@ -439,7 +448,9 @@ class PlaybackController extends Notifier<NowPlayingState> {
   /// queue entry of that song, the system heart and every list showing it,
   /// reverted if the source write fails. A second tap while a write is in
   /// flight is ignored. Returns whether the write landed.
-  Future<bool> toggleFavorite({MediaId? id}) async {
+  Future<bool> toggleFavorite({MediaId? id}) => _toggleFavorite(id, fromSystem: false);
+
+  Future<bool> _toggleFavorite(MediaId? id, {required bool fromSystem}) async {
     final target = id ?? state.current?.id;
     if (target == null || target.rawId.trim().isEmpty) return false;
     final overrides = ref.read(favoriteOverridesProvider.notifier);
@@ -454,7 +465,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
     final ok = await overrides.setFavorite(target, target: !current, previous: current);
     if (!ok) {
       _log('favorite write failed');
-      if (ref.mounted) _notices.add(FavoriteWriteFailed(target, favorite: !current));
+      if (ref.mounted) _notify(FavoriteWriteFailed(target, favorite: !current), fromSystem: fromSystem);
     }
     return ok;
   }
@@ -573,7 +584,9 @@ class PlaybackController extends Notifier<NowPlayingState> {
       case OpenNowPlayingEvent():
         ref.read(nowPlayingOpenRequestsProvider.notifier).request();
       case ToggleFavoriteCommand(:final id):
-        toggleFavorite(id: MediaId.tryParse(id) ?? state.current?.id).ignore();
+        _toggleFavorite(MediaId.tryParse(id) ?? state.current?.id, fromSystem: true).ignore();
+      case NetworkAvailableEvent():
+        _flushActive();
     }
   }
 
@@ -704,9 +717,46 @@ class PlaybackController extends Notifier<NowPlayingState> {
     if (profileId != null) _scrobbles.flush(profileId).ignore();
   }
 
-  void _onResume() {
+  void _onResume() => _flushActive();
+
+  /// Sends the active account's queued plays (resume, network back).
+  void _flushActive() {
     final profileId = _activeProfileId;
     if (profileId != null) _scrobbles.flush(profileId).ignore();
+  }
+
+  void _onLifecycle(AppLifecycleState next) =>
+      _foreground = next == AppLifecycleState.resumed || next == AppLifecycleState.inactive;
+
+  /// Whether the window counts as in front (tests stand in for the lifecycle).
+  @visibleForTesting
+  set debugForeground(bool value) => _foreground = value;
+
+  /// A failure the user should hear about. From the system card with the app
+  /// behind it, the shell's snackbar would wait unseen until the next visit:
+  /// a system toast says it now instead (Android shows a Toast).
+  void _notify(PlaybackNotice notice, {bool fromSystem = false}) {
+    if (!fromSystem || _foreground) {
+      _notices.add(notice);
+      return;
+    }
+    final text = _systemStrings().noticeMessage(notice);
+    if (text == null) return;
+    try {
+      ref.read(windowControlsProvider).showToast(text).catchError((Object e) => _log('toast failed: ${e.runtimeType}'));
+    } catch (e) {
+      _log('toast failed: ${e.runtimeType}');
+    }
+  }
+
+  PlaybackStrings _systemStrings() {
+    try {
+      return WidgetsBinding.instance.platformDispatcher.locale.languageCode == 'zh'
+          ? PlaybackStrings.zhHans
+          : PlaybackStrings.en;
+    } catch (_) {
+      return PlaybackStrings.en;
+    }
   }
 
   Future<String?> _readProfileId() async {

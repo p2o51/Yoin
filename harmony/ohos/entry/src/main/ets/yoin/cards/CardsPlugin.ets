@@ -10,7 +10,7 @@ import {
 import { common, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { CardStore, PlayPublishItem } from './CardStore';
+import { CardStore, MEMORY_FORM, MemoryPublishItem, PlayPublishItem } from './CardStore';
 
 const CHANNEL = 'yoin/cards';
 const DOMAIN = 0x5901;
@@ -118,9 +118,44 @@ export default class YoinCardsPlugin implements FlutterPlugin, MethodCallHandler
       case 'publishPlay':
         this.publishPlay(call, result);
         return;
+      case 'publishMemory':
+        this.publishMemory(call, result);
+        return;
       default:
         result.notImplemented();
     }
+  }
+
+  private publishMemory(call: MethodCall, result: MethodResult): void {
+    const rawItems: Any = call.argument('items');
+    if (!Array.isArray(rawItems)) {
+      result.error('bad_args', 'publishMemory needs items', null);
+      return;
+    }
+    const items: MemoryPublishItem[] = [];
+    (rawItems as Array<Any>).forEach((raw: Any) => {
+      const m: Map<string, Any> = raw as Map<string, Any>;
+      const cover: Any = m.get('cover');
+      items.push({
+        session: `${m.get('session') ?? ''}`,
+        album: `${m.get('album') ?? ''}`,
+        artist: `${m.get('artist') ?? ''}`,
+        score: `${m.get('score') ?? ''}`,
+        lastHeard: `${m.get('lastHeard') ?? ''}`,
+        cover: cover instanceof Uint8Array ? cover as Uint8Array : null,
+      });
+    });
+    try {
+      CardStore.saveMemory(this.context, items);
+    } catch (e) {
+      const err = e as BusinessError;
+      hilog.warn(DOMAIN, TAG, 'saving the memory card failed: %{public}d', err.code ?? -1);
+      result.error('io', 'Could not save the card data', null);
+      return;
+    }
+    CardStore.refreshAll(this.context, MEMORY_FORM)
+      .then(() => result.success(null))
+      .catch(() => result.success(null));
   }
 
   private publishPlay(call: MethodCall, result: MethodResult): void {

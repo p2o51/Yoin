@@ -314,6 +314,7 @@ void main() {
           sink.success({..._stateMap(), 'type': 'state', 'playWhenReady': true, 'repeatPlays': 2, 'currentEntryId': 'e1', 'tick': true});
           sink.success({'type': 'openNowPlaying'});
           sink.success({'type': 'command', 'name': 'toggleFavorite', 'id': 'subsonic:1'});
+          sink.success({'type': 'networkAvailable'});
           sink.success({'type': 'somethingNew'});
         }),
       );
@@ -329,9 +330,10 @@ void main() {
       expect(states.single.currentEntryId, 'e1');
       expect(states.single.tick, isTrue);
       expect(states.single.order, isNull);
-      expect(received, hasLength(2));
+      expect(received, hasLength(3));
       expect(received[0], isA<OpenNowPlayingEvent>());
       expect((received[1] as ToggleFavoriteCommand).id, 'subsonic:1');
+      expect(received[2], isA<NetworkAvailableEvent>());
       await s1.cancel();
       await s2.cancel();
     });

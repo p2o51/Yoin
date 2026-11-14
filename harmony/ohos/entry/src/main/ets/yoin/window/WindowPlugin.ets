@@ -7,7 +7,7 @@ import {
   MethodChannel,
   MethodResult
 } from '@ohos/flutter_ohos';
-import { window } from '@kit.ArkUI';
+import { promptAction, window } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -15,6 +15,9 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 const CHANNEL = 'yoin/window';
 const TAG = 'YoinWindow';
 const DOMAIN = 0x5906;
+
+/** How long a system toast stays (Android Toast.LENGTH_SHORT). */
+const TOAST_MS = 2000;
 
 /**
  * The window's caption on 2in1 / free windows: the system title bar is hidden so the app's own ground runs to the
@@ -80,6 +83,37 @@ export class YoinWindowHost {
     }
   }
 
+  /** Now Playing holds the screen on while it plays (Android View.keepScreenOn). */
+  static setKeepScreenOn(on: boolean): void {
+    const win = YoinWindowHost.win;
+    if (win === null) {
+      return;
+    }
+    win.setWindowKeepScreenOn(on).catch((e: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'setWindowKeepScreenOn failed: %{public}d', e.code);
+    });
+  }
+
+  /**
+   * A system toast for news the app's own snackbar can't show (the app is behind the lock screen or 播控中心);
+   * top-most so it sits above other windows.
+   */
+  static showToast(message: string): void {
+    const win = YoinWindowHost.win;
+    if (win === null || message.length === 0) {
+      return;
+    }
+    try {
+      win.getUIContext().getPromptAction().showToast({
+        message: message,
+        duration: TOAST_MS,
+        showMode: promptAction.ToastShowMode.TOP_MOST
+      });
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'showToast failed: %{public}s', JSON.stringify(e));
+    }
+  }
+
   static startMoving(): void {
     YoinWindowHost.win?.startMoving().catch((e: BusinessError) => {
       hilog.warn(DOMAIN, TAG, 'startMoving failed: %{public}d', e.code);
@@ -135,6 +169,18 @@ export default class YoinWindowPlugin implements FlutterPlugin, MethodCallHandle
         YoinWindowHost.toggleMaximize();
         result.success(null);
         return;
+      case 'setKeepScreenOn': {
+        const on: Any = call.argument('on');
+        YoinWindowHost.setKeepScreenOn(on === true);
+        result.success(null);
+        return;
+      }
+      case 'showToast': {
+        const message: Any = call.argument('message');
+        YoinWindowHost.showToast(typeof message === 'string' ? message as string : '');
+        result.success(null);
+        return;
+      }
       default:
         result.notImplemented();
     }

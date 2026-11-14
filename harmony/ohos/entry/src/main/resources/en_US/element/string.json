@@ -23,6 +23,18 @@
     {
       "name": "card_play_empty",
       "value": "Nothing played yet"
+    },
+    {
+      "name": "card_memory_label",
+      "value": "Memory"
+    },
+    {
+      "name": "card_memory_description",
+      "value": "Your album memories"
+    },
+    {
+      "name": "card_memory_empty",
+      "value": "No memories yet"
     }
   ]
 }

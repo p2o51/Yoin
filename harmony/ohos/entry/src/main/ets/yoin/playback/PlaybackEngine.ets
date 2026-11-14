@@ -11,6 +11,13 @@ const TAG = 'YoinPlayback';
 const RESTART_THRESHOLD_MS = 3000;
 /** Position samples while playing; Dart extrapolates in between. */
 const TICK_MS = 1000;
+/**
+ * Gapless (near): this close to the end of the current item, the next one in play order is prepared on a second
+ * AVPlayer, and 'completed' (or a manual next) swaps to it and plays at once — no source, buffer or prepare in
+ * between. Off = the v1 behaviour (load after the end).
+ */
+const PRELOAD_NEXT = true;
+const PRELOAD_LEAD_MS = 20000;
 /** Volume while another app holds shared focus and asks us to duck (Media3's ducked multiplier). */
 const DUCK_VOLUME = 0.2;
 
@@ -109,6 +116,14 @@ export class PlaybackEngine {
   private ticker: number = -1;
   /** Set when the system paused us for a transient interruption; a resume hint then restarts playback. */
   private resumeOnFocusGain: boolean = false;
+  /** An idle AVPlayer that is never the current one: the next item is prepared on it (gapless). */
+  private spare: EnginePlayer | null = null;
+  /** The queue entry set on [spare] (identity: a queue edit that replaces it invalidates the preload). */
+  private preloadItem: QueueItem | null = null;
+  /** [spare] reported 'prepared' for [preloadItem]. */
+  private preloadReady: boolean = false;
+  /** Bumped by every preload start / discard; a stale preload op does nothing. */
+  private preloadToken: number = 0;
   private listeners: EngineListener[] = [];
   private released: boolean = false;
 
@@ -317,6 +332,8 @@ export class PlaybackEngine {
   pause(): void {
     this.playWhenReady = false;
     this.resumeOnFocusGain = false;
+    // A long pause would leave the prepared stream's connection to time out; prepare again once playing.
+    this.discardPreload();
     this.pauseInternal();
   }
 
@@ -412,6 +429,7 @@ export class PlaybackEngine {
     this.favoriteId = null;
     this.favorite = null;
     this.stopTicker();
+    this.discardPreload();
     this.enqueue(async (): Promise<void> => {
       const p = this.player;
       if (p !== null && p.state() !== 'idle' && p.state() !== 'released') {
@@ -427,11 +445,16 @@ export class PlaybackEngine {
     this.released = true;
     this.enqueue(async (): Promise<void> => {
       const all = Array.from(this.players.values());
+      const spare = this.spare;
       this.player = null;
+      this.spare = null;
       this.players.clear();
       for (const pending of all) {
         const p = await pending;
         await p.release();
+      }
+      if (spare !== null) {
+        await spare.release();
       }
     });
     this.listeners = [];
@@ -467,6 +490,10 @@ export class PlaybackEngine {
   // ---- loading ----
 
   private load(index: number, startMs: number): void {
+    if (startMs === 0 && this.swapToPreloaded(index)) {
+      return;
+    }
+    this.discardPreload();
     const gen = ++this.generation;
     const item = this.items[index];
     this.index = index;
@@ -502,6 +529,175 @@ export class PlaybackEngine {
       this.sourceGeneration = gen;
       await p.setSource(item);
     }, gen);
+  }
+
+  // ---- gapless ----
+
+  /**
+   * Near the end of a playing item, prepares the next one in play order on the spare AVPlayer. A preload the queue
+   * no longer leads to (edit, shuffle, repeat change) is dropped. Items of a registered player (Apple Music) are not
+   * preloaded: that player fetches ahead on its own.
+   */
+  private maybePreload(): void {
+    if (!PRELOAD_NEXT || this.released || this.phase !== 'ready' || !this.playing) {
+      return;
+    }
+    const target = this.autoNext();
+    let want: QueueItem | null = target >= 0 && target !== this.index ? this.items[target] : null;
+    if (want !== null && EnginePlayers.kindOf(want.uri) !== '') {
+      want = null;
+    }
+    if (this.preloadItem !== null && this.preloadItem !== want) {
+      this.discardPreload();
+    }
+    if (want === null || this.preloadItem === want) {
+      return;
+    }
+    const duration = this.durationMs;
+    if (duration === null || duration <= 0 || duration - this.readPosition() > PRELOAD_LEAD_MS) {
+      return;
+    }
+    const item: QueueItem = want;
+    this.preloadItem = item;
+    this.preloadReady = false;
+    const token = ++this.preloadToken;
+    this.enqueue(async (): Promise<void> => {
+      if (token !== this.preloadToken || this.released) {
+        return;
+      }
+      try {
+        const p = await this.ensureSpare();
+        if (token !== this.preloadToken) {
+          return;
+        }
+        if (p.state() !== 'idle') {
+          await p.reset();
+        }
+        if (token !== this.preloadToken) {
+          return;
+        }
+        await p.setSource(item);
+        hilog.info(DOMAIN, TAG, 'preloading the next item');
+      } catch (e) {
+        hilog.warn(DOMAIN, TAG, 'preload failed: %{public}s', describe(e as BusinessError));
+        if (token === this.preloadToken) {
+          this.discardPreload();
+        }
+      }
+    });
+  }
+
+  /**
+   * Plays queue index [index] from the prepared spare, if that is what it holds: the spare becomes the AVPlayer
+   * of the queue and the old one the next spare. False = load it the usual way.
+   */
+  private swapToPreloaded(index: number): boolean {
+    const spare = this.spare;
+    const item = index >= 0 && index < this.items.length ? this.items[index] : null;
+    if (item === null || spare === null || !this.preloadReady || this.preloadItem !== item ||
+      spare.state() !== 'prepared') {
+      return false;
+    }
+    const gen = ++this.generation;
+    const previous = this.player;
+    const previousAv = this.players.get('');
+    this.spare = null;
+    this.preloadItem = null;
+    this.preloadReady = false;
+    this.preloadToken++;
+    this.index = index;
+    this.phase = 'ready';
+    this.playing = false;
+    this.durationMs = spare.duration() > 0 ? spare.duration() : (item.durationMs !== undefined ? item.durationMs : null);
+    this.lastPositionMs = 0;
+    this.pendingStartMs = 0;
+    this.errorMessage = null;
+    this.errorCode = null;
+    this.stopTicker();
+    this.player = spare;
+    this.players.set('', Promise.resolve(spare));
+    this.sourceGeneration = gen;
+    spare.setVolume(outVolume(1.0));
+    if (this.playWhenReady) {
+      spare.play().catch((e: BusinessError) => this.onCommandFailed('play', e));
+    }
+    hilog.info(DOMAIN, TAG, 'gapless: swapped to the preloaded item');
+    this.emit();
+    // The finished item's player is silenced; the old AVPlayer waits as the next spare.
+    this.enqueue(async (): Promise<void> => {
+      if (previous !== null && previous !== spare && previous.state() !== 'idle' && previous.state() !== 'released') {
+        await previous.reset();
+      }
+      if (previousAv !== undefined) {
+        const av = await previousAv;
+        if (av !== spare && av !== this.player && this.spare === null) {
+          if (av.state() !== 'idle' && av.state() !== 'released') {
+            await av.reset();
+          }
+          this.spare = av;
+        }
+      }
+    });
+    return true;
+  }
+
+  /** Forgets the preload; the spare is reset in turn (a newer preload resets it anyway). */
+  private discardPreload(): void {
+    if (this.preloadItem === null) {
+      return;
+    }
+    this.preloadItem = null;
+    this.preloadReady = false;
+    const token = ++this.preloadToken;
+    this.enqueue(async (): Promise<void> => {
+      const p = this.spare;
+      if (p !== null && token === this.preloadToken && p.state() !== 'idle' && p.state() !== 'released') {
+        await p.reset();
+      }
+    });
+  }
+
+  /** The spare AVPlayer, made on first use (only from an op on [opChain], so never two). */
+  private async ensureSpare(): Promise<EnginePlayer> {
+    const existing = this.spare;
+    if (existing !== null) {
+      return existing;
+    }
+    const holder = new PlayerHolder();
+    const p = await AvEnginePlayer.create(this.eventsFor(holder));
+    holder.player = p;
+    this.spare = p;
+    return p;
+  }
+
+  /** The spare's own events while it prepares the next item (never the current player's). */
+  private onSpareState(p: EnginePlayer, state: string): void {
+    if (p !== this.spare || this.preloadItem === null) {
+      return;
+    }
+    const token = this.preloadToken;
+    switch (state) {
+      case 'initialized':
+        p.prepareForMusic().catch((e: BusinessError) => {
+          hilog.warn(DOMAIN, TAG, 'preload prepare failed: %{public}s', describe(e));
+          if (token === this.preloadToken) {
+            this.discardPreload();
+          }
+        });
+        break;
+      case 'prepared':
+        this.preloadReady = true;
+        break;
+      default:
+        break;
+    }
+  }
+
+  private onSpareError(p: EnginePlayer, e: BusinessError): void {
+    if (p === this.spare && this.preloadItem !== null) {
+      hilog.warn(DOMAIN, TAG, 'preload error: %{public}s', describe(e));
+      this.discardPreload();
+    }
   }
 
   /** Repeat one (or a queue of one under repeat all): the same item again from 0, counted as a repeat. */
@@ -556,11 +752,15 @@ export class PlaybackEngine {
         const p = current();
         if (p !== null) {
           this.onPlayerState(p, state);
+        } else if (holder.player !== null) {
+          this.onSpareState(holder.player, state);
         }
       },
       onError: (e: BusinessError) => {
         if (current() !== null && this.isSourceCurrent()) {
           this.fail(e);
+        } else if (current() === null && holder.player !== null) {
+          this.onSpareError(holder.player, e);
         }
       },
       onTime: (time: number) => {
@@ -637,7 +837,7 @@ export class PlaybackEngine {
       case 'completed': {
         this.playing = false;
         this.stopTicker();
-        // Start the next item at once: the reload gap is the only gap (no gapless in v1).
+        // Start the next item at once: from the preloaded spare when it holds it (load() swaps), else reloaded.
         const target = this.autoNext();
         if (target >= 0 && target === this.index) {
           this.replayCurrent(p);
@@ -765,7 +965,10 @@ export class PlaybackEngine {
 
   private startTicker(): void {
     if (this.ticker === -1) {
-      this.ticker = setInterval(() => this.emit(true), TICK_MS);
+      this.ticker = setInterval(() => {
+        this.emit(true);
+        this.maybePreload();
+      }, TICK_MS);
     }
   }
 

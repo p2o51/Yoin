@@ -23,6 +23,18 @@
     {
       "name": "card_play_empty",
       "value": "暂无播放记录"
+    },
+    {
+      "name": "card_memory_label",
+      "value": "Memories"
+    },
+    {
+      "name": "card_memory_description",
+      "value": "你的专辑 Memories"
+    },
+    {
+      "name": "card_memory_empty",
+      "value": "暂无 Memories"
     }
   ]
 }

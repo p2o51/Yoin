@@ -39,6 +39,10 @@
     {
       "name": "card_placeholder",
       "value": "#FFEADDFF"
+    },
+    {
+      "name": "card_badge_ink",
+      "value": "#FF2A1F3D"
     }
   ]
 }

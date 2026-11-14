@@ -10,10 +10,12 @@ import 'package:yoin/data/profile/profile_repository.dart';
 import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/platform/playback/playback_engine.dart';
 import 'package:yoin/platform/storage/stores.dart';
+import 'package:yoin/platform/window/window_controls.dart';
 import 'package:yoin/playback/now_playing_state.dart';
 import 'package:yoin/playback/play_mode.dart';
 import 'package:yoin/playback/playback_context.dart';
 import 'package:yoin/playback/playback_controller.dart';
+import 'package:yoin/playback/playback_strings.dart';
 import 'package:yoin/playback/playhead.dart';
 import 'package:yoin/playback/scrobble.dart';
 import 'package:yoin/playback/system_requests.dart';
@@ -22,6 +24,15 @@ import 'package:yoin/playback/track_codec.dart';
 import '../support/fake_music_source.dart';
 import '../support/fake_playback_engine.dart';
 import '../support/playback_fakes.dart';
+
+final class _Window implements WindowControls {
+  final toasts = <String>[];
+  final keepOn = <bool>[];
+  @override
+  Future<void> showToast(String message) async => toasts.add(message);
+  @override
+  Future<void> setKeepScreenOn(bool on) async => keepOn.add(on);
+}
 
 final class _Clock implements PlaybackClock {
   int wall = 1700000000000;
@@ -101,6 +112,7 @@ void main() {
     late ProviderContainer c;
     late Profile profile;
     late List<NowPlayingState> published;
+    late _Window window;
 
     PlaybackController ctl() => c.read(playbackControllerProvider.notifier);
     NowPlayingState st() => c.read(playbackControllerProvider);
@@ -112,7 +124,9 @@ void main() {
       repo = ProfileRepository(values, InMemoryStore());
       profile = await repo.add(provider: MediaId.providerSubsonic, displayName: 'Home', credentials: _creds);
       clock = _Clock();
+      window = _Window();
       c = ProviderContainer(overrides: [
+        windowControlsProvider.overrideWithValue(window),
         playbackEngineProvider.overrideWithValue(engine),
         keyValueStoreProvider.overrideWithValue(values),
         profileRepositoryProvider.overrideWithValue(repo),
@@ -313,6 +327,22 @@ void main() {
         await pumpEventQueue();
         expect(PendingScrobbles.decode(values.values[PendingScrobbles.storeKey]), hasLength(1));
       });
+
+      test('should_flushQueuedPlays_when_networkComesBack', () async {
+        source.submitFailure = const SourceNetworkException('offline');
+        await ctl().playTracks(playbackTracks(1));
+        await echo(0);
+        clock.mono += 100000;
+        await echo(0, position: 100000, tick: true);
+        await pumpEventQueue();
+        expect(PendingScrobbles.decode(values.values[PendingScrobbles.storeKey]), hasLength(1));
+
+        source.submitFailure = null;
+        engine.event(const NetworkAvailableEvent());
+        await pumpEventQueue();
+        expect(source.submitted.single.$1, MediaId.subsonic('t0'));
+        expect(values.values[PendingScrobbles.storeKey], isNull);
+      });
     });
 
     group('favourite and rating', () {
@@ -349,6 +379,33 @@ void main() {
         source.writeGate!.complete();
         expect(await first, isTrue);
         expect(source.favoriteWrites, hasLength(1));
+      });
+
+      test('should_toastInsteadOfSnackbar_when_systemHeartFailsInBackground', () async {
+        await ctl().playTracks(playbackTracks(1));
+        await echo(0);
+        final notices = <PlaybackNotice>[];
+        ctl().notices.listen(notices.add);
+        ctl().debugForeground = false;
+        source.writeFailure = const SourceNetworkException('offline');
+        engine.event(const ToggleFavoriteCommand('subsonic:t0'));
+        await pumpEventQueue();
+        expect(window.toasts, [PlaybackStrings.en.couldntSaveFavorite]);
+        expect(notices, isEmpty);
+        expect(engine.hearts['subsonic:t0'], isFalse);
+      });
+
+      test('should_useSnackbar_when_systemHeartFailsInForeground', () async {
+        await ctl().playTracks(playbackTracks(1));
+        await echo(0);
+        final notices = <PlaybackNotice>[];
+        ctl().notices.listen(notices.add);
+        ctl().debugForeground = true;
+        source.writeFailure = const SourceNetworkException('offline');
+        engine.event(const ToggleFavoriteCommand('subsonic:t0'));
+        await pumpEventQueue();
+        expect(window.toasts, isEmpty);
+        expect((notices.single as FavoriteWriteFailed).favorite, isTrue);
       });
 
       test('should_toggleFromLockScreen_when_sessionHeartTapped', () async {

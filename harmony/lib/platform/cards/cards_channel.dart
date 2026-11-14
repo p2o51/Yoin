@@ -31,6 +31,41 @@ final class PlayCardItem {
       };
 }
 
+/// One memory on the Memory card (Android widget/WidgetData.kt MemoryItem),
+/// already worded: the card shows these strings as they come.
+@immutable
+final class MemoryCardItem {
+  const MemoryCardItem({
+    required this.sessionId,
+    required this.album,
+    this.artist,
+    this.score,
+    this.lastHeard,
+    this.cover,
+  });
+
+  /// The memory's stable id (what Memories opens on).
+  final int sessionId;
+  final String album;
+  final String? artist;
+
+  /// "8.5", or null when nothing on the album is rated.
+  final String? score;
+
+  /// "3 Days Ago" / "Today", or null when it was never played in Yoin.
+  final String? lastHeard;
+  final Uint8List? cover;
+
+  Map<String, Object?> toMap() => {
+        'session': '$sessionId',
+        'album': album,
+        'artist': artist ?? '',
+        'score': score ?? '',
+        'lastHeard': lastHeard ?? '',
+        'cover': cover,
+      };
+}
+
 /// What a card tap asks for.
 sealed class CardAction {
   const CardAction();
@@ -43,6 +78,7 @@ sealed class CardAction {
       'open' when entity is String && id is String => CardOpen(entity, id),
       'play' when entity is String && id is String => CardPlay(entity, id),
       'app' => const CardOpenApp(),
+      'memory' when id is String => CardOpenMemory(int.tryParse(id)),
       _ => null,
     };
   }
@@ -62,6 +98,12 @@ final class CardPlay extends CardAction {
   final String id;
 }
 
+/// Open Memories on one memory (the Memory card); null = just open Memories.
+final class CardOpenMemory extends CardAction {
+  const CardOpenMemory(this.sessionId);
+  final int? sessionId;
+}
+
 /// Just bring the app forward (the empty card).
 final class CardOpenApp extends CardAction {
   const CardOpenApp();
@@ -72,6 +114,9 @@ abstract interface class CardsHost {
   /// Replaces the Play card's content. [glyphLight] / [glyphDark] are the play
   /// symbol rendered for each theme (the card cannot draw Yoin Symbols itself).
   Future<void> publishPlay(List<PlayCardItem> items, {required Uint8List glyphLight, required Uint8List glyphDark});
+
+  /// Replaces the Memory card's content (newest heard first).
+  Future<void> publishMemory(List<MemoryCardItem> items);
 
   /// Starts delivering card taps to [handler] (including one that cold-started the app).
   Future<void> listen(void Function(CardAction action) handler);
@@ -91,6 +136,11 @@ final class ChannelCardsHost implements CardsHost {
         'items': [for (final item in items) item.toMap()],
         'glyphLight': glyphLight,
         'glyphDark': glyphDark,
+      });
+
+  @override
+  Future<void> publishMemory(List<MemoryCardItem> items) => _channel.invokeMethod<void>('publishMemory', {
+        'items': [for (final item in items) item.toMap()],
       });
 
   @override

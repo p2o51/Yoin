@@ -4,6 +4,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { EngineListener, EngineSnapshot, PlaybackEngine } from './PlaybackEngine';
 import { QueueItem } from './QueueItem';
 import { SystemSession } from './SystemSession';
+import { NetworkWatch } from './NetworkWatch';
 
 const DOMAIN = 0x5901;
 const TAG = 'YoinPlaybackHost';
@@ -24,6 +25,8 @@ export class YoinPlaybackHost {
   private sink: EventSink | null = null;
   private openRequestedAt: number = 0;
   private listener: EngineListener = (s: EngineSnapshot) => this.sendState(s);
+  /** A network came up: Dart sends the plays it queued offline. */
+  private network: NetworkWatch = new NetworkWatch();
 
   private constructor(context: common.UIAbilityContext) {
     this.context = context;
@@ -31,6 +34,7 @@ export class YoinPlaybackHost {
     this.engine.addListener(this.listener);
     this.session = new SystemSession(context, this.engine,
       (name: string, id: string) => this.sendCommand(name, id));
+    this.network.start(() => this.sendNetworkAvailable());
   }
 
   /** The host, created on first use; a newer ability context takes over the session. */
@@ -68,6 +72,7 @@ export class YoinPlaybackHost {
     }
     host.session.release();
     host.engine.release();
+    host.network.stop();
     YoinPlaybackHost.instance = null;
   }
 
@@ -121,6 +126,17 @@ export class YoinPlaybackHost {
     map.set('type', 'command');
     map.set('name', name);
     map.set('id', id);
+    sink.success(map);
+  }
+
+  /** No Dart listening: dropped (Dart flushes on resume anyway). */
+  private sendNetworkAvailable(): void {
+    const sink = this.sink;
+    if (sink === null) {
+      return;
+    }
+    const map: Map<string, Any> = new Map();
+    map.set('type', 'networkAvailable');
     sink.success(map);
   }
 

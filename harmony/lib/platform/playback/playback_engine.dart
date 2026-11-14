@@ -181,6 +181,7 @@ sealed class EngineEvent {
   /// null for an unknown event type (newer native side).
   static EngineEvent? fromMap(Map<Object?, Object?> map) => switch (map['type']) {
         'openNowPlaying' => const OpenNowPlayingEvent(),
+        'networkAvailable' => const NetworkAvailableEvent(),
         'command' => switch (map['name']) {
             'toggleFavorite' => ToggleFavoriteCommand(map['id'] as String?),
             _ => null,
@@ -193,6 +194,13 @@ sealed class EngineEvent {
 /// continuous-task notification.
 final class OpenNowPlayingEvent extends EngineEvent {
   const OpenNowPlayingEvent();
+}
+
+/// A network became usable (ArkTS `NetConnection` 'netAvailable'; Android
+/// YoinApplication's ConnectivityManager onAvailable): plays queued offline
+/// can go out now.
+final class NetworkAvailableEvent extends EngineEvent {
+  const NetworkAvailableEvent();
 }
 
 /// The system heart was tapped; [id] is the item's MediaId string.
@@ -225,7 +233,8 @@ abstract interface class PlaybackEngine {
 /// Every queue change carries a [revision] chosen by Dart; the engine echoes
 /// the latest one in [EngineState.revision].
 abstract interface class QueuePlaybackEngine implements PlaybackEngine {
-  /// System requests (open Now Playing, the session heart).
+  /// System requests (open Now Playing, the session heart) and system news
+  /// (a network came up).
   Stream<EngineEvent> get events;
 
   Future<void> startQueue(

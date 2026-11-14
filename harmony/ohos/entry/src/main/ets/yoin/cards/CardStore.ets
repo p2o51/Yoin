@@ -33,6 +33,48 @@ export interface PlayPublishItem {
   cover: Uint8Array | null;
 }
 
+/** One Memory card item as the card page reads it (image = its formImages key, '' for none). */
+export interface MemoryCardEntry {
+  session: string;
+  album: string;
+  artist: string;
+  score: string;
+  lastHeard: string;
+  image: string;
+}
+
+interface MemorySaved {
+  rev: number;
+  items: MemoryCardEntry[];
+}
+
+/** The incoming memory from Dart (yoin/cards publishMemory). */
+export interface MemoryPublishItem {
+  session: string;
+  album: string;
+  artist: string;
+  score: string;
+  lastHeard: string;
+  cover: Uint8Array | null;
+}
+
+/** form_config.json names. */
+export const PLAY_FORM = 'play';
+export const MEMORY_FORM = 'memory';
+
+/** Memory card layout for a form dimension (Android MemoryWidget: strip / anchor / timeline). */
+export function memoryLayoutFor(dimension: number): string {
+  switch (dimension) {
+    case formInfo.FormDimension.Dimension_1_2:
+      return 'strip';
+    case formInfo.FormDimension.Dimension_2_4:
+    case formInfo.FormDimension.Dimension_4_4:
+      return 'timeline';
+    default:
+      return 'anchor';
+  }
+}
+
 /** Card layout for a form dimension (Android PlayWidget: strip / stack / shelf). */
 export function layoutFor(dimension: number): string {
   switch (dimension) {
@@ -136,6 +178,92 @@ export class CardStore {
     hilog.info(DOMAIN, TAG, 'play card saved: %{public}d items', entries.length);
   }
 
+  // ---- Memory content ----------------------------------------------------------------------------
+
+  /** Replaces the Memory card's content (image names carry the revision, as for Play). */
+  static saveMemory(ctx: common.Context, items: MemoryPublishItem[]): void {
+    const dir = CardStore.ensureDir(ctx);
+    const rev = Date.now();
+    const old = CardStore.readJson(`${dir}/memory.json`) as MemorySaved | null;
+    const entries: MemoryCardEntry[] = [];
+    items.forEach((item: MemoryPublishItem, i: number) => {
+      let image = '';
+      if (item.cover !== null && item.cover.byteLength > 0) {
+        image = `memory_${rev}_${i}`;
+        CardStore.writeBytes(`${dir}/${image}.img`, item.cover);
+      }
+      entries.push({
+        session: item.session,
+        album: item.album,
+        artist: item.artist,
+        score: item.score,
+        lastHeard: item.lastHeard,
+        image: image
+      });
+    });
+    const saved: MemorySaved = { rev: rev, items: entries };
+    CardStore.writeJson(`${dir}/memory.json`, saved);
+    if (old !== null) {
+      const keep = new Set<string>(entries.map((e: MemoryCardEntry) => e.image));
+      old.items.map((e: MemoryCardEntry) => e.image)
+        .filter((name: string) => name.length > 0 && !keep.has(name))
+        .forEach((name: string) => {
+          try {
+            fileIo.unlinkSync(`${dir}/${name}.img`);
+          } catch (e) {
+            // already gone
+          }
+        });
+    }
+    hilog.info(DOMAIN, TAG, 'memory card saved: %{public}d items', entries.length);
+  }
+
+  /** The binding data for one Memory card, plus the fds it opened. */
+  static memoryBinding(ctx: common.Context, layout: string): BindingWithFds {
+    const dir = CardStore.dir(ctx);
+    const saved = CardStore.readJson(`${dir}/memory.json`) as MemorySaved | null;
+    const fds: number[] = [];
+    const images: Record<string, number> = {};
+    const items: MemoryCardEntry[] = [];
+    if (saved !== null) {
+      saved.items.forEach((item: MemoryCardEntry) => {
+        let image = '';
+        if (item.image.length > 0) {
+          try {
+            const file = fileIo.openSync(`${dir}/${item.image}.img`, fileIo.OpenMode.READ_ONLY);
+            images[item.image] = file.fd;
+            fds.push(file.fd);
+            image = item.image;
+          } catch (e) {
+            image = '';
+          }
+        }
+        items.push({
+          session: item.session,
+          album: item.album,
+          artist: item.artist,
+          score: item.score,
+          lastHeard: item.lastHeard,
+          image: image
+        });
+      });
+    }
+    const data: Record<string, Object> = {
+      'layout': layout,
+      'items': items,
+      'hasItems': items.length > 0,
+      'formImages': images,
+    };
+    return { binding: formBindingData.createFormBindingData(data), fds: fds };
+  }
+
+  /** The binding for a placed card of form [name]. */
+  static bindingFor(ctx: common.Context, name: string, dimension: number): BindingWithFds {
+    return name === MEMORY_FORM ?
+      CardStore.memoryBinding(ctx, memoryLayoutFor(dimension)) :
+      CardStore.binding(ctx, layoutFor(dimension));
+  }
+
   /**
    * The binding data for one card, plus the fds it opened (formImages). The
    * caller closes them once the system has the data.
@@ -195,35 +323,44 @@ export class CardStore {
 
   // ---- placed cards ------------------------------------------------------------------------------
 
-  private static forms(ctx: common.Context): Record<string, number> {
-    const saved = CardStore.readJson(`${CardStore.dir(ctx)}/forms.json`);
+  /** Placed cards of one form: formId → dimension (forms.json = Play, as before the Memory card). */
+  private static formsFile(name: string): string {
+    return name === MEMORY_FORM ? 'forms_memory.json' : 'forms.json';
+  }
+
+  private static forms(ctx: common.Context, name: string = PLAY_FORM): Record<string, number> {
+    const saved = CardStore.readJson(`${CardStore.dir(ctx)}/${CardStore.formsFile(name)}`);
     return saved === null ? {} : saved as Record<string, number>;
   }
 
-  static addForm(ctx: common.Context, formId: string, dimension: number): void {
+  static addForm(ctx: common.Context, formId: string, dimension: number, name: string = PLAY_FORM): void {
     const dir = CardStore.ensureDir(ctx);
-    const forms = CardStore.forms(ctx);
+    const forms = CardStore.forms(ctx, name);
     forms[formId] = dimension;
-    CardStore.writeJson(`${dir}/forms.json`, forms);
+    CardStore.writeJson(`${dir}/${CardStore.formsFile(name)}`, forms);
   }
 
   static removeForm(ctx: common.Context, formId: string): void {
     const dir = CardStore.ensureDir(ctx);
-    const forms = CardStore.forms(ctx);
-    if (forms[formId] === undefined) {
-      return;
-    }
-    const kept: Record<string, number> = {};
-    Object.keys(forms).filter((id: string) => id !== formId).forEach((id: string) => {
-      kept[id] = forms[id];
+    [PLAY_FORM, MEMORY_FORM].forEach((name: string) => {
+      const forms = CardStore.forms(ctx, name);
+      if (forms[formId] === undefined) {
+        return;
+      }
+      const kept: Record<string, number> = {};
+      Object.keys(forms).filter((id: string) => id !== formId).forEach((id: string) => {
+        kept[id] = forms[id];
+      });
+      CardStore.writeJson(`${dir}/${CardStore.formsFile(name)}`, kept);
     });
-    CardStore.writeJson(`${dir}/forms.json`, kept);
   }
 
   /** Pushes the current data to one placed card. */
   static async refreshOne(ctx: common.Context, formId: string): Promise<void> {
-    const dimension = CardStore.forms(ctx)[formId];
-    const b = CardStore.binding(ctx, layoutFor(dimension ?? formInfo.FormDimension.Dimension_2_2));
+    const memory = CardStore.forms(ctx, MEMORY_FORM)[formId];
+    const name = memory !== undefined ? MEMORY_FORM : PLAY_FORM;
+    const dimension = memory !== undefined ? memory : CardStore.forms(ctx)[formId];
+    const b = CardStore.bindingFor(ctx, name, dimension ?? formInfo.FormDimension.Dimension_2_2);
     try {
       await formProvider.updateForm(formId, b.binding);
     } catch (e) {
@@ -238,9 +375,9 @@ export class CardStore {
     }
   }
 
-  /** Pushes the current data to every placed card. */
-  static async refreshAll(ctx: common.Context): Promise<void> {
-    const ids = Object.keys(CardStore.forms(ctx));
+  /** Pushes the current data to every placed card of form [name]. */
+  static async refreshAll(ctx: common.Context, name: string = PLAY_FORM): Promise<void> {
+    const ids = Object.keys(CardStore.forms(ctx, name));
     for (const id of ids) {
       await CardStore.refreshOne(ctx, id);
     }
