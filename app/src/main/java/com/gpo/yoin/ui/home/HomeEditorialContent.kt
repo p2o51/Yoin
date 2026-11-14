@@ -138,7 +138,6 @@ import com.gpo.yoin.ui.component.SeamFlow
 import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
-import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
@@ -2858,7 +2857,7 @@ private fun YourPlaylistsSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .horizontalEdgeFadeOnScroll(shelfState)
+                .then(homeShelfEdgeFade(shelfState))
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -2906,7 +2905,7 @@ private fun OtherProfilesSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .horizontalEdgeFadeOnScroll(shelfState)
+                .then(homeShelfEdgeFade(shelfState))
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -3013,7 +3012,7 @@ private fun AlbumShelfSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .horizontalEdgeFadeOnScroll(shelfState)
+                .then(homeShelfEdgeFade(shelfState))
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),

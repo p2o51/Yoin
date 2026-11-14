@@ -56,7 +56,6 @@ import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.elasticPress
-import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.seamDissolve
@@ -180,7 +179,7 @@ internal fun RediscoverSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .horizontalEdgeFadeOnScroll(shelfState)
+                .then(homeShelfEdgeFade(shelfState))
                 // Plates V1 (shipped) / V2 only: clipped to the edit plate while editing.
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
