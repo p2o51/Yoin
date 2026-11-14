@@ -235,7 +235,9 @@ final class LyricHighlightProcessor {
         let bySong = Dictionary(signals.map { ($0.songId, $0) }, uniquingKeysWith: { a, _ in a })
         var out: [String: LyricHighlightSelector.Bucket] = [:]
         for card in cards {
-            out[card.id] = card.isUserPick ? .user : LyricHighlightSelector.bucket(of: bySong[card.songId], now: now)
+            // A song not heard yet (the selector's fresh pool) names no way it was heard.
+            let heard = LyricHighlightSelector.bucket(of: bySong[card.songId], now: now)
+            out[card.id] = card.isUserPick ? .user : heard == .fresh ? nil : heard
         }
         return out
     }
