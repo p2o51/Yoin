@@ -13,6 +13,7 @@ import '../nowplaying/now_playing_pill.dart';
 import '../nowplaying/now_playing_screen.dart' show heroRestScale;
 import '../nowplaying/overlay_controller.dart';
 import '../nowplaying/player_snapshot.dart';
+import '../playback/keep_screen_on.dart';
 import '../playback/local_ratings.dart';
 import '../playback/playback_controller.dart';
 import '../playback/playback_strings.dart';
@@ -76,8 +77,20 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     super.dispose();
   }
 
+  /// Now Playing open asks the window to stay awake (while playing and when
+  /// the user chose it; NowPlayingKeepScreenOn decides).
+  bool _keepAwakeAsked = false;
+
+  void _syncKeepAwake() {
+    final ask = _controller.expanded;
+    if (ask == _keepAwakeAsked) return;
+    _keepAwakeAsked = ask;
+    ref.read(nowPlayingKeepScreenOnProvider.notifier).setKeepScreenOn(ask);
+  }
+
   /// Back belongs to the overlay exactly while it is open.
   void _syncBack() {
+    _syncKeepAwake();
     final navigator = appNavigatorKey.currentState;
     if (_controller.expanded && navigator != null) {
       _back.attach(navigator);
