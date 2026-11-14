@@ -159,16 +159,20 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
   // with the split and drops the right one, so it needs no factor of its own.
   final detail = _clamp01(i.detailPose);
   final idle = _clamp01(i.idle);
+  final pane = _clamp01(i.pane);
+  final navOnly = _clamp01(i.navOnly);
+  // The panel fold and the merged pose win over the idle halves: the nav
+  // buttons keep their resting sizes while the bar wraps them.
+  final idleWeight = idle * (1 - navOnly) * (1 - pane);
   final idleHalf = math.max(0.0, (i.innerWidth - 2 * gap) / 2);
-  final homeW = lerpDouble(homeRest, idleHalf, idle)!;
-  final libW = lerpDouble(libRest, idleHalf, idle)!;
+  final homeW = lerpDouble(homeRest, idleHalf, idleWeight)!;
+  final libW = lerpDouble(libRest, idleHalf, idleWeight)!;
 
   // CenteredBar detail pose: [Play split (stretches)] [extras…] [pill 200].
   final extrasWidth = (i.buttonHeight + gap) * math.max(0, i.promotedCount);
   final splitDetailW = i.centered
       ? math.max(BarTokens.splitWidth, i.innerWidth - BarTokens.detailPillWidth - gap - extrasWidth)
       : BarTokens.splitWidth;
-  final pane = _clamp01(i.pane);
   final rightMerged = gap + BarTokens.splitWidth + (i.buttonHeight + gap) * math.max(0, i.mergedCount);
   // LEFT: Home → Play split (detail) / Home + Library (merged).
   final splitW = lerpDouble(lerpDouble(homeW, splitDetailW, detail)!, homeRest + gap + libRest, pane)!;
@@ -178,9 +182,10 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
   // With the pill folding away beside the side panel the surface hugs the
   // slots exactly — never a lerp between two resting widths, which would
   // disagree with the slots mid-spring and leave a hole where the pill was.
-  final navOnly = _clamp01(i.navOnly);
+  // Nothing playing in the merged pose folds the pill too.
+  final collapse = math.max(navOnly, idle * pane);
   final fixed = splitW + gap + extrasSlot + librarySlot;
-  final pillW = math.max(0.0, i.innerWidth - fixed) * (1 - navOnly);
+  final pillW = math.max(0.0, i.innerWidth - fixed) * (1 - collapse);
 
   return BarGeometry(
     homeWidth: homeW,
@@ -192,10 +197,10 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
     splitDetailWidth: splitDetailW,
     navAlpha: _clamp01(1 - detail / 0.6) * (1 - pane),
     splitAlpha: _clamp01((detail - 0.4) / 0.6) * (1 - pane),
-    labelAlpha: _clamp01((idle - 0.55) / 0.45),
+    labelAlpha: _clamp01((idleWeight - 0.55) / 0.45),
     // Any detail pose shows the pill whole ("Nothing playing" when idle).
-    pillAlpha: (detail > 0.005 ? 1.0 : _clamp01(1 - idle / 0.5)) * _clamp01(1 - navOnly / 0.5),
-    composePill: (idle < 0.995 || detail > 0.005) && navOnly < 0.995,
+    pillAlpha: (detail > 0.005 ? 1.0 : _clamp01(1 - idle / 0.5)) * _clamp01(1 - collapse / 0.5),
+    composePill: (idle < 0.995 || detail > 0.005) && collapse < 0.995,
     surfaceInner: fixed + pillW,
     pane: pane,
     rightMergedWidth: rightMerged,
