@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 /// One song that started playing in Yoin. Android `data/local/PlayHistory`
 /// (Room `play_history`): recorded once when the song starts playing
@@ -66,19 +67,24 @@ struct AlbumPlayStats: Hashable, Sendable {
 /// in Application Support (`Yoin/history.json`), like the notes and ratings.
 /// Every query is scoped to (scope, provider), the Android DAOs' (profileId,
 /// provider). `fileURL == nil` keeps everything in memory (tests).
+///
+/// The file is written off the main thread, a moment after the last change and at once when the app
+/// leaves the foreground (Codex #20: rewritten whole on every play and visit, it runs to megabytes).
 @MainActor
 @Observable
 final class HistoryStore {
     static let shared = HistoryStore(fileURL: HistoryStore.defaultURL)
 
-    /// Oldest rows go first past these (Android keeps everything; a JSON file
-    /// rewritten whole wants a ceiling).
+    /// Each account's oldest rows go first past these (Android keeps everything; a JSON file rewritten
+    /// whole wants a ceiling). Counted per account, so one busy account never pushes another's history
+    /// out (Codex #15).
     static let maxPlays = 20_000
     static let maxActivities = 4_000
 
     private(set) var plays: [PlayEvent] = []
     private(set) var activities: [ActivityRecord] = []
     @ObservationIgnored private let fileURL: URL?
+    @ObservationIgnored private let writer = HistoryFileWriter()
     @ObservationIgnored let now: () -> Date
 
     private struct File: Codable {
@@ -95,7 +101,17 @@ final class HistoryStore {
             plays = saved.plays
             activities = saved.activities
         }
+        if fileURL != nil {
+            // What waits to be written goes out before the app may be suspended.
+            let writer = writer
+            for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+                _ = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in writer.flush() }
+            }
+        }
     }
+
+    /// Writes what is waiting now and returns once it is on disk (leaving the foreground; tests).
+    func flush() { writer.flush() }
 
     static var defaultURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -133,7 +149,7 @@ final class HistoryStore {
                                       timestamp: at)
         }
         activities.append(activity)
-        trimAndPersist()
+        trimAndPersist(scope, provider)
         return play.id
     }
 
@@ -142,7 +158,7 @@ final class HistoryStore {
         guard let i = plays.lastIndex(where: { $0.id == playId }) else { return }
         plays[i].listenedSec = max(plays[i].listenedSec, max(0, listenedSec))
         plays[i].completed = plays[i].completed || completed
-        trimAndPersist()
+        persist()
     }
 
     /// An album page opened (Android `recordAlbumVisit`).
@@ -153,7 +169,7 @@ final class HistoryStore {
                                          action: .visited, entityId: albumId, title: title, subtitle: artist,
                                          coverKey: coverKey, songId: nil, albumId: albumId, artistId: artistId,
                                          timestamp: ms ?? nowMs))
-        trimAndPersist()
+        trimAndPersist(scope, provider)
     }
 
     /// An artist page opened (Android `recordArtistVisit`): the artist's own row, so Activities
@@ -165,7 +181,7 @@ final class HistoryStore {
                                          action: .visited, entityId: artistId, title: name, subtitle: "",
                                          coverKey: coverKey, songId: nil, albumId: nil, artistId: artistId,
                                          timestamp: ms ?? nowMs))
-        trimAndPersist()
+        trimAndPersist(scope, provider)
     }
 
     /// A playlist page opened (Android `recordPlaylistVisit`).
@@ -176,28 +192,41 @@ final class HistoryStore {
                                          action: .visited, entityId: playlistId, title: name, subtitle: owner,
                                          coverKey: coverKey, songId: nil, albumId: nil, artistId: nil,
                                          timestamp: ms ?? nowMs))
-        trimAndPersist()
+        trimAndPersist(scope, provider)
     }
 
     /// Forgets one account's history (debug seeding starts clean with it).
     func removeAll(scope: String, provider: String) {
         plays.removeAll { $0.scope == scope && $0.provider == provider }
         activities.removeAll { $0.scope == scope && $0.provider == provider }
-        trimAndPersist()
+        persist()
     }
 
-    private func trimAndPersist() {
-        if plays.count > Self.maxPlays { plays.removeFirst(plays.count - Self.maxPlays) }
-        if activities.count > Self.maxActivities { activities.removeFirst(activities.count - Self.maxActivities) }
-        guard let fileURL else { return }
-        do {
-            let data = try JSONEncoder().encode(File(plays: plays, activities: activities))
-            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            // A failed write keeps the history in memory for this run.
+    /// After a row of [scope] / [provider]'s: that account's oldest go past the ceilings, then the file.
+    private func trimAndPersist(_ scope: String, _ provider: String) {
+        Self.trim(&plays, max: Self.maxPlays) { $0.scope == scope && $0.provider == provider }
+        Self.trim(&activities, max: Self.maxActivities) { $0.scope == scope && $0.provider == provider }
+        persist()
+    }
+
+    /// The rows [mine] picks past [max] leave [rows], oldest first (rows sit in the order they were
+    /// recorded); every other row stays where it is.
+    nonisolated static func trim<T>(_ rows: inout [T], max: Int, _ mine: (T) -> Bool) {
+        guard rows.count > max else { return }
+        var over = rows.reduce(0) { mine($1) ? $0 + 1 : $0 } - max
+        guard over > 0 else { return }
+        rows = rows.filter { row in
+            guard over > 0, mine(row) else { return true }
+            over -= 1
+            return false
         }
+    }
+
+    /// Hands the history as it is now to the writer (copies of the arrays: they share storage until changed).
+    private func persist() {
+        guard let fileURL else { return }
+        let file = File(plays: plays, activities: activities)
+        writer.write(to: fileURL) { try JSONEncoder().encode(file) }
     }
 
     // MARK: Queries (Android PlayHistoryDao / ActivityEventDao)
@@ -285,5 +314,45 @@ final class HistoryStore {
             out.append(e)
         }
         return out
+    }
+}
+
+/// The history file's writer: the newest snapshot only, encoded and written on a utility queue a second
+/// after the last change, so a burst of plays and visits is one write and none of it holds the main thread.
+/// A failed write keeps the history in memory for this run (the next change tries again).
+final class HistoryFileWriter: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.gpo.yoin.history", qos: .utility)
+    private let delay: DispatchTimeInterval
+    /// Guards [pending] and [scheduled].
+    private let lock = NSLock()
+    private var pending: (url: URL, encode: @Sendable () throws -> Data)?
+    private var scheduled = false
+
+    init(delay: DispatchTimeInterval = .seconds(1)) { self.delay = delay }
+
+    func write(to url: URL, _ encode: @escaping @Sendable () throws -> Data) {
+        let schedule = lock.withLock {
+            pending = (url, encode)
+            defer { scheduled = true }
+            return !scheduled
+        }
+        if schedule { queue.asyncAfter(deadline: .now() + delay) { [self] in drain() } }
+    }
+
+    /// Writes what is waiting, if anything, and returns once it is written.
+    func flush() { queue.sync { drain() } }
+
+    private func drain() {
+        let job: (url: URL, encode: @Sendable () throws -> Data)? = lock.withLock {
+            defer { pending = nil; scheduled = false }
+            return pending
+        }
+        guard let job else { return }
+        do {
+            let data = try job.encode()
+            try FileManager.default.createDirectory(at: job.url.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try data.write(to: job.url, options: .atomic)
+        } catch {}
     }
 }

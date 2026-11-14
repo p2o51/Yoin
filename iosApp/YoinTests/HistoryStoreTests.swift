@@ -38,11 +38,36 @@ final class HistoryStoreTests: XCTestCase {
         h.recordAlbumVisit(scope: "s", provider: "subsonic", albumId: "b", title: "B", artist: "X", artistId: nil,
                            coverKey: nil, at: now)
 
+        // Written off the main thread a moment later; leaving the foreground flushes it, as here.
+        h.flush()
         let reloaded = store(url)
         XCTAssertEqual(reloaded.plays.count, 1)
         XCTAssertEqual(reloaded.plays[0].listenedSec, 120)
         XCTAssertTrue(reloaded.plays[0].completed)
         XCTAssertEqual(reloaded.activities.map(\.action), [.played, .visited])
+    }
+
+    func test_should_writeTheNewestHistoryOnce_when_changesComeInABurst() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("history.json")
+        let h = store(url)
+        for i in 0..<5 { play(h, "s\(i)", album: "a", at: now - Int64(10 - i)) }
+        // Nothing on disk yet: the writer waits for the burst to end.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        h.flush()
+        XCTAssertEqual(store(url).plays.map(\.songId), ["s0", "s1", "s2", "s3", "s4"])
+    }
+
+    /// Codex #15: the ceiling is each account's, so a busy account never pushes another's history out.
+    func test_should_dropOnlyThatAccountsOldest_when_oneAccountPassesTheCeiling() {
+        var rows = ["a1", "b1", "a2", "b2", "a3"]
+        HistoryStore.trim(&rows, max: 2) { $0.hasPrefix("a") }
+        XCTAssertEqual(rows, ["b1", "a2", "b2", "a3"])
+        // Over the ceiling in all, but no account is: nothing goes.
+        var mixed = ["a1", "b1", "a2", "b2", "c1"]
+        HistoryStore.trim(&mixed, max: 2) { $0.hasPrefix("a") }
+        XCTAssertEqual(mixed, ["a1", "b1", "a2", "b2", "c1"])
     }
 
     func test_should_keepAccountsApart_when_scopeOrProviderDiffers() {
