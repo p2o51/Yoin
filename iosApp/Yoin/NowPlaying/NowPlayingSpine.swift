@@ -5,8 +5,8 @@ import YoinShared
  * The spine (Android NowPlayingSpine.kt, owner 2026-11-03): the band between a
  * height-capped cover and the rating bar on short windows. It reads the song
  * like a record's spine, one fact at a time, turned a quarter round: the
- * cached About credits (never a Gemini request), and on Subsonic the server's
- * own facts. It turns to the next fact on its own, very faint; a swipe across
+ * credits the lyrics carried, else the cached About credits (never a Gemini
+ * request), and on Subsonic the server's own facts. It turns to the next fact on its own, very faint; a swipe across
  * it steps, damped; a fact longer than the band pans along it before the
  * next. Never cut: the band's ends fade.
  */
@@ -124,13 +124,15 @@ enum NowPlayingSpine {
         SongAboutStore.Canon.producer,
     ]
 
-    /// Android `spineItems`: the cached About credits, then the Subsonic facts; when there is neither,
-    /// one line of album, artist and title. (iOS has no lyrics-source credits.)
+    /// Android `spineItems`: the About credits, then the Subsonic facts; when there is neither, one line
+    /// of album, artist and title. `credits` (the lyrics source's own) answer lyricist, composer and
+    /// producer before the cached About answer does.
     static func items(entries: [SongAboutStore.Entry], facts: SpineSourceFacts?, album: String, artist: String,
-                      title: String, labels: SpineLabels) -> [SpineItem] {
+                      title: String, labels: SpineLabels, credits: SongCredits? = nil) -> [SpineItem] {
         var items: [SpineItem] = []
         for key in creditKeys {
-            guard let answer = entries.first(where: { $0.kind == SongAboutStore.Kind.canonical && $0.entryKey == key })?
+            guard let answer = credits?.names(forAboutKey: key)
+                ?? entries.first(where: { $0.kind == SongAboutStore.Kind.canonical && $0.entryKey == key })?
                 .answerText else { continue }
             let v = answer.split(whereSeparator: \.isWhitespace).joined(separator: " ")
             if !v.isEmpty { items.append(SpineItem(label: labels.about(key), value: v)) }

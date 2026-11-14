@@ -174,10 +174,15 @@ struct NowPlayingAboutView: View {
     var expanded: Bool
     var scheme: CoverScheme
     var bottomPadding: CGFloat = 56
+    /// The credits the lyrics source wrote into the lyrics (Android `credits`): they answer lyricist,
+    /// composer and producer before Gemini, with or without it; expanded, the rest sit behind "N more".
+    var credits: SongCredits? = nil
     @Environment(\.colorScheme) private var colorScheme
     /// The long-pressed row whose sheet is up.
     @State private var menuFor: AboutEntrySheet.Target?
     @State private var pressed = 0
+    /// The lyrics' other credits are open (Android AboutReceipt `expanded`, per credits).
+    @State private var allCredits = false
 
     private var loader: SongAboutLoader { .shared }
 
@@ -201,7 +206,7 @@ struct NowPlayingAboutView: View {
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .transition(.opacity)
             case .ready(let facts):
-                list(facts.facts.map { Item(label: $0.label, value: $0.value) })
+                list(Self.rows(entries: [], facts: facts, expanded: expanded, credits: credits))
                     .transition(.opacity)
             case .searching:
                 searching.transition(.opacity)
@@ -210,10 +215,10 @@ struct NowPlayingAboutView: View {
                     .task(id: song.key) { await SongAboutLoader.shared.ensure(title: song.title, artist: song.artist, album: song.album) }
                     .transition(.opacity)
             case .gemini(let entries, let facts):
-                list(Self.rows(entries: entries, facts: facts, expanded: expanded))
+                list(Self.rows(entries: entries, facts: facts, expanded: expanded, credits: credits))
                     .transition(.opacity)
             case .noKey(let facts):
-                list((facts?.facts ?? []).map { Item(label: $0.label, value: $0.value) }, header: AnyView(noKey))
+                list(Self.rows(entries: [], facts: facts, expanded: expanded, credits: credits), header: AnyView(noKey))
                     .transition(.opacity)
             case .failed(let message, let song):
                 failed(message, song).transition(.opacity)
@@ -234,6 +239,7 @@ struct NowPlayingAboutView: View {
             }
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
+        .onChange(of: credits) { allCredits = false }
         #if DEBUG
         .task {
             // `-aboutDemo sheet`: the question's sheet, as a long-press opens it.
@@ -321,37 +327,51 @@ struct NowPlayingAboutView: View {
         var value: String
         /// Android's small window sets the review 8 lower with its own heading gap.
         var gapAbove: CGFloat = 0
-        /// Gemini's or the listener's row (nil: the server's facts).
+        /// Gemini's or the listener's row (nil: the server's facts, or the lyrics' credits).
         var entry: SongAboutStore.Entry? = nil
+        /// Part of the receipt (who wrote it, when and where, the server's facts); false for the review
+        /// and the asks under it. The lyrics' other credits and notices close the receipt.
+        var receipt = true
         var id: String { entry.map { "\($0.kind)/\($0.entryKey)" } ?? label + "\u{1}" + value }
     }
 
-    /// Android's receipt order (`aboutReceiptRows`): who wrote it and when
-    /// and where (Gemini's canonical rows, blank ones skipped), then
-    /// everything the server says, then the review, then the asks and the
-    /// listener's own entries (every one expanded under a 20 gap, the
-    /// latest only in the small window under a 12 gap). The server's facts
-    /// show whenever there are any, whatever else is on the page.
-    static func rows(entries: [SongAboutStore.Entry], facts: SongFacts?, expanded: Bool) -> [Item] {
+    /// Android's receipt order (`aboutReceiptRows`): who wrote it (the
+    /// lyrics' credits first, then Gemini's canonical rows, blank ones
+    /// skipped; the arranger only from the lyrics) and when and where
+    /// (Gemini), then everything the server says, then the review, then the
+    /// asks and the listener's own entries (every one expanded under a 20
+    /// gap, the latest only in the small window under a 12 gap). The
+    /// server's facts show whenever there are any, whatever else is on the page.
+    static func rows(entries: [SongAboutStore.Entry], facts: SongFacts?, expanded: Bool,
+                     credits: SongCredits? = nil) -> [Item] {
         let canonical = entries.filter { $0.kind == SongAboutStore.Kind.canonical }
         func row(_ key: String) -> Item? {
             canonical.first { $0.entryKey == key }.map {
                 Item(label: label(key, expanded: expanded), value: $0.answerText, entry: $0)
             }
         }
-        let receiptOrder = [SongAboutStore.Canon.lyricist, SongAboutStore.Canon.composer,
-                            SongAboutStore.Canon.producer, SongAboutStore.Canon.creationTime,
-                            SongAboutStore.Canon.creationLocation]
-        var out = receiptOrder.compactMap(row)
+        /// Android `credited`: the lyrics' names for the role, else Gemini's row.
+        func credited(_ key: String) -> Item? {
+            if let names = credits?.names(forAboutKey: key) {
+                return Item(label: label(key, expanded: expanded), value: names)
+            }
+            return row(key)
+        }
+        var out = [credited(SongAboutStore.Canon.lyricist), credited(SongAboutStore.Canon.composer)]
+            .compactMap { $0 }
+        if let arranger = credits?.arranger { out.append(Item(label: String(localized: "Arranger"), value: arranger)) }
+        out += [credited(SongAboutStore.Canon.producer), row(SongAboutStore.Canon.creationTime),
+                row(SongAboutStore.Canon.creationLocation)].compactMap { $0 }
         out += (facts?.facts ?? []).map { Item(label: $0.label, value: $0.value) }
         if var review = row(SongAboutStore.Canon.review) {
             review.gapAbove = expanded ? 0 : 8
+            review.receipt = false
             out.append(review)
         }
         let asks = entries.filter { $0.kind != SongAboutStore.Kind.canonical }
         for (i, ask) in (expanded ? asks : Array(asks.prefix(1))).enumerated() {
             out.append(Item(label: ask.heading ?? "", value: ask.answerText,
-                            gapAbove: i == 0 ? (expanded ? 20 : 12) : 0, entry: ask))
+                            gapAbove: i == 0 ? (expanded ? 20 : 12) : 0, entry: ask, receipt: false))
         }
         return out
     }
@@ -377,38 +397,13 @@ struct NowPlayingAboutView: View {
 
     @ViewBuilder
     private func list(_ items: [Item], header: AnyView? = nil) -> some View {
+        // The receipt ends where the review starts: the lyrics' other credits and notices go there.
+        let cut = items.firstIndex { !$0.receipt } ?? items.count
         let column = VStack(alignment: .leading, spacing: 0) {
             if let header { header }
-            ForEach(items) { item in
-                let thinking = item.entry.map { loader.regenerating.contains($0.ref) } ?? false
-                VStack(alignment: .leading, spacing: expanded ? 2 : 0) {
-                    Text(item.label)
-                        .yoinRole(expanded ? Tokens.type.titleMedium : Tokens.type.labelMedium)
-                        .foregroundStyle(scheme.primary)
-                    // Gemini is writing this row again: dots in place of the old text.
-                    if thinking {
-                        ThinkingDots(color: scheme.primary)
-                            .padding(.top, 10).padding(.bottom, 6)
-                            .transition(.opacity)
-                    } else {
-                        Text(Self.markdown(item.value))
-                            .yoinRole(expanded ? Tokens.type.bodyLarge : Tokens.type.bodyMedium)
-                            .foregroundStyle(scheme.onSurface)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .transition(.opacity)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, expanded ? 8 : 3)
-                .padding(.top, item.gapAbove)
-                .animation(Yoin.effects, value: thinking)
-                .contentShape(.rect)
-                .modifier(RowMenu(entry: expanded ? item.entry : nil, label: item.label) { target in
-                    pressed += 1
-                    menuFor = target
-                })
-                .accessibilityElement(children: .combine)
-            }
+            ForEach(items[..<cut]) { item in itemView(item) }
+            if expanded, let credits { creditsFoot(credits) }
+            ForEach(items[cut...]) { item in itemView(item) }
             Spacer().frame(height: bottomPadding)
         }
         // A scroll view takes exactly the height it is given (the small
@@ -416,6 +411,96 @@ struct NowPlayingAboutView: View {
         ScrollView(.vertical, showsIndicators: false) { column }
             .scrollDisabled(!expanded)
             .mask(Self.fade(top: 0, bottom: expanded ? 64 : 48))
+    }
+
+    /// One row: the label in primary over the value.
+    private func itemView(_ item: Item) -> some View {
+        let thinking = item.entry.map { loader.regenerating.contains($0.ref) } ?? false
+        return VStack(alignment: .leading, spacing: expanded ? 2 : 0) {
+            Text(item.label)
+                .yoinRole(expanded ? Tokens.type.titleMedium : Tokens.type.labelMedium)
+                .foregroundStyle(scheme.primary)
+            // Gemini is writing this row again: dots in place of the old text.
+            if thinking {
+                ThinkingDots(color: scheme.primary)
+                    .padding(.top, 10).padding(.bottom, 6)
+                    .transition(.opacity)
+            } else {
+                Text(Self.markdown(item.value))
+                    .yoinRole(expanded ? Tokens.type.bodyLarge : Tokens.type.bodyMedium)
+                    .foregroundStyle(scheme.onSurface)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, expanded ? 8 : 3)
+        .padding(.top, item.gapAbove)
+        .animation(Yoin.effects, value: thinking)
+        .contentShape(.rect)
+        .modifier(RowMenu(entry: expanded ? item.entry : nil, label: item.label) { target in
+            pressed += 1
+            menuFor = target
+        })
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Android AboutReceipt's foot, expanded: the lyrics' other credits behind "N more" (the first
+    /// roles quieter beside it, a free-form line as "Note"), then the copyright notices, small and
+    /// centred.
+    @ViewBuilder
+    private func creditsFoot(_ credits: SongCredits) -> some View {
+        if !credits.others.isEmpty {
+            if allCredits {
+                ForEach(Array(credits.others.enumerated()), id: \.offset) { _, credit in
+                    if credit.role.isEmpty {
+                        Text(credit.names)
+                            .yoinRole(Tokens.type.bodySmall)
+                            .foregroundStyle(scheme.onSurface)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    } else {
+                        itemView(Item(label: credit.role, value: credit.names))
+                    }
+                }
+            }
+            Button {
+                withAnimation(Yoin.spatial) { allCredits.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(allCredits ? String(localized: "Show less") : String(localized: "\(credits.others.count) more"))
+                        .yoinRole(Tokens.type.labelMedium)
+                        .foregroundStyle(scheme.primary)
+                        .lineLimit(1)
+                    if !allCredits {
+                        let note = String(localized: "lyricCredits.note", defaultValue: "Note")
+                        Text(credits.others.prefix(3).map { $0.role.isEmpty ? note : $0.role }.joined(separator: "、") + "…")
+                            .yoinRole(Tokens.type.labelMedium)
+                            .foregroundStyle(scheme.onSurfaceVariant)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+        }
+        if !credits.notices.isEmpty {
+            VStack(spacing: 2) {
+                ForEach(Array(credits.notices.enumerated()), id: \.offset) { _, notice in
+                    Text(notice)
+                        .yoinRole(Tokens.type.labelSmall)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.vertical, 10)
+        }
     }
 
     /// A vertical mask: clear at the edges, solid between.

@@ -1,4 +1,5 @@
 import XCTest
+import YoinShared
 @testable import Yoin
 
 /// Android SpineCreditsTest, plus the band, the swipe and the server record.
@@ -19,9 +20,10 @@ final class NowPlayingSpineTests: XCTestCase {
                              answerText: answer, createdAt: 0, updatedAt: 0, language: "en")
     }
 
-    private func items(_ entries: [SongAboutStore.Entry], _ facts: SpineSourceFacts? = nil) -> [SpineItem] {
+    private func items(_ entries: [SongAboutStore.Entry], _ facts: SpineSourceFacts? = nil,
+                       credits: SongCredits? = nil) -> [SpineItem] {
         NowPlayingSpine.items(entries: entries, facts: facts, album: "Album", artist: "Artist", title: "Title",
-                              labels: labels)
+                              labels: labels, credits: credits)
     }
 
     func test_should_listCanonicalCreditsInAboutOrder_when_cached() {
@@ -33,6 +35,54 @@ final class NowPlayingSpineTests: XCTestCase {
         ]
         XCTAssertEqual(items(entries), [SpineItem(label: "lyricist", value: "L L2"),
                                         SpineItem(label: "producer", value: "P")])
+    }
+
+    // MARK: The lyrics' credits (Android spineItems `credits`, I12)
+
+    func test_should_preferTheLyricsCredits_when_theyNameTheRole() {
+        let entries = [
+            row(SongAboutStore.Kind.canonical, SongAboutStore.Canon.lyricist, "Gemini's lyricist"),
+            row(SongAboutStore.Kind.canonical, SongAboutStore.Canon.composer, "Gemini's composer"),
+            row(SongAboutStore.Kind.canonical, SongAboutStore.Canon.producer, "Gemini's producer"),
+            row(SongAboutStore.Kind.canonical, SongAboutStore.Canon.creationTime, "2021"),
+        ]
+        let credits = SongCredits(lyricist: "唐恬", arranger: "钱雷", producer: "钱雷 / 高飞")
+        XCTAssertEqual(items(entries, credits: credits), [
+            SpineItem(label: SongAboutStore.Canon.creationTime, value: "2021"),
+            SpineItem(label: SongAboutStore.Canon.lyricist, value: "唐恬"),
+            // The lyrics name no composer: Gemini's answer stands.
+            SpineItem(label: SongAboutStore.Canon.composer, value: "Gemini's composer"),
+            SpineItem(label: SongAboutStore.Canon.producer, value: "钱雷 / 高飞"),
+        ])
+    }
+
+    func test_should_showTheLyricsCredits_when_aboutHasNoAnswer() {
+        let credits = SongCredits(lyricist: "米津玄師", composer: "米津玄師",
+                                  others: [.init(role: "混音", names: "某人")], notices: ["℗ 2018"])
+        // The arranger, the other roles and the notices stay off the spine, as on Android.
+        XCTAssertEqual(items([], credits: SongCredits(arranger: "A")),
+                       [SpineItem(label: "", value: "Album   Artist   Title")])
+        XCTAssertEqual(items([], credits: credits), [
+            SpineItem(label: SongAboutStore.Canon.lyricist, value: "米津玄師"),
+            SpineItem(label: SongAboutStore.Canon.composer, value: "米津玄師"),
+        ])
+    }
+
+    func test_should_fallBackToAbout_when_theLyricsHaveNoCredits() {
+        let entries = [row(SongAboutStore.Kind.canonical, SongAboutStore.Canon.composer, "Gemini's composer")]
+        let expected = [SpineItem(label: SongAboutStore.Canon.composer, value: "Gemini's composer")]
+        XCTAssertEqual(items(entries, credits: nil), expected)
+        XCTAssertEqual(items(entries, credits: SongCredits(others: [.init(role: "吉他", names: "高飞")])), expected)
+    }
+
+    func test_should_carryTheParsedCredits_when_lyricsLoad() {
+        let raw = "[00:00.00]作词 : 唐恬\n[00:00.50]作曲 : 钱雷\n[00:01.00]吉他 : 高飞\n"
+            + "[00:22.29]都 是勇敢的\n[00:36.96]都 不必隐藏"
+        let loaded = NowPlayingData.LoadedLyrics(LrcParser.shared.parse(raw: raw))
+        XCTAssertEqual(loaded.lines, ["都 是勇敢的", "都 不必隐藏"])
+        XCTAssertEqual(loaded.credits, SongCredits(lyricist: "唐恬", composer: "钱雷",
+                                                   others: [.init(role: "吉他", names: "高飞")]))
+        XCTAssertNil(NowPlayingData.LoadedLyrics(LrcParser.shared.parse(raw: "[00:01.00]One\n[00:02.00]Two")).credits)
     }
 
     func test_should_addTheServerFacts_when_theTrackIsSubsonic() {

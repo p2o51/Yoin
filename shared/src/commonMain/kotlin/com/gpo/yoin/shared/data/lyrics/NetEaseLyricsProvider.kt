@@ -162,7 +162,9 @@ internal class NetEaseLyricsProvider(
     /**
      * 网易逐字 JSON 歌词 → 标准 LRC。每行形如
      * `{"t": 12345, "c": [{"tx": "歌"}, {"tx": "词"}, ...]}`。
-     * 对应 dart 的 `_parseJsonLyric`（`netease_provider.dart:151-189`）。
+     * 对应 dart 的 `_parseJsonLyric`（`netease_provider.dart:151-189`）。开头的
+     * 「作词：…」这类行照样转成 LRC，交给 [LyricCreditsExtractor] 移进 About，
+     * 和 Android 一样（不再按关键词整行丢掉）。
      */
     private fun parseJsonLyric(raw: String): String? {
         val out = mutableListOf<String>()
@@ -180,7 +182,6 @@ internal class NetEaseLyricsProvider(
                 val text = parts.joinToString(separator = "") { part ->
                     part.jsonObject["tx"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 }
-                if (isMetadataLine(text)) continue
 
                 val minutes = (time / 60_000).toString().padStart(2, '0')
                 val seconds = ((time % 60_000) / 1000).toString().padStart(2, '0')
@@ -193,24 +194,10 @@ internal class NetEaseLyricsProvider(
         return out.takeIf { it.isNotEmpty() }?.joinToString("\n")
     }
 
-    private fun isMetadataLine(text: String): Boolean {
-        val lower = text.lowercase()
-        return METADATA_KEYWORDS.any { kw ->
-            val k = kw.lowercase()
-            lower.startsWith(k) || lower.contains(":$k") || lower.contains("：$k")
-        }
-    }
-
     companion object {
         private const val DEFAULT_BASE_URL = "https://api.spotoolfy.gojyuplus.com"
 
         /** 自动匹配时要的候选数，和 QQ 一致。 */
         private const val SEARCH_PAGE_SIZE = 10
-
-        private val METADATA_KEYWORDS = listOf(
-            "歌词贡献者", "翻译贡献者", "作词", "作曲", "编曲",
-            "制作", "词曲", "词 / 曲", "lyricist", "composer",
-            "arrange", "translation", "translator", "producer",
-        )
     }
 }

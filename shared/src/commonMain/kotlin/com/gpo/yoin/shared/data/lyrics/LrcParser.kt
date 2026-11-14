@@ -18,6 +18,12 @@ import com.gpo.yoin.shared.data.model.Lyrics
  * sooner, the LRC convention) is applied to every timestamp, clamped at 0.
  * Android drops the tag without applying it.
  *
+ * The production credits at the start and end of the lyrics (作词、作曲、混音、
+ * copyright notices, QQ's "Title - Artist" first line…) are moved into
+ * [Lyrics.credits] by [LyricCreditsExtractor], not left in the lines. Every
+ * reader of lyrics (display, translation alignment, synced line counts) parses
+ * here, so line numbers agree everywhere, as on Android.
+ *
  * Swift: `LrcParser.shared.parse(raw:)`.
  */
 object LrcParser {
@@ -26,7 +32,15 @@ object LrcParser {
     private val METADATA_TAG_REGEX = Regex("""^\[[a-zA-Z]+:[^\]]*\]$""")
     private val OFFSET_TAG_REGEX = Regex("""^\[offset:\s*([+-]?\d+)\s*\]$""", RegexOption.IGNORE_CASE)
 
-    fun parse(raw: String): Lyrics {
+    /** [raw] parsed, its credit lines taken into [Lyrics.credits]. */
+    fun parse(raw: String): Lyrics = parse(raw, extractCredits = true)
+
+    /**
+     * [extractCredits] false keeps every timed line, for checks of a provider's
+     * own line-for-line output (its translation file has no credits to take).
+     * Android `parse(raw, extractCredits)`; two functions here so Swift keeps `parse(raw:)`.
+     */
+    fun parse(raw: String, extractCredits: Boolean): Lyrics {
         val synced = mutableListOf<LyricLine>()
         var offsetMs = 0L
 
@@ -55,7 +69,7 @@ object LrcParser {
             }
         }
 
-        return if (synced.isNotEmpty()) {
+        val parsed = if (synced.isNotEmpty()) {
             Lyrics(
                 synced = true,
                 lines = synced
@@ -69,6 +83,7 @@ object LrcParser {
                 lines = if (text.isEmpty()) emptyList() else text.lines().map { LyricLine(timeMs = 0L, text = it) },
             )
         }
+        return if (extractCredits) LyricCreditsExtractor.extract(parsed) else parsed
     }
 
     private fun timestampToMs(m: MatchResult): Long? {

@@ -24,11 +24,14 @@ final class NowPlayingData {
     struct LoadedLyrics: Equatable {
         let lyrics: Lyrics
         let lines: [String]
+        /// The credits the parse took out of the lines (Android `Lyrics.credits`), for the spine and About.
+        let credits: SongCredits?
         var synced: Bool { lyrics.synced }
 
         init(_ lyrics: Lyrics) {
             self.lyrics = lyrics
             lines = lyrics.lines.map(\.text)
+            credits = SongCredits(lyrics.credits)
         }
 
         /// -1 = before the first line, or unsynced.
@@ -218,6 +221,14 @@ final class NowPlayingData {
     }
 
     func lyricsState(_ t: PlayableTrack) -> LyricsState { lyrics[Self.key(t)] ?? .loading }
+
+    /// The credits the song's lyrics carried (Android NowPlayingViewModel `lyricCredits`): they answer
+    /// lyricist, composer and producer on the spine and in About before Gemini does. Nil until the
+    /// lyrics are here, and when they had none.
+    func lyricCredits(_ t: PlayableTrack) -> SongCredits? {
+        if case .lines(let l)? = lyrics[Self.key(t)] { return l.credits }
+        return nil
+    }
 
     /// The next song's lyrics ahead of its turn (Android prefetches during the
     /// outro): its title card and first line can rise under this song's end,

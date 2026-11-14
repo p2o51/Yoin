@@ -50,6 +50,29 @@ final class AboutParityTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { $0.entry == nil })
     }
 
+    // MARK: The lyrics' credits (Android aboutReceiptRows `credited`, I12)
+
+    func test_should_prefer_the_lyrics_credits_then_gemini_when_both_answer() {
+        let rows = NowPlayingAboutView.rows(entries: [
+            entry(SongAboutStore.Kind.canonical, SongAboutStore.Canon.lyricist, answer: "Gemini L"),
+            entry(SongAboutStore.Kind.canonical, SongAboutStore.Canon.composer, answer: "Gemini C"),
+            entry(SongAboutStore.Kind.canonical, SongAboutStore.Canon.creationTime, answer: "2009"),
+        ], facts: nil, expanded: true, credits: SongCredits(lyricist: "唐恬", arranger: "钱雷", producer: "钱雷"))
+        XCTAssertEqual(rows.map(\.value), ["唐恬", "Gemini C", "钱雷", "钱雷", "2009"])
+        XCTAssertEqual(rows.map(\.label), ["Lyricist", "Composer", "Arranger", "Producer", "Creation Time"])
+        // The lyrics' rows are no Gemini rows: no long-press sheet.
+        XCTAssertNil(rows[0].entry)
+        XCTAssertNotNil(rows[1].entry)
+    }
+
+    func test_should_show_the_lyrics_credits_over_the_facts_when_there_is_no_gemini() {
+        let rows = NowPlayingAboutView.rows(entries: [], facts: facts, expanded: false,
+                                            credits: SongCredits(composer: "钱雷"))
+        XCTAssertEqual(rows.first?.value, "钱雷")
+        XCTAssertEqual(rows.count, facts.facts.count + 1)
+        XCTAssertTrue(rows.allSatisfy(\.receipt))
+    }
+
     func test_should_show_only_the_latest_ask_in_the_small_window() {
         let asks = [entry(SongAboutStore.Kind.ask, "q1", answer: "A1", title: "One"),
                     entry(SongAboutStore.Kind.own, "o1", answer: "A2", title: "Two")]

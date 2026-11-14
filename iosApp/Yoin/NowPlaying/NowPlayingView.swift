@@ -924,15 +924,15 @@ struct NowPlayingView: View, Equatable {
         }
     }
 
-    /// The spine's facts (Android spineItems): the cached About credits (never
-    /// a Gemini request) and, on Subsonic, the server's own record of the song.
+    /// The spine's facts (Android spineItems): the lyrics' credits, else the cached
+    /// About credits (never a Gemini request), and, on Subsonic, the server's own record of the song.
     private func spineView(_ p: PlaybackSnapshot, slot: SpineSlot) -> some View {
         let items: [SpineItem]
         let key: String
         if let t = engineTrack {
             items = NowPlayingSpine.items(entries: SongAboutLoader.shared.store.entries(AboutSong(t).key),
                                           facts: data.spineFacts(t), album: t.album, artist: t.artist,
-                                          title: t.title, labels: .localized)
+                                          title: t.title, labels: .localized, credits: data.lyricCredits(t))
             key = NowPlayingData.key(t)
         } else {
             var entries: [SongAboutStore.Entry] = []
@@ -1593,7 +1593,8 @@ struct NowPlayingView: View, Equatable {
             }
         case .about:
             // Android SongInfoDisplay: the facts, read-only, fading out at the foot.
-            NowPlayingAboutView(state: aboutState(p), expanded: false, scheme: scheme)
+            NowPlayingAboutView(state: aboutState(p), expanded: false, scheme: scheme,
+                                credits: engineTrack.flatMap { data.lyricCredits($0) })
                 .frame(height: clear, alignment: .top)
                 .contentShape(.rect)
                 .onTapGesture { openPage(.about) }
@@ -1619,7 +1620,8 @@ struct NowPlayingView: View, Equatable {
                 }
             }
         case .about:
-            NowPlayingAboutView(state: aboutState(p), expanded: true, scheme: scheme, bottomPadding: 48)
+            NowPlayingAboutView(state: aboutState(p), expanded: true, scheme: scheme, bottomPadding: 48,
+                                credits: engineTrack.flatMap { data.lyricCredits($0) })
                 .frame(height: height, alignment: .top)
         case .note:
             notePage

@@ -50,4 +50,23 @@ class LyricTranslationsTest {
         assertEquals("你好", LyricTranslations.cleanLineTranslation("- (2) 你好"))
         assertEquals("你好 1.5", LyricTranslations.cleanLineTranslation("你好 1.5"))
     }
+
+    @Test
+    fun should_notPairByPosition_when_creditsCameOffOneSideOnly() {
+        // No timestamp in common: the fallback would pair by position, and the original lost its credits.
+        val lyrics = LrcParser.parse("[00:00.00]作词：A\n[00:00.50]作曲：B\n[00:05.00]One\n[00:06.00]Two")
+        assertEquals(listOf("One", "Two"), lyrics.lines.map { it.text })
+
+        val translations = LyricTranslations.align(lyrics, "[00:00.10]//\n[00:00.60]//\n[00:05.10]一\n[00:06.10]二")
+
+        assertEquals(emptyMap<Int, String>(), translations)
+    }
+
+    @Test
+    fun should_stillPairByPosition_when_bothSidesLostTheSameCredits() {
+        val lyrics = LrcParser.parse("作词：A\n作曲：B\nOne\nTwo")
+        val translations = LyricTranslations.align(lyrics, "作词：甲\n作曲：乙\n一\n二")
+
+        assertEquals(mapOf(0 to "一", 1 to "二"), translations)
+    }
 }
