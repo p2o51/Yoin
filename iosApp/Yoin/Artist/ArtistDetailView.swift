@@ -242,7 +242,7 @@ struct ArtistDetailView: View {
     @ViewBuilder
     private func pendingBody(portrait: CGFloat) -> some View {
         if state == .failed {
-            RetryRow(scheme: app) {
+            RetryRow(scheme: app, details: ref.id.flatMap { model.store.failureReports["artist:\($0)"] }) {
                 guard let id = ref.id else { return }
                 Task { await model.store.loadArtist(id, force: true) }
             }

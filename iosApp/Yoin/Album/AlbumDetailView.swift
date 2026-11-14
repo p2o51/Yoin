@@ -415,9 +415,16 @@ struct AlbumDetailView: View {
 
     private var loadPhase: LibraryStore.Phase {
         guard !isMock else { return .loaded }
-        let key = playlist.map { "playlist:\($0.id.rawId)" } ?? "album:\(routeAlbum.id.rawId)"
-        return model.store.phase(key)
+        return model.store.phase(loadKey)
     }
+
+    /// The store's key for this page's load.
+    private var loadKey: String {
+        playlist.map { "playlist:\($0.id.rawId)" } ?? "album:\(routeAlbum.id.rawId)"
+    }
+
+    /// The failed load as a tester's report (Copy details beside Retry, Android DetailErrorState).
+    private var failureReport: String? { isMock ? nil : model.store.failureReports[loadKey] }
 
     /// Server page whose tracks didn't load: a retry under the header.
     private var loadFailed: Bool { loadPhase == .failed }
@@ -767,7 +774,7 @@ struct AlbumDetailView: View {
     @ViewBuilder
     private func pendingBody(side: CGFloat) -> some View {
         if loadFailed {
-            RetryRow(scheme: app, action: retry)
+            RetryRow(scheme: app, details: failureReport, action: retry)
         } else {
             let fill = app.surfaceContainerHigh
             VStack(alignment: .leading, spacing: 0) {
@@ -955,7 +962,7 @@ struct AlbumDetailView: View {
                 }
                 if bodyPending {
                     Group {
-                        if loadFailed { RetryRow(scheme: app, action: retry) } else { RowSkeleton(scheme: app) }
+                        if loadFailed { RetryRow(scheme: app, details: failureReport, action: retry) } else { RowSkeleton(scheme: app) }
                     }
                     .transition(.opacity)
                 } else if loadFailed { retryButton.padding(.leading, 4) }
