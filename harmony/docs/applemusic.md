@@ -919,4 +919,8 @@ before it returns. Nothing is written to disk. The report carries counts and lev
 - **Merging.** The `EnginePlayer` refactor and the Dart flag are safe for the main branch. The
   Apple libraries, the NAPI module and `AmPlayer` must stay out of anything distributed. One option
   is a personal-build HAR module plus the flag; it needs an owner decision.
-- Audible check: still to do, by the owner.
+- **Audible check: done (2026-11-14 evening).** The owner played Apple Music songs from the
+  spike build on the Mate 70 Air and heard them. The first try was silent only because the
+  process was still the one a QA launch had started with `yoinQaSilent`. A launch from the
+  home-screen icon now clears that flag (main branch). The fix is installed but not yet seen in
+  a device log, because the owner was using the phone.
