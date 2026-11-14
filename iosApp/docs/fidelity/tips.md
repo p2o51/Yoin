@@ -61,6 +61,8 @@ Scripts are `async` and step with `DemoTiming.delay`; a scene's own values chang
 | LibrarySearch | `LibrarySearchDemo` | The demo Library (`DemoLibraryPage`: `LibrarySearchPillLabel`, the account, `LibraryFilterRow`, `LibraryGridCellFace` three to a row) under the idle bar; hold Library, Search opens over it (`DemoLibrarySearch`), 1800, tap ✕ |
 | Labs | `LabsDemo` | `SettingsPage(demoScheme:)` + `LabsBody` (split out of `LabsView`) with the model ready; 700, tap the Lyric Cards switch, 2400 |
 | Name | `NameDemo` | The mark (`YoinArmsCanvas`, tertiary / primary / secondary arms) 96 in the middle; a tap anywhere sounds three rings 0.22 s apart over 2.4 s, to 60 % of the screen's height; tap, 1200, tap, 2000 |
+| PullForMemories | `PullDemo` | The demo Home under Memories (`DemoMemoriesPage`: the aurora, the real `MemoryCardFace` and `MemoriesTopBar` on a `MemoriesDeckModel` of its own); pull from under the header to 62 % over 750 (Memories comes down 45 % with it), the spring opens it, 1800, tap the bar's Home pill, 900. A pull by hand works too: past 25 % opens, short of it springs back |
+| MemoriesAllAccounts | `MemoriesAllAccountsDemo` | Two `DemoMemoriesPage`s side by side; 900, swipe from 80 % to 25 % over 600 (the deck moves 60 %), the spring settles on the other account's card, 2800 |
 
 The demo Home (`DemoHomePage`) is Home's header row (greeting, the real `EditTitleSwap`, the account avatar), Jump Back In's `AlbumItem`s three to a row, and the idle bar drawn from `ShellNavFace` (the bar's own button face) in the bar's glass.
 
@@ -75,6 +77,9 @@ Differences kept:
 - Quick search: Search is a page of the app's window, so the phone draws its open state from SearchView's numbers (the field on Library's pill, the ✕, the types for a Subsonic server: no scope pair, no Playlists), as Android draws M3's full-screen search. Closing is the ✕ (Android: the back arrow), and the surface covers the bar, as Android's does.
 - Mini player options: the sheet keeps Keep screen on, as iOS's pill sheet does (Android's leaves the player group out).
 - Name: the page behind the mark is the Library / Home gradient (Android ExpressivePageBackground).
+- Memories on the phone (`TipDemo.memoryDeck`): Night Garden with your review's line, then Harbour Lights from Okto (the switcher demo's Spotify account: its From line, no quote), then Low Tide. Each page's bar shows the deck's three dots at that page (Android's both stand on the first dot, with the first page's colours). The card takes no touch; the bar's Home pill closes the pull demo's Memories.
+- Memories across accounts: a sideways swipe by hand turns the tips, as on every phone (Android's phone takes it and moves the deck). A pull by hand on Pull for Memories is a UIKit pan that begins only when the finger moves more up or down than across, so a swipe begun on the phone still turns the tips.
+- Pull for Memories: the demo Home has no Memories chevron under the island (Home's bubble lives in the window's safe area); Android's pull grows its bubble's arrow.
 - Volume leveling (Android VolumeLevelingDemo, 11-13): the page is the Subsonic account's (titled Subsonic, as ServiceSetupView names it) with its real Volume leveling group (`VolumeLevelingGroup`, which SubsonicAccountSettings draws too); Android's is its own Settings page. The dot picks By track, then By album; the choice is the demo's own.
 - Views that take a demo (`AllMemoriesView(demo:)`, `HomeLyricCardsSection(demo:)`, `HomeMemoryLedgerSection(onOpen:)`, `SpotifyElsewherePill(demoCover:)`) load, play, open and remember nothing in it.
 
@@ -86,8 +91,6 @@ The phone's sheet (`DemoSheetStage`): the system's sheet belongs to the window, 
 
 ## Without a scene
 
-- PullForMemories: Memories' card (`MemoryCardFace`) runs on the deck model (`MemoriesDeckModel` with its presentation, diary morph and awards) and an `AlbumMemory`; a phone of its own needs a demo deck and a pull wired to the phone's own reveal. Left for a pass of its own.
 - HomeScreenWidgets: Android draws one since #207 (its widget picker over a home screen); iOS's widget views live in the widget extension (Widgets/), which the app target doesn't build, so the phone can't draw them yet. Left for a pass of its own.
-- MemoriesAllAccounts: the same deck as PullForMemories, with a second account's card; it waits for that demo deck.
 - ContinueOn: on iOS the offer is the system's Handoff (the App Switcher's bottom, the Dock), not a Yoin card, so there is no Yoin component to act it out; Android's scene is its tablet taskbar and card.
 - SpotifySpeakers: the Devices sheet (`SpotifyDevicesSheet`) reads `SpotifySource` and `SpotifyDeviceMemory` for the account in use; a phone of its own needs the sheet split from its loading the way TrackMenuBody was. Left for a pass of its own.

@@ -126,6 +126,39 @@ enum TipDemo {
     static let lyricPalettes: [String: CoverPalette] = Dictionary(
         uniqueKeysWithValues: lyricCards.enumerated().map { ($1.id, albums[$0].palette) })
 
+    // MARK: Memories
+
+    /// The demo's Memories deck (Android DemoMemoriesPage): your Night Garden memory with your review's line;
+    /// then Harbour Lights, another account's (Okto, the switcher demo's Spotify account), which drops the quote
+    /// to leave the small phone room; then Low Tide, a dot on the bar.
+    static var memoryDeck: [MemoryCard] {
+        [
+            memoryCard(albums[3], quote: true),
+            memoryCard(albums[0], owner: MemoryCard.Account(profileId: accounts[1].id, name: "Okto", service: .spotify,
+                                                             shape: shape(of: accounts[1]))),
+            memoryCard(albums[2]),
+        ]
+    }
+
+    /// A memory of [album] (Android's demo MemoryEntry): "Night walks in the rain", the album's own 8.6 on its
+    /// emblem, seven of ten songs rated. [owner]: whose it is when it is another account's.
+    private static func memoryCard(_ album: Album, quote: Bool = false, owner: MemoryCard.Account? = nil) -> MemoryCard {
+        let rated = (0..<10).map { $0 % 3 != 2 }
+        let mine = MemoryCard.Account(profileId: accounts[0].id, name: "Mira", service: .subsonic, shape: 0)
+        let memory = AlbumMemory(album: album, totalTracks: rated.count, ratedTrackCount: rated.filter { $0 }.count,
+                                 coverage: Double(rated.filter { $0 }.count) / Double(rated.count),
+                                 averageSongRating: 8.4, albumRating: 8.6, noteCount: 2, lastWrittenAt: nil,
+                                 playCount: 12, firstPlayedAt: nil, lastPlayedAt: nil, isMemoryEligible: true,
+                                 hasAlbumReview: quote)
+        let excerpt = quote
+            ? MemoryCard.Excerpt(kind: .review, text: "The second side is the one I keep coming back to.", detail: "Oct 12")
+            : nil
+        return MemoryCard(album: album, title: "Night walks in the rain", titleKind: .user, score: 8.6, emblemKind: .album,
+                          rated: rated, excerpt: excerpt, noteCount: 2, lastHeardAt: nil, memory: memory, review: nil,
+                          yoinTitle: nil, paragraph: nil, diaryTracks: [], playCount: 12, firstPlayedAt: nil,
+                          account: owner ?? mine, fromOther: owner != nil)
+    }
+
     // MARK: All Memories
 
     /// How many days back the made-up listener kept something: 16 days over the last four months.

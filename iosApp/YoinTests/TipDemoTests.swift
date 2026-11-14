@@ -157,13 +157,13 @@ final class TipDemoTests: XCTestCase {
         XCTAssertEqual(TipIllustration.scenes, [
             "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads",
             "EditHome", "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn", "MiniPlayerMenu", "NoteMoments",
-            "LibrarySearch", "Labs", "Name", "VolumeLeveling",
+            "LibrarySearch", "Labs", "Name", "VolumeLeveling", "PullForMemories", "MemoriesAllAccounts",
         ])
         for id in TipIllustration.scenes {
             XCTAssertNotNil(Tips.tip(id), "\(id) has a demo but is not a tip")
             XCTAssertTrue(TipIllustration.has(id))
         }
-        XCTAssertFalse(TipIllustration.has("PullForMemories"))
+        XCTAssertFalse(TipIllustration.has("ContinueOn"))
     }
 
     // MARK: The made-up library
@@ -323,12 +323,34 @@ final class TipDemoTests: XCTestCase {
     // MARK: Slice 3
 
     func test_should_haveAScene_when_aTipAndroidActsOutExistsHere() {
-        // Every tip but the Memories deck's two (PullForMemories, MemoriesAllAccounts: no demo deck yet), the
-        // Devices sheet's (SpotifySpeakers), Handoff's (ContinueOn: the system's offer, no Yoin card) and the
-        // two iOS-only ones (docs/fidelity/tips.md, Without a scene).
+        // Every tip but the Devices sheet's (SpotifySpeakers: More devices opens the Spotify app here), Handoff's
+        // (ContinueOn: the system's offer, no Yoin card) and the widgets' (HomeScreenWidgets: the widget views
+        // live in the extension) (docs/fidelity/tips.md, Without a scene).
         let without = Tips.all.map(\.id).filter { !TipIllustration.has($0) }
-        XCTAssertEqual(Set(without), ["PullForMemories", "MemoriesAllAccounts", "SpotifySpeakers", "ContinueOn",
-                                      "VolumeLeveling", "HomeScreenWidgets"])
+        XCTAssertEqual(Set(without), ["SpotifySpeakers", "ContinueOn", "HomeScreenWidgets"])
+    }
+
+    // MARK: Memories
+
+    func test_should_dealAnotherAccountsMemorySecond_when_theDemoDeckIsBuilt() {
+        let deck = TipDemo.memoryDeck
+        XCTAssertEqual(deck.map(\.album.title), ["Night Garden", "Harbour Lights", "Low Tide"])
+        XCTAssertEqual(deck.map(\.fromOther), [false, true, false])
+        XCTAssertEqual(deck[1].owner?.name, "Okto")
+        XCTAssertEqual(deck[1].owner?.service, .spotify)
+        XCTAssertEqual(deck[1].owner?.shape, TipDemo.shape(of: TipDemo.accounts[1]))
+        // The quote only on the first: the other account's card has its From line instead.
+        XCTAssertEqual(deck[0].excerpt?.kind, .review)
+        XCTAssertNil(deck[1].excerpt)
+        XCTAssertEqual(Set(deck.map(\.id)).count, deck.count, "each card has its own morph")
+        XCTAssertTrue(deck.allSatisfy { $0.album.id.provider == TipDemo.provider && $0.score == 8.6 && $0.emblemKind == .album })
+    }
+
+    func test_should_openMemories_when_theDemosPullGoesPastTheOpeningPoint() {
+        // The demo's own pull lets go past the point where a pull by hand opens Memories.
+        XCTAssertGreaterThan(PullForMemoriesDemo.pullTravel, PullForMemoriesDemo.openAt)
+        XCTAssertLessThan(PullForMemoriesDemo.pullTravel, 1)
+        XCTAssertGreaterThan(MemoriesAllAccountsDemo.swipeTravel, 0.5, "the swipe's spring goes on to the next card")
     }
 
     func test_should_keepTheSecondWriteWasTappedAt_when_theDemoWrites() {
