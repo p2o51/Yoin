@@ -532,3 +532,111 @@ DualPaneBudget resolveDualPaneBudget({
   if (coverFor(titleOneLine) >= DualPaneTokens.coverMin) return budgetFor(DualPaneTitleForm.oneLine, titleOneLine);
   return budgetFor(DualPaneTitleForm.topBar, 0);
 }
+
+// ── Landscape handset ───────────────────────────────────────────────────
+
+abstract final class LandscapeTokens {
+  /// Below this content width the transport and title stack under the cover.
+  static const double stackedMaxWidth = 792;
+  static const double ratingColumn = 56;
+  static const double ratingGap = 12;
+  static const double columnGap = 28;
+  static const double titleRow = 36;
+  static const double coverToTransport = 10;
+  static const double transportToTitle = 4;
+  static const double coverFloor = 120;
+  static const double stackedCoverFloor = 72;
+  static const double stackedLeftMin = 300;
+  static const double stackedLeftShare = 0.46;
+  static const double restColumnMin = 300;
+  static const double headerHeight = 40;
+  static const double tabRow = 40;
+  static const double lyricsToTransport = 8;
+}
+
+/// The landscape handset's frame (resolveLandscapeLayout, rest pose).
+/// Wide (an ordinary phone on its side): the cover takes the height with
+/// the rating column at its end; the right column carries the header, the
+/// tabs, a few lyric lines, the transport and the title. Stacked (16:9, a
+/// narrow window): transport and title under the cover; the right column
+/// is header + tabs + a full column of lyrics.
+@immutable
+final class LandscapeLayout {
+  const LandscapeLayout({
+    required this.stacked,
+    required this.cover,
+    required this.leftWidth,
+    required this.columnX,
+    required this.transport,
+  });
+
+  final bool stacked;
+  final double cover;
+
+  /// The left column (cover + rating; stacked: at least its floor).
+  final double leftWidth;
+
+  /// Where the right column starts.
+  final double columnX;
+
+  /// The two-row transport's height at its own width.
+  final double transport;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LandscapeLayout &&
+      other.stacked == stacked &&
+      other.cover == cover &&
+      other.leftWidth == leftWidth &&
+      other.columnX == columnX &&
+      other.transport == transport;
+
+  @override
+  int get hashCode => Object.hash(stacked, cover, leftWidth, columnX, transport);
+}
+
+/// The transport's height at [width] (labels under the wave when narrow).
+double transportHeightAt(double width, StageMetrics m) =>
+    NowPlayingTokens.controlSize * 2 +
+    NowPlayingTokens.controlRowGap +
+    (width - 2 * NowPlayingTokens.columnPadding < transportLabelsInlineMinWidth ? m.timeLabelLine : 0);
+
+LandscapeLayout resolveLandscapeLayout({
+  required double width,
+  required double height,
+  StageMetrics metrics = const StageMetrics(),
+}) {
+  const rating = LandscapeTokens.ratingColumn + LandscapeTokens.ratingGap;
+  if (width >= LandscapeTokens.stackedMaxWidth) {
+    final cover = math.max(
+      LandscapeTokens.coverFloor,
+      math.min(height, width - LandscapeTokens.columnGap - rating - LandscapeTokens.restColumnMin),
+    );
+    final columnX = cover + rating + LandscapeTokens.columnGap;
+    return LandscapeLayout(
+      stacked: false,
+      cover: cover,
+      leftWidth: cover + rating,
+      columnX: columnX,
+      transport: transportHeightAt(width - columnX + 2 * NowPlayingTokens.columnPadding, metrics),
+    );
+  }
+  double coverFor(double transport) => math.max(
+    LandscapeTokens.stackedCoverFloor,
+    height - LandscapeTokens.coverToTransport - transport - LandscapeTokens.transportToTitle - LandscapeTokens.titleRow,
+  );
+  final leftFloor = math.min(LandscapeTokens.stackedLeftMin, width * LandscapeTokens.stackedLeftShare);
+  double leftFor(double cover) => math.max(cover + rating, leftFloor);
+  var transport = transportHeightAt(0, metrics);
+  var cover = coverFor(transport);
+  transport = transportHeightAt(leftFor(cover) + 2 * NowPlayingTokens.columnPadding, metrics);
+  cover = coverFor(transport);
+  final left = leftFor(cover);
+  return LandscapeLayout(
+    stacked: true,
+    cover: cover,
+    leftWidth: left,
+    columnX: left + LandscapeTokens.columnGap,
+    transport: transport,
+  );
+}

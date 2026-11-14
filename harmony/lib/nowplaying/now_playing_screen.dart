@@ -199,6 +199,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     _gateFocus();
   }
 
+  /// Landscape has no Expanded stage: Write opens the Note page in place.
+  void _writeLandscape() {
+    _notes.requestWriting();
+    _selectPage(NowPlayingDetailPage.note);
+    _gateFocus();
+  }
+
   void _onBarHeight(double height) {
     if (!mounted) return;
     if (_reduced) {
@@ -325,6 +332,24 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                 style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurfaceVariant),
               ),
             ),
+            NowPlayingContent() when widget.controller.frame.presentation == NowPlayingPresentation.landscape =>
+              _LandscapePane(
+                state: state,
+                controller: widget.controller,
+                insets: insets,
+                metrics: _metrics(context),
+                pressed: _pressed,
+                autoFollow: _autoFollow,
+                notes: _notes,
+                page: _page.animation,
+                pageTarget: _pageTarget,
+                onSelectPage: _selectPage,
+                onPageDrag: _onPageDrag,
+                onPageDragEnd: _onPageDragEnd,
+                onWrite: _writeLandscape,
+                onBarHeight: _onBarHeight,
+                barHeight: _barHeight.animation,
+              ),
             NowPlayingContent() when (_lastDual = _dualBody()) => _DualPane(
               state: state,
               controller: widget.controller,
@@ -1918,4 +1943,317 @@ class _DualTools extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// A landscape handset (LandscapeNP, rest pose): cover on the start side
+/// with the rating column at its end. Wide windows put header, tabs, a few
+/// lyric lines, the transport and the title in the right column; stacked
+/// (narrower) windows put the transport and title under the cover and give
+/// the right column a full page of lyrics. Queue and Write ride the header.
+class _LandscapePane extends ConsumerWidget {
+  const _LandscapePane({
+    required this.state,
+    required this.controller,
+    required this.insets,
+    required this.metrics,
+    required this.pressed,
+    required this.autoFollow,
+    required this.notes,
+    required this.page,
+    required this.pageTarget,
+    required this.onSelectPage,
+    required this.onPageDrag,
+    required this.onPageDragEnd,
+    required this.onWrite,
+    required this.onBarHeight,
+    required this.barHeight,
+  });
+
+  final NowPlayingContent state;
+  final NowPlayingOverlayController controller;
+  final EdgeInsets insets;
+  final StageMetrics metrics;
+  final ValueNotifier<TransportKey> pressed;
+  final ValueNotifier<bool> autoFollow;
+  final NowPlayingNotes notes;
+  final Animation<double> page;
+  final NowPlayingDetailPage pageTarget;
+  final void Function(NowPlayingDetailPage page) onSelectPage;
+  final void Function(double dx, double width) onPageDrag;
+  final void Function(double velocity, double width) onPageDragEnd;
+  final VoidCallback onWrite;
+  final ValueChanged<double> onBarHeight;
+  final Animation<double> barHeight;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final vm = ref.read(nowPlayingViewModelProvider.notifier);
+    final clock = ref.watch(playheadClockProvider);
+    final colors = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final strings = NowPlayingStrings.of(context);
+    final track = state.track;
+    // Side insets: the cutout side's inset, at least the column padding.
+    final padding = EdgeInsets.fromLTRB(
+      math.max(insets.left, NowPlayingTokens.columnPadding),
+      insets.top + 8,
+      math.max(insets.right, NowPlayingTokens.columnPadding),
+      math.max(insets.bottom, 8),
+    );
+
+    Widget cover(double edge) => FlightSlot(
+      element: FlightElement.cover,
+      pill: false,
+      child: SizedBox.square(
+        dimension: edge,
+        child: _StageCover(state: state, detail: const AlwaysStoppedAnimation(0), requestEdge: edge),
+      ),
+    );
+
+    Widget ratingColumn() => SizedBox(
+      width: LandscapeTokens.ratingColumn,
+      child: Column(
+        children: [
+          Expanded(
+            child: RatingSlider(rating: state.rating, songKey: state.songKey, onCommit: vm.commitRating),
+          ),
+          if (state.canFavorite) ...[
+            const SizedBox(height: NowPlayingTokens.ratingToHeartGap - 2),
+            FavoriteHeart(starred: state.isStarred, onToggle: vm.toggleFavorite),
+          ],
+        ],
+      ),
+    );
+
+    Widget transport(double width) => SizedBox(
+      width: width,
+      height: transportHeightAt(width + 2 * NowPlayingTokens.columnPadding, metrics),
+      child: OverflowBox(
+        alignment: Alignment.topCenter,
+        minWidth: width + 2 * NowPlayingTokens.columnPadding,
+        maxWidth: width + 2 * NowPlayingTokens.columnPadding,
+        child: TransportControls(
+          isPlaying: state.isPlaying,
+          isWavePlaying: state.isWavePlaying,
+          playMode: state.playMode,
+          clock: clock,
+          durationMs: state.durationMs,
+          labelsUnder: width < transportLabelsInlineMinWidth,
+          waveVisible: true,
+          onPlayPause: vm.togglePlayPause,
+          onNext: vm.next,
+          onPrevious: vm.previous,
+          onSetPlayMode: vm.setPlayMode,
+          showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
+          onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
+          onSeek: vm.seekToFraction,
+          pressed: pressed,
+        ),
+      ),
+    );
+
+    Widget title() => SizedBox(
+      height: LandscapeTokens.titleRow,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: GestureDetector(
+              onTap: switch (track.albumId) {
+                final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id)),
+                null => null,
+              },
+              child: Marquee(
+                text: track.title ?? '',
+                style: text.titleLarge!.copyWith(color: colors.onSurface),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 200),
+            child: GestureDetector(
+              onTap: switch (track.artistId) {
+                final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openArtist(nav, id, name: track.artist)),
+                null => null,
+              },
+              child: Text(
+                track.artist ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.titleSmall!.copyWith(color: colors.onSurfaceVariant),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Widget header() => SizedBox(
+      height: LandscapeTokens.headerHeight,
+      child: OverflowBox(
+        alignment: AlignmentDirectional.centerStart,
+        maxHeight: 48,
+        child: _TopBar(
+          controller: controller,
+          context0: state.context,
+          onContextTap: _contextTarget(state.context, controller),
+          onClose: controller.close,
+          trailing: [
+            IconButton(
+              tooltip: strings.queueTitle,
+              onPressed: () {
+                YoinHaptics.contextClick();
+                showQueueSheet(context, onSkip: vm.skipTo);
+              },
+              icon: Icon(YoinSymbols.queue, color: colors.onSurfaceVariant),
+            ),
+            IconButton(
+              tooltip: strings.pillWrite,
+              onPressed: () {
+                YoinHaptics.contextClick();
+                onWrite();
+              },
+              icon: Icon(YoinSymbols.editNote, color: colors.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    Widget tabs() => SizedBox(
+      height: LandscapeTokens.tabRow,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: SizedBox(
+          height: NowPlayingTokens.tabRowNominal,
+          child: StageTabs(selected: pageTarget, detail: const AlwaysStoppedAnimation(0), onSelect: onSelectPage),
+        ),
+      ),
+    );
+
+    Widget pager({required bool full}) => _PagerSurface(
+      page: page,
+      swipe: true,
+      onDrag: onPageDrag,
+      onDragEnd: onPageDragEnd,
+      lyrics: full
+          ? Padding(
+              padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+              child: LyricsView(
+                mode: LyricsListMode.full,
+                lyrics: state.lyrics,
+                songKey: state.songKey,
+                clock: clock,
+                onSeek: vm.seekTo,
+                autoFollow: autoFollow,
+                windowTop: padding.top + LandscapeTokens.headerHeight + LandscapeTokens.tabRow,
+              ),
+            )
+          : LyricsView(
+              mode: LyricsListMode.window,
+              lyrics: state.lyrics,
+              songKey: state.songKey,
+              clock: clock,
+              onSeek: vm.seekTo,
+            ),
+      note: NotePage(notes: notes, clock: clock),
+    );
+
+    // The write bar under the Note page (the Lyrics page keeps its Recenter key).
+    Widget tools() => _DualTools(
+      page: page,
+      autoFollow: autoFollow,
+      notes: notes,
+      clock: clock,
+      onBarHeight: onBarHeight,
+      barHeight: barHeight,
+      bottom: 0,
+    );
+
+    return Padding(
+      padding: padding,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final l = resolveLandscapeLayout(
+            width: constraints.maxWidth,
+            height: constraints.maxHeight,
+            metrics: metrics,
+          );
+          final rightWidth = constraints.maxWidth - l.columnX;
+          final left = l.stacked
+              ? SizedBox(
+                  width: l.leftWidth,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        height: l.cover,
+                        child: Row(
+                          children: [
+                            cover(l.cover),
+                            const SizedBox(width: LandscapeTokens.ratingGap),
+                            ratingColumn(),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: LandscapeTokens.coverToTransport),
+                      transport(l.leftWidth),
+                      const SizedBox(height: LandscapeTokens.transportToTitle),
+                      title(),
+                    ],
+                  ),
+                )
+              : SizedBox(
+                  width: l.leftWidth,
+                  height: l.cover,
+                  child: Row(
+                    children: [
+                      cover(l.cover),
+                      const SizedBox(width: LandscapeTokens.ratingGap),
+                      ratingColumn(),
+                    ],
+                  ),
+                );
+          final right = SizedBox(
+            width: rightWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                header(),
+                tabs(),
+                Expanded(child: pager(full: l.stacked)),
+                if (!l.stacked) ...[
+                  // The write bar opens under the Note page only.
+                  AnimatedBuilder(
+                    animation: page,
+                    builder: (context, child) => ClipRect(
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        heightFactor: page.value.clamp(0.0, 1.0),
+                        child: child,
+                      ),
+                    ),
+                    child: tools(),
+                  ),
+                  const SizedBox(height: LandscapeTokens.lyricsToTransport),
+                  transport(rightWidth),
+                  title(),
+                ] else
+                  tools(),
+              ],
+            ),
+          );
+          return Row(
+            crossAxisAlignment: l.stacked ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+            children: [
+              left,
+              const SizedBox(width: LandscapeTokens.columnGap),
+              right,
+            ],
+          );
+        },
+      ),
+    );
+  }
 }

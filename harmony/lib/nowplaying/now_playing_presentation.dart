@@ -31,13 +31,11 @@ enum NowPlayingPresentation {
 enum PillMorph { none, cover, coverAndText }
 
 extension NowPlayingPresentationMorph on NowPlayingPresentation {
-  // Landscape: Android flies the cover only (its title sits in the right
-  // column). Harmony has no landscape player yet — a short window shows the
-  // phone column — so it keeps the phone's morph until that layout lands.
+  // Landscape and the two columns fly the cover only: their titles sit
+  // where no pill text can travel to.
   PillMorph get pillMorph => switch (this) {
     NowPlayingPresentation.phone || NowPlayingPresentation.enlarged => PillMorph.coverAndText,
-    NowPlayingPresentation.landscape => PillMorph.coverAndText,
-    NowPlayingPresentation.dualPane => PillMorph.cover,
+    NowPlayingPresentation.dualPane || NowPlayingPresentation.landscape => PillMorph.cover,
     NowPlayingPresentation.panel => PillMorph.none,
   };
 

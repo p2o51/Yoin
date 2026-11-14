@@ -137,7 +137,10 @@ class _CoverSwapState extends ConsumerState<CoverSwap> with TickerProviderStateM
     // A fourth layer pushed the bottom one out: dispose its spring after
     // this frame, once its FadeTransition has unmounted.
     final live = {for (final l in _stack.layers) l.id};
-    final gone = [for (final id in _alphas.keys) if (!live.contains(id)) id];
+    final gone = [
+      for (final id in _alphas.keys)
+        if (!live.contains(id)) id,
+    ];
     if (gone.isNotEmpty) {
       final springs = [for (final id in gone) _alphas.remove(id)!];
       SchedulerBinding.instance.addPostFrameCallback((_) {

@@ -305,5 +305,4 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
 final nowPlayingViewModelProvider = NotifierProvider<NowPlayingViewModel, NowPlayingUiState>(NowPlayingViewModel.new);
 
 /// Whether the engine reports an error with nothing to show (pill text).
-bool isPlaybackUnavailable(PlayerSnapshot s) =>
-    !s.hasTrack && (s.phase == PlaybackPhase.error || s.errorKind != null);
+bool isPlaybackUnavailable(PlayerSnapshot s) => !s.hasTrack && (s.phase == PlaybackPhase.error || s.errorKind != null);

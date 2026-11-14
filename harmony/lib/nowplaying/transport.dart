@@ -480,7 +480,11 @@ class PlayModeButtonState extends State<PlayModeButton> with TickerProviderState
 
   late final SpringValue _f = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardDefaultSpatial);
   late final SpringValue _leftLit = SpringValue(vsync: this, initial: _leftTarget, spring: YoinSprings.defaultEffects);
-  late final SpringValue _rightLit = SpringValue(vsync: this, initial: _rightTarget, spring: YoinSprings.defaultEffects);
+  late final SpringValue _rightLit = SpringValue(
+    vsync: this,
+    initial: _rightTarget,
+    spring: YoinSprings.defaultEffects,
+  );
   late final SpringValue _slash = SpringValue(
     vsync: this,
     initial: widget.mode.isRepeatOff ? 1 : 0,
@@ -629,14 +633,11 @@ class PlayModeButtonState extends State<PlayModeButton> with TickerProviderState
         final slash = _slash.value.clamp(0.0, 1.0);
         final showRight = f > _playModeSplitShownFrom || _split;
 
-        Widget touch({
-          required ShapeBorder shape,
-          required VoidCallback onTap,
-          required VoidCallback onLongPress,
-        }) => Material(
-          type: MaterialType.transparency,
-          child: InkWell(customBorder: shape, onTap: onTap, onLongPress: onLongPress),
-        );
+        Widget touch({required ShapeBorder shape, required VoidCallback onTap, required VoidCallback onLongPress}) =>
+            Material(
+              type: MaterialType.transparency,
+              child: InkWell(customBorder: shape, onTap: onTap, onLongPress: onLongPress),
+            );
 
         return SizedBox(
           width: width,

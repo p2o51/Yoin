@@ -54,6 +54,7 @@ final class PlayerSnapshot {
   final bool playWhenReady;
   final int? durationMs;
   final PlayMode playMode;
+
   /// Why playback failed, if it did. The UI words it through
   /// PlaybackStrings.errorMessage; the engine's raw text never reaches here.
   final PlaybackErrorKind? errorKind;
