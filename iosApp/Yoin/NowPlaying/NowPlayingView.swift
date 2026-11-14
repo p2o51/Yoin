@@ -298,7 +298,7 @@ struct NowPlayingView: View, Equatable {
             if let spotify = model.store.spotify { SpotifyDevicesSheet(spotify: spotify, scope: model.store.spotifyAccount?.scope, scheme: scheme).reportsSheetRise() }
         }
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
-            QueueSheet().reportsSheetRise()
+            QueueSheet().reportsSheetRise().ySolidSheet(scheme.surfaceContainerLow)
         }
         // Every sheet NP presents reports its rise, so the page recedes under
         // it (World depth) as it does under the Queue.
@@ -310,6 +310,7 @@ struct NowPlayingView: View, Equatable {
                 if let t = LyricsActions.shared.search.target { LyricsActions.shared.applySearchResult(match, for: t) }
             }, onClose: { LyricsActions.shared.dismissSearch() })
             .reportsSheetRise()
+            .ySolidSheet(scheme.surfaceContainerLow)
             .presentationDetents([.large])
         }
         .sheet(isPresented: $lyricsEditing) {
@@ -319,11 +320,13 @@ struct NowPlayingView: View, Equatable {
                 if let t = lyricsEditTarget { LyricsActions.shared.applyEdited(text, for: t) }
             }, onCancel: { lyricsEditing = false })
             .reportsSheetRise()
+            .ySolidSheet(scheme.surfaceContainerLow)
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $lyricsShare) { snap in
             LyricsShareSheet(snapshot: snap, scheme: scheme) { lyricsShare = nil }
                 .reportsSheetRise()
+                .ySolidSheet(scheme.surfaceContainerLow)
                 .presentationDetents([.large])
         }
         // Select mode, the lyric search and the editor belong to one song's

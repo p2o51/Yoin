@@ -71,6 +71,14 @@ extension View {
         if GlassLab.solidSurfaces { self } else { transform(self) }
     }
 
+    /// A sheet's background with solid surfaces on: Android's bottom-sheet
+    /// surfaceContainerLow (the cover's when the sheet has one), opaque, in
+    /// place of the system's glass. Off: the system's.
+    @ViewBuilder
+    func ySolidSheet(_ color: Color = Yoin.surfaceContainerLow) -> some View {
+        if GlassLab.solidSurfaces { presentationBackground(color) } else { self }
+    }
+
     /// A blur material, or the solid fill when solid surfaces are on.
     func ySolidOrMaterial<S: Shape>(_ material: Material, in shape: S) -> some View {
         modifier(YSolidOrMaterial(material: material, shape: shape))

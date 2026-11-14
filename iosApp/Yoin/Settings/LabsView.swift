@@ -38,6 +38,8 @@ struct LabsView: View {
             LabsBody(status: processor.status,
                      optedIn: Binding(get: { store.optedIn },
                                       set: { on in withAnimation(Yoin.effects) { processor.setOptedIn(on) } }),
+                     solidSurfaces: Binding(get: { GlassLab.shared.solidSurfaces },
+                                            set: { on in withAnimation(Yoin.effects) { GlassLab.shared.solidSurfaces = on } }),
                      app: app, row: row,
                      onOpenSettings: {
                          if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
@@ -53,6 +55,8 @@ struct LabsView: View {
 struct LabsBody: View {
     var status: OnDeviceModelStatus?
     @Binding var optedIn: Bool
+    /// The Solid Surfaces switch; nil (the tip's demo phone) leaves it out.
+    var solidSurfaces: Binding<Bool>? = nil
     var app: CoverScheme
     var row: Color
     var onOpenSettings: () -> Void
@@ -109,17 +113,18 @@ struct LabsBody: View {
                 Text("Lines you share or save on the lyrics page still show up on Home.")
                     .yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant)
             }
-            // Prototype (2026-11-14): copy is a placeholder until Argon writes it.
-            Toggle(isOn: Binding(get: { GlassLab.shared.solidSurfaces },
-                                 set: { on in withAnimation(Yoin.effects) { GlassLab.shared.solidSurfaces = on } })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "Solid surfaces").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
-                    Text(verbatim: "Turn off Liquid Glass; buttons and bars use solid colors, like Yoin on Android")
-                        .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+            // Solid Surfaces (2026-11-14, Carbon's words): Liquid Glass off, Android's opaque roles.
+            if let solidSurfaces {
+                Toggle(isOn: solidSurfaces) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Solid Surfaces").yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                        Text("Replace in-app Liquid Glass with opaque bars, panels, and filled buttons")
+                            .yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+                    }
                 }
+                .tint(app.primary)
+                .padding(.top, 8)
             }
-            .tint(app.primary)
-            .padding(.top, 8)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

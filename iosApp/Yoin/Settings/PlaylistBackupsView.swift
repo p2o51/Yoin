@@ -208,6 +208,7 @@ struct PlaylistBackupView: View {
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: Binding(get: { restore.sheetOpen }, set: { if !$0 { restore.sheetClosed() } })) {
             PlaylistRestoreSheet(model: restore, targets: BackupTexts.targets())
+                .ySolidSheet()
         }
         .alert("Delete this backup?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}

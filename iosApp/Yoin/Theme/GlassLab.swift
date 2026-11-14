@@ -426,21 +426,29 @@ final class GlassLab {
         // play mode tertiaryContainer, pills primary, heart tertiary(Container),
         // rating surfaceVariant), opaque, no shadow. The presets' neutral
         // floors were a glass idea.
-        if solidSurfaces, Self.solidAndroidRoles.contains(id) {
-            return SurfaceStyle(variant: .none, tintOn: true, role: .auto, tintOpacity: 1, interactive: false,
+        if solidSurfaces, let role = Self.solidAndroidRoles[id] {
+            return SurfaceStyle(variant: .none, tintOn: true, role: role, tintOpacity: 1, interactive: false,
                                 cornerRadius: st.cornerRadius)
         }
         return st
     }
 
     /// The surfaces that wear Android's roles with solid surfaces on.
-    static let solidAndroidRoles: Set<String> = ["transportPrimary", "transportSecondary", "heart", "npPills",
-                                                 "ratingTrack", "npFloating"]
+    /// `.auto` = the call site's own Android role. The bar (Android
+    /// YoinButtonGroup): the selected tab and the song pill primaryContainer,
+    /// the rest surfaceContainerHighest.
+    static let solidAndroidRoles: [String: ToneRole] = [
+        "transportPrimary": .auto, "transportSecondary": .auto, "heart": .auto, "npPills": .auto,
+        "ratingTrack": .auto, "npFloating": .auto,
+        "barSelected": .primaryContainer, "barUnselected": .surfaceContainerHighest, "miniPlayer": .primaryContainer,
+    ]
 
     func extra(_ id: String) -> Double {
         // Solid surfaces: no lifting into glass, the liked heart keeps its own tertiary.
         if solidSurfaces, id == "liftInFlow" || id == "heartLikedAccent" { return 0 }
         if solidSurfaces, id == "ratingFill" { return 1 }
+        // Solid surfaces: no ambient inside the opaque pill.
+        if solidSurfaces, id == "pillAmbient" { return 0 }
         return extras[id] ?? 0
     }
 

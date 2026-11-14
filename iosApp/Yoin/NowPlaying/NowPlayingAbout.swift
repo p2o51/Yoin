@@ -223,6 +223,7 @@ struct NowPlayingAboutView: View {
         .sheet(item: $menuFor) { target in
             AboutEntrySheet(target: target, scheme: scheme)
                 .reportsSheetRise()
+                .ySolidSheet(scheme.surfaceContainerLow)
         }
         // The song can move on while a row's sheet is up: the sheet goes with
         // its row, so Manage never pairs one song's row with the next song's album.

@@ -354,6 +354,7 @@ struct AlbumDetailView: View {
         .background(Yoin.surface)
         .sheet(isPresented: $rating) {
             AlbumRateSheet(album: album, scheme: s)
+                .ySolidSheet(s.surfaceContainerLow)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }

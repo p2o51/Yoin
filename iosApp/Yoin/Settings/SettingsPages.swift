@@ -139,6 +139,7 @@ struct AboutYoinView: View {
                 .background(row, in: CloudSyncView.segment(0, 1))
                 .sheet(isPresented: $recapOpen) {
                     SpotoolfyRecapView(recap: recap, scheme: app) { recapOpen = false }
+                        .ySolidSheet(app.surfaceContainerLow)
                 }
             }
         }

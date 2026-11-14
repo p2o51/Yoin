@@ -175,7 +175,7 @@ struct ShellBar: View {
         let selected = model.section == s && !(pad != nil && model.searchActive)
         // The phone's idle bar labels its halves; iPad's nav capsule always does.
         let labelled = model.isIdle || pad == .nav
-        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 || lab.solidSurfaces
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 && !lab.solidSurfaces
         let button = Button {
             tap(.library) {
                 // iPad: Search is a place of its own beside the sections; Home / Library leave it.
@@ -220,8 +220,9 @@ struct ShellBar: View {
     /// selected like Home and Library while it is open.
     private var padSearchButton: some View {
         let selected = model.searchActive
-        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 || lab.solidSurfaces
-        let ink: Color = !selected ? Yoin.ink : tintedStyle ? scheme.onTertiary : scheme.tertiary
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 && !lab.solidSurfaces
+        let ink: Color = lab.solidSurfaces ? (selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant)
+            : !selected ? Yoin.ink : tintedStyle ? scheme.onTertiary : scheme.tertiary
         let button = Button {
             if !model.searchActive { model.openSearch(from: .library) }
         } label: {
@@ -230,7 +231,7 @@ struct ShellBar: View {
                 .labContrast(selected ? "barSelected" : "barUnselected")
                 .frame(width: height, height: height)
                 .background {
-                    if selected && !tintedStyle {
+                    if selected && !tintedStyle && !lab.solidSurfaces {
                         Circle()
                             .fill((colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
                                 .opacity(lab.extra("barSelectionPill") / 0.55))
@@ -257,7 +258,7 @@ struct ShellBar: View {
     private var phoneSearchButton: some View {
         Button { model.openSearch(from: .bar) } label: {
             YoinIcon("search", size: 24)
-                .foregroundStyle(Yoin.ink)
+                .foregroundStyle(lab.solidSurfaces ? scheme.onSurfaceVariant : Yoin.ink)
                 .labContrast("barUnselected")
                 .frame(width: height, height: height)
                 .contentShape(.circle)
@@ -441,12 +442,14 @@ struct ShellNavFace: View {
 
     var body: some View {
         let lab = GlassLab.shared
-        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 || lab.solidSurfaces
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 && !lab.solidSurfaces
         let icon = switch section {
         case .home: selected ? "home_filled" : "home"
         case .library: selected ? "library_filled" : "library"
         }
-        let ink: Color = !selected ? Yoin.ink
+        // Solid surfaces: Android's YoinButtonGroup inks.
+        let ink: Color = lab.solidSurfaces ? (selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant)
+            : !selected ? Yoin.ink
             : tintedStyle ? (section == .home ? scheme.onPrimary : scheme.onSecondary)
             : (section == .home ? scheme.primary : scheme.secondary)
         HStack(spacing: 8) {
@@ -461,7 +464,7 @@ struct ShellNavFace: View {
         .frame(width: labelled ? nil : (selected ? 68 : 54), height: height)
         .frame(maxWidth: fills ? .infinity : nil)
         .background {
-            if selected && !tintedStyle {
+            if selected && !tintedStyle && !lab.solidSurfaces {
                 // Apple-style selection highlight inside the glass.
                 // Grey on light glass (white vanished on it), light on dark.
                 Capsule()
@@ -530,12 +533,12 @@ struct PillContent: View {
                 }
             VStack(alignment: .leading, spacing: 1) {
                 // A long title or artist scrolls (Android pill basicMarquee, parity C-U9).
-                MarqueeText(text: s.title, font: .gsf(15, .semibold), color: Yoin.ink)
+                MarqueeText(text: s.title, font: .gsf(15, .semibold), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
                     .opacity(showTitle ? 1 : 0)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
                         np?.pillTitleFrame = r
                     }
-                MarqueeText(text: s.artist, font: .gsf(13), color: Yoin.inkVariant)
+                MarqueeText(text: s.artist, font: .gsf(13), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant)
             }
             .lineLimit(1)
             .labContrast("miniPlayer")
