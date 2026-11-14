@@ -73,5 +73,16 @@ function applyQaFlags(want: Want): void {
   const params = want.parameters
   if (params !== undefined && params['yoinQaSilent'] === true) {
     setQaSilent(true)
+  } else if (isHomeScreenLaunch(want)) {
+    // Opened from its icon: a person is listening, whatever an earlier QA launch in this process set.
+    setQaSilent(false)
   }
+}
+
+/** The launcher starts the main ability with the home action / entity (module.json5 skills). */
+function isHomeScreenLaunch(want: Want): boolean {
+  const entities = want.entities ?? []
+  const home = want.action === 'action.system.home' || entities.indexOf('entity.system.home') >= 0
+  hilog.info(0x5901, 'YoinAbility', 'launch want: action=%{public}s home=%{public}s', want.action ?? '-', `${home}`)
+  return home
 }

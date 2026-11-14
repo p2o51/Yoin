@@ -20,9 +20,15 @@ const DUCK_VOLUME = 0.2;
  * tests never make sound (night rule; iOS uses -silentAudio the same way).
  */
 let qaSilent = false;
+/** Engines re-apply their output volume when the QA flag flips (a later launch from the icon clears it). */
+const qaSilentListeners: Array<() => void> = [];
 
 export function setQaSilent(silent: boolean): void {
+  if (silent === qaSilent) {
+    return;
+  }
   qaSilent = silent;
+  qaSilentListeners.forEach((l: () => void) => l());
 }
 
 function outVolume(volume: number): number {
@@ -105,6 +111,18 @@ export class PlaybackEngine {
   private resumeOnFocusGain: boolean = false;
   private listeners: EngineListener[] = [];
   private released: boolean = false;
+
+  constructor() {
+    qaSilentListeners.push(() => this.reapplyVolume());
+  }
+
+  /** The QA flag changed: the current source plays at the volume that now applies. */
+  private reapplyVolume(): void {
+    const p = this.player;
+    if (p !== null && this.isSourceCurrent() && this.phase === 'ready') {
+      p.setVolume(outVolume(1.0));
+    }
+  }
 
   addListener(listener: EngineListener): void {
     this.listeners.push(listener);
