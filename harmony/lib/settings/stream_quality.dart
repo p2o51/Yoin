@@ -1,18 +1,19 @@
 /// How much of a Subsonic song the player asks for (Android
 /// player/StreamQuality.kt, SubsonicStreamResolver.kt StreamDelivery).
 ///
-/// Harmony keeps one choice per account (Android has one for Wi‑Fi and one for
-/// mobile data, decided by the network): Dart has no way to tell the network
-/// kind without a `GET_NETWORK_INFO` permission and a native channel, so the
-/// split waits for those. Android's Auto (follows the audio output) is left
-/// out for the same reason.
+/// Two choices per account, one for Wi‑Fi and one for mobile data; the
+/// network a song opens on decides which (`yoin/network`). Android's Auto
+/// (follows the audio output) is left out: Harmony doesn't read the output
+/// yet, so mobile data defaults to a fixed 320 kbps instead.
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../data/subsonic/subsonic_music_source.dart';
+import '../platform/network/network_bearer.dart';
 import '../platform/storage/stores.dart';
 
 enum StreamQuality {
@@ -30,10 +31,48 @@ enum StreamQuality {
   final int? maxBitRateKbps;
 
   static StreamQuality? fromKey(String? key) => values.where((q) => q.key == key).firstOrNull;
-
-  /// Wi‑Fi's default on Android: no reason to send less than the file.
-  static const fallback = original;
 }
+
+/// The two kinds of network a choice is made for.
+enum StreamNetwork { wifi, mobile }
+
+/// One account's two choices (StreamQualitySettings).
+@immutable
+final class StreamQualitySettings {
+  const StreamQualitySettings({this.wifi = defaultWifi, this.mobile = defaultMobile});
+
+  /// Wi‑Fi has no reason to send less than the file (Android's default).
+  static const defaultWifi = StreamQuality.original;
+
+  /// Android's mobile default is Auto (follows the headphones); without the
+  /// output, the Bluetooth answer: 320 kbps.
+  static const defaultMobile = StreamQuality.kbps320;
+
+  final StreamQuality wifi;
+  final StreamQuality mobile;
+
+  StreamQuality operator [](StreamNetwork network) => switch (network) {
+        StreamNetwork.wifi => wifi,
+        StreamNetwork.mobile => mobile,
+      };
+
+  /// Everything but mobile data counts as Wi‑Fi (Ethernet on a PC too).
+  StreamQuality forBearer(NetworkBearer bearer) => bearer.isUnmetered ? wifi : mobile;
+
+  StreamQualitySettings copyWith(StreamNetwork network, StreamQuality quality) => switch (network) {
+        StreamNetwork.wifi => StreamQualitySettings(wifi: quality, mobile: mobile),
+        StreamNetwork.mobile => StreamQualitySettings(wifi: wifi, mobile: quality),
+      };
+
+  @override
+  bool operator ==(Object other) => other is StreamQualitySettings && other.wifi == wifi && other.mobile == mobile;
+
+  @override
+  int get hashCode => Object.hash(wifi, mobile);
+}
+
+/// What the default network runs over; main() gets the channel, tests override.
+final networkBearerProvider = Provider<NetworkBearerSource>((ref) => ChannelNetworkBearer());
 
 /// The format a transcode asks for: mp3 on every server. A constant-bit-rate
 /// mp3 maps a time to a byte, so it seeks; an Ogg/opus transcode does not
@@ -53,58 +92,70 @@ SubsonicStreamPlan? planStream(StreamQuality quality, int? sourceKbps) {
   return (maxBitRateKbps: cap, format: transcodeFormat, estimateLength: sourceKbps != null && sourceKbps > 0);
 }
 
-/// One choice per account in [KeyValueStore].
+/// Each account's two choices in [KeyValueStore].
 final class StreamQualityStore {
   const StreamQualityStore(this._values);
 
   final KeyValueStore _values;
 
-  static String key(String profileId) => 'stream_quality.v1.$profileId';
+  static String key(String profileId, StreamNetwork network) => 'stream_quality.${network.name}.v1.$profileId';
 
-  Future<StreamQuality> read(String profileId) async =>
-      StreamQuality.fromKey(await _values.read(key(profileId))) ?? StreamQuality.fallback;
+  Future<StreamQualitySettings> read(String profileId) async {
+    final wifi = StreamQuality.fromKey(await _values.read(key(profileId, StreamNetwork.wifi)));
+    final mobile = StreamQuality.fromKey(await _values.read(key(profileId, StreamNetwork.mobile)));
+    return StreamQualitySettings(
+      wifi: wifi ?? StreamQualitySettings.defaultWifi,
+      mobile: mobile ?? StreamQualitySettings.defaultMobile,
+    );
+  }
 
-  Future<void> write(String profileId, StreamQuality quality) => _values.write(key(profileId), quality.key);
+  Future<void> write(String profileId, StreamNetwork network, StreamQuality quality) =>
+      _values.write(key(profileId, network), quality.key);
 }
 
-/// For [SubsonicMusicSource.streamPlanner]: the active account's choice, read
-/// each time a song opens, so a change applies from the next song. Anything
-/// that goes wrong plays the file.
+/// For [SubsonicMusicSource.streamPlanner]: the active account's choice for
+/// the network it opens on, read each time a song opens, so a change (of
+/// setting or of network) applies from the next song. Anything that goes
+/// wrong plays the file.
 SubsonicStreamPlanner subsonicStreamPlanner(Ref ref) => (Track track) async {
       try {
         final profile = await ref.read(profileRepositoryProvider).activeProfile();
         if (profile == null) return null;
-        final quality = await StreamQualityStore(ref.read(keyValueStoreProvider)).read(profile.id);
-        return planStream(quality, track.audioFormat?.bitRateKbps);
+        final settings = await StreamQualityStore(ref.read(keyValueStoreProvider)).read(profile.id);
+        final bearer = await ref.read(networkBearerProvider).current();
+        return planStream(settings.forBearer(bearer), track.audioFormat?.bitRateKbps);
       } catch (_) {
         return null;
       }
     };
 
-/// One account's choice, for the Streaming quality page and its row. null while it loads.
-class StreamQualityViewModel extends Notifier<StreamQuality?> {
+/// One account's choices, for the Streaming quality page and its row. null while they load.
+class StreamQualityViewModel extends Notifier<StreamQualitySettings?> {
   StreamQualityViewModel(this.profileId);
 
   final String profileId;
+  bool _touched = false;
 
   @override
-  StreamQuality? build() {
+  StreamQualitySettings? build() {
     _load();
     return null;
   }
 
   Future<void> _load() async {
-    final quality = await StreamQualityStore(ref.read(keyValueStoreProvider)).read(profileId);
-    // A choice made while it loaded wins.
-    if (ref.mounted && state == null) state = quality;
+    final settings = await StreamQualityStore(ref.read(keyValueStoreProvider)).read(profileId);
+    // A choice made while they loaded wins.
+    if (ref.mounted && !_touched) state = settings;
   }
 
-  Future<void> select(StreamQuality quality) async {
-    if (state == quality) return;
-    state = quality;
-    await StreamQualityStore(ref.read(keyValueStoreProvider)).write(profileId, quality);
+  Future<void> select(StreamNetwork network, StreamQuality quality) async {
+    final current = state ?? await StreamQualityStore(ref.read(keyValueStoreProvider)).read(profileId);
+    if (current[network] == quality && state != null) return;
+    _touched = true;
+    if (ref.mounted) state = current.copyWith(network, quality);
+    await StreamQualityStore(ref.read(keyValueStoreProvider)).write(profileId, network, quality);
   }
 }
 
-final streamQualityProvider =
-    NotifierProvider.autoDispose.family<StreamQualityViewModel, StreamQuality?, String>(StreamQualityViewModel.new);
+final streamQualityProvider = NotifierProvider.autoDispose
+    .family<StreamQualityViewModel, StreamQualitySettings?, String>(StreamQualityViewModel.new);

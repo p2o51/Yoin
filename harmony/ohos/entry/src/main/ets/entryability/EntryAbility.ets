@@ -12,6 +12,7 @@ import YoinI18nPlugin from '../yoin/i18n/I18nPlugin';
 import YoinAppleMusicAuthPlugin from '../yoin/applemusic/AppleMusicAuthPlugin';
 import YoinCardsPlugin, { CardsHost } from '../yoin/cards/CardsPlugin';
 import YoinWindowPlugin, { YoinWindowHost } from '../yoin/window/WindowPlugin';
+import YoinNetworkPlugin from '../yoin/network/NetworkPlugin';
 import { window } from '@kit.ArkUI';
 
 export default class EntryAbility extends FlutterAbility {
@@ -26,6 +27,7 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinAppleMusicAuthPlugin())
     flutterEngine.getPlugins()?.add(new YoinCardsPlugin(this.context))
     flutterEngine.getPlugins()?.add(new YoinWindowPlugin())
+    flutterEngine.getPlugins()?.add(new YoinNetworkPlugin())
   }
 
   /**

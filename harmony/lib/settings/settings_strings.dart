@@ -101,6 +101,10 @@ class SettingsStrings {
   String get streamQualityTitle => _zh ? '播放音质' : 'Streaming quality'; // settings_stream_quality_title
   String get streamQualityOriginal => _zh ? '原始' : 'Original'; // settings_stream_quality_original
   String streamQualityKbps(int kbps) => '$kbps kbps'; // settings_stream_quality_kbps
+  String get streamQualityWifi => 'Wi‑Fi'; // settings_stream_quality_wifi
+  String get streamQualityMobile => _zh ? '移动数据' : 'Mobile data'; // settings_stream_quality_mobile
+  String streamQualitySummary(String wifi, String mobile) =>
+      _zh ? 'Wi‑Fi $wifi，移动数据 $mobile' : 'Wi‑Fi $wifi, mobile data $mobile'; // settings_stream_quality_summary
 
   // ── Help and about ──────────────────────────────────────────────────
   String get sectionHelpAbout => _zh ? '帮助与关于' : 'Help and about'; // settings_section_help_about

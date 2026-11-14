@@ -15,8 +15,8 @@ String streamQualityLabel(SettingsStrings strings, StreamQuality quality) {
   return kbps == null ? strings.streamQualityOriginal : strings.streamQualityKbps(kbps);
 }
 
-/// The account page's Playback row (ProfileServiceSettings): the choice in
-/// force, opening the Streaming quality page.
+/// The account page's Playback row (ProfileServiceSettings): both choices,
+/// opening the Streaming quality page.
 class StreamQualityRow extends ConsumerWidget {
   const StreamQualityRow({super.key, required this.profileId});
 
@@ -25,11 +25,16 @@ class StreamQualityRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = SettingsStrings.of(context);
-    final quality = ref.watch(streamQualityProvider(profileId));
+    final settings = ref.watch(streamQualityProvider(profileId));
     return SettingsItem(
       icon: YoinSymbols.equalizer,
       title: strings.streamQualityTitle,
-      summary: quality == null ? null : streamQualityLabel(strings, quality),
+      summary: settings == null
+          ? null
+          : strings.streamQualitySummary(
+              streamQualityLabel(strings, settings.wifi),
+              streamQualityLabel(strings, settings.mobile),
+            ),
       onTap: () => Navigator.of(context)
           .push(YoinPushRoute<void>(builder: (_) => StreamQualityScreen(profileId: profileId))),
     );
@@ -37,8 +42,8 @@ class StreamQualityRow extends ConsumerWidget {
 }
 
 /// Settings › account › Streaming quality (StreamQualityPage.kt), a PushPage:
-/// one choice for this account, applied from the next song that opens. One
-/// group, not Android's Wi‑Fi and mobile data pair (see stream_quality.dart).
+/// two groups, Wi‑Fi and mobile data, one choice each; it applies from the
+/// next song that opens.
 class StreamQualityScreen extends ConsumerWidget {
   const StreamQualityScreen({super.key, required this.profileId});
 
@@ -47,34 +52,57 @@ class StreamQualityScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = SettingsStrings.of(context);
-    final selected = ref.watch(streamQualityProvider(profileId));
-    void select(StreamQuality? quality) {
-      if (quality != null) ref.read(streamQualityProvider(profileId).notifier).select(quality);
-    }
-
+    final settings = ref.watch(streamQualityProvider(profileId));
     return SettingsSubPage(
       title: strings.streamQualityTitle,
       children: [
-        RadioGroup<StreamQuality>(
-          groupValue: selected,
-          onChanged: select,
-          child: SettingsSegments(
-            children: [
-              for (final quality in StreamQuality.values)
-                SettingsItem(
-                  key: ValueKey(quality),
-                  title: streamQualityLabel(strings, quality),
-                  semanticsRadio: true,
-                  leading: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
-                    child: Radio<StreamQuality>(value: quality),
-                  ),
-                  onTap: () => select(quality),
-                ),
-            ],
-          ),
+        _QualityGroup(
+          title: strings.streamQualityWifi,
+          selected: settings?.wifi,
+          onSelect: (q) => ref.read(streamQualityProvider(profileId).notifier).select(StreamNetwork.wifi, q),
+        ),
+        const SizedBox(height: SettingsMetrics.sectionGap),
+        _QualityGroup(
+          title: strings.streamQualityMobile,
+          selected: settings?.mobile,
+          onSelect: (q) => ref.read(streamQualityProvider(profileId).notifier).select(StreamNetwork.mobile, q),
         ),
       ],
+    );
+  }
+}
+
+class _QualityGroup extends StatelessWidget {
+  const _QualityGroup({required this.title, required this.selected, required this.onSelect});
+
+  final String title;
+  final StreamQuality? selected;
+  final ValueChanged<StreamQuality> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = SettingsStrings.of(context);
+    return RadioGroup<StreamQuality>(
+      groupValue: selected,
+      onChanged: (q) {
+        if (q != null) onSelect(q);
+      },
+      child: SettingsGroup(
+        title: title,
+        children: [
+          for (final quality in StreamQuality.values)
+            SettingsItem(
+              key: ValueKey(quality),
+              title: streamQualityLabel(strings, quality),
+              semanticsRadio: true,
+              leading: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: SettingsMetrics.radioInset),
+                child: Radio<StreamQuality>(value: quality),
+              ),
+              onTap: () => onSelect(quality),
+            ),
+        ],
+      ),
     );
   }
 }
