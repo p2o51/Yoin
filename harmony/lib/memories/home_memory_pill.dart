@@ -34,10 +34,29 @@ enum MemoryPillScore { album, average, none }
 
 @immutable
 final class HomeMemoryPillState {
-  const HomeMemoryPillState({this.latest, this.noteCount = 0, this.resolved = false});
+  const HomeMemoryPillState({
+    this.latest,
+    this.noteCount = 0,
+    this.resolved = false,
+    this.recall = const [],
+    this.scope = '',
+    this.newsKey = '',
+  });
 
   final AlbumMemoryCandidate? latest;
   final int noteCount;
+
+  /// The memories the bubble's idle reminder brings back ([pickMemoryRecall]).
+  final List<AlbumMemoryCandidate> recall;
+
+  /// Whose memories these are (`provider|profileId`): the bubble remembers what it told per scope.
+  final String scope;
+
+  /// What "something new" is keyed on ([memoryNewsKey]); empty = never news.
+  final String newsKey;
+
+  /// A latest memory or kept notes: the bubble has a memory to talk about.
+  bool get hasSomethingToSay => latest != null || noteCount > 0;
 
   /// False until the first read: the header keeps the pill's slot empty.
   final bool resolved;
@@ -67,6 +86,38 @@ AlbumMemoryCandidate? pickLatestMemory(List<AlbumMemoryCandidate> candidates) {
   }
   return best;
 }
+
+/// The memories the bubble's idle reminder brings back (Android
+/// pickMemoryRecall): every one but [latest] (news tells that one), newest
+/// written first — plays only, never written on, after them — one per
+/// album, at most [memoryRecallLimit].
+List<AlbumMemoryCandidate> pickMemoryRecall(List<AlbumMemoryCandidate> candidates, AlbumMemoryCandidate? latest) {
+  String album(AlbumMemoryCandidate c) => '${c.albumId.provider}|${c.albumId.rawId}';
+  final latestAlbum = latest == null ? null : album(latest);
+  final seen = <String>{};
+  final kept = [
+    for (final c in candidates)
+      if (album(c) != latestAlbum && seen.add(album(c))) c,
+  ];
+  int when(AlbumMemoryCandidate c) => c.lastWrittenAt ?? c.lastPlayedAt ?? c.firstPlayedAt ?? 0;
+  // List.sort isn't stable: ties keep the candidates' own (strength) order by index.
+  final order = {for (var i = 0; i < kept.length; i++) kept[i]: i};
+  kept.sort((a, b) {
+    final written = (b.lastWrittenAt != null ? 1 : 0).compareTo(a.lastWrittenAt != null ? 1 : 0);
+    if (written != 0) return written;
+    final newer = when(b).compareTo(when(a));
+    return newer != 0 ? newer : order[a]!.compareTo(order[b]!);
+  });
+  return kept.take(memoryRecallLimit).toList();
+}
+
+const int memoryRecallLimit = 8;
+
+/// What "something new" is keyed on (Android memoryNewsKey): the newest write
+/// on any memory and the note count, as "time#count". Plays and visits never
+/// change it; the bubble compares the parts as numbers, so a deletion that
+/// moves them back is not news.
+String memoryNewsKey(AlbumMemoryCandidate? latest, int noteCount) => '${latest?.lastWrittenAt ?? 0}#$noteCount';
 
 class HomeMemoryPillNotifier extends Notifier<HomeMemoryPillState> {
   StreamSubscription<MemoryStoreChange>? _changes;
@@ -106,10 +157,15 @@ class HomeMemoryPillNotifier extends Notifier<HomeMemoryPillState> {
       );
       final pool = await buildAlbumMemoryCandidates(inputs, loadAlbum: ref.read(detailCacheProvider).album);
       if (!ref.mounted || generation != _generation) return;
+      final latest = pickLatestMemory(pool);
+      final noteCount = notes.where((n) => !n.isBlank).length;
       state = HomeMemoryPillState(
-        latest: pickLatestMemory(pool),
-        noteCount: notes.where((n) => !n.isBlank).length,
+        latest: latest,
+        noteCount: noteCount,
         resolved: true,
+        recall: pickMemoryRecall(pool, latest),
+        scope: '$provider|${store.profileId}',
+        newsKey: memoryNewsKey(latest, noteCount),
       );
     } catch (e) {
       debugPrint('YoinMemories: pill failed: ${e.runtimeType}');

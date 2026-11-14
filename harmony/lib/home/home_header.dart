@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
-import '../memories/home_memory_pill.dart';
 import '../settings/settings_screen.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
+import 'home_memory_bubble.dart';
 import 'home_metrics.dart';
 import 'home_selection.dart';
 import 'home_strings.dart';
@@ -43,8 +43,10 @@ final homeGreetingProvider = NotifierProvider<HomeGreeting, HomeDayPart>(HomeGre
 void openHomeSettings(BuildContext context) => openSettings(context);
 
 /// Header: greeting over the big "Home" title on the left, the account
-/// control on the right; the Memories pill sits before the account control.
-/// Rounded cut (ROND 100), Medium weight.
+/// control on the right. With an account, Memories' ⌄ rests at the page's top
+/// centre and its bubble speaks over the title ([HomeMemoryBubble], Android's
+/// Recommended entry; the header pill is retired). Rounded cut (ROND 100),
+/// Medium weight.
 class HomeHeader extends ConsumerWidget {
   const HomeHeader({super.key, required this.accountTitle, required this.compactHeight});
 
@@ -57,41 +59,47 @@ class HomeHeader extends ConsumerWidget {
     final strings = HomeStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final part = ref.watch(homeGreetingProvider);
-    final greetingStyle = gsf(TypeTokens.titleMedium.size, weight: 500, height: TypeTokens.titleMedium.lineHeight / TypeTokens.titleMedium.size, round: 100)
-        .copyWith(color: colors.onSurfaceVariant);
+    final greetingStyle = gsf(
+      TypeTokens.titleMedium.size,
+      weight: 500,
+      height: TypeTokens.titleMedium.lineHeight / TypeTokens.titleMedium.size,
+      round: 100,
+    ).copyWith(color: colors.onSurfaceVariant);
     final titleToken = compactHeight ? TypeTokens.headlineSmall : TypeTokens.headlineMedium;
-    final titleStyle = gsf(titleToken.size, weight: 500, height: titleToken.lineHeight / titleToken.size, round: 100)
-        .copyWith(color: colors.onSurface);
+    final titleStyle = gsf(
+      titleToken.size,
+      weight: 500,
+      height: titleToken.lineHeight / titleToken.size,
+      round: 100,
+    ).copyWith(color: colors.onSurface);
     final title = accountTitle;
-    return Padding(
-      padding: EdgeInsets.only(top: MediaQuery.viewPaddingOf(context).top + HomeFeedMetrics.headerTopPadding),
+    final rowTop = MediaQuery.viewPaddingOf(context).top + HomeFeedMetrics.headerTopPadding;
+    final header = Padding(
+      padding: EdgeInsets.only(top: rowTop),
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: HomeFeedMetrics.headerMinHeight),
         child: Row(
           children: [
-            Padding(
-              padding: const EdgeInsetsDirectional.only(end: HomeTokens.headerTitleBreathing),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SeamFade(
-                    fontSize: greetingStyle.fontSize!,
-                    child: Text(strings.greeting(part), style: greetingStyle, maxLines: 1, softWrap: false),
-                  ),
-                  SeamFade(
-                    fontSize: titleStyle.fontSize!,
-                    child: Text(strings.title, style: titleStyle, maxLines: 1, softWrap: false),
-                  ),
-                ],
+            MemoryBubbleTitle(
+              child: Padding(
+                padding: const EdgeInsetsDirectional.only(end: HomeTokens.headerTitleBreathing),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SeamFade(
+                      fontSize: greetingStyle.fontSize!,
+                      child: Text(strings.greeting(part), style: greetingStyle, maxLines: 1, softWrap: false),
+                    ),
+                    SeamFade(
+                      fontSize: titleStyle.fontSize!,
+                      child: Text(strings.title, style: titleStyle, maxLines: 1, softWrap: false),
+                    ),
+                  ],
+                ),
               ),
             ),
-            // The Memories pill (HeaderPill): the latest memory, its score and the notes kept.
-            Expanded(
-              child: title == null
-                  ? const SizedBox.shrink()
-                  : const Align(alignment: AlignmentDirectional.centerEnd, child: HomeMemoryPill()),
-            ),
+            const Spacer(),
             const SizedBox(width: HomeHeaderMetrics.avatarGap),
             SeamFade(
               fontSize: HomeHeaderMetrics.avatar,
@@ -118,6 +126,12 @@ class HomeHeader extends ConsumerWidget {
           ],
         ),
       ),
+    );
+    if (title == null) return header;
+    return HomeMemoryBubble(
+      rowTop: rowTop,
+      trailingReserve: HomeHeaderMetrics.avatarGap + HomeHeaderMetrics.touchBox,
+      child: header,
     );
   }
 }
@@ -160,8 +174,14 @@ class HomeSectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = gsf(HomeSectionMetrics.titleSize, weight: 600, height: TypeTokens.titleLarge.lineHeight / HomeSectionMetrics.titleSize)
-        .copyWith(color: Theme.of(context).colorScheme.onSurface);
-    return SeamFade(fontSize: style.fontSize!, child: Text(text, style: style, maxLines: 1, overflow: TextOverflow.ellipsis));
+    final style = gsf(
+      HomeSectionMetrics.titleSize,
+      weight: 600,
+      height: TypeTokens.titleLarge.lineHeight / HomeSectionMetrics.titleSize,
+    ).copyWith(color: Theme.of(context).colorScheme.onSurface);
+    return SeamFade(
+      fontSize: style.fontSize!,
+      child: Text(text, style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
   }
 }
