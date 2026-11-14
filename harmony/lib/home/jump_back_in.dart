@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../memories/memory_title_editor.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
 import 'home_header.dart';
@@ -12,19 +13,23 @@ import 'home_metrics.dart';
 import 'home_selection.dart';
 import 'home_strings.dart';
 import 'home_ui_state.dart';
+import 'widgets/cover_palette.dart';
 import 'widgets/elastic_press.dart';
 import 'widgets/home_artwork.dart';
 import 'widgets/home_text.dart';
 import 'widgets/spring_height.dart';
 
-/// Jump Back In. Phone (N ≤ 2): 3 × 4 covers in rows of equal columns;
+/// Jump Back In. Phone (N ≤ 2): 3 × 4 cells packed in rows of equal columns,
+/// a signal card (rating / note, "1×2") taking two with one cover beside it;
 /// landscape handset: up to 6 × 2. Wider feeds (N ≥ 3): K phone-sized lanes
 /// staggered by a seeded template (home_jbi_template.dart), covers 100–128
-/// following the live column; a shelf too short for even one templated row
-/// falls back to the plain K-column grid. A short last row keeps its column width.
+/// following the live column, a signal card standing (1×2) or lying (2×1);
+/// a shelf too short for even one templated row falls back to the packed
+/// grid. A short last row keeps its column width.
 class JumpBackInSection extends StatelessWidget {
   const JumpBackInSection({super.key, required this.cards, required this.frame});
 
+  /// Signal cards first, then covers in ranking order ([withJbiSignals]).
   final List<HomeWidgetCard> cards;
   final HomeFeedFrame frame;
 
@@ -39,32 +44,28 @@ class JumpBackInSection extends StatelessWidget {
       grid = _JbiLaneGrid(
         layout: layout,
         children: [
-          for (final cell in layout.cells) JbiCoverCell(key: ValueKey(cell.card.stableId), card: cell.card, coverSide: geometry.coverSide),
+          for (final cell in layout.cells)
+            cell.piece.kind.isSignal
+                ? JbiSignalCard(
+                    key: ValueKey(cell.card.stableId),
+                    card: cell.card,
+                    coverSide: geometry.coverSide,
+                    tall: cell.piece.kind == JbiPieceKind.tallSignal,
+                  )
+                : JbiCoverCell(key: ValueKey(cell.card.stableId), card: cell.card, coverSide: geometry.coverSide),
         ],
       );
     } else {
-      final shown = cards.take(geometry.cells).toList();
-      final rows = <List<HomeWidgetCard>>[
-        for (var i = 0; i < shown.length; i += geometry.columns) shown.sublist(i, math.min(i + geometry.columns, shown.length)),
-      ];
+      final compacts = cards.where((c) => !c.expanded).length;
+      final sparse = geometry.templated ? jbiSparseSignalLimit(compacts, geometry.columns) : 1 << 30;
+      final shelf = trimToPhoneShelf(cards, cells: geometry.cells, maxSignals: math.min(jbiSignalLimit(geometry.rows, geometry.cells), sparse));
+      final rows = packWidgetRows(shelf, geometry.columns);
       grid = Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var r = 0; r < rows.length; r++) ...[
             if (r > 0) const SizedBox(height: HomeTokens.jbiRowGap),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var c = 0; c < geometry.columns; c++) ...[
-                  if (c > 0) const SizedBox(width: HomeTokens.jbiColumnGap),
-                  Expanded(
-                    child: c < rows[r].length
-                        ? JbiCoverCell(key: ValueKey(rows[r][c].stableId), card: rows[r][c], coverSide: geometry.coverSide)
-                        : const SizedBox.shrink(),
-                  ),
-                ],
-              ],
-            ),
+            _PackedRow(row: rows[r], columns: geometry.columns, coverSide: geometry.coverSide),
           ],
         ],
       );
@@ -76,16 +77,52 @@ class JumpBackInSection extends StatelessWidget {
         const SizedBox(height: HomeSectionMetrics.jbiSpacing),
         // A new grid (the width class moving, a re-seat) swaps in place — a
         // crossfade ghosted the page (2026-11-12) — and the height springs.
-        SpringHeight(heightKey: (geometry.columns, geometry.rows, layout?.template.rows), child: grid),
+        SpringHeight(heightKey: (geometry.columns, geometry.rows, layout?.template.rows, cards.where((c) => c.expanded).length), child: grid),
       ],
     );
   }
 }
 
-/// The templated lanes (JbiSpanGrid, covers only): every cell [JbiCoverCell]
-/// measured at its column's width, height loose; the row pitch is the
-/// tallest cell + the 16 row gap, and each cover sits at (row + its lane's
-/// offset) × pitch. [children] are in [layout]'s cell order.
+/// One packed row: a cover takes one column, a signal card two (weights),
+/// spacers pad a short row so every card keeps its column width; 12 apart,
+/// hung from the top so a signal card's copy runs below its cover line.
+class _PackedRow extends StatelessWidget {
+  const _PackedRow({required this.row, required this.columns, required this.coverSide});
+
+  final List<HomeWidgetCard> row;
+  final int columns;
+  final double coverSide;
+
+  @override
+  Widget build(BuildContext context) {
+    final units = row.fold<int>(0, (n, c) => n + (c.expanded ? 2 : 1));
+    final children = <Widget>[
+      for (final card in row)
+        Expanded(
+          key: ValueKey(card.stableId),
+          flex: card.expanded ? 2 : 1,
+          child: card.expanded
+              ? JbiSignalCard(card: card, coverSide: coverSide)
+              : JbiCoverCell(card: card, coverSide: coverSide),
+        ),
+      for (var i = units; i < columns; i++) const Expanded(child: SizedBox.shrink()),
+    ];
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < children.length; i++) ...[
+          if (i > 0) const SizedBox(width: HomeTokens.jbiColumnGap),
+          children[i],
+        ],
+      ],
+    );
+  }
+}
+
+/// The templated lanes (JbiSpanGrid): every cell measured at its span's
+/// width, height loose; the row pitch is the tallest cover / lying card + the
+/// 16 row gap (or half a standing card's), and each piece sits at (row + its
+/// lane's offset) × pitch. [children] are in [layout]'s cell order.
 class _JbiLaneGrid extends MultiChildRenderObjectWidget {
   const _JbiLaneGrid({required this.layout, required super.children});
 
@@ -132,25 +169,46 @@ class _RenderJbiLaneGrid extends RenderBox
     final width = constraints.maxWidth.isFinite ? constraints.maxWidth : constraints.minWidth;
     const gap = HomeTokens.jbiColumnGap;
     final pitchX = (width - gap * (_template.columns - 1)) / _template.columns + gap;
-    final cellWidth = math.max(0.0, pitchX - gap);
+    double widthOf(JbiPiece p) => math.max(0.0, p.kind.columnSpan * pitchX - gap);
     final pieces = _template.pieces;
+    // Covers and lying cards set the row; a standing card takes two rows at least.
     var rowHeight = 0.0;
     var child = firstChild;
-    while (child != null) {
-      child.layout(BoxConstraints.tightFor(width: cellWidth), parentUsesSize: true);
-      rowHeight = math.max(rowHeight, child.size.height);
-      child = childAfter(child);
-    }
-    final pitchY = rowHeight + HomeTokens.jbiRowGap;
-    var height = 0.0;
     var index = 0;
+    while (child != null && index < pieces.length) {
+      final piece = pieces[index];
+      if (piece.kind != JbiPieceKind.tallSignal) {
+        child.layout(BoxConstraints.tightFor(width: widthOf(piece)), parentUsesSize: true);
+        rowHeight = math.max(rowHeight, child.size.height);
+      }
+      child = childAfter(child);
+      index++;
+    }
+    final tallMin = rowHeight * 2 + HomeTokens.jbiRowGap;
+    var tallest = tallMin;
+    child = firstChild;
+    index = 0;
+    while (child != null && index < pieces.length) {
+      final piece = pieces[index];
+      if (piece.kind == JbiPieceKind.tallSignal) {
+        final w = widthOf(piece);
+        child.layout(BoxConstraints(minWidth: w, maxWidth: w, minHeight: tallMin), parentUsesSize: true);
+        tallest = math.max(tallest, child.size.height);
+      }
+      child = childAfter(child);
+      index++;
+    }
+    final pitchY = math.max(rowHeight + HomeTokens.jbiRowGap, (tallest + HomeTokens.jbiRowGap) / 2);
+    var height = 0.0;
+    index = 0;
     child = firstChild;
     while (child != null && index < pieces.length) {
       final piece = pieces[index];
       final x = piece.column * pitchX;
       final y = _template.topOf(piece) * pitchY;
+      final w = widthOf(piece);
       (child.parentData! as _JbiLaneParentData).offset =
-          Offset(_textDirection == TextDirection.rtl ? width - x - cellWidth : x, y);
+          Offset(_textDirection == TextDirection.rtl ? width - x - w : x, y);
       height = math.max(height, y + child.size.height);
       child = childAfter(child);
       index++;
@@ -175,7 +233,20 @@ class JbiCoverCell extends ConsumerWidget {
   final double coverSide;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context, WidgetRef ref) => ElasticPress(
+        onTap: () => openHomeTarget(context, ref, card.target),
+        child: _CoverBlock(card: card, coverSide: coverSide),
+      );
+}
+
+class _CoverBlock extends StatelessWidget {
+  const _CoverBlock({required this.card, required this.coverSide});
+
+  final HomeWidgetCard card;
+  final double coverSide;
+
+  @override
+  Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final titleStyle = text.titleMedium!.copyWith(
@@ -184,18 +255,117 @@ class JbiCoverCell extends ConsumerWidget {
       fontWeight: FontWeight.w600,
       color: colors.onSurface,
     );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        BackdropCover(cover: card.cover, kind: card.kind, size: coverSide, requestSize: HomeCoverRequest.jbi),
+        const SizedBox(height: HomeJbiMetrics.captionGap),
+        VersionTitle(title: card.title, version: card.version, style: titleStyle),
+        if (card.subtitle.trim().isNotEmpty) SeamText(card.subtitle, style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant)),
+      ],
+    );
+  }
+}
+
+/// The signal card (WidgetCard12): its cover block, and the copy — the score
+/// tinted to the cover (the palette's base on a light surface, its brighter
+/// accent on a dark one), what it rests on, the note or Memory title. Lying
+/// (the phone's 1×2, a template's 2×1) the copy sits 16 to the cover's right,
+/// hung from its top; [tall] (a template's 1×2) it sits 10 below. One tap
+/// target, the cover's press.
+class JbiSignalCard extends ConsumerWidget {
+  const JbiSignalCard({super.key, required this.card, required this.coverSide, this.tall = false});
+
+  final HomeWidgetCard card;
+  final double coverSide;
+  final bool tall;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final block = SizedBox(width: coverSide, child: _CoverBlock(card: card, coverSide: coverSide));
+    final copy = _SignalCopy(card: card, coverSide: coverSide, commentMaxLines: HomeJbiMetrics.signalCommentMaxLines);
     return ElasticPress(
       onTap: () => openHomeTarget(context, ref, card.target),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          BackdropCover(cover: card.cover, kind: card.kind, size: coverSide, requestSize: HomeCoverRequest.jbi),
-          const SizedBox(height: HomeJbiMetrics.captionGap),
-          VersionTitle(title: card.title, version: card.version, style: titleStyle),
-          if (card.subtitle.trim().isNotEmpty)
-            SeamText(card.subtitle, style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant)),
-        ],
-      ),
+      child: tall
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [block, const SizedBox(height: HomeJbiMetrics.tallCopyGap), copy],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [block, const SizedBox(width: HomeJbiMetrics.signalCopyGap), Expanded(child: copy)],
+            ),
+    );
+  }
+}
+
+class _SignalCopy extends ConsumerWidget {
+  const _SignalCopy({required this.card, required this.coverSide, required this.commentMaxLines});
+
+  final HomeWidgetCard card;
+  final double coverSide;
+  final int commentMaxLines;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final signal = card.signal!;
+    final strings = HomeStrings.of(context);
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final dark = theme.brightness == Brightness.dark;
+    final basis = signal.basisDateMs != null
+        ? strings.memoryDate(signal.basisDateMs!)
+        : (signal.basisTracks == null ? null : strings.widgetBasisTracks(signal.basisTracks!.$1, signal.basisTracks!.$2));
+    final image = resolveHomeCover(ref, context, card.cover,
+        requestSize: HomeCoverRequest.jbi, side: coverSide * HomeBackdropMetrics.artworkFraction);
+    const tabular = [FontFeature.tabularFigures()];
+    final comment = signal.comment;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: HomeJbiMetrics.signalCopySpacing,
+      children: [
+        BackdropColorBuilder(
+          cacheKey: image?.url,
+          image: image?.image,
+          fallback: dark ? colors.tertiary : colors.secondary,
+          accent: dark,
+          builder: (context, ink, _) => Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            spacing: HomeJbiMetrics.signalBasisGap,
+            children: [
+              SeamText(
+                signal.scoreText ?? strings.widgetRatingNa,
+                style: theme.textTheme.headlineSmall!.copyWith(fontWeight: FontWeight.w700, color: ink, fontFeatures: tabular),
+              ),
+              if (basis != null)
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: HomeJbiMetrics.signalBasisLift),
+                    child: SeamText(
+                      basis,
+                      style: theme.textTheme.labelSmall!.copyWith(
+                        color: ink.withValues(alpha: HomeJbiMetrics.signalBasisAlpha),
+                        fontFeatures: tabular,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (comment != null && comment.isNotEmpty)
+          SeamText(
+            comment,
+            style: signal.commentIsHeadline
+                ? memoryWrittenTitleStyle(
+                    HomeJbiMetrics.headlineSize,
+                    height: HomeJbiMetrics.headlineLineHeight / HomeJbiMetrics.headlineSize,
+                    color: colors.onSurface,
+                  )
+                : theme.textTheme.bodyMedium!.copyWith(color: colors.onSurface),
+            maxLines: commentMaxLines,
+          ),
+      ],
     );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import 'home_section.dart';
 import 'home_selection.dart';
 
 /// Home's UI strings, English and Simplified Chinese, copied from Android
@@ -41,6 +42,111 @@ class HomeStrings {
   String get sectionRecentlyAdded => _zh ? '最近添加' : 'Recently Added'; // home_section_recently_added
   String get sectionRecentlyPlayed => _zh ? '最近播放' : 'Recently Played'; // home_section_recently_played
   String get sectionYourPlaylists => _zh ? '你的播放列表' : 'Your Playlists'; // home_section_your_playlists
+
+  String get sectionRediscover => _zh ? '重温' : 'Rediscover'; // home_section_rediscover
+  String get sectionOtherProfiles => _zh ? '在你的其他资料里' : 'On Your Other Accounts'; // home_section_other_profiles
+  String get sectionLyricHighlight => _zh ? '歌词卡片' : 'Lyric Cards'; // home_section_lyric_highlight
+  String get sectionMemoryGrid => _zh ? '全部回忆' : 'All Memories'; // home_section_memory_grid
+
+  String sectionTitle(HomeSection section) => switch (section) {
+        HomeSection.activities => sectionActivities,
+        HomeSection.jumpBackIn => sectionJumpBackIn,
+        HomeSection.recentlyAdded => sectionRecentlyAdded,
+        HomeSection.rediscover => sectionRediscover,
+        HomeSection.recentlyPlayed => sectionRecentlyPlayed,
+        HomeSection.yourPlaylists => sectionYourPlaylists,
+        HomeSection.otherProfiles => sectionOtherProfiles,
+        HomeSection.lyricHighlight => sectionLyricHighlight,
+        HomeSection.memoryGrid => sectionMemoryGrid,
+      };
+
+  /// home_section_*_supporting: the edit plate's line under a section's name.
+  String sectionSupporting(HomeSection section) => switch (section) {
+        HomeSection.activities => _zh ? '近期播放与访问记录' : 'Your recent plays and visits',
+        HomeSection.jumpBackIn => _zh ? '专辑、歌曲与播放列表' : 'Albums, songs and playlists',
+        HomeSection.recentlyAdded => _zh ? '本月添加至资料库' : 'Added to your library this month',
+        HomeSection.rediscover =>
+          _zh ? '评过分或写过笔记、有一阵子未播放的专辑与歌曲' : 'Albums and songs you rated or wrote about, not played in a while',
+        HomeSection.recentlyPlayed => _zh ? '近期在任意设备上播放过的专辑' : 'Albums you played lately, on any device',
+        HomeSection.yourPlaylists => _zh ? '资料库中的播放列表' : 'Playlists in your library',
+        HomeSection.otherProfiles => _zh ? '你的其他账号常听的专辑和播放列表' : 'Albums and playlists your other accounts play most',
+        HomeSection.lyricHighlight => _zh ? '从你的歌里挑出的歌词，点按从那句开播' : 'Lyrics picked from your songs, tap to play from that line',
+        HomeSection.memoryGrid => _zh ? '所有笔记和评分，格子跟着你写的多少变' : 'Every note and score, on a grid that grows with you',
+      };
+
+  /// home_placeholder_*: an edit plate's empty section.
+  String sectionPlaceholder(HomeSection section) => switch (section) {
+        HomeSection.activities => _zh ? '近期无动态' : 'No recent activity',
+        HomeSection.jumpBackIn => _zh ? '暂无可接着听的内容' : 'Nothing to jump back into',
+        HomeSection.recentlyAdded => _zh ? '本月暂无添加' : 'Nothing added this month',
+        HomeSection.rediscover => _zh ? '暂无可重温的内容' : 'Nothing to rediscover yet',
+        HomeSection.recentlyPlayed => _zh ? '近期无播放记录' : 'Nothing played lately',
+        HomeSection.yourPlaylists => _zh ? '资料库中无播放列表' : 'No playlists in your library',
+        HomeSection.otherProfiles => _zh ? '其他账号最近没有播放' : 'Nothing played on your other accounts lately',
+        HomeSection.lyricHighlight => _zh ? '多听几首歌，Gemini Nano 会挑出第一句' : 'Listen a while and Gemini Nano picks the first line',
+        HomeSection.memoryGrid => _zh ? '还没有回忆' : 'No memories yet',
+      };
+
+  // ---- Jump Back In signal cards ----
+
+  String get widgetRatingNa => _zh ? '暂无' : 'N/A'; // home_widget_rating_na
+  String widgetBasisTracks(int rated, int total) =>
+      _zh ? '基于 $rated/$total 首曲目' : 'Based on $rated/$total tracks'; // home_widget_basis_tracks
+
+  /// The basis date in the locale's "MMMd" (formatHomeMemoryDate): "Jun 26", "6月26日".
+  String memoryDate(int epochMs) {
+    final d = DateTime.fromMillisecondsSinceEpoch(epochMs);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return _zh ? '${d.month}月${d.day}日' : '${months[d.month - 1]} ${d.day}';
+  }
+
+  // ---- Rediscover ----
+
+  String get rediscoverReviewed => _zh ? '已写评论' : 'Reviewed'; // home_rediscover_reviewed
+  String rediscoverNotes(int n) => _zh ? '$n 条笔记' : (n == 1 ? '$n note' : '$n notes'); // home_rediscover_notes
+  String rediscoverTracksRated(int n) =>
+      _zh ? '已评 $n 首' : (n == 1 ? '$n track rated' : '$n tracks rated'); // home_rediscover_tracks_rated
+
+  /// home_rediscover_eyebrow_months / _years.
+  String rediscoverAway(int count, {required bool years}) => years
+      ? (_zh ? '$count 年未听' : (count == 1 ? '$count year away' : '$count years away'))
+      : (_zh ? '$count 个月未听' : (count == 1 ? '$count month away' : '$count months away'));
+  String rediscoverCdYourRating(String score) => _zh ? '你的评分 $score' : 'Your rating $score'; // home_rediscover_cd_your_rating
+  String rediscoverCdTrackAverage(String score) => _zh ? '曲目均分 $score' : 'Track average $score'; // home_rediscover_cd_track_average
+
+  /// home_unit_notes (plural).
+  String notesUnit(int count) => _zh ? '条笔记' : (count == 1 ? 'note' : 'notes');
+
+  /// home_unit_plays (plural).
+  String playsUnit(int count) => _zh ? '次播放' : (count == 1 ? 'play' : 'plays');
+
+  // ---- Account switcher ----
+
+  String accountQuickSwitch(String name) => _zh ? '切换到 $name' : 'Switch to $name'; // home_account_quick_switch_action
+  String get accountClose => _zh ? '关闭' : 'Close'; // home_account_close
+  String get accountManage => _zh ? '管理账号' : 'Manage accounts'; // home_account_manage
+  String get accountAdd => _zh ? '添加账号' : 'Add account'; // home_account_add
+  String get accountSettings => _zh ? '设置' : 'Settings'; // home_account_settings
+
+  // ---- Edit Home ----
+
+  String get undo => _zh ? '撤销' : 'Undo'; // cmp_bar_cd_undo
+  String get done => _zh ? '完成' : 'Done'; // cmp_bar_label_done
+  String get editTitle => _zh ? '编辑首页' : 'Edit Home'; // home_edit_title
+  String get editAction => _zh ? '编辑首页' : 'Edit Home'; // home_edit_action_section
+  String get editHidden => _zh ? '已隐藏' : 'Hidden'; // home_edit_hidden
+  String get editHiddenEmpty => _zh ? '无隐藏分区' : 'No hidden sections'; // home_edit_hidden_empty
+  String get editReset => _zh ? '重置首页' : 'Reset Home'; // home_edit_reset
+  String get editAllHiddenTitle => _zh ? '首页是空的' : 'Home is empty'; // home_edit_all_hidden_title
+  String hideSectionCd(String name) => _zh ? '隐藏 $name' : 'Hide $name'; // home_cd_hide_section
+  String showSectionCd(String name) => _zh ? '显示 $name' : 'Show $name'; // home_cd_show_section
+  String get editMoveUp => _zh ? '上移' : 'Move up'; // home_edit_move_up
+  String get editMoveDown => _zh ? '下移' : 'Move down'; // home_edit_move_down
+  String get editMoreRows => _zh ? '增加行数' : 'More rows'; // home_edit_more_rows
+  String get editFewerRows => _zh ? '减少行数' : 'Fewer rows'; // home_edit_fewer_rows
+  String get editHide => _zh ? '隐藏' : 'Hide'; // home_edit_hide
+  String sectionIndexCd(int index, int count) =>
+      _zh ? '第 $index 个分区，共 $count 个' : 'Section $index of $count'; // home_cd_section_index
 
   String get activitiesEmptyTitle => _zh ? '暂无动态' : 'No activity yet'; // home_activities_empty_title
 

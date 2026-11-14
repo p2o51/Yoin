@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../app/providers.dart';
 
 /// Home's section catalogue (Android ui/home/HomeSection.kt), ported whole so
 /// edit mode can plug in later without a migration. [id]s are persisted:
@@ -29,8 +33,8 @@ enum HomeSection {
 
   /// Built in the HarmonyOS v1 (the Subsonic build can fill it).
   bool get availableInV1 => switch (this) {
-        activities || jumpBackIn || recentlyAdded || recentlyPlayed || yourPlaylists => true,
-        rediscover || otherProfiles || lyricHighlight || memoryGrid => false,
+        activities || jumpBackIn || recentlyAdded || rediscover || recentlyPlayed || yourPlaylists || memoryGrid => true,
+        otherProfiles || lyricHighlight => false,
       };
 
   static HomeSection? byId(String id) {
@@ -87,7 +91,7 @@ final class HomeSectionPref {
   int get hashCode => Object.hash(id, enabled, Object.hashAllUnordered(config.entries.map((e) => '${e.key}=${e.value}')));
 }
 
-/// The user's Home layout (HomeLayout). v1 is read-only: [defaultLayout].
+/// The user's Home layout (HomeLayout), edited in place (home_edit.dart).
 final class HomeLayout {
   const HomeLayout(this.sections);
 
@@ -132,6 +136,68 @@ final class HomeLayout {
       ]);
 }
 
-/// The active layout. Read-only in v1 (edit mode is deferred); edit mode will
-/// back this with a per-profile store.
-final homeLayoutProvider = Provider<HomeLayout>((ref) => HomeLayout.defaultLayout);
+/// [layout] with [section] hidden or shown again (in its own place).
+HomeLayout withSectionEnabled(HomeLayout layout, HomeSection section, bool enabled) => HomeLayout([
+      for (final p in layout.sections)
+        p.id == section.id ? HomeSectionPref(id: p.id, enabled: enabled, config: p.config) : p,
+    ]);
+
+/// [layout] with [section] moved to [to] among [visible] (the sections the
+/// feed draws, in order): the visible slots keep their places in the saved
+/// list and only their occupants permute, so hidden and unknown sections stay
+/// where they were. Each section's settings go with it.
+HomeLayout withSectionMoved(HomeLayout layout, List<HomeSection> visible, HomeSection section, int to) {
+  final from = visible.indexOf(section);
+  if (from < 0 || to < 0 || to >= visible.length || from == to) return layout;
+  final order = [...visible]
+    ..removeAt(from)
+    ..insert(to, section);
+  final prefById = {for (final p in layout.sections) p.id: p};
+  final ids = {for (final s in visible) s.id};
+  var next = 0;
+  return HomeLayout([
+    for (final p in layout.sections) ids.contains(p.id) ? prefById[order[next++].id]! : p,
+  ]);
+}
+
+/// Home's layout per account (Android home_layout, one row per profile):
+/// JSON on the key-value store, read when the account changes, written on
+/// every edit. Until the read lands the default layout stands.
+class HomeLayoutNotifier extends Notifier<HomeLayout> {
+  static String keyFor(String provider, String profileId) => 'home_layout.v1.$provider|$profileId';
+
+  String? _key;
+  int _generation = 0;
+
+  @override
+  HomeLayout build() {
+    final source = ref.watch(activeSourceProvider);
+    final generation = ++_generation;
+    _key = null;
+    Future.microtask(() async {
+      try {
+        final profile = await ref.read(profileRepositoryProvider).activeProfile();
+        if (!ref.mounted || generation != _generation || profile == null) return;
+        final key = keyFor(source.value?.provider ?? profile.provider, profile.id);
+        _key = key;
+        final raw = await ref.read(keyValueStoreProvider).read(key);
+        if (!ref.mounted || generation != _generation || raw == null) return;
+        state = HomeLayout.fromJson((jsonDecode(raw) as Map).cast<String, Object?>());
+      } catch (_) {
+        // Unreadable: the default stands.
+      }
+    });
+    return HomeLayout.defaultLayout;
+  }
+
+  /// Shows [layout] and saves it for the active account.
+  void set(HomeLayout layout) {
+    state = layout;
+    final key = _key;
+    if (key == null) return;
+    ref.read(keyValueStoreProvider).write(key, jsonEncode(layout.toJson())).catchError((Object _) {});
+  }
+}
+
+/// The active account's layout.
+final homeLayoutProvider = NotifierProvider<HomeLayoutNotifier, HomeLayout>(HomeLayoutNotifier.new);

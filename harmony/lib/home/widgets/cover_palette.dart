@@ -247,7 +247,11 @@ class BackdropColorBuilder extends StatefulWidget {
     required this.builder,
     this.child,
     this.cache,
+    this.accent = false,
   });
+
+  /// Builds on the palette's accent tone instead of its base (a score on a dark surface).
+  final bool accent;
 
   /// The cover URL (null = no cover: [fallback] for good).
   final String? cacheKey;
@@ -276,7 +280,7 @@ class _BackdropColorBuilderState extends State<BackdropColorBuilder> with Single
     // Create eagerly: a lazy field first read in dispose() would build a ticker on a dead element.
     _t;
     final key = widget.cacheKey;
-    if (key != null && _cache.contains(key)) _to = _cache.peek(key)?.base;
+    if (key != null && _cache.contains(key)) _to = _pick(_cache.peek(key));
   }
 
   @override
@@ -312,8 +316,10 @@ class _BackdropColorBuilderState extends State<BackdropColorBuilder> with Single
     });
   }
 
+  Color? _pick(BackdropColors? colors) => widget.accent ? colors?.accent : colors?.base;
+
   void _apply(BackdropColors? colors) {
-    final next = colors?.base;
+    final next = _pick(colors);
     if (next == null || next == _to) return;
     setState(() {
       _from = _current;

@@ -70,6 +70,60 @@ abstract final class HomeHeaderMetrics {
 }
 
 /// Section titles and section columns (HomeWidgetGrid.kt HomeSectionTitle).
+/// Home's account card and hold-to-fan column (HomeAccountSwitcher.kt,
+/// HomeAccountQuickSwitch.kt).
+abstract final class HomeAccountMetrics {
+  static const double cardCorner = 28;
+  static const double bigAvatar = 72;
+  static const double rowAvatar = 40;
+  static const double scrimAlpha = 0.32;
+  static const double cardMaxWidth = 420;
+  static const double cardMargin = 16;
+  static const double cardTop = 56;
+  static const double cardPadding = 20;
+  static const double cardGap = 12;
+  static const double cardGapSmall = 8;
+  static const double cardElevation = 6;
+  static const double dividerHeight = 16;
+  static const double rowPaddingV = 10;
+  static const double rowGap = 16;
+
+  /// The card's contents come in over p from here to 1.
+  static const double contentFrom = 0.55;
+
+  // The column: items the size of the header's button, 60 apart, 12 under it.
+  static const double fanItem = 48;
+  static const double fanAvatar = 36;
+  static const double fanStep = 60;
+  static const double fanFirstGap = 12;
+  static const double fanReach = 200;
+  static const double fanLabelMax = 196;
+  static const double fanStagger = 0.12;
+  static const double labelPaddingH = 12;
+  static const double labelPaddingV = 6;
+  static const double labelOut = 4;
+  static const double labelOutLift = 6;
+  static const double labelOutEnter = 8;
+}
+
+/// Edit Home's plates, tray and spacing (HomeEditTokens.kt, HomePlateVariant V1).
+abstract final class HomeEditMetrics {
+  static const double plateCorner = 20;
+  static const double plateInset = 4;
+  static const double plateOutsetMin = 8;
+  static const double plateOutsetMax = 24;
+  static const double plateOutsetV = 12;
+
+  /// The feed's gap between sections while editing (18 → 32 on the edit progress).
+  static const double editItemSpacing = 32;
+  static const double placeholderHeight = 72;
+  static const double placeholderGap = 4;
+  static const double trayGap = 12;
+  static const double trayRowGap = 8;
+  static const double actionGap = 4;
+  static const double dragLiftScale = 1.02;
+}
+
 abstract final class HomeSectionMetrics {
   static const double titleSize = 18;
   static const double titleBottomPadding = 6;
@@ -145,9 +199,38 @@ abstract final class HomeJbiMetrics {
 
   /// Lane start offsets, in row pitches: each lane drifts to one of these, never its left neighbour's.
   static const List<double> driftSteps = [0, 0.25, 0.5];
+
+  // Signal cards (WidgetCard12 / WidgetRatingColumn).
+  static const double signalCopyGap = 16;
+  static const double tallCopyGap = 10;
+  static const double signalCopySpacing = 3;
+  static const double signalBasisGap = 6;
+  static const double signalBasisLift = 3;
+  static const double signalBasisAlpha = 0.85;
+  static const int signalCommentMaxLines = 3;
+  static const double headlineSize = 17;
+  static const double headlineLineHeight = 24;
 }
 
 /// Recently Added / Recently Played / Your Playlists (HomeEditorialContent.kt, HomeFeedDensity.kt).
+/// Rediscover (RediscoverSection.kt): the card's height before font scale,
+/// its 104 backdrop and 14 padding, the score sticker hanging 6 past the cover.
+abstract final class HomeRediscoverMetrics {
+  static const double cardHeight = 132;
+  static const double backdrop = 104;
+  static const double padding = 14;
+  static const double gap = 12;
+  static const double shelfCardFraction = 0.86;
+  static const double titleSize = 20;
+  static const double titleLineHeight = 26;
+  static const double titleTop = 2;
+  static const double footnoteTop = 4;
+  static const double badgeHeight = 24;
+  static const double badgePadding = 8;
+  static const double badgeHang = 6;
+  static const double badgeLine = 1.5;
+}
+
 abstract final class HomeShelfMetrics {
   static const double itemGap = 14;
   static const double trackGridRowGap = 14;

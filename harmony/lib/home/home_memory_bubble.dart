@@ -37,6 +37,7 @@ import '../shell/yoin_section.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'home_bubble_tips.dart';
+import 'home_edit.dart';
 import 'home_selection.dart';
 import 'home_strings.dart';
 import 'home_view_model.dart';
@@ -295,6 +296,7 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
       random: widget.random,
     );
     ref.listenManual(homeMemoryPillProvider, (_, next) => _director.setPill(next), fireImmediately: true);
+    ref.listenManual(homeEditProvider.select((e) => e.editing), (_, _) => _syncReadable());
     _director.addListener(_onDirector);
     final state = WidgetsBinding.instance.lifecycleState;
     _lifecycleResumed = state == null || state == AppLifecycleState.resumed;
@@ -387,6 +389,8 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
         _homeShown &&
         !(_nowPlaying?.isMounted ?? false) &&
         revealClosed &&
+        // Edit Home closes the bubble.
+        !ref.read(homeEditProvider).editing &&
         scrolled <= HomeBubbleTokens.arrowScrollFade;
     _director.setReadable(readable);
   }

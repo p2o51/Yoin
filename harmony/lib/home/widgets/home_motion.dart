@@ -157,13 +157,17 @@ class _SectionAppearState extends State<SectionAppear> with TickerProviderStateM
 /// beyond them, the fade's alpha springing on the effects spring
 /// (horizontalEdgeFadeOnScroll). [fade] false = a plain shelf.
 class EdgeFadeShelf extends StatefulWidget {
-  const EdgeFadeShelf({super.key, required this.height, required this.padding, required this.itemCount, required this.itemBuilder, this.fade = true});
+  const EdgeFadeShelf({super.key, required this.height, required this.padding, required this.itemCount, required this.itemBuilder, this.fade = true, this.gap = HomeShelfMetrics.itemGap, this.scrollable = true});
 
   final double height;
   final EdgeInsetsDirectional padding;
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
   final bool fade;
+  final double gap;
+
+  /// False: the cards sit still (side by side, nothing beyond the edge).
+  final bool scrollable;
 
   @override
   State<EdgeFadeShelf> createState() => _EdgeFadeShelfState();
@@ -220,8 +224,9 @@ class _EdgeFadeShelfState extends State<EdgeFadeShelf> with TickerProviderStateM
           controller: _scroll,
           scrollDirection: Axis.horizontal,
           padding: widget.padding,
+          physics: widget.scrollable ? null : const NeverScrollableScrollPhysics(),
           itemCount: widget.itemCount,
-          separatorBuilder: (_, _) => const SizedBox(width: HomeShelfMetrics.itemGap),
+          separatorBuilder: (_, _) => SizedBox(width: widget.gap),
           itemBuilder: widget.itemBuilder,
         ),
       ),

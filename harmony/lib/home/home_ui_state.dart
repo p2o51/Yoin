@@ -71,10 +71,49 @@ final class HomePlaySong extends HomeTarget {
   final Track track;
 }
 
+/// Opens the Memories deck stopped on this memory (Android MemoryFocus).
+final class HomeOpenMemory extends HomeTarget {
+  const HomeOpenMemory(this.sessionId);
+  final int sessionId;
+}
+
+/// What a Jump Back In signal card (the wide "1×2") says beside its cover:
+/// the score (tinted to the cover), what it rests on, and the copy.
+@immutable
+final class JbiSignal {
+  const JbiSignal({this.scoreText, this.basisDateMs, this.basisTracks, this.comment, this.commentIsHeadline = false});
+
+  /// "7.0"; null = unrated, shown as the localized "N/A".
+  final String? scoreText;
+
+  /// A dated record (a reviewed / hand-scored album, a note): its last touch.
+  final int? basisDateMs;
+
+  /// An auto-averaged score: (rated, total) tracks.
+  final (int, int)? basisTracks;
+
+  /// A note's text; a Memory title (headline) when one was written.
+  final String? comment;
+  final bool commentIsHeadline;
+
+  @override
+  bool operator ==(Object other) =>
+      other is JbiSignal &&
+      other.scoreText == scoreText &&
+      other.basisDateMs == basisDateMs &&
+      other.basisTracks == basisTracks &&
+      other.comment == comment &&
+      other.commentIsHeadline == commentIsHeadline;
+
+  @override
+  int get hashCode => Object.hash(scoreText, basisDateMs, basisTracks, comment, commentIsHeadline);
+}
+
 /// Backdrop shape per entity (album Bun, song Circle, playlist Ghostish; artist bare circle).
 enum HomeCardKind { album, song, playlist, artist }
 
-/// One Jump Back In cover (HomeWidgetCard, covers only in v1).
+/// One Jump Back In card (HomeWidgetCard): a cover, or with [signal] the
+/// wide "1×2" rating / note card.
 @immutable
 final class HomeWidgetCard {
   const HomeWidgetCard({
@@ -85,6 +124,7 @@ final class HomeWidgetCard {
     required this.target,
     this.cover,
     this.version,
+    this.signal,
   });
 
   final String stableId;
@@ -96,6 +136,10 @@ final class HomeWidgetCard {
   final CoverRef? cover;
   final String? version;
   final HomeTarget target;
+  final JbiSignal? signal;
+
+  /// The wide signal card (two cells on the packed shelf).
+  bool get expanded => signal != null;
 }
 
 /// One Activities card's data (buildActivityEntries).

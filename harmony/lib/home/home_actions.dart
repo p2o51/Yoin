@@ -2,11 +2,13 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../detail/detail_routes.dart';
+import '../memories/memories_reveal_scope.dart';
 import 'home_ui_state.dart';
 import 'home_view_model.dart';
 
 /// What a Home card tap does: details open as PushPages (DetailRoutes, the
-/// only way in); a song plays alone at once (no navigation, no haptic).
+/// only way in); a song plays alone at once (no navigation, no haptic); a
+/// memory card pulls Memories down, stopped on that memory.
 void openHomeTarget(BuildContext context, WidgetRef ref, HomeTarget target) {
   switch (target) {
     case HomeOpenAlbum(:final album):
@@ -17,5 +19,7 @@ void openHomeTarget(BuildContext context, WidgetRef ref, HomeTarget target) {
       DetailRoutes.openArtist(context, id, name: name);
     case HomePlaySong(:final track):
       ref.read(homeViewModelProvider.notifier).playSong(track);
+    case HomeOpenMemory(:final sessionId):
+      ref.read(memoriesRevealHandleProvider).open(focus: sessionId);
   }
 }

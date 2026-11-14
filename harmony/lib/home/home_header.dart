@@ -7,6 +7,8 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../settings/settings_screen.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
+import 'home_account_switcher.dart';
+import 'home_edit.dart';
 import 'home_memory_bubble.dart';
 import 'home_metrics.dart';
 import 'home_selection.dart';
@@ -48,7 +50,14 @@ void openHomeSettings(BuildContext context) => openSettings(context);
 /// Recommended entry; the header pill is retired). Rounded cut (ROND 100),
 /// Medium weight.
 class HomeHeader extends ConsumerWidget {
-  const HomeHeader({super.key, required this.accountTitle, required this.compactHeight});
+  const HomeHeader({super.key, required this.accountTitle, required this.compactHeight, this.onEditHome, this.editProgress});
+
+  /// The account card's "Edit Home" entry.
+  final VoidCallback? onEditHome;
+
+  /// Edit Home's progress (0 = normal, 1 = editing): the title crossfades to
+  /// "Edit Home" and the account control gives way to Undo and Done.
+  final Animation<double>? editProgress;
 
   /// null = no account: a Settings gear instead of the avatar.
   final String? accountTitle;
@@ -79,67 +88,104 @@ class HomeHeader extends ConsumerWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: HomeFeedMetrics.headerMinHeight),
         child: Row(
+          // The title gives way (clips) before the account control would overflow.
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            MemoryBubbleTitle(
-              child: Padding(
-                padding: const EdgeInsetsDirectional.only(end: HomeTokens.headerTitleBreathing),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SeamFade(
-                      fontSize: greetingStyle.fontSize!,
-                      child: Text(strings.greeting(part), style: greetingStyle, maxLines: 1, softWrap: false),
-                    ),
-                    SeamFade(
-                      fontSize: titleStyle.fontSize!,
-                      child: Text(strings.title, style: titleStyle, maxLines: 1, softWrap: false),
-                    ),
-                  ],
+            Flexible(
+              child: MemoryBubbleTitle(
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.only(end: HomeTokens.headerTitleBreathing),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SeamFade(
+                        fontSize: greetingStyle.fontSize!,
+                        child: Text(strings.greeting(part), style: greetingStyle, maxLines: 1, softWrap: false),
+                      ),
+                      SeamFade(
+                        fontSize: titleStyle.fontSize!,
+                        child: _EditCrossfade(
+                          progress: editProgress,
+                          normal: Text(strings.title, style: titleStyle, maxLines: 1, softWrap: false),
+                          editing: Text(strings.editTitle, style: titleStyle, maxLines: 1, softWrap: false),
+                          alignment: AlignmentDirectional.centerStart,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-            const Spacer(),
             const SizedBox(width: HomeHeaderMetrics.avatarGap),
             SeamFade(
               fontSize: HomeHeaderMetrics.avatar,
-              child: title == null
-                  ? IconButton(
-                      icon: Icon(YoinSymbols.settings, color: colors.onSurfaceVariant),
-                      tooltip: strings.settingsCd,
-                      onPressed: () => openHomeSettings(context),
-                    )
-                  : Semantics(
-                      button: true,
-                      label: strings.accountCd(title),
-                      excludeSemantics: true,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => openHomeSettings(context),
-                        child: SizedBox.square(
-                          dimension: HomeHeaderMetrics.touchBox,
-                          child: Center(child: AccountMonogram(name: title)),
-                        ),
+              child: _EditCrossfade(
+                progress: editProgress,
+                alignment: AlignmentDirectional.centerEnd,
+                normal: title == null
+                    ? IconButton(
+                        icon: Icon(YoinSymbols.settings, color: colors.onSurfaceVariant),
+                        tooltip: strings.settingsCd,
+                        onPressed: () => openHomeSettings(context),
+                      )
+                    : HomeAccountButton(
+                        fallbackTitle: title,
+                        fallback: AccountMonogram(name: title),
+                        onEditHome: onEditHome,
                       ),
-                    ),
+                editing: const HomeEditActions(),
+              ),
             ),
           ],
         ),
       ),
     );
     if (title == null) return header;
-    return HomeMemoryBubble(
-      rowTop: rowTop,
-      trailingReserve: HomeHeaderMetrics.avatarGap + HomeHeaderMetrics.touchBox,
-      child: header,
+    return HomeMemoryBubble(rowTop: rowTop, trailingReserve: HomeHeaderMetrics.avatarGap + HomeHeaderMetrics.touchBox, child: header);
+  }
+}
+
+/// [normal] and [editing] on the edit progress: the one leaving fades out
+/// and stops taking input past halfway; without a progress, [normal] alone.
+class _EditCrossfade extends StatelessWidget {
+  const _EditCrossfade({required this.progress, required this.normal, required this.editing, required this.alignment});
+
+  final Animation<double>? progress;
+  final Widget normal;
+  final Widget editing;
+  final AlignmentGeometry alignment;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = progress;
+    if (p == null) return normal;
+    return AnimatedBuilder(
+      animation: p,
+      builder: (context, _) {
+        final e = p.value.clamp(0.0, 1.0);
+        // One structure throughout, so [normal] keeps its state.
+        return Stack(
+          alignment: alignment,
+          children: [
+            IgnorePointer(
+              ignoring: e > 0.5,
+              child: Opacity(opacity: 1 - e, child: normal),
+            ),
+            if (e > 0.001)
+              IgnorePointer(
+                ignoring: e < 0.5,
+                child: Opacity(opacity: e, child: editing),
+              ),
+          ],
+        );
+      },
     );
   }
 }
 
-/// A 32 dp monogram badge with a surfaceContainer ring.
-///
-/// TODO(harmony): the Settings area owns AccountAvatar (shaped monogram);
-/// swap this stand-in for it once it exists.
+/// A 32 dp monogram badge with a surfaceContainer ring: the header's stand-in
+/// while the account cards (Settings' AccountAvatar) load.
 class AccountMonogram extends StatelessWidget {
   const AccountMonogram({super.key, required this.name});
   final String name;
@@ -158,10 +204,7 @@ class AccountMonogram extends StatelessWidget {
         border: Border.all(color: colors.surfaceContainer, width: HomeHeaderMetrics.avatarRing),
       ),
       alignment: Alignment.center,
-      child: Text(
-        letter,
-        style: gsf(TypeTokens.titleSmall.size, weight: 600, round: 100).copyWith(color: colors.onPrimaryContainer),
-      ),
+      child: Text(letter, style: gsf(TypeTokens.titleSmall.size, weight: 600, round: 100).copyWith(color: colors.onPrimaryContainer)),
     );
   }
 }

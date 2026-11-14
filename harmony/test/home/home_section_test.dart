@@ -26,8 +26,10 @@ void main() {
       HomeSection.activities,
       HomeSection.jumpBackIn,
       HomeSection.recentlyAdded,
+      HomeSection.rediscover,
       HomeSection.recentlyPlayed,
       HomeSection.yourPlaylists,
+      HomeSection.memoryGrid,
     ]);
   });
 
