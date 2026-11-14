@@ -498,7 +498,7 @@ extension View {
 
     /// The contrast shadow under an icon or label on a Glass Lab surface.
     func labContrast(_ id: String) -> some View {
-        shadow(color: .black.opacity(GlassLab.shared.style(id).contrastShadow), radius: 1.5, y: 0.5)
+        shadow(color: .black.opacity(GlassLab.solidSurfaces ? 0 : GlassLab.shared.style(id).contrastShadow), radius: 1.5, y: 0.5)
     }
 }
 
@@ -583,7 +583,7 @@ extension View {
                         .opacity(lifted ? 0 : 1)
                 }
                 .yGlassEffect(glass, in: shape, enabled: lifted)
-                .shadow(color: .black.opacity(lifted ? st.shadowOpacity : 0), radius: st.shadowRadius, y: st.shadowY)
+                .shadow(color: .black.opacity(lifted && !lab.solidSurfaces ? st.shadowOpacity : 0), radius: st.shadowRadius, y: st.shadowY)
                 .animation(Yoin.effects, value: lifted)
         } else {
             labGlass(id, scheme: scheme, brand: .brand(dark: false), auto: auto, in: shape)
@@ -636,7 +636,7 @@ extension View {
 
     /// A cover as a physical object: a soft contact shadow straight down.
     func labCoverShadow() -> some View {
-        shadow(color: .black.opacity(GlassLab.shared.extra("coverContactShadow")), radius: 10, y: 6)
+        shadow(color: .black.opacity(GlassLab.solidSurfaces ? 0 : GlassLab.shared.extra("coverContactShadow")), radius: 10, y: 6)
     }
 }
 

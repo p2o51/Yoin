@@ -765,8 +765,9 @@ struct NowPlayingView: View, Equatable {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .labGlass("transportSecondary", scheme: scheme, brand: brand,
-                      auto: scheme.surfaceContainerHighest, in: Circle())
+            // Solid surfaces: Android's StageTopBar, the glyph alone.
+            .unlessSolid { $0.labGlass("transportSecondary", scheme: scheme, brand: brand,
+                                       auto: scheme.surfaceContainerHighest, in: Circle()) }
             .frame(width: 48, height: 48)
             .accessibilityLabel(stage == .compact ? String(localized: "Collapse Now Playing") : String(localized: "Back"))
             // DockedCoverSlot: the cover row flies the cover into it.
@@ -2830,7 +2831,7 @@ extension View {
                 background(shape.fill(tint.opacity(strength)))
             }
         }
-        .shadow(color: GlassLab.shared.shadowColor(tint).opacity(shadow ? st.shadowOpacity : 0),
+        .shadow(color: GlassLab.shared.shadowColor(tint).opacity(shadow && !GlassLab.solidSurfaces ? st.shadowOpacity : 0),
                 radius: st.shadowRadius, y: st.shadowY)
     }
 
@@ -3260,8 +3261,9 @@ extension NowPlayingView {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .labGlass("transportSecondary", scheme: scheme, brand: brand,
-                      auto: scheme.surfaceContainerHighest, in: Circle())
+            // Solid surfaces: Android's StageTopBar, the glyph alone.
+            .unlessSolid { $0.labGlass("transportSecondary", scheme: scheme, brand: brand,
+                                       auto: scheme.surfaceContainerHighest, in: Circle()) }
             .frame(width: 48, height: 48)
             .accessibilityLabel(stage == .focus ? String(localized: "Back") : String(localized: "Collapse Now Playing"))
             let from = playingFrom

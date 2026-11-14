@@ -65,6 +65,12 @@ extension View {
         }
     }
 
+    /// `transform` applied only with solid surfaces off (a glass-only background).
+    @ViewBuilder
+    func unlessSolid<V: View>(_ transform: (Self) -> V) -> some View {
+        if GlassLab.solidSurfaces { self } else { transform(self) }
+    }
+
     /// A blur material, or the solid fill when solid surfaces are on.
     func ySolidOrMaterial<S: Shape>(_ material: Material, in shape: S) -> some View {
         modifier(YSolidOrMaterial(material: material, shape: shape))
@@ -100,5 +106,26 @@ private struct YSolidOrMaterial<S: Shape>: ViewModifier {
         } else {
             content.background(shape.fill(material))
         }
+    }
+}
+
+/// Solid surfaces: the band under the floating bottom bar. The bar itself is
+/// opaque, and what scrolls under it softens into a progressive blur
+/// (material + surface wash, masked to clear at the top), the bottom twin of
+/// the album page's top strip.
+struct SolidBarEdgeBlur: View {
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.regularMaterial)
+            Rectangle().fill(Yoin.surface.opacity(0.55))
+        }
+        .mask {
+            LinearGradient(stops: [.init(color: .clear, location: 0),
+                                   .init(color: .black.opacity(0.6), location: 0.3),
+                                   .init(color: .black, location: 0.55),
+                                   .init(color: .black, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+        .allowsHitTesting(false)
     }
 }
