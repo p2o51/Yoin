@@ -9945,6 +9945,86 @@
           }
         }
       }
+    },
+    "No recent activity": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近期无动态"
+          }
+        }
+      }
+    },
+    "Nothing to jump back into": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无可接着听的内容"
+          }
+        }
+      }
+    },
+    "Nothing added this month": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本月暂无添加"
+          }
+        }
+      }
+    },
+    "Nothing to rediscover yet": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无可重温的内容"
+          }
+        }
+      }
+    },
+    "Nothing played lately": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近期无播放记录"
+          }
+        }
+      }
+    },
+    "No playlists in your library": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资料库中无播放列表"
+          }
+        }
+      }
+    },
+    "Nothing played on your other accounts lately": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他账号最近没有播放"
+          }
+        }
+      }
+    },
+    "No lyric cards yet": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无歌词卡片"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

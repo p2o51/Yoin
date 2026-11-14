@@ -184,4 +184,11 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertGreaterThan(HomeEditController.ripple(0.5, index: 0), HomeEditController.ripple(0.5, index: 2))
         XCTAssertEqual(HomeEditController.swayAngle(.activities, time: 3, envelope: 0), 0)
     }
+
+    func test_should_sayWhatEachEmptySectionLacks_when_editing() {
+        XCTAssertEqual(HomeSection.jumpBackIn.placeholder, loc("Nothing to jump back into"))
+        XCTAssertEqual(HomeSection.lyricHighlight.placeholder, loc("No lyric cards yet"))
+        let lines = HomeSection.allCases.map(\.placeholder)
+        XCTAssertEqual(Set(lines).count, lines.count, "one line of its own per section (Android placeholderRes)")
+    }
 }

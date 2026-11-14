@@ -313,10 +313,10 @@ struct HomeView: View {
     @ViewBuilder
     private func sectionView(_ s: HomeSection, _ feed: HomeFeed) -> some View {
         if !hasContent(s, feed) {
-            // Editing, a section with nothing yet: its panel, its title and one honest line.
+            // Editing, a section with nothing yet: its panel, its title and its own honest line (Android).
             VStack(alignment: .leading, spacing: 4) {
                 HomeSectionTitle(s.title)
-                Text("Nothing here yet").homeType(Tokens.type.bodyMedium).foregroundStyle(scheme.onSurfaceVariant)
+                Text(s.placeholder).homeType(Tokens.type.bodyMedium).foregroundStyle(scheme.onSurfaceVariant)
             }
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
         } else {
