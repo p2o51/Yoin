@@ -12,6 +12,7 @@ import '../platform/i18n/name_transliterator.dart';
 import 'library_sort.dart';
 import 'library_stores.dart';
 import 'newest_album_songs_pager.dart';
+import 'playlist_writes.dart';
 
 export 'library_sort.dart' show LibraryTab, LibrarySort, LibraryItem, SortedView;
 
@@ -156,6 +157,8 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
   @override
   LibraryUiState build() {
     ref.onDispose(() => _recentsTimer?.cancel());
+    // A playlist made, renamed or deleted anywhere: the listed playlists are re-read.
+    ref.listen(playlistsRevisionProvider, (_, _) => _rereadPlaylists());
     final source = ref.watch(activeSourceProvider);
     _generation++;
     _reset();
@@ -385,6 +388,21 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
       return false;
     } finally {
       _playlistsLoading = false;
+    }
+  }
+
+  /// After a playlist write: re-reads the playlists if they were listed.
+  Future<void> _rereadPlaylists() async {
+    final source = _source;
+    if (source == null || _content?.playlists == null) return;
+    final gen = _generation;
+    try {
+      final playlists = await source.library.getPlaylists();
+      if (!_alive(gen)) return;
+      state = _content!.copyWith(playlists: playlists);
+      await _resort(gen);
+    } catch (_) {
+      // The old list stays; pull to refresh retries.
     }
   }
 

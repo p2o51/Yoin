@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/model/model.dart';
+import '../library/playlist_writes.dart';
 import 'detail_cache.dart';
 
 /// One playlist row: a stable per-entry key so the same song twice is two rows.
@@ -73,9 +74,81 @@ class PlaylistDetailNotifier extends Notifier<PlaylistDetailState> {
 
   @override
   PlaylistDetailState build() {
+    // A write anywhere (Add to playlist from a row's sheet, a rename here): the page re-reads in place.
+    ref.listen(playlistsRevisionProvider, (_, _) {
+      if (state is PlaylistDetailContent) _load(ref.read(detailCacheProvider));
+    });
     _load(ref.watch(detailCacheProvider));
     return const PlaylistDetailLoading();
   }
+
+  PlaylistWrites get _writes => ref.read(playlistWritesProvider);
+
+  /// Renames the playlist; false when the server refused.
+  Future<bool> rename(String name) async {
+    try {
+      await _writes.rename(playlistId, name);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Deletes the playlist; false when the server refused (the page stays).
+  Future<bool> delete() async {
+    try {
+      await _writes.delete(playlistId);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Takes the song at [position] out: gone from the page at once, back if
+  /// the server refuses (returns false then).
+  Future<bool> removeAt(int position) async {
+    final content = state;
+    if (content is! PlaylistDetailContent || position < 0 || position >= content.tracks.length) return false;
+    final tracks = [...content.tracks]..removeAt(position);
+    state = PlaylistDetailContent(_withTracks(content.playlist, tracks));
+    try {
+      await _writes.remove(playlistId, [position]);
+      return true;
+    } catch (_) {
+      if (ref.mounted) state = content;
+      return false;
+    }
+  }
+
+  /// Moves the song at [from] to [to]: the page shows the new order at once,
+  /// the old one again if the server refuses (returns false then).
+  Future<bool> move(int from, int to) async {
+    final content = state;
+    if (content is! PlaylistDetailContent) return false;
+    final tracks = [...content.tracks];
+    if (from == to || from < 0 || to < 0 || from >= tracks.length || to >= tracks.length) return false;
+    tracks.insert(to, tracks.removeAt(from));
+    state = PlaylistDetailContent(_withTracks(content.playlist, tracks));
+    try {
+      await _writes.reorder(playlistId, tracks);
+      return true;
+    } catch (_) {
+      if (ref.mounted) state = content;
+      return false;
+    }
+  }
+
+  static Playlist _withTracks(Playlist p, List<Track> tracks) => Playlist(
+    id: p.id,
+    name: p.name,
+    owner: p.owner,
+    coverArt: p.coverArt,
+    songCount: tracks.length,
+    durationSec: tracks.fold<int>(0, (sum, t) => sum + (t.durationSec ?? 0)),
+    tracks: tracks,
+    canWrite: p.canWrite,
+    comment: p.comment,
+  );
 
   Future<void> retry() async {
     state = const PlaylistDetailLoading();

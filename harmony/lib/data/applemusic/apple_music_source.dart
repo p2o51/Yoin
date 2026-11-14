@@ -23,7 +23,8 @@ import 'apple_music_developer_token.dart';
 import 'apple_music_mappers.dart';
 
 export '../profile/profile.dart' show AppleMusicCredentials;
-export 'apple_music_api.dart' show AppleMusicApi, AppleMusicApiException, AppleMusicFailure, AppleMusicStorefront;
+export 'apple_music_api.dart'
+    show AppleMusicApi, AppleMusicApiException, AppleMusicFailure, AppleMusicStorefront, AppleMusicTrackRef;
 export 'apple_music_developer_token.dart' show AppleMusicDeveloperTokenProvider, developerTokenExpiry;
 export 'apple_music_mappers.dart' show AppleMusicSongFacts;
 
@@ -75,14 +76,14 @@ final class AppleMusicSource implements MusicSource {
   /// Android ServiceFeatureCatalog.appleMusic, as far as this interface goes
   /// (SEARCH, PLAYLISTS_READ; library-add and playlist import aren't here yet).
   @override
-  Set<Capability> get capabilities => const {Capability.search, Capability.playlistsRead};
+  Set<Capability> get capabilities => const {Capability.search, Capability.playlistsRead, Capability.playlistAdd};
 
   @override
   MusicLibrary get library => _library;
   @override
   MusicMetadata get metadata => const _AppleMusicMetadata();
   @override
-  MusicWriteActions get writeActions => const _AppleMusicWriteActions();
+  MusicWriteActions get writeActions => _AppleMusicWriteActions(_api);
   @override
   MusicPlayback get playback => _playback;
 
@@ -156,7 +157,13 @@ final class AppleMusicSource implements MusicSource {
     Map<String, String> query = const {},
     String? next,
     Set<String> excluded = const {},
-  }) => _api.resourcePage(path, personal: path.length > 1 && path[1] == 'me', query: query, next: next, excludedQueryParameters: excluded);
+  }) => _api.resourcePage(
+    path,
+    personal: path.length > 1 && path[1] == 'me',
+    query: query,
+    next: next,
+    excludedQueryParameters: excluded,
+  );
 
   /// Every page of [path]. With a [fallback], a first page Apple refuses as it
   /// refuses an include is read again with it, and later pages leave out what
@@ -190,9 +197,7 @@ final class AppleMusicSource implements MusicSource {
     return result;
   }
 
-  List<Track> _remember(Iterable<AppleMusicSong> songs) => [
-    for (final song in songs) _rememberOne(song),
-  ];
+  List<Track> _remember(Iterable<AppleMusicSong> songs) => [for (final song in songs) _rememberOne(song)];
 
   Track _rememberOne(AppleMusicSong song) {
     _facts.remove(song.track.id);
@@ -243,8 +248,10 @@ SourceException sourceExceptionFor(AppleMusicApiException e) => switch (e.failur
   AppleMusicFailure.network => SourceNetworkException(e.detail ?? 'Apple Music unreachable'),
   AppleMusicFailure.userAuthorizationRequired => const SourceAuthException('Sign in to Apple Music again'),
   AppleMusicFailure.developerTokenRejected => const SourceAuthException('Apple Music refused the developer token'),
-  AppleMusicFailure.developerTokenUnavailable =>
-    SourceServerException(e.detail ?? 'Apple Music developer token unavailable', code: e.status),
+  AppleMusicFailure.developerTokenUnavailable => SourceServerException(
+    e.detail ?? 'Apple Music developer token unavailable',
+    code: e.status,
+  ),
   // Not proof the account was revoked (Android): a server refusal, retryable later.
   AppleMusicFailure.accessDenied => const SourceServerException('Apple Music refused this request', code: 403),
   AppleMusicFailure.rateLimited => const SourceServerException('Apple Music is busy, try again later', code: 429),
@@ -506,7 +513,9 @@ final class _AppleMusicLibrary implements MusicLibrary {
     final resource = resources(response).firstOrNull;
     final artist = resource == null ? null : artistFrom(resource);
     if (artist == null) return null;
-    final albums = [for (final r in await _s._all([...path, 'albums'], query: _pageLimit)) ?albumFrom(r)];
+    final albums = [
+      for (final r in await _s._all([...path, 'albums'], query: _pageLimit)) ?albumFrom(r),
+    ];
     return ArtistDetail(
       id: artist.id,
       name: artist.name,
@@ -608,8 +617,9 @@ final class _AppleMusicMetadata implements MusicMetadata {
   Future<Lyrics?> getLyrics(Track track) async => null;
 }
 
-final class _AppleMusicWriteActions implements MusicWriteActions {
-  const _AppleMusicWriteActions();
+final class _AppleMusicWriteActions implements MusicWriteActions, MusicPlaylistWrites {
+  const _AppleMusicWriteActions(this._api);
+  final AppleMusicApi _api;
 
   /// Library membership isn't a favourite, and unsupported writes never fake success (Android).
   @override
@@ -619,6 +629,71 @@ final class _AppleMusicWriteActions implements MusicWriteActions {
   @override
   Future<void> setRating(MediaId trackId, int rating) async =>
       throw const UnsupportedSourceOperation('Manage this in Apple Music.');
+
+  // A new library playlist, and songs appended to one (Capability.playlistAdd). Apple's API has no
+  // rename, delete, remove or reorder for library playlists (Android AppleMusicSource).
+
+  /// One create carrying the first [_batch] songs, then appends: a playlist Apple has only just made
+  /// may not take an append yet, so a playlist of up to a batch never sends one.
+  @override
+  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []}) async {
+    final refs = [for (final t in tracks) trackRef(t)];
+    final resource = await _api.createLibraryPlaylist(name, refs.take(_batch).toList());
+    final created = playlistFrom(resource);
+    if (created == null) {
+      throw const AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'Apple Music returned no playlist');
+    }
+    for (var i = _batch; i < refs.length; i += _batch) {
+      await _api.addTracksToLibraryPlaylist(appleId(created.id), refs.skip(i).take(_batch).toList());
+    }
+    return created;
+  }
+
+  /// A library playlist (the account's own or one it added); a catalogue playlist never.
+  @override
+  bool acceptsTracks(Playlist playlist) =>
+      playlist.id.provider == MediaId.providerAppleMusic && isLibraryId(playlist.id);
+
+  @override
+  Future<void> addTracksToPlaylist(MediaId playlistId, List<MediaId> tracks) async {
+    if (playlistId.provider != MediaId.providerAppleMusic || !isLibraryId(playlistId)) {
+      throw ArgumentError.value(playlistId, 'playlistId', 'A library playlist is required');
+    }
+    final refs = [for (final t in tracks) trackRef(t)];
+    for (var i = 0; i < refs.length; i += _batch) {
+      await _api.addTracksToLibraryPlaylist(appleId(playlistId), refs.skip(i).take(_batch).toList());
+    }
+  }
+
+  @override
+  Future<void> renamePlaylist(MediaId playlistId, String name) async =>
+      throw const UnsupportedSourceOperation('Manage this in Apple Music.');
+
+  @override
+  Future<void> deletePlaylist(MediaId playlistId) async =>
+      throw const UnsupportedSourceOperation('Manage this in Apple Music.');
+
+  @override
+  Future<void> removeFromPlaylist(MediaId playlistId, List<int> positions) async =>
+      throw const UnsupportedSourceOperation('Manage this in Apple Music.');
+
+  @override
+  Future<void> setPlaylistTracks(MediaId playlistId, List<MediaId> tracks) async =>
+      throw const UnsupportedSourceOperation('Manage this in Apple Music.');
+
+  /// Android PLAYLIST_ADD_BATCH.
+  static const _batch = 100;
+
+  /// A catalogue song by its digits id; a library song (`library:i.…`) as a library song.
+  static AppleMusicTrackRef trackRef(MediaId track) {
+    if (track.provider != MediaId.providerAppleMusic) {
+      throw ArgumentError.value(track, 'track', 'An Apple Music song is required');
+    }
+    final raw = track.rawId;
+    if (RegExp(r'^[0-9]+$').hasMatch(raw)) return AppleMusicTrackRef(raw, 'songs');
+    if (isLibraryId(track)) return AppleMusicTrackRef(appleId(track), 'library-songs');
+    throw ArgumentError.value(track, 'track', 'An Apple Music song is required');
+  }
 }
 
 /// The personal-build switch for Apple Music playback (see [_AppleMusicPlayback.handleFor]).
@@ -644,8 +719,7 @@ final class _AppleMusicPlayback implements MusicPlayback {
 
   /// MusicKit reports its own plays; there is nothing to send through the API.
   @override
-  Future<void> reportNowPlaying(MediaId trackId) async =>
-      throw const UnsupportedSourceOperation('reportNowPlaying');
+  Future<void> reportNowPlaying(MediaId trackId) async => throw const UnsupportedSourceOperation('reportNowPlaying');
 
   @override
   Future<void> submitPlay(MediaId trackId, DateTime playedAt) async =>

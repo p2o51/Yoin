@@ -15,6 +15,7 @@ import 'detail_palette.dart';
 import 'detail_play.dart';
 import 'detail_routes.dart';
 import 'detail_strings.dart';
+import 'detail_track_menu.dart';
 import 'detail_track_rows.dart';
 import 'flowing_titles.dart';
 import 'pull_up_reveal.dart';
@@ -99,6 +100,7 @@ class AlbumDetailScreen extends ConsumerWidget {
           featArtist: state.featArtistOf(track),
           showHeart: canFavorite,
           onTap: () => playFrom(i),
+          onLongPress: () => openTrackMenu(context, track, onAlbumPage: true),
         ),
       );
     }

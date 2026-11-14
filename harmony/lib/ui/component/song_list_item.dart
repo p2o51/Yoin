@@ -78,6 +78,7 @@ class SongListItem extends StatelessWidget {
     this.isCurrent = false,
     this.isPlaying = false,
     this.onTap,
+    this.onLongPress,
     this.decodeWidth,
     this.nowPlayingLabel,
   });
@@ -90,6 +91,9 @@ class SongListItem extends StatelessWidget {
   final bool isCurrent;
   final bool isPlaying;
   final VoidCallback? onTap;
+
+  /// Opens the song sheet (TrackMenuSheet).
+  final VoidCallback? onLongPress;
   final int? decodeWidth;
   final String? nowPlayingLabel;
 
@@ -103,6 +107,7 @@ class SongListItem extends StatelessWidget {
       type: MaterialType.transparency,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
         child: Padding(
           padding: const EdgeInsets.symmetric(

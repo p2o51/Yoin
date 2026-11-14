@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -373,8 +374,12 @@ void main() {
   });
 
   group('capabilities and refusals', () {
-    test('should_declareSearchAndPlaylistsOnly_when_asked', () {
-      expect(_Server({}).source().capabilities, {Capability.search, Capability.playlistsRead});
+    test('should_declareSearchPlaylistsAndPlaylistAdd_when_asked', () {
+      expect(_Server({}).source().capabilities, {
+        Capability.search,
+        Capability.playlistsRead,
+        Capability.playlistAdd,
+      });
     });
 
     test('should_refuseFavoritesAndRatings_when_called', () async {
@@ -439,6 +444,67 @@ void main() {
       final id = MediaId(MediaId.providerAppleMusic, '11');
       await expectLater(source.playback.reportNowPlaying(id), throwsA(isA<UnsupportedSourceOperation>()));
       await expectLater(source.playback.submitPlay(id, DateTime(2026)), throwsA(isA<UnsupportedSourceOperation>()));
+    });
+  });
+
+  group('playlist writes', () {
+    test('should_createLibraryPlaylistWithSongs_when_creating', () async {
+      final server = _Server({
+        '/v1/me/library/playlists': (http.Request r) => _json(
+          '{"data":[{"id":"p.AbC","type":"library-playlists","attributes":{"name":"Road","canEdit":true}}]}',
+          201,
+        ),
+      });
+      final writes = server.source().playlistWrites!;
+      final created = await writes.createPlaylist('Road', tracks: [
+        MediaId(MediaId.providerAppleMusic, '123'),
+        MediaId(MediaId.providerAppleMusic, 'library:i.XyZ'),
+      ]);
+      expect(created.id, MediaId(MediaId.providerAppleMusic, 'library:p.AbC'));
+      expect(server.source().playlistWrites!.acceptsTracks(created), isTrue);
+      final request = server.lastTo('/v1/me/library/playlists');
+      expect(request.method, 'POST');
+      expect(request.headers['Music-User-Token'], _userToken);
+      final body = jsonDecode(request.body) as Map<String, Object?>;
+      expect((body['attributes']! as Map)['name'], 'Road');
+      expect(((body['relationships']! as Map)['tracks']! as Map)['data'], [
+        {'id': '123', 'type': 'songs'},
+        {'id': 'i.XyZ', 'type': 'library-songs'},
+      ]);
+    });
+
+    test('should_appendToLibraryPlaylist_when_adding', () async {
+      final server = _Server({
+        '/v1/me/library/playlists/p.AbC/tracks': (http.Request r) => http.Response('', 204),
+      });
+      await server.source().playlistWrites!.addTracksToPlaylist(
+        MediaId(MediaId.providerAppleMusic, 'library:p.AbC'),
+        [MediaId(MediaId.providerAppleMusic, '123')],
+      );
+      final request = server.lastTo('/v1/me/library/playlists/p.AbC/tracks');
+      expect(jsonDecode(request.body), {
+        'data': [
+          {'id': '123', 'type': 'songs'},
+        ],
+      });
+    });
+
+    test('should_refuseRenameDeleteRemoveAndReorder_when_called', () async {
+      final writes = _Server({}).source().playlistWrites!;
+      final id = MediaId(MediaId.providerAppleMusic, 'library:p.AbC');
+      await expectLater(writes.renamePlaylist(id, 'x'), throwsA(isA<UnsupportedSourceOperation>()));
+      await expectLater(writes.deletePlaylist(id), throwsA(isA<UnsupportedSourceOperation>()));
+      await expectLater(writes.removeFromPlaylist(id, [0]), throwsA(isA<UnsupportedSourceOperation>()));
+      await expectLater(writes.setPlaylistTracks(id, const []), throwsA(isA<UnsupportedSourceOperation>()));
+    });
+
+    test('should_refuseCatalogPlaylist_when_adding', () async {
+      final writes = _Server({}).source().playlistWrites!;
+      expect(writes.acceptsTracks(Playlist(id: MediaId(MediaId.providerAppleMusic, 'pl.123'), name: 'x')), isFalse);
+      await expectLater(
+        writes.addTracksToPlaylist(MediaId(MediaId.providerAppleMusic, 'pl.123'), const []),
+        throwsArgumentError,
+      );
     });
   });
 }

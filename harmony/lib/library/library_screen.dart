@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../app/providers.dart';
 import '../data/source/music_source.dart';
 import '../l10n/strings.dart';
 import '../settings/settings_screen.dart';
 import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
+import '../theme/tokens.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/component/yoin_pull_to_refresh.dart';
@@ -15,6 +17,8 @@ import 'library_search_view.dart';
 import 'library_strings.dart';
 import 'library_view_model.dart';
 import 'library_views.dart';
+import 'new_playlist_fab.dart';
+import 'playlist_writes.dart';
 
 /// Library root (RootSection; Android LibraryScreen, Compact): search pill
 /// + settings, the chip row, and the selected view under pull to refresh.
@@ -174,6 +178,7 @@ class _Content extends ConsumerWidget {
     final vm = ref.read(libraryViewModelProvider.notifier);
     final strings = LibraryStrings.of(context);
     final tab = state.selected;
+    final canAddPlaylists = playlistAbilities(ref.watch(activeSourceProvider).value).canAdd;
     return Column(
       children: [
         LibraryFilterRow(tabs: state.availableTabs, selected: tab, onSelect: vm.selectTab),
@@ -200,10 +205,21 @@ class _Content extends ConsumerWidget {
                   controller: scrolls[tab]!,
                   emptyText: tab == LibraryTab.artists ? strings.emptyArtists : strings.emptyAlbums,
                 ),
-                LibraryTab.playlists => LibraryPlaylistsView(
-                  view: state.sorted.playlists,
-                  sort: state.sortOf(tab),
-                  controller: scrolls[tab]!,
+                LibraryTab.playlists => Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    LibraryPlaylistsView(
+                      view: state.sorted.playlists,
+                      sort: state.sortOf(tab),
+                      controller: scrolls[tab]!,
+                    ),
+                    if (canAddPlaylists && state.sorted.playlists != null)
+                      PositionedDirectional(
+                        end: PlaylistFabTokens.endMargin,
+                        bottom: libraryBottomPadding(context),
+                        child: NewPlaylistFab(controller: scrolls[tab]!),
+                      ),
+                  ],
                 ),
                 LibraryTab.songs => LibrarySongsView(
                   songs: state.songs,

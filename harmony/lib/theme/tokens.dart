@@ -798,3 +798,59 @@ abstract final class MotionTokens {
   static const double fastScrollerHideSlide = 32;
 }
 
+
+/// The shared sheets: the queue sheet's editing (QueueSheet.kt), the song
+/// sheet (TrackMenu.kt) and Add to playlist (AddToPlaylistSheet.kt).
+abstract final class SheetTokens {
+  /// QueueRowHeight: every queue row is this tall, so a drag reads its slot from its offset alone.
+  static const double queueRowHeight = 64;
+  static const double queueCover = 48;
+  static const double queueRowPaddingH = 24;
+
+  /// The drag handle's touch box, and the row's end padding when it shows.
+  static const double queueHandleBox = 48;
+  static const double queueHandlePaddingEnd = 8;
+
+  /// A held row's lift (shadow elevation).
+  static const double queueLiftElevation = 8;
+
+  /// Swipe to remove: past this fraction of the row's width, or flung faster
+  /// than this (px/s), the row leaves.
+  static const double swipeRemoveFraction = 0.4;
+  static const double swipeRemoveVelocity = 800;
+
+  /// TrackMenuCoverSize, TrackMenuRowHeight, TrackMenuRowGap, TrackMenuGroupGap, TrackMenuQuickHeight.
+  static const double trackMenuCover = 56;
+  static const double trackMenuRowHeight = 56;
+  static const double trackMenuRowGap = 2;
+  static const double trackMenuGroupGap = 12;
+  static const double trackMenuQuickHeight = 76;
+
+  /// ButtonGroupDefaults.ConnectedSpaceBetween: the top row's gap.
+  static const double trackMenuQuickGap = 2;
+
+  /// The song sheet's side padding, row padding (h), icon → label, cover → text.
+  static const double trackMenuPaddingH = 16;
+  static const double trackMenuRowPaddingH = 20;
+  static const double trackMenuIconGap = 16;
+
+  /// Settings-style segmented group: outer corner, inner corner.
+  static const double segmentOuterCorner = 20;
+  static const double segmentInnerCorner = 4;
+
+  /// Add to playlist: the 40 dp thumb, row padding (h / v), thumb → text.
+  static const double playlistThumb = 40;
+  static const double playlistRowPaddingH = 24;
+  static const double playlistRowPaddingV = 8;
+  static const double playlistRowGap = 12;
+}
+
+/// Library's New playlist button (M3 ExtendedFloatingActionButton, LibraryScreen.kt PlaylistsTabContent).
+abstract final class PlaylistFabTokens {
+  static const double height = 56;
+  static const double corner = 16;
+  static const double paddingH = 16;
+  static const double iconGap = 12;
+  static const double elevation = 3;
+  static const double endMargin = 16;
+}

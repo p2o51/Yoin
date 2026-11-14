@@ -14,6 +14,15 @@ enum Capability {
   lyrics,
   rating,
   playReporting,
+
+  /// A new playlist, and songs appended to one ([MusicPlaylistWrites.createPlaylist],
+  /// [MusicPlaylistWrites.addTracksToPlaylist]): Add to playlist and New playlist.
+  /// Apple Music has this but not [playlistsWrite] (its API has no rename,
+  /// delete or remove for library playlists; Android PLAYLIST_IMPORT).
+  playlistAdd,
+
+  /// Rename, delete, remove songs and reorder ([MusicPlaylistWrites]); implies [playlistAdd].
+  playlistsWrite,
 }
 
 /// Thrown by a source when a call isn't supported by this provider.
@@ -97,6 +106,43 @@ abstract interface class MusicWriteActions {
 
   /// 0 clears, 1–5 sets.
   Future<void> setRating(MediaId trackId, int rating);
+}
+
+/// Playlist writes (Android MusicWriteActions' playlist half), gated by
+/// [Capability.playlistAdd] / [Capability.playlistsWrite]. A call the
+/// provider can't do throws [UnsupportedSourceOperation]; callers also check
+/// [Playlist.canWrite] (a followed playlist can't be changed).
+abstract interface class MusicPlaylistWrites {
+  /// A new playlist owned by the account, holding [tracks] in order.
+  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []});
+
+  /// Appends [tracks] to [playlistId], in order.
+  Future<void> addTracksToPlaylist(MediaId playlistId, List<MediaId> tracks);
+  Future<void> renamePlaylist(MediaId playlistId, String name);
+  Future<void> deletePlaylist(MediaId playlistId);
+
+  /// Removes the songs at [positions] (0-based, in the playlist's current order).
+  Future<void> removeFromPlaylist(MediaId playlistId, List<int> positions);
+
+  /// Replaces the playlist's songs with [tracks] in this order (a reorder).
+  Future<void> setPlaylistTracks(MediaId playlistId, List<MediaId> tracks);
+
+  /// Whether [playlist] takes new songs (Add to playlist lists it). Can be
+  /// true where [Playlist.canWrite] is false: an Apple Music library
+  /// playlist takes songs but can't be renamed or deleted.
+  bool acceptsTracks(Playlist playlist);
+}
+
+/// A source's playlist writes: null when it has none (test fakes, providers
+/// without [Capability.playlistAdd]). Gate the UI on the capability too.
+extension MusicSourcePlaylists on MusicSource {
+  MusicPlaylistWrites? get playlistWrites {
+    if (!capabilities.contains(Capability.playlistAdd)) return null;
+    return switch (writeActions) {
+      final MusicPlaylistWrites w => w,
+      _ => null,
+    };
+  }
 }
 
 abstract interface class MusicPlayback {

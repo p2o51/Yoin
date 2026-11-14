@@ -35,6 +35,7 @@ import 'nowplaying_strings.dart';
 import 'overlay_controller.dart';
 import 'play_mode_cycle.dart';
 import 'playhead_clock.dart';
+import '../ui/component/track_menu_sheet.dart';
 import 'queue_sheet.dart';
 import 'rating_and_heart.dart';
 import 'stage_budget.dart';
@@ -593,7 +594,18 @@ class _Stage extends ConsumerWidget {
               child: FlightSlot(
                 element: FlightElement.cover,
                 pill: false,
-                child: _StageCover(state: state, detail: detail, requestEdge: budget.cover),
+                child: _StageCover(
+                  state: state,
+                  detail: detail,
+                  requestEdge: budget.cover,
+                  onLongPress: () => showTrackMenuSheet(
+                    context,
+                    track: state.track,
+                    nowPlaying: true,
+                    onMessage: (text) =>
+                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text))),
+                  ),
+                ),
               ),
             ),
           ),
@@ -810,18 +822,21 @@ VoidCallback? _contextTarget(PlaybackContext context, NowPlayingOverlayControlle
 /// in CoverSwap on the slow artworkDissolve spring (the DotDissolve sweep is
 /// deferred).
 class _StageCover extends StatelessWidget {
-  const _StageCover({required this.state, required this.detail, required this.requestEdge});
+  const _StageCover({required this.state, required this.detail, required this.requestEdge, this.onLongPress});
 
   final NowPlayingContent state;
   final Animation<double> detail;
   final double requestEdge;
+
+  /// Long-press: the song sheet for the playing song (showTrackMenuSheet, nowPlaying: true).
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final strings = NowPlayingStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final px = (requestEdge * MediaQuery.devicePixelRatioOf(context)).round();
-    return Semantics(
+    final cover = Semantics(
       image: true,
       label: strings.cdAlbumCover,
       child: LayoutBuilder(
@@ -857,6 +872,9 @@ class _StageCover extends StatelessWidget {
         },
       ),
     );
+    final onLongPress = this.onLongPress;
+    if (onLongPress == null) return cover;
+    return GestureDetector(onLongPress: onLongPress, child: cover);
   }
 }
 

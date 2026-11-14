@@ -4,6 +4,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../detail/detail_track_menu.dart';
 import '../detail/playback_projection.dart';
 import '../theme/tokens.dart';
 import '../ui/component/elastic_press.dart';
@@ -285,10 +286,13 @@ class LibraryMetaPill extends StatelessWidget {
 
 /// A song row bound to the playback projection (current / playing).
 class LibrarySongRow extends ConsumerWidget {
-  const LibrarySongRow({super.key, required this.track, required this.onTap});
+  const LibrarySongRow({super.key, required this.track, required this.onTap, this.onLongPress});
 
   final Track track;
   final VoidCallback onTap;
+
+  /// Opens the song sheet; null = [openTrackMenu] with this window's navigation.
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -305,6 +309,7 @@ class LibrarySongRow extends ConsumerWidget {
       decodeWidth: (LibraryTokens.rowThumb * MediaQuery.devicePixelRatioOf(context)).round(),
       nowPlayingLabel: LibraryStrings.of(context).cdNowPlaying,
       onTap: onTap,
+      onLongPress: onLongPress ?? () => openTrackMenu(context, track),
     );
   }
 }

@@ -38,10 +38,13 @@ abstract final class PillMetrics {
 /// out to the left (90 ms) and the new one in from the right (Expressive
 /// default spatial); the wash stays put. Tap opens Now Playing.
 class NowPlayingPill extends ConsumerStatefulWidget {
-  const NowPlayingPill({super.key, this.onPressChanged});
+  const NowPlayingPill({super.key, this.onPressChanged, this.onLongPress});
 
   /// Press echo for the bar (the pill squeezes its neighbours).
   final ValueChanged<bool>? onPressChanged;
+
+  /// Long-press on a song: the song sheet for it (showTrackMenuSheet, nowPlaying: true).
+  final ValueChanged<Track>? onLongPress;
 
   @override
   ConsumerState<NowPlayingPill> createState() => _NowPlayingPillState();
@@ -142,6 +145,10 @@ class _NowPlayingPillState extends ConsumerState<NowPlayingPill> with TickerProv
         onTapUp: (_) => widget.onPressChanged?.call(false),
         onTapCancel: () => widget.onPressChanged?.call(false),
         onTap: _open,
+        onLongPress: switch ((widget.onLongPress, shown)) {
+          (final long?, final track?) => () => long(track),
+          _ => null,
+        },
         child: AnimatedBuilder(
           animation: _presence.animation,
           builder: (context, child) {

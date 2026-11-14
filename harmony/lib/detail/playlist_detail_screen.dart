@@ -4,12 +4,16 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../library/playlist_writes.dart';
 import '../shell/detail_chrome.dart';
+import '../ui/component/add_to_playlist_sheet.dart';
+import '../ui/component/component_strings.dart';
 import '../ui/component/meta_line.dart';
 import 'detail_page.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
 import 'detail_strings.dart';
+import 'detail_track_menu.dart';
 import 'detail_track_rows.dart';
 import 'flowing_titles.dart';
 import 'playlist_detail_view_model.dart';
@@ -108,6 +112,7 @@ class PlaylistDetailScreen extends ConsumerWidget {
             track: e.track,
             coverUrl: rowUrl(e.track),
             onTap: () => playFrom(i),
+            onLongPress: () => openTrackMenu(context, e.track),
           ),
       ],
       heroBelow: (links) => state.entries.isEmpty
@@ -216,10 +221,62 @@ class _PlaylistChrome extends ConsumerWidget {
       actions: DetailPlayActions(
         onPlay: () => play(shuffle: false),
         onShuffle: () => play(shuffle: true),
+        menuItems: content == null ? const [] : playlistMenuItems(context, ref, content!),
         playContainer: palette?.accent,
         playContent: palette?.onAccent,
       ),
       child: child,
     );
   }
+}
+
+/// The Playlist page's ▾ rows (PlaylistDetailScreen overflow): Rename and
+/// Delete, for a playlist this account owns on a service that can change it.
+List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, PlaylistDetailContent state) {
+  final abilities = playlistAbilities(ref.watch(activeSourceProvider).value);
+  if (!abilities.canEdit || !state.playlist.canWrite) return const [];
+  final strings = ComponentStrings.of(context);
+  final vm = ref.read(playlistDetailProvider(state.playlist.id).notifier);
+  return [
+    DetailMenuAction(
+      icon: YoinSymbols.edit,
+      label: strings.playlistRename,
+      onTap: () async {
+        final name = await showPlaylistNameDialog(
+          context,
+          title: strings.playlistRenameTitle,
+          label: strings.playlistName,
+          confirmLabel: strings.playlistRenameConfirm,
+          cancelLabel: strings.playlistCancelRename,
+          initial: state.playlist.name,
+        );
+        if (name == null || name == state.playlist.name) return;
+        final ok = await vm.rename(name);
+        if (context.mounted) showDetailMessage(context, ok ? strings.playlistRenamed : strings.playlistErrorRename);
+      },
+    ),
+    DetailMenuAction(
+      icon: YoinSymbols.delete,
+      label: strings.playlistDeleteMenu,
+      onTap: () async {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialog) => AlertDialog(
+            title: Text(strings.playlistDeleteTitle),
+            content: Text(strings.playlistDeleteBody(state.playlist.name)),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(dialog).pop(false), child: Text(strings.playlistCancelDelete)),
+              TextButton(onPressed: () => Navigator.of(dialog).pop(true), child: Text(strings.playlistDelete)),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
+        final ok = await vm.delete();
+        if (!context.mounted) return;
+        showDetailMessage(context, ok ? strings.playlistDeleted : strings.playlistErrorDelete);
+        // Gone: leave the page the way its back button does.
+        if (ok) Navigator.of(context).maybePop();
+      },
+    ),
+  ];
 }

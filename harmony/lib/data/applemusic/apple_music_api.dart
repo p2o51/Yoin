@@ -58,8 +58,7 @@ final class AppleMusicApiException implements Exception {
 
   /// Apple may answer a request whose `include` it won't serve with a 400 or
   /// a 5xx; a token, access or rate-limit failure is never that.
-  bool get mayRefuseInclude =>
-      failure == AppleMusicFailure.http && status != null && (status == 400 || status! >= 500);
+  bool get mayRefuseInclude => failure == AppleMusicFailure.http && status != null && (status == 400 || status! >= 500);
 
   /// A failure that would fail the plain catalog request as well.
   bool get failsCatalogToo => switch (failure) {
@@ -71,7 +70,8 @@ final class AppleMusicApiException implements Exception {
   };
 
   @override
-  String toString() => 'AppleMusicApiException(${failure.name}${status == null ? '' : ' $status'}'
+  String toString() =>
+      'AppleMusicApiException(${failure.name}${status == null ? '' : ' $status'}'
       '${appleCode == null ? '' : ' code $appleCode'}${detail == null ? '' : ': $detail'})';
 }
 
@@ -107,10 +107,15 @@ final class AppleMusicApi {
   Future<AppleMusicStorefront> storefrontDetails() async {
     final response = await resourcePage(const ['v1', 'me', 'storefront'], personal: true);
     final data = response['data'];
-    final first = data is List && data.isNotEmpty && data.first is Map ? (data.first as Map).cast<String, Object?>() : null;
+    final first = data is List && data.isNotEmpty && data.first is Map
+        ? (data.first as Map).cast<String, Object?>()
+        : null;
     final id = first?['id'];
     if (id is! String || !_storefrontPattern.hasMatch(id)) {
-      throw const AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'Apple Music returned no storefront');
+      throw const AppleMusicApiException(
+        AppleMusicFailure.invalidResponse,
+        detail: 'Apple Music returned no storefront',
+      );
     }
     final attributes = first!['attributes'];
     final attrs = attributes is Map ? attributes.cast<String, Object?>() : const <String, Object?>{};
@@ -166,7 +171,59 @@ final class AppleMusicApi {
     return _get(filtered, personal: personal);
   }
 
-  Future<AppleMusicJson> _get(Uri target, {required bool personal}) async {
+  /// A new library playlist named [name] holding [tracks] (`POST /v1/me/library/playlists`, 201):
+  /// the created resource.
+  Future<AppleMusicJson> createLibraryPlaylist(String name, List<AppleMusicTrackRef> tracks) async {
+    if (name.trim().isEmpty) throw ArgumentError.value(name, 'name', 'A playlist needs a name');
+    final body = {
+      'attributes': {'name': name.trim()},
+      if (tracks.isNotEmpty)
+        'relationships': {
+          'tracks': {'data': _trackData(tracks)},
+        },
+    };
+    final response = await _send(
+      'POST',
+      baseUrl.replace(path: '/v1/me/library/playlists'),
+      personal: true,
+      jsonBody: body,
+      expectedStatus: 201,
+    );
+    final data = response['data'];
+    if (data is List && data.isNotEmpty && data.first is Map) return (data.first as Map).cast<String, Object?>();
+    throw const AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'Apple Music returned no playlist');
+  }
+
+  static final _libraryPlaylistId = RegExp(r'^p\.[A-Za-z0-9]+$');
+
+  /// Appends [tracks] to library playlist [playlistId] (`p.…`), in order (`POST …/tracks`, 204).
+  Future<void> addTracksToLibraryPlaylist(String playlistId, List<AppleMusicTrackRef> tracks) async {
+    if (!_libraryPlaylistId.hasMatch(playlistId)) {
+      throw ArgumentError.value(playlistId, 'playlistId', 'A library playlist ID is required');
+    }
+    if (tracks.isEmpty) return;
+    await _send(
+      'POST',
+      baseUrl.replace(path: '/v1/me/library/playlists/$playlistId/tracks'),
+      personal: true,
+      jsonBody: {'data': _trackData(tracks)},
+      expectedStatus: 204,
+    );
+  }
+
+  static List<Map<String, String>> _trackData(List<AppleMusicTrackRef> tracks) => [
+    for (final t in tracks) {'id': t.id, 'type': t.type},
+  ];
+
+  Future<AppleMusicJson> _get(Uri target, {required bool personal}) => _send('GET', target, personal: personal);
+
+  Future<AppleMusicJson> _send(
+    String method,
+    Uri target, {
+    required bool personal,
+    Object? jsonBody,
+    int expectedStatus = 200,
+  }) async {
     String? userToken;
     if (personal) {
       userToken = _musicUserToken();
@@ -178,11 +235,15 @@ final class AppleMusicApi {
     if (developerToken.trim().isEmpty) {
       throw const AppleMusicApiException(AppleMusicFailure.developerTokenUnavailable);
     }
-    final request = http.Request('GET', target)
+    final request = http.Request(method, target)
       ..followRedirects = false
       ..headers['Authorization'] = 'Bearer $developerToken'
       ..headers['Accept'] = 'application/json';
     if (userToken != null) request.headers['Music-User-Token'] = userToken;
+    if (jsonBody != null) {
+      request.headers['Content-Type'] = 'application/json';
+      request.body = jsonEncode(jsonBody);
+    }
 
     final http.Response response;
     try {
@@ -195,7 +256,7 @@ final class AppleMusicApi {
       throw const AppleMusicApiException(AppleMusicFailure.network, detail: 'Apple Music unreachable');
     }
 
-    if (response.statusCode != 200) {
+    if (response.statusCode != expectedStatus) {
       final failure = switch (response.statusCode) {
         401 => AppleMusicFailure.developerTokenRejected,
         403 => AppleMusicFailure.accessDenied,
@@ -203,8 +264,13 @@ final class AppleMusicApi {
         _ => AppleMusicFailure.http,
       };
       if (failure == AppleMusicFailure.developerTokenRejected) _onDeveloperTokenRejected?.call();
-      throw AppleMusicApiException(failure, status: response.statusCode, appleCode: _appleErrorCode(response.bodyBytes));
+      throw AppleMusicApiException(
+        failure,
+        status: response.statusCode,
+        appleCode: _appleErrorCode(response.bodyBytes),
+      );
     }
+    if (response.statusCode == 204) return const {};
     try {
       final decoded = jsonDecode(utf8.decode(response.bodyBytes, allowMalformed: true));
       if (decoded is Map) return decoded.cast<String, Object?>();
@@ -229,6 +295,14 @@ final class AppleMusicApi {
   }
 
   void close() => _client.close();
+}
+
+/// A song to put in a library playlist: a catalogue song (`songs`, digits)
+/// or a library song (`library-songs`, `i.…`).
+final class AppleMusicTrackRef {
+  const AppleMusicTrackRef(this.id, this.type);
+  final String id;
+  final String type;
 }
 
 /// See [AppleMusicApi.storefrontDetails].

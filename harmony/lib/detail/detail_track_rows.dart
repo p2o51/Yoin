@@ -63,6 +63,7 @@ class AlbumTrackRow extends ConsumerWidget {
     required this.index,
     required this.featArtist,
     required this.onTap,
+    this.onLongPress,
     this.showHeart = true,
   });
 
@@ -70,6 +71,9 @@ class AlbumTrackRow extends ConsumerWidget {
   final int index;
   final String? featArtist;
   final VoidCallback onTap;
+
+  /// Opens the song sheet (TrackMenuSheet).
+  final VoidCallback? onLongPress;
   final bool showHeart;
 
   @override
@@ -85,6 +89,7 @@ class AlbumTrackRow extends ConsumerWidget {
         type: MaterialType.transparency,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 56),
@@ -267,11 +272,20 @@ class _PopToggleState extends State<PopToggle> with TickerProviderStateMixin {
 
 /// PlaylistTrackRow: [44dp album thumb][title + artist / album][duration].
 class PlaylistTrackRow extends ConsumerWidget {
-  const PlaylistTrackRow({super.key, required this.track, required this.coverUrl, required this.onTap});
+  const PlaylistTrackRow({
+    super.key,
+    required this.track,
+    required this.coverUrl,
+    required this.onTap,
+    this.onLongPress,
+  });
 
   final Track track;
   final String? coverUrl;
   final VoidCallback onTap;
+
+  /// Opens the song sheet (TrackMenuSheet).
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -286,6 +300,7 @@ class PlaylistTrackRow extends ConsumerWidget {
         type: MaterialType.transparency,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),

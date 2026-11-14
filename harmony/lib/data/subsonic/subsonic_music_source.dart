@@ -12,6 +12,14 @@ import 'subsonic_mappers.dart';
 
 export 'subsonic_api.dart' show SubsonicApi, SubsonicAuth, SubsonicErrorCode;
 
+/// A transcode for one song (Settings › Streaming quality): `maxBitRate`,
+/// `format`, and whether to ask the server to estimate the length.
+typedef SubsonicStreamPlan = ({int maxBitRateKbps, String format, bool estimateLength});
+
+/// Asked each time a song opens; null = the original file. Owned by
+/// lib/settings/stream_quality.dart.
+typedef SubsonicStreamPlanner = Future<SubsonicStreamPlan?> Function(Track track);
+
 /// A Subsonic server behind the provider-neutral interface.
 ///
 /// Every request carries token auth (`u`, `t = md5(password + salt)`, `s`,
@@ -23,11 +31,12 @@ final class SubsonicMusicSource implements MusicSource {
     http.Client? client,
     String? salt,
     Duration timeout = SubsonicApi.defaultTimeout,
+    SubsonicStreamPlanner? streamPlanner,
   }) : _api = SubsonicApi(credentials: credentials, client: client ?? http.Client(), salt: salt, timeout: timeout) {
     _library = _SubsonicLibrary(_api, _kinds);
     _metadata = _SubsonicMetadata(_api);
     _writeActions = _SubsonicWriteActions(_api, _kinds);
-    _playback = _SubsonicPlayback(_api);
+    _playback = _SubsonicPlayback(_api, streamPlanner);
   }
 
   final SubsonicApi _api;
@@ -52,6 +61,8 @@ final class SubsonicMusicSource implements MusicSource {
     Capability.lyrics,
     Capability.rating,
     Capability.playReporting,
+    Capability.playlistAdd,
+    Capability.playlistsWrite,
   };
 
   @override
@@ -324,7 +335,7 @@ final class _SubsonicMetadata implements MusicMetadata {
   }
 }
 
-final class _SubsonicWriteActions implements MusicWriteActions {
+final class _SubsonicWriteActions implements MusicWriteActions, MusicPlaylistWrites {
   _SubsonicWriteActions(this._api, this._kinds);
   final SubsonicApi _api;
   final _IdKinds _kinds;
@@ -341,16 +352,90 @@ final class _SubsonicWriteActions implements MusicWriteActions {
   Future<void> setRating(MediaId trackId, int rating) async {
     await _api.call('setRating', [('id', _raw(trackId)), ('rating', '${rating.clamp(0, 5)}')]);
   }
+
+  /// `createPlaylist?name=&songId=…` (1.14+ answers with the playlist). An
+  /// older server answers with nothing: the newest playlist of that name is it.
+  @override
+  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []}) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) throw ArgumentError.value(name, 'name', 'A playlist needs a name');
+    final body = await _api.call('createPlaylist', [('name', trimmed), for (final t in tracks) ('songId', _raw(t))]);
+    if (body['playlist'] case final Map<Object?, Object?> m) {
+      if (playlistFromJson(m.cast(), currentUsername: _api.username) case final created?) return created;
+    }
+    final listed = await _api.call('getPlaylists');
+    final raw = (listed['playlists'] as Map?)?['playlist'];
+    final all = [
+      if (raw is List)
+        for (final p in raw)
+          if (p is Map) ?playlistFromJson(p.cast(), currentUsername: _api.username),
+    ];
+    final named = all.where((p) => p.name == trimmed && p.canWrite).toList();
+    if (named.isEmpty) throw const SourceServerException('The server made no playlist');
+    return named.last;
+  }
+
+  @override
+  bool acceptsTracks(Playlist playlist) => playlist.canWrite;
+
+  /// `updatePlaylist?playlistId=&songIdToAdd=…`.
+  @override
+  Future<void> addTracksToPlaylist(MediaId playlistId, List<MediaId> tracks) async {
+    if (tracks.isEmpty) return;
+    await _api.call('updatePlaylist', [
+      ('playlistId', _raw(playlistId)),
+      for (final t in tracks) ('songIdToAdd', _raw(t)),
+    ]);
+  }
+
+  @override
+  Future<void> renamePlaylist(MediaId playlistId, String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) throw ArgumentError.value(name, 'name', 'A playlist needs a name');
+    await _api.call('updatePlaylist', [('playlistId', _raw(playlistId)), ('name', trimmed)]);
+  }
+
+  @override
+  Future<void> deletePlaylist(MediaId playlistId) async {
+    await _api.call('deletePlaylist', [('id', _raw(playlistId))]);
+  }
+
+  /// `updatePlaylist?songIndexToRemove=…`: the server reads every index
+  /// against the list as it was, so the order doesn't matter.
+  @override
+  Future<void> removeFromPlaylist(MediaId playlistId, List<int> positions) async {
+    if (positions.isEmpty) return;
+    await _api.call('updatePlaylist', [
+      ('playlistId', _raw(playlistId)),
+      for (final i in positions.toSet()) ('songIndexToRemove', '$i'),
+    ]);
+  }
+
+  /// Subsonic has no move: `createPlaylist?playlistId=` with every song
+  /// replaces the playlist's songs in the new order.
+  @override
+  Future<void> setPlaylistTracks(MediaId playlistId, List<MediaId> tracks) async {
+    await _api.call('createPlaylist', [('playlistId', _raw(playlistId)), for (final t in tracks) ('songId', _raw(t))]);
+  }
 }
 
 final class _SubsonicPlayback implements MusicPlayback {
-  _SubsonicPlayback(this._api);
+  _SubsonicPlayback(this._api, this._planner);
   final SubsonicApi _api;
+  final SubsonicStreamPlanner? _planner;
 
-  /// A signed `stream.view` URL of the original file (no transcoding in v1).
+  /// A signed `stream.view` URL: the original file, or the transcode [_planner] asks for.
   @override
   Future<PlaybackHandle> handleFor(Track track) async {
-    final uri = _api.restUri('stream', [('id', _raw(track.id))]);
+    final plan = await _planner?.call(track);
+    final uri = _api.restUri('stream', [
+      ('id', _raw(track.id)),
+      if (plan != null) ...[
+        ('maxBitRate', '${plan.maxBitRateKbps}'),
+        ('format', plan.format),
+        if (plan.estimateLength) ('estimateContentLength', 'true'),
+      ],
+    ]);
     if (uri == null) throw const SourceNetworkException('Invalid server URL');
     return DirectStream(uri.toString());
   }
