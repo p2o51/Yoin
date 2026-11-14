@@ -105,7 +105,10 @@ struct ScrapTrackSheet: View {
                         pendingAsk(asking.question).padding(.top, 14)
                             .transition(.opacity)
                     }
-                    ScrapNewEntry(scheme: scheme) { question in
+                    // A heading the listener wrote counts as asked too: the same pill would only repeat it.
+                    ScrapNewEntry(scheme: scheme,
+                                  prompts: QuickPrompts.remaining(asked: QuickPrompts.asked(in: entries)
+                                                                  + pending.map(\.question))) { question in
                         loader.askFromScrapbook(title: keys.title, artist: keys.artist, album: keys.album,
                                                 question: question)
                     } onWrite: { heading, text in
@@ -465,9 +468,12 @@ private struct ScrapAboutEditor: View {
 }
 
 /// A new entry (Android NewEntry): its title first, then Ask Gemini, or Write
-/// to type it yourself (the button becomes Save).
+/// to type it yourself (the button becomes Save). While the empty title has
+/// the keyboard, the quick questions not asked yet ([prompts]) sit under it;
+/// one fills the title.
 private struct ScrapNewEntry: View {
     var scheme: CoverScheme
+    var prompts: [String]
     var onAsk: (String) -> Void
     var onWrite: (String, String) -> Void
 
@@ -480,12 +486,24 @@ private struct ScrapNewEntry: View {
 
     private var hasTitle: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var hasBody: Bool { !body_.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var showsPrompts: Bool { focus == .title && !hasTitle && !prompts.isEmpty }
+    /// The card's padding, which the quick questions scroll out past to its own edges (fading there).
+    private static let inset: CGFloat = 14
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ScrapField(text: $title, hint: String(localized: "A title, like: what is this song about"), scheme: scheme,
                        heading: true, singleLine: true)
                 .focused($focus, equals: .title)
+            if showsPrompts {
+                QuickPromptsRow(prompts: prompts, container: scheme.tertiaryContainer,
+                                content: scheme.onTertiaryContainer, inset: Self.inset, fadeEdges: true) { prompt in
+                    title = prompt
+                    focus = .title
+                }
+                .padding(.horizontal, -Self.inset)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
             if typing {
                 ScrapField(text: $body_, hint: String(localized: "Write what you know…"), scheme: scheme, minHeight: 84)
                     .focused($focus, equals: .body)
@@ -522,7 +540,8 @@ private struct ScrapNewEntry: View {
             .animation(Yoin.effects, value: hasTitle)
             .animation(Yoin.effects, value: hasBody)
         }
-        .padding(14)
+        .animation(Yoin.spatial, value: showsPrompts)
+        .padding(Self.inset)
         .background(scheme.surfaceContainerHigh, in: .rect(cornerRadius: 24, style: .continuous))
     }
 

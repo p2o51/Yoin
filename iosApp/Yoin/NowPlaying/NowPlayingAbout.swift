@@ -592,10 +592,14 @@ struct AskGeminiBar: View {
 /// Android `AskGeminiBar` focused: the 252 pt card (28 corners), the dot,
 /// then the question field (titleMedium, "Ask Gemini" placeholder at 60 %).
 /// Return sends (Android ImeAction.Send); an empty question isn't sent.
+/// While the field is empty the quick questions not yet asked about the song
+/// ([prompts]) sit at its foot, scrolling out to the card's edges; one fills
+/// the field (owner 2026-11-02).
 struct AskGeminiField: View {
     var scheme: CoverScheme
     @Binding var text: String
     var focus: FocusState<Bool>.Binding
+    var prompts: [String] = []
     var onSubmit: (String) -> Void
     @Environment(\.colorScheme) private var colorScheme
 
@@ -603,10 +607,15 @@ struct AskGeminiField: View {
 
     /// As on the bar: white in dark.
     private var onGlass: Color { colorScheme == .dark ? .white : scheme.onPrimaryContainer }
+    private var showsPrompts: Bool { text.isEmpty && !prompts.isEmpty }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let card = RoundedRectangle(cornerRadius: AskGeminiBar.corner, style: .continuous)
+        // Only the top and bottom are padded, so the quick questions can scroll edge to edge (Android).
+        VStack(alignment: .leading, spacing: 0) {
             AskGeminiBar.dot(scheme)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
             TextField(text: $text, prompt: Text("Ask Gemini")
                 .foregroundStyle(onGlass.opacity(0.6)), axis: .vertical) {
                 Text("Ask Gemini")
@@ -623,13 +632,24 @@ struct AskGeminiField: View {
                 submit()
             }
             .onSubmit(submit)
+            .padding(.horizontal, 20)
             .frame(maxHeight: .infinity, alignment: .topLeading)
+            if showsPrompts {
+                QuickPromptsRow(prompts: prompts, container: scheme.surface, content: scheme.onSurface,
+                                inset: 20) { prompt in
+                    text = prompt
+                    focus.wrappedValue = true
+                }
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
-        .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .topLeading)
-        .npPillGlass("npFloating", tint: scheme.primaryContainer,
-                     in: RoundedRectangle(cornerRadius: AskGeminiBar.corner, style: .continuous))
+        .animation(Yoin.spatial, value: showsPrompts)
+        // The card clips what scrolls in it, as Android's Surface does.
+        .clipShape(card)
+        .npPillGlass("npFloating", tint: scheme.primaryContainer, in: card)
     }
 
     private func submit() {

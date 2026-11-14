@@ -9737,6 +9737,76 @@
           }
         }
       }
+    },
+    "Quick questions": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷提问"
+          }
+        }
+      }
+    },
+    "What does this song sample?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这首歌采样了谁？"
+          }
+        }
+      }
+    },
+    "Who sampled this song?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "谁采样了这首歌？"
+          }
+        }
+      }
+    },
+    "What are the lyrics about?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌词在讲什么？"
+          }
+        }
+      }
+    },
+    "How was it written?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "是怎么写出来的？"
+          }
+        }
+      }
+    },
+    "What covers are there?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有哪些翻唱？"
+          }
+        }
+      }
+    },
+    "How was it received?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当时反响如何？"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

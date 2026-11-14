@@ -1386,6 +1386,13 @@ struct NowPlayingView: View, Equatable {
         Task { @MainActor in askFieldFocused = true }
     }
 
+    /// The quick questions the Ask field offers: those not asked about the song on show yet (Android
+    /// `quickPromptsFor(askedQuestions())`).
+    private var askPrompts: [String] {
+        guard let t = engineTrack else { return [] }
+        return QuickPrompts.remaining(asked: QuickPrompts.asked(in: about.store.entries(AboutSong(t).key)))
+    }
+
     /// The open Ask bar over the page's foot, above the keyboard. A tap
     /// above it puts the keyboard away (and the bar folds back).
     private var askLayer: some View {
@@ -1396,7 +1403,7 @@ struct NowPlayingView: View, Equatable {
                     askFieldFocused = false
                     withAnimation(Yoin.spatial) { about.askCollapse() }
                 }
-            AskGeminiField(scheme: scheme, text: $askDraft, focus: $askFieldFocused) { question in
+            AskGeminiField(scheme: scheme, text: $askDraft, focus: $askFieldFocused, prompts: askPrompts) { question in
                 guard let t = engineTrack else { return }
                 withAnimation(Yoin.spatial) {
                     about.ask(title: t.title, artist: t.artist, album: t.album, question: question)
