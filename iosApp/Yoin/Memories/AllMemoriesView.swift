@@ -19,6 +19,7 @@ import YoinShared
 struct AllMemoriesView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.inPadColumn) private var inPadColumn
     @Environment(\.dismiss) private var dismiss
     private let source = MemoryLedgerSource.shared
     /// The tip page's demo phone (Tips/TipMemoryLedgerScene.swift): made-up memories and a cell the demo
@@ -100,6 +101,10 @@ struct AllMemoriesView: View {
                          onSurface: app.onSurface) { if let demo { demo.onBack() } else { dismiss() } }
         })
         .background(app.surfaceContainer.ignoresSafeArea())
+        // White icons with the bar's white back and title once the squares have formed it (Android
+        // MemoryLedgerScreen drivesStatusBar), in the light scheme and a full window.
+        .statusBarLight(demo == nil && !(source.state?.isEmpty ?? true) && lift.progress > MemoryGridLiftMath.formed
+                        && colorScheme == .light && !inPadColumn && !model.npExpanded && !(model.isPad && model.npPanel))
         .toolbar(.hidden, for: .navigationBar)
         .task {
             guard demo == nil else { return }

@@ -354,6 +354,7 @@ struct AlbumDetailView: View {
         pageView
         .toolbar(.hidden, for: .navigationBar)
         .background(Yoin.surface)
+        .statusBarLight(barLight)
         .sheet(isPresented: $rating) {
             AlbumRateSheet(album: album, scheme: s)
                 .presentationDetents([.medium, .large])
@@ -376,6 +377,15 @@ struct AlbumDetailView: View {
             // The activity log's visit (Android recordAlbumVisit).
             model.store.recordAlbumVisit(model.store.album(routeAlbum.id.rawId) ?? routeAlbum)
         }
+    }
+
+    /// Light status bar icons over the formed spectrum or strip (Android AlbumBarStatusBarEffect: docked past
+    /// half the pull-up, on the first page), in the light scheme (the locked spectrum keeps white at 7:1),
+    /// and only in a full window: a detail column, the iPad's Now Playing panel beside the page or an open
+    /// Now Playing share the status bar, so they leave it alone.
+    private var barLight: Bool {
+        (spectrumBar || stripBar) && p > 0.5 && pageFrac < 0.5 && colorScheme == .light
+            && !padColumn && !inPadColumn && !model.npExpanded && !(model.isPad && model.npPanel)
     }
 
     /// The backup page the toast's View asked for, when it was this playlist's.
