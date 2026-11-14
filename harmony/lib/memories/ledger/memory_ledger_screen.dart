@@ -30,6 +30,7 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../../ui/adaptive/yoin_window_info.dart';
 import '../../ui/component/cover_art.dart';
+import '../../ui/component/desktop_input.dart';
 import '../../ui/component/spring_cross_fade.dart';
 import '../../ui/component/yoin_dropdown_menu.dart';
 import '../../ui/component/yoin_loading_indicator.dart';
@@ -832,82 +833,85 @@ class _TimelineAlbumCard extends StatelessWidget {
     final item = row.item;
     final title = item.title;
     final review = item.review;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return YoinHover(
       onTap: () => onOpen(item.album),
-      child: Padding(
-        padding: EdgeInsets.symmetric(vertical: masonry ? 12 : 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            LayoutBuilder(
-              builder: (context, c) {
-                final width = masonry
-                    ? c.maxWidth
-                    : (c.maxWidth * MemoryLedgerTokens.timelineCoverShare).clamp(
-                        0.0,
-                        MemoryLedgerTokens.timelineCoverMax,
-                      );
-                return Align(
-                  alignment: row.end && !masonry ? AlignmentDirectional.topEnd : AlignmentDirectional.topStart,
-                  child: _cover(item.album, width, MemoryLedgerTokens.timelineCoverCorner, theme.colorScheme),
-                );
-              },
-            ),
-            const SizedBox(height: 14),
-            if (title != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  title,
-                  style: memoryWrittenTitleStyle(24, height: 1.33, color: theme.colorScheme.onSurface),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onOpen(item.album),
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: masonry ? 12 : 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LayoutBuilder(
+                builder: (context, c) {
+                  final width = masonry
+                      ? c.maxWidth
+                      : (c.maxWidth * MemoryLedgerTokens.timelineCoverShare).clamp(
+                          0.0,
+                          MemoryLedgerTokens.timelineCoverMax,
+                        );
+                  return Align(
+                    alignment: row.end && !masonry ? AlignmentDirectional.topEnd : AlignmentDirectional.topStart,
+                    child: _cover(item.album, width, MemoryLedgerTokens.timelineCoverCorner, theme.colorScheme),
+                  );
+                },
+              ),
+              const SizedBox(height: 14),
+              if (title != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    title,
+                    style: memoryWrittenTitleStyle(24, height: 1.33, color: theme.colorScheme.onSurface),
+                  ),
                 ),
+              _Pair(
+                first: item.album.name,
+                second: item.album.artist.trim().isEmpty ? null : item.album.artist,
+                style: theme.textTheme.bodyMedium!,
               ),
-            _Pair(
-              first: item.album.name,
-              second: item.album.artist.trim().isEmpty ? null : item.album.artist,
-              style: theme.textTheme.bodyMedium!,
-            ),
-            if (item.score != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: _ScoreLine(score: item.score!, label: strings.albumScore, size: 34),
-              ),
-            if (review != null)
+              if (item.score != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: _ScoreLine(score: item.score!, label: strings.albumScore, size: 34),
+                ),
+              if (review != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    review,
+                    maxLines: 6,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyLarge!.copyWith(color: theme.colorScheme.onSurface),
+                  ),
+                ),
+              if (item.songs.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final song in item.songs) ...[
+                        _DashedRule(color: theme.colorScheme.outlineVariant),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: _SongScoreRow(title: song.title ?? strings.unknownSong, score: song.score),
+                        ),
+                      ],
+                      _DashedRule(color: theme.colorScheme.outlineVariant),
+                    ],
+                  ),
+                ),
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  review,
-                  maxLines: 6,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyLarge!.copyWith(color: theme.colorScheme.onSurface),
+                  strings.shortDay(state.dayOf(item.at), state.today),
+                  style: theme.textTheme.labelSmall!.copyWith(color: theme.colorScheme.outline),
                 ),
               ),
-            if (item.songs.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final song in item.songs) ...[
-                      _DashedRule(color: theme.colorScheme.outlineVariant),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: _SongScoreRow(title: song.title ?? strings.unknownSong, score: song.score),
-                      ),
-                    ],
-                    _DashedRule(color: theme.colorScheme.outlineVariant),
-                  ],
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                strings.shortDay(state.dayOf(item.at), state.today),
-                style: theme.textTheme.labelSmall!.copyWith(color: theme.colorScheme.outline),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

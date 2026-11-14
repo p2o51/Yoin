@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/motion.dart';
+import 'desktop_input.dart';
 
 /// Press feedback (component/PressFeedback.kt elasticPress): the child
 /// scales to [pressedScale] while held and springs back on the standard
@@ -41,14 +42,20 @@ class _ElasticPressState extends State<ElasticPress> with TickerProviderStateMix
   Widget build(BuildContext context) => Semantics(
     button: widget.onTap != null,
     label: widget.semanticsLabel,
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTapDown: widget.onTap == null ? null : (_) => _down(),
-      onTapUp: widget.onTap == null ? null : (_) => _up(),
-      onTapCancel: _up,
+    // Mouse / trackpad / keyboard: hover state layer, click cursor, focus
+    // ring + Enter, and the right click as the long-press (its menu).
+    child: YoinHover(
       onTap: widget.onTap,
-      onLongPress: widget.onLongPress,
-      child: ScaleTransition(scale: _scale.animation, child: widget.child),
+      onSecondaryTap: widget.onLongPress,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: widget.onTap == null ? null : (_) => _down(),
+        onTapUp: widget.onTap == null ? null : (_) => _up(),
+        onTapCancel: _up,
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        child: ScaleTransition(scale: _scale.animation, child: widget.child),
+      ),
     ),
   );
 }

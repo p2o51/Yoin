@@ -12,7 +12,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-const _channel = MethodChannel('yoin/window');
+const _windowChannel = MethodChannel('yoin/window');
 
 @immutable
 final class WindowCaption {
@@ -53,10 +53,95 @@ final class WindowCaption {
   int get hashCode => Object.hash(active, height, buttonsRight, buttonsWidth);
 }
 
+/// The window host behind the caption: reads it, hears it change, and moves /
+/// maximizes the window. HarmonyOS: [ChannelWindowCaptionHost]; hosts that
+/// keep a system title bar (the Windows stub today): [SystemTitleBarHost].
+abstract interface class WindowCaptionHost {
+  /// The caption now ([WindowCaption.none] when the system draws a title bar).
+  Future<WindowCaption> read();
+
+  /// Delivers every later change to [onChanged]; null stops.
+  void listen(ValueChanged<WindowCaption>? onChanged);
+
+  /// Starts a system window move from the current pointer.
+  Future<void> startMoving();
+
+  /// Maximize ⇄ restore.
+  Future<void> toggleMaximize();
+}
+
+/// [WindowCaptionHost] over `yoin/window` (ArkTS `YoinWindowHost`).
+final class ChannelWindowCaptionHost implements WindowCaptionHost {
+  const ChannelWindowCaptionHost([this._channel = _windowChannel]);
+
+  final MethodChannel _channel;
+
+  @override
+  Future<WindowCaption> read() async {
+    try {
+      return WindowCaption.fromMap(await _channel.invokeMethod<Object?>('caption'));
+    } on MissingPluginException {
+      // Tests and hosts without the plugin: no caption.
+      return WindowCaption.none;
+    } on PlatformException {
+      return WindowCaption.none;
+    }
+  }
+
+  @override
+  void listen(ValueChanged<WindowCaption>? onChanged) {
+    _channel.setMethodCallHandler(
+      onChanged == null
+          ? null
+          : (call) async {
+              if (call.method == 'captionChanged') onChanged(WindowCaption.fromMap(call.arguments));
+            },
+    );
+  }
+
+  @override
+  Future<void> startMoving() => _invoke('startMoving');
+
+  @override
+  Future<void> toggleMaximize() => _invoke('toggleMaximize');
+
+  Future<void> _invoke(String method) async {
+    try {
+      await _channel.invokeMethod<void>(method);
+    } on MissingPluginException {
+      // No window host.
+    } on PlatformException {
+      // The system refused (not a free window): nothing to do.
+    }
+  }
+}
+
+/// A host whose system draws the title bar (and its buttons): no caption,
+/// nothing to move. The Windows build until it hides the title bar
+/// (docs/windows.md: window_manager's TitleBarStyle.hidden + this interface).
+final class SystemTitleBarHost implements WindowCaptionHost {
+  const SystemTitleBarHost();
+
+  @override
+  Future<WindowCaption> read() async => WindowCaption.none;
+
+  @override
+  void listen(ValueChanged<WindowCaption>? onChanged) {}
+
+  @override
+  Future<void> startMoving() async {}
+
+  @override
+  Future<void> toggleMaximize() async {}
+}
+
 /// Wraps the app: pads the top by the caption and lays the drag handle over it.
 /// On phones (no caption) it passes [child] through untouched.
 class YoinWindowCaption extends StatefulWidget {
-  const YoinWindowCaption({super.key, required this.child});
+  const YoinWindowCaption({super.key, this.host = const ChannelWindowCaptionHost(), required this.child});
+
+  /// The platform's window host (main.dart picks it with the platform bundle).
+  final WindowCaptionHost host;
 
   final Widget child;
 
@@ -70,21 +155,11 @@ class _YoinWindowCaptionState extends State<YoinWindowCaption> {
   @override
   void initState() {
     super.initState();
-    _channel.setMethodCallHandler((call) async {
-      if (call.method == 'captionChanged') _set(WindowCaption.fromMap(call.arguments));
-    });
+    widget.host.listen(_set);
     unawaited(_read());
   }
 
-  Future<void> _read() async {
-    try {
-      _set(WindowCaption.fromMap(await _channel.invokeMethod<Object?>('caption')));
-    } on MissingPluginException {
-      // Tests and hosts without the plugin: no caption.
-    } on PlatformException {
-      // Same: keep none.
-    }
-  }
+  Future<void> _read() async => _set(await widget.host.read());
 
   void _set(WindowCaption caption) {
     if (mounted && caption != _caption) setState(() => _caption = caption);
@@ -92,7 +167,7 @@ class _YoinWindowCaptionState extends State<YoinWindowCaption> {
 
   @override
   void dispose() {
-    _channel.setMethodCallHandler(null);
+    widget.host.listen(null);
     super.dispose();
   }
 
@@ -120,21 +195,11 @@ class _YoinWindowCaptionState extends State<YoinWindowCaption> {
           height: caption.height,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onPanStart: (_) => unawaited(_invoke('startMoving')),
-            onDoubleTap: () => unawaited(_invoke('toggleMaximize')),
+            onPanStart: (_) => unawaited(widget.host.startMoving()),
+            onDoubleTap: () => unawaited(widget.host.toggleMaximize()),
           ),
         ),
       ],
     );
-  }
-
-  Future<void> _invoke(String method) async {
-    try {
-      await _channel.invokeMethod<void>(method);
-    } on MissingPluginException {
-      // No window host.
-    } on PlatformException {
-      // The system refused (not a free window): nothing to do.
-    }
   }
 }

@@ -30,6 +30,7 @@ import '../settings/settings_screen.dart';
 import '../settings/settings_view_model.dart';
 import '../shell/chrome_back.dart';
 import '../theme/motion.dart';
+import '../ui/component/desktop_input.dart';
 import 'home_metrics.dart';
 import 'home_strings.dart';
 
@@ -200,20 +201,25 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
         for (final o in others) CustomSemanticsAction(label: strings.accountQuickSwitch(o.title)): () => switchHomeAccount(ref, o.id),
       },
       excludeSemantics: true,
-      child: GestureDetector(
-        key: _anchor,
-        behavior: HitTestBehavior.opaque,
+      // Mouse / keyboard: hover layer, click cursor, focus ring, Enter.
+      child: YoinHover(
         onTap: () => _openCard(accounts),
-        onLongPressStart: others.isEmpty ? null : (_) => _startFan(others),
-        onLongPressMoveUpdate: others.isEmpty ? null : (d) => _moveFan(d.globalPosition),
-        onLongPressEnd: others.isEmpty ? null : (_) => _endFan(),
-        onLongPressCancel: others.isEmpty ? null : () => _holding.value = false,
-        child: SizedBox.square(
-          dimension: HomeHeaderMetrics.touchBox,
-          child: Center(
-            child: active == null
-                ? (widget.fallback ?? const SizedBox.shrink())
-                : _avatarOf(active, size: HomeHeaderMetrics.avatar, ring: ring),
+        focusStadium: true,
+        child: GestureDetector(
+          key: _anchor,
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _openCard(accounts),
+          onLongPressStart: others.isEmpty ? null : (_) => _startFan(others),
+          onLongPressMoveUpdate: others.isEmpty ? null : (d) => _moveFan(d.globalPosition),
+          onLongPressEnd: others.isEmpty ? null : (_) => _endFan(),
+          onLongPressCancel: others.isEmpty ? null : () => _holding.value = false,
+          child: SizedBox.square(
+            dimension: HomeHeaderMetrics.touchBox,
+            child: Center(
+              child: active == null
+                  ? (widget.fallback ?? const SizedBox.shrink())
+                  : _avatarOf(active, size: HomeHeaderMetrics.avatar, ring: ring),
+            ),
           ),
         ),
       ),

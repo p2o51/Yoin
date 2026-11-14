@@ -3,15 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'app/platform_overrides.dart';
 import 'app/providers.dart';
 import 'cards/play_card.dart';
 import 'data/applemusic/apple_music_source.dart';
 import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
-import 'platform/applemusic/apple_music_auth.dart';
-import 'platform/playback/channel_playback_engine.dart';
-import 'platform/storage/channel_stores.dart';
 import 'platform/window/window_caption.dart';
+import 'platform/yoin_platform.dart';
 import 'playback/playback_controller.dart';
 import 'settings/stream_quality.dart';
 import 'shell/app_chrome.dart';
@@ -25,13 +24,13 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   // Edge to edge: content runs under the status and navigation bars.
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  // The ONE place the platform is chosen: HarmonyOS channels, or the
+  // Windows / desktop stand-ins (docs/windows.md).
+  final platform = YoinPlatform.forHost();
   runApp(
     ProviderScope(
       overrides: [
-        keyValueStoreProvider.overrideWithValue(const ChannelKeyValueStore()),
-        secretStoreProvider.overrideWithValue(const ChannelSecretStore()),
-        playbackEngineProvider.overrideWithValue(ChannelPlaybackEngine()),
-        appleMusicAuthProvider.overrideWithValue(const ChannelAppleMusicAuth()),
+        ...platformOverrides(platform),
         musicSourceFactoryProvider.overrideWith(
           (ref) => (credentials) => switch (credentials) {
             // Settings › Streaming quality decides each song's stream.
@@ -40,13 +39,16 @@ void main() {
           },
         ),
       ],
-      child: const YoinApp(),
+      child: YoinApp(windowCaption: platform.windowCaption),
     ),
   );
 }
 
 class YoinApp extends ConsumerWidget {
-  const YoinApp({super.key});
+  const YoinApp({super.key, this.windowCaption = const ChannelWindowCaptionHost()});
+
+  /// The platform's window caption host (HarmonyOS 2in1: title bar hidden).
+  final WindowCaptionHost windowCaption;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -74,6 +76,7 @@ class YoinApp extends ConsumerWidget {
       // status-bar icons follow light / dark.
       builder: (context, child) => Builder(
         builder: (context) => YoinWindowCaption(
+          host: windowCaption,
           child: YoinSystemBars(
             child: YoinWindowScope.measured(child: AppChrome(child: child!)),
           ),

@@ -27,8 +27,12 @@ import 'tips.dart';
 
 /// Opens Settings (PushPage). The Home avatar, Home's and Library's error
 /// "Settings" and Library's settings button all come here.
-Future<void> openSettings(BuildContext context) =>
-    Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => const SettingsScreen()));
+Future<void> openSettings(BuildContext context) => Navigator.of(context).push(
+  YoinPushRoute<void>(settings: const RouteSettings(name: settingsRouteName), builder: (_) => const SettingsScreen()),
+);
+
+/// Settings' route name (Ctrl+, doesn't stack a second Settings on the first).
+const settingsRouteName = 'settings';
 
 enum _Service { subsonic, appleMusic }
 

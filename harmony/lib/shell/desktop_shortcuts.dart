@@ -1,0 +1,271 @@
+/// The app's keyboard shortcuts on PC windows (MateBook 2in1, later
+/// Windows), mirroring the Mac app's Controls menu (YoinMacApp.swift) with
+/// Ctrl for ⌘. One Shortcuts/Actions layer around the chrome (AppChrome:
+/// above the Navigator and Now Playing), so every page and overlay sees the
+/// same keys. Every shortcut steps aside while a text field has focus (the
+/// key reaches the field), and while its target can't act (no song: Space
+/// still activates the focused button).
+///
+/// | Keys | Does |
+/// | --- | --- |
+/// | Space | play / pause |
+/// | Ctrl+→ / Ctrl+← | next / previous |
+/// | Ctrl+D | heart / unheart the playing song |
+/// | Ctrl+Shift+P | open / close Now Playing |
+/// | Ctrl+L | Now Playing panel ⇄ full window (opens it first) |
+/// | Ctrl+F | Now Playing focus (opens it first; where the cover can focus) |
+/// | Ctrl+K | Library search |
+/// | Ctrl+, | Settings |
+/// | Esc | back (the system back's path: the Navigator's maybePop) |
+/// | ← / → | seek −5 s / +5 s while Now Playing is open |
+/// | Shift+F10, Menu key | the focused item's menu (its right click) |
+library;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../nowplaying/overlay_controller.dart';
+import '../nowplaying/player_snapshot.dart';
+import '../playback/playback_controller.dart';
+import '../playback/playhead.dart';
+import '../settings/settings_screen.dart';
+import '../theme/tokens.dart';
+import '../ui/component/desktop_input.dart';
+import 'shell_state.dart';
+import 'yoin_section.dart';
+
+class PlayPauseIntent extends Intent {
+  const PlayPauseIntent();
+}
+
+class NextTrackIntent extends Intent {
+  const NextTrackIntent();
+}
+
+class PreviousTrackIntent extends Intent {
+  const PreviousTrackIntent();
+}
+
+class ToggleFavoriteIntent extends Intent {
+  const ToggleFavoriteIntent();
+}
+
+class ToggleNowPlayingIntent extends Intent {
+  const ToggleNowPlayingIntent();
+}
+
+class ToggleFullWindowIntent extends Intent {
+  const ToggleFullWindowIntent();
+}
+
+class ToggleFocusIntent extends Intent {
+  const ToggleFocusIntent();
+}
+
+class OpenSearchIntent extends Intent {
+  const OpenSearchIntent();
+}
+
+class OpenSettingsIntent extends Intent {
+  const OpenSettingsIntent();
+}
+
+class YoinBackIntent extends Intent {
+  const YoinBackIntent();
+}
+
+class SeekByIntent extends Intent {
+  const SeekByIntent(this.deltaMs);
+  final int deltaMs;
+}
+
+/// The key map (Ctrl for the Mac app's ⌘).
+const Map<ShortcutActivator, Intent> yoinShortcuts = {
+  SingleActivator(LogicalKeyboardKey.space, includeRepeats: false): PlayPauseIntent(),
+  SingleActivator(LogicalKeyboardKey.arrowRight, control: true): NextTrackIntent(),
+  SingleActivator(LogicalKeyboardKey.arrowLeft, control: true): PreviousTrackIntent(),
+  SingleActivator(LogicalKeyboardKey.keyD, control: true, includeRepeats: false): ToggleFavoriteIntent(),
+  SingleActivator(LogicalKeyboardKey.keyP, control: true, shift: true, includeRepeats: false):
+      ToggleNowPlayingIntent(),
+  SingleActivator(LogicalKeyboardKey.keyL, control: true, includeRepeats: false): ToggleFullWindowIntent(),
+  SingleActivator(LogicalKeyboardKey.keyF, control: true, includeRepeats: false): ToggleFocusIntent(),
+  SingleActivator(LogicalKeyboardKey.keyK, control: true, includeRepeats: false): OpenSearchIntent(),
+  SingleActivator(LogicalKeyboardKey.comma, control: true, includeRepeats: false): OpenSettingsIntent(),
+  SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false): YoinBackIntent(),
+  SingleActivator(LogicalKeyboardKey.arrowLeft): SeekByIntent(-DesktopInputTokens.seekStepMs),
+  SingleActivator(LogicalKeyboardKey.arrowRight): SeekByIntent(DesktopInputTokens.seekStepMs),
+  ...contextMenuShortcuts,
+};
+
+/// Ctrl+K asks the Library to open its search from its own pill (the
+/// search route morphs out of the pill's rect). Library listens.
+class LibrarySearchRequests extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void request() => state++;
+}
+
+final librarySearchRequestsProvider = NotifierProvider<LibrarySearchRequests, int>(LibrarySearchRequests.new);
+
+/// Whether the keyboard is typing into a text field now (every shortcut steps aside).
+bool isTypingIntoTextField() {
+  final context = FocusManager.instance.primaryFocus?.context;
+  if (context == null || !context.mounted) return false;
+  return context.widget is EditableText || context.findAncestorStateOfType<EditableTextState>() != null;
+}
+
+/// Wraps the chrome: the shortcuts, and a focus anchor so keys arrive even
+/// before anything was focused (HarmonyOS starts with no primary focus).
+class YoinShortcuts extends ConsumerStatefulWidget {
+  const YoinShortcuts({
+    super.key,
+    required this.controller,
+    required this.openNowPlaying,
+    required this.navigator,
+    required this.child,
+  });
+
+  final NowPlayingOverlayController controller;
+
+  /// Opens Now Playing the way the pill does (waits for a rebuilding queue).
+  final VoidCallback openNowPlaying;
+
+  /// The app's Navigator (Esc, Settings).
+  final GlobalKey<NavigatorState> navigator;
+
+  final Widget child;
+
+  @override
+  ConsumerState<YoinShortcuts> createState() => _YoinShortcutsState();
+}
+
+class _YoinShortcutsState extends ConsumerState<YoinShortcuts> {
+  final FocusNode _anchor = FocusNode(debugLabel: 'YoinShortcuts', skipTraversal: true);
+
+  @override
+  void initState() {
+    super.initState();
+    FocusManager.instance.addListener(_ensureFocus);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureFocus());
+  }
+
+  @override
+  void dispose() {
+    FocusManager.instance.removeListener(_ensureFocus);
+    _anchor.dispose();
+    super.dispose();
+  }
+
+  /// No primary focus = no key events at all: hold it on the anchor (an
+  /// ancestor of every route), until a route or a field takes it.
+  void _ensureFocus() {
+    if (!mounted) return;
+    final primary = FocusManager.instance.primaryFocus;
+    if (primary == null || primary == FocusManager.instance.rootScope) _anchor.requestFocus();
+  }
+
+  NowPlayingOverlayController get _np => widget.controller;
+  PlaybackController get _playback => ref.read(playbackControllerProvider.notifier);
+  bool get _hasTrack => ref.read(playerSnapshotProvider).hasTrack;
+
+  /// Opens Now Playing if needed, then runs [then] once it is up.
+  void _withNowPlaying(VoidCallback then) {
+    if (_np.expanded) {
+      then();
+      return;
+    }
+    widget.openNowPlaying();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _np.expanded) then();
+    });
+  }
+
+  /// The pages under a full-window player are hidden: leave it (the side panel stays).
+  void _clearNowPlayingForPage() {
+    if (_np.expanded && !_np.panelOpen) _np.close();
+  }
+
+  void _seekBy(int delta) {
+    final head = ref.read(playheadProvider);
+    final now = head.positionAt(ref.read(playbackClockProvider).wallMs());
+    _playback.seekTo(now + delta);
+  }
+
+  void _openSettings() {
+    final navigator = widget.navigator.currentState;
+    if (navigator == null) return;
+    _clearNowPlayingForPage();
+    // popUntil with an always-true predicate pops nothing: it reads the top route.
+    String? top;
+    navigator.popUntil((route) {
+      top = route.settings.name;
+      return true;
+    });
+    if (top == settingsRouteName) return;
+    openSettings(navigator.context);
+  }
+
+  void _openSearch() {
+    _clearNowPlayingForPage();
+    ref.read(shellSectionProvider.notifier).select(YoinSection.library);
+    // After the section switch has laid the Library out.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(librarySearchRequestsProvider.notifier).request();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = <Type, Action<Intent>>{
+      PlayPauseIntent: _KeyAction<PlayPauseIntent>((_) => _playback.togglePlayPause(), when: () => _hasTrack),
+      NextTrackIntent: _KeyAction<NextTrackIntent>((_) => _playback.next(), when: () => _hasTrack),
+      PreviousTrackIntent: _KeyAction<PreviousTrackIntent>((_) => _playback.previous(), when: () => _hasTrack),
+      ToggleFavoriteIntent: _KeyAction<ToggleFavoriteIntent>((_) => _playback.toggleFavorite(), when: () => _hasTrack),
+      ToggleNowPlayingIntent: _KeyAction<ToggleNowPlayingIntent>(
+        (_) => _np.expanded ? _np.close() : widget.openNowPlaying(),
+        when: () => _np.expanded || _hasTrack,
+      ),
+      ToggleFullWindowIntent: _KeyAction<ToggleFullWindowIntent>(
+        (_) => _withNowPlaying(_np.toggleFullscreen),
+        when: () => _np.expanded || _hasTrack,
+      ),
+      // Tolerant: focus exists only where the cover can grow; the
+      // controller ignores the call elsewhere.
+      ToggleFocusIntent: _KeyAction<ToggleFocusIntent>(
+        (_) => _withNowPlaying(_np.toggleFocus),
+        when: () => _np.expanded || _hasTrack,
+      ),
+      OpenSearchIntent: _KeyAction<OpenSearchIntent>((_) => _openSearch()),
+      OpenSettingsIntent: _KeyAction<OpenSettingsIntent>((_) => _openSettings()),
+      YoinBackIntent: _KeyAction<YoinBackIntent>((_) => widget.navigator.currentState?.maybePop()),
+      SeekByIntent: _KeyAction<SeekByIntent>((i) => _seekBy(i.deltaMs), when: () => _np.expanded && _hasTrack),
+    };
+    return Shortcuts(
+      shortcuts: yoinShortcuts,
+      child: Actions(
+        actions: actions,
+        child: Focus(focusNode: _anchor, autofocus: true, includeSemantics: false, child: widget.child),
+      ),
+    );
+  }
+}
+
+/// A shortcut's action: off while typing or while [when] says it can't act,
+/// so the key goes on to the field / the focused control.
+class _KeyAction<T extends Intent> extends Action<T> {
+  _KeyAction(this._invoke, {bool Function()? when}) : _when = when;
+
+  final void Function(T intent) _invoke;
+  final bool Function()? _when;
+
+  @override
+  bool isEnabled(T intent) => !isTypingIntoTextField() && (_when?.call() ?? true);
+
+  @override
+  Object? invoke(T intent) {
+    _invoke(intent);
+    return null;
+  }
+}

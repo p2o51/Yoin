@@ -6,6 +6,7 @@ import '../app/providers.dart';
 import '../data/source/music_source.dart';
 import '../l10n/strings.dart';
 import '../settings/settings_screen.dart';
+import '../shell/desktop_shortcuts.dart';
 import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/tokens.dart';
@@ -55,6 +56,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
   void _openSettings() => openSettings(context);
 
+  /// The search pill: Ctrl+K opens the search from it, like a tap.
+  final GlobalKey _pillKey = GlobalKey(debugLabel: 'library search pill');
+
+  void _openSearchFromPill() {
+    final box = _pillKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize || !box.attached) return;
+    openLibrarySearch(context, _SearchHeader.padding.deflateRect(box.localToGlobal(Offset.zero) & box.size));
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(libraryViewModelProvider);
@@ -66,6 +76,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         vm.onHidden();
       }
     });
+    ref.listen(librarySearchRequestsProvider, (_, _) => _openSearchFromPill());
     ref.listen(libraryViewModelProvider.select((s) => s is LibraryContent ? s.notice : null), (previous, notice) {
       if (notice == null || notice.serial == previous?.serial) return;
       final strings = LibraryStrings.of(context);
@@ -85,7 +96,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         bottom: false,
         child: Column(
           children: [
-            _SearchHeader(onSettings: _openSettings),
+            _SearchHeader(key: _pillKey, onSettings: _openSettings),
             Expanded(
               child: SpringCrossFade(
                 childKey: state.runtimeType,
@@ -115,7 +126,9 @@ String _tabError(LibraryStrings s, LibraryTab tab) => switch (tab) {
 
 /// The search pill (56, full radius, surfaceContainerHighest) with the gear at its end.
 class _SearchHeader extends StatelessWidget {
-  const _SearchHeader({required this.onSettings});
+  const _SearchHeader({super.key, required this.onSettings});
+
+  static const padding = EdgeInsets.fromLTRB(16, 8, 16, 8);
 
   final VoidCallback onSettings;
 
@@ -125,7 +138,7 @@ class _SearchHeader extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: padding,
       child: Builder(
         builder: (pillContext) => Material(
           color: colors.surfaceContainerHighest,

@@ -15,6 +15,7 @@ import '../../data/memory/memory_ledger.dart';
 import '../../home/widgets/cover_palette.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
+import '../../ui/component/desktop_input.dart';
 import 'memory_ledger_strings.dart';
 
 /// One album's two colours, as the grid paints it.
@@ -351,26 +352,29 @@ class _MonthQuads extends StatelessWidget {
     return Semantics(
       label: strings.monthLong(cell.start),
       button: tap != null,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      child: YoinHover(
         onTap: tap,
-        child: Column(
-          children: [
-            AspectRatio(aspectRatio: 1, child: CustomPaint(painter: _QuadPainter(this, cell, index == selected))),
-            Text(
-              strings.monthShort(cell.start),
-              style: label.copyWith(color: scheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-            ),
-            if (captions)
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: tap,
+          child: Column(
+            children: [
+              AspectRatio(aspectRatio: 1, child: CustomPaint(painter: _QuadPainter(this, cell, index == selected))),
               Text(
-                cell.entries > 0 ? strings.monthCount(cell.entries) : '—',
-                style: label.copyWith(color: scheme.outline),
+                strings.monthShort(cell.start),
+                style: label.copyWith(color: scheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
                 maxLines: 1,
               ),
-          ],
+              if (captions)
+                Text(
+                  cell.entries > 0 ? strings.monthCount(cell.entries) : '—',
+                  style: label.copyWith(color: scheme.outline),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// One item of the Play card (Android widget/WidgetData.kt PlayItem).
 @immutable
@@ -157,3 +158,22 @@ final class ChannelCardsHost implements CardsHost {
     await _channel.invokeMethod<void>('ready');
   }
 }
+
+/// Hosts without service cards (Windows has no home-screen cards): nothing is
+/// published and no tap ever arrives. A Windows build could map the Play
+/// card to a jump list / taskbar thumbnail later (docs/windows.md).
+final class NoCardsHost implements CardsHost {
+  const NoCardsHost();
+
+  @override
+  Future<void> publishPlay(List<PlayCardItem> items, {required Uint8List glyphLight, required Uint8List glyphDark}) async {}
+
+  @override
+  Future<void> publishMemory(List<MemoryCardItem> items) async {}
+
+  @override
+  Future<void> listen(void Function(CardAction action) handler) async {}
+}
+
+/// The platform's card host (main.dart overrides it with the platform bundle's).
+final cardsHostProvider = Provider<CardsHost>((ref) => const ChannelCardsHost());

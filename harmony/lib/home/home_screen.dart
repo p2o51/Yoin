@@ -291,6 +291,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           return GestureDetector(
             behavior: HitTestBehavior.translucent,
             onLongPressStart: content?.hasAccount ?? false ? _maybeEnterEdit : null,
+            // The right click / two-finger tap is the long-press on a PC.
+            onSecondaryTapUp: content?.hasAccount ?? false
+                ? (d) => _maybeEnterEdit(LongPressStartDetails(globalPosition: d.globalPosition))
+                : null,
             onTap: editing ? ref.read(homeEditProvider.notifier).exit : null,
             child: list,
           );

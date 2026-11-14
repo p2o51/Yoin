@@ -108,6 +108,8 @@ class SongListItem extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
+        // The right click / two-finger tap opens the same song sheet.
+        onSecondaryTap: onLongPress,
         customBorder: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.listRow)),
         child: Padding(
           padding: const EdgeInsets.symmetric(

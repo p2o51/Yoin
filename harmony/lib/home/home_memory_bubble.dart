@@ -36,6 +36,7 @@ import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/desktop_input.dart';
 import 'home_bubble_tips.dart';
 import 'home_edit.dart';
 import 'home_selection.dart';
@@ -711,7 +712,7 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
               label: _description(strings),
               onTap: _tapBubble,
               excludeSemantics: true,
-              child: _own(GestureDetector(behavior: HitTestBehavior.opaque, onTap: _tapBubble)),
+              child: _own(YoinHover(onTap: _tapBubble, child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: _tapBubble))),
             ),
           ),
         Positioned(
@@ -727,18 +728,22 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
               onTap: scrolledAway ? null : _tapArrow,
               excludeSemantics: true,
               child: _own(
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
+                YoinHover(
                   onTap: _tapArrow,
-                  child: Center(
-                    child: Transform.translate(
-                      offset: Offset(0, hint * HomeBubbleTokens.arrowPullNudge),
-                      child: Opacity(
-                        opacity: (arrowInk * scrollFade).clamp(0.0, 1.0),
-                        child: Icon(
-                          YoinSymbols.chevronDown,
-                          size: HomeBubbleTokens.arrowIcon,
-                          color: colors.onSurfaceVariant,
+                  focusStadium: true,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _tapArrow,
+                    child: Center(
+                      child: Transform.translate(
+                        offset: Offset(0, hint * HomeBubbleTokens.arrowPullNudge),
+                        child: Opacity(
+                          opacity: (arrowInk * scrollFade).clamp(0.0, 1.0),
+                          child: Icon(
+                            YoinSymbols.chevronDown,
+                            size: HomeBubbleTokens.arrowIcon,
+                            color: colors.onSurfaceVariant,
+                          ),
                         ),
                       ),
                     ),

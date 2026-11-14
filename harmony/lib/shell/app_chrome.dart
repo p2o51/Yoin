@@ -24,6 +24,7 @@ import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import 'bar_suppression.dart';
 import 'chrome_back.dart';
+import 'desktop_shortcuts.dart';
 import 'detail_chrome.dart';
 import 'shell_state.dart';
 import 'yoin_bottom_bar.dart';
@@ -129,27 +130,33 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
 
   Widget _buildLayers(BuildContext context) => NowPlayingOverlayScope(
     controller: _controller,
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        BesideNowPlayingPanel(controller: _controller, child: widget.child),
-        // The bar belongs to the window, but sits centred in the content
-        // beside the side panel (it folds to the two destinations there).
-        BesideNowPlayingPanel(
-          controller: _controller,
-          providesWindow: false,
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: _ChromeBar(controller: _controller, away: _barAway),
+    // The keyboard (PC windows): one shortcut layer over every page and Now Playing.
+    child: YoinShortcuts(
+      controller: _controller,
+      openNowPlaying: _open,
+      navigator: appNavigatorKey,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          BesideNowPlayingPanel(controller: _controller, child: widget.child),
+          // The bar belongs to the window, but sits centred in the content
+          // beside the side panel (it folds to the two destinations there).
+          BesideNowPlayingPanel(
+            controller: _controller,
+            providesWindow: false,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: _ChromeBar(controller: _controller, away: _barAway),
+            ),
           ),
-        ),
-        NowPlayingLayer(controller: _controller),
-        PlaybackSnackbarHost(
-          barAway: Listenable.merge([_controller.bar.animation, _barAway.animation]),
-          barAwayValue: () => math.max(_controller.bar.value, _barAway.value),
-        ),
-        _Flight(controller: _controller),
-      ],
+          NowPlayingLayer(controller: _controller),
+          PlaybackSnackbarHost(
+            barAway: Listenable.merge([_controller.bar.animation, _barAway.animation]),
+            barAwayValue: () => math.max(_controller.bar.value, _barAway.value),
+          ),
+          _Flight(controller: _controller),
+        ],
+      ),
     ),
   );
 

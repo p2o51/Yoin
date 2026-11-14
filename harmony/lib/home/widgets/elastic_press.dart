@@ -1,8 +1,9 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/motion.dart';
+import '../../theme/tokens.dart';
+import '../../ui/component/desktop_input.dart';
 import '../home_metrics.dart';
 
 /// elasticPress (PressFeedback.kt): the content scales to 0.97 while pressed
@@ -56,21 +57,21 @@ class _ElasticPressState extends State<ElasticPress> with SingleTickerProviderSt
     super.dispose();
   }
 
+  void _setHovered(bool value) {
+    _hovered = value;
+    _update();
+  }
+
   @override
   Widget build(BuildContext context) => Semantics(
         button: widget.onTap != null,
         label: widget.semanticLabel,
-        child: MouseRegion(
-          cursor: widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
-          onEnter: (e) {
-            if (e.kind == PointerDeviceKind.touch) return;
-            _hovered = true;
-            _update();
-          },
-          onExit: (_) {
-            _hovered = false;
-            _update();
-          },
+        // Mouse / trackpad: the click cursor, the hover state layer (and the
+        // lift above), the keyboard focus ring and Enter.
+        child: YoinHover(
+          onTap: widget.onTap,
+          onHoverChanged: _setHovered,
+          focusRadius: BorderRadius.circular(ShapeTokens.card),
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapDown: widget.onTap == null ? null : (_) => _setPressed(true),

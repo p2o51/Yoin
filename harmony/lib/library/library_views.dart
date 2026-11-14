@@ -355,7 +355,11 @@ class _SongsFoot extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 12),
     child: Center(
       child: more == SongsMore.failed
-          ? IconButton(icon: const Icon(YoinSymbols.refresh), onPressed: onRetry)
+          ? IconButton(
+              tooltip: LibraryStrings.of(context).errorRetry,
+              icon: const Icon(YoinSymbols.refresh),
+              onPressed: onRetry,
+            )
           : const YoinLoadingIndicator(size: 40),
     ),
   );

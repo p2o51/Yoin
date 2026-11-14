@@ -240,7 +240,7 @@ Future<Uint8List> renderPlayGlyph(Brightness brightness, {int px = playCardGlyph
 
 /// The one publisher; read once at start-up (main.dart).
 final playCardPublisherProvider = Provider<PlayCardPublisher>((ref) {
-  final publisher = PlayCardPublisher(ref, const ChannelCardsHost());
+  final publisher = PlayCardPublisher(ref, ref.read(cardsHostProvider));
   publisher.start();
   ref.onDispose(publisher.dispose);
   return publisher;

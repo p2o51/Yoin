@@ -13,6 +13,7 @@ import '../ui/component/expressive/expressive_split_button.dart';
 import '../ui/component/expressive/expressive_surface_button.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/component/desktop_input.dart';
 import 'bar_geometry.dart';
 import 'detail_chrome.dart';
 import 'shell_state.dart';
@@ -476,37 +477,39 @@ class _BarButton extends StatelessWidget {
       selected: selection > 0.5,
       label: semantics,
       excludeSemantics: true,
-      child: Material(
-        color: container,
-        shape: const StadiumBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          splashFactory: ripple ? null : NoSplash.splashFactory,
-          highlightColor: ripple ? null : Colors.transparent,
-          onTapDown: (_) => onPress(true),
-          onTapUp: (_) => onPress(false),
-          onTapCancel: () => onPress(false),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: BarTokens.iconSize, color: content),
-              if (labelAlpha > 0.01) ...[
-                SizedBox(width: BarTokens.iconLabelGap * labelAlpha),
-                Flexible(
-                  child: Opacity(
-                    opacity: labelAlpha,
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      softWrap: false,
-                      overflow: TextOverflow.fade,
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(color: content),
+      child: YoinFocusRing(
+        child: Material(
+          color: container,
+          shape: const StadiumBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            splashFactory: ripple ? null : NoSplash.splashFactory,
+            highlightColor: ripple ? null : Colors.transparent,
+            onTapDown: (_) => onPress(true),
+            onTapUp: (_) => onPress(false),
+            onTapCancel: () => onPress(false),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: BarTokens.iconSize, color: content),
+                if (labelAlpha > 0.01) ...[
+                  SizedBox(width: BarTokens.iconLabelGap * labelAlpha),
+                  Flexible(
+                    child: Opacity(
+                      opacity: labelAlpha,
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.fade,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: content),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

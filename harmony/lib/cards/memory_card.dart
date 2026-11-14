@@ -168,7 +168,7 @@ final class MemoryCardPublisher {
 /// The one Memory card publisher; started with the Play card's
 /// ([playCardPublisherProvider] reads it).
 final memoryCardPublisherProvider = Provider<MemoryCardPublisher>((ref) {
-  final publisher = MemoryCardPublisher(ref, const ChannelCardsHost());
+  final publisher = MemoryCardPublisher(ref, ref.read(cardsHostProvider));
   publisher.start();
   ref.onDispose(publisher.dispose);
   return publisher;

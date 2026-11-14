@@ -27,6 +27,7 @@ import '../playback/local_ratings.dart';
 import '../theme/motion.dart';
 import '../theme/theme.dart';
 import '../ui/component/cover_art.dart';
+import '../ui/component/desktop_input.dart';
 import 'copy/memory_copy.dart';
 import 'memories_reveal_scope.dart';
 
@@ -256,6 +257,11 @@ class _HomeMemoryPillState extends ConsumerState<HomeMemoryPill> with TickerProv
     final ink = colors.onSurface;
     final textStyle = gsf(14, weight: 600, height: 1, letterSpacing: 0).copyWith(color: ink);
     final quiet = gsf(13, weight: 500, height: 1, letterSpacing: 0).copyWith(color: colors.onSurfaceVariant);
+    void open() {
+      YoinHaptics.click();
+      ref.read(memoriesRevealHandleProvider).open(focus: latest?.sessionId);
+    }
+
     return Semantics(
       button: true,
       label: label,
@@ -270,45 +276,47 @@ class _HomeMemoryPillState extends ConsumerState<HomeMemoryPill> with TickerProv
             child: child,
           ),
         ),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            YoinHaptics.click();
-            ref.read(memoriesRevealHandleProvider).open(focus: latest?.sessionId);
-          },
-          child: CustomPaint(
-            painter: _PillOutline(
-              kind: latest == null ? MemoryPillScore.none : kind,
-              color: colors.outline.withValues(alpha: 0.6),
-              wash: colors.secondaryContainer,
-            ),
-            child: SizedBox(
-              height: 40,
-              child: Padding(
-                padding: EdgeInsetsDirectional.only(start: latest == null ? 14 : 6, end: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (latest != null) ...[
-                      CoverArt(cover: latest.coverArt, size: 28, radius: 4, requestSize: 96),
-                      if (pill.scoreText != null) ...[
+        // Mouse / keyboard: hover layer, click cursor, focus ring, Enter.
+        child: YoinHover(
+          onTap: open,
+          focusStadium: true,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: open,
+            child: CustomPaint(
+              painter: _PillOutline(
+                kind: latest == null ? MemoryPillScore.none : kind,
+                color: colors.outline.withValues(alpha: 0.6),
+                wash: colors.secondaryContainer,
+              ),
+              child: SizedBox(
+                height: 40,
+                child: Padding(
+                  padding: EdgeInsetsDirectional.only(start: latest == null ? 14 : 6, end: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (latest != null) ...[
+                        CoverArt(cover: latest.coverArt, size: 28, radius: 4, requestSize: 96),
+                        if (pill.scoreText != null) ...[
+                          const SizedBox(width: 10),
+                          Text(
+                            pill.scoreText!,
+                            style: textStyle.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+                          ),
+                        ],
+                      ] else
+                        Text(strings.label, style: textStyle),
+                      if (notes != null) ...[
                         const SizedBox(width: 10),
-                        Text(
-                          pill.scoreText!,
-                          style: textStyle.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+                        Flexible(
+                          child: Text(notes, style: quiet, maxLines: 1, overflow: TextOverflow.fade, softWrap: false),
                         ),
                       ],
-                    ] else
-                      Text(strings.label, style: textStyle),
-                    if (notes != null) ...[
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(notes, style: quiet, maxLines: 1, overflow: TextOverflow.fade, softWrap: false),
-                      ),
+                      const SizedBox(width: 4),
+                      Icon(YoinSymbols.chevronDown, size: 20, color: colors.onSurfaceVariant),
                     ],
-                    const SizedBox(width: 4),
-                    Icon(YoinSymbols.chevronDown, size: 20, color: colors.onSurfaceVariant),
-                  ],
+                  ),
                 ),
               ),
             ),

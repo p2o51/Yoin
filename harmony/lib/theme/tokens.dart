@@ -940,3 +940,90 @@ abstract final class MemoryLedgerTokens {
   static const double homeCardMax = 560;
   static const double homeCardCorner = 28;
 }
+
+/// Now Playing FOCUS (tap the cover; NowPlayingBudget.kt focus solver,
+/// FocusRetreat.kt, NowPlayingScreen.kt focus idle) and the lyrics outro
+/// (UpNextTiming.kt, LastLineStretch.kt, LyricsFullscreenPane.kt).
+abstract final class NowPlayingFocusTokens {
+  /// The cover's top margin never drops below this; the air under the
+  /// transport + hero in focus (nominal / min).
+  static const double topMin = 12;
+  static const double bottomNominal = 20;
+  static const double bottomMin = 8;
+
+  /// Short windows (one resting lyric line): the cover's top in focus, and the
+  /// narrowest the cover (and the lyrics lined up with it) gives.
+  static const double topShort = 16;
+  static const double shortMinColumn = 216;
+
+  /// Focus lyrics: printed this much larger, the current line pinned to the
+  /// top with one whole line above; three clean lines, or two.
+  static const double lyricScale = 1.6;
+  static const double lyricsAnchorFraction = 0;
+  static const int linesAbove = 1;
+  static const int cleanLines = 3;
+  static const int minCleanLines = 2;
+
+  /// Equal margins hold while the cover keeps this share of its resting size;
+  /// the transport's narrowest designed width.
+  static const double equalMarginCoverKeep = 0.7;
+  static const double minColumn = 272;
+
+  /// The top bar lifts this far as it retreats (fade over the first 1/1.4).
+  static const double retreatLift = 10;
+  static const double retreatFadeRate = 1.4;
+
+  /// The rating column slides this far toward the end as it retreats.
+  static const double ratingRetreatShift = 72;
+
+  /// The pills sink this far as they retreat.
+  static const double pillRetreatDrop = 8;
+
+  /// Focus at ease: this long without a touch while synced lyrics play.
+  static const int idleMs = 4000;
+
+  /// Focus lyrics: the line just sung and the ones before it.
+  static const double aboveAlpha = 0.42;
+  static const double farAboveAlpha = 0.12;
+  static const double fadeTop = 12;
+
+  /// Lyrics outro: the next song shows from this long before the end, hands
+  /// over this long before it (never closer than the min lead); the last line
+  /// keeps the stage at least this long; quantized steps; tick slack.
+  static const int upNextRevealLeadMs = 10000;
+  static const int upNextHandoffLeadMs = 1400;
+  static const int upNextHandoffMinLeadMs = 900;
+  static const int upNextMinLastLineMs = 2000;
+  static const int upNextRevealSteps = 24;
+  static const int upNextHandoffTickSlackMs = 300;
+
+  /// The next title surfaces faintly in the outro's second half, rising this far.
+  static const double upNextRevealAlpha = 0.4;
+  static const double upNextRevealLateStart = 0.5;
+  static const double upNextRise = 28;
+  static const double upNextRiseWindow = 24;
+  static const double upNextGap = 24;
+
+  /// The held last line widens by this much at the outro's peak.
+  static const double lastLineStretchMax = 0.08;
+
+  /// Next-song lyrics prefetch: wait, then retry this many times, backing off.
+  static const int upNextPrefetchDelayMs = 4000;
+  static const int upNextPrefetchRetries = 2;
+  static const int upNextPrefetchRetryMs = 15000;
+}
+
+/// Pointer and keyboard input on PC windows (MateBook 2in1, later Windows):
+/// the M3 state layers (hover 8 %, focus 10 %) and focus indicator (3 dp,
+/// 2 dp outside the target), and the keyboard seek step (Now Playing ←/→).
+abstract final class DesktopInputTokens {
+  static const double hoverStateLayerAlpha = 0.08;
+  static const double focusStateLayerAlpha = 0.10;
+  static const double focusRingWidth = 3;
+  static const double focusRingOffset = 2;
+
+  /// The ring's corner where the target's own shape isn't known.
+  static const double focusRingCorner = 12;
+
+  static const int seekStepMs = 5000;
+}

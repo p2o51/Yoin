@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../theme/motion.dart';
+import '../desktop_input.dart';
 import 'expressive_shapes.dart';
 
 /// An M3 Expressive button surface whose corners spring between its
@@ -131,6 +132,7 @@ class _ExpressiveSurfaceButtonState extends State<ExpressiveSurfaceButton> with 
             customBorder: shape,
             onTap: widget.onTap,
             onLongPress: widget.onLongPress,
+            onSecondaryTap: widget.onLongPress,
             onHighlightChanged: interactive ? _setPressed : null,
             splashFactory: widget.ripple ? null : NoSplash.splashFactory,
             highlightColor: widget.ripple ? null : Colors.transparent,
@@ -174,7 +176,9 @@ class _ExpressiveSurfaceButtonState extends State<ExpressiveSurfaceButton> with 
       label: widget.semanticLabel,
       value: widget.semanticValue,
       excludeSemantics: widget.semanticLabel != null,
-      child: SizedBox(height: widget.height, child: surface),
+      // Keyboard traversal on a PC window: a visible ring (the cover-tinted
+      // pages wash out InkWell's own focus layer).
+      child: YoinFocusRing(child: SizedBox(height: widget.height, child: surface)),
     );
   }
 }
