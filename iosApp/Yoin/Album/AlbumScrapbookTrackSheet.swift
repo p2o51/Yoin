@@ -271,6 +271,7 @@ struct ScrapTrackSheet: View {
             .padding(.leading, 8)
             .padding(.vertical, 8)
             .contentShape(.rect)
+            .onSecondaryClick { if !thinking { startEdit(fact.ref) } }
             .onLongPressGesture(minimumDuration: 0.4) { if !thinking { startEdit(fact.ref) } }
             .animation(Yoin.effects, value: thinking)
             .transition(.opacity)
@@ -339,6 +340,7 @@ struct ScrapTrackSheet: View {
                         .padding(4)
                 }
                 .contentShape(.rect)
+                .onSecondaryClick { if !thinking { startEdit(ask.ref) } }
                 .onLongPressGesture(minimumDuration: 0.4) { if !thinking { startEdit(ask.ref) } }
                 .animation(Yoin.effects, value: thinking)
                 .transition(.opacity)

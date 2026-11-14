@@ -635,7 +635,9 @@ struct AlbumScrapbookView: View {
         .contentShape(TicketShape())
         .pointerHighlight()
         // Android Ticket: a tap plays the album from the song, a long press opens its sheet (score,
-        // About, Notes). The mock's are hand-set and do neither.
+        // About, Notes). The mock's are hand-set and do neither. A right-click opens the sheet as the long
+        // press does (it played the song: a secondary click is a tap to SwiftUI).
+        .onSecondaryClick { if !isMock { trackSheet = ScrapSheetOpen(track: t) } }
         .onTapGesture { play(t) }
         .onLongPressGesture { if !isMock { trackSheet = ScrapSheetOpen(track: t) } }
         .accessibilityAddTraits(isMock ? [] : .isButton)

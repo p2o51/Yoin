@@ -555,7 +555,7 @@ struct AskGeminiField: View {
     }
 }
 
-/// An About row's long-press: opens its sheet (only Gemini's rows and the
+/// An About row's long-press, or a right-click: opens its sheet (only Gemini's rows and the
 /// listener's own, and only on the expanded page).
 private struct RowMenu: ViewModifier {
     var entry: SongAboutStore.Entry?
@@ -565,6 +565,7 @@ private struct RowMenu: ViewModifier {
     func body(content: Content) -> some View {
         if let entry {
             content
+                .onSecondaryClick { open(.init(entry: entry, label: label)) }
                 .onLongPressGesture(minimumDuration: 0.4) { open(.init(entry: entry, label: label)) }
                 .accessibilityAction(named: "Options for this entry") { open(.init(entry: entry, label: label)) }
         } else {
