@@ -4,6 +4,8 @@ import '../app/providers.dart';
 import '../data/model/media_id.dart';
 import '../data/profile/profile.dart';
 import '../data/source/music_source.dart';
+import 'account_identity.dart';
+import 'settings_view_model.dart';
 
 /// What the form can say went wrong (keys of strings_settings.xml).
 enum SetupError {
@@ -48,11 +50,34 @@ final class SetupFailed extends SetupStatus {
   final String? serverMessage;
 }
 
-/// Adding a Subsonic account (Android ServiceSetupViewModel, Subsonic half).
+/// Adding or managing a Subsonic account (Android ServiceSetupViewModel,
+/// Subsonic half). Managing, the form starts from the stored credentials.
 final class SubsonicSetupState {
-  const SubsonicSetupState({this.status = const SetupIdle(), this.addressError, this.connected = false});
+  const SubsonicSetupState({
+    this.status = const SetupIdle(),
+    this.addressError,
+    this.connected = false,
+    this.loaded = true,
+    this.stored,
+    this.account,
+  });
 
   final SetupStatus status;
+
+  /// The stored values have been read (always true while adding).
+  final bool loaded;
+
+  /// Managing: what the fields start from; null while adding, or when the
+  /// account's credentials are missing.
+  final SubsonicCredentials? stored;
+
+  /// Managing: the account's face, as its Settings card shows it.
+  final AccountCard? account;
+
+  bool get isManaging => account != null;
+
+  /// Managing an account whose credentials couldn't be read.
+  bool get credentialsMissing => account?.credentialsMissing ?? false;
 
   /// Said under the address field, not in the status line; cleared as the address is edited.
   final SetupError? addressError;
@@ -67,12 +92,47 @@ final class SubsonicSetupState {
         status: status ?? this.status,
         addressError: clearAddressError ? null : (addressError ?? this.addressError),
         connected: connected ?? this.connected,
+        loaded: loaded,
+        stored: stored,
+        account: account,
       );
 }
 
 class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
+  /// [profileId] null = adding; else the account being managed.
+  SubsonicSetupViewModel(this.profileId);
+
+  final String? profileId;
+
   @override
-  SubsonicSetupState build() => const SubsonicSetupState();
+  SubsonicSetupState build() {
+    final id = profileId;
+    if (id == null) return const SubsonicSetupState();
+    _loadExisting(id);
+    return const SubsonicSetupState(loaded: false);
+  }
+
+  Future<void> _loadExisting(String id) async {
+    final repo = ref.read(profileRepositoryProvider);
+    final profiles = await repo.profiles();
+    final profile = profiles.where((p) => p.id == id).firstOrNull;
+    if (profile == null) return;
+    final active = await repo.activeProfile();
+    ProfileCredentials? credentials;
+    try {
+      credentials = await repo.credentials(id);
+    } catch (_) {
+      credentials = null;
+    }
+    final shapes = assignAvatarShapes([for (final p in profiles) p.id]);
+    if (!ref.mounted) return;
+    state = SubsonicSetupState(
+      status: state.status,
+      addressError: state.addressError,
+      stored: credentials is SubsonicCredentials ? credentials : null,
+      account: accountCardFor(profile, credentials, isActive: profile.id == active?.id, avatarShape: shapes[id] ?? 0),
+    );
+  }
 
   /// Test: reaches the server with these credentials and says whether it answered.
   Future<void> test({required String address, required String username, required String password}) async {
@@ -85,9 +145,13 @@ class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
     state = state.copyWith(status: failure ?? const SetupReachable());
   }
 
-  /// Connect: reaches the server, then saves the account and makes it the one in use.
+  /// Connect (adding): reaches the server, then saves the account and makes
+  /// it the one in use. Save (managing): reaches the server, then rewrites
+  /// the account's credentials; the account in use reconnects with them.
   Future<void> connect({required String address, required String username, required String password}) async {
-    if (state.isBusy) return;
+    if (state.isBusy || !state.loaded) return;
+    final editing = profileId;
+    if (editing != null) return _save(editing, address: address, username: username, password: password);
     final credentials = _validate(address, username, password);
     if (credentials == null) return;
     // Held across the awaits: once the save has started, the app has to
@@ -113,6 +177,30 @@ class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
     }
     // ProfileRepository.add made it active in storage: the running app follows.
     container.invalidate(activeSourceProvider);
+    if (ref.mounted) state = state.copyWith(connected: true);
+  }
+
+  Future<void> _save(String id, {required String address, required String username, required String password}) async {
+    final credentials = _validate(address, username, password);
+    if (credentials == null) return;
+    final container = ref.container;
+    final wasActive = state.account?.isActive ?? false;
+    state = state.copyWith(status: const SetupSaving());
+    final failure = await _probe(credentials);
+    if (!ref.mounted) return;
+    if (failure != null) {
+      state = state.copyWith(status: failure);
+      return;
+    }
+    try {
+      await updateProfileCredentials(ref, id, displayName: displayNameFor(credentials), credentials: credentials);
+    } catch (_) {
+      if (ref.mounted) state = state.copyWith(status: const SetupFailed(SetupError.saveFailed));
+      return;
+    }
+    // The account in use reconnects with the new credentials; Settings re-reads either way.
+    if (wasActive) container.invalidate(activeSourceProvider);
+    container.read(accountsRevisionProvider.notifier).bump();
     if (ref.mounted) state = state.copyWith(connected: true);
   }
 
@@ -188,5 +276,9 @@ class SubsonicSetupViewModel extends Notifier<SubsonicSetupState> {
   }
 }
 
-final subsonicSetupViewModelProvider =
-    NotifierProvider.autoDispose<SubsonicSetupViewModel, SubsonicSetupState>(SubsonicSetupViewModel.new);
+/// By account: null adds one, an id manages that account.
+final subsonicSetupProvider =
+    NotifierProvider.autoDispose.family<SubsonicSetupViewModel, SubsonicSetupState, String?>(SubsonicSetupViewModel.new);
+
+/// Adding an account.
+final subsonicSetupViewModelProvider = subsonicSetupProvider(null);

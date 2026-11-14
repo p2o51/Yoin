@@ -87,4 +87,36 @@ class SettingsStrings {
   String get serverError => _zh ? '服务器返回了错误' : 'The server returned an error'; // settings_setup_server_error
   String get unreachable => _zh ? '无法连接服务器' : "Couldn't reach the server"; // settings_setup_unreachable
   String get saveFailed => _zh ? '无法保存' : "Couldn't save"; // settings_setup_save_failed
+
+  // ── Managing an account ─────────────────────────────────────────────
+  String get accountsManage => _zh ? '管理' : 'Manage'; // settings_accounts_manage
+  String get cdManageAccount => _zh ? '管理账号' : 'Manage account'; // settings_cd_manage_account
+  String get accountCredentialsMissing => _zh ? '凭据缺失' : 'Credentials missing'; // settings_account_credentials_missing
+  String get sectionServer => _zh ? '服务器' : 'Server'; // settings_setup_section_server
+  String get passwordMissing => _zh ? '密码缺失' : 'Password missing'; // settings_setup_password_missing
+  String get save => _zh ? '保存' : 'Save'; // settings_setup_save
+
+  // ── Playback › Streaming quality ────────────────────────────────────
+  String get sectionPlayback => _zh ? '播放' : 'Playback'; // settings_section_playback
+  String get streamQualityTitle => _zh ? '播放音质' : 'Streaming quality'; // settings_stream_quality_title
+  String get streamQualityOriginal => _zh ? '原始' : 'Original'; // settings_stream_quality_original
+  String streamQualityKbps(int kbps) => '$kbps kbps'; // settings_stream_quality_kbps
+
+  // ── Help and about ──────────────────────────────────────────────────
+  String get sectionHelpAbout => _zh ? '帮助与关于' : 'Help and about'; // settings_section_help_about
+  String get aboutName => 'Yoin'; // settings_about_name (translatable="false")
+  String aboutVersion(String version) => _zh ? '版本 $version' : 'Version $version'; // settings_about_version
+  String get aboutTips => _zh ? '小技巧' : 'Tips'; // settings_about_tips
+  String get aboutLicenses => _zh ? '开源许可' : 'Open source licenses'; // settings_about_licenses
+  String get licensesIntro => _zh
+      ? 'Yoin 用到了下面这些字体和开源库，感谢它们的作者。点一项可以查看完整许可。'
+      : 'Yoin is built with these fonts and open source libraries. Thanks to everyone who made them. Tap one to read its license.'; // settings_licenses_intro
+  String tipsReadCount(int read, int total) =>
+      _zh ? '已读 $read / $total' : '$read of $total read'; // settings_tips_read_count
+  String get tipsAllRead => _zh ? '全部已读' : 'All read'; // settings_tips_all_read
+  String get tipsMarkAllUnread => _zh ? '全部标为未读' : 'Mark all as unread'; // settings_tips_mark_all_unread
+  String get tipRead => _zh ? '已读' : 'Read'; // tip_read (strings_home.xml)
+
+  // ── Wide windows ────────────────────────────────────────────────────
+  String get placeholder => _zh ? '未选择账号' : 'No account selected'; // settings_placeholder
 }

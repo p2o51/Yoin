@@ -9,20 +9,38 @@ import '../theme/motion.dart';
 import '../ui/component/expressive_text_field.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
+import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
 import 'material_shapes.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'settings_metrics.dart';
+import 'settings_rows.dart';
 import 'settings_strings.dart';
+import 'settings_view_model.dart';
+import 'stream_quality_screen.dart';
 import 'subsonic_setup_view_model.dart';
 
-/// Adding a Subsonic server (Android ServiceSetupScreen, Subsonic, adding):
-/// the service's mark and name, what you'll need, then the Connect group —
-/// address, username, password, Test and Connect. PushPage; opened with
-/// YoinPushRoute.
+/// Opens the page of the Subsonic account [profileId] (Manage).
+Future<void> openSubsonicManage(BuildContext context, String profileId) => Navigator.of(context)
+    .push(YoinPushRoute<void>(builder: (_) => SubsonicSetupScreen(profileId: profileId)));
+
+/// A Subsonic server's page (Android ServiceSetupScreen, Subsonic).
+///
+/// Adding ([profileId] null): the service's mark and name, what you'll need,
+/// then the Connect group — address, username, password, Test and Connect.
+/// Managing: the account's own avatar and name, the Server group filled with
+/// what is stored (Save instead of Connect), then Playback. PushPage, opened
+/// with YoinPushRoute; on a wide window Settings shows the managing page in
+/// its right pane instead ([inPane]: no bar of its own, [onDone] after a save).
 class SubsonicSetupScreen extends ConsumerStatefulWidget {
-  const SubsonicSetupScreen({super.key});
+  const SubsonicSetupScreen({super.key, this.profileId, this.inPane = false, this.onDone});
+
+  final String? profileId;
+  final bool inPane;
+
+  /// In the pane: called once the account is saved (the page doesn't pop).
+  final VoidCallback? onDone;
 
   @override
   ConsumerState<SubsonicSetupScreen> createState() => _SubsonicSetupScreenState();
@@ -34,6 +52,9 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
   final _password = TextEditingController();
   final _scroll = ScrollController();
   String _lastAddress = '';
+  bool _seeded = false;
+
+  NotifierProvider<SubsonicSetupViewModel, SubsonicSetupState> get _provider => subsonicSetupProvider(widget.profileId);
 
   @override
   void initState() {
@@ -48,7 +69,7 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
   void _onAddress() {
     if (_address.text != _lastAddress) {
       _lastAddress = _address.text;
-      ref.read(subsonicSetupViewModelProvider.notifier).onAddressChanged();
+      ref.read(_provider.notifier).onAddressChanged();
     }
     setState(() {});
   }
@@ -62,57 +83,94 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
     super.dispose();
   }
 
-  void _test() => ref
-      .read(subsonicSetupViewModelProvider.notifier)
-      .test(address: _address.text, username: _username.text, password: _password.text);
+  void _test() =>
+      ref.read(_provider.notifier).test(address: _address.text, username: _username.text, password: _password.text);
 
-  void _connect() => ref
-      .read(subsonicSetupViewModelProvider.notifier)
-      .connect(address: _address.text, username: _username.text, password: _password.text);
+  void _connect() =>
+      ref.read(_provider.notifier).connect(address: _address.text, username: _username.text, password: _password.text);
+
+  /// Managing: the fields take the stored values once, as they arrive.
+  void _seed(SubsonicSetupState state) {
+    if (_seeded || !state.loaded) return;
+    _seeded = true;
+    final stored = state.stored;
+    if (stored == null) return;
+    _lastAddress = stored.baseUrl;
+    _address.text = stored.baseUrl;
+    _username.text = stored.username;
+    _password.text = stored.password;
+  }
 
   @override
   Widget build(BuildContext context) {
     final strings = SettingsStrings.of(context);
     final colors = Theme.of(context).colorScheme;
-    ref.listen(subsonicSetupViewModelProvider.select((s) => s.connected), (_, connected) {
-      if (connected) Navigator.of(context).pop();
+    final state = ref.watch(_provider);
+    ref.listen(_provider.select((s) => s.connected), (_, connected) {
+      if (!connected) return;
+      if (widget.inPane) {
+        widget.onDone?.call();
+      } else {
+        Navigator.of(context).pop();
+      }
     });
+    if (!_seeded && state.loaded) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _seed(ref.read(_provider)));
+      });
+    }
+    final managing = widget.profileId != null;
+    final account = state.account;
+    final list = ListView(
+      controller: _scroll,
+      padding: EdgeInsets.fromLTRB(
+        SettingsMetrics.pageHorizontal,
+        SettingsMetrics.pageTop,
+        SettingsMetrics.pageHorizontal,
+        SettingsMetrics.pageBottom + MediaQuery.paddingOf(context).bottom,
+      ),
+      children: [
+        _ServiceHero(account: account),
+        if (!managing) ...[
+          const SizedBox(height: SettingsMetrics.sectionGap),
+          _RequirementsGroup(requirements: [strings.introSubsonicNeed]),
+        ],
+        const SizedBox(height: SettingsMetrics.sectionGap),
+        _ConnectGroup(
+          provider: _provider,
+          address: _address,
+          username: _username,
+          password: _password,
+          onTest: _test,
+          onConnect: _connect,
+        ),
+        if (managing) ...[
+          const SizedBox(height: SettingsMetrics.sectionGap),
+          SettingsGroup(
+            title: strings.sectionPlayback,
+            children: [StreamQualityRow(profileId: widget.profileId!)],
+          ),
+        ],
+      ],
+    );
+    if (widget.inPane) {
+      return SafeArea(top: false, bottom: false, child: list);
+    }
+    final title = account?.title ?? strings.introSubsonicName;
     return ChromeBarSuppression(
       child: Scaffold(
         backgroundColor: settingsPageColor(colors),
         appBar: SettingsBar(
-          title: strings.introSubsonicName,
+          title: title,
           controller: _scroll,
           // The hero's title sits under its mark.
           titleTop: SettingsMetrics.pageTop + SettingsMetrics.heroMark + SettingsMetrics.heroGap,
-          titleHeight: SettingsBar.lineHeight(context, Theme.of(context).textTheme.displaySmall!),
-        ),
-        body: SafeArea(
-          top: false,
-          bottom: false,
-          child: ListView(
-            controller: _scroll,
-            padding: EdgeInsets.fromLTRB(
-              SettingsMetrics.pageHorizontal,
-              SettingsMetrics.pageTop,
-              SettingsMetrics.pageHorizontal,
-              SettingsMetrics.pageBottom + MediaQuery.paddingOf(context).bottom,
-            ),
-            children: [
-              const _ServiceHero(),
-              const SizedBox(height: SettingsMetrics.sectionGap),
-              _RequirementsGroup(requirements: [strings.introSubsonicNeed]),
-              const SizedBox(height: SettingsMetrics.sectionGap),
-              _ConnectGroup(
-                address: _address,
-                username: _username,
-                password: _password,
-                onTest: _test,
-                onConnect: _connect,
-              ),
-            ],
+          titleHeight: SettingsBar.lineHeight(
+            context,
+            managing ? Theme.of(context).textTheme.headlineLarge! : Theme.of(context).textTheme.displaySmall!,
           ),
         ),
+        body: SafeArea(top: false, bottom: false, child: list),
       ),
     );
   }
@@ -120,10 +178,14 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
 
 // ── Hero ──────────────────────────────────────────────────────────────
 
-/// The service's mark in its own colour on a nine-sided cookie, blooming in
-/// once on the slow spatial spring; then its name, large, and its tagline.
+/// Adding: the service's mark in its own colour on a nine-sided cookie,
+/// blooming in once on the slow spatial spring; then its name, large, and its
+/// tagline. Managing ([account]): the account's own avatar — same shape,
+/// letter and badge as its card — its name a step smaller, and the service line.
 class _ServiceHero extends StatefulWidget {
-  const _ServiceHero();
+  const _ServiceHero({this.account});
+
+  final AccountCard? account;
 
   @override
   State<_ServiceHero> createState() => _ServiceHeroState();
@@ -158,6 +220,8 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
     final theme = Theme.of(context);
     const identity = ServiceIdentity.subsonic;
     final tone = identity.hue.tone(theme.brightness);
+    final account = widget.account;
+    final line = account == null ? null : serviceLine(identity.name, account.title, account.host);
     // On the 24dp line the back button and the group labels share.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: SettingsMetrics.labelInset),
@@ -174,28 +238,45 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
               );
             },
             child: ExcludeSemantics(
-              child: DecoratedBox(
-                decoration: ShapeDecoration(color: tone.iconContainer, shape: PolygonBorder(cookie9Sided)),
-                child: SizedBox.square(
-                  dimension: SettingsMetrics.heroMark,
-                  child: Icon(identity.glyph, size: SettingsMetrics.heroGlyph, color: tone.iconContent),
-                ),
-              ),
+              child: account != null
+                  ? AccountAvatar(
+                      monogram: monogramOf(account.title, identity.name),
+                      shapeIndex: account.avatarShape,
+                      identity: identity,
+                      ringColor: settingsPageColor(theme.colorScheme),
+                      size: SettingsMetrics.heroMark,
+                    )
+                  : DecoratedBox(
+                      decoration: ShapeDecoration(color: tone.iconContainer, shape: PolygonBorder(cookie9Sided)),
+                      child: SizedBox.square(
+                        dimension: SettingsMetrics.heroMark,
+                        child: Icon(identity.glyph, size: SettingsMetrics.heroGlyph, color: tone.iconContent),
+                      ),
+                    ),
             ),
           ),
           const SizedBox(height: SettingsMetrics.heroGap),
           Semantics(
             header: true,
             child: Text(
-              strings.introSubsonicName,
-              style: theme.textTheme.displaySmall!.copyWith(color: theme.colorScheme.onSurface),
+              account?.title ?? strings.introSubsonicName,
+              style: (account != null ? theme.textTheme.headlineLarge! : theme.textTheme.displaySmall!)
+                  .copyWith(color: theme.colorScheme.onSurface),
             ),
           ),
           const SizedBox(height: SettingsMetrics.heroTextGap),
-          Text(
-            strings.introSubsonicTagline,
-            style: theme.textTheme.bodyLarge!.copyWith(color: theme.colorScheme.onSurfaceVariant),
-          ),
+          if (line != null)
+            AccountServiceLine(
+              kind: line.kind,
+              detail: line.detail,
+              color: theme.colorScheme.onSurfaceVariant,
+              style: theme.textTheme.bodyLarge,
+            )
+          else if (account == null)
+            Text(
+              strings.introSubsonicTagline,
+              style: theme.textTheme.bodyLarge!.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
         ],
       ),
     );
@@ -266,6 +347,7 @@ String _errorText(SettingsStrings strings, SetupError error) => switch (error) {
 
 class _ConnectGroup extends ConsumerWidget {
   const _ConnectGroup({
+    required this.provider,
     required this.address,
     required this.username,
     required this.password,
@@ -273,6 +355,7 @@ class _ConnectGroup extends ConsumerWidget {
     required this.onConnect,
   });
 
+  final NotifierProvider<SubsonicSetupViewModel, SubsonicSetupState> provider;
   final TextEditingController address;
   final TextEditingController username;
   final TextEditingController password;
@@ -283,86 +366,93 @@ class _ConnectGroup extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = SettingsStrings.of(context);
     final colors = Theme.of(context).colorScheme;
-    final state = ref.watch(subsonicSetupViewModelProvider);
+    final state = ref.watch(provider);
     final filled = address.text.trim().isNotEmpty && username.text.trim().isNotEmpty && password.text.trim().isNotEmpty;
-    final canSubmit = filled && !state.isBusy;
+    final canTest = filled && !state.isBusy;
+    final canSubmit = canTest && state.loaded;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SettingsGroupLabel(title: strings.sectionConnect),
+        SettingsGroupLabel(title: state.isManaging ? strings.sectionServer : strings.sectionConnect),
         const SizedBox(height: SettingsMetrics.groupLabelGap),
         Material(
           color: settingsRowColor(colors),
           shape: settingsSegmentShape(0, 1),
           child: Padding(
             padding: const EdgeInsets.all(SettingsMetrics.formPadding),
-            child: AutofillGroup(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // What is wrong with the address sits right under it, and goes once the address changes.
-                  ExpressiveTextField(
-                    controller: address,
-                    label: strings.addressLabel,
-                    placeholder: strings.addressPlaceholder,
-                    keyboardType: TextInputType.url,
-                    textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.url],
-                  ),
-                  SpringReveal(
-                    visible: state.addressError != null,
-                    child: state.addressError == null
-                        ? null
-                        : Padding(
-                            padding: const EdgeInsetsDirectional.only(
-                              start: SettingsMetrics.addressErrorStart,
-                              top: SettingsMetrics.addressErrorTop,
-                            ),
-                            child: _StatusRow(
-                              icon: YoinSymbols.error,
-                              text: _errorText(strings, state.addressError!),
-                              color: colors.error,
-                            ),
-                          ),
-                  ),
+            // No autofill anywhere on this form: HarmonyOS would offer to save
+            // the server password to the system vault (Flutter only reports a
+            // field to the platform's autofill when it has hints).
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (state.credentialsMissing) ...[
+                  SettingsNotice(text: strings.passwordMissing),
                   const SizedBox(height: SettingsMetrics.formGap),
-                  ExpressiveTextField(
-                    controller: username,
-                    label: strings.usernameLabel,
-                    placeholder: strings.usernamePlaceholder,
-                    textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.username],
-                  ),
-                  const SizedBox(height: SettingsMetrics.formGap),
-                  _SecretTextField(
-                    controller: password,
-                    label: strings.passwordLabel,
-                    placeholder: strings.passwordPlaceholder,
-                    onSubmitted: canSubmit ? onConnect : null,
-                  ),
-                  SpringReveal(
-                    visible: state.status is! SetupIdle,
-                    child: state.status is SetupIdle
-                        ? null
-                        : Padding(
-                            padding: const EdgeInsets.only(top: SettingsMetrics.formGap),
-                            child: _StatusLine(status: state.status),
-                          ),
-                  ),
-                  const SizedBox(height: SettingsMetrics.formGap),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(onPressed: canSubmit ? onTest : null, child: Text(strings.test)),
-                      ),
-                      const SizedBox(width: SettingsMetrics.buttonGap),
-                      Expanded(
-                        child: FilledButton(onPressed: canSubmit ? onConnect : null, child: Text(strings.connect)),
-                      ),
-                    ],
-                  ),
                 ],
-              ),
+                // What is wrong with the address sits right under it, and goes once the address changes.
+                ExpressiveTextField(
+                  controller: address,
+                  label: strings.addressLabel,
+                  placeholder: strings.addressPlaceholder,
+                  keyboardType: TextInputType.url,
+                  textInputAction: TextInputAction.next,
+                ),
+                SpringReveal(
+                  visible: state.addressError != null,
+                  child: state.addressError == null
+                      ? null
+                      : Padding(
+                          padding: const EdgeInsetsDirectional.only(
+                            start: SettingsMetrics.addressErrorStart,
+                            top: SettingsMetrics.addressErrorTop,
+                          ),
+                          child: _StatusRow(
+                            icon: YoinSymbols.error,
+                            text: _errorText(strings, state.addressError!),
+                            color: colors.error,
+                          ),
+                        ),
+                ),
+                const SizedBox(height: SettingsMetrics.formGap),
+                ExpressiveTextField(
+                  controller: username,
+                  label: strings.usernameLabel,
+                  placeholder: strings.usernamePlaceholder,
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: SettingsMetrics.formGap),
+                _SecretTextField(
+                  controller: password,
+                  label: strings.passwordLabel,
+                  placeholder: strings.passwordPlaceholder,
+                  onSubmitted: canSubmit ? onConnect : null,
+                ),
+                SpringReveal(
+                  visible: state.status is! SetupIdle,
+                  child: state.status is SetupIdle
+                      ? null
+                      : Padding(
+                          padding: const EdgeInsets.only(top: SettingsMetrics.formGap),
+                          child: _StatusLine(status: state.status),
+                        ),
+                ),
+                const SizedBox(height: SettingsMetrics.formGap),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(onPressed: canTest ? onTest : null, child: Text(strings.test)),
+                    ),
+                    const SizedBox(width: SettingsMetrics.buttonGap),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: canSubmit ? onConnect : null,
+                        child: Text(state.isManaging ? strings.save : strings.connect),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
@@ -400,7 +490,6 @@ class _SecretTextFieldState extends State<_SecretTextField> {
           placeholder: widget.placeholder,
           obscureText: !_visible,
           textInputAction: TextInputAction.done,
-          autofillHints: const [AutofillHints.password],
           onSubmitted: widget.onSubmitted == null ? null : (_) => widget.onSubmitted!(),
         ),
         PositionedDirectional(

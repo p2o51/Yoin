@@ -94,4 +94,40 @@ abstract final class SettingsMetrics {
 
   /// The ExpressiveTextField box: 14 + bodyLarge's 24 line + 14.
   static const double fieldBoxHeight = 52;
+
+  // Rows (SettingsItem / SettingsRowIcon): Pixel's two-line list row.
+  static const double rowMinHeight = 72;
+  static const double rowPaddingHorizontal = 16;
+  static const double rowPaddingVertical = 14;
+  static const double rowIconBox = 40;
+  static const double rowIcon = 24;
+  static const double rowIconGap = 12;
+  static const double rowTextGap = 2;
+  static const double rowTrailingGap = 8;
+
+  /// A radio row (QualityRow): 8 above and below, the radio inset 8.
+  static const double radioRowVertical = 8;
+  static const double radioInset = 8;
+
+  // The account card's status pill (AccountStatusPill).
+  static const double pillTop = 10;
+  static const double pillHorizontal = 10;
+  static const double pillVertical = 4;
+
+  // Notes under a group (licenses intro) and the inline notice (InlineNotice).
+  static const double introBottom = 16;
+  static const double noticeHorizontal = 14;
+  static const double noticeVertical = 12;
+  static const double noticeRadius = 16;
+  static const double groupGap = 16;
+
+  // A license's own page.
+  static const double licenseTextTop = 4;
+
+  // List-detail on wide windows (SettingsTablet; main_split_config.xml splitRatio 0.33).
+  static const double splitListFraction = 0.33;
+  static const double splitListMinWidth = 360;
+  static const double placeholderMark = 148;
+  static const double placeholderStroke = 2;
+  static const double placeholderGap = 24;
 }

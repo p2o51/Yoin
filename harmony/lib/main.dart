@@ -13,6 +13,7 @@ import 'platform/playback/channel_playback_engine.dart';
 import 'platform/storage/channel_stores.dart';
 import 'platform/window/window_caption.dart';
 import 'playback/playback_controller.dart';
+import 'settings/stream_quality.dart';
 import 'shell/app_chrome.dart';
 import 'shell/shell_screen.dart';
 import 'shell/shell_state.dart';
@@ -31,9 +32,10 @@ void main() {
         secretStoreProvider.overrideWithValue(const ChannelSecretStore()),
         playbackEngineProvider.overrideWithValue(ChannelPlaybackEngine()),
         appleMusicAuthProvider.overrideWithValue(const ChannelAppleMusicAuth()),
-        musicSourceFactoryProvider.overrideWithValue(
-          (credentials) => switch (credentials) {
-            SubsonicCredentials() => SubsonicMusicSource(credentials),
+        musicSourceFactoryProvider.overrideWith(
+          (ref) => (credentials) => switch (credentials) {
+            // Settings › Streaming quality decides each song's stream.
+            SubsonicCredentials() => SubsonicMusicSource(credentials, streamPlanner: subsonicStreamPlanner(ref)),
             AppleMusicCredentials() => AppleMusicSource(credentials),
           },
         ),

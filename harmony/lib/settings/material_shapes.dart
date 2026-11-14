@@ -29,6 +29,10 @@ const double _distanceEpsilon = 1e-4;
 /// Cookie9Sided: star(9, inner 0.8, rounding 0.5), turned -90°.
 final Path cookie9Sided = _normalized(_transform(_star(9, 0.8, _round50), rotateDegrees: -90));
 
+/// Cookie12Sided: star(12, inner 0.8, rounding 0.5), turned -90° (the wide
+/// Settings' empty pane).
+final Path cookie12Sided = _normalized(_transform(_star(12, 0.8, _round50), rotateDegrees: -90));
+
 /// The eight avatar silhouettes (AccountIdentity.kt avatarPolygon), by slot.
 final List<Path> avatarShapes = [
   // 0: Cookie6Sided.

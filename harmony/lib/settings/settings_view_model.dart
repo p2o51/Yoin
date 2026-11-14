@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/model/media_id.dart';
 import '../data/profile/profile.dart';
+import '../data/profile/profile_repository.dart';
 import 'account_identity.dart';
 
 /// One account as Settings shows it (ProfileCards.kt ProfileCard): Subsonic
@@ -17,6 +20,7 @@ final class AccountCard {
     required this.host,
     required this.isActive,
     required this.avatarShape,
+    this.credentialsMissing = false,
   });
 
   final String id;
@@ -35,8 +39,82 @@ final class AccountCard {
   final bool isActive;
   final int avatarShape;
 
+  /// The account is listed but its credentials can't be read (lost from the
+  /// secret store, or unreadable): its card says so and opens its page.
+  final bool credentialsMissing;
+
+  /// Subsonic accounts have a page of their own (edit credentials, playback).
+  bool get canManage => provider == MediaId.providerSubsonic;
+
+  /// A tap opens the account's page instead of switching: the account in
+  /// use, or one that needs attention (Android `opensPage`).
+  bool get tapOpensPage => canManage && (isActive || credentialsMissing);
+
+  AccountCard withActive(bool active) => AccountCard(
+        id: id,
+        provider: provider,
+        displayName: displayName,
+        title: title,
+        host: host,
+        isActive: active,
+        avatarShape: avatarShape,
+        credentialsMissing: credentialsMissing,
+      );
+
   /// The service's face (colour and mark).
   ServiceIdentity get identity => ServiceIdentity.forProvider(provider);
+}
+
+/// The card for [p] (ProfileCards.kt toProfileCard). Subsonic leads with the
+/// username and shows its host; other providers (Apple Music) lead with the
+/// stored name and have no host line. [credentials] null = missing.
+AccountCard accountCardFor(Profile p, ProfileCredentials? credentials, {required bool isActive, required int avatarShape}) {
+  final subsonic = credentials is SubsonicCredentials ? credentials : null;
+  final host = subsonic == null ? null : Uri.tryParse(subsonic.baseUrl)?.host;
+  final username = subsonic?.username.trim();
+  return AccountCard(
+    id: p.id,
+    provider: p.provider,
+    displayName: p.displayName,
+    title: (username == null || username.isEmpty) ? p.displayName : username,
+    host: (host == null || host.isEmpty) ? null : host,
+    isActive: isActive,
+    avatarShape: avatarShape,
+    credentialsMissing: credentials == null,
+  );
+}
+
+/// Bumped when an account's name or credentials change without the active
+/// source changing (editing an account not in use): Settings re-reads.
+class AccountsRevision extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
+final accountsRevisionProvider = NotifierProvider<AccountsRevision, int>(AccountsRevision.new);
+
+/// Rewrites [profileId]'s credentials and its stored name (ProfileManager.update).
+/// ProfileRepository has no update yet; this writes the same two records it
+/// does, in the same order (secret first).
+Future<void> updateProfileCredentials(
+  Ref ref,
+  String profileId, {
+  required String displayName,
+  required ProfileCredentials credentials,
+}) async {
+  final repo = ref.read(profileRepositoryProvider);
+  final profiles = await repo.profiles();
+  if (!profiles.any((p) => p.id == profileId)) throw StateError('No account $profileId');
+  await ref.read(secretStoreProvider).write(ProfileRepository.credentialsKey(profileId), jsonEncode(credentials.toJson()));
+  await ref.read(keyValueStoreProvider).write(
+        ProfileRepository.profilesKey,
+        jsonEncode([
+          for (final p in profiles)
+            (p.id == profileId ? Profile(id: p.id, provider: p.provider, displayName: displayName) : p).toJson(),
+        ]),
+      );
 }
 
 /// Settings (Android SettingsScreen, v1: the account list). Lists, switches
@@ -64,8 +142,9 @@ class SettingsViewModel extends Notifier<SettingsUiState> {
   @override
   SettingsUiState build() {
     // Re-read whenever an account is added, switched or removed (each
-    // invalidates the active source).
+    // invalidates the active source), or edited.
     ref.watch(activeSourceProvider);
+    ref.watch(accountsRevisionProvider);
     _load();
     // Keep the list on screen while it re-reads (no Loading flash).
     return stateOrNull ?? const SettingsLoading();
@@ -86,27 +165,10 @@ class SettingsViewModel extends Notifier<SettingsUiState> {
       } catch (_) {
         credentials = null;
       }
-      cards.add(_card(p, credentials, isActive: p.id == active?.id, avatarShape: shapes[p.id] ?? 0));
+      cards.add(accountCardFor(p, credentials, isActive: p.id == active?.id, avatarShape: shapes[p.id] ?? 0));
     }
     if (!ref.mounted || generation != _generation) return;
     state = SettingsContent(accounts: cards);
-  }
-
-  static AccountCard _card(Profile p, ProfileCredentials? credentials, {required bool isActive, required int avatarShape}) {
-    // Subsonic leads with the username and shows its host; other providers
-    // (Apple Music) lead with the stored name and have no host line.
-    final subsonic = credentials is SubsonicCredentials ? credentials : null;
-    final host = subsonic == null ? null : Uri.tryParse(subsonic.baseUrl)?.host;
-    final username = subsonic?.username.trim();
-    return AccountCard(
-      id: p.id,
-      provider: p.provider,
-      displayName: p.displayName,
-      title: (username == null || username.isEmpty) ? p.displayName : username,
-      host: (host == null || host.isEmpty) ? null : host,
-      isActive: isActive,
-      avatarShape: avatarShape,
-    );
   }
 
   /// Makes [profileId] the active account. The playback chain, Home, Library
@@ -129,16 +191,7 @@ class SettingsViewModel extends Notifier<SettingsUiState> {
     }
     if (current is SettingsContent) {
       state = SettingsContent(accounts: [
-        for (final a in current.accounts)
-          AccountCard(
-            id: a.id,
-            provider: a.provider,
-            displayName: a.displayName,
-            title: a.title,
-            host: a.host,
-            isActive: a.id == profileId,
-            avatarShape: a.avatarShape,
-          ),
+        for (final a in current.accounts) a.withActive(a.id == profileId),
       ]);
     }
     ref.invalidate(activeSourceProvider);
