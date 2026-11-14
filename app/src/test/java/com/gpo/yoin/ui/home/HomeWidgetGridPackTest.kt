@@ -253,6 +253,36 @@ class HomeWidgetGridPackTest {
         assertEquals(listOf(0, 1), jbiSpreadRows(2, 2))
     }
 
+    @Test
+    fun should_leaveOnlyTheLastRowShort_when_tooFewCovers() {
+        // Two memories, three covers, three lanes: no partial row mid-shelf,
+        // no wide card left alone at the bottom.
+        val rows = packWidgetRows(
+            listOf(wide("w1"), wide("w2"), compact("c0"), compact("c1"), compact("c2")),
+            columns = 3,
+        )
+        assertEquals(
+            listOf(listOf("w1", "c0"), listOf("c1", "w2"), listOf("c2")),
+            rows.map { row -> row.map { it.stableId } },
+        )
+        // Any short supply: a row is short only once the covers ran out —
+        // every row after it is a lone wide card or the last row.
+        for (k in 1..4) {
+            for (n in 0..12) {
+                val packed = packWidgetRows(
+                    (1..k).map { wide("w$it") } + (1..n).map { compact("c$it") },
+                    columns = 3,
+                )
+                val at = "k=$k n=$n ${packed.map { row -> row.map { it.stableId } }}"
+                val firstShort = packed.indexOfFirst { units(it) < 3 }
+                if (firstShort < 0) continue
+                packed.drop(firstShort + 1).forEach { row ->
+                    assertTrue(at, row.none { !it.expanded })
+                }
+            }
+        }
+    }
+
     // ---- helpers ----
 
     private fun compact(id: String): HomeWidgetCard = HomeWidgetCard(

@@ -595,8 +595,13 @@ internal fun packWidgetRows(
     var w = 0
     var c = 0
     while (w < wide.size || c < compact.size) {
-        // A wide row when its turn has come, or when the covers ran out.
-        if (w < wide.size && (rows.size >= wideRows[w] || c >= compact.size)) {
+        // A wide row when its turn has come, or when a full row of covers now
+        // would leave the wide rows still to come short of covers (a short
+        // shelf packs as before: only its last row is partial).
+        val coversAfterFullRow = compact.size - c - columns
+        if (w < wide.size &&
+            (rows.size >= wideRows[w] || coversAfterFullRow < fillPerWide * (wide.size - w))
+        ) {
             val big = wide[w]
             val fill = compact.subList(c, minOf(c + fillPerWide, compact.size))
             c += fill.size

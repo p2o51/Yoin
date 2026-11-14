@@ -107,8 +107,14 @@ class HomeJbiRichShelfTest {
             assertEquals(at, order.sortedWith(compareBy({ it.first }, { it.second })), order)
         }
         // The right-hand lane holds a lying card on most shelves, so a longer
-        // shelf keeps its memories coming at every width.
-        for (columns in 3..10) assertTrue("K=$columns", grewWithSignals[columns] > 0)
+        // shelf keeps its memories coming at every width. Four lanes are the
+        // exception: too narrow for two cards a lane apart, its L template
+        // already stacks both in the right-hand lane, the second on its bottom
+        // row, so the one row XL adds can't seat a third a row away.
+        for (columns in 3..10) {
+            if (columns == 4) continue
+            assertTrue("K=$columns", grewWithSignals[columns] > 0)
+        }
     }
 
     // ---- hiding ----

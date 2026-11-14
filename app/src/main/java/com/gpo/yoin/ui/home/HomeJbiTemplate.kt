@@ -168,11 +168,12 @@ internal fun jbiTemplate(
     // among them.
     val spanning: List<JbiPiece> = when {
         wanted == 0 || columns < JBI_SIGNAL_SPAN -> emptyList()
-        wanted * JBI_SIGNAL_SPAN <= columns -> bestPlacement(columns, wanted, random).map { column ->
+        // Side by side only when a lane of covers fits between them.
+        wanted * JBI_SIGNAL_SPAN + (wanted - 1) <= columns -> bestPlacement(columns, wanted, random).map { column ->
             val row = if (column + JBI_SIGNAL_SPAN < columns) 0 else rightLaneRow(rows, random)
             JbiPiece(JbiPieceKind.WideSignal, column, row)
         }
-        // Too narrow for two side by side: both in the right-hand lane, a row of covers between them.
+        // Too narrow for two a lane apart: both in the right-hand lane, a row of covers between them.
         rows >= 3 -> {
             val column = columns - JBI_SIGNAL_SPAN
             val first = random.nextInt(rows - 2)

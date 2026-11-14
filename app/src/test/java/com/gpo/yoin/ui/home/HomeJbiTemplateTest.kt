@@ -122,18 +122,15 @@ class HomeJbiTemplateTest {
                 assertEquals(2, signals.size)
                 val (a, b) = signals
                 val at = "K=$columns seed=$seed: $template"
-                if (columns >= 4) {
-                    // Side by side, in different lanes.
-                    assertTrue(at, a.endColumn <= b.column || b.endColumn <= a.column)
-                } else {
-                    // Three lanes can't hold two side by side: stacked in the
-                    // right-hand lane with a row of covers between them.
+                if (a.column == b.column) {
+                    // Too narrow for two a lane apart (3 and 4 lanes): stacked
+                    // in the right-hand lane with a row of covers between them.
+                    assertTrue(at, columns < 5)
                     assertEquals(at, columns - 2, a.column)
-                    assertEquals(at, a.column, b.column)
                     assertTrue(at, kotlin.math.abs(a.row - b.row) >= 2)
-                }
-                // A lane apart wherever the width allows (their copies never side by side).
-                if (columns >= 5) {
+                } else {
+                    // Side by side only with a lane of covers between them:
+                    // one card's copy never touches the other's cover.
                     assertTrue(at, a.endColumn < b.column || b.endColumn < a.column)
                 }
             }
