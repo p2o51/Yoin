@@ -98,6 +98,7 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
     return AnimatedBuilder(
       animation: controller.motion,
       builder: (context, child) {
+        final colors = Theme.of(context).colorScheme;
         final f = controller.full.value.clamp(0.0, 1.0);
         final corner = Radius.circular(NowPlayingPanelTokens.corner * (1 - f));
         final shape = RoundedSuperellipseBorder(
@@ -111,14 +112,31 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
               offset: Offset(controller.offsetX, 0),
               child: SizedBox(
                 width: controller.containerWidth,
-                child: PhysicalShape(
-                  clipper: ShapeBorderClipper(shape: shape, textDirection: Directionality.of(context)),
-                  clipBehavior: Clip.antiAlias,
-                  elevation: NowPlayingPanelTokens.shadowElevation * (1 - f),
-                  // Opaque so the shadow shows only outside the panel.
-                  color: Theme.of(context).colorScheme.surface,
-                  shadowColor: Colors.black,
-                  child: child,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Behind the panel's rounded start corners: the shell's
+                    // page colour, not the window's black (Android fills
+                    // them with the page's edge).
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [colors.surfaceContainer, colors.surface, colors.surfaceContainerLow],
+                        ),
+                      ),
+                    ),
+                    PhysicalShape(
+                      clipper: ShapeBorderClipper(shape: shape, textDirection: Directionality.of(context)),
+                      clipBehavior: Clip.antiAlias,
+                      elevation: NowPlayingPanelTokens.shadowElevation * (1 - f),
+                      // Opaque so the shadow shows only outside the panel.
+                      color: Theme.of(context).colorScheme.surface,
+                      shadowColor: Colors.black,
+                      child: child,
+                    ),
+                  ],
                 ),
               ),
             ),

@@ -208,7 +208,9 @@ class _ChromeBar extends ConsumerWidget {
         final b = math.max(controller.bar.value, away.value).clamp(0.0, 1.0);
         final travel = BarTokens.height + 2 * BarTokens.portraitVerticalMargin + navBottom;
         // Memories takes the bar with its reveal: it slides and fades with q (YoinNavHost).
-        final hide = memoriesHide.value;
+        // With the detail column open the bar carries the column page's
+        // Play: Memories (over the shell column only) doesn't take it.
+        final hide = DetailPaneController.columnOpen.value ? 0.0 : memoriesHide.value;
         if (hide >= 0.999) return const SizedBox.shrink();
         final hideAlpha = (1 - hide * MemoriesTokens.barHideAlphaGain).clamp(0.0, 1.0);
         return IgnorePointer(
