@@ -275,6 +275,8 @@ struct HomeView: View {
             // Only the crossing is written: a scroll frame mustn't re-render the shell's band.
             if (y > 1) != model.homeScrolledUnder { model.homeScrolledUnder = y > 1 }
         }
+        // Home comes back at its top (Library in between makes a new feed), so its band starts out.
+        .onDisappear { model.homeScrolledUnder = false }
     }
 
     /// The page's wash. It stays where it is while the island pushes the feed down (51 2026-11-13:
