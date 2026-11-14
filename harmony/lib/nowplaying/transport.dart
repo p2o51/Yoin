@@ -47,6 +47,7 @@ class TransportControls extends StatefulWidget {
     required this.onSeek,
     required this.pressed,
     this.showPlayModeSplitOnFullCycle = false,
+    this.noteAnchorsMs = const [],
     this.onShowedPlayModeSplit,
   });
 
@@ -64,6 +65,9 @@ class TransportControls extends StatefulWidget {
 
   /// A run round the play-mode cycle splits the button once to show it can.
   final bool showPlayModeSplitOnFullCycle;
+
+  /// Song-moment notes the wave bar snaps to.
+  final List<int> noteAnchorsMs;
   final VoidCallback? onShowedPlayModeSplit;
   final ValueChanged<double> onSeek;
 
@@ -153,6 +157,7 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
                       durationMs: widget.durationMs,
                       visible: widget.waveVisible,
                       onSeek: widget.onSeek,
+                      noteAnchorsMs: widget.noteAnchorsMs,
                     ),
                   ),
                 ),

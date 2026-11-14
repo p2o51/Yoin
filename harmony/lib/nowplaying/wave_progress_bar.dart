@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'haptics.dart';
+import 'nowplaying_strings.dart';
 import 'playhead_clock.dart';
 
 /// WaveProgressBar.kt numbers and the M3 Expressive tokens it inherits
@@ -191,6 +192,34 @@ abstract final class WaveGeometry {
   }
 }
 
+/// Song-moment note anchors on the bar (WaveProgressBar noteAnchorsMs):
+/// fractions of the song, sorted.
+List<double> noteAnchorFractions(List<int> anchorsMs, int durationMs) {
+  if (durationMs <= 0) return const [];
+  return [for (final ms in anchorsMs) (ms / durationMs).clamp(0.0, 1.0)]..sort();
+}
+
+/// "On a note": ±1.5 s of song, floored at 1 % of the bar.
+double noteWindowFraction(int durationMs) => durationMs <= 0 ? 0 : math.max(1500 / durationMs, 0.01);
+
+/// Magnetic snapping: inside the inner half of the window the thumb sticks
+/// to the anchor; over the outer half it eases back to the finger on a t²
+/// ramp that reaches the window edge exactly (a notch, not a wall).
+double magnetizeToNotes(double raw, List<double> anchors, double window) {
+  if (anchors.isEmpty || window <= 0) return raw;
+  var nearest = anchors.first;
+  for (final a in anchors) {
+    if ((a - raw).abs() < (nearest - raw).abs()) nearest = a;
+  }
+  final d = raw - nearest;
+  final ad = d.abs();
+  final inner = window * 0.5;
+  if (ad >= window) return raw;
+  if (ad <= inner) return nearest;
+  final t = (ad - inner) / (window - inner);
+  return (nearest + d.sign * window * t * t).clamp(0.0, 1.0);
+}
+
 /// The M3 Expressive wavy linear indicator with scrubbing (WaveProgressBar.kt
 /// over LinearWavyProgressIndicator). The head reads the shared
 /// [PlayheadClock] at paint time; only this painter repaints per tick. Press
@@ -204,7 +233,11 @@ class WaveProgressBar extends StatefulWidget {
     required this.durationMs,
     required this.onSeek,
     this.visible = true,
+    this.noteAnchorsMs = const [],
   });
+
+  /// Song-moment notes: scrubbing across one ticks, the bubble reads "Note".
+  final List<int> noteAnchorsMs;
 
   final PlayheadClock clock;
   final bool isPlaying;
@@ -232,6 +265,33 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
   final ValueNotifier<double?> _preview = ValueNotifier(null);
   Timer? _linger;
   bool _dragging = false;
+
+  /// The finger's own fraction; [_preview] is its magnetized projection.
+  double _raw = 0;
+  double? _snapped;
+
+  List<double> get _anchors => noteAnchorFractions(widget.noteAnchorsMs, widget.durationMs ?? 0);
+  double get _window => noteWindowFraction(widget.durationMs ?? 0);
+
+  void _drag(double raw) {
+    final anchors = _anchors;
+    final window = _window;
+    final before = _raw;
+    _raw = raw;
+    _preview.value = magnetizeToNotes(raw, anchors, window);
+    if (anchors.isEmpty) return;
+    // A light tick the moment a note captures the thumb…
+    double? captured;
+    for (final a in anchors) {
+      if ((a - raw).abs() <= window * 0.5) captured = a;
+    }
+    if (captured != null && captured != _snapped) YoinHaptics.lightTick();
+    _snapped = captured;
+    // …and a full tick per anchor the finger sweeps across.
+    final lo = math.min(before, raw);
+    final hi = math.max(before, raw);
+    if (before != raw && anchors.any((a) => a > lo && a <= hi)) YoinHaptics.tick();
+  }
 
   @override
   void didUpdateWidget(WaveProgressBar oldWidget) {
@@ -301,10 +361,12 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
             onHorizontalDragStart: _canSeek
                 ? (d) {
                     _dragging = true;
-                    _press(_fractionAt(d.localPosition, width));
+                    _raw = _fractionAt(d.localPosition, width);
+                    _snapped = null;
+                    _press(magnetizeToNotes(_raw, _anchors, _window));
                   }
                 : null,
-            onHorizontalDragUpdate: _canSeek ? (d) => _preview.value = _fractionAt(d.localPosition, width) : null,
+            onHorizontalDragUpdate: _canSeek ? (d) => _drag(_fractionAt(d.localPosition, width)) : null,
             onHorizontalDragEnd: _canSeek
                 ? (_) {
                     _dragging = false;
@@ -345,7 +407,12 @@ class _WaveProgressBarState extends State<WaveProgressBar> with SingleTickerProv
                     valueListenable: _preview,
                     builder: (context, fraction, _) => fraction == null
                         ? const SizedBox.shrink()
-                        : _PreviewBubble(fraction: fraction, width: width, durationMs: duration),
+                        : _PreviewBubble(
+                            fraction: fraction,
+                            width: width,
+                            durationMs: duration,
+                            onNote: _anchors.any((a) => (fraction - a).abs() <= _window),
+                          ),
                   ),
                 ],
               ),
@@ -391,8 +458,10 @@ class _Amplitude {
 }
 
 class _PreviewBubble extends StatelessWidget {
-  const _PreviewBubble({required this.fraction, required this.width, required this.durationMs});
+  const _PreviewBubble({required this.fraction, required this.width, required this.durationMs, this.onNote = false});
 
+  /// The thumb sits on a note: the bubble reads "Note" on the primary colour.
+  final bool onNote;
   final double fraction;
   final double width;
   final int durationMs;
@@ -401,10 +470,10 @@ class _PreviewBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final style = Theme.of(context).textTheme.labelLarge!.copyWith(
-      color: colors.onSecondaryContainer,
+      color: onNote ? colors.onPrimary : colors.onSecondaryContainer,
       fontFeatures: const [FontFeature.tabularFigures()],
     );
-    final label = formatPlaybackTime((fraction * durationMs).round());
+    final label = onNote ? NowPlayingStrings.of(context).waveNote : formatPlaybackTime((fraction * durationMs).round());
     final painter = TextPainter(
       text: TextSpan(text: label, style: style),
       textDirection: Directionality.of(context),
@@ -419,7 +488,7 @@ class _PreviewBubble extends StatelessWidget {
       left: x,
       top: 0,
       child: Material(
-        color: colors.secondaryContainer,
+        color: onNote ? colors.primary : colors.secondaryContainer,
         shape: const StadiumBorder(),
         elevation: 0,
         child: Padding(

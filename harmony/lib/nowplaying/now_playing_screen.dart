@@ -17,6 +17,7 @@ import '../theme/motion.dart';
 import '../theme/playback_theme.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/component/audio_format_tags.dart';
 import 'cover_swap.dart';
 import 'flight.dart';
 import 'haptics.dart';
@@ -709,22 +710,26 @@ class _Stage extends ConsumerWidget {
               },
               child: Align(
                 alignment: Alignment.topCenter,
-                child: TransportControls(
-                  isPlaying: state.isPlaying,
-                  isWavePlaying: state.isWavePlaying,
-                  playMode: state.playMode,
-                  clock: clock,
-                  durationMs: state.durationMs,
-                  labelsUnder: budget.labelsUnderWave,
-                  waveVisible: !expandedStage,
-                  onPlayPause: vm.togglePlayPause,
-                  onNext: vm.next,
-                  onPrevious: vm.previous,
-                  onSetPlayMode: vm.setPlayMode,
-                  showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
-                  onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
-                  onSeek: vm.seekToFraction,
-                  pressed: pressed,
+                child: ListenableBuilder(
+                  listenable: notes,
+                  builder: (context, _) => TransportControls(
+                    noteAnchorsMs: [for (final n in notes.notes) ?n.positionMs],
+                    isPlaying: state.isPlaying,
+                    isWavePlaying: state.isWavePlaying,
+                    playMode: state.playMode,
+                    clock: clock,
+                    durationMs: state.durationMs,
+                    labelsUnder: budget.labelsUnderWave,
+                    waveVisible: !expandedStage,
+                    onPlayPause: vm.togglePlayPause,
+                    onNext: vm.next,
+                    onPrevious: vm.previous,
+                    onSetPlayMode: vm.setPlayMode,
+                    showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
+                    onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
+                    onSeek: vm.seekToFraction,
+                    pressed: pressed,
+                  ),
                 ),
               ),
             ),
@@ -749,6 +754,7 @@ class _Stage extends ConsumerWidget {
               isPlaying: state.isPlaying,
               pressed: pressed,
               oneLine: budget.heroOneLine,
+              formatTags: audioFormatTags(track.audioFormat),
             ),
           ),
         ),
@@ -1028,6 +1034,7 @@ class _PanelToggle extends StatelessWidget {
 /// 0.992) on the Expressive slow spatial spring.
 class _Hero extends StatefulWidget {
   const _Hero({
+    this.formatTags = const [],
     required this.title,
     required this.artist,
     required this.isPlaying,
@@ -1036,6 +1043,9 @@ class _Hero extends StatefulWidget {
     this.onTitleTap,
     this.onArtistTap,
   });
+
+  /// The format tags beside the artist ("FLAC 16/44.1").
+  final List<String> formatTags;
 
   final String title;
   final String artist;
@@ -1194,7 +1204,19 @@ class _HeroState extends State<_Hero> with TickerProviderStateMixin {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                artist,
+                if (widget.formatTags.isEmpty)
+                  artist
+                else
+                  Row(
+                    children: [
+                      Flexible(child: artist),
+                      const SizedBox(width: 8),
+                      AudioFormatTagRow(
+                        tags: widget.formatTags,
+                        description: NowPlayingStrings.of(context).formatDescription(widget.formatTags.join(' ')),
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: NowPlayingTokens.heroLineGap),
                 title,
               ],
@@ -1753,6 +1775,7 @@ class _DualPane extends ConsumerWidget {
                                 minWidth: budget.slot + 2 * NowPlayingTokens.columnPadding,
                                 maxWidth: budget.slot + 2 * NowPlayingTokens.columnPadding,
                                 child: TransportControls(
+                                  noteAnchorsMs: [for (final n in notes.notes) ?n.positionMs],
                                   isPlaying: state.isPlaying,
                                   isWavePlaying: state.isWavePlaying,
                                   playMode: state.playMode,
@@ -1774,14 +1797,29 @@ class _DualPane extends ConsumerWidget {
                             const Spacer(),
                             if (!titleInBar) ...[
                               SizedBox(height: budget.transportToTitle),
-                              GestureDetector(
-                                onTap: track.artistId == null ? null : openArtist,
-                                child: Text(
-                                  track.artist ?? '',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: text.titleMedium!.copyWith(color: colors.onSurfaceVariant),
-                                ),
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: GestureDetector(
+                                      onTap: track.artistId == null ? null : openArtist,
+                                      child: Text(
+                                        track.artist ?? '',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: text.titleMedium!.copyWith(color: colors.onSurfaceVariant),
+                                      ),
+                                    ),
+                                  ),
+                                  if (audioFormatTags(track.audioFormat).isNotEmpty) ...[
+                                    const SizedBox(width: 8),
+                                    AudioFormatTagRow(
+                                      tags: audioFormatTags(track.audioFormat),
+                                      description: strings.formatDescription(
+                                        audioFormatTags(track.audioFormat).join(' '),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                               const SizedBox(height: DualPaneTokens.titleLineGap),
                               GestureDetector(
@@ -2033,6 +2071,7 @@ class _LandscapePane extends ConsumerWidget {
         minWidth: width + 2 * NowPlayingTokens.columnPadding,
         maxWidth: width + 2 * NowPlayingTokens.columnPadding,
         child: TransportControls(
+          noteAnchorsMs: [for (final n in notes.notes) ?n.positionMs],
           isPlaying: state.isPlaying,
           isWavePlaying: state.isWavePlaying,
           playMode: state.playMode,
