@@ -103,9 +103,8 @@
           });
           musicReady = true;
           readyToSignIn();
-          // Try once automatically; if the window is blocked, the button stays
-          // for the user to tap (a real gesture always opens the window).
-          doAuthorize();
+          // No auto-authorize: window.open for the Apple ID window is gated on a
+          // real in-page gesture, so the user taps the button below to open it.
         } catch (e) {
           var msg = (e && e.message) ? String(e.message) : 'configure failed';
           report('onError', 'page_failed', msg);

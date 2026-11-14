@@ -43,8 +43,10 @@ class AuthBridge {
 export struct AppleMusicAuthView {
   private controller: webview.WebviewController = new webview.WebviewController();
   private readonly bridge: AuthBridge = new AuthBridge();
-  @State private popups: Array<webview.WebviewController> = [];
+  @State private popupActive: boolean = false;
   @State private loading: boolean = true;
+  // Pre-declared so its controller is attached before Apple's window.open fires.
+  private popupController: webview.WebviewController = new webview.WebviewController();
   private developerToken: string = '';
   private pageLoaded: boolean = false;
   private injected: boolean = false;
@@ -80,10 +82,6 @@ export struct AppleMusicAuthView {
     }
   }
 
-  private removePopup(target: webview.WebviewController): void {
-    this.popups = this.popups.filter((c: webview.WebviewController) => c !== target);
-  }
-
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       // The MusicKit page.
@@ -96,6 +94,7 @@ export struct AppleMusicAuthView {
         .allowWindowOpenMethod(true)
         .width('100%')
         .height('100%')
+        .zIndex(1)
         .onControllerAttached(() => {
           try {
             this.controller.registerJavaScriptProxy(this.bridge, 'yoinAuthBridge', ['onToken', 'onError', 'onReady']);
@@ -114,26 +113,45 @@ export struct AppleMusicAuthView {
           }
         })
         .onWindowNew((event) => {
-          // Apple's sign-in window: give it its own controller and render it on top.
-          const popup = new webview.WebviewController();
-          this.popups = this.popups.concat(popup);
-          event.handler.setWebController(popup);
+          // Apple's sign-in window: hand it the pre-declared popup Web (its
+          // controller is attached from the start). This ArkWeb build does not
+          // auto-navigate the handed-over window, so load the target URL into it.
+          const target = event.targetUrl ?? '';
+          const scheme = target.indexOf('://') >= 0 ? target.substring(0, target.indexOf('://')) : target.substring(0, 8);
+          hilog.info(DOMAIN, TAG, 'window new -> popup (scheme=%{public}s len=%{public}d)', scheme, target.length);
+          this.popupActive = true;
+          event.handler.setWebController(this.popupController);
+          if (target.length > 0 && target !== 'about:blank' && (target.startsWith('https://') || target.startsWith('http://'))) {
+            try {
+              this.popupController.loadUrl(target);
+            } catch (e) {
+              hilog.warn(DOMAIN, TAG, 'popup loadUrl failed');
+            }
+          }
         })
 
-      // Apple ID sign-in windows, stacked on top and filling the surface.
-      ForEach(this.popups, (popup: webview.WebviewController) => {
-        Web({ src: '', controller: popup })
-          .javaScriptAccess(true)
-          .domStorageAccess(true)
-          .imageAccess(true)
-          .multiWindowAccess(true)
-          .allowWindowOpenMethod(true)
-          .width('100%')
-          .height('100%')
-          .onWindowExit(() => this.removePopup(popup))
-      }, (popup: webview.WebviewController) => `${this.popups.indexOf(popup)}`)
+      // Apple ID sign-in window. Always attached and rendered (never Hidden, so
+      // the controller is fully ready when Apple's window.open fires); kept
+      // behind the MusicKit page by zIndex until a popup opens, then raised.
+      Web({ src: '', controller: this.popupController })
+        .javaScriptAccess(true)
+        .domStorageAccess(true)
+        .imageAccess(true)
+        .multiWindowAccess(true)
+        .allowWindowOpenMethod(true)
+        .width('100%')
+        .height('100%')
+        .zIndex(this.popupActive ? 2 : 0)
+        .onControllerAttached(() => hilog.info(DOMAIN, TAG, 'popup web ready'))
+        .onPageEnd(() => hilog.info(DOMAIN, TAG, 'popup page loaded'))
+        .onErrorReceive((event) => {
+          if (event?.request?.isMainFrame()) {
+            hilog.warn(DOMAIN, TAG, 'popup load error: %{public}d', event?.error?.getErrorCode() ?? -1);
+          }
+        })
+        .onWindowExit(() => { this.popupActive = false; })
 
-      if (this.loading && this.popups.length === 0) {
+      if (this.loading && !this.popupActive) {
         Column() {
           LoadingProgress().width(44).height(44)
         }
@@ -150,6 +168,7 @@ export struct AppleMusicAuthView {
       .backgroundColor('#99000000')
       .width(40)
       .height(40)
+      .zIndex(3)
       .margin({ top: 48, left: 16 })
       .onClick(() => AppleMusicAuthHost.cancel())
     }
