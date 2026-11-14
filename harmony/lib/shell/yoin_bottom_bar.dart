@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
@@ -37,7 +39,12 @@ class YoinBottomBar extends StatefulWidget {
     this.hasTrack = false,
     this.detailActions,
     this.pillBuilder,
+    this.navOnly = false,
+    this.availableWidth,
   });
+
+  /// The width of the box the bar sits in, when narrower than the window.
+  final double? availableWidth;
 
   final YoinSection selected;
   final ValueChanged<YoinSection> onSelect;
@@ -47,6 +54,10 @@ class YoinBottomBar extends StatefulWidget {
 
   /// Non-null on a detail page: the bar takes the detail pose.
   final DetailPlayActions? detailActions;
+
+  /// The Now Playing side panel is open: the pill folds away and the bar
+  /// keeps only its two destinations.
+  final bool navOnly;
 
   /// Builds the now-playing pill; it reports its press for the echo.
   final Widget Function(BuildContext context, ValueChanged<bool> onPressChanged)? pillBuilder;
@@ -77,6 +88,11 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
     initial: widget.detailActions == null ? 0 : 1,
     spring: YoinSprings.standardDefaultSpatial,
   );
+  late final SpringValue _navOnly = SpringValue(
+    vsync: this,
+    initial: widget.navOnly ? 1 : 0,
+    spring: YoinSprings.standardDefaultSpatial,
+  );
   late final SpringValue _homePress = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardFastSpatial);
   late final SpringValue _libraryPress = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardFastSpatial);
   late final SpringValue _pillPress = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardFastSpatial);
@@ -98,12 +114,17 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
     _selectionColor.animateTo(home);
     _idle.animateTo(widget.hasTrack ? 0 : 1);
     _detail.animateTo(widget.detailActions == null ? 0 : 1);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _navOnly.snapTo(widget.navOnly ? 1 : 0);
+    } else {
+      _navOnly.animateTo(widget.navOnly ? 1 : 0);
+    }
     if (widget.detailActions != null) _lastActions = widget.detailActions;
   }
 
   @override
   void dispose() {
-    for (final s in [_selection, _selectionColor, _idle, _detail, _homePress, _libraryPress, _pillPress]) {
+    for (final s in [_selection, _selectionColor, _idle, _detail, _navOnly, _homePress, _libraryPress, _pillPress]) {
       s.dispose();
     }
     super.dispose();
@@ -119,15 +140,19 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
     final height = centered ? BarTokens.centeredHeight : BarTokens.height;
     final buttonHeight = centered ? BarTokens.centeredButtonHeight : BarTokens.buttonHeight;
     final rowPadding = (height - buttonHeight) / 2;
+    // The form follows the window; the width also fits the box the bar is
+    // laid in (the content beside the Now Playing side panel).
+    final room = math.min(window.width, widget.availableWidth ?? window.width);
     final barWidth = centered
-        ? (window.width - 2 * BarTokens.centeredHorizontalMargin).clamp(0.0, BarTokens.centeredMaxWidth)
-        : window.width - 2 * BarTokens.horizontalMargin;
+        ? (room - 2 * BarTokens.centeredHorizontalMargin).clamp(0.0, BarTokens.centeredMaxWidth)
+        : room - 2 * BarTokens.horizontalMargin;
     final innerWidth = (barWidth - 2 * rowPadding).clamp(0.0, double.infinity);
     // The centred bar promotes Shuffle out of the ▾ menu into its own button.
     final promoted = centered && _lastActions?.onShuffle != null ? 1 : 0;
 
+    // The surface wraps the slots (its width is the row's): the full bar
+    // width normally, hugging the destinations beside the side panel.
     final bar = Container(
-      width: barWidth,
       height: height,
       padding: EdgeInsets.all(rowPadding),
       decoration: ShapeDecoration(
@@ -140,6 +165,7 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
           _selectionColor.animation,
           _idle.animation,
           _detail.animation,
+          _navOnly.animation,
           _homePress.animation,
           _libraryPress.animation,
           _pillPress.animation,
@@ -157,12 +183,14 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
               detailPose: _detail.value,
               centered: centered,
               promotedCount: promoted,
+              navOnly: _navOnly.value,
             ),
           );
           final colorSelection = _selectionColor.value.clamp(0.0, 1.0);
           final detail = _detail.value.clamp(0.0, 1.0);
           final actions = _lastActions;
           return Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
                 width: g.splitWidth,

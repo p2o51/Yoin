@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'now_playing_presentation.dart';
 import 'now_playing_screen.dart';
 import 'overlay_controller.dart';
 
@@ -44,6 +45,23 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
     return true;
   }
 
+  /// The player's own Navigator (the queue sheet opens above it).
+  Widget _player(NowPlayingOverlayController controller) => Material(
+    type: MaterialType.transparency,
+    // MaterialApp's HeroController belongs to the app Navigator.
+    child: HeroControllerScope.none(
+      child: Navigator(
+        key: _navigator,
+        onGenerateRoute: (settings) => PageRouteBuilder<void>(
+          settings: settings,
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, _, _) => NowPlayingScreen(controller: controller),
+        ),
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -55,68 +73,103 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
           builder: (context, constraints) {
             controller.height = constraints.maxHeight;
             controller.reduceMotion = MediaQuery.disableAnimationsOf(context);
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                // Scrim: black at 0.5 while expanded, on the effects spring.
-                IgnorePointer(
-                  child: AnimatedBuilder(
-                    animation: controller.fade.animation,
-                    builder: (context, _) =>
-                        ColoredBox(color: Colors.black.withValues(alpha: 0.5 * controller.fade.value.clamp(0.0, 1.0))),
-                  ),
-                ),
-                AnimatedBuilder(
-                  animation: controller.motion,
-                  builder: (context, child) {
-                    // The clip is always in the tree and only switched off
-                    // at rest: wrapping the player on the first moving frame
-                    // and unwrapping it on the settle frame changed the
-                    // tree's shape, so the whole player subtree was
-                    // reparented (re-laid out, re-rastered) at both ends.
-                    final player = ClipRSuperellipse(
-                      borderRadius: BorderRadius.circular(screenCornerFallback),
-                      clipBehavior: controller.isMoving ? Clip.antiAlias : Clip.none,
-                      child: child,
-                    );
-                    return IgnorePointer(
-                      ignoring: !controller.expanded,
-                      child: Opacity(
-                        opacity: controller.fade.value.clamp(0.0, 1.0),
-                        child: Transform.translate(offset: Offset(0, controller.offsetY), child: player),
-                      ),
-                    );
-                  },
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    // Off in Expanded: the lyric list owns vertical drags there.
-                    onVerticalDragUpdate: controller.canDrag ? (d) => controller.dragUpdate(d.delta.dy) : null,
-                    onVerticalDragEnd: controller.canDrag
-                        ? (d) => controller.dragEnd(d.velocity.pixelsPerSecond.dy)
-                        : null,
-                    onVerticalDragCancel: controller.canDrag ? () => controller.dragEnd(0) : null,
-                    child: Material(
-                      type: MaterialType.transparency,
-                      // MaterialApp's HeroController belongs to the app Navigator.
-                      child: HeroControllerScope.none(
-                        child: Navigator(
-                          key: _navigator,
-                          onGenerateRoute: (settings) => PageRouteBuilder<void>(
-                            settings: settings,
-                            transitionDuration: Duration.zero,
-                            reverseTransitionDuration: Duration.zero,
-                            pageBuilder: (_, _, _) => NowPlayingScreen(controller: controller),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
+            if (controller.frame.panelFamily) return _panelFamily(controller);
+            return _fullWindow(controller);
           },
         );
       },
     );
   }
+
+  /// Panel ⇄ Full (Medium / Wide): one container at the end edge, sliding
+  /// in from it; no scrim (the content beside stays usable), start corners
+  /// and shadow fade out as it grows Full. The drag toward the end and the
+  /// corner toggle / back feed the same controller.
+  Widget _panelFamily(NowPlayingOverlayController controller) {
+    final child = GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragUpdate: controller.canDragPanel ? (d) => controller.panelDragUpdate(d.delta.dx) : null,
+      onHorizontalDragEnd: controller.canDragPanel
+          ? (d) => controller.panelDragEnd(d.velocity.pixelsPerSecond.dx)
+          : null,
+      onHorizontalDragCancel: controller.canDragPanel ? () => controller.panelDragEnd(0) : null,
+      child: _player(controller),
+    );
+    return AnimatedBuilder(
+      animation: controller.motion,
+      builder: (context, child) {
+        final f = controller.full.value.clamp(0.0, 1.0);
+        final corner = Radius.circular(NowPlayingPanelTokens.corner * (1 - f));
+        final shape = RoundedSuperellipseBorder(
+          borderRadius: BorderRadiusDirectional.only(topStart: corner, bottomStart: corner),
+        );
+        return Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: IgnorePointer(
+            ignoring: !controller.expanded,
+            child: Transform.translate(
+              offset: Offset(controller.offsetX, 0),
+              child: SizedBox(
+                width: controller.containerWidth,
+                child: PhysicalShape(
+                  clipper: ShapeBorderClipper(shape: shape, textDirection: Directionality.of(context)),
+                  clipBehavior: Clip.antiAlias,
+                  elevation: NowPlayingPanelTokens.shadowElevation * (1 - f),
+                  // Opaque so the shadow shows only outside the panel.
+                  color: Theme.of(context).colorScheme.surface,
+                  shadowColor: Colors.black,
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+
+  Widget _fullWindow(NowPlayingOverlayController controller) => Stack(
+    fit: StackFit.expand,
+    children: [
+      // Scrim: black at 0.5 while expanded, on the effects spring.
+      IgnorePointer(
+        child: AnimatedBuilder(
+          animation: controller.fade.animation,
+          builder: (context, _) =>
+              ColoredBox(color: Colors.black.withValues(alpha: 0.5 * controller.fade.value.clamp(0.0, 1.0))),
+        ),
+      ),
+      AnimatedBuilder(
+        animation: controller.motion,
+        builder: (context, child) {
+          // The clip is always in the tree and only switched off
+          // at rest: wrapping the player on the first moving frame
+          // and unwrapping it on the settle frame changed the
+          // tree's shape, so the whole player subtree was
+          // reparented (re-laid out, re-rastered) at both ends.
+          final player = ClipRSuperellipse(
+            borderRadius: BorderRadius.circular(screenCornerFallback),
+            clipBehavior: controller.isMoving ? Clip.antiAlias : Clip.none,
+            child: child,
+          );
+          return IgnorePointer(
+            ignoring: !controller.expanded,
+            child: Opacity(
+              opacity: controller.fade.value.clamp(0.0, 1.0),
+              child: Transform.translate(offset: Offset(0, controller.offsetY), child: player),
+            ),
+          );
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          // Off in Expanded: the lyric list owns vertical drags there.
+          onVerticalDragUpdate: controller.canDrag ? (d) => controller.dragUpdate(d.delta.dy) : null,
+          onVerticalDragEnd: controller.canDrag ? (d) => controller.dragEnd(d.velocity.pixelsPerSecond.dy) : null,
+          onVerticalDragCancel: controller.canDrag ? () => controller.dragEnd(0) : null,
+          child: _player(controller),
+        ),
+      ),
+    ],
+  );
 }

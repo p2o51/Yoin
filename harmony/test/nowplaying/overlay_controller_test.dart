@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/nowplaying/now_playing_presentation.dart';
 import 'package:yoin/nowplaying/overlay_controller.dart';
+import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
 void main() {
   late NowPlayingOverlayController c;
@@ -177,5 +179,54 @@ void main() {
     c.openPlayer();
     expect(c.flightKeys.heroTitleScroll, 0, reason: 'an open lands on a rewound marquee');
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('should_openSidePanelBesideContent_when_wideWindow', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1440, 900);
+    c.openPlayer();
+    expect(c.panelOpen, isTrue);
+    expect(c.flightActive, isFalse, reason: 'the panel opens beside the bar: no morph');
+    await tester.pumpAndSettle();
+    expect(c.offsetX, closeTo(0, 0.5));
+    expect(c.besideInset, closeTo(420, 0.5));
+    expect(c.barComposed, isTrue, reason: 'the bar stays, folded to its destinations');
+  });
+
+  testWidgets('should_stepFullToPanelThenClose_when_backAfterToggle', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1440, 900);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.toggleFullscreen();
+    expect(c.presentation, NowPlayingPresentation.dualPane);
+    await tester.pumpAndSettle();
+    expect(c.containerWidth, closeTo(1440, 0.5));
+    expect(c.besideInset, closeTo(0, 0.5));
+
+    expect(c.handleBack(), isTrue);
+    expect(c.presentation, NowPlayingPresentation.panel);
+    await tester.pumpAndSettle();
+    expect(c.containerWidth, closeTo(420, 0.5));
+
+    expect(c.handleBack(), isTrue);
+    expect(c.expanded, isFalse);
+    await tester.pumpAndSettle();
+    expect(c.isMounted, isFalse);
+    expect(c.fullscreen, isFalse, reason: 'the next open starts as the panel');
+  });
+
+  testWidgets('should_closeFromDraggedPose_when_panelDraggedPastThreshold', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(800, 1280);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.panelDragUpdate(120);
+    expect(c.offsetX, closeTo(120, 0.5));
+    expect(c.besideInset, closeTo(280, 0.5), reason: 'the content beside takes the width back 1:1');
+    c.panelDragEnd(0);
+    expect(c.expanded, isFalse);
+    await tester.pumpAndSettle();
+    expect(c.isMounted, isFalse);
   });
 }

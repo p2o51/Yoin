@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
@@ -19,6 +19,7 @@ import '../playback/playback_strings.dart';
 import '../playback/system_requests.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/adaptive/yoin_window_info.dart';
 import 'bar_suppression.dart';
 import 'chrome_back.dart';
 import 'detail_chrome.dart';
@@ -117,10 +118,16 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     child: Stack(
       fit: StackFit.expand,
       children: [
-        widget.child,
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: _ChromeBar(controller: _controller, away: _barAway),
+        BesideNowPlayingPanel(controller: _controller, child: widget.child),
+        // The bar belongs to the window, but sits centred in the content
+        // beside the side panel (it folds to the two destinations there).
+        BesideNowPlayingPanel(
+          controller: _controller,
+          providesWindow: false,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: _ChromeBar(controller: _controller, away: _barAway),
+          ),
         ),
         NowPlayingLayer(controller: _controller),
         PlaybackSnackbarHost(
@@ -134,6 +141,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
+    _controller.window = YoinWindowInfo.of(context);
     // Local ratings live from app start, not from the first player open:
     // pending ratings are resent when an account becomes active and on
     // resume whether or not the player was ever opened (Android keeps this
@@ -196,16 +204,107 @@ class _ChromeBar extends ConsumerWidget {
         top: false,
         child: Material(
           type: MaterialType.transparency,
-          child: YoinBottomBar(
-            selected: ref.watch(shellSectionProvider),
-            onSelect: ref.read(shellSectionProvider.notifier).select,
-            hasTrack: hasTrack,
-            detailActions: actions,
-            pillBuilder: (context, onPress) => NowPlayingPill(onPressChanged: onPress),
+          child: LayoutBuilder(
+            builder: (context, constraints) => YoinBottomBar(
+              availableWidth: constraints.maxWidth,
+              selected: ref.watch(shellSectionProvider),
+              onSelect: ref.read(shellSectionProvider.notifier).select,
+              hasTrack: hasTrack,
+              detailActions: actions,
+              // The pill became the side panel: only the two destinations stay.
+              navOnly: controller.panelOpen,
+              pillBuilder: (context, onPress) => NowPlayingPill(onPressChanged: onPress),
+            ),
           ),
         ),
       ),
     );
+  }
+}
+
+/// Content beside the Now Playing side panel (besideNowPlayingPanel +
+/// ProvideBesidePanelWindowInfo): narrowed from the end by the panel's live
+/// inset, read only in layout so a drag frame re-lays the column without
+/// rebuilding it. With [providesWindow] the subtree reads its own remaining
+/// width as the window from the moment the panel starts opening (a width
+/// class never changes mid-spring); the scope is always in the tree and
+/// only its value changes, so pages keep their state.
+class BesideNowPlayingPanel extends StatelessWidget {
+  const BesideNowPlayingPanel({super.key, required this.controller, required this.child, this.providesWindow = true});
+
+  final NowPlayingOverlayController controller;
+  final Widget child;
+  final bool providesWindow;
+
+  @override
+  Widget build(BuildContext context) {
+    final laid = _BesideInset(controller: controller, child: child);
+    if (!providesWindow) return laid;
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, child) {
+        final window = YoinWindowInfo.of(context);
+        final info = controller.panelOpen ? window.forPaneWidth(window.width - controller.frame.panelWidth) : window;
+        return YoinWindowScope(info: info, child: child!);
+      },
+      child: laid,
+    );
+  }
+}
+
+class _BesideInset extends SingleChildRenderObjectWidget {
+  const _BesideInset({required this.controller, super.child});
+
+  final NowPlayingOverlayController controller;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderBesideInset(controller);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderBesideInset renderObject) =>
+      renderObject.controller = controller;
+}
+
+class _RenderBesideInset extends RenderProxyBox {
+  _RenderBesideInset(this._controller);
+
+  NowPlayingOverlayController _controller;
+  set controller(NowPlayingOverlayController value) {
+    if (identical(value, _controller)) return;
+    if (attached) _controller.besideMotion.removeListener(markNeedsLayout);
+    _controller = value;
+    if (attached) _controller.besideMotion.addListener(markNeedsLayout);
+    markNeedsLayout();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _controller.besideMotion.addListener(markNeedsLayout);
+  }
+
+  @override
+  void detach() {
+    _controller.besideMotion.removeListener(markNeedsLayout);
+    super.detach();
+  }
+
+  @override
+  void performLayout() {
+    final inset = _controller.besideInset.clamp(0.0, constraints.maxWidth);
+    final child = this.child;
+    if (child == null || !constraints.hasBoundedWidth) {
+      super.performLayout();
+      return;
+    }
+    child.layout(
+      constraints.copyWith(
+        minWidth: math.max(0.0, constraints.minWidth - inset),
+        maxWidth: constraints.maxWidth - inset,
+      ),
+      parentUsesSize: true,
+    );
+    size = constraints.constrain(Size(child.size.width + inset, child.size.height));
   }
 }
 

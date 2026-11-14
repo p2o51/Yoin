@@ -4,6 +4,7 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/foundation.dart';
 
 import '../theme/tokens.dart';
+import 'now_playing_presentation.dart';
 
 /// Text line heights the budget needs, read from the live text styles at the
 /// current font scale (NowPlayingMetrics.kt rememberStageColumnMetrics), so
@@ -73,7 +74,9 @@ final class StageColumnBudget {
     required this.heroOneLine,
     required this.lyricFrame,
     required this.labelsUnderWave,
-  });
+    this.ratingColumn = NowPlayingTokens.phoneRatingColumn,
+    double? stageWidth,
+  }) : stageWidth = stageWidth ?? width;
 
   final double width;
   final double height;
@@ -101,6 +104,14 @@ final class StageColumnBudget {
   /// The transport is narrower than 360: time labels move under the wave.
   final bool labelsUnderWave;
 
+  /// The rating column beside the cover (56 on the phone; the enlarged
+  /// phone grows it with its column).
+  final double ratingColumn;
+
+  /// The column's own width, centred in [width]: the enlarged phone narrows
+  /// to its cover row (cover + gap + rating + padding); [width] elsewhere.
+  final double stageWidth;
+
   bool get coverHidden => cover <= 0;
 
   @override
@@ -119,7 +130,9 @@ final class StageColumnBudget {
       other.accessory == accessory &&
       other.heroOneLine == heroOneLine &&
       other.lyricFrame == lyricFrame &&
-      other.labelsUnderWave == labelsUnderWave;
+      other.labelsUnderWave == labelsUnderWave &&
+      other.ratingColumn == ratingColumn &&
+      other.stageWidth == stageWidth;
 
   @override
   int get hashCode => Object.hash(
@@ -137,6 +150,8 @@ final class StageColumnBudget {
     heroOneLine,
     lyricFrame,
     labelsUnderWave,
+    ratingColumn,
+    stageWidth,
   );
 }
 
@@ -175,18 +190,26 @@ StageColumnBudget resolveStageColumnBudget({
   StageMetrics metrics = const StageMetrics(),
   double devicePixelRatio = 1,
   LyricFrame? previousFrame,
+  NowPlayingEnlargedSpec? enlarged,
 }) {
   double px(double v) => (v * devicePixelRatio).roundToDouble() / devicePixelRatio;
 
-  final transportWidth = width - 2 * _T.columnPadding;
+  // The enlarged phone (Medium Full): a wider column with a bigger rating
+  // column, no 312 cap on the cover, three clean lyric lines, and the cover
+  // gives way down to its comfort size before anything folds (§6, lyrics first).
+  final ratingColumn = enlarged?.ratingColumn ?? _T.phoneRatingColumn;
+  final stageMaxWidth = enlarged == null ? width : math.min(width, enlarged.columnWidth + 2 * _T.columnPadding);
+  final coverCap = enlarged == null
+      ? math.min(width - 2 * _T.columnPadding - _T.ratingGap - ratingColumn, _T.phoneCoverMax)
+      : stageMaxWidth - 2 * _T.columnPadding - _T.ratingGap - ratingColumn;
+  final coverComfort = enlarged == null ? null : math.min(coverCap, NowPlayingTokens.enlargedCoverComfort);
+
+  final transportWidth = stageMaxWidth - 2 * _T.columnPadding;
   final labelsUnder = transportWidth < transportLabelsInlineMinWidth;
   final transportContent = _T.controlSize * 2 + _T.controlRowGap + (labelsUnder ? metrics.timeLabelLine : 0);
   final heroContent = metrics.heroArtistLine + _T.heroLineGap + metrics.heroTitleLine;
 
-  var cover = math.max(
-    0.0,
-    math.min(width - 2 * _T.columnPadding - _T.ratingGap - _T.phoneRatingColumn, _T.phoneCoverMax),
-  );
+  var cover = math.max(0.0, coverCap);
   var topBar = _T.topBarNominal;
   var coverGap = _T.coverGapNominal;
   var controls = math.max(
@@ -204,7 +227,10 @@ StageColumnBudget resolveStageColumnBudget({
   final tabsMin = metrics.tabTextLine;
   var tabGap = _T.tabGapNominal;
 
-  final listMin = minLyricWindow(metrics);
+  final listMin = minLyricWindow(
+    metrics,
+    cleanLines: enlarged == null ? NowPlayingTokens.phoneCleanLines : NowPlayingTokens.enlargedCleanLines,
+  );
   const oneLineMin = _T.oneLineRowNominal + _T.oneLineAirMin;
   // Hysteresis: once on one line, the list needs 8 dp more to come back.
   final listNeeds = previousFrame == LyricFrame.oneLine ? listMin + _T.lyricFrameHysteresis : listMin;
@@ -225,6 +251,11 @@ StageColumnBudget resolveStageColumnBudget({
   topBar = squeeze(listNeeds, topBar, _T.topBarMin);
   coverGap = squeeze(listNeeds, coverGap, _T.coverGapMin);
   tabs = squeeze(listNeeds, tabs, tabsMin);
+
+  // (2½) the enlarged phone's cover steps down to its comfort size.
+  if (coverComfort != null && deficit(listNeeds) > 0) {
+    cover = math.max(coverComfort, cover - deficit(listNeeds));
+  }
 
   // (3) hero on one row.
   if (deficit(listNeeds) > 0) {
@@ -280,6 +311,10 @@ StageColumnBudget resolveStageColumnBudget({
     heroOneLine: heroOneLine,
     lyricFrame: frame,
     labelsUnderWave: labelsUnder,
+    ratingColumn: ratingColumn,
+    stageWidth: enlarged == null
+        ? width
+        : math.min(stageMaxWidth, px(cover + _T.ratingGap + ratingColumn + 2 * _T.columnPadding)),
   );
 }
 
@@ -339,4 +374,161 @@ final class StageSlots {
       accessory: accessory,
     );
   }
+}
+
+// ── Dual pane (Wide Full) ────────────────────────────────────────────────
+
+/// Where the two-column player sets its title (DualPaneTitleForm).
+enum DualPaneTitleForm { twoLines, oneLine, topBar }
+
+abstract final class DualPaneTokens {
+  /// The left stack's measuring width (TabletNP: the 312 cover side).
+  static const double stackWidth = 312;
+  static const double coverMin = 168;
+  static const double coverFloor = 140;
+  static const double frameNominal = 16;
+  static const double frameMin = 8;
+  static const double barGapNominal = 8;
+  static const double barGapMin = 4;
+  static const double coverToTransportNominal = 12;
+  static const double coverToTransportMin = 8;
+
+  /// The rating column (56) and its 12 gap at the cover's end.
+  static const double ratingSide = 68;
+  static const double ratingColumn = 56;
+  static const double transportToTitleNominal = 16;
+  static const double transportToTitleMin = 8;
+  static const double columnGap = 24;
+  static const double rightColumnMin = 320;
+  static const double framePadding = 24;
+  static const double topBarHeight = 48;
+  static const double accessoryHeight = 68;
+
+  /// The right column: tabs → 12 → pager → 12 → tools.
+  static const double rightGap = 12;
+  static const double titleLineGap = 2;
+}
+
+/// The dual pane's rest pose (resolveDualPaneBudget, no focus).
+@immutable
+final class DualPaneBudget {
+  const DualPaneBudget({
+    required this.frameTop,
+    required this.barGap,
+    required this.frameBottom,
+    required this.titleForm,
+    required this.slot,
+    required this.cover,
+    required this.coverToTransport,
+    required this.transportToTitle,
+    required this.title,
+  });
+
+  final double frameTop;
+  final double barGap;
+  final double frameBottom;
+  final DualPaneTitleForm titleForm;
+
+  /// The left stack's width: the cover with the rating column at its side.
+  final double slot;
+  final double cover;
+  final double coverToTransport;
+  final double transportToTitle;
+
+  /// 0 when the title folded into the top bar.
+  final double title;
+
+  @override
+  bool operator ==(Object other) =>
+      other is DualPaneBudget &&
+      other.frameTop == frameTop &&
+      other.barGap == barGap &&
+      other.frameBottom == frameBottom &&
+      other.titleForm == titleForm &&
+      other.slot == slot &&
+      other.cover == cover &&
+      other.coverToTransport == coverToTransport &&
+      other.transportToTitle == transportToTitle &&
+      other.title == title;
+
+  @override
+  int get hashCode =>
+      Object.hash(frameTop, barGap, frameBottom, titleForm, slot, cover, coverToTransport, transportToTitle, title);
+}
+
+/// The transport's height in the 312 stack (labels drop under the wave
+/// there: 312 < [transportLabelsInlineMinWidth]).
+double dualPaneTransportHeight(StageMetrics m) {
+  const width = DualPaneTokens.stackWidth;
+  final under = width < transportLabelsInlineMinWidth;
+  return NowPlayingTokens.controlSize * 2 + NowPlayingTokens.controlRowGap + (under ? m.timeLabelLine : 0);
+}
+
+/// Solves the two columns for a [rowWidth] × [contentHeight] box (the
+/// window less its side frame and top inset). Ladder: gaps → two-line title
+/// → one line → the cover shrinks → the title moves into the top bar.
+DualPaneBudget resolveDualPaneBudget({
+  required double rowWidth,
+  required double contentHeight,
+  StageMetrics metrics = const StageMetrics(),
+  double navBottom = 0,
+  double barHeight = DualPaneTokens.topBarHeight,
+}) {
+  final transport = dualPaneTransportHeight(metrics);
+  final artist = metrics.heroArtistLine + DualPaneTokens.titleLineGap;
+  // headlineMedium ≈ the hero's displaySmall line less 8 (36 vs 44).
+  final titleLine = metrics.heroTitleLine - 8;
+  final titleOneLine = artist + titleLine;
+  final titleTwoLines = artist + titleLine * 2;
+  final fixedContent = barHeight + transport + navBottom;
+  const gapsNominal =
+      DualPaneTokens.transportToTitleNominal +
+      DualPaneTokens.frameNominal +
+      DualPaneTokens.frameNominal +
+      DualPaneTokens.barGapNominal +
+      DualPaneTokens.coverToTransportNominal;
+  const gapsMin =
+      DualPaneTokens.transportToTitleMin +
+      DualPaneTokens.frameMin +
+      DualPaneTokens.frameMin +
+      DualPaneTokens.barGapMin +
+      DualPaneTokens.coverToTransportMin;
+  final widthCap = rowWidth - DualPaneTokens.columnGap - DualPaneTokens.rightColumnMin - DualPaneTokens.ratingSide;
+
+  double coverFor(double title) => contentHeight - fixedContent - title - gapsMin;
+
+  DualPaneBudget budgetFor(DualPaneTitleForm form, double title) {
+    final cover = math.max(
+      DualPaneTokens.coverFloor,
+      math.min(math.min(coverFor(title), DualPaneTokens.stackWidth), widthCap),
+    );
+    // Squeeze lower gaps (transport→title, frame bottom) first, then upper.
+    var deficit = math.max(0.0, fixedContent + title + gapsNominal + cover - contentHeight);
+    double take(double nominal, double min) {
+      final d = math.min(deficit, nominal - min);
+      deficit -= d;
+      return nominal - d;
+    }
+
+    final transportToTitle = take(DualPaneTokens.transportToTitleNominal, DualPaneTokens.transportToTitleMin);
+    final frameBottom = take(DualPaneTokens.frameNominal, DualPaneTokens.frameMin);
+    final frameTop = take(DualPaneTokens.frameNominal, DualPaneTokens.frameMin);
+    final barGap = take(DualPaneTokens.barGapNominal, DualPaneTokens.barGapMin);
+    final coverToTransport = take(DualPaneTokens.coverToTransportNominal, DualPaneTokens.coverToTransportMin);
+    return DualPaneBudget(
+      frameTop: frameTop,
+      barGap: barGap,
+      frameBottom: frameBottom,
+      titleForm: form,
+      slot: math.max(DualPaneTokens.stackWidth, cover + DualPaneTokens.ratingSide),
+      cover: cover,
+      coverToTransport: coverToTransport,
+      transportToTitle: transportToTitle,
+      title: title,
+    );
+  }
+
+  if (coverFor(titleTwoLines) >= DualPaneTokens.stackWidth) return budgetFor(DualPaneTitleForm.twoLines, titleTwoLines);
+  if (coverFor(titleOneLine) >= DualPaneTokens.coverMin) return budgetFor(DualPaneTitleForm.oneLine, titleOneLine);
+  return budgetFor(DualPaneTitleForm.topBar, 0);
 }

@@ -33,6 +33,8 @@ class NowPlayingStrings {
   // Overlay.
   String get cdCloseNowPlaying => _zh ? '关闭正在播放' : 'Close Now Playing'; // np_cd_stage_close_now_playing
   String get cdBackNowPlaying => _zh ? '返回正在播放' : 'Back to Now Playing'; // np_cd_stage_back_now_playing
+  String get cdFullScreen => _zh ? '全屏' : 'Full screen'; // np_cd_full_screen
+  String get cdBackToPanel => _zh ? '返回侧栏' : 'Back to side panel'; // np_cd_back_to_panel
 
   // Top bar.
   String get fromAlbum => _zh ? '播放自专辑' : 'PLAYING FROM ALBUM'; // np_from_album

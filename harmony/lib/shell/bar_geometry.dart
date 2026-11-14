@@ -30,6 +30,7 @@ final class BarGeometryInput {
     this.detailPose = 0,
     this.centered = false,
     this.promotedCount = 0,
+    this.navOnly = 0,
   });
 
   /// The row's width inside the surface's padding (window − 2 × 16 − 2 × 10 on a phone).
@@ -59,6 +60,10 @@ final class BarGeometryInput {
   /// Page actions pulled out of the ▾ menu into round buttons beside the
   /// split (the centred bar promotes Shuffle); 0 on the portrait bar.
   final int promotedCount;
+
+  /// 1 = the Now Playing side panel is open: the pill folds away and the
+  /// surface hugs the remaining slots (resolveBarGeometry navOnly).
+  final double navOnly;
 }
 
 /// Widths of one bar frame (the phone subset of resolveBarGeometry: morph 0,
@@ -79,6 +84,7 @@ final class BarGeometry {
     required this.labelAlpha,
     required this.pillAlpha,
     required this.composePill,
+    required this.surfaceInner,
   });
 
   /// The Home button's width (fades out into the Play split in detail pose).
@@ -110,6 +116,9 @@ final class BarGeometry {
   /// The pill is composed only while it could be seen (an idle 0 dp pill
   /// would still marquee and hit-test).
   final bool composePill;
+
+  /// The row width the surface wraps this frame (= the slots' sum).
+  final double surfaceInner;
 
   double get leadingSlotWidth => splitWidth;
 }
@@ -144,7 +153,12 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
   final splitW = lerpDouble(homeW, splitDetailW, detail)!;
   final extrasSlot = lerpDouble(0, extrasWidth, detail)!;
   final librarySlot = lerpDouble(gap + libW, 0, detail)!;
-  final pillW = math.max(0.0, i.innerWidth - splitW - gap - extrasSlot - librarySlot);
+  // With the pill folding away beside the side panel the surface hugs the
+  // slots exactly — never a lerp between two resting widths, which would
+  // disagree with the slots mid-spring and leave a hole where the pill was.
+  final navOnly = _clamp01(i.navOnly);
+  final fixed = splitW + gap + extrasSlot + librarySlot;
+  final pillW = math.max(0.0, i.innerWidth - fixed) * (1 - navOnly);
 
   return BarGeometry(
     homeWidth: homeW,
@@ -158,7 +172,8 @@ BarGeometry resolveBarGeometry(BarGeometryInput i) {
     splitAlpha: _clamp01((detail - 0.4) / 0.6),
     labelAlpha: _clamp01((idle - 0.55) / 0.45),
     // Any detail pose shows the pill whole ("Nothing playing" when idle).
-    pillAlpha: detail > 0.005 ? 1 : _clamp01(1 - idle / 0.5),
-    composePill: idle < 0.995 || detail > 0.005,
+    pillAlpha: (detail > 0.005 ? 1.0 : _clamp01(1 - idle / 0.5)) * _clamp01(1 - navOnly / 0.5),
+    composePill: (idle < 0.995 || detail > 0.005) && navOnly < 0.995,
+    surfaceInner: fixed + pillW,
   );
 }

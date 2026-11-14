@@ -16,6 +16,7 @@ import '../shell/shell_state.dart';
 import '../theme/motion.dart';
 import '../theme/playback_theme.dart';
 import '../theme/tokens.dart';
+import '../ui/adaptive/yoin_window_info.dart';
 import 'cover_swap.dart';
 import 'flight.dart';
 import 'haptics.dart';
@@ -27,6 +28,7 @@ import 'note_controller.dart';
 import 'note_logic.dart';
 import 'note_page.dart';
 import 'note_write_bar.dart';
+import 'now_playing_presentation.dart';
 import 'now_playing_view_model.dart';
 import 'nowplaying_strings.dart';
 import 'overlay_controller.dart';
@@ -111,6 +113,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     super.initState();
     widget.controller.addListener(_onStage);
     widget.controller.detail.animation.addListener(_gateFocus);
+    widget.controller.full.animation.addListener(_onFull);
     _page.animation.addListener(_gateFocus);
     _notes.addListener(_onNotes);
   }
@@ -130,6 +133,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
   void dispose() {
     widget.controller.removeListener(_onStage);
     widget.controller.detail.animation.removeListener(_gateFocus);
+    widget.controller.full.animation.removeListener(_onFull);
     _notes.removeListener(_onNotes);
     _notes.dispose();
     _page.dispose();
@@ -228,6 +232,52 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     );
   }
 
+  /// The enlarged phone's spec, or null for the phone column. On Medium the
+  /// panel ⇄ Full container keeps ONE body: it is the enlarged phone as soon
+  /// as the container leaves the panel, its rating column growing with the
+  /// container so the change never pops (NowPlayingOverlayHost).
+  NowPlayingEnlargedSpec? _enlargedSpec() {
+    final c = widget.controller;
+    final frame = c.frame;
+    final f = frame.panelFamily ? c.full.value.clamp(0.0, 1.0) : 1.0;
+    final enlargedBody = switch (frame.presentation) {
+      NowPlayingPresentation.enlarged => true,
+      NowPlayingPresentation.panel => frame.panelFamily && c.window.layoutMode == LayoutMode.medium && f > 0,
+      _ => false,
+    };
+    if (!enlargedBody) return null;
+    final spec = nowPlayingEnlargedSpec(frame.windowWidth);
+    return NowPlayingEnlargedSpec(
+      columnWidth: spec.columnWidth,
+      ratingColumn: NowPlayingTokens.phoneRatingColumn + (spec.ratingColumn - NowPlayingTokens.phoneRatingColumn) * f,
+      controlSize: f > 0.5 ? spec.controlSize : NowPlayingTokens.controlSize,
+    );
+  }
+
+  /// Medium's panel ⇄ Full grows the enlarged spec with the container:
+  /// rebuild per frame only while that container moves.
+  void _onFull() {
+    final c = widget.controller;
+    if (!mounted || !c.frame.panelFamily) return;
+    if (c.window.layoutMode == LayoutMode.medium) {
+      setState(() {});
+    } else if (_dualBody() != _lastDual) {
+      // Wide swaps bodies at the container spring's midpoint: the two
+      // columns are never laid out at panel width, the phone column never
+      // stretched across the window.
+      setState(() {});
+    }
+  }
+
+  bool _lastDual = false;
+
+  /// The two-column body shows (Wide Full; past the container's midpoint).
+  bool _dualBody() {
+    final c = widget.controller;
+    if (c.frame.presentation != NowPlayingPresentation.dualPane) return false;
+    return !c.frame.panelFamily || c.full.value > 0.5;
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(nowPlayingViewModelProvider);
@@ -275,6 +325,23 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                 style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurfaceVariant),
               ),
             ),
+            NowPlayingContent() when (_lastDual = _dualBody()) => _DualPane(
+              state: state,
+              controller: widget.controller,
+              insets: insets,
+              metrics: _metrics(context),
+              pressed: _pressed,
+              autoFollow: _autoFollow,
+              notes: _notes,
+              page: _page.animation,
+              pageTarget: _pageTarget,
+              onSelectPage: _selectPage,
+              onPageDrag: _onPageDrag,
+              onPageDragEnd: _onPageDragEnd,
+              onWrite: _write,
+              onBarHeight: _onBarHeight,
+              barHeight: _barHeight.animation,
+            ),
             NowPlayingContent() => Padding(
               padding: insets,
               child: LayoutBuilder(
@@ -285,9 +352,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                     metrics: _metrics(context),
                     devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
                     previousFrame: _lastFrame,
+                    enlarged: _enlargedSpec(),
                   );
                   _lastFrame = budget.lyricFrame;
-                  return _Stage(
+                  // The enlarged phone narrows to its cover row, centred.
+                  final stage = _Stage(
                     budget: budget,
                     state: state,
                     controller: widget.controller,
@@ -305,6 +374,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                     barHeight: _barHeight.animation,
                     onBarHeight: _onBarHeight,
                     imeLift: imeLift,
+                  );
+                  if (budget.stageWidth >= constraints.maxWidth) return stage;
+                  return Center(
+                    child: SizedBox(width: budget.stageWidth, child: stage),
                   );
                 },
               ),
@@ -373,11 +446,8 @@ class _StageDelegate extends MultiChildLayoutDelegate {
       );
     }
     if (hasChild(_Slot.rating)) {
-      layoutChild(_Slot.rating, BoxConstraints.tight(Size(NowPlayingTokens.phoneRatingColumn, budget.cover)));
-      positionChild(
-        _Slot.rating,
-        Offset(w - NowPlayingTokens.columnPadding - NowPlayingTokens.phoneRatingColumn, s.topBar),
-      );
+      layoutChild(_Slot.rating, BoxConstraints.tight(Size(budget.ratingColumn, budget.cover)));
+      positionChild(_Slot.rating, Offset(w - NowPlayingTokens.columnPadding - budget.ratingColumn, s.topBar));
     }
 
     final tabsTop = s.topBar + s.coverRow + s.coverGap;
@@ -771,10 +841,28 @@ class _StageCover extends StatelessWidget {
 /// Chevron + "PLAYING FROM …". The chevron turns 180° with the drag and 90°
 /// with the stage (Expanded: points back).
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.controller, required this.context0, this.onContextTap});
+  const _TopBar({
+    required this.controller,
+    required this.context0,
+    this.onContextTap,
+    this.onClose,
+    this.subline,
+    this.trailing = const [],
+  });
 
   final NowPlayingOverlayController controller;
   final PlaybackContext context0;
+
+  /// The chevron's action when it is not the layered back (the two columns
+  /// close outright; back steps to the panel).
+  final VoidCallback? onClose;
+
+  /// "Title - Artist" under the label where the window is too short for the
+  /// two columns' title block.
+  final String? subline;
+
+  /// Icons before the panel toggle (the two columns' Queue and Write).
+  final List<Widget> trailing;
 
   /// Opens where the play started (null: not a place).
   final VoidCallback? onContextTap;
@@ -804,7 +892,7 @@ class _TopBar extends StatelessWidget {
                 label: expanded ? strings.cdBackNowPlaying : strings.cdCloseNowPlaying,
                 excludeSemantics: true,
                 child: IconButton(
-                  onPressed: controller.onChevron,
+                  onPressed: onClose ?? controller.onChevron,
                   icon: AnimatedBuilder(
                     animation: Listenable.merge([controller.dragDy.animation, controller.detail.animation]),
                     builder: (context, child) => Transform.rotate(
@@ -857,13 +945,53 @@ class _TopBar extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: text.labelMedium!.copyWith(color: colors.onSurface),
                             ),
+                            if (subline != null)
+                              Text(
+                                subline!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.labelSmall!.copyWith(color: colors.onSurfaceVariant),
+                              ),
                           ],
                         ),
                 ),
               ),
+              ...trailing,
+              if (controller.frame.panelFamily) _PanelToggle(controller: controller),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The panel's corner button: Full (the enlarged phone on Medium, the two
+/// columns on Wide), or back to the side panel (PanelToggleButton).
+class _PanelToggle extends StatelessWidget {
+  const _PanelToggle({required this.controller});
+
+  final NowPlayingOverlayController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final strings = NowPlayingStrings.of(context);
+    final full = controller.fullscreen;
+    return SizedBox.square(
+      dimension: NowPlayingPanelTokens.toggleSize,
+      child: IconButton.filledTonal(
+        padding: EdgeInsets.zero,
+        style: IconButton.styleFrom(
+          backgroundColor: colors.secondaryContainer,
+          foregroundColor: colors.onSecondaryContainer,
+        ),
+        tooltip: full ? strings.cdBackToPanel : strings.cdFullScreen,
+        onPressed: () {
+          YoinHaptics.click();
+          controller.toggleFullscreen();
+        },
+        icon: Icon(full ? YoinSymbols.closeFullscreen : YoinSymbols.openInFull, size: 20),
       ),
     );
   }
@@ -1423,4 +1551,371 @@ class _RecenterKey extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Wide Full: the two-column player (TabletNP / WidePlayingContent, rest
+/// pose). Left, passive: the cover with the rating column at its end, the
+/// transport under them, the title set at the bottom. Right, always
+/// expanded: the text tabs, the Lyrics | Note pager, the page's tools. The
+/// top bar spans both; Queue and Write ride it as icons beside the panel
+/// toggle (owner 2026-11-06). No Expanded substate and no drag-dismiss: the
+/// chevron closes, back steps to the panel.
+class _DualPane extends ConsumerWidget {
+  const _DualPane({
+    required this.state,
+    required this.controller,
+    required this.insets,
+    required this.metrics,
+    required this.pressed,
+    required this.autoFollow,
+    required this.notes,
+    required this.page,
+    required this.pageTarget,
+    required this.onSelectPage,
+    required this.onPageDrag,
+    required this.onPageDragEnd,
+    required this.onWrite,
+    required this.onBarHeight,
+    required this.barHeight,
+  });
+
+  final Animation<double> barHeight;
+  final NowPlayingContent state;
+  final NowPlayingOverlayController controller;
+  final EdgeInsets insets;
+  final StageMetrics metrics;
+  final ValueNotifier<TransportKey> pressed;
+  final ValueNotifier<bool> autoFollow;
+  final NowPlayingNotes notes;
+  final Animation<double> page;
+  final NowPlayingDetailPage pageTarget;
+  final void Function(NowPlayingDetailPage page) onSelectPage;
+  final void Function(double dx, double width) onPageDrag;
+  final void Function(double velocity, double width) onPageDragEnd;
+  final VoidCallback onWrite;
+  final ValueChanged<double> onBarHeight;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final vm = ref.read(nowPlayingViewModelProvider.notifier);
+    final clock = ref.watch(playheadClockProvider);
+    final colors = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final strings = NowPlayingStrings.of(context);
+    final track = state.track;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: insets.left + DualPaneTokens.framePadding,
+        right: insets.right + DualPaneTokens.framePadding,
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final budget = resolveDualPaneBudget(
+            rowWidth: constraints.maxWidth,
+            contentHeight: constraints.maxHeight - insets.top,
+            metrics: metrics,
+            navBottom: insets.bottom,
+          );
+          final titleInBar = budget.titleForm == DualPaneTitleForm.topBar;
+          void openAlbum() {
+            final id = track.albumId;
+            if (id != null) _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id));
+          }
+
+          void openArtist() {
+            final id = track.artistId;
+            if (id != null) _leaveTo(controller, (nav) => DetailRoutes.openArtist(nav, id, name: track.artist));
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(top: insets.top + budget.frameTop, bottom: budget.frameBottom),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: DualPaneTokens.topBarHeight,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _TopBar(
+                          controller: controller,
+                          context0: state.context,
+                          onContextTap: _contextTarget(state.context, controller),
+                          onClose: controller.close,
+                          subline: titleInBar ? '${track.title ?? ''} - ${track.artist ?? ''}' : null,
+                          trailing: [
+                            IconButton(
+                              tooltip: strings.queueTitle,
+                              onPressed: () {
+                                YoinHaptics.contextClick();
+                                showQueueSheet(context, onSkip: vm.skipTo);
+                              },
+                              icon: Icon(YoinSymbols.queue, color: colors.onSurfaceVariant),
+                            ),
+                            IconButton(
+                              tooltip: strings.pillWrite,
+                              onPressed: () {
+                                YoinHaptics.contextClick();
+                                onWrite();
+                              },
+                              icon: Icon(YoinSymbols.editNote, color: colors.onSurfaceVariant),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: budget.barGap),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // LEFT — passive.
+                      SizedBox(
+                        width: budget.slot,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              height: budget.cover,
+                              child: Row(
+                                children: [
+                                  FlightSlot(
+                                    element: FlightElement.cover,
+                                    pill: false,
+                                    child: SizedBox.square(
+                                      dimension: budget.cover,
+                                      child: _StageCover(
+                                        state: state,
+                                        detail: const AlwaysStoppedAnimation(0),
+                                        requestEdge: budget.cover,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: DualPaneTokens.ratingSide - DualPaneTokens.ratingColumn),
+                                  SizedBox(
+                                    width: DualPaneTokens.ratingColumn,
+                                    child: Column(
+                                      children: [
+                                        Expanded(
+                                          child: RatingSlider(
+                                            rating: state.rating,
+                                            songKey: state.songKey,
+                                            onCommit: vm.commitRating,
+                                          ),
+                                        ),
+                                        if (state.canFavorite) ...[
+                                          const SizedBox(height: NowPlayingTokens.ratingToHeartGap - 2),
+                                          FavoriteHeart(starred: state.isStarred, onToggle: vm.toggleFavorite),
+                                        ],
+                                        const SizedBox(height: NowPlayingTokens.heartBottomGap - 2),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: budget.coverToTransport),
+                            // The transport pads itself by the column padding: let it
+                            // overhang so its controls span exactly the stack.
+                            SizedBox(
+                              width: budget.slot,
+                              height: dualPaneTransportHeight(metrics),
+                              child: OverflowBox(
+                                alignment: Alignment.topCenter,
+                                minWidth: budget.slot + 2 * NowPlayingTokens.columnPadding,
+                                maxWidth: budget.slot + 2 * NowPlayingTokens.columnPadding,
+                                child: TransportControls(
+                                  isPlaying: state.isPlaying,
+                                  isWavePlaying: state.isWavePlaying,
+                                  playMode: state.playMode,
+                                  clock: clock,
+                                  durationMs: state.durationMs,
+                                  labelsUnder: budget.slot < transportLabelsInlineMinWidth,
+                                  waveVisible: true,
+                                  onPlayPause: vm.togglePlayPause,
+                                  onNext: vm.next,
+                                  onPrevious: vm.previous,
+                                  onSetPlayMode: vm.setPlayMode,
+                                  showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
+                                  onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
+                                  onSeek: vm.seekToFraction,
+                                  pressed: pressed,
+                                ),
+                              ),
+                            ),
+                            const Spacer(),
+                            if (!titleInBar) ...[
+                              SizedBox(height: budget.transportToTitle),
+                              GestureDetector(
+                                onTap: track.artistId == null ? null : openArtist,
+                                child: Text(
+                                  track.artist ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.titleMedium!.copyWith(color: colors.onSurfaceVariant),
+                                ),
+                              ),
+                              const SizedBox(height: DualPaneTokens.titleLineGap),
+                              GestureDetector(
+                                onTap: track.albumId == null ? null : openAlbum,
+                                child: budget.titleForm == DualPaneTitleForm.twoLines
+                                    ? Text(
+                                        track.title ?? '',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: text.headlineMedium!.copyWith(color: colors.onSurface),
+                                      )
+                                    : Marquee(
+                                        text: track.title ?? '',
+                                        style: text.headlineMedium!.copyWith(color: colors.onSurface),
+                                      ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: DualPaneTokens.columnGap),
+                      // RIGHT — always expanded: tabs, pager, the page's tools.
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SizedBox(
+                              height: NowPlayingTokens.tabRowNominal,
+                              child: StageTabs(
+                                selected: pageTarget,
+                                detail: const AlwaysStoppedAnimation(0),
+                                onSelect: onSelectPage,
+                              ),
+                            ),
+                            const SizedBox(height: DualPaneTokens.rightGap),
+                            Expanded(
+                              child: _PagerSurface(
+                                page: page,
+                                swipe: true,
+                                onDrag: onPageDrag,
+                                onDragEnd: onPageDragEnd,
+                                lyrics: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                                  child: LyricsView(
+                                    mode: LyricsListMode.full,
+                                    lyrics: state.lyrics,
+                                    songKey: state.songKey,
+                                    clock: clock,
+                                    onSeek: vm.seekTo,
+                                    title: track.title,
+                                    artist: track.artist,
+                                    autoFollow: autoFollow,
+                                    windowTop:
+                                        insets.top +
+                                        budget.frameTop +
+                                        DualPaneTokens.topBarHeight +
+                                        budget.barGap +
+                                        NowPlayingTokens.tabRowNominal +
+                                        DualPaneTokens.rightGap,
+                                  ),
+                                ),
+                                note: NotePage(notes: notes, clock: clock),
+                              ),
+                            ),
+                            const SizedBox(height: DualPaneTokens.rightGap),
+                            _DualTools(
+                              page: page,
+                              autoFollow: autoFollow,
+                              notes: notes,
+                              clock: clock,
+                              onBarHeight: onBarHeight,
+                              barHeight: barHeight,
+                              bottom: insets.bottom,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The right column's foot, paged with the pager: the Recenter key under
+/// Lyrics, the write bar under Note.
+class _DualTools extends StatelessWidget {
+  const _DualTools({
+    required this.page,
+    required this.autoFollow,
+    required this.notes,
+    required this.clock,
+    required this.onBarHeight,
+    required this.barHeight,
+    required this.bottom,
+  });
+
+  final Animation<double> barHeight;
+  final Animation<double> page;
+  final ValueNotifier<bool> autoFollow;
+  final NowPlayingNotes notes;
+  final PlayheadClock clock;
+  final ValueChanged<double> onBarHeight;
+  final double bottom;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(bottom: bottom),
+    child: LayoutBuilder(
+      builder: (context, constraints) => AnimatedBuilder(
+        animation: Listenable.merge([page, barHeight]),
+        builder: (context, _) {
+          final p = page.value.clamp(0.0, 1.0);
+          final width = constraints.maxWidth;
+          // The open write bar grows the slot on the Note page.
+          final bar = barHeight.value + NowPlayingNoteTokens.barTopGap;
+          final height = DualPaneTokens.accessoryHeight + p * math.max(0.0, bar - DualPaneTokens.accessoryHeight);
+          return SizedBox(
+            height: height,
+            child: ClipRect(
+              child: Stack(
+                fit: StackFit.expand,
+                alignment: AlignmentDirectional.bottomStart,
+                children: [
+                  _PagerPage(
+                    offset: -p * width,
+                    shown: p < 0.999,
+                    active: p < 0.5,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                      child: Align(
+                        alignment: AlignmentDirectional.bottomStart,
+                        child: _RecenterKey(autoFollow: autoFollow),
+                      ),
+                    ),
+                  ),
+                  _PagerPage(
+                    offset: (1 - p) * width,
+                    shown: p > 0.001,
+                    active: p >= 0.5,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                      child: Align(
+                        alignment: AlignmentDirectional.bottomStart,
+                        child: NoteWriteBar(notes: notes, clock: clock, onNaturalHeight: onBarHeight),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ),
+  );
 }
