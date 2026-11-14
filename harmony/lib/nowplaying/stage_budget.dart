@@ -16,6 +16,7 @@ final class StageMetrics {
     this.activeLyricLine = 24,
     this.inactiveLyricLine = 20,
     this.timeLabelLine = 20,
+    this.tabTextLine = 20,
   });
 
   /// titleMedium line (the artist, font × 0.9, line height kept).
@@ -31,6 +32,9 @@ final class StageMetrics {
   /// labelLarge, the time labels when they drop under the wave.
   final double timeLabelLine;
 
+  /// labelLarge, the compact text tabs (Lyrics | Note).
+  final double tabTextLine;
+
   @override
   bool operator ==(Object other) =>
       other is StageMetrics &&
@@ -38,10 +42,12 @@ final class StageMetrics {
       other.heroTitleLine == heroTitleLine &&
       other.activeLyricLine == activeLyricLine &&
       other.inactiveLyricLine == inactiveLyricLine &&
-      other.timeLabelLine == timeLabelLine;
+      other.timeLabelLine == timeLabelLine &&
+      other.tabTextLine == tabTextLine;
 
   @override
-  int get hashCode => Object.hash(heroArtistLine, heroTitleLine, activeLyricLine, inactiveLyricLine, timeLabelLine);
+  int get hashCode =>
+      Object.hash(heroArtistLine, heroTitleLine, activeLyricLine, inactiveLyricLine, timeLabelLine, tabTextLine);
 }
 
 typedef _T = NowPlayingTokens;
@@ -77,8 +83,8 @@ final class StageColumnBudget {
   final double cover;
   final double coverGap;
 
-  /// The text-tab row and its gap; 0 in v1 (no About / Note tabs) but kept
-  /// so they can return without a rewrite.
+  /// The compact text-tab row (Lyrics | Note) and its gap; 0 when the lyrics
+  /// fold to one line.
   final double tabs;
   final double tabGap;
 
@@ -194,8 +200,9 @@ StageColumnBudget resolveStageColumnBudget({
   final accessoryMin = _T.pillHeight + _T.accessoryAirMin;
   var heroOneLine = false;
   var frame = LyricFrame.list;
-  const tabs = 0.0;
-  const tabGap = 0.0;
+  var tabs = math.max(_T.tabRowNominal, metrics.tabTextLine + _T.tabRowAir);
+  final tabsMin = metrics.tabTextLine;
+  var tabGap = _T.tabGapNominal;
 
   final listMin = minLyricWindow(metrics);
   const oneLineMin = _T.oneLineRowNominal + _T.oneLineAirMin;
@@ -217,6 +224,7 @@ StageColumnBudget resolveStageColumnBudget({
   accessory = squeeze(listNeeds, accessory, accessoryMin);
   topBar = squeeze(listNeeds, topBar, _T.topBarMin);
   coverGap = squeeze(listNeeds, coverGap, _T.coverGapMin);
+  tabs = squeeze(listNeeds, tabs, tabsMin);
 
   // (3) hero on one row.
   if (deficit(listNeeds) > 0) {
@@ -231,6 +239,9 @@ StageColumnBudget resolveStageColumnBudget({
   if (deficit(listNeeds) > 0) {
     frame = LyricFrame.oneLine;
     need = oneLineMin;
+    // The one-line row is not a pager page: no tab row over it.
+    tabs = 0;
+    tabGap = 0;
   }
 
   // (5) cover shrinks to its floor, then hides.
@@ -247,6 +258,8 @@ StageColumnBudget resolveStageColumnBudget({
   topBar = px(topBar);
   cover = px(cover);
   coverGap = px(coverGap);
+  tabs = px(tabs);
+  tabGap = px(tabGap);
   controls = px(controls);
   hero = px(hero);
   accessory = px(accessory);
@@ -273,13 +286,16 @@ StageColumnBudget resolveStageColumnBudget({
 /// The Expanded lyrics stage's slots (stage item 12), interpolated by the
 /// detail progress [d] from [rest]: the cover row, controls and the cover
 /// gap's excess give their height to the lyric viewport; the top bar returns
-/// to 56 and the accessory row holds the lyric tools.
+/// to 56, the text tabs grow into the tab group row and the accessory row
+/// holds the page's tools.
 @immutable
 final class StageSlots {
   const StageSlots({
     required this.topBar,
     required this.coverRow,
     required this.coverGap,
+    required this.tabs,
+    required this.tabGap,
     required this.lyrics,
     required this.controls,
     required this.hero,
@@ -289,6 +305,8 @@ final class StageSlots {
   final double topBar;
   final double coverRow;
   final double coverGap;
+  final double tabs;
+  final double tabGap;
   final double lyrics;
   final double controls;
   final double hero;
@@ -300,14 +318,21 @@ final class StageSlots {
     final topBar = l(rest.topBar, NowPlayingTokens.topBarNominal);
     final coverRow = l(rest.cover, 0);
     final coverGap = l(rest.coverGap, NowPlayingTokens.coverGapMin);
+    final tabs = l(rest.tabs, NowPlayingTokens.expandedTabRow);
+    final tabGap = l(rest.tabGap, NowPlayingTokens.expandedTabGap);
     final controls = l(rest.controls, 0);
     final accessory = l(rest.accessory, NowPlayingTokens.accessorySlotNominal);
     final hero = rest.hero;
-    final lyrics = math.max(0.0, rest.height - topBar - coverRow - coverGap - controls - hero - accessory);
+    final lyrics = math.max(
+      0.0,
+      rest.height - topBar - coverRow - coverGap - tabs - tabGap - controls - hero - accessory,
+    );
     return StageSlots(
       topBar: topBar,
       coverRow: coverRow,
       coverGap: coverGap,
+      tabs: tabs,
+      tabGap: tabGap,
       lyrics: lyrics,
       controls: controls,
       hero: hero,

@@ -70,7 +70,7 @@ class NowPlayingStrings {
 
   // Queue.
   String get pillQueue => _zh ? '队列' : 'Queue'; // np_pill_queue
-  String get pillNote => _zh ? '笔记' : 'Note'; // np_tab_note
+  String get pillWrite => _zh ? '写笔记' : 'Write'; // np_pill_write
   String get queueTitle => _zh ? '队列' : 'Queue'; // cmp_queue_title
   String get queuePlayingFrom => _zh ? '播放自' : 'Playing from'; // cmp_queue_playing_from
   String get queueSectionNow => _zh ? '正在播放' : 'Now playing'; // cmp_queue_section_now
@@ -80,6 +80,31 @@ class NowPlayingStrings {
   String get queueNextUp => _zh ? '接下来' : 'Next up'; // cmp_queue_next_up
   String get queueCdPlaying => _zh ? '正在播放' : 'Playing'; // cmp_queue_cd_playing
   String get queueCdPaused => _zh ? '已暂停' : 'Paused'; // cmp_queue_cd_paused
+
+  // Detail tabs (Android also has About, which needs Gemini: not on HarmonyOS).
+  String get tabLyrics => _zh ? '歌词' : 'Lyrics'; // np_tab_lyrics / np_text_tab_lyrics
+  String get tabNote => _zh ? '笔记' : 'Note'; // np_tab_note / np_text_tab_note
+
+  // Notes.
+  String get noteTapToWrite => _zh ? '写笔记' : 'Write'; // np_note_tap_to_write
+  String noteCount(int n) => _zh ? '$n 条笔记' : (n == 1 ? '$n note' : '$n notes'); // np_note_count
+  String notePlayFrom(String at) => _zh ? '从 $at 播放' : 'Play from $at'; // np_cd_note_play_from
+  String get noteActions => _zh ? '笔记操作' : 'Note actions'; // np_cd_note_actions
+  String get noteRealign => _zh ? '对齐至当前时刻' : 'Align to now'; // np_note_realign
+  String get noteDelete => _zh ? '删除' : 'Delete'; // np_note_delete
+  String get noteDeleted => _zh ? '已删除' : 'Deleted'; // np_note_deleted
+  String get noteUndo => _zh ? '撤销' : 'Undo'; // np_note_undo
+  String get noteWriting => _zh ? '正在写…' : 'Writing…'; // np_note_writing
+  String get noteEmpty => _zh ? '暂无笔记' : 'No notes yet'; // np_note_empty
+  String get noteSortTimeline => _zh ? '时间线' : 'Timeline'; // cmp_note_sort_timeline
+  String get noteSortCreated => _zh ? '创建时间' : 'Created'; // cmp_note_sort_created
+  String get notePlaceholder => _zh ? '写笔记' : 'Write a note'; // cmp_note_placeholder / cmp_note_write_bar_cd
+  String get noteStampWrite => _zh ? '写笔记' : 'Write a note'; // cmp_note_stamp_cd_write
+  String get noteStampRealign => _zh ? '对齐至当前时刻' : 'Align to now'; // cmp_note_stamp_cd_realign
+  String get noteSave => _zh ? '保存' : 'Save'; // cmp_note_save
+
+  /// The journal order's date line (cmp_note_just_now / cmp_note_*_ago).
+  bool get zh => _zh;
 
   // Idle.
   String get emptyNothingPlaying => _zh ? '未在播放' : 'Nothing playing'; // np_empty_nothing_playing

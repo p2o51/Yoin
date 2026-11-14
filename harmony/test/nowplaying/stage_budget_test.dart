@@ -11,10 +11,14 @@ void main() {
     final b = resolveStageColumnBudget(width: 412, height: 828);
     expect(b.cover, 296);
     expect(b.topBar, 56);
-    expect(b.controls, 148);
+    // The Lyrics | Note text tabs (30 + 4) take the list down to its two
+    // clean lines; the 2 dp still missing comes out of the controls' air.
+    expect(b.tabs, 30);
+    expect(b.tabGap, 4);
+    expect(b.controls, 146);
     expect(b.hero, 86);
     expect(b.accessory, 68);
-    expect(b.lyrics, 158);
+    expect(b.lyrics, 126);
     expect(b.lyricFrame, LyricFrame.list);
     expect(b.heroOneLine, isFalse);
     expect(b.labelsUnderWave, isFalse);
@@ -37,6 +41,7 @@ void main() {
     final b = resolveStageColumnBudget(width: 412, height: 600);
     expect(b.heroOneLine, isTrue);
     expect(b.lyricFrame, LyricFrame.oneLine);
+    expect(b.tabs + b.tabGap, 0, reason: 'the one-line row is not a pager page: no tab row');
     expect(b.cover, greaterThanOrEqualTo(NowPlayingTokens.coverFloor));
     expect(_sum(b), closeTo(600, 0.01));
   });
@@ -81,7 +86,20 @@ void main() {
     expect(full.coverRow, 0);
     expect(full.controls, 0);
     expect(full.hero, rest.hero);
-    expect(full.topBar + full.coverRow + full.coverGap + full.lyrics + full.controls + full.hero + full.accessory, 828);
+    expect(full.tabs, NowPlayingTokens.expandedTabRow);
+    expect(full.tabGap, NowPlayingTokens.expandedTabGap);
+    expect(
+      full.topBar +
+          full.coverRow +
+          full.coverGap +
+          full.tabs +
+          full.tabGap +
+          full.lyrics +
+          full.controls +
+          full.hero +
+          full.accessory,
+      828,
+    );
     expect(full.lyrics, greaterThan(rest.lyrics + rest.cover));
     final half = StageSlots.lerp(rest, 0.5);
     expect(half.coverRow, rest.cover / 2);
@@ -89,7 +107,7 @@ void main() {
 
   test('should_roundSlotsToDevicePixels_when_fractionalDensity', () {
     final b = resolveStageColumnBudget(width: 411.4, height: 827.3, devicePixelRatio: 2.625);
-    for (final v in [b.topBar, b.cover, b.coverGap, b.controls, b.hero, b.accessory, b.lyrics]) {
+    for (final v in [b.topBar, b.cover, b.coverGap, b.tabs, b.tabGap, b.controls, b.hero, b.accessory, b.lyrics]) {
       expect((v * 2.625 - (v * 2.625).roundToDouble()).abs(), lessThan(1e-6));
     }
   });

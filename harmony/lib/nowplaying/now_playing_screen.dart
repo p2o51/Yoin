@@ -6,9 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../app/providers.dart';
+import '../data/memory/memory_store.dart';
+import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
-import '../memories/song_notes_sheet.dart';
 import '../playback/playback_context.dart';
+import '../playback/playhead.dart';
 import '../shell/shell_state.dart';
 import '../theme/motion.dart';
 import '../theme/playback_theme.dart';
@@ -19,15 +22,20 @@ import 'haptics.dart';
 import 'lyrics_view.dart';
 import 'marquee.dart';
 import 'now_playing_background.dart';
+import 'note_compact_pane.dart';
+import 'note_controller.dart';
+import 'note_logic.dart';
+import 'note_page.dart';
+import 'note_write_bar.dart';
 import 'now_playing_view_model.dart';
 import 'nowplaying_strings.dart';
 import 'overlay_controller.dart';
-import 'player_snapshot.dart';
 import 'play_mode_cycle.dart';
 import 'playhead_clock.dart';
 import 'queue_sheet.dart';
 import 'rating_and_heart.dart';
 import 'stage_budget.dart';
+import 'stage_tabs.dart';
 import 'transport.dart';
 
 double _smooth(double edge0, double edge1, double x) {
@@ -66,16 +74,144 @@ class NowPlayingScreen extends ConsumerStatefulWidget {
   ConsumerState<NowPlayingScreen> createState() => _NowPlayingScreenState();
 }
 
-class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
+class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with TickerProviderStateMixin {
   final ValueNotifier<TransportKey> _pressed = ValueNotifier(TransportKey.none);
   final ValueNotifier<bool> _autoFollow = ValueNotifier(true);
   LyricFrame? _lastFrame;
 
+  /// The song's notes, the draft and delete-with-undo (one per player).
+  late final NowPlayingNotes _notes = NowPlayingNotes(
+    loadStore: () => ref.read(memoryStoreProvider.future),
+    positionMs: () => ref.read(playheadClockProvider).positionMs(),
+    nowMs: () => ref.read(playbackClockProvider).wallMs(),
+    seekTo: (ms) => ref.read(nowPlayingViewModelProvider.notifier).seekTo(ms),
+  );
+
+  /// The detail pager's ONE progress (0 = Lyrics, 1 = Note), shared by the
+  /// Compact window, the Expanded page, the tabs and the accessory row; fed
+  /// by the tabs, the horizontal swipe and the Write pill.
+  late final OverlaySpring _page = OverlaySpring(vsync: this, initial: 0);
+  NowPlayingDetailPage _pageTarget = NowPlayingDetailPage.lyrics;
+
+  /// Keyboard up over the Expanded Note page: the hero steps aside (0 → 1).
+  late final SpringValue _heroYield = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
+
+  /// The write bar's height; the accessory slot grows with it.
+  late final SpringValue _barHeight = SpringValue(
+    vsync: this,
+    initial: NowPlayingNoteTokens.barIdleHeight,
+    spring: YoinSprings.defaultSpatial,
+  );
+  bool _barOpen = false;
+  MediaId? _scheduledTrack;
+  MemoryStore? _lastStore;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onStage);
+    widget.controller.detail.animation.addListener(_gateFocus);
+    _page.animation.addListener(_gateFocus);
+    _notes.addListener(_onNotes);
+  }
+
+  @override
+  void didUpdateWidget(NowPlayingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onStage);
+      oldWidget.controller.detail.animation.removeListener(_gateFocus);
+      widget.controller.addListener(_onStage);
+      widget.controller.detail.animation.addListener(_gateFocus);
+    }
+  }
+
   @override
   void dispose() {
+    widget.controller.removeListener(_onStage);
+    widget.controller.detail.animation.removeListener(_gateFocus);
+    _notes.removeListener(_onNotes);
+    _notes.dispose();
+    _page.dispose();
+    _heroYield.dispose();
+    _barHeight.dispose();
     _pressed.dispose();
     _autoFollow.dispose();
     super.dispose();
+  }
+
+  bool get _reduced => MediaQuery.disableAnimationsOf(context);
+
+  /// Back to Compact (or the player closing) ends the writing.
+  void _onStage() {
+    if (widget.controller.stage != NowPlayingStage.expanded && _notes.focused) _notes.focus.unfocus();
+  }
+
+  /// The Write pill's keyboard waits for the page to land: the stage (nearly)
+  /// expanded and the pager settled on Note.
+  void _gateFocus() {
+    if (!_notes.pendingFocus) return;
+    if (widget.controller.detail.value >= noteWriteFocusStageProgress &&
+        _pageTarget == NowPlayingDetailPage.note &&
+        (_page.value - 1).abs() < 0.02) {
+      _notes.takePendingFocus();
+    }
+  }
+
+  void _onNotes() {
+    if (_notes.open != _barOpen && mounted) setState(() => _barOpen = _notes.open);
+  }
+
+  void _selectPage(NowPlayingDetailPage page, {double velocity = 0}) {
+    if (page != _pageTarget) {
+      // Leaving the Note page puts the pen down.
+      if (page != NowPlayingDetailPage.note && _notes.focused) _notes.focus.unfocus();
+      setState(() => _pageTarget = page);
+    }
+    final target = page.index.toDouble();
+    if (_reduced) {
+      _page.snapTo(target);
+    } else {
+      _page.animateTo(target, YoinSprings.defaultSpatial, velocity: velocity);
+    }
+  }
+
+  void _onPageDrag(double dx, double width) {
+    if (width <= 0) return;
+    _page.snapTo((_page.value - dx / width).clamp(0.0, 1.0));
+  }
+
+  void _onPageDragEnd(double velocityPx, double width) {
+    final v = width <= 0 ? 0.0 : -velocityPx / width;
+    final settled = v.abs() > 0.4 ? (v > 0 ? 1 : 0) : _page.value.round();
+    _selectPage(NowPlayingDetailPage.values[settled.clamp(0, 1)], velocity: v);
+  }
+
+  /// The Write pill: the Note page, expanded, the keyboard once it has landed.
+  void _write() {
+    _notes.requestWriting();
+    _selectPage(NowPlayingDetailPage.note);
+    widget.controller.expandStage();
+    _gateFocus();
+  }
+
+  void _onBarHeight(double height) {
+    if (!mounted) return;
+    if (_reduced) {
+      _barHeight.snapTo(height);
+    } else {
+      _barHeight.animateTo(height);
+    }
+  }
+
+  /// The song on stage feeds the notes after the frame (not during build).
+  void _syncNotes(NowPlayingUiState state) {
+    final track = state is NowPlayingContent ? state.track : null;
+    if (track?.id == _scheduledTrack && _notes.current?.title == (track?.title ?? '')) return;
+    _scheduledTrack = track?.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _notes.setCurrent(track == null ? null : NoteTarget.of(track));
+    });
   }
 
   StageMetrics _metrics(BuildContext context) {
@@ -95,6 +231,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(nowPlayingViewModelProvider);
+    _syncNotes(state);
+    ref.listen(memoryStoreProvider, (_, next) {
+      final store = next.value;
+      if (!next.hasValue || identical(store, _lastStore)) return;
+      final hadStore = _lastStore != null;
+      _lastStore = store;
+      if (hadStore) _notes.accountChanged();
+    });
     final field = ref.watch(playbackThemeProvider.select((t) => t.field));
     final colors = Theme.of(context).colorScheme;
     final padding = MediaQuery.paddingOf(context);
@@ -105,6 +249,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       math.max(padding.bottom, NowPlayingTokens.columnBottomFloor),
     );
     final strings = NowPlayingStrings.of(context);
+    // Rebuild on stage changes (the keyboard lift only applies to Expanded).
+    NowPlayingOverlayScope.maybeOf(context);
+    final expanded = widget.controller.stage == NowPlayingStage.expanded;
+    final noteStage = expanded && _pageTarget == NowPlayingDetailPage.note;
+    // The keyboard over the Expanded Note page: the column ends on it (the
+    // nav bar's share already cleared by [insets]).
+    final imeLift = noteStage ? math.max(0.0, MediaQuery.viewInsetsOf(context).bottom - insets.bottom) : 0.0;
+    final yieldHero = noteStage && _barOpen && imeLift > 0;
+    if (_reduced) {
+      _heroYield.snapTo(yieldHero ? 1 : 0);
+    } else {
+      _heroYield.animateTo(yieldHero ? 1 : 0);
+    }
     return ColoredBox(
       color: colors.surface,
       child: Stack(
@@ -137,6 +294,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                     pressed: _pressed,
                     autoFollow: _autoFollow,
                     windowTop: insets.top,
+                    notes: _notes,
+                    page: _page.animation,
+                    pageTarget: _pageTarget,
+                    onSelectPage: _selectPage,
+                    onPageDrag: _onPageDrag,
+                    onPageDragEnd: _onPageDragEnd,
+                    onWrite: _write,
+                    heroYield: _heroYield.animation,
+                    barHeight: _barHeight.animation,
+                    onBarHeight: _onBarHeight,
+                    imeLift: imeLift,
                   );
                 },
               ),
@@ -148,20 +316,45 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   }
 }
 
-enum _Slot { topBar, cover, rating, lyricsWindow, lyricsFull, controls, hero, accessory }
+enum _Slot { topBar, cover, rating, tabs, lyricsWindow, lyricsFull, controls, hero, accessory }
 
 class _StageDelegate extends MultiChildLayoutDelegate {
-  _StageDelegate(this.budget, this.detail) : super(relayout: detail);
+  _StageDelegate({
+    required this.budget,
+    required this.detail,
+    required this.page,
+    required this.heroYield,
+    required this.barHeight,
+    required this.imeLift,
+  }) : super(relayout: Listenable.merge([detail, page, heroYield, barHeight]));
 
   final StageColumnBudget budget;
   final Animation<double> detail;
 
+  /// The pager (0 Lyrics → 1 Note): the write bar's extra height is the Note page's.
+  final Animation<double> page;
+
+  /// The hero stepping aside for the keyboard (0 → 1).
+  final Animation<double> heroYield;
+  final Animation<double> barHeight;
+
+  /// The keyboard's height over the column's bottom inset (Expanded Note only).
+  final double imeLift;
+
   @override
   void performLayout(Size size) {
     final d = detail.value.clamp(0.0, 1.0);
+    final p = page.value.clamp(0.0, 1.0);
+    final y = heroYield.value.clamp(0.0, 1.0);
     final s = StageSlots.lerp(budget, d);
     final full = StageSlots.lerp(budget, 1);
     final w = size.width;
+    // The open write bar grows the accessory slot (Expanded, Note page).
+    final bar = barHeight.value + NowPlayingNoteTokens.barTopGap;
+    final barExtra = d * p * math.max(0.0, bar - s.accessory);
+    final fullBarExtra = p * math.max(0.0, bar - full.accessory);
+    final heroH = s.hero * (1 - y);
+    final accessoryH = s.accessory + barExtra;
 
     layoutChild(_Slot.topBar, BoxConstraints.tight(Size(w, s.topBar)));
     positionChild(_Slot.topBar, Offset.zero);
@@ -187,29 +380,43 @@ class _StageDelegate extends MultiChildLayoutDelegate {
       );
     }
 
-    final lyricsTop = s.topBar + s.coverRow + s.coverGap;
-    layoutChild(_Slot.lyricsWindow, BoxConstraints.tight(Size(w, math.max(0, s.lyrics))));
+    final tabsTop = s.topBar + s.coverRow + s.coverGap;
+    if (hasChild(_Slot.tabs)) {
+      layoutChild(_Slot.tabs, BoxConstraints.tight(Size(w, math.max(0, s.tabs))));
+      positionChild(_Slot.tabs, Offset(0, tabsTop));
+    }
+
+    final lyricsTop = tabsTop + s.tabs + s.tabGap;
+    final lyrics = math.max(0.0, size.height - imeLift - lyricsTop - s.controls - heroH - accessoryH);
+    layoutChild(_Slot.lyricsWindow, BoxConstraints.tight(Size(w, lyrics)));
     positionChild(_Slot.lyricsWindow, Offset(0, lyricsTop));
     if (hasChild(_Slot.lyricsFull)) {
       // Laid out at its FINAL height always; only clipped / moved during the reshape.
-      layoutChild(_Slot.lyricsFull, BoxConstraints.tight(Size(w, math.max(0, full.lyrics))));
-      positionChild(_Slot.lyricsFull, Offset(0, lyricsTop + (s.lyrics - full.lyrics)));
+      final fullH = math.max(0.0, full.lyrics - imeLift - fullBarExtra + full.hero * y);
+      layoutChild(_Slot.lyricsFull, BoxConstraints.tight(Size(w, fullH)));
+      positionChild(_Slot.lyricsFull, Offset(0, lyricsTop + (lyrics - fullH)));
     }
 
-    final controlsTop = lyricsTop + s.lyrics;
+    final controlsTop = lyricsTop + lyrics;
     layoutChild(_Slot.controls, BoxConstraints.tightFor(width: w, height: budget.controls));
     positionChild(_Slot.controls, Offset(0, controlsTop));
 
     final heroTop = controlsTop + s.controls;
-    layoutChild(_Slot.hero, BoxConstraints.tight(Size(w, budget.hero)));
+    layoutChild(_Slot.hero, BoxConstraints.tight(Size(w, heroH)));
     positionChild(_Slot.hero, Offset(0, heroTop));
 
-    layoutChild(_Slot.accessory, BoxConstraints.tight(Size(w, s.accessory)));
-    positionChild(_Slot.accessory, Offset(0, heroTop + s.hero));
+    layoutChild(_Slot.accessory, BoxConstraints.tight(Size(w, accessoryH)));
+    positionChild(_Slot.accessory, Offset(0, heroTop + heroH));
   }
 
   @override
-  bool shouldRelayout(_StageDelegate old) => old.budget != budget || old.detail != detail;
+  bool shouldRelayout(_StageDelegate old) =>
+      old.budget != budget ||
+      old.detail != detail ||
+      old.page != page ||
+      old.heroYield != heroYield ||
+      old.barHeight != barHeight ||
+      old.imeLift != imeLift;
 }
 
 class _Stage extends ConsumerWidget {
@@ -220,6 +427,17 @@ class _Stage extends ConsumerWidget {
     required this.pressed,
     required this.autoFollow,
     required this.windowTop,
+    required this.notes,
+    required this.page,
+    required this.pageTarget,
+    required this.onSelectPage,
+    required this.onPageDrag,
+    required this.onPageDragEnd,
+    required this.onWrite,
+    required this.heroYield,
+    required this.barHeight,
+    required this.onBarHeight,
+    required this.imeLift,
   });
 
   final StageColumnBudget budget;
@@ -228,6 +446,17 @@ class _Stage extends ConsumerWidget {
   final ValueNotifier<TransportKey> pressed;
   final ValueNotifier<bool> autoFollow;
   final double windowTop;
+  final NowPlayingNotes notes;
+  final Animation<double> page;
+  final NowPlayingDetailPage pageTarget;
+  final void Function(NowPlayingDetailPage page) onSelectPage;
+  final void Function(double dx, double width) onPageDrag;
+  final void Function(double velocity, double width) onPageDragEnd;
+  final VoidCallback onWrite;
+  final Animation<double> heroYield;
+  final Animation<double> barHeight;
+  final ValueChanged<double> onBarHeight;
+  final double imeLift;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -239,9 +468,18 @@ class _Stage extends ConsumerWidget {
     final compact = _Mapped(detail, (d) => (1 - d).clamp(0.0, 1.0));
     final expandedStage = controller.stage == NowPlayingStage.expanded;
     final track = state.track;
+    // The one-line lyric row is not a pager page: no swipe over it.
+    final compactSwipe = budget.lyricFrame == LyricFrame.list;
 
     return CustomMultiChildLayout(
-      delegate: _StageDelegate(budget, detail),
+      delegate: _StageDelegate(
+        budget: budget,
+        detail: detail,
+        page: page,
+        heroYield: heroYield,
+        barHeight: barHeight,
+        imeLift: imeLift,
+      ),
       children: [
         LayoutId(
           id: _Slot.topBar,
@@ -294,20 +532,31 @@ class _Stage extends ConsumerWidget {
             ),
           ),
         LayoutId(
+          id: _Slot.tabs,
+          child: StageTabs(selected: pageTarget, detail: detail, onSelect: onSelectPage),
+        ),
+        LayoutId(
           id: _Slot.lyricsWindow,
           child: IgnorePointer(
             ignoring: expandedStage,
             child: FadeTransition(
               opacity: compact,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
+              child: _PagerSurface(
+                page: page,
+                swipe: compactSwipe,
+                onDrag: onPageDrag,
+                onDragEnd: onPageDragEnd,
                 onTap: controller.expandStage,
-                child: LyricsView(
+                lyrics: LyricsView(
                   mode: LyricsListMode.window,
                   lyrics: state.lyrics,
                   songKey: state.songKey,
                   clock: clock,
                   onSeek: vm.seekTo,
+                ),
+                note: ListenableBuilder(
+                  listenable: notes,
+                  builder: (context, _) => NoteCompactPane(notes: notes.notes, clock: clock),
                 ),
               ),
             ),
@@ -325,8 +574,12 @@ class _Stage extends ConsumerWidget {
                   child: Transform.scale(scale: 0.96 + 0.04 * d, child: child),
                 );
               },
-              child: ClipRect(
-                child: LyricsView(
+              child: _PagerSurface(
+                page: page,
+                swipe: expandedStage,
+                onDrag: onPageDrag,
+                onDragEnd: onPageDragEnd,
+                lyrics: LyricsView(
                   mode: LyricsListMode.full,
                   lyrics: state.lyrics,
                   songKey: state.songKey,
@@ -335,8 +588,14 @@ class _Stage extends ConsumerWidget {
                   title: track.title,
                   artist: track.artist,
                   autoFollow: autoFollow,
-                  windowTop: windowTop + NowPlayingTokens.topBarNominal + NowPlayingTokens.coverGapMin,
+                  windowTop:
+                      windowTop +
+                      NowPlayingTokens.topBarNominal +
+                      NowPlayingTokens.coverGapMin +
+                      NowPlayingTokens.expandedTabRow +
+                      NowPlayingTokens.expandedTabGap,
                 ),
+                note: NotePage(notes: notes, clock: clock),
               ),
             ),
           ),
@@ -378,25 +637,39 @@ class _Stage extends ConsumerWidget {
         ),
         LayoutId(
           id: _Slot.hero,
-          child: _Hero(
-            title: track.title ?? '',
-            artist: track.artist ?? '',
-            onTitleTap: switch (track.albumId) {
-              final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id)),
-              null => null,
-            },
-            onArtistTap: switch (track.artistId) {
-              final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openArtist(nav, id, name: track.artist)),
-              null => null,
-            },
-            isPlaying: state.isPlaying,
-            pressed: pressed,
-            oneLine: budget.heroOneLine,
+          child: _HeroYield(
+            heroYield: heroYield,
+            height: budget.hero,
+            child: _Hero(
+              title: track.title ?? '',
+              artist: track.artist ?? '',
+              onTitleTap: switch (track.albumId) {
+                final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id)),
+                null => null,
+              },
+              onArtistTap: switch (track.artistId) {
+                final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openArtist(nav, id, name: track.artist)),
+                null => null,
+              },
+              isPlaying: state.isPlaying,
+              pressed: pressed,
+              oneLine: budget.heroOneLine,
+            ),
           ),
         ),
         LayoutId(
           id: _Slot.accessory,
-          child: _Accessory(controller: controller, compact: compact, autoFollow: autoFollow, onSkip: vm.skipTo),
+          child: _Accessory(
+            controller: controller,
+            compact: compact,
+            autoFollow: autoFollow,
+            onSkip: vm.skipTo,
+            page: page,
+            notes: notes,
+            clock: clock,
+            onWrite: onWrite,
+            onBarHeight: onBarHeight,
+          ),
         ),
       ],
     );
@@ -489,9 +762,8 @@ class _StageCover extends StatelessWidget {
 /// The hero's horizontal breathing scale (title, artist): held > playing >
 /// paused, gentler under reduced motion. The shared flight lands on the
 /// same values so the hand-over to the real text doesn't jump.
-({double title, double artist}) heroRestScale({required bool playing, bool held = false, bool reduced = false}) =>
-    held
-    ?(title: reduced ? 1.02 : 1.05, artist: reduced ? 1.015 : 1.04)
+({double title, double artist}) heroRestScale({required bool playing, bool held = false, bool reduced = false}) => held
+    ? (title: reduced ? 1.02 : 1.05, artist: reduced ? 1.015 : 1.04)
     : playing
     ? (title: reduced ? 1.01 : 1.03, artist: reduced ? 1.008 : 1.02)
     : (title: reduced ? 0.99 : 0.97, artist: reduced ? 0.992 : 0.98);
@@ -778,23 +1050,146 @@ class _HeroState extends State<_Hero> with TickerProviderStateMixin {
   }
 }
 
-/// The accessory row: the Queue pill at rest, the Recenter key in Expanded.
+/// The hero stepping aside (yield 0 → 1): its slot shrinks, the content
+/// keeps its own height (clipped) and fades.
+class _HeroYield extends StatelessWidget {
+  const _HeroYield({required this.heroYield, required this.height, required this.child});
+
+  final Animation<double> heroYield;
+  final double height;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: heroYield,
+    child: child,
+    builder: (context, child) {
+      final y = heroYield.value.clamp(0.0, 1.0);
+      return IgnorePointer(
+        ignoring: y > 0.5,
+        child: ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.topCenter,
+            minHeight: height,
+            maxHeight: height,
+            child: Opacity(opacity: 1 - y, child: child),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// The detail pager's two pages side by side (Android HorizontalPager over
+/// Lyrics | Note), translated by the shared [page] progress; a horizontal
+/// swipe drags it 1:1 and settles with its velocity. The off-screen page
+/// takes no input.
+class _PagerSurface extends StatelessWidget {
+  const _PagerSurface({
+    required this.page,
+    required this.swipe,
+    required this.onDrag,
+    required this.onDragEnd,
+    required this.lyrics,
+    required this.note,
+    this.onTap,
+  });
+
+  final Animation<double> page;
+  final bool swipe;
+  final void Function(double dx, double width) onDrag;
+  final void Function(double velocity, double width) onDragEnd;
+  final Widget lyrics;
+  final Widget note;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          onHorizontalDragUpdate: swipe ? (d) => onDrag(d.delta.dx, width) : null,
+          onHorizontalDragEnd: swipe ? (d) => onDragEnd(d.velocity.pixelsPerSecond.dx, width) : null,
+          onHorizontalDragCancel: swipe ? () => onDragEnd(0, width) : null,
+          child: ClipRect(
+            child: AnimatedBuilder(
+              animation: page,
+              builder: (context, _) {
+                final p = page.value.clamp(0.0, 1.0);
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _PagerPage(offset: -p * width, shown: p < 0.999, active: p < 0.5, child: lyrics),
+                    _PagerPage(offset: (1 - p) * width, shown: p > 0.001, active: p >= 0.5, child: note),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PagerPage extends StatelessWidget {
+  const _PagerPage({required this.offset, required this.shown, required this.active, required this.child});
+
+  final double offset;
+  final bool shown;
+  final bool active;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Offstage(
+    offstage: !shown,
+    child: IgnorePointer(
+      ignoring: !active,
+      child: ExcludeSemantics(
+        excluding: !active,
+        child: Transform.translate(offset: Offset(offset, 0), child: child),
+      ),
+    ),
+  );
+}
+
+/// The accessory row: Queue and Write at rest; in Expanded the page's tools,
+/// paged with the detail pager — the Recenter key under Lyrics, the write
+/// bar under Note.
 class _Accessory extends StatelessWidget {
-  const _Accessory({required this.controller, required this.compact, required this.autoFollow, required this.onSkip});
+  const _Accessory({
+    required this.controller,
+    required this.compact,
+    required this.autoFollow,
+    required this.onSkip,
+    required this.page,
+    required this.notes,
+    required this.clock,
+    required this.onWrite,
+    required this.onBarHeight,
+  });
 
   final NowPlayingOverlayController controller;
   final Animation<double> compact;
   final ValueNotifier<bool> autoFollow;
   final ValueChanged<int> onSkip;
+  final Animation<double> page;
+  final NowPlayingNotes notes;
+  final PlayheadClock clock;
+  final VoidCallback onWrite;
+  final ValueChanged<double> onBarHeight;
 
   @override
   Widget build(BuildContext context) {
     final expanded = controller.stage == NowPlayingStage.expanded;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-      child: Stack(
-        children: [
-          Align(
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+          child: Align(
             alignment: AlignmentDirectional.bottomStart,
             child: IgnorePointer(
               ignoring: expanded,
@@ -809,19 +1204,11 @@ class _Accessory extends StatelessWidget {
                         showQueueSheet(context, onSkip: onSkip);
                       },
                     ),
-                    const SizedBox(width: 8),
-                    // The song's notes, pinned to the second (stands in for Android's Note page).
-                    Consumer(
-                      builder: (context, ref, _) {
-                        final track = ref.watch(playerSnapshotProvider.select((s) => s.track));
-                        return track == null
-                            ? const SizedBox.shrink()
-                            : _NotePill(
-                                onTap: () {
-                                  YoinHaptics.contextClick();
-                                  showSongNotesSheet(context, track);
-                                },
-                              );
+                    const SizedBox(width: NowPlayingTokens.pillGap),
+                    _WritePill(
+                      onTap: () {
+                        YoinHaptics.contextClick();
+                        onWrite();
                       },
                     ),
                   ],
@@ -829,23 +1216,67 @@ class _Accessory extends StatelessWidget {
               ),
             ),
           ),
-          if (expanded)
-            Align(
-              alignment: AlignmentDirectional.bottomStart,
+        ),
+        if (expanded || controller.detail.value > 0.01)
+          Positioned.fill(
+            child: IgnorePointer(
+              ignoring: !expanded,
               child: FadeTransition(
                 opacity: _Mapped(compact, (c) => (1 - c).clamp(0.0, 1.0)),
-                child: _RecenterKey(autoFollow: autoFollow),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => AnimatedBuilder(
+                    animation: page,
+                    builder: (context, _) {
+                      final p = page.value.clamp(0.0, 1.0);
+                      final width = constraints.maxWidth;
+                      return ClipRect(
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            _PagerPage(
+                              offset: -p * width,
+                              shown: p < 0.999,
+                              active: p < 0.5,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                                child: Align(
+                                  alignment: AlignmentDirectional.bottomStart,
+                                  child: _RecenterKey(autoFollow: autoFollow),
+                                ),
+                              ),
+                            ),
+                            _PagerPage(
+                              offset: (1 - p) * width,
+                              shown: p > 0.001,
+                              active: p >= 0.5,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  NowPlayingTokens.columnPadding,
+                                  NowPlayingNoteTokens.barTopGap,
+                                  NowPlayingTokens.columnPadding,
+                                  0,
+                                ),
+                                child: NoteWriteBar(notes: notes, clock: clock, onNaturalHeight: onBarHeight),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
 
-/// The Note pill beside Queue: tonal, the edit-note glyph.
-class _NotePill extends StatelessWidget {
-  const _NotePill({required this.onTap});
+/// The Write pill beside Queue (Android BottomPills' Write): tonal, the note
+/// glyph; opens the Note page expanded with the keyboard.
+class _WritePill extends StatelessWidget {
+  const _WritePill({required this.onTap});
 
   final VoidCallback onTap;
 
@@ -856,7 +1287,7 @@ class _NotePill extends StatelessWidget {
     const icon = NowPlayingTokens.pillHeight * 0.36;
     return Semantics(
       button: true,
-      label: strings.pillNote,
+      label: strings.pillWrite,
       excludeSemantics: true,
       child: Material(
         color: colors.secondaryContainer,
@@ -871,10 +1302,10 @@ class _NotePill extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(YoinSymbols.editNote, size: icon, color: colors.onSecondaryContainer),
+                  Icon(YoinSymbols.note, size: icon, color: colors.onSecondaryContainer),
                   const SizedBox(width: 8),
                   Text(
-                    strings.pillNote,
+                    strings.pillWrite,
                     style: Theme.of(context).textTheme.labelMedium!.copyWith(color: colors.onSecondaryContainer),
                     maxLines: 1,
                   ),
