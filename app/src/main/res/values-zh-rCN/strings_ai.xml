@@ -12,6 +12,8 @@
     <string name="ai_axis_cost">更省</string>
     <string name="ai_axis_accuracy">更准</string>
     <string name="ai_axis_overall">又准又快</string>
+    <!-- Under the chart while Custom is chosen. By Gemini 4 Carbon (2026-11-14). -->
+    <string name="ai_search_chart_note">测试时都用 deepseek-flash 写回答，只换搜索服务。Tavily 和 Brave 按 35 首歌估算，其余是 499 首歌实测。</string>
     <string name="ai_key_label">API 密钥</string>
     <string name="ai_get_key_gemini">在 Google AI Studio 获取</string>
     <string name="ai_get_key_deepseek">在 DeepSeek 开放平台获取</string>

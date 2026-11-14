@@ -15,6 +15,8 @@
     <string name="ai_axis_cost">Cheaper</string>
     <string name="ai_axis_accuracy">More accurate</string>
     <string name="ai_axis_overall">Accurate and fast</string>
+    <!-- Under the chart while Custom is chosen. By Gemini 4 Carbon (2026-11-14). -->
+    <string name="ai_search_chart_note">Tested with deepseek-flash as the writing model, changing only the search service. Tavily and Brave are estimated from 35 songs; the rest were measured on 499.</string>
     <string name="ai_key_label">API key</string>
     <string name="ai_get_key_gemini">Get a key in Google AI Studio</string>
     <string name="ai_get_key_deepseek">Get a key on the DeepSeek platform</string>

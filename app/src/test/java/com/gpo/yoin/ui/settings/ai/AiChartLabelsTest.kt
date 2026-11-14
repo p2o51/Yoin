@@ -33,7 +33,7 @@ class AiChartLabelsTest {
     private fun plot(width: Float) = Rect(52f, 8f, width - 8f, 200f - 34f)
 
     private fun dots(plot: Rect, x: AiAxis, y: AiAxis, points: List<AiTierPoint>) = points.map {
-        Offset(plot.left + x.fraction(it) * plot.width, plot.bottom - y.fraction(it) * plot.height)
+        Offset(plot.left + x.fraction(it, AiChartSet.Tiers) * plot.width, plot.bottom - y.fraction(it, AiChartSet.Tiers) * plot.height)
     }
 
     @Test

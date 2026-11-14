@@ -155,6 +155,30 @@ class AiSettingsPageBodyTest {
     }
 
     @Test
+    fun should_chartTheSearchServicesWithANote_onlyWhileCustomIsChosen() {
+        val note = "Tested with deepseek-flash as the writing model, changing only the search service. " +
+            "Tavily and Brave are estimated from 35 songs; the rest were measured on 499."
+        showPage()
+
+        rule.onNodeWithText(note).assertDoesNotExist()
+        rule.onNodeWithText("Exa").assertDoesNotExist()
+
+        rule.onNode(hasText("Custom") and hasClickAction()).performClick()
+        rule.waitForIdle()
+
+        rule.onNodeWithText(note).assertIsDisplayed()
+        // The legend lists every search service while the menu is closed.
+        listOf("Exa", "Tavily", "Brave", "Doubao", "No search").forEach { name ->
+            rule.onNodeWithText(name).assertIsDisplayed()
+        }
+
+        rule.onNode(hasText("Gemini") and hasClickAction()).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText(note).assertDoesNotExist()
+        rule.onNodeWithText("Tavily").assertDoesNotExist()
+    }
+
+    @Test
     fun should_offerEveryFetchedModel_when_theListIsShort() {
         val ids = listOf("claude-haiku", "claude-opus", "claude-sonnet")
         assertEquals(ids, modelChips(ids, typed = "opus"))
@@ -205,7 +229,8 @@ class AiSettingsPageBodyTest {
         state.value = AiSettingsState(AiProviderPrefs(provider = AiProvider.Custom, searchService = AiSearchService.Doubao))
         showPage()
 
-        rule.onNodeWithText("豆包").performScrollTo().assertIsDisplayed()
+        // The chart's legend names 豆包 too: the search row is the one that can be tapped.
+        rule.onNode(hasText("豆包") and hasClickAction()).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("获取豆包密钥").performScrollTo().assertIsDisplayed()
     }
 
