@@ -127,17 +127,20 @@ enum LedgerLazy {
 }
 
 extension LedgerItem {
-    /// The Cards view's card for this item, roughly (`AllMemoriesView` albumCard, songNoteCard, songLine), at
-    /// a lane [width]: enough to deal cards to lanes, not to place them.
+    /// The Cards view's card for this item, roughly (`AllMemoriesView` albumCard and songCard, Android's
+    /// AlbumGridCard and SongGridCard), at a lane [width]: enough to deal cards to lanes, not to place them.
+    /// Both: 10 inside, the foot (a 20 pt score and the day) 30.
     func estimatedCardHeight(width: CGFloat) -> CGFloat {
+        let inner = Swift.max(width - 20, 0)
         switch self {
-        case .album(_, _, _, let review, let songs, _):
-            let reviewLines = LedgerLazy.lines(review, width: width - 28, size: 14, max: 4)
-            return 28 + 60 + (reviewLines > 0 ? 8 + CGFloat(reviewLines) * 20 : 0) + CGFloat(min(songs.count, 3)) * 26
+        case .album(let album, let title, _, _, _, _):
+            // The cover whole, 6, the title in the serif (two lines at most), the name, the artist.
+            let titleLines = LedgerLazy.lines(title, width: inner, size: 16, max: 2)
+            return 20 + inner + 6 + CGFloat(titleLines) * 24 + 20 + (album.artist.isEmpty ? 0 : 16) + 30
         case .song(_, _, _, _, _, let note, _, _):
-            guard let note else { return 64 }
-            let lines = LedgerLazy.lines(note.text, width: width - 24, size: 14, max: 6)
-            return 24 + CGFloat(lines) * 20 + (lines > 0 ? 6 : 0) + 22
+            // The 44 cover row, then the newest note (five lines at most) 6 under it.
+            let lines = LedgerLazy.lines(note?.text, width: inner, size: 14, max: 5)
+            return 20 + 44 + (lines > 0 ? 6 + CGFloat(lines) * 20 : 0) + 30
         }
     }
 }

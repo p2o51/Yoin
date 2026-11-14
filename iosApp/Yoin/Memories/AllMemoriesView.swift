@@ -347,8 +347,7 @@ struct AllMemoriesView: View {
                     ForEach(lanes[l].map { items[$0] }) { item in
                         switch item {
                         case .album: albumCard(item, state, anchor: item.id)
-                        case .song(_, _, _, _, _, let note, _, _):
-                            if let note { songNoteCard(note, state, anchor: item.id) } else { songLine(item, state) }
+                        case .song: songCard(item, state, anchor: item.id)
                         }
                     }
                 }
@@ -399,69 +398,78 @@ struct AllMemoriesView: View {
 
     // MARK: Cards
 
-    /// [anchor]: this card among the page's (the same album has a card in each month of the timeline).
+    /// Cards, two a row (Android AlbumGridCard): an album's cover whole, its memory title in the serif, its name
+    /// and artist, then the foot. [anchor]: this card among the page's (the same album has a card in each month
+    /// of the timeline).
     private func albumCard(_ item: LedgerItem, _ state: LedgerState, anchor: String) -> some View {
-        guard case let .album(album, title, score, review, songs, _) = item else { return AnyView(EmptyView()) }
+        guard case let .album(album, title, score, _, _, at) = item else { return AnyView(EmptyView()) }
         return AnyView(
             Button { open(album, state, from: anchor) } label: {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .top, spacing: 10) {
-                        cover(album, state, size: 56)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(title ?? album.name).yoinRole(Tokens.type.titleSmall, weight: .semibold)
-                                .foregroundStyle(app.onSurface).lineLimit(2)
-                            Text(title == nil ? album.artist : "\(album.name)  \(album.artist)")
-                                .yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant).lineLimit(1)
-                            if state.isOther(album.account), let p = state.profile(album.account) {
-                                Text("From \(p.name)").yoinRole(Tokens.type.labelSmall).foregroundStyle(app.primary)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                        if let score { scoreBadge(score) }
+                gridCard {
+                    coverFill(album, state, corner: 12)
+                    Spacer().frame(height: 6)
+                    if let title {
+                        Text(title).font(.system(size: 16, weight: .semibold, design: .serif)).homeLine(16, 24)
+                            .foregroundStyle(app.onSurface).lineLimit(2).multilineTextAlignment(.leading)
                     }
-                    if let review {
-                        Text(review).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurface).lineLimit(4)
+                    Text(album.name).yoinRole(Tokens.type.labelLarge).foregroundStyle(app.onSurface).lineLimit(1)
+                    if let artist = album.artist.nonBlank {
+                        Text(artist).yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant).lineLimit(1)
                     }
-                    ForEach(Array(songs.prefix(3).enumerated()), id: \.offset) { _, s in
-                        HStack {
-                            Text(s.title?.nonBlank ?? String(localized: "Song unknown")).yoinRole(Tokens.type.bodySmall)
-                                .foregroundStyle(app.onSurfaceVariant).lineLimit(1)
-                            Spacer()
-                            Text(Self.score(s.score)).yoinRole(Tokens.type.labelMedium).foregroundStyle(app.onSurface)
-                        }
-                    }
+                    cardFoot(score, at, state)
                 }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(app.surfaceBright, in: .rect(cornerRadius: 20))
-                .contentShape(.rect(cornerRadius: 20))
             }
             .buttonStyle(PressScale())
             .accountSwitchNotice(switchGate, anchor: anchor))
     }
 
-    /// A song note in the Cards view: what was written under the song and its cover.
-    private func songNoteCard(_ e: LedgerEntry, _ state: LedgerState, anchor: String) -> some View {
-        Button { open(e.album, state, from: anchor) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                if let text = e.text {
-                    Text(text).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurface).lineLimit(6)
-                }
-                HStack(spacing: 8) {
-                    cover(e.album, state, size: 22)
-                    Text([e.trackTitle ?? e.album?.name ?? String(localized: "Song unknown"),
-                          e.score.map(Self.score) ?? ""].filter { !$0.isEmpty }.joined(separator: "  "))
-                        .yoinRole(Tokens.type.labelMedium).foregroundStyle(app.onSurfaceVariant).lineLimit(1)
-                    fromLine(e.account, state)
+    /// Cards, two a row (Android SongGridCard): a song, a small cover beside its name and its album's artist,
+    /// its newest note under them, then the foot.
+    private func songCard(_ item: LedgerItem, _ state: LedgerState, anchor: String) -> some View {
+        guard case let .song(_, _, title, album, score, note, _, at) = item else { return AnyView(EmptyView()) }
+        return AnyView(
+            Button { open(album, state, from: anchor) } label: {
+                gridCard {
+                    HStack(spacing: 10) {
+                        cover(album, state, size: 44, corner: 8)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(title?.nonBlank ?? String(localized: "Song unknown")).yoinRole(Tokens.type.labelLarge)
+                                .foregroundStyle(app.onSurface).lineLimit(1)
+                            Text(album?.artist.nonBlank ?? album?.name ?? String(localized: "Album unknown"))
+                                .yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant).lineLimit(1)
+                        }
+                    }
+                    if let text = note?.text?.nonBlank {
+                        Text(text).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurface).lineLimit(5)
+                            .multilineTextAlignment(.leading).padding(.top, 6)
+                    }
+                    cardFoot(score, at, state)
                 }
             }
-            .padding(12)
+            .buttonStyle(PressScale())
+            .disabled(album == nil)
+            .accountSwitchNotice(switchGate, anchor: anchor))
+    }
+
+    /// A card of the Cards view (Android GridCard): on a soft patch with round corners, 10 inside.
+    private func gridCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 2) { content() }
+            .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(app.surfaceContainerLow, in: .rect(cornerRadius: 16))
-            .contentShape(.rect(cornerRadius: 16))
+            .background(app.surfaceContainerLow, in: .rect(cornerRadius: 20))
+            .contentShape(.rect(cornerRadius: 20))
+    }
+
+    /// A card's foot (Android CardFoot): the score, when there is one, on the leading side, the day on the
+    /// trailing one.
+    private func cardFoot(_ score: Double?, _ at: Int64, _ state: LedgerState) -> some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            if let score { scoreLine(score, nil, size: 20) }
+            Spacer(minLength: 0)
+            Text(shortDay(at, state)).yoinRole(Tokens.type.labelSmall).foregroundStyle(app.outline)
+                .lineLimit(1).padding(.bottom, 3)
         }
-        .buttonStyle(PressScale())
-        .accountSwitchNotice(switchGate, anchor: anchor)
+        .padding(.top, 4)
     }
 
     /// An album's month on the timeline: the cover whole, then what was kept on it, no container. On a phone

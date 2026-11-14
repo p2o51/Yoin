@@ -249,13 +249,20 @@ final class MemoryLedgerWideTests: XCTestCase {
     func test_should_estimateTallerCards_when_theyHoldMore() {
         let a = LedgerAlbum(account: sub, albumId: "a", name: "A", artist: "", coverKey: nil)
         let bare = LedgerItem.album(album: a, title: nil, score: nil, review: nil, songs: [], at: 0)
-        let full = LedgerItem.album(album: a, title: nil, score: 8, review: String(repeating: "words ", count: 60),
-                                    songs: [.init(title: "s", score: 7, at: 0), .init(title: "t", score: 6, at: 0), .init(title: "u", score: 5, at: 0),
-                                            .init(title: "v", score: 4, at: 0)], at: 0)
-        XCTAssertGreaterThan(full.estimatedCardHeight(width: 180), bare.estimatedCardHeight(width: 180))
-        // The review is capped at four lines and the songs at three, as the card draws them.
-        let expected: CGFloat = 28 + 60 + 8 + 80 + 78  // padding, top row, review gap, 4 lines, 3 songs
-        XCTAssertEqual(full.estimatedCardHeight(width: 180), expected)
+        let titled = LedgerItem.album(album: a, title: String(repeating: "words ", count: 60), score: 8,
+                                      review: "Not on the card", songs: [.init(title: "s", score: 7, at: 0)], at: 0)
+        XCTAssertGreaterThan(titled.estimatedCardHeight(width: 180), bare.estimatedCardHeight(width: 180))
+        // Android AlbumGridCard: the cover whole at the card's inner width, the title capped at two lines; the
+        // review and the songs aren't on it.
+        XCTAssertEqual(bare.estimatedCardHeight(width: 180), 20 + 160 + 6 + 20 + 30)
+        XCTAssertEqual(titled.estimatedCardHeight(width: 180), 20 + 160 + 6 + 48 + 20 + 30)
+        // Android SongGridCard: the cover row, then the newest note capped at five lines.
+        let note = LedgerEntry(id: "n", kind: .songNote, at: 0, account: sub, album: nil,
+                               text: String(repeating: "words ", count: 60), trackTitle: "S")
+        let scored = LedgerItem.song(key: "song:s", account: sub, title: "S", album: nil, score: 7, note: nil, notes: 0, at: 0)
+        let noted = LedgerItem.song(key: "song:n", account: sub, title: "S", album: nil, score: nil, note: note, notes: 1, at: 0)
+        XCTAssertEqual(scored.estimatedCardHeight(width: 180), 20 + 44 + 30)
+        XCTAssertEqual(noted.estimatedCardHeight(width: 180), 20 + 44 + 6 + 100 + 30)
         XCTAssertEqual(LedgerLazy.lines("abcd", width: 14, size: 14, max: 9), 2)
         XCTAssertEqual(LedgerLazy.lines("一二", width: 14, size: 14, max: 9), 2)
         XCTAssertEqual(LedgerLazy.lines("a\nb", width: 100, size: 14, max: 9), 2)
