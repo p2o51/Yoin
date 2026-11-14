@@ -437,9 +437,9 @@ final class SpotifySource {
         return all.filter(\.isActive) + all.filter { !$0.isActive }
     }
 
-    /// Moves playback to [deviceId], playing there.
-    func transfer(to deviceId: String) async throws {
-        let json = try JSONSerialization.data(withJSONObject: ["device_ids": [deviceId], "play": true])
+    /// Moves playback to [deviceId], playing there ([play] false: as it was, paused stays paused).
+    func transfer(to deviceId: String, play: Bool = true) async throws {
+        let json = try JSONSerialization.data(withJSONObject: ["device_ids": [deviceId], "play": play])
         try await api.send("PUT", "me/player", json: json)
     }
 
