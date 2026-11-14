@@ -73,14 +73,15 @@ class HomeWidgetGridAdaptiveTest {
             listOf(
                 // [w1][c1][c2]: the wide card hugs the start edge…
                 listOf(JbiCellPlacement(0, 2), JbiCellPlacement(2, 1), JbiCellPlacement(3, 1)),
-                // …then alternates to the end edge: [c3][c4][w2].
-                listOf(JbiCellPlacement(0, 1), JbiCellPlacement(1, 1), JbiCellPlacement(2, 2)),
+                // …a full row between the two (the wide rows spread out)…
                 listOf(
                     JbiCellPlacement(0, 1),
                     JbiCellPlacement(1, 1),
                     JbiCellPlacement(2, 1),
                     JbiCellPlacement(3, 1),
                 ),
+                // …then alternates to the end edge: [c7][c8][w2].
+                listOf(JbiCellPlacement(0, 1), JbiCellPlacement(1, 1), JbiCellPlacement(2, 2)),
             ),
             placements,
         )
@@ -89,7 +90,7 @@ class HomeWidgetGridAdaptiveTest {
         val gap = 12f
         val pitch = jbiColumnPitch(maxWidth = 688f, columns = 4, gap = gap)
         assertEquals(175f, pitch, 0.001f)
-        val (row0, row1, row2) = placements
+        val (row0, row2, row1) = placements
         // The end-side 1×2 starts on column 2's line and spans 2 × 163 + 12.
         assertEquals(350, row1[2].cellLeft(pitch))
         assertEquals(338, row1[2].cellWidth(pitch, gap))
