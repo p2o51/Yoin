@@ -323,8 +323,8 @@ class SpotifyMusicSource(
          * The track read again with `Accept-Language` set, first to the device's language (which also brings
          * the ISRC), then to the language of the ISRC's country when that's another one; see
          * [SpotifyNameLanguages]. The ISRC country's names come first. A song whose ISRC country has no
-         * language there is read in English too, last, unless the device speaks it. A 404 or a local file has none. Kept
-         * per track id, misses too; a failed read isn't kept.
+         * language there is read in English too, last, unless the device speaks it. A 404 or a local file has
+         * none. Kept per track id, misses too; a failed read isn't kept.
          */
         override suspend fun nativeNames(trackId: MediaId): List<TrackNames> {
             if (trackId.provider != MediaId.PROVIDER_SPOTIFY) return emptyList()
