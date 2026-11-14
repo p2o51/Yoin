@@ -755,3 +755,64 @@ YoinAppleAuth: sign-in succeeded (storefront=jp)
   reinstall. Not proven; it could also be Apple's own session expiry. Either way, a later
   Reconnect likely asks for the Apple ID sign-in again. The
   Music User Token itself lasts months, so this only matters when reconnecting.
+
+## Phase 1 native — FootHill SPC/CKC round trip: PASS (2026-11-14, 12:48 JST)
+
+> Mate 70 Air, release build of the local spike branch `spike/am-phase1` (`756100a04`, never pushed;
+> worktree `~/Developer/Yoin-wt-amspike`), installed with `hdc install -r` over Yoin and replaced by
+> the normal build afterwards. Silent launch. Nothing was played, nothing was decrypted, and no token,
+> SPC or license was logged — only lengths, hosts and status codes.
+
+**Result.** The owner's own account and one catalogue song (adamId 1636790756, from recently
+played):
+
+| Step | Outcome |
+| --- | --- |
+| `webPlayback` (`{salableAdamId}`, Bearer + `X-Apple-Music-User-Token`, no store-front header) | 200; flavors `30:cbcp256, 34:cbcp64, 28:ctrp256, 32:ctrp64, 37:ibhp256, 38:ibhp64` |
+| `cbcp256` media playlist | 200; one `EXT-X-KEY` with `KEYFORMAT="com.apple.streamingkeydelivery"`, `skd://…` (92 chars) |
+| Certificate (`hls-key-cert-url`, s.mzstatic.com) | 200, 2598 bytes |
+| `FootHillConfig::config(deviceId)` then `generateSessionExchange(adamId, cert, keyUri, "1")` | SPC, 5248 bytes |
+| License POST (`hls-key-server-url`, play.itunes.apple.com) | 200, `status=0`, `renew-after=780`, license 1660 chars |
+| `generateSessionContext(adamId, license)` | context set |
+| `SVDecryptorFactory::create(7, license bytes, nullptr, 0, track 2, true)` | **decryptor created** |
+
+No crash, and the canary/C++-runtime rules from Phase 0 held: every Apple call went through the
+bridge on a TaskPool thread.
+
+**What the protocol really is** (read from MusicKit for Android 1.1.1: JavaCPP annotations in
+`classes.jar`, exported symbols, and the Java call sites; full notes in the session's shared notes):
+
+- `generateSessionExchange` takes **`(adamId, shared_ptr<SVData> cert, keyUri, keyFormatVersion)`**
+  and returns `shared_ptr<SVData>` (the SPC) by value. The first argument is the adamId, not the
+  key URI as "What Phase 1 needs" guessed.
+- `generateSessionContext(adamId, license)` returns a non-zero handle on success.
+- **`FootHillConfig::config(deviceId)` must run first.** Apple's SDK calls it at start-up with
+  `Settings.Secure.ANDROID_ID`. Without it, `KDGenerateRequestSPCWithMovieId()` fails with
+  `-42651` (thrown as an `SVError`, caught in the bridge). The spike makes a random 16-hex-digit id
+  once and keeps it in app preferences (`yoin_am_spike` / `fhDeviceId`); the license server
+  accepted it.
+- License request JSON: `{"key-system":"com.apple.fps","isLibrary":false,"challenge":Base64(SPC),
+  "adamId","uri":keyUri,"user-initiated":true}`; the reply's `license` string is the CKC.
+- The Pastis decryptor's key is **the license string's bytes** (Apple's HLS key DataSource returns
+  `license.getBytes()` and the renderer passes `cryptoInfo.key`), type = `cryptoInfo.mode` (5 or 7),
+  track 2.
+- `sizeof(SVData)` = 32 (from the make_shared block size in JavaCPP's `SVDataPtr.create`).
+
+**How the bridge is built.** `bridge/am_bridge_fh.cpp` is compiled with the OHOS clang but
+`-nostdinc++ -isystem <NDK r27>/…/c++/v1`, so `std::string` / `std::shared_ptr` are
+`std::__ndk1` with ABI v1. It links `libc++_ndk1.so` and `libappleMusicSDK.so` (which exports the
+`_Unwind_*` the cleanup paths need) with `--no-undefined`, so every mangled name is checked at link
+time. The NAPI module now links with `--exclude-libs,ALL` and exports no unwinder (Phase 0 review
+note).
+
+**Go / no-go.** Go for Phase 2 (personal builds only): HLS media playlist + fMP4 demux with
+per-sample IV/subsamples → `SVPastisDecryptor::decryptSample` in memory → `OH_AudioCodec` AAC →
+`OH_AudioRenderer`. Open items for Phase 2:
+
+- `decryptSample(const uchar*, const uint&, uint*)` / `(const SVAudioSample*)` signatures and the
+  sample layout Apple expects (read `playback.e.h`'s render path).
+- License renewal: `renew-after=780` seconds.
+- Whether the decryptor needs one session per key URI when a stream rotates keys (this stream had
+  one).
+- The device id must be stable per install. If it is lost, the next round trip just binds keys to a
+  new one.
