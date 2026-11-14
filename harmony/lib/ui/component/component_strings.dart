@@ -14,6 +14,7 @@ class ComponentStrings {
   static const en = ComponentStrings._(false);
 
   // Queue sheet editing (strings_component.xml).
+  String get keepScreenOn => zh ? '屏幕常亮' : 'Keep screen on'; // np_keep_screen_on
   String get queueClear => zh ? '清除' : 'Clear'; // cmp_queue_clear
   String get queueHintShuffle =>
       zh ? '随机播放已开启：关掉随机后才能调整顺序。' : 'Shuffle is on: turn it off to reorder songs.'; // cmp_queue_hint_shuffle

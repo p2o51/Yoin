@@ -49,5 +49,6 @@ class PlaybackStrings {
         FavoriteWriteFailed(:final favorite) => favoriteFailure(favorite: favorite),
         PlaybackFailed(:final kind) => errorMessage(kind),
         RatingWriteFailed() => null,
+        TextNotice(:final text) => text,
       };
 }

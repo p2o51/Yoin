@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../playback/keep_screen_on.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../../app/providers.dart';
@@ -303,7 +304,52 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
                 ),
               ],
             ],
+          if (widget.nowPlaying) ...[const SizedBox(height: SheetTokens.trackMenuGroupGap), const _KeepScreenOnRow()],
         ],
+      ),
+    );
+  }
+}
+
+/// Now Playing's player setting (Android NowPlayingCoverMenu): keep the
+/// screen on while the player is open and playing. A switch; the sheet stays.
+class _KeepScreenOnRow extends ConsumerWidget {
+  const _KeepScreenOnRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = Theme.of(context).colorScheme;
+    final on = ref.watch(keepScreenOnPreferenceProvider);
+    void toggle(bool value) {
+      YoinHaptics.tick();
+      ref.read(keepScreenOnPreferenceProvider.notifier).set(value);
+    }
+
+    return Material(
+      color: colors.surfaceContainerHigh,
+      shape: _segmentShape(0, 1),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => toggle(!on),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: SheetTokens.trackMenuRowHeight),
+          child: Padding(
+            padding: const EdgeInsets.only(left: SheetTokens.trackMenuRowPaddingH, right: 12),
+            child: Row(
+              children: [
+                Icon(YoinSymbols.lightMode, color: colors.onSurfaceVariant),
+                const SizedBox(width: SheetTokens.trackMenuIconGap),
+                Expanded(
+                  child: Text(
+                    ComponentStrings.of(context).keepScreenOn,
+                    style: Theme.of(context).textTheme.bodyLarge!.copyWith(color: colors.onSurface),
+                  ),
+                ),
+                Switch(value: on, onChanged: toggle),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -10,7 +10,7 @@ import '../memories/memories_reveal_scope.dart';
 import '../nowplaying/flight.dart';
 import '../nowplaying/now_playing_overlay.dart';
 import '../nowplaying/now_playing_pill.dart';
-import '../nowplaying/now_playing_screen.dart' show heroRestScale;
+import '../nowplaying/now_playing_screen.dart' show heroRestScale, showNowPlayingTrackMenu;
 import '../nowplaying/overlay_controller.dart';
 import '../nowplaying/player_snapshot.dart';
 import '../playback/keep_screen_on.dart';
@@ -239,7 +239,13 @@ class _ChromeBar extends ConsumerWidget {
                 // The pill became the side panel: only the two destinations stay.
                 navOnly: controller.panelOpen,
                 paneOpen: DetailPaneController.columnOpen.value,
-                pillBuilder: (context, onPress) => NowPlayingPill(onPressChanged: onPress),
+                pillBuilder: (context, onPress) => NowPlayingPill(
+                  onPressChanged: onPress,
+                  onLongPress: (track) {
+                    final nav = appNavigatorKey.currentContext;
+                    if (nav != null) showNowPlayingTrackMenu(nav, controller, track);
+                  },
+                ),
               ),
             ),
           ),

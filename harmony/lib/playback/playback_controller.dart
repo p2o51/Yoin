@@ -49,6 +49,13 @@ final class PlaybackFailed extends PlaybackNotice {
   final PlaybackErrorKind kind;
 }
 
+/// Copy already written by the caller (the song sheet's confirmations and
+/// failures shown over Now Playing), routed to the shell's snackbar.
+final class TextNotice extends PlaybackNotice {
+  const TextNotice(this.text);
+  final String text;
+}
+
 /// One queue entry on the Dart side, parallel to the native queue.
 @immutable
 final class _Entry {
@@ -115,6 +122,9 @@ class PlaybackController extends Notifier<NowPlayingState> {
 
   /// Heart / rating failures for the UI to toast.
   Stream<PlaybackNotice> get notices => _notices.stream;
+
+  /// Shows [text] on the shell's snackbar (above Now Playing too).
+  void showMessage(String text) => _notices.add(TextNotice(text));
 
   @override
   NowPlayingState build() {

@@ -11,6 +11,7 @@ import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
 import '../playback/playback_context.dart';
+import '../playback/playback_controller.dart';
 import '../playback/playhead.dart';
 import '../shell/shell_state.dart';
 import '../theme/motion.dart';
@@ -35,6 +36,7 @@ import 'nowplaying_strings.dart';
 import 'overlay_controller.dart';
 import 'play_mode_cycle.dart';
 import 'playhead_clock.dart';
+import '../library/add_to_playlist_flow.dart';
 import '../ui/component/track_menu_sheet.dart';
 import 'queue_sheet.dart';
 import 'rating_and_heart.dart';
@@ -598,13 +600,7 @@ class _Stage extends ConsumerWidget {
                   state: state,
                   detail: detail,
                   requestEdge: budget.cover,
-                  onLongPress: () => showTrackMenuSheet(
-                    context,
-                    track: state.track,
-                    nowPlaying: true,
-                    onMessage: (text) =>
-                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text))),
-                  ),
+                  onLongPress: () => showNowPlayingTrackMenu(context, controller, state.track),
                 ),
               ),
             ),
@@ -799,6 +795,25 @@ void _leaveTo(NowPlayingOverlayController controller, void Function(BuildContext
     final navigator = appNavigatorKey.currentContext;
     if (navigator != null && navigator.mounted) open(navigator);
   });
+}
+
+/// The playing song's long-press sheet (cover and pill): Go to album /
+/// artist close the player first, Add to playlist runs over it, messages go
+/// to the shell's snackbar.
+Future<void> showNowPlayingTrackMenu(BuildContext context, NowPlayingOverlayController controller, Track track) {
+  final say = ProviderScope.containerOf(context, listen: false).read(playbackControllerProvider.notifier).showMessage;
+  return showTrackMenuSheet(
+    context,
+    track: track,
+    nowPlaying: true,
+    onGoToAlbum: (id) => _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id)),
+    onGoToArtist: (id) => _leaveTo(controller, (nav) => DetailRoutes.openArtist(nav, id, name: track.artist)),
+    onAddToPlaylist: (tracks) {
+      final nav = appNavigatorKey.currentContext;
+      if (nav != null) addToPlaylistFlow(nav, tracks, onMessage: say);
+    },
+    onMessage: say,
+  );
 }
 
 /// PLAYING FROM's destination: the album, artist or playlist the play
