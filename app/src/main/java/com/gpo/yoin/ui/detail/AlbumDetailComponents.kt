@@ -114,8 +114,6 @@ import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.UnavailableTrackAlpha
 import com.gpo.yoin.ui.component.UnavailableTrackBadge
 import com.gpo.yoin.ui.component.UnavailableTrackReason
-import com.gpo.yoin.ui.component.YoinArmTransform
-import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.component.draftFieldValue
 import com.gpo.yoin.ui.component.formatTrackDuration
@@ -138,45 +136,6 @@ import java.util.Calendar
 import java.util.TimeZone
 import kotlin.math.absoluteValue
 import kotlinx.coroutines.flow.distinctUntilChanged
-
-// ---------------------------------------------------------------------------
-// Arrow-mark background — the two color blocks hugging the cover.
-// ---------------------------------------------------------------------------
-
-// The Compact full-bleed backdrop (two blocks bled off the edges) is drawn by
-// the album's spectrum bar layer now (AlbumSpectrumBar.kt), so it can fly into
-// the header; only the hugging form below stays a plain composable (Wide).
-
-/**
- * Landscape handsets (断点交接 §5): the same two blocks as closed shapes
- * hugging the cover — drawn whole inside [modifier]'s box, never scaled past
- * it, so nothing is cut straight and nothing reaches under the Button Group.
- */
-@Composable
-internal fun AlbumArrowBackdropHugging(
-    primaryBlock: Color,
-    secondaryBlock: Color,
-    lineColor: Color,
-    modifier: Modifier = Modifier,
-) {
-    YoinMark(
-        transforms = AlbumArrowArmTransforms,
-        colors = listOf(primaryBlock, Color.Transparent, secondaryBlock),
-        lineColor = lineColor,
-        groupScaleX = AlbumArrowHuggingSquashX,
-        groupScaleY = 1f,
-        modifier = modifier,
-    )
-}
-
-private const val AlbumArrowHuggingSquashX = 1f
-
-// arm order [0 lower-left, 1 upper, 2 lower-right]; hide the upper arm.
-private val AlbumArrowArmTransforms = listOf(
-    YoinArmTransform(alpha = 1f),
-    YoinArmTransform(alpha = 0f),
-    YoinArmTransform(alpha = 1f),
-)
 
 // ---------------------------------------------------------------------------
 // Two-page indicator dots (overview  ·  scrapbook). Tappable: a dot pages to it.

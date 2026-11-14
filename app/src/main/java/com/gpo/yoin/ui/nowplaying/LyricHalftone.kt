@@ -98,7 +98,8 @@ internal const val LyricDotsRestLarge = 1.8f
 
 /**
  * The next lines after the current one (owner 2026-11-05: 「下面两行粒子应该能
- * 看清文字」): their dots are full enough to read, everywhere.
+ * 看清文字」) and the line just sung (owner 2026-11-14): their dots are full
+ * enough to read, everywhere. See [isReadableLyricLine].
  */
 internal const val LyricDotsReadable = 2.2f
 
@@ -112,10 +113,29 @@ internal const val LyricDotsLoose = 1f
 /** How many lines after the current one print as [LyricDotsReadable]. */
 internal const val LyricDotsReadableLines = 2
 
-/** The other lines' resting dot radius for this window ([upcoming]: one of the next lines). */
+/**
+ * How many lines before the current one print as [LyricDotsReadable] (owner
+ * 2026-11-14: 「上面一行应该是清楚一点比较好」): the line just sung stays
+ * readable; the lines above it rest as fine dots, coarser with distance.
+ */
+internal const val LyricDotsReadableLinesAbove = 1
+
+/**
+ * Whether the line at [index] prints as [LyricDotsReadable] while [current] is
+ * the line being sung: one of the next [LyricDotsReadableLines], or one of the
+ * [LyricDotsReadableLinesAbove] just sung. The current line itself is solid,
+ * and nothing is readable while no line is current ([current] < 0).
+ */
+internal fun isReadableLyricLine(index: Int, current: Int): Boolean {
+    if (current < 0 || index == current) return false
+    val gap = index - current
+    return if (gap > 0) gap <= LyricDotsReadableLines else -gap <= LyricDotsReadableLinesAbove
+}
+
+/** The other lines' resting dot radius for this window ([readable]: see [isReadableLyricLine]). */
 @Composable
-internal fun lyricDotsRest(upcoming: Boolean = false): Float {
-    if (upcoming) return LyricDotsReadable
+internal fun lyricDotsRest(readable: Boolean = false): Float {
+    if (readable) return LyricDotsReadable
     val window = LocalWindowChromeInfo.current ?: LocalYoinWindowInfo.current
     return if (window.isWidthAtLeastMedium && window.isHeightAtLeastMedium) LyricDotsRestLarge else LyricDotsRest
 }

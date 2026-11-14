@@ -56,10 +56,10 @@ import com.gpo.yoin.ui.nowplaying.LyricDotsSolid
 import com.gpo.yoin.ui.nowplaying.LyricLine
 import com.gpo.yoin.ui.nowplaying.UpNextHandoffTickSlackMs
 import com.gpo.yoin.ui.nowplaying.UpNextLyrics
+import com.gpo.yoin.ui.nowplaying.isReadableLyricLine
 import com.gpo.yoin.ui.nowplaying.lastLineOutroFor
 import com.gpo.yoin.ui.nowplaying.lastLineStretchScale
 import com.gpo.yoin.ui.nowplaying.lyricDotRadius
-import com.gpo.yoin.ui.nowplaying.LyricDotsReadableLines
 import com.gpo.yoin.ui.nowplaying.lyricDotsRest
 import com.gpo.yoin.ui.nowplaying.lyricHalftone
 import com.gpo.yoin.ui.nowplaying.outroProgress
@@ -440,8 +440,7 @@ private fun LyricsDisplayContent(
                     text = line.text,
                     isActive = active,
                     distance = if (currentIndex >= 0) abs(index - currentIndex) else 99,
-                    upcoming = currentIndex >= 0 && index > currentIndex &&
-                        index - currentIndex <= LyricDotsReadableLines,
+                    readable = isReadableLyricLine(index, currentIndex),
                     fontScale = fontScale,
                     focus = focus,
                     // Held while it is the current line; the hand-over lets go.
@@ -514,9 +513,9 @@ private fun LyricLineItem(
     isActive: Boolean,
     modifier: Modifier = Modifier,
     distance: Int = 0,
-    // One of the next LyricDotsReadableLines: in focus its dots stay full
-    // enough to read (owner 2026-11-05).
-    upcoming: Boolean = false,
+    // One of the next LyricDotsReadableLines, or the line just sung: in focus
+    // its dots stay full enough to read (owner 2026-11-05, 2026-11-14).
+    readable: Boolean = false,
     fontScale: Float = 1f,
     focus: () -> Float = { 0f },
     stretch: Float = 0f,
@@ -558,7 +557,7 @@ private fun LyricLineItem(
     // Focus's halftone: the line's own dot radius. The current line develops
     // from dots to solid, a sung line breaks back into dots, the rest stay
     // fine dots. Lines that are current when they first show start solid.
-    val restDots = lyricDotsRest(upcoming)
+    val restDots = lyricDotsRest(readable)
     val dots = remember { Animatable(if (isActive) LyricDotsSolid else restDots) }
     val shownBefore = remember { booleanArrayOf(false) }
     LaunchedEffect(isActive, restDots) {
