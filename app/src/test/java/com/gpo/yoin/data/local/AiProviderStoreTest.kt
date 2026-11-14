@@ -31,6 +31,8 @@ class AiProviderStoreTest {
             searchKeyDeepSeek = "sd",
             searchKeyExa = "se",
             searchKeyTavily = "st",
+            searchKeyBrave = "sb",
+            searchKeyDoubao = "sdb",
         )
         assertEquals(prefs, FileAiProviderStore.decode(FileAiProviderStore.encode(prefs)))
     }
@@ -48,6 +50,33 @@ class AiProviderStoreTest {
         val rewritten = FileAiProviderStore.encode(decoded)
         assertFalse(rewritten.has("searchKey"))
         assertEquals(decoded, FileAiProviderStore.decode(rewritten))
+    }
+
+    @Test
+    fun should_loadAFileWrittenBeforeBraveAndDoubao_withTheirKeysEmpty() {
+        val before = AiProviderPrefs(
+            provider = AiProvider.Custom,
+            searchService = AiSearchService.Exa,
+            searchKeyDeepSeek = "sd",
+            searchKeyExa = "se",
+            searchKeyTavily = "st",
+        )
+        val file = FileAiProviderStore.encode(before).apply {
+            remove("searchKeyBrave")
+            remove("searchKeyDoubao")
+        }
+
+        assertEquals(before, FileAiProviderStore.decode(file))
+    }
+
+    @Test
+    fun should_keepTheNewSearchServices_when_writtenAndReadBack() {
+        listOf(AiSearchService.Brave, AiSearchService.Doubao).forEach { service ->
+            val prefs = AiProviderPrefs(searchService = service).withSearchKey(service, "k-$service")
+            val decoded = FileAiProviderStore.decode(FileAiProviderStore.encode(prefs))
+            assertEquals(service, decoded.searchService)
+            assertEquals("k-$service", decoded.searchKeyFor(service))
+        }
     }
 
     @Test

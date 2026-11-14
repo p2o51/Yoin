@@ -4,6 +4,7 @@
     <string name="ai_provider_custom">自定义</string>
     <string name="ai_tier_good">好</string>
     <string name="ai_tier_best">最佳</string>
+    <string name="ai_tier_estimated">%1$s（估）</string>
     <string name="ai_tiers_label">档位</string>
     <string name="ai_cd_tier_details">档位区别</string>
     <string name="ai_flip">换个角度</string>
@@ -11,7 +12,8 @@
     <string name="ai_axis_cost">更省</string>
     <string name="ai_axis_accuracy">更准</string>
     <string name="ai_axis_overall">又准又快</string>
-    <string name="ai_untested">还没测</string>
+    <!-- Under the chart while Custom is chosen. By Gemini 4 Carbon (2026-11-14). -->
+    <string name="ai_search_chart_note">测试时都用 deepseek-flash 写回答，只换搜索服务。Tavily 和 Brave 按 35 首歌估算，其余是 499 首歌实测。</string>
     <string name="ai_key_label">API 密钥</string>
     <string name="ai_get_key_gemini">在 Google AI Studio 获取</string>
     <string name="ai_get_key_deepseek">在 DeepSeek 开放平台获取</string>
@@ -28,10 +30,13 @@
     <string name="ai_thinking_high">高</string>
     <string name="ai_search_label">搜索服务</string>
     <string name="ai_search_none">不搜索</string>
+    <string name="ai_search_doubao">豆包</string>
     <string name="ai_search_key">%1$s 密钥</string>
     <string name="ai_get_search_key_deepseek">获取 DeepSeek 密钥</string>
     <string name="ai_get_search_key_exa">获取 Exa 密钥</string>
     <string name="ai_get_search_key_tavily">获取 Tavily 密钥</string>
+    <string name="ai_get_search_key_brave">获取 Brave 密钥</string>
+    <string name="ai_get_search_key_doubao">获取豆包密钥</string>
     <string name="ai_models_error">拉取失败：%1$s</string>
     <string name="ai_answer_language">回答语言</string>
     <string name="ai_try">拿一首歌试试</string>
@@ -43,6 +48,8 @@
     <string name="ai_row_cost">每千首</string>
     <string name="ai_seconds">%1$s 秒</string>
     <string name="ai_cost_estimated">$%1$s（估）</string>
+    <string name="ai_seconds_estimated">%1$s 秒（估）</string>
+    <string name="ai_accuracy_estimated">%1$s%%（估）</string>
     <string name="ai_search_google">Google 搜索</string>
     <string name="ai_search_qwen">千问自带搜索</string>
     <string name="ai_search_deepseek_once">DeepSeek 搜索 1 次，读全文</string>
@@ -51,10 +58,7 @@
     <string name="ai_note_deepseek">国内可以直接用，不需要代理。搜索用同一个密钥，按次收费。</string>
     <string name="ai_note_qwen">国内可以直接用，不需要代理。搜索用同一个密钥，按次收费。</string>
     <string name="ai_tiers_source">速度和准确来自 500 首歌的测试，花费按当前价格算。</string>
-    <string name="ai_try_song">歌名</string>
-    <string name="ai_try_artist">艺人</string>
-    <string name="ai_try_album">专辑</string>
-    <string name="ai_try_run">试试</string>
+    <string name="ai_try_no_history">先播一首歌</string>
     <string name="ai_try_running">正在查…</string>
     <string name="ai_try_queries">搜了：%1$s</string>
     <string name="ai_try_pages">读了 %1$d 个网页</string>
