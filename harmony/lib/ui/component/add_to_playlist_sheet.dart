@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shell/bar_suppression.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../../data/model/model.dart';
@@ -24,10 +25,13 @@ Future<void> showAddToPlaylistSheet(
   isScrollControlled: true,
   showDragHandle: true,
   backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
-  builder: (_) => AddToPlaylistSheet(
-    loadWritablePlaylists: loadWritablePlaylists,
-    onAddToExisting: onAddToExisting,
-    onCreateAndAdd: onCreateAndAdd,
+  // The window's bar sits above the Navigator: a sheet sends it away.
+  builder: (_) => ChromeBarSuppression(
+    child: AddToPlaylistSheet(
+      loadWritablePlaylists: loadWritablePlaylists,
+      onAddToExisting: onAddToExisting,
+      onCreateAndAdd: onCreateAndAdd,
+    ),
   ),
 );
 

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../shell/bar_suppression.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../playback/keep_screen_on.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
@@ -107,13 +108,16 @@ Future<void> showTrackMenuSheet(
     isScrollControlled: true,
     showDragHandle: true,
     backgroundColor: Theme.of(context).colorScheme.surfaceContainerLow,
-    builder: (_) => TrackMenuSheet(
-      track: track,
-      nowPlaying: nowPlaying,
-      onGoToAlbum: onGoToAlbum,
-      onGoToArtist: onGoToArtist,
-      onAddToPlaylist: onAddToPlaylist,
-      onMessage: onMessage,
+    // The window's bar sits above the Navigator: a sheet sends it away.
+    builder: (_) => ChromeBarSuppression(
+      child: TrackMenuSheet(
+        track: track,
+        nowPlaying: nowPlaying,
+        onGoToAlbum: onGoToAlbum,
+        onGoToArtist: onGoToArtist,
+        onAddToPlaylist: onAddToPlaylist,
+        onMessage: onMessage,
+      ),
     ),
   );
 }

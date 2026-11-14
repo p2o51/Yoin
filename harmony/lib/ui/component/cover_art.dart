@@ -62,20 +62,20 @@ class _FadeInNetworkImageState extends State<_FadeInNetworkImage> with TickerPro
 
   @override
   Widget build(BuildContext context) => Image.network(
-        widget.url,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        cacheWidth: widget.cacheWidth,
-        gaplessPlayback: true,
-        errorBuilder: (_, _, _) => const SizedBox.expand(),
-        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-          if (wasSynchronouslyLoaded) {
-            _alpha.snapTo(1);
-          } else if (frame != null) {
-            _alpha.animateTo(1);
-          }
-          return FadeTransition(opacity: _alpha.animation.drive(Tween(begin: 0, end: 1)), child: child);
-        },
-      );
+    widget.url,
+    fit: BoxFit.cover,
+    width: double.infinity,
+    height: double.infinity,
+    cacheWidth: widget.cacheWidth,
+    gaplessPlayback: true,
+    errorBuilder: (_, _, _) => const SizedBox.expand(),
+    frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+      if (wasSynchronouslyLoaded) {
+        _alpha.snapTo(1);
+      } else if (frame != null) {
+        _alpha.animateTo(1);
+      }
+      return FadeTransition(opacity: _alpha.animation.drive(Tween(begin: 0, end: 1)), child: child);
+    },
+  );
 }

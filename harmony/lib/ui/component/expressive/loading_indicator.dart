@@ -74,14 +74,14 @@ final class CornerRounding {
 @immutable
 final class ShapeCubic {
   ShapeCubic(List<double> points)
-      : assert(points.length == 8, 'Points array size should be 8'),
-        points = List<double>.unmodifiable(points);
+    : assert(points.length == 8, 'Points array size should be 8'),
+      points = List<double>.unmodifiable(points);
 
   ShapeCubic.of(double a0x, double a0y, double c0x, double c0y, double c1x, double c1y, double a1x, double a1y)
-      : points = List<double>.unmodifiable([a0x, a0y, c0x, c0y, c1x, c1y, a1x, a1y]);
+    : points = List<double>.unmodifiable([a0x, a0y, c0x, c0y, c1x, c1y, a1x, a1y]);
 
   ShapeCubic.fromPoints(Offset a0, Offset c0, Offset c1, Offset a1)
-      : this.of(a0.dx, a0.dy, c0.dx, c0.dy, c1.dx, c1.dy, a1.dx, a1.dy);
+    : this.of(a0.dx, a0.dy, c0.dx, c0.dy, c1.dx, c1.dy, a1.dx, a1.dy);
 
   final List<double> points;
 
@@ -96,15 +96,15 @@ final class ShapeCubic {
 
   /// Cubic.straightLine: control points at 1/3 and 2/3 of the segment.
   static ShapeCubic straightLine(double x0, double y0, double x1, double y1) => ShapeCubic.of(
-        x0,
-        y0,
-        _interpolate(x0, x1, 1 / 3),
-        _interpolate(y0, y1, 1 / 3),
-        _interpolate(x0, x1, 2 / 3),
-        _interpolate(y0, y1, 2 / 3),
-        x1,
-        y1,
-      );
+    x0,
+    y0,
+    _interpolate(x0, x1, 1 / 3),
+    _interpolate(y0, y1, 1 / 3),
+    _interpolate(x0, x1, 2 / 3),
+    _interpolate(y0, y1, 2 / 3),
+    x1,
+    y1,
+  );
 
   /// Cubic.circularArc: the arc around (centerX, centerY) from (x0, y0) to
   /// (x1, y1), the short way round.
@@ -116,7 +116,8 @@ final class ShapeCubic {
     final clockwise = rotatedP0.dx * (x1 - centerX) + rotatedP0.dy * (y1 - centerY) >= 0;
     final cosa = _dot(p0d, p1d);
     if (cosa > 0.999) return straightLine(x0, y0, x1, y1);
-    final k = _distance(x0 - centerX, y0 - centerY) *
+    final k =
+        _distance(x0 - centerX, y0 - centerY) *
         4 /
         3 *
         (math.sqrt(2 * (1 - cosa)) - math.sqrt(1 - cosa * cosa)) /
@@ -289,15 +290,36 @@ final class _RoundedCorner {
     final center = p1 + _direction((d1 + d2) / 2) * centerDistance;
     final circleIntersection0 = p1 + d1 * actualRoundCut;
     final circleIntersection2 = p1 + d2 * actualRoundCut;
-    final flanking0 =
-        _flankingCurve(actualRoundCut, actualSmoothing0, p1, p0, circleIntersection0, circleIntersection2, center, actualR);
+    final flanking0 = _flankingCurve(
+      actualRoundCut,
+      actualSmoothing0,
+      p1,
+      p0,
+      circleIntersection0,
+      circleIntersection2,
+      center,
+      actualR,
+    );
     final flanking2 = _flankingCurve(
-            actualRoundCut, actualSmoothing1, p1, p2, circleIntersection2, circleIntersection0, center, actualR)
-        .reverse();
+      actualRoundCut,
+      actualSmoothing1,
+      p1,
+      p2,
+      circleIntersection2,
+      circleIntersection0,
+      center,
+      actualR,
+    ).reverse();
     return [
       flanking0,
       ShapeCubic.circularArc(
-          center.dx, center.dy, flanking0.anchor1X, flanking0.anchor1Y, flanking2.anchor0X, flanking2.anchor0Y),
+        center.dx,
+        center.dy,
+        flanking0.anchor1X,
+        flanking0.anchor1Y,
+        flanking2.anchor0X,
+        flanking2.anchor0Y,
+      ),
       flanking2,
     ];
   }
@@ -349,8 +371,8 @@ final class _RoundedCorner {
 /// (graphics-shapes `RoundedPolygon`).
 final class RoundedPolygon {
   RoundedPolygon._(List<ShapeFeature> features, this.centerX, this.centerY)
-      : features = List<ShapeFeature>.unmodifiable(features),
-        cubics = List<ShapeCubic>.unmodifiable(_buildCubics(features, centerX, centerY));
+    : features = List<ShapeFeature>.unmodifiable(features),
+      cubics = List<ShapeCubic>.unmodifiable(_buildCubics(features, centerX, centerY));
 
   /// RoundedPolygon(vertices, rounding, perVertexRounding, centerX, centerY).
   /// [vertices] is x0, y0, x1, y1…; a null centre is the vertices' average.
@@ -391,7 +413,8 @@ final class RoundedPolygon {
       final allowedCuts = [0.0, 0.0];
       for (var delta = 0; delta <= 1; delta++) {
         final (roundCutRatio, cutRatio) = cutAdjusts[(i + n - 1 + delta) % n];
-        allowedCuts[delta] = roundedCorners[i].expectedRoundCut * roundCutRatio +
+        allowedCuts[delta] =
+            roundedCorners[i].expectedRoundCut * roundCutRatio +
             (roundedCorners[i].expectedCut - roundedCorners[i].expectedRoundCut) * cutRatio;
       }
       corners.add(roundedCorners[i].getCubics(allowedCuts[0], allowedCuts[1]));
@@ -404,7 +427,9 @@ final class RoundedPolygon {
       features.add(CornerFeature(corners[i], convex: _clockwise(curr - prev, next - curr)));
       final last = corners[i].last;
       final first = corners[(i + 1) % n].first;
-      features.add(EdgeFeature([ShapeCubic.straightLine(last.anchor1X, last.anchor1Y, first.anchor0X, first.anchor0Y)]));
+      features.add(
+        EdgeFeature([ShapeCubic.straightLine(last.anchor1X, last.anchor1Y, first.anchor0X, first.anchor0Y)]),
+      );
     }
     double cx;
     double cy;
@@ -545,8 +570,18 @@ final class RoundedPolygon {
       }
     }
     if (lastCubic != null && firstCubic != null) {
-      out.add(ShapeCubic.of(lastCubic.anchor0X, lastCubic.anchor0Y, lastCubic.control0X, lastCubic.control0Y,
-          lastCubic.control1X, lastCubic.control1Y, firstCubic.anchor0X, firstCubic.anchor0Y));
+      out.add(
+        ShapeCubic.of(
+          lastCubic.anchor0X,
+          lastCubic.anchor0Y,
+          lastCubic.control0X,
+          lastCubic.control0Y,
+          lastCubic.control1X,
+          lastCubic.control1Y,
+          firstCubic.anchor0X,
+          firstCubic.anchor0Y,
+        ),
+      );
     } else {
       out.add(ShapeCubic.of(centerX, centerY, centerX, centerY, centerX, centerY, centerX, centerY));
     }
@@ -654,8 +689,8 @@ abstract final class _LengthMeasurer {
 
 final class _MeasuredCubic {
   _MeasuredCubic(this.cubic, this.startOutlineProgress, this.endOutlineProgress)
-      : assert(endOutlineProgress >= startOutlineProgress),
-        measuredSize = _LengthMeasurer.measureCubic(cubic);
+    : assert(endOutlineProgress >= startOutlineProgress),
+      measuredSize = _LengthMeasurer.measureCubic(cubic);
 
   final ShapeCubic cubic;
   final double measuredSize;
@@ -669,18 +704,15 @@ final class _MeasuredCubic {
     final relativeProgress = progressFromStart / outlineProgressSize;
     final t = _LengthMeasurer.findCubicCutPoint(cubic, relativeProgress * measuredSize);
     final (c1, c2) = cubic.split(t);
-    return (
-      _MeasuredCubic(c1, startOutlineProgress, bounded),
-      _MeasuredCubic(c2, bounded, endOutlineProgress),
-    );
+    return (_MeasuredCubic(c1, startOutlineProgress, bounded), _MeasuredCubic(c2, bounded, endOutlineProgress));
   }
 }
 
 final class _MeasuredPolygon {
   _MeasuredPolygon._(this.features, List<ShapeCubic> cubics, List<double> outlineProgress)
-      : assert(outlineProgress.length == cubics.length + 1),
-        assert(outlineProgress.first == 0),
-        assert(outlineProgress.last == 1) {
+    : assert(outlineProgress.length == cubics.length + 1),
+      assert(outlineProgress.first == 0),
+      assert(outlineProgress.last == 1) {
     var startOutlineProgress = 0.0;
     for (var index = 0; index < cubics.length; index++) {
       // Drop "empty" cubics.
@@ -779,8 +811,9 @@ double _linearMap(List<double> xValues, List<double> yValues, double x) {
   final segmentEndIndex = (segmentStartIndex + 1) % n;
   final segmentSizeX = _positiveModulo(xValues[segmentEndIndex] - xValues[segmentStartIndex], 1);
   final segmentSizeY = _positiveModulo(yValues[segmentEndIndex] - yValues[segmentStartIndex], 1);
-  final positionInSegment =
-      segmentSizeX < 0.001 ? 0.5 : _positiveModulo(x - xValues[segmentStartIndex], 1) / segmentSizeX;
+  final positionInSegment = segmentSizeX < 0.001
+      ? 0.5
+      : _positiveModulo(x - xValues[segmentStartIndex], 1) / segmentSizeX;
   return _positiveModulo(yValues[segmentStartIndex] + segmentSizeY * positionInSegment, 1);
 }
 
@@ -788,8 +821,8 @@ double _linearMap(List<double> xValues, List<double> yValues, double x) {
 /// progress.
 final class _DoubleMapper {
   _DoubleMapper(List<(double, double)> mappings)
-      : _source = [for (final m in mappings) m.$1],
-        _target = [for (final m in mappings) m.$2];
+    : _source = [for (final m in mappings) m.$1],
+      _target = [for (final m in mappings) m.$2];
 
   final List<double> _source;
   final List<double> _target;
@@ -803,9 +836,9 @@ const List<(double, double)> _identityMapping = [(0, 0), (0.5, 0.5)];
 
 /// FeatureMapping.featureRepresentativePoint.
 Offset _featureRepresentativePoint(ShapeFeature feature) => Offset(
-      (feature.cubics.first.anchor0X + feature.cubics.last.anchor1X) / 2,
-      (feature.cubics.first.anchor0Y + feature.cubics.last.anchor1Y) / 2,
-    );
+  (feature.cubics.first.anchor0X + feature.cubics.last.anchor1X) / 2,
+  (feature.cubics.first.anchor0Y + feature.cubics.last.anchor1Y) / 2,
+);
 
 /// FeatureMapping.featureDistSquared: corners of different convexity never pair.
 double _featureDistSquared(ShapeFeature f1, ShapeFeature f2) {
@@ -817,8 +850,14 @@ double _featureDistSquared(ShapeFeature f1, ShapeFeature f2) {
 /// FeatureMapping.featureMapper: pairs each outline's corners with the
 /// nearest compatible corner of the other.
 _DoubleMapper _featureMapper(List<_ProgressableFeature> features1, List<_ProgressableFeature> features2) {
-  final filtered1 = [for (final f in features1) if (f.feature is CornerFeature) f];
-  final filtered2 = [for (final f in features2) if (f.feature is CornerFeature) f];
+  final filtered1 = [
+    for (final f in features1)
+      if (f.feature is CornerFeature) f,
+  ];
+  final filtered2 = [
+    for (final f in features2)
+      if (f.feature is CornerFeature) f,
+  ];
   return _DoubleMapper(_doMapping(filtered1, filtered2));
 }
 
@@ -917,8 +956,18 @@ final class ShapeMorph {
       lastCubic = cubic;
     }
     if (lastCubic != null && firstCubic != null) {
-      out.add(ShapeCubic.of(lastCubic.anchor0X, lastCubic.anchor0Y, lastCubic.control0X, lastCubic.control0Y,
-          lastCubic.control1X, lastCubic.control1Y, firstCubic.anchor0X, firstCubic.anchor0Y));
+      out.add(
+        ShapeCubic.of(
+          lastCubic.anchor0X,
+          lastCubic.anchor0Y,
+          lastCubic.control0X,
+          lastCubic.control0Y,
+          lastCubic.control1X,
+          lastCubic.control1Y,
+          firstCubic.anchor0X,
+          firstCubic.anchor0Y,
+        ),
+      );
     }
     return out;
   }
@@ -1015,27 +1064,23 @@ abstract final class MaterialShapes {
     mirroring: true,
   ).normalized();
 
-  static final RoundedPolygon sunny =
-      RoundedPolygon.star(8, innerRadius: 0.8, rounding: _cornerRound15).normalized();
+  static final RoundedPolygon sunny = RoundedPolygon.star(8, innerRadius: 0.8, rounding: _cornerRound15).normalized();
 
-  static final RoundedPolygon cookie4Sided = _customPolygon(
-    [
-      (const Offset(1.237, 1.236), const CornerRounding(0.258)),
-      (const Offset(0.5, 0.918), const CornerRounding(0.233)),
-    ],
-    reps: 4,
-  ).normalized();
+  static final RoundedPolygon cookie4Sided = _customPolygon([
+    (const Offset(1.237, 1.236), const CornerRounding(0.258)),
+    (const Offset(0.5, 0.918), const CornerRounding(0.233)),
+  ], reps: 4).normalized();
 
-  static final RoundedPolygon cookie9Sided =
-      RoundedPolygon.star(9, innerRadius: 0.8, rounding: _cornerRound50).transformed(_rotateZ(-90)).normalized();
+  static final RoundedPolygon cookie9Sided = RoundedPolygon.star(
+    9,
+    innerRadius: 0.8,
+    rounding: _cornerRound50,
+  ).transformed(_rotateZ(-90)).normalized();
 
-  static final RoundedPolygon softBurst = _customPolygon(
-    [
-      (const Offset(0.193, 0.277), const CornerRounding(0.053)),
-      (const Offset(0.176, 0.055), const CornerRounding(0.053)),
-    ],
-    reps: 10,
-  ).normalized();
+  static final RoundedPolygon softBurst = _customPolygon([
+    (const Offset(0.193, 0.277), const CornerRounding(0.053)),
+    (const Offset(0.176, 0.055), const CornerRounding(0.053)),
+  ], reps: 10).normalized();
 
   /// MaterialShapes.customPolygon: [pnr] repeated [reps] times around
   /// [center] (mirrored on alternate repeats when [mirroring]).
@@ -1047,7 +1092,9 @@ abstract final class MaterialShapes {
   }) {
     final actualList = _doRepeat(pnr, reps, center, mirroring);
     return RoundedPolygon.fromVertices(
-      [for (final p in actualList) ...[p.$1.dx, p.$1.dy]],
+      [
+        for (final p in actualList) ...[p.$1.dx, p.$1.dy],
+      ],
       perVertexRounding: [for (final p in actualList) p.$2],
       centerX: center.dx,
       centerY: center.dy,
@@ -1137,12 +1184,12 @@ abstract final class LoadingIndicatorDefaults {
   /// morphSequence(polygons, circularSequence = true): normalized pairs,
   /// the last morphing back into the first.
   static List<ShapeMorph> morphSequence(List<RoundedPolygon> polygons, {required bool circular}) => [
-        for (var i = 0; i < polygons.length; i++)
-          if (i + 1 < polygons.length)
-            ShapeMorph(polygons[i].normalized(), polygons[i + 1].normalized())
-          else if (circular)
-            ShapeMorph(polygons[i].normalized(), polygons[0].normalized()),
-      ];
+    for (var i = 0; i < polygons.length; i++)
+      if (i + 1 < polygons.length)
+        ShapeMorph(polygons[i].normalized(), polygons[i + 1].normalized())
+      else if (circular)
+        ShapeMorph(polygons[i].normalized(), polygons[0].normalized()),
+  ];
 
   /// calculateScaleFactor: shrink so every shape fits the container at any rotation.
   static double calculateScaleFactor(List<RoundedPolygon> polygons) {
@@ -1157,8 +1204,7 @@ abstract final class LoadingIndicatorDefaults {
     return scaleFactor;
   }
 
-  static final List<ShapeMorph> indeterminateMorphs =
-      morphSequence(indeterminateIndicatorPolygons, circular: true);
+  static final List<ShapeMorph> indeterminateMorphs = morphSequence(indeterminateIndicatorPolygons, circular: true);
 
   static final double indeterminateScaleFactor =
       calculateScaleFactor(indeterminateIndicatorPolygons) * activeIndicatorScale;
@@ -1189,7 +1235,8 @@ abstract final class LoadingIndicatorDefaults {
     const displacement = -1.0; // start - target
     final cosCoeff = displacement;
     final sinCoeff = (morphDampingRatio * omega * displacement) / dampedFreq;
-    final x = math.exp(-morphDampingRatio * omega * t) *
+    final x =
+        math.exp(-morphDampingRatio * omega * t) *
         (cosCoeff * math.cos(dampedFreq * t) + sinCoeff * math.sin(dampedFreq * t));
     return 1 + x;
   }
@@ -1260,10 +1307,10 @@ class ExpressiveLoadingIndicator extends StatefulWidget {
     super.key,
     this.size = LoadingIndicatorDefaults.containerWidth,
     this.semanticsLabel,
-  })  : contained = true,
-        indicatorColor = null,
-        containerColor = null,
-        _palette = _IndicatorPalette.yoin;
+  }) : contained = true,
+       indicatorColor = null,
+       containerColor = null,
+       _palette = _IndicatorPalette.yoin;
 
   final double size;
   final bool contained;
@@ -1276,8 +1323,7 @@ class ExpressiveLoadingIndicator extends StatefulWidget {
   State<ExpressiveLoadingIndicator> createState() => _ExpressiveLoadingIndicatorState();
 }
 
-class _ExpressiveLoadingIndicatorState extends State<ExpressiveLoadingIndicator>
-    with SingleTickerProviderStateMixin {
+class _ExpressiveLoadingIndicatorState extends State<ExpressiveLoadingIndicator> with SingleTickerProviderStateMixin {
   final ValueNotifier<LoadingIndicatorFrame> _frame = ValueNotifier(LoadingIndicatorFrame.still);
   late final Ticker _ticker = createTicker((elapsed) => _frame.value = LoadingIndicatorFrame.at(elapsed));
   bool _reduceMotion = false;
@@ -1320,11 +1366,7 @@ class _ExpressiveLoadingIndicatorState extends State<ExpressiveLoadingIndicator>
         child: SizedBox.square(
           dimension: widget.size,
           child: CustomPaint(
-            painter: LoadingIndicatorPainter(
-              frame: _frame,
-              indicatorColor: ink,
-              containerColor: container,
-            ),
+            painter: LoadingIndicatorPainter(frame: _frame, indicatorColor: ink, containerColor: container),
           ),
         ),
       ),
@@ -1337,7 +1379,7 @@ class _ExpressiveLoadingIndicatorState extends State<ExpressiveLoadingIndicator>
 /// bounds and rotated about the centre (LoadingIndicatorImpl + processPath).
 class LoadingIndicatorPainter extends CustomPainter {
   LoadingIndicatorPainter({required this.frame, required this.indicatorColor, this.containerColor})
-      : super(repaint: frame);
+    : super(repaint: frame);
 
   final ValueListenable<LoadingIndicatorFrame> frame;
   final Color indicatorColor;
@@ -1378,7 +1420,13 @@ class LoadingIndicatorPainter extends CustomPainter {
     _path.moveTo(cubics.first.anchor0X * sx + dx, cubics.first.anchor0Y * sy + dy);
     for (final c in cubics) {
       _path.cubicTo(
-          c.control0X * sx + dx, c.control0Y * sy + dy, c.control1X * sx + dx, c.control1Y * sy + dy, c.anchor1X * sx + dx, c.anchor1Y * sy + dy);
+        c.control0X * sx + dx,
+        c.control0Y * sy + dy,
+        c.control1X * sx + dx,
+        c.control1Y * sy + dy,
+        c.anchor1X * sx + dx,
+        c.anchor1Y * sy + dy,
+      );
     }
     _path.close();
     canvas

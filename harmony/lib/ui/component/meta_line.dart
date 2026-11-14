@@ -77,7 +77,9 @@ class MetaLine extends StatelessWidget {
             for (final (i, s) in spans.indexed) ...[
               if (i > 0) const SizedBox(width: MetaLineTokens.innerGap),
               if (flexible && i == 0)
-                Flexible(child: Text.rich(s, maxLines: 1, overflow: TextOverflow.ellipsis, style: base))
+                Flexible(
+                  child: Text.rich(s, maxLines: 1, overflow: TextOverflow.ellipsis, style: base),
+                )
               else
                 Text.rich(s, maxLines: 1, style: base),
             ],
@@ -101,7 +103,12 @@ class MetaLine extends StatelessWidget {
     return switch (g) {
       MetaPlain(:final text) => [TextSpan(text: text, style: base)],
       MetaMuted(:final text) => [TextSpan(text: text, style: muted)],
-      MetaKind(:final text, :final color) => [TextSpan(text: text, style: base.copyWith(color: color ?? primary))],
+      MetaKind(:final text, :final color) => [
+        TextSpan(
+          text: text,
+          style: base.copyWith(color: color ?? primary),
+        ),
+      ],
       MetaStat(:final value, :final unit) => [
         TextSpan(
           text: value,
