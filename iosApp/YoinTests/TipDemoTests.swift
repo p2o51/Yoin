@@ -157,7 +157,7 @@ final class TipDemoTests: XCTestCase {
         XCTAssertEqual(TipIllustration.scenes, [
             "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads",
             "EditHome", "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn", "MiniPlayerMenu", "NoteMoments",
-            "LibrarySearch", "Labs", "Name",
+            "LibrarySearch", "Labs", "Name", "VolumeLeveling",
         ])
         for id in TipIllustration.scenes {
             XCTAssertNotNil(Tips.tip(id), "\(id) has a demo but is not a tip")

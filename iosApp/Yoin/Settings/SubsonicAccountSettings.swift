@@ -63,29 +63,8 @@ struct SubsonicAccountSettings: View {
     /// too. Only songs the server tagged with ReplayGain change.
     private var levelingGroup: some View {
         let leveling = ReplayGainSettings.shared
-        return group(String(localized: "Volume leveling")) {
-            ReplayGainMode.allCases.map { mode in
-                AnyView(Button {
-                    withAnimation(Yoin.effects) { leveling.mode = mode }
-                } label: {
-                    HStack(spacing: 16) {
-                        ZStack {
-                            Circle().strokeBorder(leveling.mode == mode ? app.primary : app.onSurfaceVariant, lineWidth: 2)
-                            Circle().fill(app.primary).padding(5).scaleEffect(leveling.mode == mode ? 1 : 0.01)
-                                .opacity(leveling.mode == mode ? 1 : 0)
-                        }
-                        .frame(width: 20, height: 20)
-                        .padding(.horizontal, 2)
-                        Text(mode.label).yoinRole(Tokens.type.titleMedium).foregroundStyle(app.onSurface)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain).pointerHighlight()
-                .accessibilityAddTraits(leveling.mode == mode ? [.isButton, .isSelected] : .isButton))
-            }
+        return VolumeLevelingGroup(app: app, row: row, mode: leveling.mode) { mode in
+            withAnimation(Yoin.effects) { leveling.mode = mode }
         }
     }
 
@@ -205,6 +184,56 @@ struct SubsonicAccountSettings: View {
                 }
             }
         }
+    }
+}
+
+/// Volume leveling's choices as the Subsonic account's page draws them (its label, then a row each, Pixel style):
+/// the page passes Yoin's choice, the VolumeLeveling tip's demo phone one of its own (Android
+/// VolumeLevelingPageBody). Each row is named `leveling-<mode>` for the demo's touch.
+struct VolumeLevelingGroup: View {
+    var app: CoverScheme
+    var row: Color
+    var mode: ReplayGainMode
+    var onPick: (ReplayGainMode) -> Void
+
+    var body: some View {
+        let modes = ReplayGainMode.allCases
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Volume leveling")
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(app.primary)
+                .padding(.horizontal, 8)
+                .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 2) {
+                ForEach(Array(modes.enumerated()), id: \.element) { i, m in
+                    choice(m)
+                        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                        .background(row, in: CloudSyncView.segment(i, modes.count))
+                        .demoTarget("leveling-\(m.rawValue)")
+                }
+            }
+        }
+    }
+
+    private func choice(_ m: ReplayGainMode) -> some View {
+        let on = mode == m
+        return Button { onPick(m) } label: {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle().strokeBorder(on ? app.primary : app.onSurfaceVariant, lineWidth: 2)
+                    Circle().fill(app.primary).padding(5).scaleEffect(on ? 1 : 0.01).opacity(on ? 1 : 0)
+                }
+                .frame(width: 20, height: 20)
+                .padding(.horizontal, 2)
+                Text(m.label).yoinRole(Tokens.type.titleMedium).foregroundStyle(app.onSurface)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain).pointerHighlight()
+        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
 }
 

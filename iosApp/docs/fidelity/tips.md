@@ -75,6 +75,7 @@ Differences kept:
 - Quick search: Search is a page of the app's window, so the phone draws its open state from SearchView's numbers (the field on Library's pill, the ✕, the types for a Subsonic server: no scope pair, no Playlists), as Android draws M3's full-screen search. Closing is the ✕ (Android: the back arrow), and the surface covers the bar, as Android's does.
 - Mini player options: the sheet keeps Keep screen on, as iOS's pill sheet does (Android's leaves the player group out).
 - Name: the page behind the mark is the Library / Home gradient (Android ExpressivePageBackground).
+- Volume leveling (Android VolumeLevelingDemo, 11-13): the page is the Subsonic account's (titled Subsonic, as ServiceSetupView names it) with its real Volume leveling group (`VolumeLevelingGroup`, which SubsonicAccountSettings draws too); Android's is its own Settings page. The dot picks By track, then By album; the choice is the demo's own.
 - Views that take a demo (`AllMemoriesView(demo:)`, `HomeLyricCardsSection(demo:)`, `HomeMemoryLedgerSection(onOpen:)`, `SpotifyElsewherePill(demoCover:)`) load, play, open and remember nothing in it.
 
 Now Playing on the phone (`NowPlaying/NowPlayingDemo.swift`): a made-up song (Android `DemoNowPlayingTrack`: Harbour Lights' first song, 3:34, from 0:58, FLAC 24/96, a favorite, 8.2) with its own playhead on a 250 ms tick, read through `PlaybackPosition` (`\.demoPlayhead`). In demo mode the page plays, loads, writes, opens and folds nothing; its rating bar and heart change only the demo's values; the pager, the seek bar and the pills take no drag (a sideways drag on the phone turns the tips).
@@ -86,7 +87,7 @@ The phone's sheet (`DemoSheetStage`): the system's sheet belongs to the window, 
 ## Without a scene
 
 - PullForMemories: Memories' card (`MemoryCardFace`) runs on the deck model (`MemoriesDeckModel` with its presentation, diary morph and awards) and an `AlbumMemory`; a phone of its own needs a demo deck and a pull wired to the phone's own reveal. Left for a pass of its own.
-- VolumeLeveling, HomeScreenWidgets: iOS only; Android has no scene to port (one would show Settings › the Subsonic account, and the Home Screen's widget gallery, which the app does not draw).
+- HomeScreenWidgets: Android draws one since #207 (its widget picker over a home screen); iOS's widget views live in the widget extension (Widgets/), which the app target doesn't build, so the phone can't draw them yet. Left for a pass of its own.
 - MemoriesAllAccounts: the same deck as PullForMemories, with a second account's card; it waits for that demo deck.
 - ContinueOn: on iOS the offer is the system's Handoff (the App Switcher's bottom, the Dock), not a Yoin card, so there is no Yoin component to act it out; Android's scene is its tablet taskbar and card.
 - SpotifySpeakers: the Devices sheet (`SpotifyDevicesSheet`) reads `SpotifySource` and `SpotifyDeviceMemory` for the account in use; a phone of its own needs the sheet split from its loading the way TrackMenuBody was. Left for a pass of its own.
