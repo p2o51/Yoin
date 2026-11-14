@@ -2857,7 +2857,6 @@ private fun YourPlaylistsSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .then(homeShelfEdgeFade(shelfState))
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -2905,7 +2904,6 @@ private fun OtherProfilesSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .then(homeShelfEdgeFade(shelfState))
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -3012,7 +3010,6 @@ private fun AlbumShelfSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .then(homeShelfEdgeFade(shelfState))
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),

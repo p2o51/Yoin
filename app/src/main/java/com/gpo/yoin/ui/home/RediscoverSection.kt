@@ -179,7 +179,6 @@ internal fun RediscoverSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
-                .then(homeShelfEdgeFade(shelfState))
                 // Plates V1 (shipped) / V2 only: clipped to the edit plate while editing.
                 .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
