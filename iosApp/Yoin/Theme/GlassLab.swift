@@ -419,8 +419,30 @@ final class GlassLab {
         UserDefaults.standard.set(data, forKey: Self.key)
     }
 
-    func style(_ id: String) -> SurfaceStyle { styles[id] ?? SurfaceStyle(tintOpacity: 0) }
-    func extra(_ id: String) -> Double { extras[id] ?? 0 }
+    func style(_ id: String) -> SurfaceStyle {
+        let st = styles[id] ?? SurfaceStyle(tintOpacity: 0)
+        // Solid surfaces: Now Playing's controls take Android's colour roles
+        // (each call site's `auto`: PAUSE / Next primary, Previous secondary,
+        // play mode tertiaryContainer, pills primary, heart tertiary(Container),
+        // rating surfaceVariant), opaque, no shadow. The presets' neutral
+        // floors were a glass idea.
+        if solidSurfaces, Self.solidAndroidRoles.contains(id) {
+            return SurfaceStyle(variant: .none, tintOn: true, role: .auto, tintOpacity: 1, interactive: false,
+                                cornerRadius: st.cornerRadius)
+        }
+        return st
+    }
+
+    /// The surfaces that wear Android's roles with solid surfaces on.
+    static let solidAndroidRoles: Set<String> = ["transportPrimary", "transportSecondary", "heart", "npPills",
+                                                 "ratingTrack", "npFloating"]
+
+    func extra(_ id: String) -> Double {
+        // Solid surfaces: no lifting into glass, the liked heart keeps its own tertiary.
+        if solidSurfaces, id == "liftInFlow" || id == "heartLikedAccent" { return 0 }
+        if solidSurfaces, id == "ratingFill" { return 1 }
+        return extras[id] ?? 0
+    }
 
     /// A surface's tint opacity in this appearance (Gemini's dark multiplier).
     func tintOpacity(_ id: String, dark: Bool) -> Double {
@@ -448,7 +470,7 @@ final class GlassLab {
 
     /// World: one accent per layer (the selected / primary item); the
     /// layer's other floating controls take a neutral tint.
-    var oneAccentPerLayer: Bool { preset == .world }
+    var oneAccentPerLayer: Bool { preset == .world && !solidSurfaces }
 
     var colorScheme: ColorScheme? {
         switch appearance {

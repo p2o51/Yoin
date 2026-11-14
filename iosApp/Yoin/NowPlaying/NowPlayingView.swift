@@ -2293,7 +2293,7 @@ struct NowPlayingView: View, Equatable {
     private var pillInk: Color {
         lab.neutralTint("npPills") ? scheme.onSurface
             : lab.style("npPills").role == .primaryContainer ? scheme.onPrimaryContainer
-            : colorScheme == .dark ? Color.white : scheme.onPrimary
+            : colorScheme == .dark && !GlassLab.solidSurfaces ? Color.white : scheme.onPrimary
     }
 
     private func pill(_ icon: String, _ title: String, shape: AnyShape, dropsToQueue: Bool = false,
@@ -2915,6 +2915,9 @@ struct PlayModeButton: View {
         GlassLab.shared.style("transportSecondary").tintOn && !GlassLab.shared.neutralTint("transportSecondary")
     }
     private var ink: Color { tinted ? scheme.onTertiaryContainer : scheme.onSurface }
+    /// Android playModeColors: the merged button is lit (primary) in any mode
+    /// but the default repeat-all; shown with solid surfaces (glass keeps its floor).
+    private var mergedLit: Bool { GlassLab.solidSurfaces && !split && (shuffle || repeatMode != .all) }
 
     var body: some View {
         let width = split ? splitWidth : size
@@ -2945,7 +2948,7 @@ struct PlayModeButton: View {
             } else {
                 let merged = PlayModeGlyph(shuffle: shuffle, repeatMode: repeatMode)
                 glyph(merged.icon, one: merged.one, off: merged.off)
-                    .foregroundStyle(ink)
+                    .foregroundStyle(mergedLit ? scheme.onPrimary : ink)
                     .frame(width: size, height: size)
                     .contentShape(.capsule)
                     .pointerHighlight()
@@ -2963,7 +2966,8 @@ struct PlayModeButton: View {
             if haptics { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
             setSplit(!split)
         }, onPressingChanged: { onPress($0) })
-        .labGlass("transportSecondary", scheme: scheme, brand: brand, auto: scheme.tertiaryContainer, in: Capsule())
+        .labGlass("transportSecondary", scheme: scheme, brand: brand,
+                  auto: mergedLit ? scheme.primary : scheme.tertiaryContainer, in: Capsule())
         .animation(Yoin.spatial, value: split)
         .animation(Yoin.effects, value: shuffle)
         .animation(Yoin.effects, value: repeatMode)
