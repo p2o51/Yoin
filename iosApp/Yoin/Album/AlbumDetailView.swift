@@ -1897,11 +1897,15 @@ private struct PlaylistHeaderDrop: ViewModifier {
     @Environment(AppModel.self) private var model
 
     func body(content: Content) -> some View {
-        if let playlist {
-            content.yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous).inset(by: 4),
-                                   ink: ink, accepts: YoinDrag.accepts(playlist, model: model)) {
-                YoinDrag.add($0, to: playlist, model: model)
-            }
+        if let playlist, YoinDrag.available {
+            // The whole bar takes the drop, not only its title and buttons: the empty stretch between them
+            // (lit while a drag is over it) had nothing to hit, so a drop there fell through.
+            content
+                .contentShape(.rect)
+                .yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous).inset(by: 4),
+                                ink: ink, accepts: YoinDrag.accepts(playlist, model: model)) {
+                    YoinDrag.add($0, to: playlist, model: model)
+                }
         } else {
             content
         }
