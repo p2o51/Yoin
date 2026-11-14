@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../memories/home_memory_pill.dart';
 import '../settings/settings_screen.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
@@ -42,7 +43,7 @@ final homeGreetingProvider = NotifierProvider<HomeGreeting, HomeDayPart>(HomeGre
 void openHomeSettings(BuildContext context) => openSettings(context);
 
 /// Header: greeting over the big "Home" title on the left, the account
-/// control on the right; the middle (Memories pill, deferred) stays empty.
+/// control on the right; the Memories pill sits before the account control.
 /// Rounded cut (ROND 100), Medium weight.
 class HomeHeader extends ConsumerWidget {
   const HomeHeader({super.key, required this.accountTitle, required this.compactHeight});
@@ -85,7 +86,12 @@ class HomeHeader extends ConsumerWidget {
                 ],
               ),
             ),
-            const Expanded(child: SizedBox.shrink()),
+            // The Memories pill (HeaderPill): the latest memory, its score and the notes kept.
+            Expanded(
+              child: title == null
+                  ? const SizedBox.shrink()
+                  : const Align(alignment: AlignmentDirectional.centerEnd, child: HomeMemoryPill()),
+            ),
             const SizedBox(width: HomeHeaderMetrics.avatarGap),
             SeamFade(
               fontSize: HomeHeaderMetrics.avatar,
