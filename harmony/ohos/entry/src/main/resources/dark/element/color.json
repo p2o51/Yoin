@@ -1,0 +1,40 @@
+{
+  "color": [
+    {
+      "name": "card_surface",
+      "value": "#FF1D162B"
+    },
+    {
+      "name": "card_on_surface",
+      "value": "#FFEDE0FF"
+    },
+    {
+      "name": "card_on_surface_variant",
+      "value": "#FFB2A5C9"
+    },
+    {
+      "name": "card_primary",
+      "value": "#FFDAC5FF"
+    },
+    {
+      "name": "card_shelf",
+      "value": "#FF1E2916"
+    },
+    {
+      "name": "card_backdrop_1",
+      "value": "#FFCDB6F7"
+    },
+    {
+      "name": "card_backdrop_2",
+      "value": "#FFCBFA94"
+    },
+    {
+      "name": "card_backdrop_3",
+      "value": "#FF2A213D"
+    },
+    {
+      "name": "card_placeholder",
+      "value": "#FF2A213D"
+    }
+  ]
+}

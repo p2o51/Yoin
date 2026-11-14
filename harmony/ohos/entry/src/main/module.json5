@@ -37,6 +37,21 @@
         ]
       }
     ],
+    "extensionAbilities": [
+      {
+        "name": "EntryFormAbility",
+        "srcEntry": "./ets/entryformability/EntryFormAbility.ets",
+        "label": "$string:card_play_label",
+        "description": "$string:card_play_description",
+        "type": "form",
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      }
+    ],
     "requestPermissions": [
       {"name" :  "ohos.permission.INTERNET"},
       {"name": "ohos.permission.KEEP_BACKGROUND_RUNNING"}

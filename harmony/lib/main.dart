@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/providers.dart';
+import 'cards/play_card.dart';
 import 'data/applemusic/apple_music_source.dart';
 import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
@@ -50,6 +51,9 @@ class YoinApp extends ConsumerWidget {
     // player on screen: scrobbling, play history, rehydrating the queue and
     // the system's "open Now Playing" all run in it.
     ref.listen(playbackControllerProvider, (_, _) {});
+    // The Play service card follows the active account's listening for as
+    // long as the app runs, and delivers card taps (lib/cards/play_card.dart).
+    ref.listen(playCardPublisherProvider, (_, _) {});
     // The playing cover themes the whole app, in ONE cut (no theme tween:
     // owner 2026-11-04); equal schemes keep the same ThemeData instance.
     final seed = ref.watch(playbackThemeProvider.select((t) => t.seed));

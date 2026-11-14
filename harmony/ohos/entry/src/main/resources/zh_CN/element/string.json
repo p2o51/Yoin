@@ -11,6 +11,18 @@
     {
       "name": "EntryAbility_label",
       "value": "yoin"
+    },
+    {
+      "name": "card_play_label",
+      "value": "播放"
+    },
+    {
+      "name": "card_play_description",
+      "value": "最近收听"
+    },
+    {
+      "name": "card_play_empty",
+      "value": "暂无播放记录"
     }
   ]
 }

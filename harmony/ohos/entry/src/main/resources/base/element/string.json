@@ -11,6 +11,18 @@
     {
       "name": "EntryAbility_label",
       "value": "yoin"
+    },
+    {
+      "name": "card_play_label",
+      "value": "Play"
+    },
+    {
+      "name": "card_play_description",
+      "value": "Recent listening"
+    },
+    {
+      "name": "card_play_empty",
+      "value": "Nothing played yet"
     }
   ]
 }
