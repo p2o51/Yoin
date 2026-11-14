@@ -1,6 +1,7 @@
 import CoreTransferable
 import YoinShared
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 extension UTType {
@@ -33,9 +34,14 @@ struct YoinDragItem: Codable, Hashable, Transferable {
 /// cards, and playlist cells and rows (Library, Search, Home). Where it drops: the queue, and a writable
 /// playlist's cell or row (Library, Search, Home) or its page's header. A pointer drags at once (the iPad
 /// app on a Mac, an iPad with a trackpad); a finger lifts the row after the long press that opens its sheet,
-/// as before.
+/// as before. An iPad and a Mac only ([available]).
 @MainActor
 enum YoinDrag {
+    /// Drag and drop is the iPad's and the Mac's (what it was made for). On an iPhone a draggable song row's
+    /// drag took the hold: its long press no longer opened the sheet (simulator, 0.6 s and 1.5 s presses), and
+    /// a phone shows no queue or playlist beside the rows to drop them on.
+    static let available = UIDevice.current.userInterfaceIdiom != .phone
+
     /// What one account's drags remember. A new account (a new store generation) starts empty, and its
     /// token is new, so a drag begun under the old account drops nothing.
     struct Registry {
@@ -227,16 +233,23 @@ enum YoinDrag {
 
 extension View {
     /// Library's album or playlist cell, or a song row: dragged out as a Yoin item (plain text elsewhere).
+    /// On an iPhone, nothing ([YoinDrag.available]).
+    @ViewBuilder
     func yoinDraggable(_ item: @escaping @MainActor () -> YoinDragItem) -> some View {
-        draggable(item())
+        if YoinDrag.available { draggable(item()) } else { self }
     }
 
     /// A drop target: [accepts] false refuses the drop and stays unlit. While a drag is over it, the
     /// dragged state layer shows behind it in [shape] (effects spring). On a glass control, attach it
     /// before the glass, so the layer sits between the glass and the label.
+    @ViewBuilder
     func yoinDropTarget(in shape: some Shape, ink: Color = .primary, accepts: Bool = true,
                         perform: @escaping @MainActor ([YoinDragItem]) -> Void) -> some View {
-        modifier(YoinDropTarget(shape: shape, ink: ink, accepts: accepts, perform: perform))
+        if YoinDrag.available {
+            modifier(YoinDropTarget(shape: shape, ink: ink, accepts: accepts, perform: perform))
+        } else {
+            self
+        }
     }
 }
 
