@@ -36,10 +36,14 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   late final MemoriesRevealHandle _memoriesHandle = ref.read(memoriesRevealHandleProvider);
   late final ChromeBackEntry _memoriesBack = ChromeBackEntry(_memoriesHandle.back);
 
+  /// 1 = the shell is the top page; 0 = a page pushed over it (from Memories) has the bar.
+  late final SpringValue _uncovered = SpringValue(vsync: this, initial: 1, spring: YoinSprings.standardDefaultSpatial);
+
   @override
   void initState() {
     super.initState();
     _memoriesHandle.attach(_memories);
+    _memoriesHandle.attachCover(_uncovered.animation);
     _memories.addListener(_syncMemoriesBack);
   }
 
@@ -62,6 +66,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
     _memoriesHandle.detach(_memories);
     _memoriesBack.dispose();
     _memories.dispose();
+    _uncovered.dispose();
     _homeVisibility.dispose();
     super.dispose();
   }
@@ -69,6 +74,13 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   @override
   Widget build(BuildContext context) {
     ref.listen(shellSectionProvider, (_, section) => _homeVisibility.animateTo(section == YoinSection.home ? 1 : 0));
+    // A page over the shell takes the bar back from Memories (and gives it back when it pops).
+    final top = ModalRoute.isCurrentOf(context) ?? true;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _uncovered.snapTo(top ? 1 : 0);
+    } else {
+      _uncovered.animateTo(top ? 1 : 0);
+    }
     return Scaffold(
       body: AnimatedBuilder(
         animation: _homeVisibility.animation,

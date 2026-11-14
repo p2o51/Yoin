@@ -4,6 +4,7 @@
 /// (it has the ticker) and registers it here.
 library;
 
+import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,6 +12,7 @@ import 'memories_motion.dart';
 
 class MemoriesRevealHandle {
   MemoriesRevealController? _controller;
+  Animation<double>? _uncovered;
 
   /// 0 = the bar shows, 1 = Memories is fully open (the bar has left with it).
   final ValueNotifier<double> barHide = ValueNotifier(0);
@@ -33,13 +35,24 @@ class MemoriesRevealHandle {
   void detach(MemoriesRevealController controller) {
     if (!identical(_controller, controller)) return;
     controller.removeListener(_sync);
+    _uncovered?.removeListener(_sync);
+    _uncovered = null;
     _controller = null;
     barHide.value = 0;
   }
 
+  /// 1 while the shell is the top page, 0 while a page pushed from Memories
+  /// (Go to album) covers it: that page has the bar, so Memories lets it go.
+  void attachCover(Animation<double> uncovered) {
+    _uncovered?.removeListener(_sync);
+    _uncovered = uncovered..addListener(_sync);
+    _sync();
+  }
+
   void _sync() {
     final q = _controller?.fraction ?? 1;
-    barHide.value = (1 - q).clamp(0.0, 1.0);
+    final shown = (_uncovered?.value ?? 1).clamp(0.0, 1.0);
+    barHide.value = ((1 - q) * shown).clamp(0.0, 1.0);
   }
 
   /// Opens Memories, [focus] (a memory's session id) first when given.
