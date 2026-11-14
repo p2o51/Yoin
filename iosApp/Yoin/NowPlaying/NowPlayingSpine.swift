@@ -17,8 +17,8 @@ struct SpineItem: Equatable {
     var value: String
 }
 
-/// What a Subsonic server says about the song itself, for the spine (Android SpineSourceFacts, the
-/// fields the spine reads). Nil fields are absent.
+/// What a Subsonic server says about the song itself, for the spine and About's receipt (Android
+/// SpineSourceFacts). Nil fields are absent.
 struct SpineSourceFacts: Equatable {
     var format: String?
     var bitRateKbps: Int?
@@ -30,12 +30,25 @@ struct SpineSourceFacts: Equatable {
     var year: Int?
     var trackNumber: Int?
     var discNumber: Int?
+    // About's receipt shows everything the server says (owner 2026-11-05); the spine keeps to the above.
+    var durationSec: Int?
+    var channels: Int?
+    var sizeBytes: Int64?
+    var playCount: Int?
+    var bpm: Int?
+    var composer: String?
+    var comment: String?
+    /// When the file was added to the library, ISO-8601 as the server sent it.
+    var added: String?
+    var path: String?
 
     /// Android `Track.spineSourceFacts`: the format as the format tags read it (`subsonicAudioFormat`),
     /// the rest as the server sent it, zeros and blanks dropped.
     init(format: String? = nil, bitRateKbps: Int? = nil, samplingRateHz: Int? = nil, bitDepth: Int? = nil,
          serverRating: Int? = nil, genre: String? = nil, year: Int? = nil, trackNumber: Int? = nil,
-         discNumber: Int? = nil) {
+         discNumber: Int? = nil, durationSec: Int? = nil, channels: Int? = nil, sizeBytes: Int64? = nil,
+         playCount: Int? = nil, bpm: Int? = nil, composer: String? = nil, comment: String? = nil,
+         added: String? = nil, path: String? = nil) {
         self.format = format
         self.bitRateKbps = bitRateKbps
         self.samplingRateHz = samplingRateHz
@@ -45,6 +58,15 @@ struct SpineSourceFacts: Equatable {
         self.year = year.flatMap { $0 > 0 ? $0 : nil }
         self.trackNumber = trackNumber.flatMap { $0 > 0 ? $0 : nil }
         self.discNumber = discNumber
+        self.durationSec = durationSec
+        self.channels = channels
+        self.sizeBytes = sizeBytes
+        self.playCount = playCount
+        self.bpm = bpm
+        self.composer = composer
+        self.comment = comment
+        self.added = added
+        self.path = path
     }
 
     init(suffix: String?, bitRate: Int?, audio: TrackAudio?, userRating: Int?, genre: String?, year: Int?,
@@ -55,7 +77,7 @@ struct SpineSourceFacts: Equatable {
                   genre: genre, year: year, trackNumber: track, discNumber: disc)
     }
 
-    /// From the server's record (Subsonic `getSong`).
+    /// From the server's record (Subsonic `getSong`), with what only the receipt reads.
     init(_ s: SongInfo) {
         let audio = s.audio.map {
             TrackAudio(samplingRate: $0.samplingRate?.intValue, bitDepth: $0.bitDepth?.intValue,
@@ -63,7 +85,94 @@ struct SpineSourceFacts: Equatable {
         }
         self.init(suffix: s.suffix, bitRate: s.bitRate?.intValue, audio: audio, userRating: s.userRating?.intValue,
                   genre: s.genre, year: s.year?.intValue, track: s.track?.intValue, disc: s.disc?.intValue)
+        durationSec = (s.durationSec?.intValue).flatMap { $0 > 0 ? $0 : nil }
+        channels = (audio?.channelCount).flatMap { $0 > 0 ? $0 : nil }
+        sizeBytes = (s.size?.int64Value).flatMap { $0 > 0 ? $0 : nil }
+        playCount = s.playCount?.intValue
+        bpm = s.bpm?.intValue
+        composer = Self.text(s.composer)
+        comment = Self.text(s.comment)
+        added = Self.text(s.created)
+        path = Self.text(s.path)
     }
+
+    private static func text(_ s: String?) -> String? {
+        s.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+    }
+
+    /// Android `aboutReceiptRows`' server part: everything the server says, in its order (genre, year,
+    /// track, length, quality, channels, size, BPM, plays, its rating, when it was added, the comment, the
+    /// file). A value runs onto one line; the quality's parts keep the spine's two spaces.
+    func receiptRows(_ labels: AboutLabels) -> [SongFacts.Fact] {
+        var rows: [SongFacts.Fact] = []
+        func add(_ label: String, _ value: String?) {
+            guard let v = value?.split(whereSeparator: \.isWhitespace).joined(separator: " "), !v.isEmpty else { return }
+            rows.append(.init(label: label, value: v))
+        }
+        let spine = labels.spine
+        add(spine.genre, genre)
+        add(spine.year, year.map(String.init))
+        if let track = trackNumber {
+            let value = if let disc = discNumber, disc > 1 { spine.discTrack(disc, track) } else { String(track) }
+            add(spine.track, value)
+        }
+        add(labels.length, durationSec.map(SongFacts.duration))
+        let quality = [
+            format,
+            bitDepth.map(spine.bit),
+            samplingRateHz.map { spine.khz(FormatTags.khzLabel($0)) },
+            bitRateKbps.map(spine.kbps),
+        ].compactMap { $0 }
+        if !quality.isEmpty { rows.append(.init(label: spine.quality, value: quality.joined(separator: "  "))) }
+        add(labels.channels, channels.map(labels.channelCount))
+        add(labels.size, sizeBytes.map { labels.megabytes(String(format: "%.1f", Double($0) / 1_048_576)) })
+        add(labels.bpm, bpm.map(String.init))
+        add(labels.playCount, playCount.map(String.init))
+        if let stars = serverRating {
+            add(spine.serverRating, String(repeating: "★", count: stars) + String(repeating: "☆", count: 5 - stars))
+        }
+        add(labels.added, added.map { String($0.prefix(10)) })
+        add(labels.comment, comment)
+        add(labels.file, path)
+        return rows
+    }
+}
+
+/// The labels About's receipt needs on top of the spine's (Android AboutLabels), so the rows stay a pure
+/// function.
+struct AboutLabels {
+    var spine: SpineLabels
+    var length: String
+    var channels: String
+    var channelCount: (Int) -> String
+    var size: String
+    var megabytes: (String) -> String
+    var bpm: String
+    var playCount: String
+    var added: String
+    var comment: String
+    var file: String
+
+    /// Android `np_about_*`.
+    @MainActor static let localized = AboutLabels(
+        spine: .localized,
+        length: String(localized: "Length"),
+        channels: String(localized: "Channels"),
+        channelCount: { n in
+            switch n {
+            case 1: String(localized: "Mono")
+            case 2: String(localized: "Stereo")
+            default: String(localized: "\(n) channels")
+            }
+        },
+        size: String(localized: "File size"),
+        megabytes: { String(localized: "\($0) MB") },
+        bpm: String(localized: "BPM"),
+        playCount: String(localized: "Plays"),
+        added: String(localized: "about.added", defaultValue: "Added"),
+        comment: String(localized: "Comment"),
+        file: String(localized: "File")
+    )
 }
 
 /// The labels the spine needs, so the item list stays a pure function (Android SpineLabels).

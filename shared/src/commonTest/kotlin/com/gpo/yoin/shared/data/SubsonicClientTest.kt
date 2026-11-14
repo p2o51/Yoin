@@ -210,6 +210,26 @@ class SubsonicClientTest {
     }
 
     @Test
+    fun should_readTheReceiptFacts_when_theServerSendsThem() = runTest {
+        val body = SubsonicFixtures.ok(
+            """"album": {"id": "al-rc", "name": "Receipt", "song": [
+                {"id": "s1", "title": "Full", "bpm": 128, "comment": "  Live take ", "created": "2024-05-01T10:20:30Z",
+                 "displayComposer": "Bellamy, Howard"},
+                {"id": "s2", "title": "Bare", "bpm": 0, "comment": " ", "created": "", "displayComposer": ""}
+            ]}""",
+        )
+        val songs = assertNotNull(client(routes = mapOf("getAlbum" to body)).getAlbum("al-rc")).songs
+        assertEquals(128, songs[0].bpm)
+        assertEquals("Live take", songs[0].comment)
+        assertEquals("2024-05-01T10:20:30Z", songs[0].created)
+        assertEquals("Bellamy, Howard", songs[0].composer)
+        assertNull(songs[1].bpm, "0 is a server that doesn't know")
+        assertNull(songs[1].comment)
+        assertNull(songs[1].created)
+        assertNull(songs[1].composer)
+    }
+
+    @Test
     fun should_mapAlbumWithSongs_when_getAlbum() = runTest {
         val album = assertNotNull(client(routes = mapOf("getAlbum" to SubsonicFixtures.album)).getAlbum("al-1"))
         assertEquals("al-1", lastUrl.parameters["id"])

@@ -54,6 +54,10 @@ internal fun SongDto.toSongInfo(): SongInfo = SongInfo(
     artists = artists.filter { it.name.isNotBlank() }.takeIf { it.size > 1 }
         ?.map { SongArtist(it.name.trim(), it.id?.takeIf(String::isNotEmpty)) }.orEmpty(),
     audio = songAudio(),
+    bpm = bpm?.takeIf { it > 0 },
+    comment = comment?.trim()?.takeIf { it.isNotEmpty() },
+    created = created?.takeIf { it.isNotEmpty() },
+    composer = displayComposer?.trim()?.takeIf { it.isNotEmpty() },
 )
 
 /** The audio facts, null when the server sent none (a Subsonic that isn't OpenSubsonic). */

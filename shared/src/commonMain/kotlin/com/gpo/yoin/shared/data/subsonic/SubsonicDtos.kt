@@ -154,6 +154,14 @@ internal data class SongDto(
     val samplingRate: Int? = null,
     val bitDepth: Int? = null,
     val channelCount: Int? = null,
+    /** OpenSubsonic: beats per minute (0: the server doesn't know). */
+    val bpm: Int? = null,
+    /** The file's comment tag. */
+    val comment: String? = null,
+    /** When the file was added to the library, ISO-8601. */
+    val created: String? = null,
+    /** OpenSubsonic: the song's composers as one line. */
+    val displayComposer: String? = null,
 )
 
 /** OpenSubsonic `ReplayGain`: gains in dB, peaks linear. */

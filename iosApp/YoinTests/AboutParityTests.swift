@@ -23,9 +23,43 @@ final class AboutParityTests: XCTestCase {
             entry(SongAboutStore.Kind.canonical, SongAboutStore.Canon.review, answer: "A review"),
         ], facts: facts, expanded: true)
         let labels = rows.map(\.label)
-        XCTAssertTrue(labels.contains("Album"))
-        XCTAssertTrue(labels.contains("Duration"))
+        XCTAssertTrue(labels.contains(loc("Album")))
+        XCTAssertTrue(labels.contains(loc("Length")))
         XCTAssertTrue(rows.contains { $0.value == "Artist" })
+    }
+
+    // MARK: The server's receipt (Android aboutReceiptRows, owner 2026-11-05)
+
+    func test_should_list_everything_the_server_says_in_androids_order() {
+        let facts = SpineSourceFacts(format: "FLAC", bitRateKbps: 2304, samplingRateHz: 96_000, bitDepth: 24,
+                                     serverRating: 4, genre: "Alternative", year: 2006, trackNumber: 3, discNumber: 2,
+                                     durationSec: 3725, channels: 2, sizeBytes: 9_437_184, playCount: 12, bpm: 128,
+                                     comment: "Live\n take", added: "2024-05-01T10:20:30Z", path: "Muse/BH&R/03.flac")
+        let rows = facts.receiptRows(.localized)
+        XCTAssertEqual(rows.map(\.label), [loc("Genre"), loc("Year"), loc("Track"), loc("Length"), loc("Quality"),
+                                           loc("Channels"), loc("File size"), loc("BPM"), loc("Plays"),
+                                           loc("Server rating"), loc("about.added"), loc("Comment"), loc("File")])
+        XCTAssertEqual(rows.map(\.value), ["Alternative", "2006", loc("Disc \(2), track \(3)"), "1:02:05",
+                                           "FLAC  \(loc("\(24)-bit"))  \(loc("\("96") kHz"))  \(loc("\(2304) kbps"))",
+                                           loc("Stereo"), loc("\("9.0") MB"), "128", "12", "★★★★☆", "2024-05-01",
+                                           "Live take", "Muse/BH&R/03.flac"])
+        XCTAssertEqual(SpineSourceFacts(channels: 1).receiptRows(.localized).map(\.value), [loc("Mono")])
+        XCTAssertEqual(SpineSourceFacts(channels: 6).receiptRows(.localized).map(\.value), [loc("\(6) channels")])
+        XCTAssertEqual(SpineSourceFacts().receiptRows(.localized), [])
+    }
+
+    func test_should_credit_the_servers_composer_before_gemini_after_the_lyrics() {
+        var song = facts
+        song.spine = SpineSourceFacts(composer: "Bellamy")
+        let gemini = [entry(SongAboutStore.Kind.canonical, SongAboutStore.Canon.composer, answer: "Gemini C")]
+        let server = NowPlayingAboutView.rows(entries: gemini, facts: song, expanded: true)
+        XCTAssertEqual(server.first?.value, "Bellamy")
+        XCTAssertEqual(server.first?.label, loc("Composer"))
+        XCTAssertNil(server.first?.entry)
+        let lyrics = NowPlayingAboutView.rows(entries: gemini, facts: song, expanded: true,
+                                              credits: SongCredits(composer: "钱雷"))
+        XCTAssertEqual(lyrics.first?.value, "钱雷")
+        XCTAssertEqual(NowPlayingAboutView.rows(entries: gemini, facts: facts, expanded: true).first?.value, "Gemini C")
     }
 
     func test_should_order_credits_then_facts_then_review_then_asks() {
