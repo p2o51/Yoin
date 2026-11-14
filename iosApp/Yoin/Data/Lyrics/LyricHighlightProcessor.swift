@@ -217,6 +217,29 @@ final class LyricHighlightProcessor {
               durationMs: Int64(t.durationSec) * 1000)
     }
 
+    /// How each card's song has been heard, by card (Android's card kind, `bucketOf` for the song shown): the
+    /// listener's own pick, heavy rotation, or one not heard in a while; none for a song not heard yet.
+    func kinds(of cards: [LyricHighlightRow], account: LedgerAccount) -> [String: LyricHighlightSelector.Bucket] {
+        let ids = Set(cards.map(\.songId))
+        let plays = HistoryStore.shared.plays(scope: MemoryLedgerSource.historyScope(account), provider: account.provider)
+            .filter { ids.contains($0.songId) }
+        let notes = NotesStore.shared.notes.filter { $0.provider == account.provider && ids.contains($0.trackId) }
+        let ratings = LocalRatings.shared
+        let signals = Self.signals(plays: plays, noteCount: Dictionary(grouping: notes, by: \.trackId).mapValues(\.count),
+                                   rating: { ratings.rating(provider: account.provider, songId: $0) }, now: Self.nowMs)
+        return Self.kinds(of: cards, signals: signals, now: Self.nowMs)
+    }
+
+    nonisolated static func kinds(of cards: [LyricHighlightRow], signals: [LyricHighlightSelector.SongSignal],
+                                  now: Int64) -> [String: LyricHighlightSelector.Bucket] {
+        let bySong = Dictionary(signals.map { ($0.songId, $0) }, uniquingKeysWith: { a, _ in a })
+        var out: [String: LyricHighlightSelector.Bucket] = [:]
+        for card in cards {
+            out[card.id] = card.isUserPick ? .user : LyricHighlightSelector.bucket(of: bySong[card.songId], now: now)
+        }
+        return out
+    }
+
     /// Play history turned into the selector's signals (Android LyricHighlightSignals).
     nonisolated static func signals(plays: [PlayEvent], noteCount: [String: Int], rating: (String) -> Double?,
                                     now: Int64) -> [LyricHighlightSelector.SongSignal] {

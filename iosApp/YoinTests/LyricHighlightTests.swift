@@ -146,4 +146,30 @@ final class LyricHighlightTests: XCTestCase {
         XCTAssertEqual(a.noteCount, 2)
         XCTAssertEqual(signals.first { $0.songId == "b" }?.heat, 0)
     }
+
+    @MainActor
+    func test_should_nameHowEachCardsSongWasHeard_when_shown() {
+        let day = LyricHighlightSelector.dayMs
+        let now: Int64 = 400 * day
+        func card(_ id: String, model: String? = "apple-on-device") -> LyricHighlightRow {
+            LyricHighlightRow(provider: "subsonic", scope: "s", songId: id, title: "T", artist: "A", album: "Al", albumId: "al",
+                              coverKey: nil, durationMs: 1, text: "line", startMs: nil, fingerprint: nil, model: model,
+                              attemptedAt: 1)
+        }
+        let signals: [LyricHighlightSelector.SongSignal] = [
+            .init(songId: "hot", playCount: 6, lastPlayedAt: now, heat: 3, rating: nil, noteCount: 0),
+            .init(songId: "old", playCount: 5, lastPlayedAt: now - 90 * day, heat: 0.1, rating: nil, noteCount: 0),
+            .init(songId: "once", playCount: 1, lastPlayedAt: now - day, heat: 0.9, rating: nil, noteCount: 0),
+        ]
+        let cards = [card("hot"), card("old"), card("once"), card("new"), card("mine", model: LyricHighlightStore.userPick)]
+        let kinds = LyricHighlightProcessor.kinds(of: cards, signals: signals, now: now)
+        XCTAssertEqual(kinds[cards[0].id], .heavy)
+        XCTAssertEqual(kinds[cards[1].id], .rediscover)
+        XCTAssertNil(kinds[cards[2].id], "heard, but neither on repeat nor a while ago")
+        XCTAssertNil(kinds[cards[3].id], "not heard yet")
+        XCTAssertEqual(kinds[cards[4].id], .user)
+        XCTAssertEqual(HomeLyricCardsSection.label(.heavy), loc("On repeat"))
+        XCTAssertEqual(HomeLyricCardsSection.label(.rediscover), loc("Been a while"))
+        XCTAssertNil(HomeLyricCardsSection.label(.fresh))
+    }
 }
