@@ -81,9 +81,11 @@ struct ArtistDetailView: View {
                 .task {
                     // `-screen artist-bottom`: the default anchor settled short of
                     // the end, so scroll there once the page has laid out.
-                    guard LaunchConfig.screen == "artist-bottom" else { return }
+                    // `-artistScroll 160`: that far down (screenshots of the top).
+                    let y = UserDefaults.standard.double(forKey: "artistScroll")
+                    guard LaunchConfig.screen == "artist-bottom" || y > 0 else { return }
                     try? await Task.sleep(for: .milliseconds(300))
-                    scrollPosition.scrollTo(edge: .bottom)
+                    if y > 0 { scrollPosition.scrollTo(y: y) } else { scrollPosition.scrollTo(edge: .bottom) }
                 }
                 .scrollEdgeEffectStyle(.soft, for: .bottom)
                 .transition(.opacity)
