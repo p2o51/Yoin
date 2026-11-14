@@ -74,6 +74,7 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.SongLinks
+import com.gpo.yoin.data.source.TrackNames
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.spotify.SpotifyActivityArtistArtwork
 import com.gpo.yoin.data.source.spotify.SpotifyDevice
@@ -2702,11 +2703,18 @@ class YoinRepository(
         durationMs: Long? = null,
     ): Lyrics? = getLoadedLyrics(trackId, title, artist, durationMs)?.lyrics
 
+    /**
+     * [askAi]: when no names the service gives find anything, let the online AI name the song as released
+     * ([resolveReleaseNamesWithAi]). Only for the song on screen: prefetches and background passes leave it off,
+     * so a song without lyrics doesn't cost an AI call each time it's queued. [album] helps the AI tell the song.
+     */
     suspend fun getLoadedLyrics(
         trackId: MediaId,
         title: String? = null,
         artist: String? = null,
         durationMs: Long? = null,
+        album: String? = null,
+        askAi: Boolean = false,
     ): LoadedLyrics? {
         val source = requireSource()
         val now = clock()
@@ -2735,7 +2743,7 @@ class YoinRepository(
         if (t.isEmpty() || a.isEmpty()) return null
 
         val hit = lyricsProviderRegistry.fetchLyric(t, a, durationMs)
-            ?: fetchLyricUnderAlternateNames(source, trackId, t, a, durationMs)
+            ?: fetchLyricUnderOtherNames(source, trackId, t, a, durationMs, album, askAi)
             ?: return null
         writeLyricsCache(
             trackId = trackId,
@@ -2752,30 +2760,93 @@ class YoinRepository(
     }
 
     /**
-     * A storefront in another language shows names no lyrics source has: Apple Music's Japan storefront writes
-     * Kim Petras as キム・ペトラス, and every source searched under it comes back empty. When the shown names
-     * found nothing and carry non-Latin letters, search once more under the service's English names
-     * ([com.gpo.yoin.data.source.MusicMetadata.alternateNames]). The shown names always go first: a Japanese
-     * song's English names are translations (晴る / ヨルシカ → Sunny / Yorushika) that sources don't have.
+     * The shown names found nothing: services name songs in the listener's language, and lyrics sources index
+     * the names a song came out under. Searches again, each set of names once, stopping at the first hit:
+     *
+     * 1. The service's English names ([com.gpo.yoin.data.source.MusicMetadata.alternateNames]), when the shown
+     *    names carry non-Latin letters: Apple Music's Japan storefront writes Kim Petras as キム・ペトラス. Only
+     *    after the shown names: a Japanese song's English names are translations (晴る / ヨルシカ → Sunny /
+     *    Yorushika) that sources don't have.
+     * 2. The names in the languages the song is from
+     *    ([com.gpo.yoin.data.source.MusicMetadata.nativeNames]): a Japanese Spotify app writes Hebe Tien as
+     *    ヒビ・ティエン, and asked in Chinese, Spotify says 田馥甄.
+     * 3. With [askAi], the online AI's answer for the title and artist the song was released under, when there's
+     *    a sign the names are localized (non-Latin letters shown, or the service names it differently in another
+     *    language): Spotify calls 《摩天輪》 "Ferries wheel" in every language. A lyrics source still has to find
+     *    the answer, so a wrong guess finds nothing rather than other lyrics.
      */
-    private suspend fun fetchLyricUnderAlternateNames(
+    private suspend fun fetchLyricUnderOtherNames(
         source: MusicSource,
         trackId: MediaId,
         title: String,
         artist: String,
         durationMs: Long?,
+        album: String?,
+        askAi: Boolean,
     ): LyricsProviderRegistry.Hit? {
         if (trackId.provider != source.id) return null
-        if (!hasNonLatinLetter(title) && !hasNonLatinLetter(artist)) return null
-        val names = try {
-            source.metadata().alternateNames(trackId)
+        val shown = TrackNames(title, artist)
+        val tried = mutableSetOf(shown)
+        suspend fun tryNames(names: TrackNames): LyricsProviderRegistry.Hit? {
+            if (names.title.isBlank() || names.artist.isBlank() || !tried.add(names)) return null
+            return lyricsProviderRegistry.fetchLyric(names.title, names.artist, durationMs)
+        }
+        val metadata = source.metadata()
+        val nonLatinShown = hasNonLatinLetter(title) || hasNonLatinLetter(artist)
+        if (nonLatinShown) {
+            orNullOnFailure { metadata.alternateNames(trackId) }?.let { names -> tryNames(names)?.let { return it } }
+        }
+        val native = orNullOnFailure { metadata.nativeNames(trackId) }.orEmpty().filter { it != shown }
+        for (names in native) tryNames(names)?.let { return it }
+        if (!askAi || (!nonLatinShown && native.isEmpty())) return null
+        val released = resolveReleaseNamesWithAi(trackId, shown, album, durationMs, native) ?: return null
+        return tryNames(released)
+    }
+
+    /** Track → the names the AI said it was released under (null: it wasn't sure); asked once per track a run. */
+    private val releaseNamesByTrack = object : LinkedHashMap<MediaId, TrackNames?>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<MediaId, TrackNames?>?): Boolean =
+            size > RELEASE_NAMES_KEPT
+    }
+
+    /** See [fetchLyricUnderOtherNames] step 3. Null without a ready AI service, or when the call fails. */
+    private suspend fun resolveReleaseNamesWithAi(
+        trackId: MediaId,
+        shown: TrackNames,
+        album: String?,
+        durationMs: Long?,
+        otherNames: List<TrackNames>,
+    ): TrackNames? {
+        synchronized(releaseNamesByTrack) {
+            if (trackId in releaseNamesByTrack) return releaseNamesByTrack[trackId]
+        }
+        val ai = readyAi(geminiConfigDao.getConfig().first()) ?: return null
+        val answer = try {
+            geminiService.resolveReleaseNames(
+                ai = ai,
+                title = shown.title,
+                artist = shown.artist,
+                album = album?.trim()?.takeIf(String::isNotEmpty),
+                durationMs = durationMs,
+                otherNames = otherNames.map { it.title to it.artist },
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            null
-        } ?: return null
-        if (names.title == title && names.artist == artist) return null
-        return lyricsProviderRegistry.fetchLyric(names.title, names.artist, durationMs)
+            // Offline, a bad key, a timeout: try again next time the song is on screen.
+            return null
+        }
+        val names = answer?.let { (t, a) -> TrackNames(t, a) }
+        synchronized(releaseNamesByTrack) { releaseNamesByTrack[trackId] = names }
+        return names
+    }
+
+    private suspend fun <T> orNullOnFailure(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
     }
 
     private fun hasNonLatinLetter(text: String): Boolean = text.codePoints().anyMatch { cp ->
@@ -2787,6 +2858,7 @@ class YoinRepository(
         title: String?,
         artist: String?,
         durationMs: Long? = null,
+        album: String? = null,
     ): Result<LyricsApplyResult> = runCatching {
         val t = title?.trim().orEmpty()
         val a = artist?.trim().orEmpty()
@@ -2795,7 +2867,7 @@ class YoinRepository(
         }
 
         val hit = lyricsProviderRegistry.fetchLyric(t, a, durationMs)
-            ?: fetchLyricUnderAlternateNames(requireSource(), trackId, t, a, durationMs)
+            ?: fetchLyricUnderOtherNames(requireSource(), trackId, t, a, durationMs, album, askAi = true)
             ?: throw NoSuchElementException("No lyrics found")
         // 用户主动点了"搜索并应用"：结果算用户选的，不按天数过期。
         writeLyricsCache(
@@ -4026,6 +4098,9 @@ private fun sha256Hex(text: String): String {
 
 private fun List<SongNoteKey>.toMediaIdSet(): Set<MediaId> =
     mapTo(linkedSetOf()) { key -> MediaId(key.provider, key.trackId) }
+
+/** Songs whose AI-given release names (see `resolveReleaseNamesWithAi`) are kept for the run. */
+private const val RELEASE_NAMES_KEPT = 128
 
 /** Well under SQLite's old 999-value limit, with room for the query's own values. */
 private const val NOTE_KEYS_PER_QUERY = 500

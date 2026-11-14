@@ -88,8 +88,8 @@ class NowPlayingViewModelLyricsActionTest {
         every { repository.observeFavoriteState(any()) } answers { flowOf(FavoriteState(firstArg<Track>().isStarred)) }
         every { repository.observeLibraryMembership(any()) } returns flowOf(LibraryMembership.Unknown)
         every { repository.resolveCoverUrl(any()) } returns null
-        coEvery { repository.getLoadedLyrics(a.id, any(), any(), any()) } returns synced("a1", "a2")
-        coEvery { repository.getLoadedLyrics(b.id, any(), any(), any()) } returns synced("b1", "b2")
+        coEvery { repository.getLoadedLyrics(a.id, any(), any(), any(), any(), any()) } returns synced("a1", "a2")
+        coEvery { repository.getLoadedLyrics(b.id, any(), any(), any(), any(), any()) } returns synced("b1", "b2")
         coEvery { repository.translateLyrics(a.id, any(), any(), any(), any(), any()) } coAnswers { translation.await() }
         val viewModel = NowPlayingViewModel(playback, repository, mockk<CastManager>(relaxed = true))
         backgroundScope.launch { viewModel.uiState.collect() }
