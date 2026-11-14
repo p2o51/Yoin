@@ -37,6 +37,7 @@ import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import '../ui/component/cover_art.dart';
 import '../ui/component/meta_line.dart';
+import 'copy/memory_copy.dart';
 import 'memories_layout.dart';
 import 'memories_motion.dart';
 import 'memories_reveal_scope.dart';
@@ -47,6 +48,7 @@ import 'memory_card_face.dart';
 import 'memory_diary.dart';
 import 'memory_emblem_slot.dart';
 import 'memory_palettes.dart';
+import 'memory_spread.dart';
 import 'palette/memory_palette.dart';
 import '../app/providers.dart';
 import '../theme/playback_theme.dart';
@@ -170,8 +172,11 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     super.dispose();
   }
 
+  /// The container is a spread: no diary state, back has one level.
+  bool _spread = false;
+
   void _back() {
-    if (_p.isDiaryLevel) {
+    if (!_spread && _p.isDiaryLevel) {
       _p.close();
     } else {
       widget.reveal.close();
@@ -221,8 +226,11 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     final dy = d.delta.dy;
     if (_route == null) {
       if (dy == 0) return;
-      final diaryLevel = _p.isDiaryLevel;
-      if (_barZone) {
+      final diaryLevel = !_spread && _p.isDiaryLevel;
+      if (_spread) {
+        // A spread has no diary state: every vertical drag on the left page or the bar is Home's.
+        _route = _barZone ? _Route.dismissBar : _Route.dismissBody;
+      } else if (_barZone) {
         _route = diaryLevel && dy > 0 ? _Route.diaryHandle : _Route.dismissBar;
       } else {
         _route = dy < 0 ? _Route.dismissBody : _Route.cardBand;
@@ -274,7 +282,8 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     final s = _scrolls[page];
     final pos = s != null && s.hasClients ? s.position : null;
     _scrolledAtDown = (pos?.pixels ?? 0) > 0.5;
-    _atEndAtDown = pos != null && _p.fraction >= 0.99 && !_p.isSettling && pos.pixels >= pos.maxScrollExtent - 0.5;
+    _atEndAtDown =
+        pos != null && (_spread || (_p.fraction >= 0.99 && !_p.isSettling)) && pos.pixels >= pos.maxScrollExtent - 0.5;
     _awards.dragStarted();
   }
 
@@ -299,6 +308,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   /// hands the drag to p, past the end (a drag that started there) to q.
   bool _diaryOverscroll(OverscrollNotification n, ScrollController scroll) {
     if (n.dragDetails == null || _route != null || _pointer == null) return false;
+    if (n.overscroll < 0 && _spread) return false;
     if (n.overscroll < 0) {
       _route = _Route.diaryPull;
       _p.startPull(banded: true, fromScrolled: _scrolledAtDown);
@@ -354,6 +364,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
       builder: (context, c) {
         _height = c.maxHeight;
         final layout = memoriesLayoutFor(c.maxWidth, c.maxHeight);
+        _spread = layout.isSpread;
         final memories = state is MemoriesContent ? state.memories : const <MemoryEntry>[];
         _awards.sync(memories);
         final source = ref.watch(activeSourceProvider).value;
@@ -417,6 +428,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
                     memories: memories,
                     pages: _pages,
                     diary: _p,
+                    spread: layout.isSpread,
                     layout: layout,
                     dark: dark,
                     statusTop: top,
@@ -451,39 +463,52 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
 
   Widget _deck(BuildContext context, MemoriesContent state, MemoriesLayout layout, double top, bool dark) {
     final pages = _pagesFor(state.currentPage);
-    return PageView.builder(
-      controller: pages,
-      itemCount: state.memories.length,
-      physics: const PageScrollPhysics(parent: ClampingScrollPhysics()),
-      itemBuilder: (context, index) {
-        final memory = state.memories[index];
-        return _MemoryPage(
-          key: ValueKey(memory.sessionId),
-          memory: memory,
-          index: index,
-          count: state.memories.length,
-          pages: pages,
-          layout: layout,
-          statusTop: top,
-          dark: dark,
-          diary: _p,
-          scroll: _scrollFor(index),
-          awards: _awards,
-          reducedMotion: _reduced,
-          onCardVerticalStart: () => _verticalStart(false),
-          onCardVerticalUpdate: _verticalUpdate,
-          onCardVerticalEnd: _verticalEnd,
-          onDiaryDown: (e) => _diaryDown(e, index),
-          onDiaryMove: _diaryMove,
-          onDiaryUp: _diaryUp,
-          onDiaryOverscroll: (n) => _diaryOverscroll(n, _scrollFor(index)),
-          onOpenDiary: _p.open,
-          onOpenAlbum: () => _openAlbum(memory),
-          onPlayTrack: (t) => _playTrack(memory, t),
-          onPlayNote: (t, n) => _playNote(memory, t, n),
-          onSaveReview: (text) => ref.read(memoriesViewModelProvider.notifier).saveReview(memory, text),
-        );
-      },
+    final spreadFit = layout.isSpread
+        ? fitSpreadDeck(
+            state.memories,
+            layout,
+            _height - top - MemoriesTokens.barHeight,
+            navBottom: MediaQuery.paddingOf(context).bottom,
+          )
+        : null;
+    // A desktop window pages the deck by mouse and trackpad drags too (a deck is flipped, not scrolled).
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(dragDevices: PointerDeviceKind.values.toSet()),
+      child: PageView.builder(
+        controller: pages,
+        itemCount: state.memories.length,
+        physics: const PageScrollPhysics(parent: ClampingScrollPhysics()),
+        itemBuilder: (context, index) {
+          final memory = state.memories[index];
+          return _MemoryPage(
+            key: ValueKey(memory.sessionId),
+            memory: memory,
+            index: index,
+            count: state.memories.length,
+            pages: pages,
+            layout: layout,
+            spreadFit: spreadFit,
+            statusTop: top,
+            dark: dark,
+            diary: _p,
+            scroll: _scrollFor(index),
+            awards: _awards,
+            reducedMotion: _reduced,
+            onCardVerticalStart: () => _verticalStart(false),
+            onCardVerticalUpdate: _verticalUpdate,
+            onCardVerticalEnd: _verticalEnd,
+            onDiaryDown: (e) => _diaryDown(e, index),
+            onDiaryMove: _diaryMove,
+            onDiaryUp: _diaryUp,
+            onDiaryOverscroll: (n) => _diaryOverscroll(n, _scrollFor(index)),
+            onOpenDiary: _p.open,
+            onOpenAlbum: () => _openAlbum(memory),
+            onPlayTrack: (t) => _playTrack(memory, t),
+            onPlayNote: (t, n) => _playNote(memory, t, n),
+            onSaveReview: (text) => ref.read(memoriesViewModelProvider.notifier).saveReview(memory, text),
+          );
+        },
+      ),
     );
   }
 }
@@ -571,6 +596,7 @@ class _MemoryPage extends ConsumerWidget {
     required this.count,
     required this.pages,
     required this.layout,
+    this.spreadFit,
     required this.statusTop,
     required this.dark,
     required this.diary,
@@ -596,6 +622,9 @@ class _MemoryPage extends ConsumerWidget {
   final int count;
   final PageController pages;
   final MemoriesLayout layout;
+
+  /// Set: the container is a spread (two pages, no morph).
+  final SpreadFit? spreadFit;
   final double statusTop;
   final bool dark;
   final MemoriesDiaryController diary;
@@ -628,6 +657,10 @@ class _MemoryPage extends ConsumerWidget {
         ? ref.watch(playheadProvider.select((h) => memoryLitNoteId(memory, playingId, h.positionMs)))
         : null;
 
+    final fit = spreadFit;
+    if (fit != null) {
+      return _spreadPage(context, fit, tones, today, playingHere ? playingId : null, litNote, barBottom);
+    }
     return LayoutBuilder(
       builder: (context, c) {
         final width = c.maxWidth;
@@ -739,6 +772,93 @@ class _MemoryPage extends ConsumerWidget {
     );
   }
 
+  Widget _spreadPage(
+    BuildContext context,
+    SpreadFit fit,
+    MemoryPaletteTones tones,
+    MemoryDay today,
+    MediaId? playing,
+    String? litNote,
+    double barBottom,
+  ) {
+    final strings = MemoriesStrings.of(context);
+    final goBottom = fit.coverTop + spreadExtent(memory, layout, fit.cover, fit.seal, fit.tightness);
+    return Semantics(
+      label: strings.paneMemory(memory.memoryTitle),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Left page: card body.
+          Positioned(
+            left: 0,
+            top: barBottom,
+            bottom: 0,
+            width: layout.leftPage,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragStart: (_) => onCardVerticalStart(),
+              onVerticalDragUpdate: onCardVerticalUpdate,
+              onVerticalDragEnd: (d) => onCardVerticalEnd(d.velocity.pixelsPerSecond.dy),
+              child: MemorySpreadExhibit(
+                memory: memory,
+                tones: tones,
+                layout: layout,
+                fit: fit,
+                emblem: MemoryEmblemSlot(memory: memory, size: fit.seal, awards: awards, diary: false),
+                onOpenAlbum: onOpenAlbum,
+              ),
+            ),
+          ),
+          // Right page: the diary from your entry on.
+          Positioned(
+            left: layout.leftPage,
+            right: 0,
+            top: barBottom,
+            bottom: 0,
+            child: Listener(
+              onPointerDown: onDiaryDown,
+              onPointerMove: onDiaryMove,
+              onPointerUp: onDiaryUp,
+              onPointerCancel: onDiaryUp,
+              child: NotificationListener<OverscrollIndicatorNotification>(
+                onNotification: (n) {
+                  n.disallowIndicator();
+                  return false;
+                },
+                child: NotificationListener<OverscrollNotification>(
+                  onNotification: onDiaryOverscroll,
+                  child: MemoryDiary(
+                    memory: memory,
+                    tones: tones,
+                    layout: layout,
+                    diary: kAlwaysCompleteAnimation,
+                    scroll: scroll,
+                    topInset: 0,
+                    emblem: const SizedBox.shrink(),
+                    today: today,
+                    reducedMotion: reducedMotion,
+                    interactive: true,
+                    playingTrackId: playing,
+                    litNoteId: litNote,
+                    onPlayTrack: onPlayTrack,
+                    onPlayNote: onPlayNote,
+                    onOpenAlbum: onOpenAlbum,
+                    onSaveReview: onSaveReview,
+                    spread: MemorySpreadRight(
+                      coverTop: fit.coverTop,
+                      goBottom: goBottom,
+                      leadingParagraph: layout.landscape,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _flyingCover(Rect card, Rect bar, double p) {
     final double alpha;
     final Rect rect;
@@ -819,6 +939,7 @@ class _TopBar extends ConsumerWidget {
     required this.memories,
     required this.pages,
     required this.diary,
+    this.spread = false,
     required this.layout,
     required this.dark,
     required this.statusTop,
@@ -837,6 +958,9 @@ class _TopBar extends ConsumerWidget {
   final List<MemoryEntry> memories;
   final PageController? pages;
   final MemoriesDiaryController diary;
+
+  /// A spread has no diary state: the bar keeps slot A and the pill its label.
+  final bool spread;
   final MemoriesLayout layout;
   final bool dark;
   final double statusTop;
@@ -870,7 +994,7 @@ class _TopBar extends ConsumerWidget {
       child: AnimatedBuilder(
         animation: Listenable.merge([diary, ?pages]),
         builder: (context, _) {
-          final p = diary.fraction.clamp(0.0, 1.0);
+          final p = spread ? 0.0 : diary.fraction.clamp(0.0, 1.0);
           final page = pages != null && pages!.hasClients && pages!.position.haveDimensions
               ? (pages!.page ?? 0)
               : (pages?.initialPage.toDouble() ?? 0);

@@ -7,6 +7,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../data/model/model.dart';
 import '../nowplaying/haptics.dart';
@@ -46,7 +47,13 @@ class MemoryDiary extends StatelessWidget {
     required this.onPlayNote,
     required this.onOpenAlbum,
     required this.onSaveReview,
+    this.spread,
   });
+
+  /// Set: this is the spread's right page — no head (the exhibit and Yoin's
+  /// words are on the left page), no Go to album, no morph; placed on the
+  /// left page's optical line ([spreadRightTop]).
+  final MemorySpreadRight? spread;
 
   final MemoryEntry memory;
   final MemoryPaletteTones tones;
@@ -74,27 +81,35 @@ class MemoryDiary extends StatelessWidget {
     final paragraph = MemoryVoice.paragraph(memory.yoinNarration, memory.yoinQuestion, memory.proseLanguage);
     final hasEntry = true; // the review, or today's blank page
     final hasTracks = memory.diaryTracks.isNotEmpty;
+    final spread = this.spread;
     final blocks = <Widget>[
+      // Landscape spread: Yoin's paragraph opens the right page.
+      if (spread != null && spread.leadingParagraph && paragraph != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: MemoriesTokens.spreadLandscapeParagraphGap),
+          child: _YoinParagraph(memory: memory, size: type.paragraph),
+        ),
       // Head: Yoin's paragraph beside the 48 (the album name already flew to the bar).
-      Padding(
-        padding: EdgeInsets.only(
-          bottom: paragraph != null ? MemoriesTokens.diaryHeadGapWithAsk : MemoriesTokens.diaryHeadGap,
+      if (spread == null)
+        Padding(
+          padding: EdgeInsets.only(
+            bottom: paragraph != null ? MemoriesTokens.diaryHeadGapWithAsk : MemoriesTokens.diaryHeadGap,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: paragraph == null
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsetsDirectional.only(end: MemoriesTokens.diaryEmblemGap),
+                        child: _YoinParagraph(memory: memory, size: type.paragraph),
+                      ),
+              ),
+              SizedBox.square(dimension: MemoriesTokens.diaryEmblem, child: emblem),
+            ],
+          ),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: paragraph == null
-                  ? const SizedBox.shrink()
-                  : Padding(
-                      padding: const EdgeInsetsDirectional.only(end: MemoriesTokens.diaryEmblemGap),
-                      child: _YoinParagraph(memory: memory, size: type.paragraph),
-                    ),
-            ),
-            SizedBox.square(dimension: MemoriesTokens.diaryEmblem, child: emblem),
-          ],
-        ),
-      ),
       if (hasEntry)
         _DiaryEntry(
           key: ValueKey('entry:${memory.sessionId}'),
@@ -129,9 +144,11 @@ class MemoryDiary extends StatelessWidget {
           strings: strings,
           interactive: interactive,
           onOpenAlbum: onOpenAlbum,
+          showGo: spread == null,
         ),
       ),
     ];
+    if (spread != null) return _spreadPage(context, blocks, spread);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -199,6 +216,52 @@ class MemoryDiary extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _spreadPage(BuildContext context, List<Widget> blocks, MemorySpreadRight spread) {
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (rect) => LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: const [Color(0x00000000), Color(0xFF000000), Color(0xFF000000), Color(0x00000000)],
+        stops: [0, 16 / rect.height, 1 - MemoriesTokens.diaryBottomFade / rect.height, 1],
+      ).createShader(rect),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          controller: scroll,
+          physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
+          padding: EdgeInsetsDirectional.only(
+            start: MemoriesTokens.spreadRightStart - MemoriesTokens.diaryRowBleed,
+            end: MemoriesTokens.spreadRightEndMin,
+            bottom: MemoriesTokens.spreadRightBottom + MediaQuery.paddingOf(context).bottom,
+          ),
+          child: Align(
+            alignment: AlignmentDirectional.topStart,
+            child: SizedBox(
+              width: layout.measure + MemoriesTokens.diaryRowBleed * 2,
+              child: _SpreadRightPlacement(
+                viewHeight: constraints.maxHeight,
+                coverTop: spread.coverTop,
+                goBottom: spread.goBottom,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final b in blocks)
+                      b is _TrackGroup
+                          ? b
+                          : Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: MemoriesTokens.diaryRowBleed),
+                              child: b,
+                            ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -786,6 +849,7 @@ class _DiaryFoot extends StatelessWidget {
     required this.strings,
     required this.interactive,
     required this.onOpenAlbum,
+    this.showGo = true,
   });
 
   final MemoryEntry memory;
@@ -795,6 +859,9 @@ class _DiaryFoot extends StatelessWidget {
   final MemoriesStrings strings;
   final bool interactive;
   final VoidCallback onOpenAlbum;
+
+  /// The spread keeps Go to album on its left page.
+  final bool showGo;
 
   @override
   Widget build(BuildContext context) {
@@ -845,18 +912,19 @@ class _DiaryFoot extends StatelessWidget {
             ],
           ),
         ],
-        Padding(
-          padding: EdgeInsets.only(top: heard ? MemoriesTokens.diaryGoTop : 0),
-          child: IgnorePointer(
-            ignoring: !interactive,
-            child: MemoryPillButton(
-              label: strings.diaryGoAlbum,
-              color: tones.button,
-              onColor: tones.onButton,
-              onTap: onOpenAlbum,
+        if (showGo)
+          Padding(
+            padding: EdgeInsets.only(top: heard ? MemoriesTokens.diaryGoTop : 0),
+            child: IgnorePointer(
+              ignoring: !interactive,
+              child: MemoryPillButton(
+                label: strings.diaryGoAlbum,
+                color: tones.button,
+                onColor: tones.onButton,
+                onTap: onOpenAlbum,
+              ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -881,4 +949,75 @@ class _RunOutPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_RunOutPainter old) => old.color != color;
+}
+
+/// Where the spread's right page sits, measured from its own top (under the bar).
+@immutable
+final class MemorySpreadRight {
+  const MemorySpreadRight({required this.coverTop, required this.goBottom, this.leadingParagraph = false});
+
+  /// The left page's cover top and Go to album's bottom, in the same frame.
+  final double coverTop;
+  final double goBottom;
+
+  /// Phone landscape: Yoin's paragraph opens the right page.
+  final bool leadingParagraph;
+}
+
+/// Places the right page's content at [spreadRightTop] of its own height:
+/// centred on the left page's optical line when it fits, else level with the cover.
+class _SpreadRightPlacement extends SingleChildRenderObjectWidget {
+  const _SpreadRightPlacement({required this.viewHeight, required this.coverTop, required this.goBottom, super.child});
+
+  final double viewHeight;
+  final double coverTop;
+  final double goBottom;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderSpreadRight(viewHeight, coverTop, goBottom);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderSpreadRight renderObject) => renderObject
+    ..viewHeight = viewHeight
+    ..coverTop = coverTop
+    ..goBottom = goBottom;
+}
+
+class _RenderSpreadRight extends RenderShiftedBox {
+  _RenderSpreadRight(this._viewHeight, this._coverTop, this._goBottom) : super(null);
+
+  double _viewHeight;
+  double _coverTop;
+  double _goBottom;
+
+  set viewHeight(double v) {
+    if (v == _viewHeight) return;
+    _viewHeight = v;
+    markNeedsLayout();
+  }
+
+  set coverTop(double v) {
+    if (v == _coverTop) return;
+    _coverTop = v;
+    markNeedsLayout();
+  }
+
+  set goBottom(double v) {
+    if (v == _goBottom) return;
+    _goBottom = v;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      size = constraints.smallest;
+      return;
+    }
+    child.layout(constraints.copyWith(minHeight: 0), parentUsesSize: true);
+    final top = spreadRightTop(child.size.height, _viewHeight, _coverTop, _goBottom);
+    (child.parentData! as BoxParentData).offset = Offset(0, top);
+    size = constraints.constrain(Size(child.size.width, top + child.size.height));
+  }
 }

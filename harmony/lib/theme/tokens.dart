@@ -181,6 +181,93 @@ abstract final class NowPlayingTokens {
 
   /// RatingSlider: the number's colour crosses onSurfaceVariant → onPrimary from this fill to full.
   static const double ratingLabelCrossover = 0.8;
+
+  /// The Expanded stage's tab group row (FullscreenTabGroup / YoinTabGroup) and its gap to the page.
+  static const double expandedTabRow = 52;
+  static const double expandedTabGap = 12;
+  static const double tabGroupGap = 8;
+
+  /// StageTabs: the text tabs lift this far as they fade out, the group settles from this far below;
+  /// a pressed text tab dips to [tabPressedStretch], an unselected one reads at [tabIdleAlpha].
+  static const double tabCompactLift = 6;
+  static const double tabGroupDrop = 8;
+  static const double tabPressedStretch = 0.92;
+  static const double tabIdleAlpha = 0.5;
+
+  /// BottomPills: the gap between Queue and Write.
+  static const double pillGap = 8;
+}
+
+/// Now Playing's notes (NoteContent.kt NoteLine / NoteSortToggle / NoteWriteBarDefaults,
+/// NoteFullscreenPane.kt, compact/NoteCompactPane.kt).
+abstract final class NowPlayingNoteTokens {
+  /// NoteLine: the fixed time-stamp column; rows' vertical padding; the un-lit scale.
+  static const double stampColumn = 40;
+  static const double glanceRowPadV = 4;
+  static const double pageRowPadV = 6;
+  static const double glanceInactiveScale = 0.94;
+  static const double pageInactiveScale = 0.97;
+  static const double metaGap = 2;
+
+  /// A legacy note with no moment: a hollow dot in the stamp column.
+  static const double hollowDot = 6;
+  static const double hollowDotStroke = 1.5;
+  static const double hollowDotInset = 2;
+
+  /// Compact window: line gap, list padding, edge fades.
+  static const double compactLineGap = 2;
+  static const double compactListPadV = 12;
+  static const double compactFadeTop = 16;
+  static const double compactFadeBottom = 24;
+
+  /// Expanded page: list padding and fades, header gap, the undo row, the empty label's room.
+  static const double pageTopPadding = 4;
+  static const double pageBottomPadding = 48;
+  static const double pageFadeTop = 24;
+  static const double pageFadeBottom = 64;
+  static const double headerBottomGap = 6;
+  static const double deletedRowHeight = 48;
+  static const double emptyMinHeight = 64;
+
+  /// The "Writing…" row's dashed underline.
+  static const double draftDash = 4;
+  static const double draftDashGap = 3;
+  static const double draftStroke = 1;
+  static const double draftUnderlineGap = 3;
+
+  /// NoteSortToggle: the capsule's inset and each option's padding.
+  static const double sortInset = 3;
+  static const double sortOptionPadH = 10;
+  static const double sortOptionPadV = 4;
+
+  /// NoteWriteBar: resting capsule, the gap above it in the accessory slot, corners, insets.
+  static const double barIdleHeight = 56;
+  static const double barTopGap = 12;
+  static const double barIdleCorner = 28;
+  static const double barOpenCorner = 20;
+  static const double barPadStart = 10;
+  static const double barPadEnd = 14;
+  static const double barPadV = 10;
+  static const double barItemGap = 10;
+  static const double barFooterGap = 8;
+  static const double barFooterInset = 4;
+  static const int barOpenMinLines = 2;
+  static const int barOpenMaxLines = 6;
+  static const double barVeilAlpha = 0.92;
+  static const double barWriteGlyph = 20;
+
+  /// The bar's stamp chip.
+  static const double stampChipHeight = 36;
+  static const double stampChipPadH = 12;
+  static const double stampChipGlyph = 16;
+  static const double stampChipGlyphGap = 6;
+  static const double stampChipTintAlpha = 0.12;
+
+  /// JournalSavePill.
+  static const double savePillPadH = 16;
+  static const double savePillPadV = 8;
+  static const double savePillGlyph = 16;
+  static const double savePillGap = 6;
 }
 
 /// Album / playlist / artist detail pages (AlbumDetailScreen.kt, AlbumSpectrum.kt; iOS AlbumDetailView, AlbumScrapbookView, ArtistDetailView).
@@ -303,6 +390,59 @@ abstract final class HomeTokens {
   static const double rediscoverBadgeHang = 6;
 }
 
+/// Home's Memories bubble (Android ui/home/HomeMemoryBubble.kt): the resting
+/// ⌄ at the page's top centre and the bubble it speaks from.
+abstract final class HomeBubbleTokens {
+  /// The body: one or two lines where the header's title was; fully round ends.
+  static const double bodyHeight = 60;
+  static const double corner = 30;
+
+  /// The left round block (a memory's cover, a tip's symbol tile), its inset and the gap to the lines.
+  static const double coverSize = 40;
+  static const double coverInset = 15;
+  static const double coverTitleGap = 12;
+  static const double tipIconSize = 22;
+
+  /// The lines stop this far before the body's right end.
+  static const double contentTrail = 20;
+
+  /// With this much room beside the cover, a memory says when it was written too.
+  static const double saysMoreFrom = 200;
+
+  /// The tail: its sharp tip this far above the chevron, the chevron this far
+  /// above the body's top, each flank's base this far either side of it, and
+  /// how the flanks leave the tip (out, then down).
+  static const double tipAboveChevron = 26;
+  static const double chevronAboveBody = 10;
+  static const double tailFlank = 46;
+  static const double tipLean = 6;
+  static const double tipDrop = 18;
+
+  /// The body ends this far right of the chevron; at least [minLeft] left of
+  /// it, at most [maxWidth] wide.
+  static const double reach = 80;
+  static const double minLeft = 150;
+  static const double maxWidth = 440;
+
+  /// The resting ⌄: its touch box, glyph, distance below the status bar,
+  /// the pull's nudge, and its ink at rest (full inside a speaking bubble).
+  static const double arrowTouch = 48;
+  static const double arrowIcon = 20;
+  static const double arrowBelowTop = 2;
+  static const double arrowPullNudge = 2;
+  static const double arrowRestAlpha = 0.62;
+
+  /// The arrow fades over the first stretch of scroll (the pull only works at the top).
+  static const double arrowScrollFade = 48;
+
+  /// Flying back into the arrow: shrinks by this much toward the tail's tip and lifts this far.
+  static const double flyShrink = 0.75;
+  static const double flyLift = 20;
+
+  /// Body colour = lerp(surfaceContainerHigh, the cover's base, this).
+  static const double coverWash = 0.30;
+}
+
 /// Memories, the album-first journal pulled down from Home (Android
 /// BackMotionTokens.Memories*, MemoriesTopBarTokens, MemoryCardTokens,
 /// MemoryDiaryTokens, MemoriesLayoutTokens, MemoriesMorphTokens).
@@ -367,6 +507,46 @@ abstract final class MemoriesTokens {
   static const double mediumAir1Min = 24;
   static const double mediumAir1Max = 120;
   static const double mediumAir1Ratio = 0.2;
+
+  // ---- spread (≥ 900 wide; phone landscape) ----
+  static const double spreadFrom = 900;
+  static const double landscapeBelow = 480;
+  static const double spreadLeftRatio = 0.46;
+  static const double spreadLeftMin = 400;
+  static const double spreadLeftMax = 600;
+  static const double spreadGutters = 104;
+  static const double spreadMeasureMin = 360;
+  static const double spreadMeasureMax = 560;
+  static const double spreadCoverMin = 300;
+  static const double spreadCoverOfLeft = 96;
+  static const double spreadCoverOfHeight = 386;
+  static const double spreadSealRatio = 0.4;
+  static const double spreadMinCover = 200;
+  static const double landscapeLeftMin = 280;
+  static const double landscapeMeasureMin = 240;
+  static const double landscapeMinCover = 88;
+  static const double landscapeSealRatio = 0.55;
+  static const double landscapeSealMin = 48;
+  static const double landscapeSealMax = 72;
+  static const double pillStartSpread = 32;
+  static const double dotsEndSpread = 26;
+
+  /// The left page: 32 each side; its citation 420 and album row 400 at most.
+  static const double spreadPagePadding = 32;
+  static const double spreadCiteMax = 420;
+  static const double spreadAlbumMax = 400;
+  static const double spreadGoHeight = 48;
+
+  /// The right page: 40 in from the left page, ≥ 24 at its end, 44 under the ending.
+  static const double spreadRightStart = 40;
+  static const double spreadRightEndMin = 24;
+  static const double spreadRightBottom = 44;
+  static const double spreadCentreClearance = 160;
+  static const double spreadRightMinTop = 24;
+  static const double spreadLandscapeParagraphGap = 28;
+
+  /// Ladder: the cover steps down by this until the left page fits.
+  static const double spreadLadderStep = 8;
 
   /// Medium: the card in a 480 column, the diary in a 640 one.
   static const double cardColumn = 480;

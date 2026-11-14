@@ -85,6 +85,32 @@ void main() {
       expect(m.seal, 124);
     });
 
+    test('should_spread_when_wideEnoughForBothPages', () {
+      // MateBook-sized window: 1280 × 800.
+      final s = memoriesLayoutFor(1280, 800);
+      expect(s.tier, MemoriesTier.spread);
+      expect(s.leftPage, 589);
+      expect(s.measure, 560);
+      expect(s.cover, 300); // max(300, medium 256) capped by the left page and the height
+      // Too short a window to hold Medium's cover on the left page stays Medium.
+      expect(memoriesLayoutFor(880, 1280).tier, MemoriesTier.medium);
+    });
+
+    test('should_spreadInLandscape_when_phoneTurned', () {
+      final s = memoriesLayoutFor(860, 400);
+      expect(s.tier, MemoriesTier.spread);
+      expect(s.landscape, isTrue);
+      expect(s.cover, 168);
+      expect(s.minCover, 88);
+      expect(s.seal, 72);
+    });
+
+    test('should_centreRightPage_when_itFits', () {
+      expect(spreadRightTop(200, 700, 24, 500), 162);
+      expect(spreadRightTop(600, 700, 24, 500), 24); // too long: level with the cover
+      expect(spreadRightTop(100, 700, 0, 20), 24); // never above 24
+    });
+
     test('should_fadeNeighbourSlots_when_paging', () {
       expect(barVisibility(0), 1);
       expect(barVisibility(0.5), 0);

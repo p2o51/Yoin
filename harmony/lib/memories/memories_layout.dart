@@ -1,15 +1,18 @@
 /// The Memories page budget for its container (Android showcase
 /// MemoriesLayout + MemoriesTypeScale + MemoryCardMetrics): the phone's two
-/// states, and Medium (≥ 600 wide) as the phone's two states enlarged in a
-/// column (design.md 默认选项 ③). The spread (≥ 900, two pages side by side)
-/// is not ported yet: wide windows get Medium.
+/// states, Medium (≥ 600 wide) as the phone's two states enlarged in a
+/// column (design.md 默认选项 ③), and the spread (≥ 900 wide, a right page of
+/// at least 360, and a left page that holds no smaller a cover than Medium):
+/// two pages side by side, the exhibit left and the diary right. Phone
+/// landscape (height < 480, width ≥ 600) is a spread too, with a smaller
+/// cover floor and Yoin's paragraph at the top of the right page.
 library;
 
 import 'package:flutter/foundation.dart';
 
 import '../theme/tokens.dart';
 
-enum MemoriesTier { phone, medium }
+enum MemoriesTier { phone, medium, spread }
 
 @immutable
 final class MemoriesLayout {
@@ -22,9 +25,23 @@ final class MemoriesLayout {
     required this.pillStart,
     required this.dotsEnd,
     required this.type,
+    this.landscape = false,
+    this.leftPage = 0,
+    this.measure = 0,
+    this.minCover = 0,
   });
 
   final MemoriesTier tier;
+
+  /// Phone landscape's spread (the deviation).
+  final bool landscape;
+
+  /// Spread: the left page's width, the right page's text measure, the ladder's cover floor.
+  final double leftPage;
+  final double measure;
+  final double minCover;
+
+  bool get isSpread => tier == MemoriesTier.spread;
 
   /// The container is shorter than 760 dp: the short exhibit.
   final bool short;
@@ -159,7 +176,42 @@ MemoriesLayout memoriesLayoutFor(double width, double height) {
       type: MemoriesType.phone,
     );
   }
-  final cover = mediumCover(height);
+  if (height < MemoriesTokens.landscapeBelow) return _landscapeSpread(width);
+  final medium = mediumCover(height);
+  final lp = _clamp(
+    _jsRound(MemoriesTokens.spreadLeftRatio * width),
+    MemoriesTokens.spreadLeftMin,
+    MemoriesTokens.spreadLeftMax,
+  );
+  final meas = width - lp - MemoriesTokens.spreadGutters;
+  final spreadCover = [
+    MemoriesTokens.phoneCoverShort,
+    [
+      medium > MemoriesTokens.spreadCoverMin ? medium : MemoriesTokens.spreadCoverMin,
+      lp - MemoriesTokens.spreadCoverOfLeft,
+      height - MemoriesTokens.spreadCoverOfHeight,
+    ].reduce((a, b) => a < b ? a : b),
+  ].reduce((a, b) => a > b ? a : b);
+  // A spread whose left page can't hold Medium's cover at this height stays Medium:
+  // the bigger tier never shows a smaller exhibit.
+  if (width >= MemoriesTokens.spreadFrom && meas >= MemoriesTokens.spreadMeasureMin && spreadCover >= medium) {
+    return MemoriesLayout(
+      tier: MemoriesTier.spread,
+      short: false,
+      cover: spreadCover,
+      seal: _jsRound(
+        _clamp(spreadCover * MemoriesTokens.spreadSealRatio, MemoriesTokens.sealMin, MemoriesTokens.sealMax),
+      ),
+      air1: 0,
+      pillStart: MemoriesTokens.pillStartSpread,
+      dotsEnd: MemoriesTokens.dotsEndSpread,
+      type: MemoriesType.large,
+      leftPage: lp,
+      measure: _clamp(meas, MemoriesTokens.spreadMeasureMin, MemoriesTokens.spreadMeasureMax),
+      minCover: MemoriesTokens.spreadMinCover,
+    );
+  }
+  final cover = medium;
   return MemoriesLayout(
     tier: MemoriesTier.medium,
     short: short,
@@ -182,6 +234,61 @@ MemoriesLayout memoriesLayoutFor(double width, double height) {
     dotsEnd: MemoriesTokens.dotsEndMedium,
     type: short ? MemoriesType.phone : MemoriesType.large,
   );
+}
+
+MemoriesLayout _landscapeSpread(double width) {
+  final lp = _clamp(
+    _jsRound(MemoriesTokens.spreadLeftRatio * width),
+    MemoriesTokens.landscapeLeftMin,
+    MemoriesTokens.spreadLeftMax,
+  );
+  const cover = MemoriesTokens.phoneCoverShort;
+  return MemoriesLayout(
+    tier: MemoriesTier.spread,
+    short: true,
+    landscape: true,
+    cover: cover,
+    seal: memoriesSpreadSealFor(cover, landscape: true, laddered: false),
+    air1: 0,
+    pillStart: MemoriesTokens.pillStartSpread,
+    dotsEnd: MemoriesTokens.dotsEndSpread,
+    type: MemoriesType.phone,
+    leftPage: lp,
+    measure: _clamp(
+      width - lp - MemoriesTokens.spreadGutters,
+      MemoriesTokens.landscapeMeasureMin,
+      MemoriesTokens.spreadMeasureMax,
+    ),
+    minCover: MemoriesTokens.landscapeMinCover,
+  );
+}
+
+/// The emblem for a spread cover (memoriesSealFor): landscape 55% of the
+/// cover in 48–72; else 40% in 96–124 (72 once the ladder shrank the cover).
+double memoriesSpreadSealFor(double cover, {required bool landscape, required bool laddered}) {
+  if (landscape) {
+    return _clamp(
+      _jsRound(cover * MemoriesTokens.landscapeSealRatio),
+      MemoriesTokens.landscapeSealMin,
+      MemoriesTokens.landscapeSealMax,
+    );
+  }
+  return _jsRound(
+    _clamp(
+      cover * MemoriesTokens.spreadSealRatio,
+      laddered ? MemoriesTokens.phoneSealShort : MemoriesTokens.sealMin,
+      MemoriesTokens.sealMax,
+    ),
+  );
+}
+
+/// Where the right page's content starts (spreadRightTop): centred on the
+/// left page's optical line ((cover top + Go to album's bottom) / 2) when it
+/// fits the view with 160 to spare, else level with the cover; never above 24.
+double spreadRightTop(double contentHeight, double viewHeight, double coverTop, double goBottom) {
+  final fits = contentHeight <= viewHeight - MemoriesTokens.spreadCentreClearance;
+  final top = fits ? _jsRound((coverTop + goBottom) / 2 - contentHeight / 2) : coverTop;
+  return top < MemoriesTokens.spreadRightMinTop ? MemoriesTokens.spreadRightMinTop : top;
 }
 
 /// The excerpt to show: the first candidate whose block fits [slot], else
