@@ -10477,6 +10477,76 @@
           }
         }
       }
+    },
+    "Downloading for offline listening": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下载，供离线收听"
+          }
+        }
+      }
+    },
+    "Waiting for Wi‑Fi": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待 Wi‑Fi"
+          }
+        }
+      }
+    },
+    "Waiting for network": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待网络连接"
+          }
+        }
+      }
+    },
+    "Downloaded for offline listening": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已下载，可离线收听"
+          }
+        }
+      }
+    },
+    "Some songs couldn't download": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有些歌没下载成功"
+          }
+        }
+      }
+    },
+    "%@ and %lld more": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，还有 %lld 项"
+          }
+        }
+      }
+    },
+    "%lld failed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 首失败"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
