@@ -59,4 +59,21 @@ final class SpotifyLibraryListsTests: XCTestCase {
         XCTAssertEqual(LibraryStore.followFailure(SpotifyAPIError.http(status: 500, message: nil), following: false),
                        String(localized: "Couldn't unfollow the artist"))
     }
+
+    func test_should_ask_the_other_release_pages_by_offset_up_to_the_cap_when_an_artist_has_many() {
+        XCTAssertEqual(SpotifySource.releaseOffsets(total: 35, firstCount: 10, hasNext: true), [10, 20, 30])
+        XCTAssertEqual(SpotifySource.releaseOffsets(total: 400, firstCount: 10, hasNext: true).last, 90)
+        XCTAssertEqual(SpotifySource.releaseOffsets(total: 8, firstCount: 8, hasNext: false), [])
+        XCTAssertEqual(SpotifySource.releaseOffsets(total: nil, firstCount: 10, hasNext: true).count, 9)
+    }
+
+    func test_should_point_to_user_management_when_me_answers_403_at_sign_in() {
+        XCTAssertTrue(SpotifyAuth.meFailure(403).contains("developer.spotify.com"))
+        XCTAssertTrue(SpotifyAuth.meFailure(500).contains("500"))
+    }
+
+    func test_should_say_how_many_songs_without_a_dot_chain_when_labelling_a_playlist() {
+        XCTAssertEqual(SpotifyMapping.playlistSubtitle(nil), String(localized: "Playlist"))
+        XCTAssertFalse(SpotifyMapping.playlistSubtitle(12).contains("·"))
+    }
 }

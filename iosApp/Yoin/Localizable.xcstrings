@@ -10677,6 +10677,106 @@
           }
         }
       }
+    },
+    "Couldn't load your library": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法载入资料库"
+          }
+        }
+      }
+    },
+    "Couldn't load all of your liked songs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法载入全部已点赞的歌曲"
+          }
+        }
+      }
+    },
+    "Add your Spotify Client ID in Settings first": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在设置中填写 Spotify Client ID"
+          }
+        }
+      }
+    },
+    "Sign-in cancelled": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消登录"
+          }
+        }
+      }
+    },
+    "Spotify signed you out. Sign in again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify 已退出登录，请重新登录"
+          }
+        }
+      }
+    },
+    "This Spotify account isn't on the app's user list. Add it under User Management on developer.spotify.com, then sign in again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个 Spotify 账号不在应用的用户名单里。请在 developer.spotify.com 的 User Management 中添加，然后重新登录。"
+          }
+        }
+      }
+    },
+    "Spotify sign-in failed (%lld)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify 登录失败（%lld）"
+          }
+        }
+      }
+    },
+    "Sign-in failed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录失败"
+          }
+        }
+      }
+    },
+    "another device": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他设备"
+          }
+        }
+      }
+    },
+    "Device": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
