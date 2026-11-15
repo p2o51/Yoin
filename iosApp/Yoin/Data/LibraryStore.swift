@@ -1316,7 +1316,13 @@ final class LibraryStore {
                     detail = d
                 }
             } else if let spotify {
-                let read = try await spotify.playlist(id)
+                // A long playlist shows its first page while the rest is read (audit 11-15 #70).
+                let read = try await spotify.playlist(id, onFirst: { [self] first in
+                    guard playlistDetails[id] == nil, (try? ensureLive()) != nil else { return }
+                    var shown = first
+                    if shown.palette.cover == nil, let row = playlistSummary(id) { shown.palette = row.palette }
+                    playlistDetails[id] = shown
+                })
                 if read == nil {
                     try ensureLive()
                     // audit 11-15 #24: Spotify's own playlists (Discover Weekly, Daily Mix …) answer 404 to a
@@ -1556,6 +1562,54 @@ final class LibraryStore {
             search = nil
             searchFailure = message
             searchPhase = .failed
+        }
+    }
+
+    /// A saved-library search answered from local lists, run again once the reads behind it land
+    /// (audit 11-15 #69): only while the same search shows; a failure replaces "No results" only.
+    func refreshLibrarySearch(_ term: String, request: SearchRequest) {
+        guard searchRequest == request, request.scope == .library else { return }
+        do {
+            let r = try spotifyLibraryResults(term)
+            guard let shown = search, shown.query == request.query else { return }
+            var next = shown
+            next.artists = r.artists
+            next.albums = r.albums
+            next.songs = r.songs
+            next.playlists = r.playlists
+            guard next.artists != shown.artists || next.albums != shown.albums || next.songs != shown.songs
+                    || next.playlists != shown.playlists else { return }
+            search = next
+            searchPhase = .loaded
+        } catch {
+            guard search.map({ $0.artists.isEmpty && $0.albums.isEmpty && $0.songs.isEmpty && $0.playlists.isEmpty }) ?? true
+            else { return }
+            search = nil
+            searchFailure = message(for: error)
+            searchPhase = .failed
+        }
+    }
+
+    /// Library's Spotify lists from disk while none is in memory, without reading them (audit 11-15 #69):
+    /// a search has something to answer from at once. Their phases stay as they were, so a load still reads.
+    func restoreSpotifyListsFromDisk() async {
+        guard spotify != nil, let codec else { return }
+        let scope = diskScope, gen = generation
+        if albums.isEmpty, let hit = await disk.read([DetailCacheDTO.Album].self, scope: scope, kind: .list, id: "albums"),
+           gen == generation, albums.isEmpty {
+            albums = hit.value.map(codec.album)
+        }
+        if artists.isEmpty, let hit = await disk.read([DetailCacheDTO.Item].self, scope: scope, kind: .list, id: "artists"),
+           gen == generation, artists.isEmpty {
+            artists = hit.value.map(codec.item)
+        }
+        if playlists.isEmpty, let hit = await disk.read([DetailCacheDTO.Item].self, scope: scope, kind: .list, id: "playlists"),
+           gen == generation, playlists.isEmpty {
+            playlists = hit.value.map(codec.item)
+        }
+        if songs.isEmpty, let hit = await disk.read([DetailCacheDTO.Entry].self, scope: scope, kind: .list, id: "songs"),
+           gen == generation, songs.isEmpty {
+            songs = hit.value.map(codec.entry)
         }
     }
 

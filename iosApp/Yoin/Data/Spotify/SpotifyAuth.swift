@@ -199,7 +199,7 @@ enum SpotifyAuth {
     nonisolated static func fetchMe(_ accessToken: String) async throws -> Me {
         var r = URLRequest(url: URL(string: "https://api.spotify.com/v1/me")!)
         r.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: r)
+        let (data, response) = try await SpotifyWebAPI.session.data(for: r)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw SpotifyAuthError.failed(meFailure(status)) }
         return try JSONDecoder().decode(Me.self, from: data)
@@ -223,7 +223,7 @@ enum SpotifyAuth {
         var c = URLComponents()
         c.queryItems = form.map { URLQueryItem(name: $0.key, value: $0.value) }
         r.httpBody = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B").data(using: .utf8)
-        let (data, response) = try await URLSession.shared.data(for: r)
+        let (data, response) = try await SpotifyWebAPI.session.data(for: r)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
             let e = try? JSONDecoder().decode(TokenError.self, from: data)

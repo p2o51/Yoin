@@ -256,10 +256,19 @@ final class SpotifySource {
     /// their ids start 37i9dQZ, and a Development Mode app gets 404 for them (audit 11-15 #24).
     nonisolated static func isSpotifyMade(_ rawId: String) -> Bool { rawId.hasPrefix("37i9dQZ") }
 
+    /// A playlist page's song cap (Android's page read; a backup reads up to 10 000 on its own).
+    nonisolated static let playlistPageCap = 1_000
+    /// Item pages read side by side after the first (the account's gate lets three out at once).
+    nonisolated static let playlistPageWidth = 4
+
     /// The playlist and its playable tracks, every occurrence (up to [cap], Codex N12). Someone else's
     /// playlist answers 403 for its items: it opens marked unreadable (N18). Local files, episodes and
     /// removed entries are left out.
-    func playlist(_ rawId: String, cap: Int = 10_000) async throws -> PlaylistInfo? {
+    ///
+    /// audit 11-15 #70: the first page goes to [onFirst] as soon as it arrives, the rest are read by offset
+    /// [playlistPageWidth] at a time, and a later page that fails keeps the pages before it.
+    func playlist(_ rawId: String, cap: Int = SpotifySource.playlistPageCap,
+                  onFirst: ((PlaylistInfo) -> Void)? = nil) async throws -> PlaylistInfo? {
         let p: SpotifyDTO.Playlist
         do {
             p = try await api.get("playlists/\(rawId)", ["additional_types": "track"], as: SpotifyDTO.Playlist.self)
@@ -267,21 +276,14 @@ final class SpotifySource {
             playlistOffsets[rawId] = nil
             return nil
         }
+        let query = ["limit": "50", "additional_types": "track"]
         var items: [SpotifyDTO.PlaylistItem] = []
+        var first: SpotifyDTO.Paging<SpotifyDTO.PlaylistItem>
         do {
-            if let first = p.entries, !first.items.isEmpty || first.next != nil {
-                items = first.items
-                var next = first.next
-                var visited = Set<String>()
-                while let page = next, items.count < cap, visited.insert(page).inserted {
-                    let more = try await api.get(page, ["additional_types": "track"],
-                                                 as: SpotifyDTO.Paging<SpotifyDTO.PlaylistItem>.self)
-                    items += more.items
-                    next = more.next
-                }
+            if let embedded = p.entries, !embedded.items.isEmpty || embedded.next != nil {
+                first = embedded
             } else {
-                items = try await api.all("playlists/\(rawId)/items", ["limit": "50", "additional_types": "track"],
-                                          of: SpotifyDTO.PlaylistItem.self, cap: cap)
+                first = try await api.get("playlists/\(rawId)/items", query, as: SpotifyDTO.Paging<SpotifyDTO.PlaylistItem>.self)
             }
         } catch let e as SpotifyAPIError where e.isForbidden {
             playlistOffsets[rawId] = []
@@ -289,9 +291,92 @@ final class SpotifySource {
             info.tracksUnavailable = true
             return await withWriteMetadata(info, p, positions: nil)
         }
-        let (tracks, offsets) = SpotifyMapping.playableTracks(Array(items.prefix(cap)))
-        playlistOffsets[rawId] = offsets
-        return await withWriteMetadata(SpotifyMapping.playlist(p, tracks: tracks, saved: liked), p, positions: offsets)
+        items = first.items
+        if first.total == nil { first.total = p.entries?.total }
+        let offsets = Self.playlistPageOffsets(total: first.total, firstCount: items.count,
+                                               hasNext: first.next != nil, cap: cap)
+        if let onFirst, !offsets.isEmpty || first.next != nil {
+            let (tracks, rows) = SpotifyMapping.playableTracks(items)
+            onFirst(await withWriteMetadata(SpotifyMapping.playlist(p, tracks: tracks, saved: liked), p, positions: rows))
+        }
+        if !offsets.isEmpty {
+            let pages = await readPlaylistPages(rawId, offsets: offsets, query: query)
+            items += Self.contiguousPages(offsets: offsets, pages: pages, log: log)
+        } else if first.total == nil {
+            // No total to split by: the `next` links one after another, as before.
+            var next = first.next
+            var visited = Set<String>()
+            do {
+                while let page = next, items.count < cap, visited.insert(page).inserted {
+                    let more = try await api.get(page, ["additional_types": "track"],
+                                                 as: SpotifyDTO.Paging<SpotifyDTO.PlaylistItem>.self)
+                    items += more.items
+                    next = more.next
+                }
+            } catch {
+                log.info("playlist page failed, keeping \(items.count) items: \(Self.message(for: error), privacy: .public)")
+            }
+        }
+        let (tracks, rows) = SpotifyMapping.playableTracks(Array(items.prefix(cap)))
+        playlistOffsets[rawId] = rows
+        return await withWriteMetadata(SpotifyMapping.playlist(p, tracks: tracks, saved: liked), p, positions: rows)
+    }
+
+    /// The offsets of a playlist's item pages after the first (50 each) up to [cap]; none when the first
+    /// holds them all or no total says how many there are.
+    nonisolated static func playlistPageOffsets(total: Int?, firstCount: Int, hasNext: Bool, cap: Int) -> [Int] {
+        guard let total, firstCount > 0, hasNext || total > firstCount else { return [] }
+        let end = min(total, cap)
+        guard end > firstCount else { return [] }
+        return Array(stride(from: firstCount, to: end, by: 50))
+    }
+
+    /// Each page at [offsets], [playlistPageWidth] in flight; a page that failed is absent.
+    private func readPlaylistPages(_ rawId: String, offsets: [Int], query: [String: String])
+        async -> [Int: Result<[SpotifyDTO.PlaylistItem], Error>] {
+        await withTaskGroup(of: (Int, Result<[SpotifyDTO.PlaylistItem], Error>).self) { group in
+            var pending = offsets[...]
+            var out: [Int: Result<[SpotifyDTO.PlaylistItem], Error>] = [:]
+            func add() {
+                guard let offset = pending.popFirst() else { return }
+                group.addTask { [api] in
+                    var q = query
+                    q["offset"] = String(offset)
+                    do {
+                        return (offset, .success(try await api.get("playlists/\(rawId)/items", q,
+                                                                    as: SpotifyDTO.Paging<SpotifyDTO.PlaylistItem>.self).items))
+                    } catch {
+                        return (offset, .failure(error))
+                    }
+                }
+            }
+            for _ in 0..<Self.playlistPageWidth { add() }
+            for await (offset, result) in group {
+                out[offset] = result
+                // A failure stops reading further (the pages after it would be cut off anyway).
+                if case .failure = result { pending = [] }
+                add()
+            }
+            return out
+        }
+    }
+
+    /// The items of the pages in order, up to the first page missing or failed: positions stay true to
+    /// the playlist, and what was read before a failure still shows.
+    nonisolated static func contiguousPages(offsets: [Int], pages: [Int: Result<[SpotifyDTO.PlaylistItem], Error>],
+                                            log: Logger? = nil) -> [SpotifyDTO.PlaylistItem] {
+        var out: [SpotifyDTO.PlaylistItem] = []
+        for offset in offsets {
+            guard case .success(let items)? = pages[offset] else {
+                if case .failure(let error)? = pages[offset] {
+                    log?.info("playlist page at \(offset) failed: \(Self.message(for: error), privacy: .public)")
+                }
+                break
+            }
+            out += items
+            if items.isEmpty { break }
+        }
+        return out
     }
 
     /// The raw playlist offset of the [visibleIndex]th row of its page, for a
