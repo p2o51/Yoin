@@ -11,7 +11,7 @@ final class SpotifyCommandReliabilityTests: XCTestCase {
     private var engine: PlayerEngine!
     private var source: SpotifySource!
 
-    private let a = "4unM7lTfMfbiFMc6Hgnar6"
+    private let a = "4unM7lTfMfbiFMc6Hgnar6", b = "2JXQjdWdKhpdYYs48QEc2j"
 
     override func setUp() {
         WebStub.reset()
@@ -128,5 +128,35 @@ final class SpotifyCommandReliabilityTests: XCTestCase {
         XCTAssertFalse(SpotifyAudioOutput.resumesPending(shownURI: a, aimedURI: nil, stateURI: b, paused: true, ageSec: 10), "another song")
         XCTAssertFalse(SpotifyAudioOutput.resumesPending(shownURI: a, aimedURI: nil, stateURI: a, paused: true,
                                                          ageSec: SpotifyAudioOutput.pendingResumeSec + 1))
+    }
+
+    // #8
+    func test_should_holdWithoutWakingSpotify_when_theEnginesOwnLoadCantConnect() async throws {
+        engine.play(queue: [song(a), song(b)])
+        try await waitUntil(8, "for A") { self.app.statesSent > 0 && self.engine.isPlaying }
+        try await Task.sleep(for: .milliseconds(300))
+        app.refuseConnects = true
+        app.links.forEach { $0.droppedBySpotify() }
+        try await Task.sleep(for: .milliseconds(100))
+        // A ends and the engine moves on to B by itself.
+        engine.outputCurrentDidFinish()
+        try await waitUntil(6, "for the hold") { self.engine.failure != nil }
+        XCTAssertEqual(engine.currentItem?.track.id, b)
+        XCTAssertEqual(app.wakes, 1, "a song's end never opens Spotify")
+        XCTAssertEqual(engine.failure?.action, .openSpotify)
+    }
+
+    func test_should_wakeOnlyForTheListener_andNotTwiceInAFewSeconds() {
+        XCTAssertTrue(SpotifyAudioOutput.wakes(byListener: true, sinceLastWakeSec: 60))
+        XCTAssertFalse(SpotifyAudioOutput.wakes(byListener: false, sinceLastWakeSec: 60))
+        XCTAssertFalse(SpotifyAudioOutput.wakes(byListener: true, sinceLastWakeSec: 3))
+    }
+
+    // #15
+    func test_should_carryOn_when_theNextWasNeverHanded() {
+        XCTAssertTrue(SpotifyAudioOutput.endCarriesOn(nextUnhanded: false, handedNext: false, hasNext: true))
+        XCTAssertTrue(SpotifyAudioOutput.endCarriesOn(nextUnhanded: true, handedNext: false, hasNext: true))
+        XCTAssertFalse(SpotifyAudioOutput.endCarriesOn(nextUnhanded: false, handedNext: false, hasNext: false), "the queue ran out")
+        XCTAssertFalse(SpotifyAudioOutput.endCarriesOn(nextUnhanded: false, handedNext: true, hasNext: true))
     }
 }

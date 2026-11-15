@@ -513,7 +513,8 @@ final class PlayerEngine {
         loadCurrent(play: true, startSec: at)
     }
 
-    private func loadCurrent(play: Bool, startSec: Double = 0) {
+    /// [byListener] false: the engine moves on by itself (a song's end, a skip after an error).
+    private func loadCurrent(play: Bool, startSec: Double = 0, byListener: Bool = true) {
         externalTrack = nil
         guard let item = currentItem else { return }
         ended = false
@@ -532,6 +533,7 @@ final class PlayerEngine {
         progress.durationSec = item.track.durationSec
         beginScrobble(item, at: start)
         isBuffering = true
+        output.nextLoad(byListener: byListener)
         output.load(streamURL(for: item, timeOffsetSec: offset), next: preloadedURL,
                     startSec: delivery.seeksByTime ? 0 : startSec)
         if play {
@@ -696,7 +698,7 @@ final class PlayerEngine {
             reachEnd()
             return
         }
-        loadCurrent(play: isPlaying)
+        loadCurrent(play: isPlaying, byListener: false)
     }
 
     private func reachEnd() {
@@ -808,7 +810,7 @@ extension PlayerEngine: AudioOutputEvents {
         guard currentIndex != nil, !ended, externalTrack == nil else { return }
         guard let i = autoAdvanceIndex, queue.indices.contains(i) else { return reachEnd() }
         currentIndex = i
-        loadCurrent(play: true)
+        loadCurrent(play: true, byListener: false)
     }
 
     func outputDidFail(_ message: String, network: Bool) {

@@ -300,6 +300,12 @@ final class RoutingAudioOutput: AudioOutput {
     func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode) {
         active.playModesDidChange(shuffle: shuffle, repeatMode: repeatMode)
     }
+    func nextLoad(byListener: Bool) {
+        // Before the load picks its output: every one hears it (only Spotify's listens).
+        av.nextLoad(byListener: byListener)
+        apple.nextLoad(byListener: byListener)
+        spotify?.nextLoad(byListener: byListener)
+    }
 
     /// [o] drives the player without a load (Spotify found playing something Yoin didn't start).
     func adopt(_ o: AudioOutput) {

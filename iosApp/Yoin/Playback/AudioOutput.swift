@@ -26,11 +26,16 @@ protocol AudioOutput: AnyObject {
     /// Shuffle or repeat changed in the engine (an output whose player keeps its own modes, Spotify
     /// playing an album or playlist as itself, follows them).
     func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode)
+    /// Said right before each load: whether the listener asked for it (a tap, Next, Retry) or the engine
+    /// moved on by itself (a song's end, a skip after an error). Spotify only opens the Spotify app for
+    /// the listener's (audit 11-15 #8).
+    func nextLoad(byListener: Bool)
 }
 
 extension AudioOutput {
     func skipExternal(forward: Bool) {}
     func playModesDidChange(shuffle: Bool, repeatMode: RepeatMode) {}
+    func nextLoad(byListener: Bool) {}
 }
 
 /// Callbacks from an [AudioOutput], all on the main actor.
