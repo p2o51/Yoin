@@ -80,8 +80,11 @@ struct RootView: View {
             PlayingHandoff.shared.start(model)
             // A playlist restore's Live Activity left under way by an earlier launch: nothing carries it on.
             RestoreLiveActivity.endLeftovers()
+            // Offline downloads' Live Activity follows them from here (Data/Cache/DownloadLiveActivity.swift).
+            DownloadLiveActivity.shared.start()
             #if DEBUG
             RestoreLiveActivity.startQADemo()
+            DownloadLiveActivity.startQADemo()
             #endif
         }
         .preferredColorScheme(GlassLab.shared.colorScheme)

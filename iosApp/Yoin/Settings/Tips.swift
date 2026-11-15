@@ -141,12 +141,12 @@ enum Tips {
             text: "Tap the cover in Now Playing to enter Focus, and tap again to return",
             titleZhHans: "轻点封面聚焦",
             textZhHans: "正在播放里轻点封面进入聚焦，再点一下回到原样"),
-        // Argon's iOS line (.argon/ios-tips/brief.md).
-        Tip(id: "Downloads", icon: "download", updated: "2026-11-06",
+        // Carbon's iOS line (.argon/ios-download-live-activity/brief.md).
+        Tip(id: "Downloads", icon: "download", updated: "2026-11-15",
             title: "Offline downloads",
-            text: "Subsonic accounts can download from song, album, or playlist menus; manage in Settings › Subsonic account › Downloads",
+            text: "On Subsonic accounts, download from song, album, or playlist menus; see progress on the Lock Screen and in the Dynamic Island, and manage in Settings › Subsonic account › Downloads",
             titleZhHans: "离线下载",
-            textZhHans: "Subsonic 账号可在歌曲、专辑或歌单菜单里下载，管理在设置 › Subsonic 账号 › 下载"),
+            textZhHans: "Subsonic 账号下，在歌曲、专辑或歌单菜单里点「下载」，锁定屏幕和灵动岛会显示进度，管理在设置 › Subsonic 账号 › 下载"),
         Tip(id: "EditHome", icon: "drag_handle", updated: "2026-10-17",
             title: "Rearrange Home",
             text: "Long-press Home to rearrange sections",

@@ -16,7 +16,7 @@ struct RestoreActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    RestoreMascot()
+                    RestoreMascot(onDark: true)
                         .frame(width: 40, height: 40)
                         .padding(.leading, 4)
                 }
@@ -44,14 +44,14 @@ struct RestoreActivityWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     if context.state.stage == .matching {
-                        RestoreBarView(state: context.state, track: .white.opacity(0.22), paused: context.isStale)
+                        RestoreBarView(state: context.state, track: .white.opacity(0.22), paused: context.isStale, onDark: true)
                             .frame(height: 22)
                             .padding(.horizontal, 4)
                             .padding(.top, 4)
                     }
                 }
             } compactLeading: {
-                RestoreMascot()
+                RestoreMascot(onDark: true)
                     .frame(width: 24, height: 24)
             } compactTrailing: {
                 RestoreCount(state: context.state, compact: true, paused: context.isStale)
@@ -156,6 +156,7 @@ private struct RestoreBarView: View {
     var state: RestoreActivityAttributes.ContentState
     var track: Color
     var paused = false
+    var onDark: Bool? = nil
 
     var body: some View {
         GeometryReader { g in
@@ -174,7 +175,7 @@ private struct RestoreBarView: View {
                 .frame(width: g.size.width, height: 8, alignment: .leading)
                 .background(track)
                 .clipShape(.capsule)
-                RestoreMascot()
+                RestoreMascot(onDark: onDark)
                     .frame(width: mascot, height: mascot)
                     .offset(x: (g.size.width - mascot) * reached)
             }
@@ -197,16 +198,22 @@ private struct RestoreRing: View {
                 .trim(from: 0, to: reached)
                 .stroke(RestoreColors.matched, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            RestoreMascot().padding(5)
+            RestoreMascot(onDark: true).padding(5)
         }
     }
 }
 
 /// The Yoin mascot in its own colours, as Android's Live Update tracker draws it.
-private struct RestoreMascot: View {
+struct RestoreMascot: View {
+    /// On black (the island) or a dark Lock Screen: the navy arm lifted so it doesn't sink into it. Nil: as
+    /// the colour scheme says.
+    var onDark: Bool? = nil
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
+        let dark = onDark ?? (scheme == .dark)
         YoinArmsCanvas(arms: [(index: 0, color: RestoreColors.toCheck), (index: 1, color: RestoreColors.matched),
-                              (index: 2, color: RestoreColors.navy)],
+                              (index: 2, color: dark ? RestoreColors.navyOnDark : RestoreColors.navy)],
                        lineColor: .white, scale: 0.8)
             .accessibilityHidden(true)
     }
@@ -218,6 +225,8 @@ enum RestoreColors {
     static let toCheck = Color(argb: 0xFFFF_59CD)
     static let notFound = Color(argb: 0xFF8E_8A99)
     static let navy = Color(argb: 0xFF19_2396)
+    /// The navy arm on black: lifted to read there.
+    static let navyOnDark = Color(argb: 0xFF7A_84FF)
     /// The count beside the island's camera: the violet lifted to read on black.
     static let onIsland = Color(argb: 0xFFC6_9BFF)
 
