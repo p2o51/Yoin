@@ -10797,6 +10797,16 @@
           }
         }
       }
+    },
+    "This playlist no longer exists": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌单已不存在"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

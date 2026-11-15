@@ -143,6 +143,37 @@ final class SpotifyPlaylistsTests: XCTestCase {
 
     /// Every song in order, repeats kept; a local file, an episode and a removed entry are kept as
     /// unreadable at their places; the ISRC goes into the backup upper-cased.
+    func test_should_readTheRestByOffset_when_aPlaylistIsLong() {
+        // audit 11-15 #70: 50 a page after the first, to the page cap.
+        XCTAssertEqual(SpotifySource.playlistPageOffsets(total: 230, firstCount: 100, hasNext: true, cap: 1_000), [100, 150, 200])
+        XCTAssertEqual(SpotifySource.playlistPageOffsets(total: 5_000, firstCount: 100, hasNext: true, cap: 1_000).last, 950)
+        XCTAssertEqual(SpotifySource.playlistPageOffsets(total: 40, firstCount: 40, hasNext: false, cap: 1_000), [])
+        XCTAssertEqual(SpotifySource.playlistPageOffsets(total: nil, firstCount: 50, hasNext: true, cap: 1_000), [])
+    }
+
+    func test_should_showTheFirstPageAndKeepThePagesBeforeAFailure_when_aLaterPageFails() async throws {
+        let firstItems = (0..<50).map { #"{"item":\#(Self.track("f\($0)", "F"))}"# }.joined(separator: ",")
+        PlaylistStub.route = { r in
+            if r.url.path.hasSuffix("/library/contains") { return .init(status: 500, body: "") }
+            if r.url.path == "/v1/playlists/big/items" {
+                let offset = URLComponents(url: r.url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .first { $0.name == "offset" }?.value ?? ""
+                // The page at 100 fails; 50 and 150 answer.
+                if offset == "100" { return .init(status: 500, body: "") }
+                let items = (0..<50).map { #"{"item":\#(Self.track("o\(offset)-\($0)", "O"))}"# }.joined(separator: ",")
+                return .init(status: 200, body: #"{"items":[\#(items)],"next":null,"total":200}"#)
+            }
+            return .init(status: 200, body: #"{"id":"big","name":"Big","owner":{"id":"me1"},"snapshot_id":"s1","items":{"items":[\#(firstItems)],"next":"https://api.spotify.com/v1/playlists/big/items?offset=50","total":200}}"#)
+        }
+        var firstShown: PlaylistInfo?
+        let read = try await source().playlist("big", onFirst: { firstShown = $0 })
+        XCTAssertEqual(firstShown?.entries.count, 50)
+        let page = try XCTUnwrap(read)
+        XCTAssertEqual(page.entries.count, 100)
+        XCTAssertEqual(page.entries.last?.track.id.rawId, "o50-49")
+        XCTAssertEqual(page.positions?.last, 99)
+    }
+
     func test_should_keepUnreadableEntriesAtTheirPlaces_when_backingUpASpotifyPlaylist() async throws {
         let items = [Self.track("A", "Neon Saints", isrc: "usrc17607839", artists: ["Kiri Ono", "The Meridians"]),
                      #"{"item":{"id":null,"name":"Voice memo","is_local":true,"type":"track","artists":[{"name":"Me"}]}}"#,

@@ -56,6 +56,13 @@ final class AlbumLibraryState {
         }
     }
 
+    /// The album's state for [store]'s account: nil until read under it, so a switch never shows (or
+    /// acts on) the last account's state before the new read lands (audit 11-15 #72).
+    func state(for album: Album, store: LibraryStore) -> Bool? {
+        guard generation == store.generation else { return nil }
+        return saved[album.id.rawId]
+    }
+
     nonisolated static func applies(_ album: Album) -> Bool { album.id.provider == SpotifyMapping.provider }
 
     nonisolated static func label(saved: Bool) -> String { saved ? String(localized: "Remove from library") : String(localized: "Save to library") }
@@ -70,7 +77,7 @@ struct AlbumLibraryMenuButton: View {
     var album: Album
 
     var body: some View {
-        if AlbumLibraryState.applies(album), let saved = AlbumLibraryState.shared.saved[album.id.rawId] {
+        if AlbumLibraryState.applies(album), let saved = AlbumLibraryState.shared.state(for: album, store: model.store) {
             Button(AlbumLibraryState.label(saved: saved)) { AlbumLibraryState.shared.toggle(album, store: model.store) }
         }
     }

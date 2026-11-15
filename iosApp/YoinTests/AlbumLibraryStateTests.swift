@@ -26,4 +26,18 @@ final class AlbumLibraryStateTests: XCTestCase {
         state.set(true, for: "al1")
         XCTAssertEqual(state.saved["al1"], true)
     }
+
+    func test_should_forget_the_last_accounts_state_when_the_store_resets() async {
+        let defaults = UserDefaults(suiteName: "alstate-\(UUID().uuidString)")!
+        let store = LibraryStore(session: ServerSession(), sources: SourceSelection(subsonicSignedIn: false, defaults: defaults),
+                                 appleMusic: AppleMusicSource())
+        let state = AlbumLibraryState()
+        let a = album(SpotifyMapping.provider)
+        await state.load(a, store: store)
+        state.set(true, for: "al1")
+        XCTAssertEqual(state.state(for: a, store: store), true)
+        // Another account: the old state never shows before the new read (audit 11-15 #72).
+        store.reset()
+        XCTAssertNil(state.state(for: a, store: store))
+    }
 }

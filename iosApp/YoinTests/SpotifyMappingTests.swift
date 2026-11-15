@@ -197,6 +197,71 @@ final class SpotifyMappingTests: XCTestCase {
         XCTAssertEqual(SpotifyStubProtocol.requests.count, 1)
     }
 
+    func test_should_refuse_player_calls_locally_when_the_account_is_under_a_long_limit() async {
+        // audit 11-15 #67: the poll and a pause don't go out (and lengthen it) during an hour-long limit.
+        SpotifyStubProtocol.route = { _, _ in .init(status: 429, headers: ["Retry-After": "3600"], body: "") }
+        let api = makeAPI()
+        _ = try? await api.get("me/albums", as: SpotifyDTO.Paging<SpotifyDTO.Album>.self)
+        do {
+            _ = try await api.send("GET", "me/player")
+            XCTFail("expected rate limit")
+        } catch {
+            guard case .rateLimited? = error as? SpotifyAPIError else { return XCTFail("\(error)") }
+        }
+        do {
+            _ = try await api.send("PUT", "me/player/pause")
+            XCTFail("expected rate limit")
+        } catch {
+            guard case .rateLimited? = error as? SpotifyAPIError else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(SpotifyStubProtocol.requests.count, 1)
+    }
+
+    func test_should_send_player_calls_when_the_limit_is_short() async throws {
+        SpotifyStubProtocol.route = { r, _ in
+            r.url?.path == "/v1/me/albums" ? .init(status: 429, headers: ["Retry-After": "10"], body: "")
+                : .init(status: 204, body: "")
+        }
+        let api = makeAPI(maxRetries: 0)
+        _ = try? await api.get("me/albums", as: SpotifyDTO.Paging<SpotifyDTO.Album>.self)
+        try await api.send("PUT", "me/player/pause")
+        XCTAssertEqual(SpotifyStubProtocol.requests.count, 2)
+    }
+
+    func test_should_fail_a_player_command_without_waiting_when_the_429_is_longer_than_five_seconds() async {
+        SpotifyStubProtocol.route = { _, _ in .init(status: 429, headers: ["Retry-After": "10"], body: "") }
+        let sleeps = SleepLog()
+        do {
+            try await makeAPI(sleeps: sleeps).send("PUT", "me/player/pause")
+            XCTFail("expected rate limit")
+        } catch {
+            XCTAssertEqual(error as? SpotifyAPIError, .rateLimited(retryAfter: 10))
+        }
+        XCTAssertTrue(sleeps.values.isEmpty)
+        XCTAssertEqual(SpotifyStubProtocol.requests.count, 1)
+    }
+
+    func test_should_retry_a_player_command_once_when_the_429_is_short() async {
+        SpotifyStubProtocol.route = { _, _ in .init(status: 429, headers: ["Retry-After": "3"], body: "") }
+        let sleeps = SleepLog()
+        _ = try? await makeAPI(sleeps: sleeps).send("POST", "me/player/next")
+        XCTAssertEqual(sleeps.values, [3])
+        XCTAssertEqual(SpotifyStubProtocol.requests.count, 2)
+    }
+
+    func test_should_count_recently_played_as_a_library_read() {
+        XCTAssertTrue(SpotifyWebAPI.isPlayerPath("me/player"))
+        XCTAssertTrue(SpotifyWebAPI.isPlayerPath("me/player/queue"))
+        XCTAssertFalse(SpotifyWebAPI.isPlayerPath("me/player/recently-played"))
+        XCTAssertFalse(SpotifyWebAPI.isPlayerPath("me/tracks"))
+    }
+
+    func test_should_give_up_in_fifteen_seconds_when_the_network_is_weak() {
+        // audit 11-15 #74: not URLSession's default 60 s, and no waiting for the network to come back.
+        XCTAssertEqual(SpotifyWebAPI.session.configuration.timeoutIntervalForRequest, 15)
+        XCTAssertFalse(SpotifyWebAPI.session.configuration.waitsForConnectivity)
+    }
+
     func test_should_surface_unauthorized_and_ask_the_token_again_when_server_answers_401() async throws {
         SpotifyStubProtocol.route = { req, n in
             n == 1 ? .init(status: 401, body: #"{"error":{"status":401,"message":"The access token expired"}}"#)
