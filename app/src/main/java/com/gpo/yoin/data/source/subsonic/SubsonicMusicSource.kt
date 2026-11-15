@@ -29,6 +29,7 @@ import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.PlayReport
 import com.gpo.yoin.data.source.PlayReportRejectedException
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.source.WebLinkKind
 import retrofit2.HttpException
 import kotlin.math.abs
@@ -104,6 +105,11 @@ class SubsonicMusicSource(
     }
 
     private val metadata = object : MusicMetadata {
+        // Home's cards (Jump Back In, noted songs, lyric highlights) rebuild a song from local history without
+        // its artist and sometimes its album; Now Playing's title and artist open nothing until this fills them.
+        override suspend fun songLinks(trackId: MediaId): SongLinks? =
+            library.getTrack(trackId)?.let { SongLinks(albumId = it.albumId, artistId = it.artistId) }
+
         override suspend fun getLyrics(trackId: MediaId): Lyrics? =
             unwrap(api.getLyricsBySongId(trackId.requireSubsonic()))
                 .lyricsList?.toLyrics()
