@@ -53,6 +53,31 @@ final class SpotifySource {
         var newest: [Album]
         var older: [Album]
         var recentTracks: [PlaylistEntry]
+        /// Jump Back In's songs: the last ones played, then a random handful of Liked Songs.
+        var trackPool: [PlaylistEntry] = []
+    }
+
+    /// How many liked songs Jump Back In draws from (Subsonic's random read asks 16 too).
+    static let likedSampleSize = 16
+
+    /// [count] liked songs picked at random from one page at a random place in the list (two reads: the
+    /// list's length, then the page).
+    func likedSample(_ count: Int = SpotifySource.likedSampleSize) async throws -> [PlaylistEntry] {
+        let head = try await api.get("me/tracks", ["limit": "1"], as: SpotifyDTO.Paging<SpotifyDTO.SavedTrack>.self)
+        let total = head.total ?? head.items.count
+        guard total > 0 else { return [] }
+        let offset = total > 50 ? Int.random(in: 0...(total - 50)) : 0
+        let page = try await api.get("me/tracks", ["limit": "50", "offset": String(offset)],
+                                     as: SpotifyDTO.Paging<SpotifyDTO.SavedTrack>.self)
+        let tracks = page.items.compactMap(\.track)
+        noteLiked(tracks.compactMap(\.id))
+        return Array(SpotifyMapping.entries(tracks, saved: liked).shuffled().prefix(count))
+    }
+
+    /// The recent songs first, then the sample, each song once.
+    nonisolated static func trackPool(recent: [PlaylistEntry], sample: [PlaylistEntry]) -> [PlaylistEntry] {
+        var seen = Set<MediaId>()
+        return (recent + sample).filter { seen.insert($0.track.id).inserted }
     }
 
     /// Activities = recently played (one request, 50 plays: its albums newest
@@ -76,13 +101,16 @@ final class SpotifySource {
             try await api.all("me/albums", ["limit": "50"], of: SpotifyDTO.SavedAlbum.self, cap: 200)
         }
         if plays.isEmpty && saved.isEmpty, let firstError { throw firstError }
+        let sample = await attempt("liked sample") { try await likedSample() }
         let played = plays.compactMap(\.track)
+        let recentSongs = SpotifyMapping.entries(played, saved: liked)
         let recent = SpotifyMapping.uniqueById(played.compactMap { $0.album.flatMap { SpotifyMapping.album($0) } })
         let added = saved.sorted { ($0.addedAt ?? "") > ($1.addedAt ?? "") }
             .compactMap { s in s.album.flatMap { SpotifyMapping.album($0, addedAt: s.addedAt) } }
         return HomeLists(recent: Array(recent.prefix(20)), frequent: [],
                          newest: Array(added.prefix(10)), older: Array(added.dropFirst(10)).shuffled(),
-                         recentTracks: Array(SpotifyMapping.entries(played, saved: liked).prefix(4)))
+                         recentTracks: Array(recentSongs.prefix(4)),
+                         trackPool: Self.trackPool(recent: Array(recentSongs.prefix(8)), sample: sample))
     }
 
     // MARK: Library

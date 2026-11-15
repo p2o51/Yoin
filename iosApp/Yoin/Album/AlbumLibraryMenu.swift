@@ -11,28 +11,45 @@ final class AlbumLibraryState {
     /// Raw Spotify album id → in the library. Absent: not read (the row waits, as Android's does).
     private(set) var saved: [String: Bool] = [:]
     @ObservationIgnored private var writing: Set<String> = []
+    /// The store generation [saved] was read in: another account's states aren't this one's.
+    @ObservationIgnored private var generation: Int?
+
+    /// Forgets the states read for another account (or source) than [store]'s current one.
+    private func follow(_ store: LibraryStore) {
+        guard generation != store.generation else { return }
+        generation = store.generation
+        saved = [:]
+        writing = []
+    }
 
     /// The album's state, read once per page (Spotify albums only).
     func load(_ album: Album, store: LibraryStore) async {
+        follow(store)
         guard Self.applies(album), let spotify = store.spotify, !writing.contains(album.id.rawId) else { return }
-        if let state = await spotify.isAlbumSaved(album.id.rawId), !writing.contains(album.id.rawId) {
+        let gen = store.generation
+        if let state = await spotify.isAlbumSaved(album.id.rawId), gen == store.generation,
+           !writing.contains(album.id.rawId) {
             saved[album.id.rawId] = state
         }
     }
 
     func toggle(_ album: Album, store: LibraryStore) {
+        follow(store)
         let id = album.id.rawId
         guard let spotify = store.spotify, let was = saved[id] else { return }
         let target = !was
         saved[id] = target
         writing.insert(id)
+        let gen = store.generation
         Task {
-            defer { writing.remove(id) }
+            defer { if gen == generation { writing.remove(id) } }
             do {
                 try await spotify.setAlbumSaved(target, album: id)
-                // Library › Albums reads the change next time it shows.
-                await store.loadAlbums(force: true)
+                guard gen == store.generation else { return }
+                // Library › Albums takes the change in place (no whole-list read).
+                store.patchSavedAlbum(album, saved: target)
             } catch {
+                guard gen == store.generation else { return }
                 saved[id] = was
                 PlaylistActions.shared.show(target ? String(localized: "Couldn't save the album") : String(localized: "Couldn't remove the album"))
             }

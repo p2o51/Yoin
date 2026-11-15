@@ -71,16 +71,7 @@ extension SpotifySource {
         guard !needle.isEmpty else { return SearchResults(artists: [], albums: [], songs: [], playlists: []) }
         func hit(_ fields: String?...) -> Bool { fields.contains { $0.map { folded($0).contains(needle) } ?? false } }
 
-        // Artists the library holds by any road, once each.
-        var known = Set<MediaId>()
-        var everyArtist: [LibraryItem] = []
-        func add(_ item: LibraryItem) { if known.insert(item.id).inserted { everyArtist.append(item) } }
-        artists.forEach(add)
-        for album in albums + songs.map(\.album) {
-            guard let id = album.artistId, !id.isEmpty else { continue }
-            add(LibraryItem(id: MediaId(provider: SpotifyMapping.provider, rawId: id), kind: .artist,
-                            title: album.artist, subtitle: String(localized: "Artist"), palette: album.palette))
-        }
+        let everyArtist = libraryArtists(followed: artists, albums: albums, songs: songs)
         var seenAlbums = Set<MediaId>()
         let matchedAlbums = albums.filter { seenAlbums.insert($0.id).inserted && hit($0.title, $0.artist) }
         return SearchResults(
@@ -88,6 +79,28 @@ extension SpotifySource {
             albums: matchedAlbums,
             songs: songs.filter { hit($0.track.title, $0.track.artist ?? $0.album.artist, $0.album.title) },
             playlists: playlists.filter { hit($0.title, $0.owner) })
+    }
+
+    /// Library › Artists (Android SpotifyMusicSource.libraryArtists): the followed artists, then the artists
+    /// of the saved albums and liked songs, once each, first seen first; one known only from an album
+    /// wears that album's cover.
+    nonisolated static func libraryArtists(followed: [LibraryItem], albums: [Album], songs: [PlaylistEntry]) -> [LibraryItem] {
+        var known = Set<MediaId>()
+        var out: [LibraryItem] = []
+        func add(_ id: String?, _ name: String, _ palette: CoverPalette) {
+            guard let id, !id.isEmpty, !name.isEmpty else { return }
+            let item = LibraryItem(id: MediaId(provider: SpotifyMapping.provider, rawId: id), kind: .artist,
+                                   title: name, subtitle: String(localized: "Artist"), palette: palette)
+            if known.insert(item.id).inserted { out.append(item) }
+        }
+        for a in followed where known.insert(a.id).inserted { out.append(a) }
+        for album in albums { add(album.artistId, album.artist, album.palette) }
+        for e in songs {
+            add(e.album.artistId, e.album.artist, e.album.palette)
+            // A song with several artists names each with its page.
+            for c in e.track.credits { add(c.id, c.name, e.album.palette) }
+        }
+        return out
     }
 
     /// Liked Songs from [offset] (a page of 50 each, up to [limit] songs) and where the next read

@@ -10657,6 +10657,26 @@
           }
         }
       }
+    },
+    "Couldn't follow the artist": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关注该艺人"
+          }
+        }
+      }
+    },
+    "Couldn't unfollow the artist": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法取消关注该艺人"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
