@@ -60,6 +60,40 @@ enum TipDemo {
                               formatTag: "FLAC 24/96")
     }
 
+    /// Song [index] of the first album, as the demo plays it (the next song for ⌘→ in the keyboard demo).
+    @MainActor
+    static func nowPlaying(song index: Int) -> NowPlayingDemo {
+        guard index > 0 else { return nowPlaying() }
+        let track = Track(id: MediaId(provider: provider, rawId: "tip-next-\(index)"), number: index + 1,
+                          title: trackTitles[index % trackTitles.count], durationSec: songSec, rating: nil)
+        return NowPlayingDemo(album: albums[0], track: track, lyrics: lyrics, startSec: 0, formatTag: "FLAC 24/96")
+    }
+
+    // MARK: Spotify devices
+
+    /// The Devices sheet's made-up list: this phone playing, a laptop, a speaker kept as recently used (not in
+    /// Spotify's list this time), and a Sonos Spotify names without an id (moved to only in the Spotify app).
+    static let devices: [SpotifySource.Device] = [
+        SpotifySource.Device(id: "phone", name: "iPhone", type: "Smartphone", isActive: true),
+        SpotifySource.Device(id: "laptop", name: "MacBook", type: "Computer", isActive: false),
+        SpotifySource.Device(id: "living-room", name: "Living Room", type: "Speaker", isActive: false, remembered: true),
+        SpotifySource.Device(id: SpotifySource.Device.noIdKey("Kitchen"), name: "Kitchen", type: "Speaker",
+                             isActive: false, hasId: false),
+    ]
+
+    /// The recently used speaker the demo moves playback to (its index in [devices]).
+    static let recentSpeaker = 2
+
+    /// [devices] once playback has moved to [id]: that one plays (seen now, so no longer only remembered).
+    static func devices(playingOn id: String) -> [SpotifySource.Device] {
+        devices.map { d in
+            var d = d
+            d.isActive = d.id == id
+            if d.id == id { d.remembered = false }
+            return d
+        }
+    }
+
     // MARK: An album page
 
     /// How many songs the demo's album page lists, and the one drawn with the note mark (its number).

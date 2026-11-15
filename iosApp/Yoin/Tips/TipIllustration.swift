@@ -13,7 +13,8 @@ struct TipIllustration: View {
     static let scenes: Set<String> = [
         "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads", "EditHome",
         "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn", "MiniPlayerMenu", "NoteMoments", "LibrarySearch", "Labs",
-        "Name", "VolumeLeveling", "PullForMemories", "MemoriesAllAccounts",
+        "Name", "VolumeLeveling", "PullForMemories", "MemoriesAllAccounts", "KeyboardShortcuts", "LibraryRefresh",
+        "SpotifySpeakers",
     ]
 
     static func has(_ id: String) -> Bool { scenes.contains(id) }
@@ -39,6 +40,9 @@ struct TipIllustration: View {
             case "VolumeLeveling": VolumeLevelingDemo(playing: playing, scheme: scheme)
             case "PullForMemories": PullForMemoriesDemo(playing: playing, scheme: scheme)
             case "MemoriesAllAccounts": MemoriesAllAccountsDemo(playing: playing, scheme: scheme)
+            case "KeyboardShortcuts": KeyboardShortcutsDemo(playing: playing, scheme: scheme)
+            case "LibraryRefresh": LibraryRefreshDemo(playing: playing, scheme: scheme)
+            case "SpotifySpeakers": SpotifySpeakersDemo(playing: playing, scheme: scheme)
             case "Name": NameDemo(playing: playing, scheme: scheme)
             default: EmptyView()
             }

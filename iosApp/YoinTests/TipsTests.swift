@@ -14,11 +14,21 @@ final class TipsTests: XCTestCase {
     }
 
     func test_should_listEveryTipOnce_when_readingTheCatalog() {
-        XCTAssertEqual(Set(Tips.all.map(\.id)).count, Tips.all.count)
+        XCTAssertEqual(Set(Tips.catalog.map(\.id)).count, Tips.catalog.count)
         XCTAssertFalse(Tips.all.contains { $0.id == "ScrollEdge" }, "iOS has no Settings › Motion › Scroll edge")
         for id in ["ScreenCorners", "SettingsRegrouped"] {
             XCTAssertNil(Tips.tip(id), "\(id) is the system's on iOS, or never applied")
         }
+    }
+
+    func test_should_leaveOutTheKeyboardTip_when_theDeviceHasNoShortcutMenu() throws {
+        let keyboard = try XCTUnwrap(Tips.catalog.first { $0.id == "KeyboardShortcuts" })
+        XCTAssertTrue(keyboard.keyboard)
+        XCTAssertFalse(Tips.available(Tips.catalog, keyboard: false).contains { $0.id == "KeyboardShortcuts" })
+        XCTAssertTrue(Tips.available(Tips.catalog, keyboard: true).contains { $0.id == "KeyboardShortcuts" })
+        // Only the keyboard's tip depends on it.
+        XCTAssertEqual(Tips.available(Tips.catalog, keyboard: false).count, Tips.catalog.count - 1)
+        XCTAssertNotNil(Tips.catalog.first { $0.id == "LibraryRefresh" })
     }
 
     func test_should_comeBackOnAndroidsDay_when_iOSHasTheSameSongMenu() throws {
