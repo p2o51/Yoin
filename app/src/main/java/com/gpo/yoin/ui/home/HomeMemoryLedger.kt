@@ -79,6 +79,9 @@ internal fun MemoryLedgerSection(
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 24.sp,
                     ),
+                    // Home's feed is no Surface: a Text with no colour of its own falls back to black, unreadable
+                    // on the dark card.
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
