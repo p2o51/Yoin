@@ -126,4 +126,25 @@ class AppleMusicMadeForYouTest {
         assertTrue(reads.isNotEmpty())
         reads.forEach { assertEquals("user", it.getHeader("Music-User-Token")) }
     }
+
+    @Test fun should_readPersonalMixTracks_withoutInclude_when_openingAMix() = runTest {
+        routes["/v1/catalog/jp/playlists/pl.pm-chill"] = """
+{ "data": [ { "id": "pl.pm-chill", "type": "playlists", "attributes": { "name": "Chill Mix", "curatorName": "Apple Music" } } ] }
+"""
+        routes["/v1/catalog/jp/playlists/pl.pm-chill/tracks"] = """
+{ "data": [
+  { "id": "1001", "type": "songs", "attributes": { "name": "see through", "artistName": "Amelia Moore", "albumName": "EP", "durationInMillis": 179000 } },
+  { "id": "1002", "type": "songs", "attributes": { "name": "Roundabout", "artistName": "Fcj", "albumName": "Single", "durationInMillis": 132000 } }
+] }
+"""
+
+        val playlist = source.getPlaylist(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "pl.pm-chill"))
+
+        assertEquals(listOf("see through", "Roundabout"), playlist?.tracks?.map { it.title })
+        val tracksRequest = synchronized(requests) {
+            requests.single { it.requestUrl!!.encodedPath.endsWith("/tracks") }
+        }
+        assertEquals(null, tracksRequest.requestUrl!!.queryParameter("include"))
+        assertEquals("user", tracksRequest.getHeader("Music-User-Token"))
+    }
 }

@@ -556,7 +556,10 @@ class AppleMusicSource(
         val path = path("playlists", id)
         val resource = page(path).resources().firstOrNull() ?: return null
         val playlist = listedPlaylist(resource)
-        val entries = all(path + "tracks", trackQuery(id))
+        // Apple answers a personal mix's tracklist with a 500 or a 504 (after 5 s) when it asks for the songs'
+        // albums and artists, and serves the bare tracklist (2026-11-15, Pixel Tablet, jp storefront).
+        val query = if (id.rawId.startsWith(PERSONAL_MIX_PREFIX)) emptyMap() else trackQuery(id)
+        val entries = all(path + "tracks", query)
         val tracks = entries.songTracks()
         return playlist.copy(
             tracks = tracks,
