@@ -23,6 +23,7 @@ import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.FavoriteStatesIncompleteException
 import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.TrackNames
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
@@ -66,6 +67,8 @@ class SpotifyMusicSource(
     rateLimitGate: SpotifyRateLimitGate? = null,
     apiBaseUrl: HttpUrl = "https://${SpotifyAuthConfig.API_HOST}/".toHttpUrl(),
     private val clock: () -> Long = System::currentTimeMillis,
+    /** The `Accept-Language` [MusicMetadata.nativeNames] reads names in first; see [SpotifyNameLanguages]. */
+    private val deviceLanguage: () -> String = { SpotifyNameLanguages.deviceLanguage() },
 ) : MusicSource {
 
     private val apiClient = SpotifyApiClient(
@@ -101,6 +104,15 @@ class SpotifyMusicSource(
     // the playlist and its id, so a row index is trusted only while it still
     // points at the same song ([resolvePlaylistContextOffset]).
     private val playlistTrackOffsetsById = ConcurrentHashMap<String, List<ListedPlaylistEntry>>()
+
+    /** Track id → its names in the languages it's from ([MusicMetadata.nativeNames]); misses kept too. */
+    private val nativeNamesById = object : LinkedHashMap<String, List<TrackNames>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<TrackNames>>?): Boolean =
+            size > NATIVE_NAMES_KEPT
+    }
+
+    /** Track id → its ISRC, as the [MusicMetadata.nativeNames] read found it (empty: it had none). */
+    private val isrcById = ConcurrentHashMap<String, String>()
 
     /** The signed-in account's Spotify profile picture, if it has one. */
     suspend fun profilePictureUrl(): String? = apiClient.getMe().avatarUrl
@@ -319,6 +331,51 @@ class SpotifyMusicSource(
 
     private val metadata = object : MusicMetadata {
         override suspend fun getLyrics(trackId: MediaId): Lyrics? = null
+
+        /**
+         * The track read again with `Accept-Language` set, first to the device's language (which also brings
+         * the ISRC), then to the language of the ISRC's country when that's another one; see
+         * [SpotifyNameLanguages]. The ISRC country's names come first. A song whose ISRC country has no
+         * language there is read in English too, last, unless the device speaks it. A 404 or a local file has
+         * none. Kept per track id, misses too; a failed read isn't kept.
+         */
+        override suspend fun nativeNames(trackId: MediaId): List<TrackNames> {
+            if (trackId.provider != MediaId.PROVIDER_SPOTIFY) return emptyList()
+            val rawId = trackId.rawId.takeIf { SPOTIFY_TRACK_ID.matches(it) } ?: return emptyList()
+            synchronized(nativeNamesById) { nativeNamesById[rawId]?.let { return it } }
+            val device = deviceLanguage()
+            val inDeviceLanguage = orNullIfNotFound { apiClient.getTrack(rawId, acceptLanguage = device) }
+            inDeviceLanguage?.let { isrcById[rawId] = it.externalIds?.isrc?.trim()?.uppercase().orEmpty() }
+            val isrcLanguage = SpotifyNameLanguages.isrcLanguage(inDeviceLanguage?.externalIds?.isrc)
+                ?.takeUnless { SpotifyNameLanguages.sameLanguage(it, device) }
+            val inIsrcLanguage = isrcLanguage?.let { language ->
+                orNullIfNotFound { apiClient.getTrack(rawId, acceptLanguage = language) }
+            }
+            // A song from elsewhere (US, GB…) on a device in another language: Spotify writes its artist the
+            // device's way (ケイティ・ペリー), which lyrics sources rarely know; the English names they do.
+            val inEnglish = inDeviceLanguage
+                ?.takeIf { SpotifyNameLanguages.isrcLanguage(it.externalIds?.isrc) == null }
+                ?.takeUnless { SpotifyNameLanguages.sameLanguage(device, ENGLISH) }
+                ?.let { orNullIfNotFound { apiClient.getTrack(rawId, acceptLanguage = ENGLISH) } }
+            val names = listOfNotNull(
+                inIsrcLanguage?.lyricNames(),
+                inDeviceLanguage?.lyricNames(),
+                inEnglish?.lyricNames(),
+            ).distinct()
+            synchronized(nativeNamesById) { nativeNamesById[rawId] = names }
+            return names
+        }
+
+        /** From the [nativeNames] read when there was one, else one plain read of the track. */
+        override suspend fun isrc(trackId: MediaId): String? {
+            if (trackId.provider != MediaId.PROVIDER_SPOTIFY) return null
+            val rawId = trackId.rawId.takeIf { SPOTIFY_TRACK_ID.matches(it) } ?: return null
+            isrcById[rawId]?.let { return it.ifEmpty { null } }
+            val track = orNullIfNotFound { apiClient.getTrack(rawId) } ?: return null
+            val isrc = track.externalIds?.isrc?.trim()?.uppercase().orEmpty()
+            isrcById[rawId] = isrc
+            return isrc.ifEmpty { null }
+        }
 
         override suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? =
             id.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY && it.rawId.isNotBlank() }
@@ -850,6 +907,15 @@ class SpotifyMusicSource(
     }
 
     companion object {
+        /** The extra read for songs from countries [SpotifyNameLanguages] has no language for. */
+        private const val ENGLISH = "en"
+
+        /** Tracks whose names [MusicMetadata.nativeNames] keeps: a few albums' worth. */
+        private const val NATIVE_NAMES_KEPT = 256
+
+        /** A Spotify track id: base62, 22 characters. Local files and episodes don't have one. */
+        private val SPOTIFY_TRACK_ID = Regex("[0-9A-Za-z]{22}")
+
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_FORBIDDEN = 403
 
@@ -948,3 +1014,10 @@ data class SpotifyPlayerQueue(
 
 /** A song a playlist read listed: its raw offset in the playlist and its Spotify id. */
 private data class ListedPlaylistEntry(val offset: Int, val trackRawId: String)
+
+/** The title and first artist, the way [toTrack] names a track for lyrics; null when either is blank. */
+private fun SpotifyTrackObject.lyricNames(): TrackNames? {
+    val title = name.trim()
+    val artist = artists.firstOrNull()?.name?.trim().orEmpty()
+    return TrackNames(title, artist).takeIf { title.isNotEmpty() && artist.isNotEmpty() }
+}

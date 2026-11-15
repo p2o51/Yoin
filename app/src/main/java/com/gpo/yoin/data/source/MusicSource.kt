@@ -207,6 +207,21 @@ interface MusicMetadata {
     suspend fun alternateNames(trackId: MediaId): TrackNames? = null
 
     /**
+     * [trackId]'s title and artist as the service writes them in the languages the song is from, where they
+     * differ by language: a Spotify app set to Japanese writes Hebe Tien ヒビ・ティエン, and asked in Taiwanese
+     * Chinese Spotify answers 田馥甄. Lyrics sources index the original names, so a lookup that found nothing
+     * under the shown names tries these too. Empty when the service has none to offer (the default).
+     */
+    suspend fun nativeNames(trackId: MediaId): List<TrackNames> = emptyList()
+
+    /**
+     * [trackId]'s ISRC, the code a recording keeps on every service, for looking up the names it was released
+     * under elsewhere when the service's own names find no lyrics. Null when the service doesn't say (the
+     * default). Read after [nativeNames], which may already have it.
+     */
+    suspend fun isrc(trackId: MediaId): String? = null
+
+    /**
      * The album and artist [trackId] belongs to, for a song that came without them: Apple Music names them only
      * when the request included them, and its playlists, library songs and search rows don't. Null when the
      * service can't say (the default: everywhere else a song carries both already).

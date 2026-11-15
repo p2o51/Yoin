@@ -2,6 +2,7 @@ package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaylistItemRef
+import com.gpo.yoin.data.source.TrackNames
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -34,6 +35,7 @@ class SpotifyMusicSourceTest {
     private val requests = CopyOnWriteArrayList<RecordedRequest>()
     private val routes = ConcurrentHashMap<String, () -> MockResponse>()
     private var now = 1_000_000L
+    @Volatile private var lastAcceptLanguage: String? = null
 
     @Before
     fun setUp() {
@@ -41,6 +43,7 @@ class SpotifyMusicSourceTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 requests += request
+                lastAcceptLanguage = request.getHeader("Accept-Language")
                 val path = request.requestUrl?.encodedPath.orEmpty()
                 val offset = request.requestUrl?.queryParameter("offset")
                 return (routes["$path?offset=$offset"] ?: routes[path])?.invoke()
@@ -65,6 +68,107 @@ class SpotifyMusicSourceTest {
     @After
     fun tearDown() {
         server.shutdown()
+    }
+
+    @Test
+    fun should_readNamesInIsrcLanguage_when_deviceSpeaksAnother() = runTest {
+        val id = "0q96DdFCFTYX2brsBFUbDO"
+        routes["/v1/tracks/$id"] = {
+            // Spotify keeps the title in every language and names the artist in the one asked for.
+            val artist = when (lastAcceptLanguage) {
+                "zh-TW", "zh-CN" -> "田馥甄"
+                "ja-JP", "ja" -> "ヒビ・ティエン"
+                else -> "Hebe Tien"
+            }
+            ok(
+                """{"id":"$id","name":"Ferries wheel","artists":[{"id":"a","name":"$artist"}],""" +
+                    """"external_ids":{"isrc":"twa530500106"}}""",
+            )
+        }
+        val source = newSource(deviceLanguage = "ja-JP")
+
+        val names = source.metadata().nativeNames(MediaId.spotify(id))
+        val again = source.metadata().nativeNames(MediaId.spotify(id))
+
+        assertEquals(
+            listOf(
+                TrackNames("Ferries wheel", "田馥甄"),
+                TrackNames("Ferries wheel", "ヒビ・ティエン"),
+            ),
+            names,
+        )
+        assertEquals(names, again)
+        assertEquals("TWA530500106", source.metadata().isrc(MediaId.spotify(id)))
+        assertEquals(
+            listOf("ja-JP", "zh-TW"),
+            requests.filter { it.requestUrl?.encodedPath == "/v1/tracks/$id" }.map { it.getHeader("Accept-Language") },
+        )
+    }
+
+    @Test
+    fun should_readNamesOnce_when_isrcLanguageIsTheDevices() = runTest {
+        val id = "0RhDhTcMvpyhCxFkCKUgXR"
+        routes["/v1/tracks/$id"] = {
+            ok(
+                """{"id":"$id","name":"晴天","artists":[{"id":"a","name":"周杰倫"}],""" +
+                    """"external_ids":{"isrc":"TWK970200303"}}""",
+            )
+        }
+        val source = newSource(deviceLanguage = "zh-Hant-TW")
+
+        val names = source.metadata().nativeNames(MediaId.spotify(id))
+
+        assertEquals(listOf(TrackNames("晴天", "周杰倫")), names)
+        assertEquals(1, requestsTo("/v1/tracks/$id"))
+    }
+
+    @Test
+    fun should_readEnglishNamesToo_when_songIsFromCountryWithoutLanguage() = runTest {
+        val id = "4lCv7b86sLynZbXhfScfm2"
+        routes["/v1/tracks/$id"] = {
+            val artist = if (lastAcceptLanguage == "en") "Katy Perry" else "ケイティ・ペリー"
+            ok(
+                """{"id":"$id","name":"Firework","artists":[{"id":"a","name":"$artist"}],""" +
+                    """"external_ids":{"isrc":"USCA21001262"}}""",
+            )
+        }
+        val source = newSource(deviceLanguage = "ja-JP")
+
+        val names = source.metadata().nativeNames(MediaId.spotify(id))
+
+        assertEquals(
+            listOf(TrackNames("Firework", "ケイティ・ペリー"), TrackNames("Firework", "Katy Perry")),
+            names,
+        )
+        assertEquals(
+            listOf("ja-JP", "en"),
+            requests.filter { it.requestUrl?.encodedPath == "/v1/tracks/$id" }.map { it.getHeader("Accept-Language") },
+        )
+    }
+
+    @Test
+    fun should_readNamesOnce_when_englishDeviceAndSongFromCountryWithoutLanguage() = runTest {
+        val id = "4lCv7b86sLynZbXhfScfm2"
+        routes["/v1/tracks/$id"] = {
+            ok(
+                """{"id":"$id","name":"Firework","artists":[{"id":"a","name":"Katy Perry"}],""" +
+                    """"external_ids":{"isrc":"USCA21001262"}}""",
+            )
+        }
+        val source = newSource(deviceLanguage = "en-US")
+
+        val names = source.metadata().nativeNames(MediaId.spotify(id))
+
+        assertEquals(listOf(TrackNames("Firework", "Katy Perry")), names)
+        assertEquals(1, requestsTo("/v1/tracks/$id"))
+    }
+
+    @Test
+    fun should_haveNoNativeNames_when_trackIsLocal() = runTest {
+        val names = newSource().metadata().nativeNames(MediaId.spotify("local:track"))
+
+        assertTrue(names.isEmpty())
+        assertTrue(requests.isEmpty())
     }
 
     @Test
@@ -642,7 +746,7 @@ class SpotifyMusicSourceTest {
         """{"id":"nameless","name":"Nameless","owner":{"display_name":"Nobody"}}""" +
         """],"next":null,"total":3}"""
 
-    private fun newSource(): SpotifyMusicSource {
+    private fun newSource(deviceLanguage: String = "en-US"): SpotifyMusicSource {
         val httpClient = OkHttpClient()
         val baseUrl = server.url("/")
         return SpotifyMusicSource(
@@ -656,7 +760,8 @@ class SpotifyMusicSourceTest {
             httpClient = httpClient,
             authService = SpotifyAuthService(httpClient = httpClient, authBaseUrl = baseUrl, apiBaseUrl = baseUrl),
             apiBaseUrl = baseUrl,
-            clock = { now }
+            clock = { now },
+            deviceLanguage = { deviceLanguage },
         )
     }
 

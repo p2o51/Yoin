@@ -58,11 +58,14 @@ import kotlin.math.abs
  * **挑选。** 先看艺人匹配的候选，取档位最高（原版 → 注记版 → 存疑）、排位靠前的一条。
  * 一条都没有时，只在"无从判断"的候选里看排位第一的那位艺人：他至少有 [MIN_DOMINANT_CUTS]
  * 条同名录音，并且比其余任何艺人都多，才认定是他，再从他的录音里同样按档位、排位取一条；
- * 否则返回 null。被否决的候选不参与这一步。
+ * 否则返回 null。被否决的候选不参与这一步。认定之后，双方都有时长而相差超过
+ * [LYRIC_DURATION_TOLERANCE_MS] 的录音不要——这一步没认出艺人，同名的别人的歌（日文 Spotify 上
+ * `摩天輪` / `ヒビ・ティエン`，QQ 给的是罗百吉的《摩天轮》）只能靠时长挡下。
  *
  * **时长。** 请求带了时长、候选也带了时长时，同一档里先取长度相差不超过 [LYRIC_DURATION_TOLERANCE_MS]
  * 的，再看排位：同名同艺人的单曲版、专辑版、剪辑版常常并排出现。只用来在已经认出的候选里挑，
- * 不拿它认艺人——`Pop Sound` 就有三位艺人的录音都在 169–172 秒。任一方没有时长时不影响排位。
+ * 不拿它认艺人——`Pop Sound` 就有三位艺人的录音都在 169–172 秒；但艺人无从判断时，时长对不上的会被排除
+ * （见"挑选"）。任一方没有时长时不影响排位。
  */
 internal class LyricCandidateMatcher(
     private val fold: (String) -> String = TraditionalToSimplified,
@@ -232,7 +235,9 @@ internal class LyricCandidateMatcher(
             .eachCount()
             .values
             .maxOrNull() ?: 0
-        return if (own.size > strongestRival) own.preferred() else null
+        if (own.size <= strongestRival) return null
+        // Nothing vouches for the artist here, so a known length that's off rules a cut out.
+        return own.filterNot { it.offLength }.preferred()
     }
 
     private fun List<Cut>.preferred(): Cut? =

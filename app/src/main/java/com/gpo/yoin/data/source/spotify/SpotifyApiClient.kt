@@ -167,11 +167,16 @@ class SpotifyApiClient(
             next = { response -> response.artists.next },
         )
 
-    /** `GET /tracks/{id}`: the single-track endpoint, which Development Mode apps keep (the batch one is gone). */
-    suspend fun getTrack(id: String): SpotifyTrackObject = withContext(Dispatchers.IO) {
+    /**
+     * `GET /tracks/{id}`: the single-track endpoint, which Development Mode apps keep (the batch one is gone).
+     * [acceptLanguage] asks for the names Spotify keeps in that language: with `zh-TW` Hebe Tien comes back
+     * as 田馥甄, with `ja` as ヒビ・ティエン. Null sends no header.
+     */
+    suspend fun getTrack(id: String, acceptLanguage: String? = null): SpotifyTrackObject = withContext(Dispatchers.IO) {
         getDecoded(
             url = apiUrl("v1", "tracks", id),
             deserializer = SpotifyTrackObject.serializer(),
+            acceptLanguage = acceptLanguage,
         )
     }
 
@@ -709,6 +714,8 @@ class SpotifyApiClient(
         lane: Lane = Lane.Read,
         /** What an empty body decodes as (a 204), for a [deserializer] that takes it; null: an empty body is an error. */
         blankBody: String? = null,
+        /** The `Accept-Language` header, which picks the language of the names Spotify answers with; null: none. */
+        acceptLanguage: String? = null,
     ): T =
         coroutineScope {
             // awaitResponse covers headers. Keep cancellation tied to the Call while body.string()
@@ -727,6 +734,7 @@ class SpotifyApiClient(
                     val req = Request.Builder()
                         .url(url)
                         .header("Authorization", "Bearer $accessToken")
+                        .apply { if (acceptLanguage != null) header("Accept-Language", acceptLanguage) }
                         .build()
                     httpClient.newCall(req).also(reading::set).awaitResponse(::recordRateLimitBackoff)
                 }

@@ -240,6 +240,34 @@ class GeminiService(
             ?: throw GeminiException("No usable lyric translations in AI response")
     }
 
+    /**
+     * The title and artist a song came out under, for one a streaming service lists under other names: Spotify
+     * lists Hebe Tien's 《摩天輪》 as "Ferries wheel" by ヒビ・ティエン on a Japanese app, in every language,
+     * and lyrics sources only know the original. [otherNames] are the names the service gave in other
+     * languages (田馥甄), as hints. Null when the model isn't sure or says the names are the original ones
+     * already. The caller still has a lyrics source confirm the answer.
+     */
+    suspend fun resolveReleaseNames(
+        ai: AiSettings,
+        title: String,
+        artist: String,
+        album: String?,
+        durationMs: Long?,
+        otherNames: List<Pair<String, String>> = emptyList(),
+    ): Pair<String, String>? {
+        val searched = searchFor(ai, listOf(listOfNotNull(title, artist, album).joinToString(" ")))
+        val prompt = buildReleaseNamesPrompt(title, artist, album, durationMs, otherNames, searchLead(ai, searched)) +
+            searched.appendix
+        val rawText = this.ai.generate(
+            ai,
+            prompt,
+            temperature = 0.1f,
+            useSearch = true,
+            timeoutSeconds = RELEASE_NAMES_TIMEOUT_SECONDS,
+        )
+        return parseReleaseNames(rawText, shownTitle = title, shownArtist = artist)
+    }
+
     /** The model ids a Custom endpoint offers. */
     suspend fun listCustomModels(ai: AiSettings): List<String> =
         this.ai.listModels(ai.prefs.customFormat, ai.prefs.customBaseUrl, ai.prefs.customKey)
@@ -437,6 +465,40 @@ $indexedLines
         """.trimIndent()
     }
 
+    private fun buildReleaseNamesPrompt(
+        title: String,
+        artist: String,
+        album: String?,
+        durationMs: Long?,
+        otherNames: List<Pair<String, String>>,
+        searchLead: String,
+    ): String {
+        val length = durationMs?.takeIf { it > 0 }?.let { ms ->
+            val seconds = ms / 1_000
+            "Length: %d:%02d\n".format(seconds / 60, seconds % 60)
+        }.orEmpty()
+        val albumLine = album?.takeIf(String::isNotBlank)?.let { "Album: $it\n" }.orEmpty()
+        val others = otherNames.takeIf { it.isNotEmpty() }?.joinToString(separator = "") { (t, a) ->
+            "Also listed as: $t — $a\n"
+        }.orEmpty()
+        return """
+A music streaming service lists a song under localized, translated or
+transliterated names, and lyrics sites can't find it under them. Identify the
+song and give its title and main artist exactly as it was originally released,
+in the original language and script, the way lyrics sites list it.
+
+Title: $title
+Artist: $artist
+$albumLine$length$others
+$searchLead Respond strictly in this format:
+
+[TITLE]original title[/TITLE]
+[ARTIST]original main artist[/ARTIST]
+
+If you are not sure which song this is, write N/A in both tags.
+        """.trimIndent()
+    }
+
     /** One canonical About field returned by [generateCanonicalAbout]. */
     data class CanonicalAboutValue(
         val entryKey: String,
@@ -466,6 +528,9 @@ $indexedLines
          */
         const val MEMORY_NARRATION_PROMPT_VERSION = 2
         private const val MEMORY_NARRATION_TIMEOUT_SECONDS = 8L
+
+        /** [resolveReleaseNames] runs while the lyrics view waits on it. */
+        private const val RELEASE_NAMES_TIMEOUT_SECONDS = 20L
 
         /**
          * The v2 narration prompt (the prototype's voice rules, twostate4.html
@@ -586,6 +651,24 @@ Output exactly this and nothing else:
          */
         private fun stripTagMarkers(text: String): String =
             text.replace(TAG_MARKER_REGEX, "").trim()
+
+        /**
+         * The `[TITLE]` / `[ARTIST]` pair [resolveReleaseNames] asked for. Null when either is missing or N/A, or
+         * when the answer is just the names the service already shows.
+         */
+        fun parseReleaseNames(rawText: String, shownTitle: String, shownArtist: String): Pair<String, String>? {
+            fun extract(tag: String): String? = extractTagContent(rawText, tag)
+                ?.lineSequence()?.firstOrNull()?.trim()
+                ?.trim('"', '“', '”', '《', '》', '「', '」')
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && !it.equals("N/A", ignoreCase = true) }
+                ?.takeIf { !it.equals("null", ignoreCase = true) }
+            val title = extract("TITLE") ?: return null
+            val artist = extract("ARTIST") ?: return null
+            val sameTitle = title.equals(shownTitle.trim(), ignoreCase = true)
+            if (sameTitle && artist.equals(shownArtist.trim(), ignoreCase = true)) return null
+            return title to artist
+        }
 
         /**
          * Parse the tagged response emitted by [buildPrompt] into a list of

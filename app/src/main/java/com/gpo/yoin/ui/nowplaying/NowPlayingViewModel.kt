@@ -261,7 +261,9 @@ class NowPlayingViewModel(
                     _aboutError.value = null
                     _askState.value = AskBarState.Idle
 
-                    if (prefetched == null) loadLyrics(songId, track?.title, track?.artist, track?.durationSec)
+                    if (prefetched == null) {
+                        loadLyrics(songId, track?.title, track?.artist, track?.durationSec, track?.album)
+                    }
                 } else {
                     _lyrics.value = emptyList()
                     _lyricCredits.value = null
@@ -1701,13 +1703,27 @@ class NowPlayingViewModel(
         }
     }
 
-    private suspend fun loadLyrics(songId: MediaId, title: String?, artist: String?, durationSec: Int?) {
+    private suspend fun loadLyrics(
+        songId: MediaId,
+        title: String?,
+        artist: String?,
+        durationSec: Int?,
+        album: String?,
+    ) {
         // 调用方（collectLatest 入口）已经把 _lyrics 清空 + loading=true。这里只在
         // 实际完成 / 失败时把 loading 关掉。若被 collectLatest 取消，让
         // CancellationException 透传，并且**不**碰 loading —— 紧接着新的 handler
         // 会把 loading 再次设成 true，避免中间闪一下 "No lyrics available"。
         try {
-            val loadedLyrics = repository.getLoadedLyrics(songId, title, artist, durationSec?.times(1_000L))
+            // The song on screen: when no names the service gives find lyrics, the AI may name it as released.
+            val loadedLyrics = repository.getLoadedLyrics(
+                songId,
+                title,
+                artist,
+                durationSec?.times(1_000L),
+                album = album,
+                askAi = true,
+            )
             when (loadedLyrics) {
                 null -> {
                     _lyrics.value = emptyList()
