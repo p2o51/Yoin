@@ -129,8 +129,9 @@ struct ScrapNotesTab: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
-                // Android LyricRow: surfaceContainerHigh behind the line while its menu is open.
-                .background(open ? scheme.surfaceContainerHigh : .clear, in: .rect(cornerRadius: 8))
+                // Android LyricRow lights the line while its menu is open (surfaceContainerHigh there). Over
+                // the iOS sheet's glass that tone all but vanished in dark mode: a primary wash reads in both.
+                .background(open ? scheme.primary.opacity(0.16) : .clear, in: .rect(cornerRadius: 8))
                 .contentShape(.rect(cornerRadius: 8))
         }
         .buttonStyle(.plain).pointerHighlight()
@@ -153,7 +154,8 @@ struct ScrapNotesTab: View {
         let key = "note:\(note.id)"
         let open = picked == key
         return Button { picked = key } label: {
-            // Android NoteCard: the paper at 0.8 while its menu is open.
+            // Android NoteCard: the paper changes while its menu is open (0.8 there, which lightened it on
+            // Android's darker sheet; here it barely showed): a primary wash over the paper.
             ScrapNoteCard(scheme: scheme, lit: open) {
                 if let at { ScrapNoteStamp(text: at, scheme: scheme) }
                 Text(note.content)
@@ -289,7 +291,7 @@ struct ScrapNotesTab: View {
 /// x 11 inset 14 (journalRail), padding 24 / 14 / 10 / 12, 6 above and below.
 private struct ScrapNoteCard<Content: View>: View {
     var scheme: CoverScheme
-    /// Its menu is open: the paper at 0.8 (Android NoteCard).
+    /// Its menu is open: a primary wash over the paper (Android NoteCard's lit paper).
     var lit = false
     @ViewBuilder var content: Content
 
@@ -300,8 +302,14 @@ private struct ScrapNoteCard<Content: View>: View {
             .background(alignment: .leading) {
                 Capsule().fill(scheme.primary).frame(width: 3).padding(.vertical, 14).padding(.leading, 11)
             }
-            .background(scheme.surfaceContainerHighest.opacity(lit ? 0.8 : 1),
-                        in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            .background {
+                RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous)
+                    .fill(scheme.surfaceContainerHighest)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous)
+                            .fill(scheme.primary.opacity(lit ? 0.16 : 0))
+                    }
+            }
             .contentShape(.rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             .padding(.vertical, 6)
     }
@@ -475,7 +483,9 @@ private struct ScrapRowMenu: ViewModifier {
     func body(content: Content) -> some View {
         content.popover(isPresented: Binding(get: { picked == key },
                                              set: { if !$0, picked == key { picked = nil } }),
-                        attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                        // Under the row (Android's dropdown), so it doesn't cover the tabs above; the system
+                        // turns it over when there's no room below.
+                        attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.offset) { i, item in
                     if i > 0 { Divider() }
