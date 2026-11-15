@@ -361,6 +361,8 @@ final class ProfileManager {
     @ObservationIgnored var endPlayback: () -> Void = {}
     /// Asks a server once (tests answer without a network).
     @ObservationIgnored var probe: (ServerSession.Account) async throws -> ServerSession.Probe = { try await ServerSession.probe($0) }
+    /// Subsonic ratings servers are still owed; a removed account's go with it.
+    @ObservationIgnored var ratingOutbox: RatingOutbox = .shared
     /// Bumps on every switch, connect and removal: an answer for an older one never commits.
     @ObservationIgnored private var generation = 0
     /// A launch argument's source (`-activeSource mock` for screenshots) wins over the account in use.
@@ -608,6 +610,12 @@ final class ProfileManager {
     /// the first account left, without waiting for its server (as a launch does); none left, the mock.
     func remove(_ id: String) {
         generation += 1
+        // The ratings its server is still owed go with it (I10), unless another saved account is the same
+        // server and user.
+        if let scope = store.profile(id)?.subsonicScope,
+           !store.profiles.contains(where: { $0.id != id && $0.subsonicScope == scope }) {
+            ratingOutbox.forget(scope: scope)
+        }
         withAnimation(Yoin.spatial) {
             if switchingTo == id { switchingTo = nil }
             if failure?.profileId == id { failure = nil }

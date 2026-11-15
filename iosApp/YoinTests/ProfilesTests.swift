@@ -381,6 +381,24 @@ final class ProfilesTests: XCTestCase {
         XCTAssertEqual(ended, 2)
     }
 
+    /// I10 (51, 2026-11-15): the ratings a removed account's server was still owed go with it.
+    func test_should_dropItsOwedRatings_when_anAccountIsRemoved() throws {
+        let store = ProfileStore(defaults: defaults, credentials: legacyKeychain(), appleMusicAuthorized: false)
+        let second = try store.saveSubsonic(other).get()
+        let session = ServerSession()
+        let (m, _) = manager(store, session: session)
+        defer { session.signOut() }
+        let outbox = RatingOutbox(fileURL: nil)
+        m.ratingOutbox = outbox
+        let gone = try XCTUnwrap(store.profile(second.id)?.subsonicScope)
+        let kept = try XCTUnwrap(store.profile(ProfileStore.legacySubsonicId)?.subsonicScope)
+        outbox.mark(.init(scope: gone, songId: "s1"))
+        outbox.mark(.init(scope: kept, songId: "s2"))
+
+        m.remove(second.id)
+        XCTAssertEqual(outbox.pending, [.init(scope: kept, songId: "s2")])
+    }
+
     // MARK: Cloud sync reads each account
 
     /// Codex #4: sync finds and deletes another account's note, not only the one in use's.
