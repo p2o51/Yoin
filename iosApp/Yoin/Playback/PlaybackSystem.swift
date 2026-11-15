@@ -65,12 +65,43 @@ final class PlaybackSystem {
         AudioCache.shared.warmUp()
         system.appleOutput = apple
         system.spotifyOutput = spotify
+        // What App Remote says of Spotify's own song beyond what the output shows: an episode is no song, and
+        // Spotify's own modes are what the play-mode button turns on it. Read ahead of the output, so they are
+        // known by the time it reports the song.
+        let remote = SpotifyRemote.shared
+        let forward = remote.onPlayerState
+        remote.onPlayerState = { [weak engine = system.engine] s in
+            SpotifyEpisodes.note(s.uri)
+            if SpotifyPlayingDevice.shared.name == nil {
+                engine?.spotifyModesDidChange(SpotifyModes(shuffle: s.shuffling, repeatRaw: s.repeatRaw))
+            }
+            forward?(s)
+        }
+        system.engine.onExternalModes = { [weak spotify] modes in
+            guard let control = spotify?.control else { return }
+            Task {
+                do {
+                    try await control.setShuffle(modes.shuffle)
+                    try await control.setRepeat(modes.repeatMode)
+                } catch {
+                    PlayTrace.log("SP modes not set: \(SpotifySource.message(for: error))")
+                }
+            }
+        }
         system.favorite = FavoriteHooks(
             isFavorite: { NowPlayingData.shared.isFavorite($0) },
             toggle: { t in
                 let model = AppModel.shared
                 NowPlayingData.shared.toggleFavorite(t, client: model.session.client, apple: model.store.apple)
             })
+        // The heart on Spotify's songs is asked again on song changes, pauses, the foreground and a ticker.
+        system.watchesSpotifyHeart = true
+        SpotifyHeartRefresh.shared.start { [weak engine = system.engine] in engine?.currentTrack }
+        system.observers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak engine = system.engine] _ in
+            MainActor.assumeIsolated { SpotifyHeartRefresh.shared.observe(engine?.currentTrack, force: true) }
+        })
         return system
     }
 
@@ -228,14 +259,14 @@ final class PlaybackSystem {
         c.changeShuffleModeCommand.addTarget { [weak self] event in
             guard let e = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
             let on = RemoteCommandState.shuffle(e.shuffleType)
-            Self.onMain { self?.engine.setShuffle(on) }
+            Self.onMain { self?.engine.setShownShuffle(on) }
             return .success
         }
         c.changeRepeatModeCommand.isEnabled = true
         c.changeRepeatModeCommand.addTarget { [weak self] event in
             guard let e = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
             let mode = RemoteCommandState.repeatMode(e.repeatType)
-            Self.onMain { self?.engine.setRepeat(mode) }
+            Self.onMain { self?.engine.setShownRepeat(mode) }
             return .success
         }
         // The heart (Android's quick-action favorite): the same write Now
@@ -295,7 +326,7 @@ final class PlaybackSystem {
                 }
             })
         } ?? false
-        let state = RemoteCommandState(shuffle: engine.shuffle, repeatMode: engine.repeatMode,
+        let state = RemoteCommandState(shuffle: engine.shownShuffle, repeatMode: engine.shownRepeatMode,
                                        provider: track?.provider, liked: liked)
         c.changeShuffleModeCommand.currentShuffleType = state.shuffleType
         c.changeRepeatModeCommand.currentRepeatType = state.repeatType
@@ -304,7 +335,29 @@ final class PlaybackSystem {
         c.likeCommand.localizedTitle = state.liked ? String(localized: "Unfavorite") : String(localized: "Favorite")
     }
 
+    /// Spotify's own song last seen, for [readSpotifyModesIfNew].
+    private var lastExternalKey: String?
+
+    /// Spotify's own song on another device: App Remote says nothing there, so its modes are read once
+    /// per song from me/player.
+    private func readSpotifyModesIfNew() {
+        let key = engine.externalTrack.map { "\($0.provider):\($0.id)" }
+        guard key != lastExternalKey else { return }
+        lastExternalKey = key
+        guard key != nil, SpotifyPlayingDevice.shared.name != nil, let control = spotifyOutput?.control else { return }
+        Task { [weak self] in
+            guard let now = try? await control.playerNow(), let self,
+                  self.lastExternalKey == key else { return }
+            self.engine.spotifyModesDidChange(SpotifyModes(shuffle: now.shuffle, repeatState: now.repeatState))
+        }
+    }
+
+    /// The app's system (not a test's): it feeds SpotifyHeartRefresh.
+    private var watchesSpotifyHeart = false
+
     private func refreshNowPlaying() {
+        readSpotifyModesIfNew()
+        if watchesSpotifyHeart { SpotifyHeartRefresh.shared.observe(engine.currentTrack) }
         refreshRemoteCommandState()
         if isAppleMusic {
             // Clear our card once; after that the card is MusicKit's.

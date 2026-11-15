@@ -119,4 +119,34 @@ final class FavoritesStoreTests: XCTestCase {
         hearts.reset()
         XCTAssertFalse(hearts.hasReport(provider: "subsonic", songId: "s9"))
     }
+
+    func test_should_followAFreshRead_when_theSongWasLikedOrUnlikedElsewhere() {
+        // Spotify's recheck: a later answer replaces the first, and an earlier tap here gives way to it.
+        let hearts = FavoritesStore()
+        XCTAssertFalse(hearts.isKnown(provider: "spotify", songId: "sp"))
+        hearts.refresh(true, provider: "spotify", songId: "sp", token: hearts.readToken(provider: "spotify", songId: "sp"))
+        XCTAssertTrue(hearts.isFavorite(provider: "spotify", songId: "sp"))
+        hearts.write(provider: "spotify", songId: "sp", target: false, was: true, send: nil)
+        hearts.refresh(true, provider: "spotify", songId: "sp", token: hearts.readToken(provider: "spotify", songId: "sp"))
+        XCTAssertTrue(hearts.isFavorite(provider: "spotify", songId: "sp"), "liked again in the Spotify app")
+    }
+
+    func test_should_dropARead_when_aTapCameAfterItBegan() {
+        let hearts = FavoritesStore()
+        let token = hearts.readToken(provider: "spotify", songId: "sp")
+        hearts.write(provider: "spotify", songId: "sp", target: true, was: false, send: nil)
+        hearts.refresh(false, provider: "spotify", songId: "sp", token: token)
+        XCTAssertTrue(hearts.isFavorite(provider: "spotify", songId: "sp"))
+    }
+
+    func test_should_recheckTheHeart_onlyOnANewSong_orAfterTheInterval() {
+        var p = SpotifyHeartRefresh.Policy()
+        XCTAssertTrue(p.shouldCheck("a", now: 0))
+        XCTAssertFalse(p.shouldCheck("a", now: 10))
+        XCTAssertTrue(p.shouldCheck("a", now: 10, force: true), "back in front")
+        XCTAssertTrue(p.shouldCheck("b", now: 11))
+        XCTAssertFalse(p.shouldCheck("b", now: 11 + SpotifyHeartRefresh.recheckSec - 1))
+        XCTAssertTrue(p.shouldCheck("b", now: 11 + SpotifyHeartRefresh.recheckSec))
+        XCTAssertFalse(p.shouldCheck(nil, now: 100))
+    }
 }

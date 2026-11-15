@@ -160,6 +160,8 @@ final class AppModel {
     let store: LibraryStore
     /// Queue sheet on Now Playing.
     var queueSheetOpen = false
+    /// Bumps when songs went into Spotify's own queue: the queue sheet reads it again.
+    var spotifyQueueRevision = 0
 
     /// What the shell and Now Playing show: the engine's song once it has
     /// one, else the mock. Never carries the position while the engine
@@ -180,7 +182,9 @@ final class AppModel {
     /// cover (colors read off it); with no cover URL, colors borrowed from a
     /// mock cover (stable per album).
     static func album(for t: PlayableTrack, library: any MusicLibrary) -> Album {
-        let key = t.albumId ?? t.album
+        // A Spotify song with no album id (one Spotify plays on its own, an episode) is a song alone: its album's
+        // title is no id, and Go to album / Scrapbook mustn't open an album made of it.
+        let key = t.albumId ?? (t.provider == SpotifyMapping.provider ? "song:\(t.id)" : t.album)
         let palette: CoverPalette
         if let url = t.coverURL {
             let ref = CoverRef(url: url)
@@ -362,6 +366,8 @@ final class AppModel {
         watchPlaybackReports()
         Task { await profiles.fillSpotifyAvatars() }
         player.onScrobble = { track, submission, listenedSec in
+            // A podcast episode Spotify plays is no song: no play row.
+            guard !SpotifyEpisodes.isEpisode(track) else { return }
             store.scrobble(track, submission: submission)
             // Local play history (Data/History): a row when the song starts, marked once it counts with
             // the time really listened (a seek skips, it isn't listening).
@@ -818,7 +824,10 @@ final class AppModel {
         if player.externalTrack != nil {
             guard !next, tracks.allSatisfy({ $0.provider == SpotifyMapping.provider }),
                   let spotify = playbackSystem.spotifyOutput else { done?(false); return }
-            spotify.enqueueOnSpotify(tracks.map(\.id)) { ok in done?(ok) }
+            spotify.enqueueOnSpotify(tracks.map(\.id)) { [weak self] ok in
+                if ok { self?.spotifyQueueRevision += 1 }
+                done?(ok)
+            }
             return
         }
         defer { done?(true) }

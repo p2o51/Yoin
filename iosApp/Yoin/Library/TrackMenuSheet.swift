@@ -278,7 +278,32 @@ struct TrackMenuSheet: View {
     private typealias Row = TrackMenuRow
     private typealias Quick = TrackMenuQuick
 
-    private var hasAlbum: Bool { !track.album.id.rawId.hasPrefix("song:") && !track.album.id.rawId.isEmpty }
+    private var hasAlbum: Bool { Self.hasAlbum(track.album) }
+
+    private static func hasAlbum(_ album: Album) -> Bool { !album.id.rawId.hasPrefix("song:") && !album.id.rawId.isEmpty }
+
+    /// A song Spotify plays on its own comes without its album id or its artists' ids: read once from
+    /// Spotify (GET /tracks/{id}), for Go to album, Scrapbook and Go to artist.
+    @State private var resolved: PlaylistEntry?
+
+    private var resolvesFromSpotify: Bool {
+        track.track.id.provider == SpotifyMapping.provider && store.spotify != nil
+            && !(favoriteTrack.map(SpotifyEpisodes.isEpisode) ?? false)
+            && (!hasAlbum || TrackArtistRows.rows(credits: track.track.credits, fallbackArtistId: track.album.artistId).isEmpty)
+    }
+
+    /// The album the Go rows open: the song's own, else the one Spotify named.
+    private var goAlbum: Album? {
+        if hasAlbum { return track.album }
+        return resolved.map(\.album).flatMap { Self.hasAlbum($0) ? $0 : nil }
+    }
+
+    private func resolveFromSpotify() async {
+        guard resolvesFromSpotify, let spotify = store.spotify else { return }
+        let entry = try? await spotify.track(track.track.id.rawId)
+        guard !Task.isCancelled else { return }
+        resolved = entry
+    }
     private var artist: String { track.track.artist ?? track.album.artist }
 
     /// The song's title and artist, then its public link on the next line where it has one (Android
@@ -303,7 +328,10 @@ struct TrackMenuSheet: View {
 
     /// Favorite, or Apple Music's add to library (Now Playing's + / ✓ button).
     private var favoriteQuick: Quick? {
-        guard let t = favoriteTrack else { return nil }
+        // A podcast episode can't be liked; the playing Spotify song, until its Liked Songs read answers, offers
+        // no heart that would be a guess (Now Playing's heart waits the same way).
+        guard let t = favoriteTrack, !SpotifyEpisodes.isEpisode(t),
+              context.kind != .nowPlaying || NowPlayingData.shared.isHeartKnown(t) else { return nil }
         let data = NowPlayingData.shared
         let on = data.isFavorite(t)
         let library = t.provider == AppleMusicMapping.provider
@@ -392,23 +420,26 @@ struct TrackMenuSheet: View {
             })
         }
         var go: [Row] = []
-        if context.kind != .album && hasAlbum {
-            go.append(Row(label: String(localized: "Go to album"), icon: "album") { [model, track] in
+        if context.kind != .album, let album = goAlbum {
+            go.append(Row(label: String(localized: "Go to album"), icon: "album") { [model] in
                 Self.leaveOverlays(model)
-                model.open(track.album)
+                model.open(album)
             })
         }
         if let view = context.viewInScrapbook {
             go.append(Row(label: String(localized: "View in Scrapbook"), icon: "note", action: view))
-        } else if hasAlbum, track.album.id.provider != "mock" {
+        } else if let album = goAlbum, album.id.provider != "mock" {
             // Anywhere else: the album opens at page 2 on the song's piece (Android TrackMenu).
             go.append(Row(label: String(localized: "View in Scrapbook"), icon: "note") { [model, track] in
                 ScrapbookFocusRequest.shared.request(songId: track.track.id, openSheet: false)
                 Self.leaveOverlays(model)
-                model.open(track.album)
+                model.open(album)
             })
         }
-        let artistRows = TrackArtistRows.rows(credits: track.track.credits, fallbackArtistId: track.album.artistId)
+        var artistRows = TrackArtistRows.rows(credits: track.track.credits, fallbackArtistId: track.album.artistId)
+        if artistRows.isEmpty, let resolved {
+            artistRows = TrackArtistRows.rows(credits: resolved.track.credits, fallbackArtistId: resolved.album.artistId)
+        }
         if !artistRows.isEmpty, !artist.isEmpty {
             for row in artistRows {
                 let label = row.name.map { String(localized: "Go to \($0)") } ?? String(localized: "Go to artist")
@@ -459,6 +490,7 @@ struct TrackMenuSheet: View {
                 if context.kind == .nowPlaying { keepScreenOnRow }
             }
             .task(id: track.track.id) { await loadLink() }
+            .task(id: track.track.id) { await resolveFromSpotify() }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { new in
                 // Sub-point differences from the estimate don't re-size the sheet.
                 if abs(new - (height ?? estimatedHeight)) > 0.5 { height = new }

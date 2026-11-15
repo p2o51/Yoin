@@ -22,8 +22,14 @@ struct QueueSheet: View {
 
     /// Spotify's own queue while it plays a song of its own (picked in the Spotify app, here or on a
     /// speaker): App Remote never reports it, so it is read through the Web API, as Android does
-    /// (SpotifyMusicSource.playerQueue). Nil until read; a failed read leaves it empty.
-    @State private var spotifyQueue: [SpotifySource.QueueEntry]?
+    /// (SpotifyMusicSource.playerQueue), when the sheet opens, after an Add to queue and every
+    /// [spotifyQueueRereadSec] while it is open.
+    @State private var spotifyQueue: SpotifyQueueRead = .loading
+    /// The song [spotifyQueue] was read under: another song starts the list over.
+    @State private var spotifyQueueSong: String?
+    @State private var spotifyQueueRetry = 0
+
+    static let spotifyQueueRereadSec: Double = 5
 
     /// Spotify plays a song that isn't the queue's: the sheet shows Spotify's queue, not Yoin's parked one.
     private var spotifysOwn: PlayableTrack? {
@@ -113,18 +119,34 @@ struct QueueSheet: View {
                 .listRowSeparator(.hidden)
             sectionLabel(String(localized: "Now playing"))
             spotifyRow(title: own.title, artist: own.artist, cover: own.coverURL, current: true)
-            if let entries = spotifyQueue, !entries.isEmpty {
+            switch spotifyQueue {
+            case .loading:
+                EmptyView()
+            case .loaded(let entries) where !entries.isEmpty:
                 sectionLabel(String(localized: "Next in Spotify"))
-                ForEach(entries) { e in
+                // A song can be queued twice: a row is its place and its song.
+                ForEach(entries, id: \.rowKey) { e in
                     spotifyRow(title: e.title, artist: e.artist, cover: e.coverURL, current: false)
                 }
-            } else if spotifyQueue != nil {
+            case .loaded:
                 emptyLabel(String(localized: "Nothing up next"))
+            case .failed:
+                failedLabel
             }
         }
         .modifier(SheetChrome())
-        // Read again whenever Spotify moves to another song.
-        .task(id: own.id) { await readSpotifyQueue() }
+        // Read again when Spotify moves to another song, after an Add to queue, on Retry, and every few
+        // seconds while the sheet is open.
+        .task(id: SpotifyQueueKey(song: own.id, revision: model.spotifyQueueRevision, retry: spotifyQueueRetry)) {
+            if spotifyQueueSong != own.id {
+                spotifyQueueSong = own.id
+                spotifyQueue = .loading
+            }
+            while !Task.isCancelled {
+                await readSpotifyQueue()
+                try? await Task.sleep(for: .seconds(Self.spotifyQueueRereadSec))
+            }
+        }
     }
 
     private func readSpotifyQueue() async {
@@ -132,11 +154,40 @@ struct QueueSheet: View {
         do {
             let entries = try await source.playerQueue()
             guard !Task.isCancelled else { return }
-            spotifyQueue = entries
+            spotifyQueue = .loaded(entries)
         } catch {
             PlayTrace.log("SP queue read failed \(SpotifySource.message(for: error))")
-            if !Task.isCancelled, spotifyQueue == nil { spotifyQueue = [] }
+            guard !Task.isCancelled else { return }
+            spotifyQueue = spotifyQueue.afterFailedRead
         }
+    }
+
+    /// The read failed with nothing shown yet: said so, with Retry (not "Nothing up next").
+    private var failedLabel: some View {
+        HStack(spacing: 8) {
+            Text("Couldn't load Spotify's queue")
+                .yoinRole(Tokens.type.bodyMedium)
+                .foregroundStyle(scheme.onSurfaceVariant)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button {
+                spotifyQueue = .loading
+                spotifyQueueRetry += 1
+            } label: {
+                Text("Retry")
+                    .yoinRole(Tokens.type.labelLarge)
+                    .foregroundStyle(scheme.primary)
+                    .frame(minWidth: 44, minHeight: 36)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain).pointerHighlight()
+        }
+        .padding(.leading, 24)
+        .padding(.trailing, 12)
+        .padding(.top, 12)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
     }
 
     private func spotifyRow(title: String, artist: String, cover: URL?, current: Bool) -> some View {
@@ -312,4 +363,30 @@ struct QueueSheet: View {
         .moveDisabled(current)
         .accessibilityHint(current ? (engine.isPlaying ? String(localized: "Playing") : String(localized: "Paused")) : String(localized: "Plays this song"))
     }
+}
+
+/// What the queue sheet holds of Spotify's own queue.
+enum SpotifyQueueRead: Equatable {
+    case loading
+    case loaded([SpotifySource.QueueEntry])
+    case failed
+
+    /// A read failed: a list already shown stays (a later read may answer); nothing shown is a failure.
+    var afterFailedRead: SpotifyQueueRead {
+        if case .loaded = self { return self }
+        return .failed
+    }
+}
+
+/// When the sheet reads Spotify's queue again.
+private struct SpotifyQueueKey: Equatable {
+    var song: String
+    var revision: Int
+    var retry: Int
+}
+
+extension SpotifySource.QueueEntry {
+    /// Its place and its song: the same song queued twice is two rows, and a list that moved on doesn't
+    /// keep a row for a song that left it.
+    var rowKey: String { "\(id):\(uri)" }
 }
