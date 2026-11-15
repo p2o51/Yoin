@@ -2440,10 +2440,33 @@ struct NowPlayingView: View, Equatable {
     /// The song's artist, when it can be resolved to a page.
     private func artistRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
         let album = p.album
-        guard demo == nil, !album.artist.isEmpty, album.artistId != nil || album.id.provider == "mock" else { return nil }
+        guard demo == nil, !album.artist.isEmpty else { return nil }
+        guard album.artistId != nil || album.id.provider == "mock" else { return spotifyArtistRoute(p) }
         return { [model] in
             Self.leaveForRoute(model)
             model.openArtist(album.artist, id: album.artistId)
+        }
+    }
+
+    /// A Spotify song whose artist Yoin holds no id for (one played from the Spotify app, or from Home or
+    /// Search before its album page was opened): the tap reads the song from Spotify once and opens its
+    /// first artist (audit 11-15 #36; Android maps App Remote's artist URI).
+    private func spotifyArtistRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
+        guard p.track.id.provider == SpotifyMapping.provider, let spotify = model.store.spotify,
+              !(model.player.currentTrack.map(SpotifyEpisodes.isEpisode) ?? false) else { return nil }
+        let songId = p.track.id.rawId
+        let fallbackName = p.album.artist
+        return { [model] in
+            Task {
+                let entry = try? await spotify.track(songId)
+                let credit = entry?.track.credits.first { !($0.id ?? "").isEmpty }
+                guard let id = credit?.id ?? entry?.album.artistId, !id.isEmpty else {
+                    PlaylistActions.shared.show(String(localized: "Couldn't open the artist"))
+                    return
+                }
+                Self.leaveForRoute(model)
+                model.openArtist(credit?.name ?? entry?.album.artist ?? fallbackName, id: id)
+            }
         }
     }
 
