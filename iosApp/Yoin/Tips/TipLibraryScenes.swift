@@ -36,6 +36,207 @@ struct LibrarySearchDemo: View {
     }
 }
 
+// MARK: - Refresh Library
+
+/// Pull Library down from the top (Android LibraryRefreshDemo): the grid follows the finger, the spinner shows
+/// under the chips, and on letting go the view reads again for a moment. Nothing is behind the phone, so a pull
+/// (the dot's, or the user's) reads for a moment and is done.
+struct LibraryRefreshDemo: View {
+    var playing: Bool
+    var scheme: CoverScheme
+    @Environment(\.tipContainer) private var container
+    @State private var pull: CGFloat = 0
+    @State private var refreshing = false
+    /// A pull by hand is under way.
+    @State private var pulling = false
+    /// One more per refresh begun, so an earlier one's end doesn't cut a later one short.
+    @State private var turn = 0
+
+    /// How long the view reads (Android DemoRefreshMs).
+    static let refreshMs = 1_200
+    /// How far the dot pulls the grid (screen points); a pull past `DemoLibraryPage.refreshRoom` refreshes.
+    static let pullTravel: CGFloat = 110
+    /// A pull reads half the finger's travel, as a scroll view's rubber band does.
+    static let resistance: CGFloat = 0.5
+
+    private func letGo() {
+        let refreshes = pull >= DemoLibraryPage.refreshRoom
+        withAnimation(DemoTiming.springAnimation) {
+            if refreshes { refreshing = true }
+            pull = 0
+        }
+        guard refreshes else { return }
+        turn += 1
+        let mine = turn
+        Task {
+            try? await DemoTiming.delay(Self.refreshMs)
+            if mine == turn { withAnimation(DemoTiming.springAnimation) { refreshing = false } }
+        }
+    }
+
+    var body: some View {
+        DemoPhone(playing: playing, scheme: scheme, script: { finger in
+            turn += 1
+            refreshing = false
+            pull = 0
+            try await DemoTiming.delay(300)
+            try await finger.moveTo("libraryGrid", fy: 0.12)
+            let from = finger.at("libraryGrid", fy: 0.12)
+            let screen = DemoPhoneMetrics(container: container).screen.height
+            try await finger.drag(toX: from.x, toY: from.y + Self.pullTravel / max(screen, 1) / Self.resistance, ms: 700) {
+                pull = Self.pullTravel
+            }
+            letGo()
+            try await finger.lift()
+            try await DemoTiming.delay(Self.refreshMs + 1_200)
+        }) {
+            DemoLibraryPage(scheme: scheme, pull: pull, refreshing: refreshing)
+                .gesture(DemoVerticalPull(
+                    onChange: { dy in
+                        pulling = true
+                        // The pan reads the page's points; the phone is drawn scaled down on it.
+                        let scale = DemoPhoneMetrics(container: container).scale
+                        pull = max(dy / max(scale, 0.01), 0) * Self.resistance
+                    },
+                    onEnd: {
+                        guard pulling else { return }
+                        pulling = false
+                        letGo()
+                    }))
+        }
+    }
+}
+
+// MARK: - Keyboard shortcuts
+
+/// Keyboard shortcuts (Android KeyboardShortcutsDemo), the iPad's and the Mac's keys (YoinCommands): Space
+/// pauses and plays the mini player, ⌘→ moves it to the next song, ⌘K opens search, a keyboard's keys as
+/// keycaps on a tray of their own that the bar sits on, pressed by the dot (or the user).
+struct KeyboardShortcutsDemo: View {
+    var playing: Bool
+    var scheme: CoverScheme
+    @State private var song = 0
+    @State private var paused = false
+    @State private var searching = false
+    @State private var pressed: DemoKey?
+    @State private var songs: [NowPlayingDemo] = (0..<3).map { TipDemo.nowPlaying(song: $0) }
+
+    /// Where on a keycap the dot presses (down from its top).
+    static let keyFy: CGFloat = 0.9
+
+    private var demo: NowPlayingDemo { songs[song % songs.count] }
+
+    private func press(_ key: DemoKey) {
+        switch key {
+        case .space: paused.toggle()
+        case .next: song += 1
+        case .search: searching = true
+        }
+    }
+
+    private func keyDown(_ key: DemoKey) async throws {
+        pressed = key
+        press(key)
+        try await DemoTiming.delay(DemoTiming.tapDownMs + 80)
+        pressed = nil
+    }
+
+    var body: some View {
+        DemoPhone(playing: playing, scheme: scheme, script: { finger in
+            song = 0
+            paused = false
+            searching = false
+            pressed = nil
+            try await DemoTiming.delay(300)
+            for key in DemoKey.allCases {
+                // Low on the key, so the dot leaves its face readable.
+                try await finger.moveTo("key-\(key.rawValue)", fy: Self.keyFy)
+                try await finger.tap { pressed = key; press(key) }
+                pressed = nil
+                // Search covers the keys: the dot lifts off until it goes for the ✕.
+                if key == .search { try await finger.lift() }
+                try await DemoTiming.delay(key == .search ? 1_600 : 900)
+            }
+            try await finger.moveTo("searchClose")
+            try await finger.tap { searching = false }
+            try await DemoTiming.delay(600)
+            // Space again: the bar plays on.
+            try await finger.moveTo("key-\(DemoKey.space.rawValue)", fy: Self.keyFy)
+            try await finger.tap { pressed = .space; press(.space) }
+            pressed = nil
+            try await finger.lift()
+            try await DemoTiming.delay(500)
+        }) {
+            ZStack {
+                DemoLibraryPage(scheme: scheme, searching: searching, nowPlaying: demo,
+                                keys: AnyView(DemoKeycaps(scheme: scheme, pressed: pressed) { key in
+                                    Task { try? await keyDown(key) }
+                                }))
+                DemoLibrarySearch(scheme: scheme, visible: searching) { searching = false }
+            }
+            .onChange(of: playing && !paused, initial: true) { _, on in
+                for s in songs { s.isPlaying = on }
+            }
+            .task(id: playing && !paused) {
+                guard playing && !paused else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(DemoNowPlaying.tickMs))
+                    demo.advance(by: Double(DemoNowPlaying.tickMs) / 1000)
+                }
+            }
+        }
+    }
+}
+
+/// The keys the keyboard demo presses: what each is called on its keycap, and what it does (YoinCommands).
+enum DemoKey: String, CaseIterable {
+    case space, next, search
+
+    /// The keycap's face: Space's name, or the modifier and the key.
+    var face: String {
+        switch self {
+        case .space: String(localized: "tip.key.space", defaultValue: "space")
+        case .next: "⌘ →"
+        case .search: "⌘ K"
+        }
+    }
+}
+
+/// A row of keycaps: Space wide, the two ⌘ chords beside it. A pressed key sinks and takes the accent.
+struct DemoKeycaps: View {
+    var scheme: CoverScheme
+    var pressed: DemoKey?
+    var onPress: (DemoKey) -> Void
+
+    static let height: CGFloat = 52
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(DemoKey.allCases, id: \.self) { key in
+                let down = pressed == key
+                Button { onPress(key) } label: {
+                    Text(key.face)
+                        .font(.gsf(17, .medium))
+                        .foregroundStyle(down ? scheme.onPrimaryContainer : scheme.onSurface)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: Self.height)
+                        .background(down ? scheme.primaryContainer : scheme.surfaceBright,
+                                    in: .rect(cornerRadius: 12, style: .continuous))
+                        // The key's edge under its face, gone while it is down.
+                        .shadow(color: Color.black.opacity(down ? 0 : 0.18), radius: 0, y: down ? 0 : 3)
+                        .offset(y: down ? 2 : 0)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: key == .space ? .infinity : 96)
+                .layoutPriority(key == .space ? 1 : 0)
+                .demoTarget("key-\(key.rawValue)")
+                .animation(Yoin.spatialFast, value: down)
+            }
+        }
+    }
+}
+
 // MARK: - Mini player options
 
 /// Long-press the mini player in the bar: the playing song's sheet, the one Now Playing's cover gives
@@ -85,21 +286,30 @@ struct MiniPlayerMenuDemo: View {
 // MARK: - The page
 
 /// Library on the phone: the header, the filter row, the grid, the bar (Library selected). [searching]: Search
-/// is up over it, so Library's chips step out (LibraryView). [nowPlaying]: the bar's mini player.
+/// is up over it, so Library's chips step out (LibraryView). [nowPlaying]: the bar's mini player. [pull]: how far
+/// the grid is pulled down (screen points); [refreshing]: the pull let go and the view reads again, the spinner
+/// under the chips as `.refreshable`'s is. [keys]: keycaps on a tray of their own that the bar sits on.
 struct DemoLibraryPage: View {
     var scheme: CoverScheme
     var searching = false
     var nowPlaying: NowPlayingDemo? = nil
     var onLibraryHold: (() -> Void)? = nil
     var onPillHold: (() -> Void)? = nil
+    var pull: CGFloat = 0
+    var refreshing = false
+    var keys: AnyView? = nil
     @State private var filter: LibraryKind?
 
     /// The phone's grid: three to a row, as Library lays a phone out (LibraryGrid).
     static let columns = 3
+    /// The room the refresh spinner holds open above the grid while it reads (UIRefreshControl's), and how
+    /// far a pull goes before the spinner is all there.
+    static let refreshRoom: CGFloat = 60
 
     var body: some View {
         let cell = LibraryGrid.cell(width: DemoPhoneMetrics.screenWidth, columns: Self.columns)
         let gutter = Tokens.library.GRID_GUTTER_H.cg
+        let drop = refreshing ? max(pull, Self.refreshRoom) : pull
         ZStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: LibraryFilterRow.Style.current.isTrack ? 0 : -4) {
@@ -108,24 +318,48 @@ struct DemoLibraryPage: View {
                         .opacity(searching ? 0 : 1)
                         .animation(searching ? nil : Yoin.effects, value: searching)
                 }
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gutter, alignment: .top), count: Self.columns),
-                          alignment: .leading, spacing: Tokens.library.GRID_GUTTER_V.cg) {
-                    ForEach(TipDemo.libraryItems, id: \.id) { item in
-                        LibraryGridCellFace(item: item, side: cell, scheme: scheme)
+                .zIndex(1)
+                ZStack(alignment: .top) {
+                    if refreshing || pull > 0 {
+                        ProgressView()
+                            .controlSize(.regular)
+                            .tint(scheme.onSurfaceVariant)
+                            .frame(height: Self.refreshRoom)
+                            .opacity(refreshing ? 1 : Double(min(pull / Self.refreshRoom, 1)))
+                            .transition(.opacity)
                     }
+                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(cell), spacing: gutter, alignment: .top), count: Self.columns),
+                              alignment: .leading, spacing: Tokens.library.GRID_GUTTER_V.cg) {
+                        ForEach(TipDemo.libraryItems, id: \.id) { item in
+                            LibraryGridCellFace(item: item, side: cell, scheme: scheme)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
+                    .offset(y: drop)
+                    .demoTarget("libraryGrid")
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, Tokens.library.GRID_TOP_PADDING.cg)
             }
             .padding(.top, DemoPhoneMetrics.statusBar)
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
-            DemoShellBar(scheme: scheme, selected: .library, nowPlaying: nowPlaying,
-                         onLibraryHold: onLibraryHold, onPillHold: onPillHold)
-                .padding(.horizontal, 14)
-                .padding(.bottom, DemoHomeMetrics.barBottom)
+            VStack(spacing: 14) {
+                if let keys { keys }
+                DemoShellBar(scheme: scheme, selected: .library, nowPlaying: nowPlaying,
+                             onLibraryHold: onLibraryHold, onPillHold: onPillHold)
+            }
+            .padding(.top, keys == nil ? 0 : 16)
+            .padding(.horizontal, 14)
+            .padding(.bottom, DemoHomeMetrics.barBottom)
+            .background {
+                if keys != nil {
+                    UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28, style: .continuous)
+                        .fill(scheme.surfaceContainer)
+                }
+            }
         }
         .background(LinearGradient(colors: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
                                    startPoint: .top, endPoint: .bottom))
+        .clipped()
     }
 
     /// LibraryView.header: the search pill and the account.

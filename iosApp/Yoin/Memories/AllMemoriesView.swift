@@ -243,13 +243,47 @@ struct AllMemoriesView: View {
                 .transition(.opacity)
             }
             Spacer()
-            Picker("View", selection: viewChoice) {
-                Text("Timeline").tag(LedgerView.timeline.rawValue)
-                Text("Cards").tag(LedgerView.cards.rawValue)
-                Text("List").tag(LedgerView.list.rawValue)
+            // Android LedgerMenuButton: a pill with the view's mark and name; its menu marks each view with
+            // its Yoin Symbol (a spine with stops, staggered cards, bulleted rows) and checks the one shown.
+            Menu {
+                Picker("View", selection: viewChoice) {
+                    ForEach(LedgerView.allCases, id: \.self) { v in
+                        Label { Text(Self.viewLabel(v)) } icon: { Image(Self.viewSymbol(v)) }
+                            .tag(v.rawValue)
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    YoinIcon(Self.viewIcon(view), size: 18)
+                    Text(Self.viewLabel(view)).yoinRole(Tokens.type.labelLarge)
+                }
+                .foregroundStyle(app.onSurface)
+                .padding(.leading, 10).padding(.trailing, 14).frame(height: 36)
+                .background(app.surfaceContainerHigh, in: .capsule)
+                .contentShape(.capsule)
+                .contentTransition(.opacity)
             }
-            .pickerStyle(.segmented)
-            .fixedSize()
+            .accessibilityLabel("View")
+            .accessibilityValue(Text(Self.viewLabel(view)))
+        }
+    }
+
+    /// The view's Yoin Symbol (Android ViewGlyph: YoinSymbols.ViewTimeline / ViewCards / ViewList).
+    static func viewIcon(_ v: LedgerView) -> String {
+        switch v {
+        case .timeline: "view_timeline"
+        case .cards: "view_cards"
+        case .list: "view_list"
+        }
+    }
+
+    static func viewSymbol(_ v: LedgerView) -> String { "yoin.\(viewIcon(v))" }
+
+    static func viewLabel(_ v: LedgerView) -> LocalizedStringKey {
+        switch v {
+        case .timeline: "Timeline"
+        case .cards: "Cards"
+        case .list: "List"
         }
     }
 

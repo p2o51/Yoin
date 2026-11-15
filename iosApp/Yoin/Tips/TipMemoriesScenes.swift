@@ -108,7 +108,7 @@ struct PullForMemoriesDemo: View {
 /// A pull up or down on the phone that leaves sideways swipes to the tip pager around it: a UIKit pan that
 /// begins only when the finger first moves more up or down than across. (A SwiftUI drag watching from the
 /// first point would keep the pager from turning under the phone; DemoTouchWatch.)
-private struct DemoVerticalPull: UIGestureRecognizerRepresentable {
+struct DemoVerticalPull: UIGestureRecognizerRepresentable {
     /// How far the finger has moved down since the pull began, in the page's points.
     var onChange: (CGFloat) -> Void
     var onEnd: () -> Void

@@ -25,40 +25,11 @@ struct SpotifyDevicesSheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 8) {
-                    Text("Devices")
-                        .yoinRole(Tokens.type.headlineSmall)
-                        .foregroundStyle(scheme.onSurface)
-                    Spacer(minLength: 0)
-                    refreshButton
-                }
-                // A failed load or move says so above the list, whether or not the list has devices
-                // (Android DevicesSheet errorMessage, parity C-U10).
-                if let failure {
-                    Text(failure)
-                        .yoinRole(Tokens.type.bodySmall)
-                        .foregroundStyle(scheme.error)
-                        .padding(.horizontal, 8)
-                        .transition(.opacity)
-                }
-                if let devices, !devices.isEmpty {
-                    VStack(spacing: 2) {
-                        ForEach(Array(devices.enumerated()), id: \.element.id) { i, d in
-                            row(d).background(scheme.surfaceBright, in: CloudSyncView.segment(i, devices.count))
-                        }
-                    }
-                } else if let line = Self.statusLine(devices: devices, failed: failure != nil) {
-                    Text(line)
-                        .yoinRole(Tokens.type.bodyMedium)
-                        .foregroundStyle(scheme.onSurfaceVariant)
-                }
-                // The Web API lists only devices online in Spotify's cloud; Sonos and Cast speakers
-                // wake only from Spotify's own picker (Android MoreDevicesRow, owner 2026-11-08).
-                if devices != nil { moreDevices.transition(.opacity) }
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            SpotifyDevicesList(devices: devices, failure: failure, moving: moving, loading: loading, scheme: scheme,
+                               onRefresh: { Task { await load() } },
+                               // Sonos and the like take no Web API transfer: the Spotify app does it.
+                               onRow: { d in if d.spotifyOnly { openSpotify() } else { Task { await move(to: d) } } },
+                               onMore: openSpotify)
         }
         .refreshable { await load() }
         .presentationDetents([.medium, .large])
@@ -91,6 +62,12 @@ struct SpotifyDevicesSheet: View {
         return typeLabel(d.type)
     }
 
+    /// A row's symbol by Spotify's device type: a speaker for the ones that only play sound, else the
+    /// computer-and-phone one.
+    static func icon(_ type: String) -> String {
+        ["Speaker", "AVR", "CastAudio"].contains(type) ? "speaker" : "devices"
+    }
+
     /// Spotify's device type in the app's language (Android shows an icon, no word, so there are no
     /// Android strings for these); a type Spotify adds later shows as it comes.
     static func typeLabel(_ type: String) -> String {
@@ -110,88 +87,12 @@ struct SpotifyDevicesSheet: View {
         }
     }
 
-    /// Reads the list again (Android DevicesSheet's header IconButton): a spinner while it reads, which
-    /// pulling the list down does too.
-    private var refreshButton: some View {
-        Button { Task { await load() } } label: {
-            Group {
-                if loading {
-                    ProgressView().controlSize(.small).tint(scheme.onSurfaceVariant)
-                } else {
-                    YoinIcon("refresh", size: 22).foregroundStyle(scheme.onSurfaceVariant)
-                }
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain).pointerHighlight()
-        .disabled(loading)
-        .accessibilityLabel(String(localized: "Refresh devices"))
-    }
-
-    private var moreDevices: some View {
-        Button(action: openSpotify) {
-            HStack(spacing: 16) {
-                // No speaker symbol in Yoin Symbols for iOS yet: Cast is the nearest.
-                YoinIcon("cast", size: 22)
-                    .foregroundStyle(scheme.onSurfaceVariant)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("More devices…")
-                        .yoinRole(Tokens.type.bodyLarge)
-                        .foregroundStyle(scheme.onSurface)
-                    Text("Sonos and other speakers, through Spotify. Yoin keeps control.")
-                        .yoinRole(Tokens.type.bodySmall)
-                        .foregroundStyle(scheme.onSurfaceVariant)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-            .background(scheme.surfaceContainer, in: CloudSyncView.segment(0, 1))
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain).pointerHighlight()
-    }
-
     /// The Spotify app, where its own picker reaches the speakers Yoin can't move to.
     private func openSpotify() {
         guard let url = URL(string: "spotify:") else { return }
         openURL(url) { opened in
             if !opened { failure = String(localized: "Couldn't open Spotify.") }
         }
-    }
-
-    private func row(_ d: SpotifySource.Device) -> some View {
-        Button {
-            // Sonos and the like take no Web API transfer: the Spotify app does it.
-            if d.spotifyOnly { openSpotify() } else { Task { await move(to: d) } }
-        } label: {
-            HStack(spacing: 16) {
-                YoinIcon(d.isActive ? "equalizer" : "devices", size: 22)
-                    .foregroundStyle(d.isActive ? scheme.primary : scheme.onSurfaceVariant)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(d.name)
-                        .yoinRole(Tokens.type.bodyLarge)
-                        .foregroundStyle(d.isActive ? scheme.primary : scheme.onSurface)
-                    Text(Self.detail(d, moving: moving == d.id))
-                        .yoinRole(Tokens.type.bodyMedium)
-                        .foregroundStyle(scheme.onSurfaceVariant)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain).pointerHighlight()
-        // The playing row keeps full strength (Android DeviceRow: alpha 1 when active); the others dim
-        // while a move is under way.
-        .allowsHitTesting(!d.isActive && moving == nil)
-        .opacity(moving != nil && moving != d.id && !d.isActive ? 0.6 : 1)
-        .animation(Yoin.effects, value: moving)
-        .accessibilityAddTraits(d.isActive ? .isSelected : [])
     }
 
     private func load() async {
@@ -228,5 +129,136 @@ struct SpotifyDevicesSheet: View {
             }
             await load()
         }
+    }
+}
+
+/// The Devices sheet's content: the title and its refresh, a failure, the devices (the one playing marked), and
+/// More devices. What a tap does is the caller's: the sheet moves playback or opens the Spotify app; the tip
+/// page's demo phone (Tips, SpotifySpeakers) acts it out on made-up devices with nothing behind them.
+struct SpotifyDevicesList: View {
+    var devices: [SpotifySource.Device]?
+    var failure: String?
+    /// The device a move is under way to.
+    var moving: String?
+    /// A read is under way: the header's refresh turns to a spinner (Android DevicesSheet loading).
+    var loading: Bool
+    var scheme: CoverScheme
+    var onRefresh: () -> Void
+    var onRow: (SpotifySource.Device) -> Void
+    var onMore: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Text("Devices")
+                    .yoinRole(Tokens.type.headlineSmall)
+                    .foregroundStyle(scheme.onSurface)
+                Spacer(minLength: 0)
+                refreshButton
+            }
+            // A failed load or move says so above the list, whether or not the list has devices
+            // (Android DevicesSheet errorMessage, parity C-U10).
+            if let failure {
+                Text(failure)
+                    .yoinRole(Tokens.type.bodySmall)
+                    .foregroundStyle(scheme.error)
+                    .padding(.horizontal, 8)
+                    .transition(.opacity)
+            }
+            if let devices, !devices.isEmpty {
+                VStack(spacing: 2) {
+                    ForEach(Array(devices.enumerated()), id: \.element.id) { i, d in
+                        row(d).background(scheme.surfaceBright, in: CloudSyncView.segment(i, devices.count))
+                    }
+                }
+            } else if let line = SpotifyDevicesSheet.statusLine(devices: devices, failed: failure != nil) {
+                Text(line)
+                    .yoinRole(Tokens.type.bodyMedium)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+            }
+            // The Web API lists only devices online in Spotify's cloud; Sonos and Cast speakers
+            // wake only from Spotify's own picker (Android MoreDevicesRow, owner 2026-11-08).
+            if devices != nil { moreDevices.transition(.opacity) }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Reads the list again (Android DevicesSheet's header IconButton): a spinner while it reads, which
+    /// pulling the list down does too.
+    private var refreshButton: some View {
+        Button(action: onRefresh) {
+            Group {
+                if loading {
+                    ProgressView().controlSize(.small).tint(scheme.onSurfaceVariant)
+                } else {
+                    YoinIcon("refresh", size: 22).foregroundStyle(scheme.onSurfaceVariant)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain).pointerHighlight()
+        .disabled(loading)
+        .accessibilityLabel(String(localized: "Refresh devices"))
+        .demoTarget("devicesRefresh")
+    }
+
+    private var moreDevices: some View {
+        Button(action: onMore) {
+            HStack(spacing: 16) {
+                YoinIcon("speaker", size: 22)
+                    .foregroundStyle(scheme.onSurfaceVariant)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("More devices…")
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(scheme.onSurface)
+                    Text("Sonos and other speakers, through Spotify. Yoin keeps control.")
+                        .yoinRole(Tokens.type.bodySmall)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(scheme.surfaceContainer, in: CloudSyncView.segment(0, 1))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain).pointerHighlight()
+        .demoTarget("devicesMore")
+    }
+
+    private func row(_ d: SpotifySource.Device) -> some View {
+        Button { onRow(d) } label: {
+            HStack(spacing: 16) {
+                YoinIcon(d.isActive ? "equalizer" : SpotifyDevicesSheet.icon(d.type), size: 22)
+                    .foregroundStyle(d.isActive ? scheme.primary : scheme.onSurfaceVariant)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(d.name)
+                        .yoinRole(Tokens.type.bodyLarge)
+                        .foregroundStyle(d.isActive ? scheme.primary : scheme.onSurface)
+                    Text(SpotifyDevicesSheet.detail(d, moving: moving == d.id))
+                        .yoinRole(Tokens.type.bodyMedium)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                        // One line gives way to the next at once: a cross-fade laid "Moving…" over the line it
+                        // replaced (two lines over one in Chinese).
+                        .contentTransition(.identity)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain).pointerHighlight()
+        // The playing row keeps full strength (Android DeviceRow: alpha 1 when active); the others dim
+        // while a move is under way.
+        .allowsHitTesting(!d.isActive && moving == nil)
+        .opacity(moving != nil && moving != d.id && !d.isActive ? 0.6 : 1)
+        .animation(Yoin.effects, value: moving)
+        .accessibilityAddTraits(d.isActive ? .isSelected : [])
+        .demoTarget("device-\(d.id)")
     }
 }

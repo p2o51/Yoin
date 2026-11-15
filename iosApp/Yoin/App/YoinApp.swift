@@ -111,6 +111,10 @@ struct RootView: View {
                     .transition(.identity)
             }
         }
+        #if DEBUG
+        .modifier(SpotoolfyRecapDemoHost())
+        .environment(model)
+        #endif
     }
 }
 

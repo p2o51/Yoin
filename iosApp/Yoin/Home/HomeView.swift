@@ -26,6 +26,11 @@ struct HomeView: View {
     @State private var pageBleed = EdgeInsets()
     /// The header avatar's target in the window: the account card grows out of it.
     @State private var accountFrame: CGRect = .zero
+    #if DEBUG
+    /// The live Home's avatar target for `-accountCardOpen`: the hook runs on the first Home, which launch
+    /// rebuilds, so that instance's own `accountFrame` stays .zero (the card would grow out of the corner).
+    @MainActor private static var liveAccountFrame: CGRect = .zero
+    #endif
 
     /// App-wide tokens follow the playing cover (design.md 颜色系统 3).
     private var scheme: CoverScheme { CoverScheme(seed: model.accent, dark: colorScheme == .dark) }
@@ -204,9 +209,15 @@ struct HomeView: View {
         guard UserDefaults.standard.string(forKey: "accountCardOpen") == "home" else { return }
         Task {
             try? await Task.sleep(for: .seconds(3))
-            openAccountCard()
+            let edit = edit
+            model.openAccountCard(avatarTarget: Self.liveAccountFrame, reduced: reduceMotion) { edit.enter() }
             // `-accountCardPick <n>`: then the n-th other account's row, as a tap.
             let n = UserDefaults.standard.integer(forKey: "accountCardPick") - 1
+            // `-accountCardClose YES`: or a plain close (✕), the big avatar flying back into the header.
+            if n < 0, UserDefaults.standard.bool(forKey: "accountCardClose") {
+                try? await Task.sleep(for: .seconds(1.5))
+                AccountSwitcher.shared.close()
+            }
             guard n >= 0 else { return }
             try? await Task.sleep(for: .seconds(1.5))
             let others = AccountCardLogic.split(model.profiles.profiles, active: model.profiles.activeId).others
@@ -441,8 +452,8 @@ struct HomeView: View {
                 Button { if !AccountFan.shared.swallowsTap { openAccountCard() } } label: {
                     // 32 dp avatar in a 48 dp target: the account in use (its shape, service colour and
                     // letter); with none, the mock's (profile 0 = Cookie6Sided).
-                    HeaderAccountAvatar(profile: model.profiles.active,
-                                        shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
+                    HeaderAccountAvatar(profile: model.headerProfile,
+                                        shape: model.headerProfileShape,
                                         fallback: BackdropColors(model.playback.album.palette).accent.mix(with: scheme.primary, by: 0.5),
                                         onFallback: scheme.onPrimary, ring: scheme.surfaceContainer,
                                         needsReconnect: model.activeNeedsReconnect, error: scheme.error)
@@ -450,7 +461,12 @@ struct HomeView: View {
                         .opacity(AccountSwitcher.shared.shown ? 0 : 1)
                 }
                 .buttonStyle(.plain).pointerHighlight()
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { accountFrame = $0 }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                    accountFrame = $0
+                    #if DEBUG
+                    Self.liveAccountFrame = $0
+                    #endif
+                }
                 .accessibilityLabel("Account")
                 .accessibilityValue(model.headerAccountValue)
                 // Hold and slide onto another account (Android #162).

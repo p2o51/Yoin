@@ -51,6 +51,10 @@ final class NowPlayingDemo {
     var scrub: Double?
     /// The cover was held (the song's sheet, in the app).
     @ObservationIgnored var onCoverHold: () -> Void = {}
+    /// The Devices pill was tapped (the Devices sheet, in the app).
+    @ObservationIgnored var onDevices: () -> Void = {}
+    /// The device the pill names, as it names the Spotify device Yoin is the remote of; nil: "Devices".
+    var deviceName: String?
 
     init(album: Album, track: Track, lyrics: [(at: Double, text: String)], startSec: Double, formatTag: String?) {
         self.album = album
