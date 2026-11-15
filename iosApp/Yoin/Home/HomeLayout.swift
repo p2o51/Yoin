@@ -49,6 +49,21 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
         }
     }
 
+    /// The one line an empty section says while Home is edited (Android `placeholderRes`).
+    var placeholder: String {
+        switch self {
+        case .activities: String(localized: "No recent activity")
+        case .jumpBackIn: String(localized: "Nothing to jump back into")
+        case .recentlyAdded: String(localized: "Nothing added this month")
+        case .rediscover: String(localized: "Nothing to rediscover yet")
+        case .recentlyPlayed: String(localized: "Nothing played lately")
+        case .yourPlaylists: String(localized: "No playlists in your library")
+        case .otherProfiles: String(localized: "Nothing played on your other accounts lately")
+        case .lyricHighlight: String(localized: "No lyric cards yet")
+        case .memoryGrid: String(localized: "No memories yet")
+        }
+    }
+
     var defaultEnabled: Bool { true }
 
     /// Visibility when appended to an already-customized layout (Android Q6a):

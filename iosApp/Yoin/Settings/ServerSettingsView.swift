@@ -54,7 +54,7 @@ struct ServerSettingsView: View {
             .animation(Yoin.spatial, value: active)
             .animation(Yoin.effects, value: apple.authorization)
         }
-        .safeAreaBar(edge: .top) { topBar }
+        .safeAreaBar(edge: .top) { topBar.topEdgeBlur(page) }
         .background(page.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $setup) { ServiceSetupView(request: $0) }

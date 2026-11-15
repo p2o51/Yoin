@@ -180,6 +180,12 @@ struct AlbumDetailView: View {
     /// Playlists have no dots row: 4 + 52 + 6 (PlaylistTopHeader).
     private var headerContent: CGFloat { playlist == nil ? 4 + 52 + 25 + 6 : 4 + 52 + 6 }
 
+    /// The pulled-up list's room under the header, and its blur's: the album's for playlists too (their
+    /// header has no dots row), so a song scrolling up is under the full blur before it reaches the title,
+    /// and the blur falls off over empty room, not over the first song (51, 2026-11-14: every page's top
+    /// as the album's).
+    private var listTop: CGFloat { 4 + 52 + 25 + 6 }
+
     /// Android's Medium threshold for a page's own width.
     static func opensOnList(width: CGFloat) -> Bool { width >= 600 }
 
@@ -253,14 +259,14 @@ struct AlbumDetailView: View {
                     case 2:
                         // With the track list's own soft scroll edge.
                         ProgressiveEdgeBlur(tint: topTint)
-                            .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
+                            .frame(width: w, height: geo.safeAreaInsets.top + listTop + 4)
                             .offset(y: -geo.safeAreaInsets.top)
                             .opacity(smooth(p, 0.3, 0.85))
                     case 4:
                         // The layering: the progressive blur, as the blur bar.
                         // Stronger and steeper than the scrapbook's (51, 2026-11-06).
                         ProgressiveEdgeBlur(tint: topTint, strong: true)
-                            .frame(width: w, height: geo.safeAreaInsets.top + headerContent + 4)
+                            .frame(width: w, height: geo.safeAreaInsets.top + listTop + 4)
                             .offset(y: -geo.safeAreaInsets.top)
                             .opacity(smooth(p, 0.3, 0.85))
                         // The decoration: the cover's spectrum, safe area + a little.
@@ -297,7 +303,7 @@ struct AlbumDetailView: View {
                     }
                     .zIndex(1)
                 }
-                Group {
+                ZStack(alignment: .topLeading) {
                     header(white: false, w: w)
                         .opacity(1 - white * (1 - f))
                     header(white: true, w: w)
@@ -309,6 +315,8 @@ struct AlbumDetailView: View {
                         .padding(.leading, 8)
                         .padding(.top, 4)
                 }
+                // A playlist's header takes songs, albums and playlists dropped on it, as its Library row does.
+                .modifier(PlaylistHeaderDrop(playlist: demo == nil ? playlist : nil, ink: s.primary))
                 .zIndex(3)
             }
             .coordinateSpace(.named(Self.pageSpace))
@@ -352,6 +360,7 @@ struct AlbumDetailView: View {
         pageView
         .toolbar(.hidden, for: .navigationBar)
         .background(Yoin.surface)
+        .statusBarLight(barLight)
         .sheet(isPresented: $rating) {
             AlbumRateSheet(album: album, scheme: s)
                 .presentationDetents([.medium, .large])
@@ -374,6 +383,15 @@ struct AlbumDetailView: View {
             // The activity log's visit (Android recordAlbumVisit).
             model.store.recordAlbumVisit(model.store.album(routeAlbum.id.rawId) ?? routeAlbum)
         }
+    }
+
+    /// Light status bar icons over the formed spectrum or strip (Android AlbumBarStatusBarEffect: docked past
+    /// half the pull-up, on the first page), in the light scheme (the locked spectrum keeps white at 7:1),
+    /// and only in a full window: a detail column, the iPad's Now Playing panel beside the page or an open
+    /// Now Playing share the status bar, so they leave it alone.
+    private var barLight: Bool {
+        (spectrumBar || stripBar) && p > 0.5 && pageFrac < 0.5 && colorScheme == .light
+            && !padColumn && !inPadColumn && !model.npExpanded && !(model.isPad && model.npPanel)
     }
 
     /// The backup page the toast's View asked for, when it was this playlist's.
@@ -403,9 +421,16 @@ struct AlbumDetailView: View {
 
     private var loadPhase: LibraryStore.Phase {
         guard !isMock else { return .loaded }
-        let key = playlist.map { "playlist:\($0.id.rawId)" } ?? "album:\(routeAlbum.id.rawId)"
-        return model.store.phase(key)
+        return model.store.phase(loadKey)
     }
+
+    /// The store's key for this page's load.
+    private var loadKey: String {
+        playlist.map { "playlist:\($0.id.rawId)" } ?? "album:\(routeAlbum.id.rawId)"
+    }
+
+    /// The failed load as a tester's report (Copy details beside Retry, Android DetailErrorState).
+    private var failureReport: String? { isMock ? nil : model.store.failureReports[loadKey] }
 
     /// Server page whose tracks didn't load: a retry under the header.
     private var loadFailed: Bool { loadPhase == .failed }
@@ -755,7 +780,7 @@ struct AlbumDetailView: View {
     @ViewBuilder
     private func pendingBody(side: CGFloat) -> some View {
         if loadFailed {
-            RetryRow(scheme: app, action: retry)
+            RetryRow(scheme: app, details: failureReport, action: retry)
         } else {
             let fill = app.surfaceContainerHigh
             VStack(alignment: .leading, spacing: 0) {
@@ -872,7 +897,18 @@ struct AlbumDetailView: View {
         } else {
             FlowingTrackTitles(titles: album.tracks.map(\.title), primary: app.onSurface, variant: app.onSurfaceVariant,
                                onPick: p < 0.5 ? { i in
-                                   if let playlist { model.play(playlist.entries, startAt: i) } else { playAlbum(from: i) }
+                                   // A song Apple won't stream never starts from here either (MusicKit would
+                                   // drop it and play the next one without a word): the reason, as a toast,
+                                   // since its row may be out of sight.
+                                   let t = playlist.flatMap { $0.entries.indices.contains(i) ? $0.entries[i].track : nil }
+                                       ?? (album.tracks.indices.contains(i) ? album.tracks[i] : nil)
+                                   if let t, NotStreamedRow.tap(t) == .explain {
+                                       PlaylistActions.shared.show(String(localized: "Apple Music doesn't stream this song in your region yet."))
+                                   } else if let playlist {
+                                       model.play(playlist.entries, startAt: i)
+                                   } else {
+                                       playAlbum(from: i)
+                                   }
                                } : nil)
         }
     }
@@ -932,7 +968,7 @@ struct AlbumDetailView: View {
                 }
                 if bodyPending {
                     Group {
-                        if loadFailed { RetryRow(scheme: app, action: retry) } else { RowSkeleton(scheme: app) }
+                        if loadFailed { RetryRow(scheme: app, details: failureReport, action: retry) } else { RowSkeleton(scheme: app) }
                     }
                     .transition(.opacity)
                 } else if loadFailed { retryButton.padding(.leading, 4) }
@@ -1029,7 +1065,7 @@ struct AlbumDetailView: View {
         .scrollEdgeEffectStyle(.soft, for: .top)
         // (Not on the demo phone: the system draws the edge at the window's scale, over the phone's rim.)
         .scrollEdgeEffectHidden((topBar != 2 && topBar != 4) || demo != nil, for: .top)
-        .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: headerContent + bandFade) }
+        .safeAreaBar(edge: .top) { AlbumScrapbookView.edgeBar(height: listTop + bandFade) }
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top <= 1 } action: { _, top in
             listAtTop = top
         }
@@ -1863,4 +1899,28 @@ enum AlbumPullHaptics {
 extension EnvironmentValues {
     /// The page sits in iPad's detail column (PadShell).
     @Entry var inPadColumn = false
+}
+
+/// A playlist page's header as a drop target (YoinDrag): what's dropped on it goes into the playlist, lit
+/// behind the header while a drag is over it. An album's header, or a playlist the user can't write, takes
+/// nothing.
+private struct PlaylistHeaderDrop: ViewModifier {
+    var playlist: PlaylistInfo?
+    var ink: Color
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        if let playlist, YoinDrag.available {
+            // The whole bar takes the drop, not only its title and buttons: the empty stretch between them
+            // (lit while a drag is over it) had nothing to hit, so a drop there fell through.
+            content
+                .contentShape(.rect)
+                .yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous).inset(by: 4),
+                                ink: ink, accepts: YoinDrag.accepts(playlist, model: model)) {
+                    YoinDrag.add($0, to: playlist, model: model)
+                }
+        } else {
+            content
+        }
+    }
 }

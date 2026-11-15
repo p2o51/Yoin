@@ -635,7 +635,9 @@ struct AlbumScrapbookView: View {
         .contentShape(TicketShape())
         .pointerHighlight()
         // Android Ticket: a tap plays the album from the song, a long press opens its sheet (score,
-        // About, Notes). The mock's are hand-set and do neither.
+        // About, Notes). The mock's are hand-set and do neither. A right-click opens the sheet as the long
+        // press does (it played the song: a secondary click is a tap to SwiftUI).
+        .onSecondaryClick { if !isMock { trackSheet = ScrapSheetOpen(track: t) } }
         .onTapGesture { play(t) }
         .onLongPressGesture { if !isMock { trackSheet = ScrapSheetOpen(track: t) } }
         .accessibilityAddTraits(isMock ? [] : .isButton)
@@ -990,21 +992,51 @@ struct ProgressiveEdgeBlur: View {
     /// The album's Strip top bar: a thicker blur that holds longer and falls
     /// off over a shorter edge (51, 2026-11-06: stronger, steeper).
     var strong = false
+    /// Nearly the page's colour itself: the artist page's top, where the big
+    /// ring otherwise glows through behind the title (51, 2026-11-15). With
+    /// the strong falloff unless [fadeFrom] says where to start.
+    var dense = false
+    /// Where it starts to fall off (0–1 of its height), in place of the fixed
+    /// falloff: from there it eases to clear at its foot, with no slope at
+    /// either end to show as an edge. Home's band, which has no header under
+    /// it, is solid through the status bar only (51, 2026-11-15: its short
+    /// falloff showed as an edge in dark).
+    var fadeFrom: Double? = nil
 
     var body: some View {
         ZStack {
-            if strong { Rectangle().fill(.regularMaterial) } else { Rectangle().fill(.thinMaterial) }
-            Rectangle().fill(tint.opacity(strong ? 0.8 : 0.72))
+            if dense {
+                Rectangle().fill(.ultraThickMaterial)
+            } else if strong {
+                Rectangle().fill(.regularMaterial)
+            } else {
+                Rectangle().fill(.thinMaterial)
+            }
+            Rectangle().fill(tint.opacity(dense ? 0.95 : strong ? 0.8 : 0.72))
         }
-        .mask {
-            LinearGradient(stops: strong
-                           ? [.init(color: .black, location: 0), .init(color: .black, location: 0.74),
-                              .init(color: .black.opacity(0.55), location: 0.87), .init(color: .clear, location: 1)]
-                           : [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
-                              .init(color: .black.opacity(0.6), location: 0.75), .init(color: .clear, location: 1)],
-                           startPoint: .top, endPoint: .bottom)
-        }
+        .mask { LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom) }
         .allowsHitTesting(false)
+    }
+
+    private var stops: [Gradient.Stop] {
+        if let fadeFrom { return Self.easedFalloff(from: fadeFrom) }
+        return strong || dense
+            ? [.init(color: .black, location: 0), .init(color: .black, location: 0.74),
+               .init(color: .black.opacity(0.55), location: 0.87), .init(color: .clear, location: 1)]
+            : [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
+               .init(color: .black.opacity(0.6), location: 0.75), .init(color: .clear, location: 1)]
+    }
+
+    /// Solid to [from], then half a cosine down to clear at the foot.
+    static func easedFalloff(from: Double, steps: Int = 8) -> [Gradient.Stop] {
+        let from = min(max(from, 0), 1)
+        var stops = [Gradient.Stop(color: .black, location: 0)]
+        for i in 0...steps {
+            let t = Double(i) / Double(steps)
+            stops.append(Gradient.Stop(color: .black.opacity(0.5 * (1 + cos(Double.pi * t))),
+                                       location: CGFloat(from + (1 - from) * t)))
+        }
+        return stops
     }
 }
 

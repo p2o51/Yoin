@@ -78,6 +78,11 @@ struct RootView: View {
             WidgetPublisher.shared.start(model)
             // Handoff: the loaded song, offered to the listener's other Apple devices.
             PlayingHandoff.shared.start(model)
+            // A playlist restore's Live Activity left under way by an earlier launch: nothing carries it on.
+            RestoreLiveActivity.endLeftovers()
+            #if DEBUG
+            RestoreLiveActivity.startQADemo()
+            #endif
         }
         .preferredColorScheme(GlassLab.shared.colorScheme)
         .overlay {

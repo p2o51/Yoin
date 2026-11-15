@@ -255,7 +255,9 @@ extension AppModel {
                 action: .init(label: String(localized: "Settings")) { [weak self] in self?.openSettings() })
             return
         }
-        if target.id != profiles.activeId {
+        let before = store.generation
+        let switching = target.id != profiles.activeId
+        if switching {
             await profiles.switchTo(target.id)
             guard profiles.activeId == target.id else {
                 // Said here, not left on the account's card for Settings to open on later.
@@ -264,16 +266,22 @@ extension AppModel {
                 return
             }
         }
-        // The library follows the account a moment later (Spotify's source is built on observation).
-        for _ in 0..<40 where !(store.isReal && store.provider == h.provider) {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
         startGeneration += 1
         let gen = startGeneration
-        guard let (entries, index, from) = await handoffQueue(h), gen == startGeneration else {
-            if gen == startGeneration {
-                PlaylistActions.shared.show(String(localized: "Couldn't load this song here."))
-            }
+        // The library follows the account a moment later: the store starts over a turn after the switch and
+        // Spotify's source is built behind it, so until then its pages are the previous account's, which
+        // for two accounts of one service look the same (#213 review). A cold launch waits for the source.
+        var queue: ([PlaylistEntry], Int, PlayingFrom?)?
+        for _ in 0..<2 where queue == nil && gen == startGeneration {
+            guard await libraryFollows(target.id, provider: h.provider, since: switching ? before : nil) else { break }
+            let library = store.generation
+            queue = await handoffQueue(h)
+            // The store started over while the song was looked up: what was read is gone; once more.
+            if store.generation != library { queue = nil }
+        }
+        guard gen == startGeneration else { return }
+        guard let (entries, index, from) = queue else {
+            PlaylistActions.shared.show(String(localized: "Couldn't load this song here."))
             return
         }
         let duration = Double(entries[index].track.durationSec)
@@ -282,7 +290,8 @@ extension AppModel {
         if isPad { openNowPlayingOnPad() } else { setNowPlaying(expanded: true) }
     }
 
-    /// The hand-off's song in its playlist (when it came from one and is in it), else in its album.
+    /// The hand-off's song in its playlist (when it came from one and is in it), else in its album, else
+    /// on its own (Android ContinueOn.restoreFrom: the song read by itself when its context can't be).
     private func handoffQueue(_ h: HandoffPlaying) async -> ([PlaylistEntry], Int, PlayingFrom?)? {
         func at(_ entries: [PlaylistEntry]) -> Int? { entries.firstIndex { $0.track.id.rawId == h.songId } }
         if let id = h.playlistId {
@@ -292,15 +301,26 @@ extension AppModel {
             }
         }
         var albumId = h.albumId
-        if albumId == nil, let client = store.client {
-            // The Mac's payload always names the album; a server song without one asks the server.
-            albumId = (try? await client.getSong(id: h.songId))?.albumId
+        var alone: PlaylistEntry?
+        if albumId == nil {
+            if let client = store.client {
+                // The Mac's payload always names the album; a server song without one asks the server.
+                albumId = (try? await client.getSong(id: h.songId))?.albumId
+            } else if h.provider == SpotifyMapping.provider, let spotify = store.spotify {
+                // A song Yoin took over from the Spotify app's own playing went out without its album (an
+                // older build, #213 review): Spotify says which it is on, and the song can play by itself.
+                alone = try? await spotify.track(h.songId)
+                albumId = alone.flatMap { $0.album.id.rawId.hasPrefix("song:") ? nil : $0.album.id.rawId }
+            }
         }
-        guard let albumId else { return nil }
-        await store.loadAlbum(albumId)
-        guard let a = store.album(albumId) else { return nil }
-        let entries = a.tracks.map { PlaylistEntry(album: a, track: $0) }
-        guard let i = at(entries) else { return nil }
-        return (entries, i, .album(a))
+        if let albumId {
+            await store.loadAlbum(albumId)
+            if let a = store.album(albumId) {
+                let entries = a.tracks.map { PlaylistEntry(album: a, track: $0) }
+                if let i = at(entries) { return (entries, i, .album(a)) }
+            }
+        }
+        guard let alone else { return nil }
+        return ([alone], 0, alone.album.id.rawId.hasPrefix("song:") ? nil : .album(alone.album))
     }
 }

@@ -240,6 +240,8 @@ final class PlaylistRestoreModel {
     private(set) var versionSince: Int64?
 
     @ObservationIgnored private let store: PlaylistBackupStore
+    /// Where the restore's progress shows outside the app (the Live Activity); nil for none.
+    @ObservationIgnored private let progress: (any RestoreProgressSink)?
     @ObservationIgnored private let destination: @MainActor (RestoreTarget) -> RestoreDestination?
     @ObservationIgnored private let now: () -> Int64
     /// The account chosen at Restore to, opened once: matching, the review's search and the write all use
@@ -248,11 +250,12 @@ final class PlaylistRestoreModel {
     @ObservationIgnored private var job: Task<Void, Never>?
     @ObservationIgnored private var searchJob: Task<Void, Never>?
 
-    init(backupId: String, store: PlaylistBackupStore = .shared,
+    init(backupId: String, store: PlaylistBackupStore = .shared, progress: (any RestoreProgressSink)? = nil,
          destination: @escaping @MainActor (RestoreTarget) -> RestoreDestination?,
          now: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) {
         self.backupId = backupId
         self.store = store
+        self.progress = progress
         self.destination = destination
         self.now = now
     }
@@ -289,22 +292,33 @@ final class PlaylistRestoreModel {
         chosen = (target, dest)
         let tracks = backup.content.tracks.map { PlaylistSnapshots.shared.toMatchTrack(track: $0) }
         let total = tracks.count
+        let playlist = backup.name, progress = progress
         withAnimation(Yoin.spatial) { phase = .matching(target, done: 0, total: total, outcomes: []) }
+        progress?.matching(playlist: playlist, target: target, done: 0, total: total, outcomes: [])
         job = Task { [weak self] in
             var outcomes: [ReviewStatus] = []
             do {
                 let resolutions = try await PlaylistRestore.resolve(tracks, on: dest) { resolution, done in
                     outcomes.append(RestoreReview.shared.statusOf(resolution: resolution))
-                    guard let self, case .matching = self.phase else { return }
+                    // The page is gone, and its review with it: nothing to follow.
+                    guard let self else {
+                        progress?.clear()
+                        return
+                    }
+                    guard case .matching = self.phase else { return }
                     withAnimation(Yoin.effects) {
                         self.phase = .matching(target, done: done, total: total, outcomes: outcomes)
                     }
+                    progress?.matching(playlist: playlist, target: target, done: done, total: total, outcomes: outcomes)
                 }
+                // Matching done: the review waits in the app, not on the Lock Screen (Android).
+                progress?.clear()
                 guard let self else { return }
                 withAnimation(Yoin.spatial) {
                     self.phase = .review(target, rows: RestoreReview.shared.rows(resolutions: resolutions))
                 }
             } catch {
+                progress?.clear()
                 guard let self, !Task.isCancelled else { return }
                 withAnimation(Yoin.spatial) { self.phase = .failed(target) }
                 self.release()
@@ -347,13 +361,15 @@ final class PlaylistRestoreModel {
         closeSearch()
         withAnimation(Yoin.spatial) { phase = .writing(target, rows: rows) }
         let name = backup.name, description = backup.content.description_, id = backup.id
-        let store = store, now = now
+        let store = store, now = now, progress = progress
+        progress?.writing(playlist: name, target: target, count: ids.count)
         Task { [weak self] in
             let write = await PlaylistRestore.write(name: name, description: description, trackIds: ids, to: dest)
             let record = RestoreReview.shared.restoreRecord(targetProvider: target.provider, targetLabel: target.label,
                                                             rows: rows, write: write, now: now())
             store.recordRestore(id, record)
             dest.close()
+            progress?.finished(playlist: name, target: target, record: record)
             guard let self else { return }
             if self.chosen?.destination === dest { self.chosen = nil }
             withAnimation(Yoin.spatial) { self.phase = .done(target, record: record) }
@@ -365,6 +381,7 @@ final class PlaylistRestoreModel {
         if case .writing = phase { return }
         job?.cancel()
         job = nil
+        progress?.clear()
         closeSearch()
         release()
         phase = .idle

@@ -61,6 +61,8 @@ final class AppModel {
     /// Home's Memories bubble is out of the Dynamic Island (or the notch): the soft status-bar
     /// band steps aside so the island's black meets the screen's top without a haze.
     var islandOut = false
+    /// Home's feed has scrolled up under the status bar: the band there comes in (the album page's top).
+    var homeScrolledUnder = false
     /// The Spotify sign-in the library's source was built from (account + when it signed in).
     @ObservationIgnored var spotifySignIn: String?
     /// Bumps on every start: a page read that ends after a newer start doesn't play (F02).
@@ -75,6 +77,10 @@ final class AppModel {
     /// The side-by-side surfaces in the order they opened, oldest first: ⌘[ closes the newest
     /// (ShellBackOrder, Android #200).
     @ObservationIgnored var backRecency: [ShellBackSurface] = []
+    /// ⌘[ inside Now Playing: each presented player's own step back (its stage), registered while it is up.
+    @ObservationIgnored var npStageBack: [NowPlayingBackSlot: NowPlayingStageBack] = [:]
+    /// Home's edit mode, for ⌘[ (HomeView registers it).
+    @ObservationIgnored weak var homeEdit: HomeEditController?
     @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024

@@ -124,8 +124,15 @@ struct HomeView: View {
             await model.store.hydrateMemoryAlbums()
             // The ledger names songs from the album pages just loaded.
             MemoryLedgerSource.shared.reload(model: model)
+            // Songs nothing here names the album of, asked of their service: the grid reads the same ledger,
+            // so this runs when the app opens, not only on All Memories (Android LedgerTrackResolver).
+            await MemoryLedgerSource.shared.resolveSongs(model: model)
         }
-        .onAppear { edit.load(scope: model.store.homeScope) }
+        .onAppear {
+            edit.load(scope: model.store.homeScope)
+            // ⌘[ ends edit mode (ShellBackOrder.exitHomeEdit).
+            model.homeEdit = edit
+        }
         // One look each time the app opens or comes back; none outlives leaving or a switch.
         .task { spotifyElsewhere.look(model) }
         .onChange(of: scenePhase) { _, phase in
@@ -222,7 +229,9 @@ struct HomeView: View {
                     ForEach(Array(shown.enumerated()), id: \.element) { i, section in
                         HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed),
                                       rows: rowsHandle(section, feed),
-                                      lyricCount: section == .lyricHighlight && !lyricCards.isEmpty) {
+                                      // Whenever the block shows anything, the Beta intro alone included
+                                      // (Android HomeEditBlock: every block that isn't a placeholder).
+                                      lyricCount: section == .lyricHighlight && hasContent(section, feed)) {
                             sectionView(section, feed)
                         }
                     }
@@ -263,7 +272,11 @@ struct HomeView: View {
         .scrollEdgeEffectHidden(memories.mounted, for: .bottom)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
             scroll.scrolled = y
+            // Only the crossing is written: a scroll frame mustn't re-render the shell's band.
+            if (y > 1) != model.homeScrolledUnder { model.homeScrolledUnder = y > 1 }
         }
+        // Home comes back at its top (Library in between makes a new feed), so its band starts out.
+        .onDisappear { model.homeScrolledUnder = false }
     }
 
     /// The page's wash. It stays where it is while the island pushes the feed down (51 2026-11-13:
@@ -304,10 +317,10 @@ struct HomeView: View {
     @ViewBuilder
     private func sectionView(_ s: HomeSection, _ feed: HomeFeed) -> some View {
         if !hasContent(s, feed) {
-            // Editing, a section with nothing yet: its panel, its title and one honest line.
+            // Editing, a section with nothing yet: its panel, its title and its own honest line (Android).
             VStack(alignment: .leading, spacing: 4) {
                 HomeSectionTitle(s.title)
-                Text("Nothing here yet").homeType(Tokens.type.bodyMedium).foregroundStyle(scheme.onSurfaceVariant)
+                Text(s.placeholder).homeType(Tokens.type.bodyMedium).foregroundStyle(scheme.onSurfaceVariant)
             }
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
         } else {
@@ -738,6 +751,7 @@ struct HomeView: View {
                                             .frame(width: (gridWidth - tileGap * CGFloat(trackCols - 1)) / CGFloat(trackCols),
                                                    alignment: .leading)
                                             .pointerHighlight()
+                                            .yoinDraggable { YoinDrag.song(tiles[i], model: model) }
                                             .onTapGesture { homeTap(edit) { model.play(tiles, startAt: i) } }
                                     }
                                 }
@@ -1158,18 +1172,22 @@ private struct JBICell: View {
                 .zoomSource(album.id, zoomNS, tile: zoomTile.key)
             }
             .buttonStyle(PressScale())
+            // Dragged onto the queue or a playlist, as Library's cells are.
+            .yoinDraggable { YoinDrag.album(album, model: model) }
         case let .track(entry):
             Button { jbiTap { model.play([entry]) } } label: {
                 plainCover(entity: .song, palette: entry.album.palette, seed: entry.album.seed, title: entry.track.title,
                            subtitle: KindLine.make(String(localized: "Track"), entry.track.artist ?? entry.album.artist))
             }
             .buttonStyle(PressScale())
+            .yoinDraggable { YoinDrag.song(entry, model: model) }
         case let .playlist(playlist):
             Button { jbiTap { model.openPlaylist(playlist.id.rawId) } } label: {
                 plainCover(entity: .playlist, palette: playlist.palette, seed: playlist.id.rawId.count, title: playlist.title,
                            subtitle: KindLine.make(String(localized: "Playlist"), playlist.owner ?? ""))
             }
             .buttonStyle(PressScale())
+            .yoinDraggable { YoinDrag.playlist(playlist, model: model) }
         }
     }
 
@@ -1380,6 +1398,8 @@ private struct SignalCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(PressScale())
+        // Dragged out as what a tap opens: the noted song, else the album.
+        .yoinDraggable { signal.song.map { YoinDrag.song($0, model: model) } ?? YoinDrag.album(album, model: model) }
     }
 }
 
@@ -1427,6 +1447,7 @@ private struct AlbumMini: View {
             .zoomSource(album.id, zoomNS, tile: zoomTile.key)
         }
         .buttonStyle(PressScale())
+        .yoinDraggable { YoinDrag.album(album, model: model) }
     }
 }
 
@@ -1461,6 +1482,12 @@ private struct PlaylistMini: View {
             .frame(width: size, alignment: .leading)
         }
         .buttonStyle(PressScale())
+        // As Library's playlist cell: dragged onto the queue; songs, albums and playlists dropped here go in.
+        .yoinDraggable { YoinDrag.playlist(item, model: model) }
+        .yoinDropTarget(in: RoundedRectangle(cornerRadius: Tokens.shape.LIST_ROW.cg, style: .continuous).inset(by: -6),
+                        ink: s.primary, accepts: YoinDrag.accepts(item, model: model)) {
+            YoinDrag.add($0, to: item, model: model)
+        }
         .accessibilityLabel(item.title)
     }
 }
@@ -1533,6 +1560,7 @@ private struct RediscoverCard: View {
             .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())
+        .yoinDraggable { YoinDrag.album(album, model: model) }
     }
 }
 
@@ -1592,6 +1620,7 @@ private struct RediscoverSongCard: View {
             .homeGlassCard(album.palette, scheme: s, shape: RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
         }
         .buttonStyle(PressScale())
+        .yoinDraggable { YoinDrag.song(entry, model: model) }
         .accessibilityHint(String(localized: "Play"))
     }
 

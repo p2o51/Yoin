@@ -80,6 +80,34 @@ final class SpotifyPlaybackTests: XCTestCase {
         XCTAssertNil(SpotifyAudioOutput.remoteTarget(nil, this: .phone))
     }
 
+    func test_should_moveSpotifyHereFirst_only_when_itIdlesOnAnotherDevice() {
+        // Android e7552df4 (the 11-08 tablet test): App Remote played the song on the paused iPhone.
+        let pausedMac = SpotifySource.PlayerNow(deviceId: "m", deviceName: "51's MacBook", deviceType: "Computer", isPlaying: false)
+        let playingMac = SpotifySource.PlayerNow(deviceId: "m", deviceName: "51's MacBook", deviceType: "Computer", isPlaying: true)
+        let pausedHere = SpotifySource.PlayerNow(deviceId: "i", deviceName: "iPhone", deviceType: "Smartphone", isPlaying: false)
+        XCTAssertTrue(SpotifyAudioOutput.idleElsewhere(pausedMac, this: .phone))
+        // Playing there: a remote (remoteTarget), not a move.
+        XCTAssertFalse(SpotifyAudioOutput.idleElsewhere(playingMac, this: .phone))
+        XCTAssertFalse(SpotifyAudioOutput.idleElsewhere(pausedHere, this: .phone))
+        XCTAssertFalse(SpotifyAudioOutput.idleElsewhere(nil, this: .phone))
+        // An iPad is the Tablet named iPad: a paused iPhone is elsewhere for it.
+        XCTAssertTrue(SpotifyAudioOutput.idleElsewhere(pausedHere, this: .tablet))
+    }
+
+    func test_should_findThisDevicesId_only_when_itIsToldApart() {
+        let mac = SpotifySource.Device(id: "m", name: "51's MacBook", type: "Computer", isActive: true)
+        let phone = SpotifySource.Device(id: "i", name: "iPhone", type: "Smartphone", isActive: false)
+        let other = SpotifySource.Device(id: "j", name: "51's iPhone Air", type: "Smartphone", isActive: false)
+        let idless = SpotifySource.Device(id: SpotifySource.Device.noIdKey("iPhone"), name: "iPhone", type: "Smartphone",
+                                          isActive: false, hasId: false)
+        XCTAssertEqual(SpotifyAudioOutput.hereId([mac, phone], this: .phone), "i")
+        XCTAssertNil(SpotifyAudioOutput.hereId([mac], this: .phone))
+        XCTAssertNil(SpotifyAudioOutput.hereId([mac, idless], this: .phone))
+        // Two iPhones: iOS can't say which one it is, so nothing is moved.
+        XCTAssertNil(SpotifyAudioOutput.hereId([mac, phone, other], this: .phone))
+        XCTAssertNil(SpotifyAudioOutput.hereId([mac, phone], this: .tablet))
+    }
+
     func test_should_driveTheOtherDevice_when_spotifyIsActiveOnAMacOrPixel() {
         let mac = SpotifySource.PlayerNow(deviceId: "m", deviceName: "51's MacBook", deviceType: "Computer", isPlaying: true)
         let pixel = SpotifySource.PlayerNow(deviceId: "p", deviceName: "Pixel Tablet", deviceType: "Tablet", isPlaying: false)
@@ -102,5 +130,25 @@ final class SpotifyPlaybackTests: XCTestCase {
                                                             shuffling: false, repeatRaw: 0)))
         XCTAssertEqual(SpotifyAudioOutput.coverURL(imageIdentifier: "spotify:image:ab67616d0000b273")?.absoluteString,
                        "https://i.scdn.co/image/ab67616d0000b273")
+    }
+
+    /// A song Spotify plays on its own is handed off with its album, so the other device opens the album
+    /// rather than a one-song queue.
+    func test_should_carryTheAlbum_when_mirroringSpotifysOwnSong() {
+        XCTAssertEqual(SpotifyAudioOutput.albumId(fromURI: "spotify:album:6akEvsycLGftJxYudPjmqK"), "6akEvsycLGftJxYudPjmqK")
+        XCTAssertNil(SpotifyAudioOutput.albumId(fromURI: nil))
+        XCTAssertNil(SpotifyAudioOutput.albumId(fromURI: ""))
+        XCTAssertNil(SpotifyAudioOutput.albumId(fromURI: "spotify:album:"))
+        XCTAssertNil(SpotifyAudioOutput.albumId(fromURI: "spotify:show:5CfCWKI5pZ28U0uOzXkDHe"))
+
+        let song = SpotifyAudioOutput.State(uri: "spotify:track:1IEKU3WzzShCxANW5Jfv6g", isPaused: false, positionMs: 0,
+                                            durationMs: 171172, shuffling: false, repeatRaw: 0, title: "Song",
+                                            artist: "Artist", album: "Album", albumId: "6akEvsycLGftJxYudPjmqK")
+        XCTAssertEqual(SpotifyAudioOutput.externalTrack(song)?.albumId, "6akEvsycLGftJxYudPjmqK")
+
+        let episode = SpotifyAudioOutput.State(uri: "spotify:episode:512ojhOuo1ktJprKbVcKyQ", isPaused: false, positionMs: 0,
+                                               durationMs: 1_800_000, shuffling: false, repeatRaw: 0, title: "Episode",
+                                               artist: "Show", album: "Show", albumId: "5CfCWKI5pZ28U0uOzXkDHe")
+        XCTAssertNil(SpotifyAudioOutput.externalTrack(episode)?.albumId)
     }
 }

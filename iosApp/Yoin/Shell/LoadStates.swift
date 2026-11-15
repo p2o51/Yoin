@@ -4,11 +4,13 @@ import SwiftUI
 /// own tones while a list loads (no spinner, no copy), a Retry label when it
 /// failed.
 
-/// A failed load: one tonal Retry label.
+/// A failed load: one tonal Retry label, and Copy details beside it when the failure has a report.
 struct RetryRow: View {
     var scheme: CoverScheme
     /// What went wrong, above the button (a failed load's message).
     var message: String? = nil
+    /// The failure as a tester's report (`LibraryStore.failureReports`): Copy details (Android DetailErrorState).
+    var details: String? = nil
     var action: () -> Void
 
     var body: some View {
@@ -20,19 +22,52 @@ struct RetryRow: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
             }
-            Button(action: action) {
-                Text("Retry")
-                    .yoinRole(Tokens.type.labelLarge)
-                    .foregroundStyle(scheme.onSecondaryContainer)
-                    .padding(.horizontal, 20)
-                    .frame(minHeight: 40)
-                    .background(scheme.secondaryContainer, in: .capsule)
-                    .contentShape(.capsule)
+            HStack(spacing: 12) {
+                Button(action: action) {
+                    Text("Retry")
+                        .yoinRole(Tokens.type.labelLarge)
+                        .foregroundStyle(scheme.onSecondaryContainer)
+                        .padding(.horizontal, 20)
+                        .frame(minHeight: 40)
+                        .background(scheme.secondaryContainer, in: .capsule)
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(PressScale())
+                if let details { CopyDetailsButton(report: details, scheme: scheme) }
             }
-            .buttonStyle(PressScale())
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 48)
+    }
+}
+
+/// Copies a failure's report for the tester to send on (Android CopyDiagnosticsButton): a text button whose
+/// label turns to Copied once it has.
+struct CopyDetailsButton: View {
+    var report: String
+    var scheme: CoverScheme
+    @State private var copied: String?
+
+    var body: some View {
+        let done = copied == report
+        Button {
+            UIPasteboard.general.string = report
+            withAnimation(Yoin.effects) { copied = report }
+        } label: {
+            ZStack {
+                // Both labels take their room, so the swap doesn't shift Retry.
+                Text("Copy details").opacity(done ? 0 : 1)
+                Text("Copied").opacity(done ? 1 : 0)
+            }
+            .yoinRole(Tokens.type.labelLarge)
+            .foregroundStyle(scheme.primary)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 40)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(PressScale())
+        .pointerHighlight()
+        .accessibilityLabel(done ? Text("Copied") : Text("Copy details"))
     }
 }
 

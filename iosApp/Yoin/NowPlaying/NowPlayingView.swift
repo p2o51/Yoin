@@ -47,6 +47,11 @@ struct NowPlayingView: View, Equatable {
     /// Android NowPlayingStageMode (NowPlayingStage.swift): compact, the
     /// expanded detail page, or the focused cover.
     @State private var stage: NowPlayingStage = .compact
+    /// The expanded page was opened from focus: stepping back returns to focus, not to the resting
+    /// player (Android NowPlayingViewModel.expandedFromFocus, owner 2026-11-03: expanded → focus → normal).
+    @State private var expandedFromFocus = false
+    /// This player's ⌘[ registration with the shell (NowPlayingStageBack.token).
+    @State private var backToken = UUID()
     /// Android short focus (NowPlayingBudget.ShortFocus): the cover tap's
     /// focus where the regular one isn't offered. Compact only.
     @State private var shortFocus = false
@@ -334,7 +339,18 @@ struct NowPlayingView: View, Equatable {
             lyricsEditing = false
         }
         .onChange(of: stage) { _, s in if s != .expanded { leaveLyricsSelect(follow: true) } }
+        .onChange(of: stage) { old, s in if s == .expanded, old != .expanded { expandedFromFocus = old == .focus } }
         .onChange(of: tab) { _, t in if t != NowPlayingDetailPage.lyrics.rawValue { leaveLyricsSelect(follow: false) } }
+        // ⌘[ steps back inside this player before the shell closes it (AppModel.backFromKeyboard).
+        .onAppear {
+            guard demo == nil else { return }
+            let token = backToken
+            model.npStageBack[panel ? .panel : .full] = NowPlayingStageBack(token: token) { keyboardStageBack() }
+        }
+        .onDisappear {
+            let slot: NowPlayingBackSlot = panel ? .panel : .full
+            if model.npStageBack[slot]?.token == backToken { model.npStageBack[slot] = nil }
+        }
         .task(id: engineTrack.map(NowPlayingData.key)) {
             guard let t = engineTrack else { return }
             await data.prepare(t, client: model.session.client, apple: model.store.apple)
@@ -908,15 +924,15 @@ struct NowPlayingView: View, Equatable {
         }
     }
 
-    /// The spine's facts (Android spineItems): the cached About credits (never
-    /// a Gemini request) and, on Subsonic, the server's own record of the song.
+    /// The spine's facts (Android spineItems): the lyrics' credits, else the cached
+    /// About credits (never a Gemini request), and, on Subsonic, the server's own record of the song.
     private func spineView(_ p: PlaybackSnapshot, slot: SpineSlot) -> some View {
         let items: [SpineItem]
         let key: String
         if let t = engineTrack {
             items = NowPlayingSpine.items(entries: SongAboutLoader.shared.store.entries(AboutSong(t).key),
                                           facts: data.spineFacts(t), album: t.album, artist: t.artist,
-                                          title: t.title, labels: .localized)
+                                          title: t.title, labels: .localized, credits: data.lyricCredits(t))
             key = NowPlayingData.key(t)
         } else {
             var entries: [SongAboutStore.Entry] = []
@@ -1370,6 +1386,13 @@ struct NowPlayingView: View, Equatable {
         Task { @MainActor in askFieldFocused = true }
     }
 
+    /// The quick questions the Ask field offers: those not asked about the song on show yet (Android
+    /// `quickPromptsFor(askedQuestions())`).
+    private var askPrompts: [String] {
+        guard let t = engineTrack else { return [] }
+        return QuickPrompts.remaining(asked: QuickPrompts.asked(in: about.store.entries(AboutSong(t).key)))
+    }
+
     /// The open Ask bar over the page's foot, above the keyboard. A tap
     /// above it puts the keyboard away (and the bar folds back).
     private var askLayer: some View {
@@ -1380,7 +1403,7 @@ struct NowPlayingView: View, Equatable {
                     askFieldFocused = false
                     withAnimation(Yoin.spatial) { about.askCollapse() }
                 }
-            AskGeminiField(scheme: scheme, text: $askDraft, focus: $askFieldFocused) { question in
+            AskGeminiField(scheme: scheme, text: $askDraft, focus: $askFieldFocused, prompts: askPrompts) { question in
                 guard let t = engineTrack else { return }
                 withAnimation(Yoin.spatial) {
                     about.ask(title: t.title, artist: t.artist, album: t.album, question: question)
@@ -1391,7 +1414,8 @@ struct NowPlayingView: View, Equatable {
         }
     }
 
-    /// The chevron: back to the resting player, or (at rest) collapse.
+    /// The chevron: back a stage (the expanded page opened from focus goes back to focus, as on Android),
+    /// or (at rest) collapse.
     private func stageBack() {
         if asking {
             askFieldFocused = false
@@ -1402,8 +1426,20 @@ struct NowPlayingView: View, Equatable {
         composerFocused = false
         withAnimation(Yoin.stageSettle) {
             if draft.isEmpty { composing = false }
-            stage = .compact
+            let back: NowPlayingStage = stage == .expanded && expandedFromFocus ? .focus : .compact
+            // Focus shows the lyrics, as a cover tap into it does.
+            if back == .focus { tab = NowPlayingDetailPage.lyrics.rawValue }
+            stage = back
         }
+    }
+
+    /// ⌘[ inside this player (Android NowPlayingOverlayHost's stage level): one stage back, as the chevron
+    /// and two columns' back do; false at rest, where the shell takes it (Full to the panel, or closed).
+    private func keyboardStageBack() -> Bool {
+        guard demo == nil,
+              NowPlayingStageBackRule.previous(stage, fromFocus: expandedFromFocus, wide: wide) != nil else { return false }
+        if wide { wideBack() } else { stageBack() }
+        return true
     }
 
     /// Unsynced lyrics scroll by hand in the small window: their own tap opens the page.
@@ -1564,7 +1600,8 @@ struct NowPlayingView: View, Equatable {
             }
         case .about:
             // Android SongInfoDisplay: the facts, read-only, fading out at the foot.
-            NowPlayingAboutView(state: aboutState(p), expanded: false, scheme: scheme)
+            NowPlayingAboutView(state: aboutState(p), expanded: false, scheme: scheme,
+                                credits: engineTrack.flatMap { data.lyricCredits($0) })
                 .frame(height: clear, alignment: .top)
                 .contentShape(.rect)
                 .onTapGesture { openPage(.about) }
@@ -1590,7 +1627,8 @@ struct NowPlayingView: View, Equatable {
                 }
             }
         case .about:
-            NowPlayingAboutView(state: aboutState(p), expanded: true, scheme: scheme, bottomPadding: 48)
+            NowPlayingAboutView(state: aboutState(p), expanded: true, scheme: scheme, bottomPadding: 48,
+                                credits: engineTrack.flatMap { data.lyricCredits($0) })
                 .frame(height: height, alignment: .top)
         case .note:
             notePage
@@ -2140,12 +2178,14 @@ struct NowPlayingView: View, Equatable {
                     // NowPlayingFormatTags, #121 #139).
                     if let tags = formatTags, !tags.isEmpty {
                         FormatTagRow(tags: tags, container: scheme.secondaryContainer,
-                                     content: scheme.onSecondaryContainer)
+                                     content: scheme.onSecondaryContainer, accent: spatialTag,
+                                     accentContainer: scheme.primaryContainer, accentContent: scheme.onPrimaryContainer)
                             .transition(.opacity)
                     }
                 }
                 .lineLimit(1)
                 .animation(Yoin.effects, value: formatTags)
+                .animation(Yoin.effects, value: spatialTag)
                 .npFade(open, contentFade)
                 routeLink(albumRoute(p), label: String(localized: "Go to album")) { heroTitle(p) }
                     .frame(height: 44, alignment: .leading)
@@ -2156,6 +2196,8 @@ struct NowPlayingView: View, Equatable {
 
     /// The song's format after the artist: the engine's song's, or the demo phone's.
     private var formatTags: [String]? { demo != nil ? demo?.formatTag.map { [$0] } : model.player.currentTrack?.formatTags }
+    /// "Spatial" after the format tags while the output spatializes the song (Android NowPlayingFormatTags).
+    private var spatialTag: String? { demo != nil ? nil : SpatialAudioMonitor.shared.tag(for: model.player.currentTrack) }
 
     /// The title is matched to the pill's title by its leading edge; folded,
     /// it scales down to the pill's 15 pt so the glyphs line up.
@@ -2554,6 +2596,16 @@ struct RatingBar: View {
     @State private var down = false
     @State private var downKey: String?
 
+    /// The number as the bar draws it, over the whole bar (so a mask in the bar's own frame lines up).
+    private func ratingLabel(_ label: String) -> some View {
+        Text(label)
+            .yoinRole(Tokens.type.titleLarge)
+            .monospacedDigit()
+            .frame(minWidth: 36)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
     /// The bar's number: none while unrated, "10" at the top, else one decimal.
     static func label(_ value: Double?) -> String? {
         guard let value else { return nil }
@@ -2564,8 +2616,8 @@ struct RatingBar: View {
         GeometryReader { geo in
             let h = geo.size.height
             let fraction = (value ?? 0) / 10
-            let crossover = Tokens.np.RATING_LABEL_CROSSOVER
             let inset: CGFloat = held ? 4 : 0
+            let fillHeight = max(48 - inset * 2, (h - inset * 2) * fraction)
             ZStack(alignment: .top) {
                 // Track: glass tinted with the container role, so the
                 // background shows through; the fill (the score) stays solid.
@@ -2592,21 +2644,25 @@ struct RatingBar: View {
                     // Held, the fill goes full strength (World rests it lower).
                     .fill(scheme.primary.opacity(held ? 1 : GlassLab.shared.extra("ratingFill")))
                     // Unrated: no fill at all; rated, at least the 48 pt cap.
-                    .frame(height: value == nil ? 0 : max(48 - inset * 2, (h - inset * 2) * fraction))
+                    .frame(height: value == nil ? 0 : fillHeight)
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .padding(inset)
                     .animation(Yoin.spatial, value: value == nil)
-                // titleLarge (22/28) tabular; the color crosses from
-                // onSurfaceVariant to onPrimary as the fill goes 80 → 100 %.
+                // titleLarge (22/28) tabular, onSurfaceVariant over the track and onPrimary where the fill runs
+                // behind it, split along the fill's own edge. Crossing by the score alone (80 → 100 %, Android
+                // RatingSlider) left 8.6 on a short bar half covered by a fill the number didn't follow.
                 if let label = Self.label(value) {
-                    Text(label)
-                        .yoinRole(Tokens.type.titleLarge)
-                        .monospacedDigit()
-                        .foregroundStyle(scheme.onSurfaceVariant.mix(with: scheme.onPrimary,
-                                                                     by: min(1, max(0, (fraction - crossover) / (1 - crossover)))))
-                        .frame(minWidth: 36)
-                        .padding(.top, 8)
-                        .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .top)).animation(Yoin.effects))
+                    ZStack(alignment: .top) {
+                        ratingLabel(label).foregroundStyle(scheme.onSurfaceVariant)
+                        ratingLabel(label).foregroundStyle(scheme.onPrimary)
+                            .mask {
+                                Capsule()
+                                    .frame(height: fillHeight)
+                                    .frame(maxHeight: .infinity, alignment: .bottom)
+                                    .padding(inset)
+                            }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .top)).animation(Yoin.effects))
                 }
             }
             .contentShape(.capsule)
@@ -3358,12 +3414,14 @@ extension NowPlayingView {
                 .layoutPriority(1)
                 if let tags = model.player.currentTrack?.formatTags, !tags.isEmpty {
                     FormatTagRow(tags: tags, container: scheme.secondaryContainer,
-                                 content: scheme.onSecondaryContainer)
+                                 content: scheme.onSecondaryContainer, accent: spatialTag,
+                                 accentContainer: scheme.primaryContainer, accentContent: scheme.onPrimaryContainer)
                         .transition(.opacity)
                 }
             }
             .lineLimit(1)
             .animation(Yoin.effects, value: model.player.currentTrack?.formatTags)
+            .animation(Yoin.effects, value: spatialTag)
             routeLink(albumRoute(p), label: String(localized: "Go to album")) {
                 Text(p.track.title)
                     .font(.gsf(Tokens.type.headlineMedium.size.cg))

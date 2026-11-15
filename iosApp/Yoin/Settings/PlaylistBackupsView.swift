@@ -167,7 +167,8 @@ struct PlaylistBackupView: View {
 
     init(backupId: String) {
         self.backupId = backupId
-        _restore = State(initialValue: PlaylistRestoreModel(backupId: backupId) { target in
+        // Its progress on the Lock Screen and in the Dynamic Island, as Android's Live Update.
+        _restore = State(initialValue: PlaylistRestoreModel(backupId: backupId, progress: RestoreLiveActivity()) { target in
             BackupTexts.destination(for: target)
         })
     }
@@ -586,6 +587,7 @@ enum BackupChrome {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+        .topEdgeBlur(app.surfaceContainer)
     }
 
     @MainActor

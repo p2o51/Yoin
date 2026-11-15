@@ -125,8 +125,8 @@ final class SpotifyElsewhereWatch {
     }
 }
 
-/// The header pill: the cover (nothing drawn on it: Spotify's artwork rule), the title, and
-/// "Spotify · artist". No device name (51). A tap switches to the account.
+/// The header pill: the cover (nothing drawn on it: Spotify's artwork rule), the title, and the artist
+/// after Spotify's mark (Android HomeSpotifyElsewherePill). No device name (51). A tap switches to the account.
 struct SpotifyElsewherePill: View {
     var elsewhere: SpotifyElsewhere
     var scheme: CoverScheme
@@ -152,9 +152,13 @@ struct SpotifyElsewherePill: View {
                     Text(elsewhere.title)
                         .font(YoinFont.rounded(13, relativeTo: .footnote))
                         .foregroundStyle(scheme.onSurface)
-                    Text("Spotify · \(elsewhere.artist)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(scheme.onSurfaceVariant)
+                    HStack(spacing: 4) {
+                        YoinIcon(Profile.Service.spotify.glyph, size: 12)
+                            .foregroundStyle(scheme.primary)
+                        Text(elsewhere.artist)
+                            .font(.system(size: 11))
+                            .foregroundStyle(scheme.onSurfaceVariant)
+                    }
                 }
                 .lineLimit(1)
             }

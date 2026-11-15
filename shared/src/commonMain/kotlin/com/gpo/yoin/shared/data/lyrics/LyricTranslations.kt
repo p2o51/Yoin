@@ -15,7 +15,7 @@ internal object LyricTranslations {
      * - 两边行数相等 → 组内按位置一一配对；
      * - 行数不等 → 沿用旧口径，整组都用该时间戳下最后一句译文。
      * 译文是 [LyricPayload.UNTRANSLATED_LINE] 占位的行算没有翻译。
-     * 一个时间戳都对不上时退回按序号配对。
+     * 一个时间戳都对不上时退回按序号配对（制作信息只从一边拿掉、或拿掉后行数不等时不配，免得整体错一行）。
      *
      * The key of the result is the index into [lyrics].lines (for unsynced lyrics: into the
      * non-empty trimmed lines).
@@ -40,8 +40,19 @@ internal object LyricTranslations {
             }
             if (exact.isNotEmpty()) return exact
         }
-        return lineTexts(lyrics)
-            .zip(lineTexts(translated))
+        val originalTexts = lineTexts(lyrics)
+        val translatedTexts = lineTexts(translated)
+        // Pairing by position is only safe when the credits came off both sides alike: taken from one side
+        // only, or leaving different counts, every line would sit one translation off. Nothing then (iOS
+        // addition; Android pairs regardless).
+        val creditsTaken = lyrics.credits != null || translated.credits != null
+        if (creditsTaken &&
+            ((lyrics.credits == null) != (translated.credits == null) || originalTexts.size != translatedTexts.size)
+        ) {
+            return emptyMap()
+        }
+        return originalTexts
+            .zip(translatedTexts)
             .mapIndexedNotNull { index, pair ->
                 pair.second.toProviderLineTranslation()?.let { index to it }
             }

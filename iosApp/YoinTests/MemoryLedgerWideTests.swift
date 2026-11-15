@@ -8,6 +8,8 @@ final class MemoryLedgerWideTests: XCTestCase {
     private let sub = LedgerAccount(provider: "subsonic", scope: "https://a|me")
     private let spotify = LedgerAccount(provider: "spotify", scope: "spotify|u")
     private let day: Int64 = 86_400_000
+    /// The songs a resolver pass asked about, in order (its lookups run on the main actor).
+    private var asked: [String] = []
     private var cal: Calendar {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(identifier: "UTC")!
@@ -124,6 +126,65 @@ final class MemoryLedgerWideTests: XCTestCase {
         XCTAssertEqual(pass, .init(answered: 1, found: false))
     }
 
+    /// I14, Android LedgerTrackResolver: the streaming account in use is asked too.
+    func test_should_askTheStreamingAccountInUse_when_itIsTheService() {
+        let entries = [
+            LedgerEntry(id: "1", kind: .trackRating, at: now, account: spotify, album: nil, songId: "s4", score: 7),
+            LedgerEntry(id: "2", kind: .trackRating, at: now, account: sub, album: nil, songId: "s1", score: 7),
+        ]
+        XCTAssertEqual(LedgerTrackResolver.pending(entries, asked: [], service: spotify).map(\.songId), ["s4", "s1"])
+        XCTAssertEqual(LedgerTrackResolver.pending(entries, asked: [], service: nil).map(\.songId), ["s1"])
+    }
+
+    /// A streaming account is asked one song at a time, the newest of a pass, and no more than its budget a
+    /// process (Android ServicePerPass / ServiceBudget): a big import never costs a request per song each launch.
+    func test_should_askAStreamingAccountWithinItsBudget_when_manySongsWait() async {
+        let resolver = LedgerTrackResolver()
+        let wanted = (0..<25).map { LedgerTrackResolver.Wanted(account: spotify, songId: "t\($0)") }
+        let first = await resolver.resolve(wanted, spacing: .zero) { [unowned self] w in
+            asked.append(w.songId)
+            return LedgerTrack(title: w.songId, albumId: "al", albumName: "Al", artist: nil, coverKey: nil)
+        }
+        XCTAssertEqual(first, .init(answered: LedgerTrackResolver.servicePerPass, found: true))
+        XCTAssertEqual(asked, (0..<20).map { "t\($0)" })
+        // The budget is spent: the rest wait for the next launch.
+        let rest = Array(wanted.dropFirst(20))
+        let second = await resolver.resolve(rest, spacing: .zero) { [unowned self] w in
+            asked.append(w.songId)
+            return nil
+        }
+        XCTAssertEqual(second, .init(answered: 0, found: false))
+        XCTAssertEqual(asked.count, 20)
+    }
+
+    func test_should_stopAskingAStreamingAccount_when_itFails() async {
+        let resolver = LedgerTrackResolver()
+        let wanted = (0..<3).map { LedgerTrackResolver.Wanted(account: spotify, songId: "t\($0)") }
+        let pass = await resolver.resolve(wanted, spacing: .zero) { [unowned self] w in
+            asked.append(w.songId)
+            throw URLError(.notConnectedToInternet)
+        }
+        XCTAssertEqual(pass, .init(answered: 0, found: false))
+        XCTAssertEqual(asked, ["t0"], "rate limited or offline: its other songs would fail the same way")
+        XCTAssertTrue(resolver.answers.isEmpty)
+    }
+
+    func test_should_nameASpotifySongsAlbum_when_spotifyAnswers() {
+        let album = Album(id: MediaId(provider: "spotify", rawId: "al1"), title: "Album", artist: "A", year: 2020,
+                          palette: CoverPalette(a: .red, b: .green, c: .blue), tracks: [])
+        let track = Track(id: MediaId(provider: "spotify", rawId: "t1"), number: 1, title: "Song", durationSec: 200)
+        let named = MemoryLedgerSource.ledgerTrack(PlaylistEntry(album: album, track: track))
+        XCTAssertEqual(named.albumId, "al1")
+        XCTAssertEqual(named.albumName, "Album")
+        XCTAssertEqual(named.title, "Song")
+        XCTAssertEqual(named.artist, "A")
+        XCTAssertTrue(named.isNews)
+        // Filed under no album: the song is named, the album isn't made up.
+        var loose = album
+        loose.id = MediaId(provider: "spotify", rawId: "song:t1")
+        XCTAssertNil(MemoryLedgerSource.ledgerTrack(PlaylistEntry(album: loose, track: track)).albumId)
+    }
+
     // MARK: Layout
 
     func test_should_pickColumnsByWidth_when_thePageIsLaidOut() {
@@ -188,13 +249,20 @@ final class MemoryLedgerWideTests: XCTestCase {
     func test_should_estimateTallerCards_when_theyHoldMore() {
         let a = LedgerAlbum(account: sub, albumId: "a", name: "A", artist: "", coverKey: nil)
         let bare = LedgerItem.album(album: a, title: nil, score: nil, review: nil, songs: [], at: 0)
-        let full = LedgerItem.album(album: a, title: nil, score: 8, review: String(repeating: "words ", count: 60),
-                                    songs: [.init(title: "s", score: 7, at: 0), .init(title: "t", score: 6, at: 0), .init(title: "u", score: 5, at: 0),
-                                            .init(title: "v", score: 4, at: 0)], at: 0)
-        XCTAssertGreaterThan(full.estimatedCardHeight(width: 180), bare.estimatedCardHeight(width: 180))
-        // The review is capped at four lines and the songs at three, as the card draws them.
-        let expected: CGFloat = 28 + 60 + 8 + 80 + 78  // padding, top row, review gap, 4 lines, 3 songs
-        XCTAssertEqual(full.estimatedCardHeight(width: 180), expected)
+        let titled = LedgerItem.album(album: a, title: String(repeating: "words ", count: 60), score: 8,
+                                      review: "Not on the card", songs: [.init(title: "s", score: 7, at: 0)], at: 0)
+        XCTAssertGreaterThan(titled.estimatedCardHeight(width: 180), bare.estimatedCardHeight(width: 180))
+        // Android AlbumGridCard: the cover whole at the card's inner width, the title capped at two lines; the
+        // review and the songs aren't on it.
+        XCTAssertEqual(bare.estimatedCardHeight(width: 180), 20 + 160 + 6 + 20 + 30)
+        XCTAssertEqual(titled.estimatedCardHeight(width: 180), 20 + 160 + 6 + 48 + 20 + 30)
+        // Android SongGridCard: the cover row, then the newest note capped at five lines.
+        let note = LedgerEntry(id: "n", kind: .songNote, at: 0, account: sub, album: nil,
+                               text: String(repeating: "words ", count: 60), trackTitle: "S")
+        let scored = LedgerItem.song(key: "song:s", account: sub, title: "S", album: nil, score: 7, note: nil, notes: 0, at: 0)
+        let noted = LedgerItem.song(key: "song:n", account: sub, title: "S", album: nil, score: nil, note: note, notes: 1, at: 0)
+        XCTAssertEqual(scored.estimatedCardHeight(width: 180), 20 + 44 + 30)
+        XCTAssertEqual(noted.estimatedCardHeight(width: 180), 20 + 44 + 6 + 100 + 30)
         XCTAssertEqual(LedgerLazy.lines("abcd", width: 14, size: 14, max: 9), 2)
         XCTAssertEqual(LedgerLazy.lines("一二", width: 14, size: 14, max: 9), 2)
         XCTAssertEqual(LedgerLazy.lines("a\nb", width: 100, size: 14, max: 9), 2)

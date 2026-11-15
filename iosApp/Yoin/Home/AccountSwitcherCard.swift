@@ -338,6 +338,8 @@ private struct AccountCardContent: View {
     /// The most the card may take (the screen less 48): past it, it scrolls inside.
     var maxHeight: CGFloat
     @State private var contentHeight: CGFloat = 0
+    /// A Reconnect is under way: the button waits with a spinner (Android HomeAccountSwitcher.retrying).
+    @State private var reconnecting = false
 
     var body: some View {
         ScrollView {
@@ -425,21 +427,33 @@ private struct AccountCardContent: View {
     private func reconnect(_ needed: Bool, active: Profile?) -> some View {
         if needed {
             Button {
-                guard switcher.takesInput else { return }
-                switch AccountCardLogic.reconnect(active: active, stillNeeds: model.activeNeedsReconnect) {
-                case .fixed: switcher.close()
-                case .openPage(let id): switcher.close { model.openSettings(.account(id)) }
-                case nil: break
+                guard switcher.takesInput, !reconnecting, let id = active?.id else { return }
+                reconnecting = true
+                Task {
+                    // One more try in place first (Android HomeAccountSwitcher.reconnect): a sign-in the
+                    // Keychain couldn't give at launch may be there now.
+                    _ = await profiles.retryActive()
+                    reconnecting = false
+                    // Another account in use by now (switched in Settings): not this one's page.
+                    guard profiles.activeId == id else { return }
+                    switch AccountCardLogic.reconnect(active: profiles.active, stillNeeds: model.activeNeedsReconnect) {
+                    case .fixed: switcher.close()
+                    case .openPage(let id): switcher.close { model.openSettings(.account(id)) }
+                    case nil: break
+                    }
                 }
             } label: {
                 Text("Reconnect")
                     .yoinRole(Tokens.type.labelLarge)
+                    .opacity(reconnecting ? 0 : 1)
+                    .overlay { if reconnecting { ProgressView().controlSize(.small).tint(app.onSecondaryContainer) } }
                     .foregroundStyle(app.onSecondaryContainer)
                     .padding(.horizontal, 24)
                     .frame(minHeight: 40)
                     .background(app.secondaryContainer, in: .capsule)
                     .contentShape(.capsule)
             }
+            .disabled(reconnecting)
             .buttonStyle(PressScale())
             .transition(.scale(scale: 0.6).combined(with: .opacity))
         }

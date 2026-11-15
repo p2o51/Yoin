@@ -531,8 +531,9 @@ struct MemoryTones {
 
 /// Android memoriesAuroraBackground: three soft radial blooms in the current
 /// memory's palette, turned by the deck's position (not the clock): a swipe
-/// re-tints and moves the field, a deck at rest draws nothing new.
-private struct MemoriesAurora: View {
+/// re-tints and moves the field, a deck at rest draws nothing new. (The tips'
+/// demo Memories draws it too.)
+struct MemoriesAurora: View {
     var palettes: [CoverPalette]
     var position: CGFloat
     var dark: Bool

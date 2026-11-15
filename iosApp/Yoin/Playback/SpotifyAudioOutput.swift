@@ -244,7 +244,51 @@ final class SpotifyAudioOutput: AudioOutput {
         target = nil
         SpotifyPlayingDevice.shared.name = nil
         stopPolling()
-        await startHere(item, gen: gen)
+        await startHere(item, gen: gen, moveHereFirst: Self.idleElsewhere(now, this: device))
+    }
+
+    /// Spotify sits paused or idle on another device (me/player names one that isn't this iPhone or iPad
+    /// and isn't playing): App Remote would start the song there (Android e7552df4, the 11-08 tablet test:
+    /// a tap in Yoin played on 51's paused iPhone), so the start moves Spotify here first (moveHere).
+    nonisolated static func idleElsewhere(_ now: SpotifySource.PlayerNow?, this: SpotifyThisDevice) -> Bool {
+        guard let now else { return false }
+        return !now.isPlaying && !this.matches(now)
+    }
+
+    /// This iPhone's or iPad's id in the account's Connect devices, for moving Spotify here: nil when it
+    /// isn't listed with an id, or when two are named alike (iOS can't tell which one it is).
+    nonisolated static func hereId(_ devices: [SpotifySource.Device], this: SpotifyThisDevice) -> String? {
+        let mine = devices.filter { $0.hasId && this.matches($0) }
+        return mine.count == 1 ? mine[0].id : nil
+    }
+
+    nonisolated static let moveHereReads = 3
+    nonisolated static let moveHereGapSec: Double = 0.4
+
+    /// Android bringSpotifyHereIfIdleElsewhere: only a device that is playing keeps a start (51,
+    /// 2026-11-06), so with Spotify left paused elsewhere it comes back to this iPhone or iPad before App
+    /// Remote's start: moved here as it was (paused) through the Web API (iOS's App Remote has no Connect
+    /// switch), then a few quick reads until me/player names this device. Not listed, a failed move or a
+    /// slow one: the start goes out as before.
+    private func moveHere(gen: Int) async {
+        guard let control else { return }
+        do {
+            let devices = try await control.devices()
+            guard gen == generation else { return }
+            guard let id = Self.hereId(devices, this: device) else {
+                return PlayTrace.log("SP start: Spotify idles elsewhere; this \(device.word) isn't told apart in its devices")
+            }
+            PlayTrace.log("SP start: Spotify idles elsewhere; moving it to this \(device.word) first")
+            try await control.transfer(to: id, play: false)
+            for _ in 0..<Self.moveHereReads {
+                try? await Task.sleep(for: .seconds(Self.moveHereGapSec))
+                guard gen == generation else { return }
+                if let now = try? await control.playerNow(), device.matches(now) { return }
+            }
+            PlayTrace.log("SP start: me/player doesn't name this \(device.word) yet; starting all the same")
+        } catch {
+            PlayTrace.log("SP start: moving Spotify here failed \(error)")
+        }
     }
 
     nonisolated static func describe(_ now: SpotifySource.PlayerNow?) -> String {
@@ -359,11 +403,15 @@ final class SpotifyAudioOutput: AudioOutput {
     /// A Web API start to this iPhone's Spotify while it sits in the background was ignored and then
     /// stopped it (51's log, every run): this iPhone is only ever driven through App Remote. An asleep
     /// app is woken on the song (it plays it) and connects on the handback.
-    private func startHere(_ item: Item, gen: Int) async {
+    private func startHere(_ item: Item, gen: Int, moveHereFirst: Bool = false) async {
         // No Spotify app to connect to or to wake (Android CouldNotFindSpotifyApp): said at once.
         guard spotifyInstalled() else { return refuse(.appMissing, gen: gen) }
         if await remote.connect(timeout: Self.localConnectSec) {
             guard gen == generation else { return }
+            if moveHereFirst {
+                await moveHere(gen: gen)
+                guard gen == generation else { return }
+            }
             if Self.contextStartEnabled, let plan = contextPlan, let events,
                let index = plan.contextIndex(of: item, following: events.outputQueueSnapshot()) {
                 return startContextHere(item, plan: plan, index: index, gen: gen)
@@ -1470,6 +1518,15 @@ final class SpotifyAudioOutput: AudioOutput {
         var artist: String? = nil
         var album: String? = nil
         var coverURL: URL? = nil
+        /// The song's album id, when Spotify says (a hand-off of a song Spotify plays on its own names it).
+        var albumId: String? = nil
+    }
+
+    /// `spotify:album:<id>` → `<id>`; nil for anything else (an episode's show, a local file's empty album).
+    nonisolated static func albumId(fromURI uri: String?) -> String? {
+        guard let uri, uri.hasPrefix("spotify:album:") else { return nil }
+        let id = String(uri.dropFirst("spotify:album:".count))
+        return id.isEmpty ? nil : id
     }
 
     private func playerState(_ s: RemotePlayerState) {
@@ -1480,7 +1537,8 @@ final class SpotifyAudioOutput: AudioOutput {
         guard SpotifyPlayingDevice.shared.name == nil else { return }
         apply(State(uri: uri, isPaused: s.isPaused, positionMs: s.positionMs, durationMs: s.durationMs,
                     shuffling: s.shuffling, repeatRaw: s.repeatRaw, title: s.title, artist: s.artist,
-                    album: s.album, coverURL: Self.coverURL(imageIdentifier: s.imageIdentifier)))
+                    album: s.album, coverURL: Self.coverURL(imageIdentifier: s.imageIdentifier),
+                    albumId: Self.albumId(fromURI: s.albumURI)))
     }
 
     /// A Web API read: nothing active is Spotify stopped where it was.
@@ -1523,7 +1581,7 @@ final class SpotifyAudioOutput: AudioOutput {
         }
         apply(State(uri: uri, isPaused: !now.isPlaying, positionMs: now.progressMs, durationMs: now.durationMs,
                     shuffling: now.shuffle, repeatRaw: repeatRaw, title: now.trackName, artist: now.artistName,
-                    album: now.albumName, coverURL: now.coverURL))
+                    album: now.albumName, coverURL: now.coverURL, albumId: now.albumId))
     }
 
     /// App Remote names a cover `spotify:image:<id>`; Spotify serves it at i.scdn.co/image/<id>.
@@ -1538,7 +1596,8 @@ final class SpotifyAudioOutput: AudioOutput {
         guard let id = s.uri.split(separator: ":").last.map(String.init), !id.isEmpty,
               s.uri.hasPrefix("spotify:track:") || s.uri.hasPrefix("spotify:episode:") else { return nil }
         return PlayableTrack(id: id, provider: SpotifyMapping.provider, title: s.title ?? "Spotify",
-                             artist: s.artist ?? "", album: s.album ?? "", albumId: nil,
+                             artist: s.artist ?? "", album: s.album ?? "",
+                             albumId: s.uri.hasPrefix("spotify:track:") ? s.albumId : nil,
                              durationSec: Double(s.durationMs) / 1000, streamURL: streamURL(trackId: id),
                              coverURL: s.coverURL)
     }

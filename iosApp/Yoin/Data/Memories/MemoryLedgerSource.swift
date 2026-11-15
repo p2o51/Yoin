@@ -82,24 +82,48 @@ final class MemoryLedgerSource {
                             covers: covers, profiles: ledgerProfiles, activeAccount: activeAccount, today: now)
     }
 
-    /// Songs nothing on the device names the album of, asked of their own Subsonic server (Android #202
-    /// LedgerTrackResolver): passes go on while they bring answers (each answered song leaves the pending ones,
-    /// so this ends), and what a pass named shows at once.
+    /// Songs nothing on the device names the album of, asked of their own Subsonic server or, for the
+    /// streaming account in use, of that service (Android #202 LedgerTrackResolver): passes go on while they
+    /// bring answers (each answered song leaves the pending ones, so this ends), and what a pass named shows
+    /// at once. Home runs it when its feed loads (its Memories grid reads the same ledger), the page when it opens.
     func resolveSongs(model: AppModel = .shared) async {
         let resolver = LedgerTrackResolver.shared
         while let state, !Task.isCancelled {
-            let wanted = LedgerTrackResolver.pending(state.entries, asked: resolver.asked)
+            let wanted = LedgerTrackResolver.pending(state.entries, asked: resolver.asked, service: Self.serviceAccount(model))
             guard !wanted.isEmpty else { return }
             let pass = await resolver.resolve(wanted) { [weak self] want in
-                guard let self, let client = self.client(for: want.account, model: model) else {
+                if want.account.provider == AccountScope.subsonicProvider {
+                    guard let self, let client = self.client(for: want.account, model: model) else {
+                        throw CancellationError()
+                    }
+                    return try await Self.song(want.songId, client: client)
+                }
+                // Only the account in use, through its own source: another account's would answer for the wrong one.
+                guard want.account == Self.serviceAccount(model), let spotify = model.store.spotify else {
                     throw CancellationError()
                 }
-                return try await Self.song(want.songId, client: client)
+                return try await spotify.track(want.songId).map(Self.ledgerTrack)
             }
             if Task.isCancelled { return }
             if pass.found { reload(model: model) }
             if pass.answered == 0 { return }
         }
+    }
+
+    /// The streaming account in use whose songs the ledger may ask about: Spotify, once the library reads from
+    /// it (Apple Music's songs keep what the device knows).
+    static func serviceAccount(_ model: AppModel) -> LedgerAccount? {
+        guard let p = model.profiles.active, p.service == .spotify, let a = account(of: p),
+              model.store.isReal, model.store.spotify != nil, model.store.historyScope == a.scope else { return nil }
+        return a
+    }
+
+    /// A Spotify song as the ledger names it: its album (none for a song Spotify files under no album).
+    nonisolated static func ledgerTrack(_ e: PlaylistEntry) -> LedgerTrack {
+        let albumId = e.album.id.rawId
+        return LedgerTrack(title: e.track.title, albumId: albumId.isEmpty || albumId.hasPrefix("song:") ? nil : albumId,
+                           albumName: e.album.title.isEmpty ? nil : e.album.title, artist: e.track.artist ?? e.album.artist,
+                           coverKey: e.album.coverURL?.absoluteString)
     }
 
     /// A Subsonic account's own server, kept for the process (any account, not only the one in use), with the

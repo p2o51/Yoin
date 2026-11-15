@@ -274,6 +274,33 @@ final class ProfilesTests: XCTestCase {
         return (m, sources)
     }
 
+    /// I11 (Android ProfileManager.retryActiveSource): Reconnect on the card reads the sign-in again, and
+    /// one the Keychain couldn't give at launch is put back in use without a switch.
+    func test_should_useTheSignIn_when_reconnectFindsItThisTime() async throws {
+        let credentials = legacyKeychain()
+        _ = ProfileStore(defaults: defaults, credentials: credentials, appleMusicAuthorized: false)
+        // The next launch finds the Keychain locked.
+        credentials.unavailable[ProfileStore.legacySubsonicId] = errSecInteractionNotAllowed
+        let store = ProfileStore(defaults: defaults, credentials: credentials, appleMusicAuthorized: false)
+        let session = ServerSession()
+        let (m, _) = manager(store, session: session)
+        defer { session.signOut() }
+        let account = try XCTUnwrap(m.active)
+        XCTAssertTrue(m.needsSignIn(account))
+        XCTAssertNil(session.account)
+
+        let stillLocked = await m.retryActive()
+        XCTAssertFalse(stillLocked, "still locked: its page is the way on")
+        XCTAssertNil(session.account)
+
+        credentials.unavailable = [:]
+        let fixed = await m.retryActive()
+        XCTAssertTrue(fixed)
+        XCTAssertFalse(m.needsSignIn(account))
+        XCTAssertEqual(session.account, legacy)
+        XCTAssertEqual(m.activeId, ProfileStore.legacySubsonicId)
+    }
+
     func test_should_switchAccounts_and_endTheOldPlayback() async throws {
         let store = ProfileStore(defaults: defaults, credentials: legacyKeychain(), appleMusicAuthorized: false)
         let second = try store.saveSubsonic(other).get()
@@ -352,6 +379,24 @@ final class ProfilesTests: XCTestCase {
         XCTAssertNil(session.client)
         XCTAssertEqual(sources.active, .mock)
         XCTAssertEqual(ended, 2)
+    }
+
+    /// I10 (51, 2026-11-15): the ratings a removed account's server was still owed go with it.
+    func test_should_dropItsOwedRatings_when_anAccountIsRemoved() throws {
+        let store = ProfileStore(defaults: defaults, credentials: legacyKeychain(), appleMusicAuthorized: false)
+        let second = try store.saveSubsonic(other).get()
+        let session = ServerSession()
+        let (m, _) = manager(store, session: session)
+        defer { session.signOut() }
+        let outbox = RatingOutbox(fileURL: nil)
+        m.ratingOutbox = outbox
+        let gone = try XCTUnwrap(store.profile(second.id)?.subsonicScope)
+        let kept = try XCTUnwrap(store.profile(ProfileStore.legacySubsonicId)?.subsonicScope)
+        outbox.mark(.init(scope: gone, songId: "s1"))
+        outbox.mark(.init(scope: kept, songId: "s2"))
+
+        m.remove(second.id)
+        XCTAssertEqual(outbox.pending, [.init(scope: kept, songId: "s2")])
     }
 
     // MARK: Cloud sync reads each account

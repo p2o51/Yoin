@@ -231,6 +231,41 @@ struct LabsDemo: View {
     }
 }
 
+// MARK: - Volume leveling
+
+/// Volume leveling (Android VolumeLevelingDemo): a Subsonic account's page in the little phone with its real
+/// Volume leveling group, and the dot picks By track, then By album. The demo keeps the choice to itself: the
+/// real one never changes.
+struct VolumeLevelingDemo: View {
+    var playing: Bool
+    var scheme: CoverScheme
+    @State private var mode: ReplayGainMode = .off
+
+    var body: some View {
+        DemoPhone(playing: playing, scheme: scheme, script: { finger in
+            withAnimation(Yoin.effects) { mode = .off }
+            try await DemoTiming.delay(700)
+            try await finger.moveTo("leveling-\(ReplayGainMode.track.rawValue)")
+            try await DemoTiming.delay(250)
+            try await finger.tap { withAnimation(Yoin.effects) { mode = .track } }
+            try await DemoTiming.delay(900)
+            try await finger.moveTo("leveling-\(ReplayGainMode.album.rawValue)")
+            try await DemoTiming.delay(250)
+            try await finger.tap { withAnimation(Yoin.effects) { mode = .album } }
+            try await finger.lift()
+            try await DemoTiming.delay(2_400)
+        }) {
+            // The account's page is named after its service, as ServiceSetupView names it.
+            SettingsPage(title: "Subsonic", demoScheme: scheme) { app, row in
+                VolumeLevelingGroup(app: app, row: row, mode: mode) { m in withAnimation(Yoin.effects) { mode = m } }
+            }
+            .safeAreaPadding(.top, DemoPhoneMetrics.statusBar)
+            // A sideways swipe on the phone turns the tips; the page has nothing below the fold to scroll to.
+            .scrollDisabled(true)
+        }
+    }
+}
+
 // MARK: - Behind the name
 
 /// 余韻: the Yoin mark; each tap (the demo's, or the user's) sounds a note whose rings keep spreading.

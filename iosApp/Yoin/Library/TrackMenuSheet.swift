@@ -60,7 +60,8 @@ private struct TrackRowGestures: ViewModifier {
     func body(content: Content) -> some View {
         let layer = PointerHover.opacity(hovered: hovered || PointerHover.preview, pressed: pressing)
         content
-            // Dragged onto the queue or a playlist (a pointer at once; a finger after the long press).
+            // Dragged onto the queue or a playlist (a pointer at once; a finger after the long press), on an
+            // iPad or a Mac: an iPhone keeps the hold for the sheet (YoinDrag.available).
             .yoinDraggable { YoinDrag.song(entry, model: model) }
             .background {
                 // The pressed tint, and the same 8 % under a pointer (iPad, the iPad app on a Mac).

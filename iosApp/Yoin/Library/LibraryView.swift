@@ -192,6 +192,8 @@ struct LibraryView: View {
             // glass press bloom) overlaps the bar and is that 4 gap.
             // The track styles keep 8 between the field and the track, so
             // the two capsules read as a pair, not one stacked slab.
+            // Under it all, the album page's top (TopEdgeBlur).
+            Group {
             if wideHeader {
                 // Android's wide Library app bar: the search field at its own width, the chips beside it,
                 // the account at the end (a full-width field read as a bar across the whole page).
@@ -218,6 +220,8 @@ struct LibraryView: View {
                     .animation(model.searchActive ? nil : Yoin.effects, value: model.searchActive)
             }
             }
+            }
+            .topEdgeBlur(scheme.surfaceContainer)
         }
         .scrollPosition($position)
         .onScrollGeometryChange(for: ScrollMetrics.self) {
@@ -649,6 +653,7 @@ struct LibraryView: View {
                                 .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
                                 .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
                         } action: { model.open(a) }
+                        .yoinDraggable { YoinDrag.album(a, model: model) }
                         .transition(.opacity.animation(Yoin.effects))
                     }
                 }
@@ -676,7 +681,9 @@ struct LibraryView: View {
         if entries.isEmpty && model.store.isReal {
             let key = filter == .favorites ? "favorites" : "songs"
             if model.store.phase(key) == .failed {
-                RetryRow(scheme: scheme, message: model.store.failures[key]) { Task { await reload(force: true) } }
+                RetryRow(scheme: scheme, message: model.store.failures[key], details: model.store.failureReports[key]) {
+                    Task { await reload(force: true) }
+                }
             } else if model.store.phase(key) != .loaded {
                 RowSkeleton(scheme: scheme)
             } else if filter == .songs {
@@ -752,7 +759,9 @@ struct LibraryView: View {
     private func loadState(empty: Bool) -> some View {
         let phases = phaseKeys.map { model.store.phase($0) }
         if phases.contains(.failed) {
-            RetryRow(scheme: scheme, message: phaseKeys.lazy.compactMap { model.store.failures[$0] }.first) {
+            let failed = phaseKeys.first { model.store.failures[$0] != nil }
+            RetryRow(scheme: scheme, message: failed.flatMap { model.store.failures[$0] },
+                     details: failed.flatMap { model.store.failureReports[$0] }) {
                 Task { await reload(force: false) }
             }
                 .padding(.top, empty ? 0 : 12)

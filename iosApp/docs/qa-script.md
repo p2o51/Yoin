@@ -247,7 +247,8 @@ The same target runs on a Mac as "Designed for iPad". Rules that differ there ha
   pointer), so the control's own pixels step darker (light) / lighter (dark) on the effects spring;
   `-platformMac YES -hoverPreview YES` on the iPad simulator shows that state everywhere. The
   system highlight can't be screenshotted on the simulator. Touch is unchanged.
-- Drag and drop (`Library/YoinDrag.swift`, the native Mac's `MacDrag`): song rows (Library, Search,
+- Drag and drop (`Library/YoinDrag.swift`, the native Mac's `MacDrag`), on an iPad and a Mac only (on an
+  iPhone the row's drag took the hold its long press opens the sheet with): song rows (Library, Search,
   album and playlist pages) and Library's album and playlist cells and playlist rows drag out as a
   `com.gpo.yoin.item` (other apps get the title over the artist as plain text). Drops: Now Playing's
   Queue pill and its wide-layout queue icon (after what's queued), the queue sheet (a row: right
