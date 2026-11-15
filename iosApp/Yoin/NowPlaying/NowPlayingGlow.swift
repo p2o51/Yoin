@@ -269,8 +269,8 @@ final class NowPlayingGlow {
     }
 
     static let maxLights = 6
-    static let handOverS = 0.16
-    static let fullRating = 9.5
+    nonisolated static let handOverS = 0.16
+    nonisolated static let fullRating = 9.5
     static let tapValidityS = 3.0
     static let settleS = 1.5
 
@@ -338,6 +338,7 @@ struct NowPlayingGlowLayer: View {
 }
 
 /// The palette a light draws in: the cover's primary / secondary / tertiary, made glowy.
+@MainActor
 struct GlowPalette {
     var dark: Bool
     var p: Color, s: Color, t: Color
@@ -384,6 +385,7 @@ struct GlowPalette {
 }
 
 /// Draws one frame of the lights into a Canvas (Android drawActionGlow and the background's pulses).
+@MainActor
 private struct GlowPainter {
     var gc: GraphicsContext
     var size: CGSize
