@@ -346,7 +346,7 @@ struct GlowPalette {
     var sat: Double
     /// Play / pause: the play ring's and the pause bloom's tints.
     var playTint: Color, pauseTint: Color
-    /// The line band's two colours (the room's wash, lifted toward the page).
+    /// The line band's two colours (the cover's hues, lifted toward the page).
     var k1: Color, k3: Color
     var primary: Color
 
@@ -362,8 +362,10 @@ struct GlowPalette {
         t = GeminiWash.hsl(hueT, sat, 0.62, 1)
         playTint = GeminiWash.hsl(hueP, dark ? 0.75 : 0.85, dark ? 0.6 : 0.62, 1)
         pauseTint = GeminiWash.hsl(hueT, dark ? 0.6 : 0.7, dark ? 0.6 : 0.62, 1)
-        k1 = Self.lift(primary, dark)
-        k3 = Self.lift(tertiary, dark)
+        // Lifted from the cover's hues, as Android lifts the cover's own palette: the scheme's
+        // primary is a dark tone on a light page, and lifted it greyed the page instead of lighting it.
+        k1 = Self.lift(p, dark)
+        k3 = Self.lift(t, dark)
     }
 
     /// The peak alpha a burst uses (Android GlowPalette.cap).
