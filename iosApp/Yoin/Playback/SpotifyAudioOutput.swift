@@ -1960,21 +1960,43 @@ final class SpotifyAudioOutput: AudioOutput {
                 return self.apply(now)
             }
             guard self.adopt?() == true else { return }
-            PlayTrace.log("SP adopt \(Self.describe(now))")
-            self.adopted = true
-            self.generation += 1
-            self.startTicking()
-            let here = self.device.matches(now)
-            // A Mac's own Spotify keeps its id (the Web API drives it); it just isn't named.
-            self.target = here && !self.device.isMac ? nil : now.deviceId
-            SpotifyPlayingDevice.shared.name = here ? nil : now.deviceName
-            self.apply(now)
-            if self.isHere {
-                self.connectHereOrPoll()
-            } else {
-                self.startPolling()
-            }
+            self.follow(now)
         }
+    }
+
+    /// Spotify plays [now] with nothing of Yoin's loaded: Yoin shows it and is its remote there.
+    private func follow(_ now: SpotifySource.PlayerNow) {
+        PlayTrace.log("SP adopt \(Self.describe(now))")
+        adopted = true
+        generation += 1
+        startTicking()
+        let here = device.matches(now)
+        // A Mac's own Spotify keeps its id (the Web API drives it); it just isn't named.
+        target = here && !device.isMac ? nil : now.deviceId
+        SpotifyPlayingDevice.shared.name = here ? nil : now.deviceName
+        apply(now)
+        if isHere {
+            connectHereOrPoll()
+        } else {
+            startPolling()
+        }
+    }
+
+    /// A hand-off of a Spotify song from another of the listener's devices (audit 11-15 #53): Spotify
+    /// already playing that song anywhere is followed where it plays, as the watch would, instead of being
+    /// started again (which restarted it on the sender or the speaker and swapped Spotify's own playlist
+    /// or radio for the album). False: it plays nowhere (or me/player can't say), and the hand-off starts
+    /// it as before. Whether the sound should move to this device is a product call left open.
+    func followIfPlaying(trackId: String) async -> Bool {
+        guard !silent, let control else { return false }
+        let uri = "spotify:track:\(trackId)"
+        guard let now = try? await control.playerNow(), now.isPlaying,
+              now.trackURI == uri || now.linkedFromURI == uri else { return false }
+        PlayTrace.log("SP hand-off: Spotify already plays it on \(now.deviceName); following it there")
+        guard adopt?() == true else { return false }
+        // Already Spotify's remote here: the read is applied as any other (it follows the device).
+        if isDriving { apply(now) } else { follow(now) }
+        return true
     }
 
     nonisolated static let watchSec: Double = 10

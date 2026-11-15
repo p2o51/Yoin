@@ -14,7 +14,7 @@ final class PlaybackSystem {
     let engine: PlayerEngine
     private let nowPlaying = NowPlayingInfoController()
     private var observers: [NSObjectProtocol] = []
-    private var commandsInstalled = false
+    private(set) var commandsInstalled = false
     private var sessionActive = false
     /// Paused by an interruption (a call), so its end may resume.
     private var pausedByInterruption = false
@@ -105,6 +105,9 @@ final class PlaybackSystem {
         return system
     }
 
+    /// Yoin's own player makes the sound (a song is loaded and it isn't MusicKit's or the Spotify app's).
+    private var ownsSound: Bool { engine.currentTrack != nil && !isAppleMusic }
+
     /// The current song plays through MusicKit.
     private var isAppleMusic: Bool {
         // The Spotify app, like MusicKit, owns its own sound, lock screen card and commands.
@@ -156,7 +159,7 @@ final class PlaybackSystem {
             guard retry else { return }
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(300))
-                guard let self, self.isAppleMusic, self.sessionActive else { return }
+                guard let self, !self.ownsSound, self.sessionActive else { return }
                 self.deactivateSession(retry: false)
             }
         }
@@ -179,8 +182,10 @@ final class PlaybackSystem {
             let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
                 .flatMap(AVAudioSession.RouteChangeReason.init)
             MainActor.assumeIsolated {
-                // Headphones out: pause, never blast the speaker (Android AUDIO_BECOMING_NOISY).
-                if reason == .oldDeviceUnavailable { self?.engine.pause() }
+                // Headphones out: pause, never blast the speaker (Android AUDIO_BECOMING_NOISY). Only Yoin's
+                // own sound: AirPods back in their case never pause Spotify on a speaker or Apple Music
+                // (audit 11-15 #54).
+                if reason == .oldDeviceUnavailable, self?.ownsSound == true { self?.engine.pause() }
                 // Auto quality follows the route from the next song on.
                 self?.engine.streamQualityDidChange()
             }
@@ -189,9 +194,12 @@ final class PlaybackSystem {
             forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.sessionActive = false
-                self?.commandsInstalled = false
-                self?.engine.pause()
+                guard let self else { return }
+                self.sessionActive = false
+                // The old targets go before the commands read as uninstalled, so a reinstall doesn't answer
+                // each command twice (audit 11-15 #56).
+                self.removeRemoteCommands()
+                if self.ownsSound { self.engine.pause() }
             }
         })
     }
@@ -210,7 +218,7 @@ final class PlaybackSystem {
                 engine.pause()
             }
         case .ended:
-            if pausedByInterruption, options.contains(.shouldResume) { engine.resume() }
+            if pausedByInterruption, options.contains(.shouldResume), ownsSound { engine.resume() }
             pausedByInterruption = false
         default:
             break
@@ -352,10 +360,22 @@ final class PlaybackSystem {
         }
     }
 
+    /// Nothing of Yoin's own makes sound (stopped, an account switch, or Spotify or Apple Music taken
+    /// over without a start of ours): the lock screen commands and the audio session go, as they do when
+    /// such a song starts (audit 11-15 #56: they stayed, and a blank Yoin card could steer the speaker). A
+    /// pause from an interruption is no longer ours to undo (#54).
+    private func releaseIfNotOurs() {
+        guard !ownsSound else { return }
+        pausedByInterruption = false
+        removeRemoteCommands()
+        if sessionActive { deactivateSession() }
+    }
+
     /// The app's system (not a test's): it feeds SpotifyHeartRefresh.
     private var watchesSpotifyHeart = false
 
     private func refreshNowPlaying() {
+        releaseIfNotOurs()
         readSpotifyModesIfNew()
         if watchesSpotifyHeart { SpotifyHeartRefresh.shared.observe(engine.currentTrack) }
         refreshRemoteCommandState()

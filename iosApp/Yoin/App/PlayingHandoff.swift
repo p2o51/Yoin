@@ -280,6 +280,14 @@ extension AppModel {
             if store.generation != library { queue = nil }
         }
         guard gen == startGeneration else { return }
+        // Spotify already playing the song (on the sender, or a speaker) is followed, not started again
+        // (audit 11-15 #53).
+        if h.provider == SpotifyMapping.provider, let spotify = playbackSystem.spotifyOutput,
+           await spotify.followIfPlaying(trackId: h.songId) {
+            guard gen == startGeneration else { return }
+            if isPad { openNowPlayingOnPad() } else { setNowPlaying(expanded: true) }
+            return
+        }
         guard let (entries, index, from) = queue else {
             PlaylistActions.shared.show(String(localized: "Couldn't load this song here."))
             return

@@ -27,8 +27,19 @@ an iPad took its own Spotify for another device.
 ## Leaving the context
 
 - **Edits:** a song queued by the listener, a reorder or a removal ends the context, but only at the next song, never mid-song. Spotify's context moves on. If that isn't Yoin's next song, the end starts Yoin's next as a lone song, and from there it is song by song as before.
-- **Remote re-hand timing:** another device's list is re-handed when the queue changes. That happens at once only in a song's first 3 s. Later in the song it waits for the switch, and a read right at the expected end catches the stale next.
+- **Remote re-hand timing:** another device's list is re-handed when the queue changes. That happens at once only in a song's first 3 s. Later in the song it waits for the switch. Reads 0.4 s and 1.9 s after every song's expected end catch the stale next; they run on a task of their own, so the 4 s poll no longer cancels them (audit 11-15 #45). A device moved over from this iPhone holds no handed list (this iPhone hands one song at a time): it is handed the queue at its next song's start (#23).
+- **Edits before the lock:** an edit on a speaker after a song's first 3 s leaves Spotify on the old list while Yoin is away. Back in front, a song of that list that is still ahead in Yoin's queue is followed there, and the queue is handed again from it (#22).
 - **Wake starts:** a start that wakes the Spotify app (`authorizeAndPlayURI`) plays the song alone.
+
+## The next song on this iPhone (loose list)
+
+Yoin puts its next song into Spotify's queue once per song, when the song is seen playing (App Remote refused it right at a start or an advance with -3000). App Remote only pushes a state on a change, so its state is also read 2 s and 5 s after a start or an advance, the next goes in on every new connection while it hasn't, and it goes in before the connection closes when Yoin leaves the foreground (under a background task, capped at 3 s). A song that stops at its end with a next Spotify never had carries the queue on to it instead of ending it (audit 11-15 #15).
+
+## The lock screen while Yoin drives another device
+
+Spotify on a speaker or a computer with Yoin as its remote has no lock screen or Control Center card from Yoin (audit 11-15 #55). iOS shows a card only for an app that is making sound, and Yoin isn't: its own lock screen commands and audio session are let go whenever the song is Spotify's or Apple Music's, or nothing is loaded (#56). The card there is the Spotify app's, and it shows once Spotify has been opened on this iPhone. Yoin doesn't fake one with a silent player. Android is the same: the notification there is the Spotify app's own.
+
+For the same reason, headphones or AirPods going away, a call ending and a media services reset only pause or resume Yoin's own sound, never Spotify on a speaker (#54).
 
 ## Not verified
 

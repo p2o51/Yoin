@@ -205,6 +205,41 @@ that speaker first with Switch through Spotify (a tap opens `spotify:`), keeps e
 seen for 30 days as Recently used, and reads the list again when Yoin comes back to the front.
 Two launches show it: one with `Kitchen` listed, then `_qa/devices` without it and the Sonos playing.
 
+### Spotify on a real iPhone: what the 11-15 audit fixes still need
+
+These run only against the real Spotify app (App Remote can't be faked on a device). Each item names
+the audit entry; the code is in, the device run isn't.
+
+- [ ] Spotify swiped away, crashed or updated with Yoin in front (#7): Yoin shows paused within a
+      second, reads me/player every 4 s, and Play says Open Spotify. Spotify playing on with App
+      Remote gone: Yoin follows the next song, a pause from Spotify's lock screen card, and the clock.
+- [ ] A connection that reads as connected but answers nothing (#5, #6): pause, play, Next and a
+      tapped lyric line each go out again on a fresh connection, or through the Web API; the button
+      doesn't flip back. A minute later the same thing still recovers (the gap is 15 s once the new
+      connection has spoken).
+- [ ] Paused for a long while, then Play (#9): the first tap says Open Spotify; Open Spotify, come
+      back, and Spotify plays without a second tap. Spotify's own song with no Yoin queue (#38): a
+      failed Play shows the banner on Spotify's song, and Retry resumes it there.
+- [ ] App Remote out of reach at a song's end (#8): no trip to the Spotify app; Yoin holds with
+      Open Spotify or follows what Spotify plays. Tapping songs a few seconds apart wakes Spotify
+      once at most.
+- [ ] Lock right after a start from an album (#15): Spotify carries on to the second song.
+- [ ] A speaker paused, then Next, Previous or a queue row (#21): the song plays on the speaker
+      (paused if it was), never on the iPhone. An edit on a speaker after 3 s, then the lock
+      screen for a few songs (#22): back in front, Yoin's queue follows where the speaker got to.
+      Moved to a speaker from the iPhone (#23): the album plays on past the next song.
+- [ ] A speaker: a pause, a play or a tapped lyric line doesn't bounce back (#44); a pause and a
+      play tapped in a row land as the last one (#51); a seek during a slow start is kept (#60).
+- [ ] AirPods back in the case while Spotify plays on a speaker (#54): the speaker keeps playing.
+      After an account switch from a Subsonic song to Spotify (#56): no blank Yoin card on the lock
+      screen.
+- [ ] Hand-off of a Spotify song to an iPad or Mac while it plays (#53): it isn't started again on
+      the sender or the speaker; the iPad shows it as Spotify's remote.
+
+Spotify on a speaker or a computer has no lock screen card from Yoin (#55): iOS gives one only to the
+app making sound. The card is the Spotify app's; open Spotify once on this iPhone and it appears.
+Don't file this as a bug (docs/spotify-background.md).
+
 ## 5. The iPad app on a Mac
 
 The same target runs on a Mac as "Designed for iPad". Rules that differ there hang on one flag,
