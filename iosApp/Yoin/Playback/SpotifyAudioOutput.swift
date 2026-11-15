@@ -202,8 +202,21 @@ final class SpotifyAudioOutput: AudioOutput {
         })
     }
 
-    var currentTimeSec: Double {
+    /// The clock as the engine reads it: never past the song's known length (audit 11-15 #57; Android
+    /// clamps it the same way).
+    var currentTimeSec: Double { Self.shownTime(rawTimeSec, durationSec: stateDurationSec) }
+
+    /// The clock unclamped: a run past the end is how an end App Remote didn't report is noticed.
+    private var rawTimeSec: Double {
         playing ? lastTime + Date().timeIntervalSince(lastTick) : lastTime
+    }
+
+    /// A repeating timer that also fires while a finger scrolls (the default run loop mode doesn't: the
+    /// lyrics and the clock froze under a scroll, Spotify's songs only; audit 11-15 #58).
+    private static func commonTimer(_ interval: Double, _ body: @escaping @MainActor () -> Void) -> Timer {
+        let t = Timer(timeInterval: interval, repeats: true) { _ in MainActor.assumeIsolated { body() } }
+        RunLoop.main.add(t, forMode: .common)
+        return t
     }
 
     func nextLoad(_ kind: OutputLoadKind) { nextKind = kind }
@@ -1504,10 +1517,11 @@ final class SpotifyAudioOutput: AudioOutput {
         guard isDriving, !silent, let control else { return }
         let gen = generation
         let now: SpotifySource.PlayerNow?
+        let sent = Date()
         do { now = try await control.playerNow() } catch { return }
         guard gen == generation, control === self.control else { return }
         PlayTrace.log("SP end read \(Self.describe(now))")
-        apply(now)
+        apply(now, roundTripSec: Date().timeIntervalSince(sent))
     }
 
     /// Spotify moved on to [uri] by itself, beyond the next it was handed (it ran through its list or its
@@ -1918,9 +1932,7 @@ final class SpotifyAudioOutput: AudioOutput {
     private func startWatching() {
         guard watchTimer == nil, !silent, control != nil, UIApplication.shared.applicationState != .background
         else { return }
-        watchTimer = Timer.scheduledTimer(withTimeInterval: Self.watchSec, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.watch() }
-        }
+        watchTimer = Self.commonTimer(Self.watchSec) { [weak self] in self?.watch() }
         watch()
     }
 
@@ -2114,9 +2126,7 @@ final class SpotifyAudioOutput: AudioOutput {
 
     private func startPolling() {
         guard pollTimer == nil, !silent, UIApplication.shared.applicationState != .background else { return }
-        pollTimer = Timer.scheduledTimer(withTimeInterval: Self.pollSec, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh(fromPoll: true) }
-        }
+        pollTimer = Self.commonTimer(Self.pollSec) { [weak self] in self?.refresh(fromPoll: true) }
     }
 
     private func stopPolling() {
@@ -2181,6 +2191,7 @@ final class SpotifyAudioOutput: AudioOutput {
             self.refreshInFlight = true
             defer { if self.refreshToken == token { self.refreshInFlight = false } }
             let now: SpotifySource.PlayerNow?
+            let sent = Date()
             do { now = try await control.playerNow() } catch {
                 // A failed read keeps what was last seen (only 204 means nothing plays).
                 PlayTrace.log("SP read failed \(SpotifySource.message(for: error))")
@@ -2188,7 +2199,7 @@ final class SpotifyAudioOutput: AudioOutput {
             }
             guard !Task.isCancelled else { return }
             PlayTrace.log("SP read \(Self.describe(now))")
-            self.apply(now)
+            self.apply(now, roundTripSec: Date().timeIntervalSince(sent))
         }
     }
 
@@ -2293,8 +2304,9 @@ final class SpotifyAudioOutput: AudioOutput {
                     albumId: Self.albumId(fromURI: s.albumURI)))
     }
 
-    /// A Web API read: nothing active is Spotify stopped where it was.
-    private func apply(_ now: SpotifySource.PlayerNow?) {
+    /// A Web API read: nothing active is Spotify stopped where it was. [roundTripSec]: how long the read
+    /// took, when known (its position is that much older; see readPositionMs).
+    private func apply(_ now: SpotifySource.PlayerNow?, roundTripSec: Double = 0) {
         guard !starting, !awaitingWake, isDriving else { return }
         if awaitingPlay, !isHere, let current {
             startEmpties = now?.trackURI == nil ? startEmpties + 1 : 0
@@ -2363,11 +2375,27 @@ final class SpotifyAudioOutput: AudioOutput {
         case "context": SPTAppRemotePlaybackOptionsRepeatMode.context.rawValue
         default: SPTAppRemotePlaybackOptionsRepeatMode.off.rawValue
         }
-        apply(State(uri: uri, isPaused: !now.isPlaying, positionMs: now.progressMs, durationMs: now.durationMs,
+        let positionMs = Self.readPositionMs(now.progressMs, roundTripSec: roundTripSec,
+                                             sameSongPlaying: now.isPlaying && playing && uri == shownURI,
+                                             localSec: currentTimeSec)
+        apply(State(uri: uri, isPaused: !now.isPlaying, positionMs: positionMs, durationMs: now.durationMs,
                     shuffling: now.shuffle, repeatRaw: repeatRaw, title: now.trackName, artist: now.artistName,
                     album: now.albumName, coverURL: now.coverURL, albumId: now.albumId))
         armEndReads()
     }
+
+    /// The position a read sets the clock to (audit 11-15 #63: each 4 s read set it a network trip behind,
+    /// the lyrics trailed and now and then stepped back a line). The same song playing on: the read plus
+    /// half its round trip, and the clock left alone when that is within [clockSlackSec] of it. Anything
+    /// else (another song, a pause or a play, a seek) takes the read as it is.
+    nonisolated static func readPositionMs(_ progressMs: Int, roundTripSec: Double, sameSongPlaying: Bool,
+                                           localSec: Double) -> Int {
+        guard sameSongPlaying, roundTripSec > 0 else { return progressMs }
+        let estimated = Double(progressMs) / 1000 + roundTripSec / 2
+        return abs(estimated - localSec) < clockSlackSec ? Int(localSec * 1000) : Int(estimated * 1000)
+    }
+
+    nonisolated static let clockSlackSec: Double = 0.75
 
     /// App Remote names a cover `spotify:image:<id>`; Spotify serves it at i.scdn.co/image/<id>.
     nonisolated static func coverURL(imageIdentifier: String) -> URL? {
@@ -2417,6 +2445,8 @@ final class SpotifyAudioOutput: AudioOutput {
             }
         }
         if let current, uri == current.trackURI {
+            // The engine waits for the load to finish buffering; Spotify never said (audit 11-15 #43).
+            events?.outputIsBufferingDidChange(false)
             // Spotify's own song keeps Spotify's modes; only the queue's are the engine's.
             takeOverModes(shuffling: s.shuffling, repeatRaw: s.repeatRaw)
             if externalURI != nil {
@@ -2581,22 +2611,20 @@ final class SpotifyAudioOutput: AudioOutput {
 
     private func startTicking() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, self.playing else { return }
-                let t = self.currentTimeSec
-                self.events?.outputTimeDidChange(Self.shownTime(t, durationSec: self.stateDurationSec))
-                // Connected or not (audit 11-15 #7: a dropped connection never asked); a poll already reads.
-                if self.endCheckedURI == nil, Self.overran(timeSec: t, durationSec: self.stateDurationSec) {
-                    if self.isHere, self.pollTimer == nil {
-                        self.endCheckedURI = self.shownURI
-                        PlayTrace.log("SP ran past the song's end with no state: asking me/player")
-                        self.watch(overrun: true)
-                    } else if !self.isHere {
-                        // A speaker: a read now, not at the next poll (audit 11-15 #45).
-                        self.endCheckedURI = self.shownURI
-                        Task { await self.readOnce() }
-                    }
+        timer = Self.commonTimer(0.25) { [weak self] in
+            guard let self, self.playing else { return }
+            let t = self.rawTimeSec
+            self.events?.outputTimeDidChange(Self.shownTime(t, durationSec: self.stateDurationSec))
+            // Connected or not (audit 11-15 #7: a dropped connection never asked); a poll already reads.
+            if self.endCheckedURI == nil, Self.overran(timeSec: t, durationSec: self.stateDurationSec) {
+                if self.isHere, self.pollTimer == nil {
+                    self.endCheckedURI = self.shownURI
+                    PlayTrace.log("SP ran past the song's end with no state: asking me/player")
+                    self.watch(overrun: true)
+                } else if !self.isHere {
+                    // A speaker: a read now, not at the next poll (audit 11-15 #45).
+                    self.endCheckedURI = self.shownURI
+                    Task { await self.readOnce() }
                 }
             }
         }

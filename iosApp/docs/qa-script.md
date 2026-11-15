@@ -235,6 +235,11 @@ the audit entry; the code is in, the device run isn't.
       screen.
 - [ ] Hand-off of a Spotify song to an iPad or Mac while it plays (#53): it isn't started again on
       the sender or the speaker; the iPad shows it as Spotify's remote.
+- [ ] Spotify lyrics and clock (#57, #58, #63): the time never passes the song's length; the
+      highlighted line and the clock keep moving while a finger scrolls the lyrics, a note or the
+      queue; on a speaker the line keeps up with the sound. Full-screen lyrics open with the song and
+      artist lit before the first line, and a tap there goes back to 0:00 (#62, any source). A Home
+      lyric card's Play from this line starts a Spotify song at the line, no intro first (#43).
 
 Spotify on a speaker or a computer has no lock screen card from Yoin (#55): iOS gives one only to the
 app making sound. The card is the Spotify app's; open Spotify once on this iPhone and it appears.

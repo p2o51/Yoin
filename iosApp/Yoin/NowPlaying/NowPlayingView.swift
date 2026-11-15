@@ -1404,11 +1404,11 @@ struct NowPlayingView: View, Equatable {
             }
             return
         }
-        // Tap a timed line: seek there and follow again.
+        // Tap a timed line: seek there and follow again (the title row, -1: back to the start; #62).
         guard synced, i < times.count, engineTrack != nil else { return }
         lyricsFollow = true
         lyricsRecenterTick += 1
-        model.player.seek(to: Double(times[i]) / 1000)
+        model.player.seek(to: i < 0 ? 0 : Double(times[i]) / 1000)
         glow.lineTapped()
     }
 
@@ -2159,6 +2159,9 @@ struct NowPlayingView: View, Equatable {
                             actedScrub: demo?.scrub,
                             onScrubbing: { touch("progress", $0) },
                             onScrubMove: { glowScrub($0) }) { fraction in
+                // A length not known yet (a Spotify song before its first state) is the bar's 1 s stand-in:
+                // the seek would land at 0-1 s (audit 11-15 #61).
+                guard model.player.currentTrack == nil || model.player.progress.durationSec > 0 else { return }
                 model.player.seek(to: fraction * duration)
                 glowSeekReleased(fraction)
             }
