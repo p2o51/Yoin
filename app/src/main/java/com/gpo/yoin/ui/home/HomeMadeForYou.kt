@@ -16,6 +16,7 @@ import com.gpo.yoin.data.source.spotify.madeForYou
 import com.gpo.yoin.data.source.spotify.madeForYouKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,11 +69,19 @@ class MadeForYouViewModel internal constructor(
         if (readAt != 0L && SystemClock.elapsedRealtime() - readAt < REFRESH_AFTER_MS) return
         val browser = SpotifyContentBridge.browser ?: return
         refresh = viewModelScope.launch {
-            val shelf = browser.madeForYou().getOrNull()?.forHomeShelf() ?: return@launch
-            if (readFor != profileId) return@launch
-            readAt = SystemClock.elapsedRealtime()
-            _items.value = shelf
-            withContext(Dispatchers.IO) { store.save(profileId, shelf) }
+            // App Remote's first connect after a cold start can take half a minute (tablet,
+            // 2026-11-15: a timeout, then a retry that connected), longer than one read waits:
+            // try again a few times rather than leave the shelf empty until Home's next start.
+            for (wait in RETRY_DELAYS_MS) {
+                delay(wait)
+                if (readFor != profileId) return@launch
+                val shelf = browser.madeForYou().getOrNull()?.forHomeShelf() ?: continue
+                if (readFor != profileId) return@launch
+                readAt = SystemClock.elapsedRealtime()
+                _items.value = shelf
+                withContext(Dispatchers.IO) { store.save(profileId, shelf) }
+                return@launch
+            }
         }
     }
 
@@ -86,6 +95,7 @@ class MadeForYouViewModel internal constructor(
 
     private companion object {
         const val REFRESH_AFTER_MS = 10L * 60 * 1_000
+        val RETRY_DELAYS_MS = listOf(0L, 5_000L, 10_000L, 20_000L, 30_000L)
     }
 }
 

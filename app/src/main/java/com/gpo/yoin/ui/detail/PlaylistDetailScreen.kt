@@ -1711,11 +1711,16 @@ private fun PlaylistHeroMeta(
                     style = MaterialTheme.typography.bodyLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Text(
-                    text = content.totalDuration?.takeIf { it > 0 }?.let(::formatTotalDuration) ?: "—",
-                    style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Songs without durations (a Spotify-made playlist read over App Remote) leave the line out
+                // rather than show "—" under a count that is there.
+                val totalDuration = content.totalDuration?.takeIf { it > 0 }?.let(::formatTotalDuration)
+                if (totalDuration != null || count == 0) {
+                    Text(
+                        text = totalDuration ?: "—",
+                        style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (content.owner.isNotBlank()) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
