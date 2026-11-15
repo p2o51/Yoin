@@ -94,6 +94,14 @@ final class PlaybackSystem {
                 let model = AppModel.shared
                 NowPlayingData.shared.toggleFavorite(t, client: model.session.client, apple: model.store.apple)
             })
+        // The heart on Spotify's songs is asked again on song changes, pauses, the foreground and a ticker.
+        system.watchesSpotifyHeart = true
+        SpotifyHeartRefresh.shared.start { [weak engine = system.engine] in engine?.currentTrack }
+        system.observers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak engine = system.engine] _ in
+            MainActor.assumeIsolated { SpotifyHeartRefresh.shared.observe(engine?.currentTrack, force: true) }
+        })
         return system
     }
 
@@ -344,8 +352,12 @@ final class PlaybackSystem {
         }
     }
 
+    /// The app's system (not a test's): it feeds SpotifyHeartRefresh.
+    private var watchesSpotifyHeart = false
+
     private func refreshNowPlaying() {
         readSpotifyModesIfNew()
+        if watchesSpotifyHeart { SpotifyHeartRefresh.shared.observe(engine.currentTrack) }
         refreshRemoteCommandState()
         if isAppleMusic {
             // Clear our card once; after that the card is MusicKit's.

@@ -303,7 +303,10 @@ struct TrackMenuSheet: View {
 
     /// Favorite, or Apple Music's add to library (Now Playing's + / ✓ button).
     private var favoriteQuick: Quick? {
-        guard let t = favoriteTrack else { return nil }
+        // A podcast episode can't be liked; the playing Spotify song, until its Liked Songs read answers, offers
+        // no heart that would be a guess (Now Playing's heart waits the same way).
+        guard let t = favoriteTrack, !SpotifyEpisodes.isEpisode(t),
+              context.kind != .nowPlaying || NowPlayingData.shared.isHeartKnown(t) else { return nil }
         let data = NowPlayingData.shared
         let on = data.isFavorite(t)
         let library = t.provider == AppleMusicMapping.provider

@@ -130,15 +130,14 @@ final class NowPlayingData {
             return
         }
         if t.provider == SpotifyMapping.provider {
-            // Spotify has no lyrics to read (the providers find them); the heart is Liked Songs.
-            if let spotify = AppModel.shared.store.spotify, !hearts.hasReport(provider: t.provider, songId: t.id),
-               !infoRequested.contains(k) {
-                infoRequested.insert(k)
-                let gen = accountGeneration
-                let saved = await spotify.isSaved(t.id)
-                guard gen == accountGeneration else { return }
-                if let saved { hearts.report(saved, provider: t.provider, songId: t.id) } else { infoRequested.remove(k) }
+            // A podcast episode is no song: no lyrics to look for, no heart.
+            if SpotifyEpisodes.isEpisode(t) {
+                if lyrics[k] == nil { lyrics[k] = LyricsState.none }
+                return
             }
+            // Spotify has no lyrics to read (the providers find them); the heart is Liked Songs, asked
+            // fresh on every song and rechecked after (SpotifyHeartRefresh).
+            SpotifyHeartRefresh.shared.observe(t)
             await loadProviderLyrics(t, k)
             return
         }
@@ -271,6 +270,7 @@ final class NowPlayingData {
             }
         }
         // Spotify's lyrics come from the providers too (Codex N24): the next song's are ready for the outro.
+        if SpotifyEpisodes.isEpisode(t) { return }
         if t.provider == AppleMusicMapping.provider || t.provider == SpotifyMapping.provider {
             await loadProviderLyrics(t, k)
         } else if let client, t.provider == MediaRef.companion.PROVIDER_SUBSONIC {
@@ -332,6 +332,8 @@ final class NowPlayingData {
     /// Gemini's About (when a key is saved; once per song, cached) alongside
     /// the server's facts.
     func loadAbout(_ t: PlayableTrack, client: SubsonicClient?) async {
+        // A podcast episode: the entry's facts only, no song lookup.
+        if SpotifyEpisodes.isEpisode(t) { return await loadFacts(t, client: client) }
         let (title, artist, album) = (t.title, t.artist, t.album)
         let gemini = Task { await SongAboutLoader.shared.ensure(title: title, artist: artist, album: album) }
         await loadFacts(t, client: client)
@@ -374,13 +376,24 @@ final class NowPlayingData {
     // MARK: Heart
 
     func isFavorite(_ t: PlayableTrack) -> Bool {
-        hearts.isFavorite(provider: t.provider, songId: t.id, known: t.starred)
+        hearts.isFavorite(provider: t.provider, songId: t.id, known: known(t))
+    }
+
+    /// Whether the heart can be shown as it is: false for a Spotify song whose Liked Songs read hasn't
+    /// answered (or failed), where an empty heart would be a guess.
+    func isHeartKnown(_ t: PlayableTrack) -> Bool {
+        t.provider != SpotifyMapping.provider || hearts.isKnown(provider: t.provider, songId: t.id, known: known(t))
+    }
+
+    /// The song's own copy of its heart; on Spotify a fresh read (SpotifyHeartRefresh) outranks it.
+    private func known(_ t: PlayableTrack) -> Bool? {
+        t.provider == SpotifyMapping.provider && hearts.hasReport(provider: t.provider, songId: t.id) ? nil : t.starred
     }
 
     /// Optimistic: the heart flips at once and flips back if the server says
     /// no (`FavoritesStore`; Apple Music adds to the library only).
     func toggleFavorite(_ t: PlayableTrack, client: SubsonicClient?, apple: AppleMusicSource? = nil) {
-        hearts.toggle(provider: t.provider, songId: t.id, known: t.starred, client: client, apple: apple)
+        hearts.toggle(provider: t.provider, songId: t.id, known: known(t), client: client, apple: apple)
     }
 
     // MARK: Rating

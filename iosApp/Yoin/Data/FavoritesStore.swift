@@ -41,6 +41,33 @@ final class FavoritesStore {
         reported[Self.key(provider: provider, songId: songId)] != nil
     }
 
+    /// Whether anything at all is known of the song's heart: a tap here, the caller's copy or a report.
+    func isKnown(provider: String, songId: String, known: Bool? = nil) -> Bool {
+        let k = Self.key(provider: provider, songId: songId)
+        return chosen[k] != nil || known != nil || reported[k] != nil
+    }
+
+    /// What a fresh read of the source is checked against when it answers ([refresh]).
+    struct ReadToken: Equatable {
+        fileprivate var generation: Int
+        fileprivate var writes: Int
+    }
+
+    func readToken(provider: String, songId: String) -> ReadToken {
+        ReadToken(generation: generation, writes: writes[Self.key(provider: provider, songId: songId)] ?? 0)
+    }
+
+    /// A fresh read of the source (Spotify's recheck, Android SpotifySavedStateRefresher): it replaces what
+    /// was reported and an earlier tap here gives way to it (the song may have been liked or unliked in
+    /// the Spotify app since). Dropped when a tap came after the read began, or one is still going out.
+    func refresh(_ starred: Bool, provider: String, songId: String, token: ReadToken) {
+        let k = Self.key(provider: provider, songId: songId)
+        guard token == readToken(provider: provider, songId: songId), pending[k] == nil, !sending.contains(k) else { return }
+        if reported[k] != starred { reported[k] = starred }
+        confirmed[k] = starred
+        if chosen[k] != nil { chosen[k] = nil }
+    }
+
     /// The source's answer; the first one stands unless [overwrite].
     func report(_ starred: Bool, provider: String, songId: String, overwrite: Bool = false) {
         let k = Self.key(provider: provider, songId: songId)
@@ -97,6 +124,7 @@ final class FavoritesStore {
         let k = Self.key(provider: provider, songId: songId)
         let gen = generation
         if confirmed[k] == nil { confirmed[k] = was }
+        writes[k, default: 0] += 1
         chosen[k] = target
         onWrite?(provider, songId)
         guard let send else { return }
@@ -131,6 +159,8 @@ final class FavoritesStore {
     @ObservationIgnored private var pending: [String: (Bool, @MainActor () async throws -> Void)] = [:]
     /// Songs with a write loop running.
     @ObservationIgnored private var sending: Set<String> = []
+    /// Per song, how many taps it has had (a read begun before the last one is stale).
+    @ObservationIgnored private var writes: [String: Int] = [:]
 
     /// Sign-in / sign-out / another source: the user's taps and the source's answers belong to the old one.
     func reset() {
@@ -140,5 +170,6 @@ final class FavoritesStore {
         confirmed = [:]
         pending = [:]
         sending = []
+        writes = [:]
     }
 }

@@ -983,8 +983,17 @@ struct NowPlayingView: View, Equatable {
                 .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
                 .glowAnchor(.rating, glow)
                 .onChange(of: ratingBinding.wrappedValue) { _, v in glowRatingHold(v) }
+                // A podcast episode is no song: nothing to rate.
+                .opacity(isEpisode ? 0 : 1)
+                .allowsHitTesting(!isEpisode)
+                .animation(Yoin.effects, value: isEpisode)
                 Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
+                // Nor to like; a Spotify song whose Liked Songs read hasn't answered shows its heart dimmed
+                // and still, not an empty heart that would save it.
                 heart
+                    .opacity(isEpisode ? 0 : heartKnown ? 1 : 0.38)
+                    .allowsHitTesting(!isEpisode && heartKnown)
+                    .animation(Yoin.effects, value: isEpisode || !heartKnown)
                 Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
             }
             // World: pressing the rating lifts the heart with it; their glass
@@ -1065,6 +1074,11 @@ struct NowPlayingView: View, Equatable {
         withAnimation(Yoin.spatial) { ratingHeld = false }
         touch("rating", false)
     }
+
+    /// Spotify plays a podcast episode.
+    private var isEpisode: Bool { engineTrack.map(SpotifyEpisodes.isEpisode) ?? false }
+
+    private var heartKnown: Bool { engineTrack.map(data.isHeartKnown) ?? true }
 
     private var isFavorite: Bool {
         guard let t = engineTrack else { return demo?.favorite ?? favorite }
