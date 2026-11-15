@@ -10587,6 +10587,16 @@
           }
         }
       }
+    },
+    "Couldn't load Spotify's queue": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载 Spotify 的播放队列"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

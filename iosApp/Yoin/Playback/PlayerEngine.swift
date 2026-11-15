@@ -485,9 +485,11 @@ final class PlayerEngine {
     }
 
     /// The song auto-advance plays next (nil on repeat-one, which plays the
-    /// same song again, and at the end of a queue that doesn't repeat).
+    /// same song again, and at the end of a queue that doesn't repeat). Nil
+    /// under Spotify's own song too: Spotify, not the parked queue, decides
+    /// what follows it, so the outro has no next song to show.
     var upNextTrack: PlayableTrack? {
-        guard repeatMode != .one, let i = autoAdvanceIndex, i != currentIndex, queue.indices.contains(i) else { return nil }
+        guard externalTrack == nil, repeatMode != .one, let i = autoAdvanceIndex, i != currentIndex, queue.indices.contains(i) else { return nil }
         return queue[i].track
     }
 

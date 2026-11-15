@@ -186,6 +186,7 @@ final class PlayerEngineTests: XCTestCase {
         XCTAssertFalse(engine.shuffle)
         XCTAssertEqual(engine.repeatMode, .all)
         XCTAssertEqual(ids, ["t1", "t2", "t3"])
+        XCTAssertNil(engine.upNextTrack, "the parked queue's next isn't what Spotify plays next")
         // A report that may predate the tap doesn't flip the button back.
         engine.spotifyModesDidChange(SpotifyModes(shuffle: false, repeatMode: .off))
         XCTAssertTrue(engine.shownShuffle)
