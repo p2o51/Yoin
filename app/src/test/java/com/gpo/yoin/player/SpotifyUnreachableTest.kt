@@ -373,7 +373,7 @@ class SpotifyUnreachableTest {
         slowComeBack(player, spotifyState = state(uri = "spotify:track:theirs", paused = false))
         advanceTimeBy(3_000)
         runCurrent()
-        assertEquals(ConnectionPhase.Connecting, snapshots.last().connectionPhase)
+        assertStillWaiting()
 
         appRemote.answerHeldConnects()
         advanceTimeBy(SPOTIFY_START_HEARD_TIMEOUT_MS + 2_000)
@@ -410,7 +410,7 @@ class SpotifyUnreachableTest {
         advanceTimeBy(3_000)
         runCurrent()
         assertEquals(1, spotifyLaunches)
-        assertEquals(ConnectionPhase.Connecting, snapshots.last().connectionPhase)
+        assertStillWaiting()
 
         appRemote.answerHeldConnects()
         advanceTimeBy(SPOTIFY_START_HEARD_TIMEOUT_MS + 2_000)
@@ -431,7 +431,7 @@ class SpotifyUnreachableTest {
         advanceTimeBy(2_500)
         runCurrent()
         assertTrue(appRemote.connects >= 3)
-        assertEquals(ConnectionPhase.Connecting, snapshots.last().connectionPhase)
+        assertStillWaiting()
 
         appRemote.failWith = null
         appRemote.answers = true
@@ -440,6 +440,12 @@ class SpotifyUnreachableTest {
 
         assertEquals(1, webStarts)
         assertEquals(song, snapshots.last().currentTrack)
+    }
+
+    /** No hint (asleep or otherwise) while the woken Spotify is given its time. */
+    private fun assertStillWaiting() {
+        assertNull(snapshots.last().connectionFailure)
+        assertTrue(snapshots.last().connectionPhase != ConnectionPhase.Error)
     }
 
     /** Yoin back from the Spotify it opened, which now takes its time to answer a connect. */

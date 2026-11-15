@@ -1002,7 +1002,13 @@ internal class SpotifyAppRemotePlayer(
         )
         wantsConnection = true
         if (replacePending) {
-            // A new start replaces whatever a hint held, and asks again from scratch.
+            // A new start replaces whatever a hint held, and asks again from scratch: a connect
+            // left out since the hint ([reportUnreachable]) may be one Spotify, asleep when it
+            // was made, never answers, so a fresh one is made for this start.
+            if (parked) {
+                connectJob?.cancel()
+                connectJob = null
+            }
             clearUnreachable()
             pendingOperations.clear()
             // Cancel the old start, including its confirmation wait. The mutex
