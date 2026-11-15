@@ -170,8 +170,8 @@ struct MemoriesBarRetreat: ViewModifier {
 /// Home's top under the status bar. The system scroll-edge effect only runs
 /// under a real bar, and Home has none (its header scrolls with the feed), so
 /// this is the album page's top there (TopEdgeBlur, 51 2026-11-14): its strong
-/// progressive blur in Home's top colour over the status bar, running out
-/// [tail] below it. It comes in once the feed has scrolled up under the status
+/// progressive blur in Home's top colour, solid over the status bar and easing
+/// out over [tail] below it. It comes in once the feed has scrolled up under the status
 /// bar (at rest it would frost the greeting) and steps aside for Library and
 /// Search, whose headers carry their own. Hidden under Now Playing, by the
 /// morph's progress (read here, so its frames re-render the band only).
@@ -179,17 +179,19 @@ struct StatusEdgeBand: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
 
-    /// How far below the status bar it runs out.
-    static let tail: CGFloat = 22
+    /// How far below the status bar it falls off: long enough to read as soft (51, 2026-11-15: 22 was short
+    /// and showed as an edge in dark).
+    static let tail: CGFloat = 44
 
     var body: some View {
         let shown = model.np.mounted ? 1 - min(max(model.np.progress, 0), 1) : (model.npExpanded ? 0 : 1)
         let home = model.section == .home && !model.searchActive && model.homeScrolledUnder
         GeometryReader { g in
+            let top = g.safeAreaInsets.top
             // Home's own colour (HomeView's scheme and page wash).
             ProgressiveEdgeBlur(tint: CoverScheme(seed: model.accent, dark: colorScheme == .dark).surfaceContainer,
-                                strong: true)
-                .frame(height: g.safeAreaInsets.top + Self.tail)
+                                strong: true, fadeFrom: Double(top / (top + Self.tail)))
+                .frame(height: top + Self.tail)
                 .ignoresSafeArea(edges: .top)
                 .opacity(home ? 1 : 0)
                 .animation(Yoin.effects, value: home)

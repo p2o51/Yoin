@@ -94,8 +94,9 @@ struct ArtistDetailView: View {
                     .background(alignment: .top) {
                         // The album page's top (51, 2026-11-14): its strong progressive blur in the page's
                         // top colour, from the top of the screen through the header and 4 past it, coming
-                        // in as content goes under (the album's comes in with the list's rise).
-                        ProgressiveEdgeBlur(tint: topTint, strong: true)
+                        // in as content goes under (the album's comes in with the list's rise). Denser than
+                        // the album's, so the big ring doesn't glow through behind the title (51, 2026-11-15).
+                        ProgressiveEdgeBlur(tint: topTint, strong: true, dense: true)
                             .frame(height: geo.safeAreaInsets.top + headerHeight + TopEdgeBlur.overhang)
                             .offset(y: -geo.safeAreaInsets.top)
                             .opacity(min(1, max(0, scrollY / Self.blurIn)))
