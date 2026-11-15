@@ -416,6 +416,36 @@ class LyricCandidateMatcherTest {
         assertEquals(0, matcher.pick(candidates, title = "Pop Sound", artist = "Kim Petras", durationMs = 171_172))
     }
 
+    /**
+     * Japanese Spotify's `摩天輪` / `ヒビ・ティエン` (244.8 s): nothing on QQ names Hebe Tien in a script that
+     * can be compared, and Luo Baiji's 摩天轮 leads. Its length doesn't fit, so it mustn't stand in.
+     */
+    @Test
+    fun should_returnNull_when_dominantUnverifiablePerformerIsOffLength() {
+        val candidates = listOf(
+            c("摩天轮", "罗百吉", seconds = 215),
+            c("摩天轮 (DJ版)", "罗百吉", seconds = 230),
+            c("摩天轮", "某翻唱", seconds = 245),
+        )
+
+        assertNull(matcher.pick(candidates, title = "摩天轮", artist = "ヒビ・ティエン", durationMs = 244_800))
+        assertEquals(0, matcher.pick(candidates, title = "摩天轮", artist = "ヒビ・ティエン"))
+    }
+
+    @Test
+    fun should_keepDominantPerformersFittingCut_when_anotherOfTheirCutsIsOffLength() {
+        val candidates = listOf(
+            c("I Knew You Were Trouble", "Taylor Swift", seconds = 300),
+            c("I Knew You Were Trouble", "Taylor Swift", seconds = 220),
+            c("I Knew You Were Trouble", "Party Hit Kings", seconds = 219),
+        )
+
+        assertEquals(
+            1,
+            matcher.pick(candidates, title = "I Knew You Were Trouble", artist = "テイラー・スウィフト", durationMs = 219_000),
+        )
+    }
+
     private fun c(title: String, vararg artists: String, album: String? = null) =
         LyricCandidateMatcher.Candidate(title = title, artists = artists.toList(), album = album)
 

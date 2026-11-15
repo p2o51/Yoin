@@ -207,6 +207,7 @@ class HomeEditBlockTest {
                 HomeSection.OtherProfiles,
                 HomeSection.LyricHighlight,
                 HomeSection.MemoryGrid,
+                HomeSection.MadeForYou,
             ),
             deps.controller.draft!!.enabledSections,
         )

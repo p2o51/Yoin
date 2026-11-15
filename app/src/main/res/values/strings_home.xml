@@ -34,6 +34,7 @@
     <string name="home_section_other_profiles">On Your Other Accounts</string>
     <string name="home_section_lyric_highlight">Lyric Cards</string>
     <string name="home_section_memory_grid">All Memories</string>
+    <string name="home_section_made_for_you">Made For You</string>
 
     <string name="home_section_activities_supporting">Your recent plays and visits</string>
     <string name="home_section_jump_back_in_supporting">Albums, songs and playlists</string>
@@ -44,6 +45,7 @@
     <string name="home_section_other_profiles_supporting">Albums and playlists your other accounts play most</string>
     <string name="home_section_lyric_highlight_supporting">Lyrics picked from your songs, tap to play from that line</string>
     <string name="home_section_memory_grid_supporting">Every note and score, on a grid that grows with you</string>
+    <string name="home_section_made_for_you_supporting">daylist, Discover Weekly, Daily Mixes and more from Spotify</string>
 
     <string name="home_placeholder_activities">No recent activity</string>
     <string name="home_placeholder_jump_back_in">Nothing to jump back into</string>
@@ -54,6 +56,7 @@
     <string name="home_placeholder_other_profiles">Nothing played on your other accounts lately</string>
     <string name="home_placeholder_lyric_highlight">No lyric cards yet</string>
     <string name="home_placeholder_memory_grid">No memories yet</string>
+    <string name="home_placeholder_made_for_you">Spotify\'s playlists for you show here</string>
 
     <string name="home_other_profiles_switch_title">Switch to %1$s?</string>
     <string name="home_other_profiles_switch_body">To play %1$s, Yoin switches to that account first. What\'s playing now stops.</string>

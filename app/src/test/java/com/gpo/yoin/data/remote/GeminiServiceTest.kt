@@ -9,6 +9,35 @@ import org.junit.Test
 class GeminiServiceTest {
 
     @Test
+    fun parseReleaseNames_readsTitleAndArtist() {
+        val parsed = GeminiService.parseReleaseNames(
+            "[TITLE]《摩天輪》[/TITLE]\n[ARTIST] 田馥甄 [/ARTIST]",
+            shownTitle = "Ferries wheel",
+            shownArtist = "ヒビ・ティエン",
+        )
+
+        assertEquals("摩天輪" to "田馥甄", parsed)
+    }
+
+    @Test
+    fun parseReleaseNames_isNull_when_modelIsUnsure() {
+        assertNull(
+            GeminiService.parseReleaseNames(
+                "[TITLE]N/A[/TITLE]\n[ARTIST]N/A[/ARTIST]",
+                shownTitle = "Ferries wheel",
+                shownArtist = "ヒビ・ティエン",
+            ),
+        )
+        assertNull(GeminiService.parseReleaseNames("I don't know this song.", "Ferries wheel", "ヒビ・ティエン"))
+    }
+
+    @Test
+    fun parseReleaseNames_isNull_when_answerIsTheShownNames() {
+        assertNull(GeminiService.parseReleaseNames("[TITLE]晴天[/TITLE][ARTIST]周杰倫[/ARTIST]", "晴天", "周杰倫"))
+    }
+
+
+    @Test
     fun should_useGemini31FlashLiteGaModel() {
         assertEquals("gemini-3.1-flash-lite", GeminiService.MODEL)
     }
