@@ -103,6 +103,8 @@ final class LibraryStore {
 
     var search: SearchHits?
     private(set) var searchPhase: Phase = .idle
+    /// Why the current search failed (shown with its Retry); nil when it didn't.
+    private(set) var searchFailure: String?
     /// A search kind's next page being read, or failed (Android searchPaging); a kind not here
     /// has more exactly when `search.more` says so.
     var searchPaging: [SearchKind: SongsMore] = [:]
@@ -210,6 +212,7 @@ final class LibraryStore {
         search = nil
         searchRequest = nil
         searchPhase = .idle
+        searchFailure = nil
         starredOverride = [:]
         hearts.reset()
         SubsonicShareLinks.shared.reset()
@@ -1395,10 +1398,11 @@ final class LibraryStore {
 
     func runSearch(_ query: String, scope: SearchScope = .library) async {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isReal, !q.isEmpty else { search = nil; searchRequest = nil; searchPhase = .idle; return }
+        guard isReal, !q.isEmpty else { search = nil; searchRequest = nil; searchPhase = .idle; searchFailure = nil; return }
         let request = SearchRequest(query: q, scope: searchesCatalog ? scope : .library)
         searchRequest = request
         searchPhase = .loading
+        searchFailure = nil
         searchPaging = [:]
         do {
             let hits: SearchHits
@@ -1433,6 +1437,7 @@ final class LibraryStore {
             log.error("search failed: \(message, privacy: .public)")
             // A failure is not "no results": the old request's rows go too.
             search = nil
+            searchFailure = message
             searchPhase = .failed
         }
     }

@@ -395,7 +395,9 @@ struct SearchView: View {
             case .playlists: r.playlists.isEmpty
             }
             if model.store.isReal && realState == .failed {
-                RetryRow(scheme: scheme) { Task { await model.store.runSearch(query, scope: scope.store) } }
+                RetryRow(scheme: scheme, message: model.store.searchFailure) {
+                    Task { await model.store.runSearch(query, scope: scope.store) }
+                }
                     .transition(.opacity.animation(Yoin.effects))
             } else if model.store.isReal && realState != .loaded {
                 RowSkeleton(scheme: scheme, rows: 5)
