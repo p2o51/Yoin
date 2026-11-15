@@ -140,6 +140,8 @@ struct ShellBar: View {
                     if !model.isIdle { pill.frame(width: PadDockMetrics.playerWidth) }
                 } else if model.isDetail, let album = model.detailAlbum {
                     playSplit(album)
+                        .disabled(model.detailPlayUnavailable)
+                        .opacity(model.detailPlayUnavailable ? 0.38 : 1)
                 } else {
                     navButton(.home)
                 }

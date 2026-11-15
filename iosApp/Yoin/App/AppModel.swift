@@ -520,6 +520,12 @@ final class AppModel {
 
     /// The album page is on screen (phone), so the bar takes its detail form.
     var isDetail: Bool { !isPad && !path.isEmpty }
+    /// A Spotify playlist whose songs Spotify didn't hand over: Play and Shuffle have nothing to start
+    /// (the page says why), so they read as unavailable instead of doing nothing.
+    var detailPlayUnavailable: Bool {
+        if case .playlist(let id) = path.last { return playlistInfo(id).tracksUnavailable }
+        return false
+    }
     /// The album whose scheme colors the detail bar: the album page's own,
     /// or an artist page's newest release.
     var detailAlbum: Album? {

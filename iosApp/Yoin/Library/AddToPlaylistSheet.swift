@@ -31,7 +31,23 @@ struct AddToPlaylistSheet: View {
                     .padding(.horizontal, 24)
                     .padding(.vertical, 8)
                 createRow
-                if let picks = actions.picks {
+                if let failure = actions.picksFailure {
+                    // A failed read isn't "no playlists": the reason, and Retry.
+                    HStack(spacing: 12) {
+                        Text(failure)
+                            .yoinRole(Tokens.type.bodyMedium)
+                            .foregroundStyle(app.onSurfaceVariant)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Retry") {
+                            Task { await actions.loadPicks(model.store, library: model.library) }
+                        }
+                        .font(.gsf(16, .medium))
+                        .foregroundStyle(app.primary)
+                        .frame(minHeight: 48)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 8)
+                } else if let picks = actions.picks {
                     ForEach(picks) { pick in row(pick) }
                 } else {
                     ForEach(0..<3, id: \.self) { _ in placeholderRow }

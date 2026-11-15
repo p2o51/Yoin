@@ -430,6 +430,8 @@ private struct PadColumns: View {
     /// reaches it).
     private func playSplit(_ play: PadDetailPlay, bottom: CGFloat) -> some View {
         play
+            .disabled(model.detailPlayUnavailable)
+            .opacity(model.detailPlayUnavailable ? 0.38 : 1)
             .padding(.leading, PadDockMetrics.side)
             .padding(.bottom, bottom)
             .animation(Yoin.spatial, value: bottom)
