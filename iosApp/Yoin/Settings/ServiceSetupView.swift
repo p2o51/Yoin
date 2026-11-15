@@ -690,6 +690,14 @@ struct ServiceSetupView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     CopyRow(value: SpotifyConfig.redirectURI, scheme: app)
                     CopyRow(value: SpotifyConfig.appRemoteRedirectURI, scheme: app)
+                    // App Remote also needs the app's iOS bundle ID on the Spotify app (as the welcome guide lists it).
+                    if let bundle = Bundle.main.bundleIdentifier {
+                        Text("iOS bundle ID")
+                            .yoinRole(Tokens.type.labelMedium)
+                            .foregroundStyle(app.onSurfaceVariant)
+                            .padding(.top, 4)
+                        CopyRow(value: bundle, scheme: app)
+                    }
                     field(String(localized: "Client ID"), placeholder: String(localized: "From your app on developer.spotify.com"),
                           text: $clientId, field: .clientId)
                         // The field brings a row's own inset; here it lines up with the copy rows.

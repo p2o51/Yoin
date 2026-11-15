@@ -239,7 +239,12 @@ final class SpotifyRemote {
         }
         guard let r = appRemote() else { return onFailure?("Add your Spotify Client ID in Settings") ?? () }
         r.authorizeAndPlay(uri) { [weak self] opened in
-            if !opened { self?.onFailure?(SpotifyFailureCopy.appMissing) }
+            guard !opened else { return }
+            // Installed but refused (a tester's 11-15 log said "Install the Spotify app" while Spotify was
+            // playing on that very iPhone): only a missing app is called missing.
+            let installed = SpotifyApp.isInstalled
+            PlayTrace.log("SR wake not opened installed=\(installed)")
+            self?.onFailure?(installed ? SpotifyFailureCopy.handOffRefused : SpotifyFailureCopy.appMissing)
         }
     }
 
@@ -489,7 +494,20 @@ extension SDKAppRemoteLink: SPTAppRemoteDelegate, SPTAppRemotePlayerStateDelegat
     }
 
     nonisolated func appRemote(_ appRemote: SPTAppRemote, didFailConnectionAttemptWithError error: Error?) {
-        MainActor.assumeIsolated { onConnectFailed?(error?.localizedDescription ?? "-") }
+        // The whole error, underlying ones too: "Connection attempt failed." alone said nothing of why
+        // (a tester's 11-15 log, every connect failing in 10 ms while Spotify played here).
+        let text = error.map { Self.describe($0 as NSError) } ?? "-"
+        MainActor.assumeIsolated { onConnectFailed?(text) }
+    }
+
+    nonisolated static func describe(_ e: NSError) -> String {
+        var parts = ["\(e.localizedDescription) [\(e.domain) \(e.code)]"]
+        var next = e.userInfo[NSUnderlyingErrorKey] as? NSError
+        while let u = next, parts.count < 4 {
+            parts.append("← \(u.localizedDescription) [\(u.domain) \(u.code)]")
+            next = u.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return parts.joined(separator: " ")
     }
 
     nonisolated func appRemote(_ appRemote: SPTAppRemote, didDisconnectWithError error: Error?) {
