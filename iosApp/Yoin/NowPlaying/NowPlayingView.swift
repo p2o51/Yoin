@@ -131,6 +131,12 @@ struct NowPlayingView: View, Equatable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Which way the lyric stream moves on a song change (forward in the queue = up).
     @State private var lyricsDirection = LyricsDirection()
+    /// The room's lights (NowPlayingGlow.swift): the controls fire them, the layer behind the page draws them.
+    @State private var glow = NowPlayingGlow()
+    /// The queue position the lights last saw, for which way a song change went.
+    @State private var glowIndex: Int?
+    /// A play-mode tap here, so a change from elsewhere (lock screen, another device) lights nothing.
+    @State private var modeTouchedAt = Date.distantPast
 
     /// The engine's song; nil = the mock snapshot (screenshots) as before.
     private var engineTrack: PlayableTrack? { demo == nil ? model.player.currentTrack : nil }
@@ -200,7 +206,64 @@ struct NowPlayingView: View, Equatable {
             .task(id: focusIdleEligible) { await trackFocusIdle(focusIdleEligible) }
             // Any touch on the player re-arms the count (passive: it never
             // takes a touch from anything).
-            .background(TouchWatcher { wakeLyricTools() })
+            .background(TouchWatcher(onTouch: { wakeLyricTools() }, onTouchAt: { glow.touched(at: $0) }))
+            .modifier(GlowWiring(glow: glow, playing: playback.isPlaying,
+                                 songKey: engineTrack.map(NowPlayingData.key), reduceMotion: reduceMotion,
+                                 onSongChange: glowSongChanged,
+                                 lyricsArea: { glow.frame(.lyrics) }))
+            .onAppear { glowIndex = model.player.currentIndex }
+    }
+
+    // MARK: Lights (NowPlayingGlow.swift)
+
+    /// The lyrics are what the eye is on (Android lyricsPrimary): the Lyrics page expanded, beside the
+    /// cover (two columns), or the small window when it holds more than one line.
+    private var glowLyricsLead: Bool {
+        guard shownTab == NowPlayingDetailPage.lyrics.rawValue else { return false }
+        if wide { return true }
+        if stage == .focus { return false }
+        return stage == .expanded || (glow.frame(.lyrics)?.height ?? 0) > 80
+    }
+
+    private func glowSongChanged() {
+        let i = model.player.currentIndex
+        let forward = glowIndex.flatMap { last in i.map { $0 >= last } } ?? true
+        glowIndex = i
+        glow.songChanged(forward: forward, lyricsLead: glowLyricsLead, inPlace: lyricsDirection.inPlace)
+    }
+
+    /// A finger on the wave bar: a light follows it (Android WaveGlow.scrub).
+    private func glowScrub(_ fraction: Double?) {
+        guard let f = fraction, let b = glow.frame(.progress) else {
+            if glow.hold?.kind == .scrub { glow.setHold(nil) }
+            return
+        }
+        glow.setHold(.init(kind: .scrub, point: CGPoint(x: b.minX + b.width * min(max(f, 0), 1), y: b.midY), bar: b))
+    }
+
+    /// The bar let go: a flash where the playhead landed.
+    private func glowSeekReleased(_ fraction: Double) {
+        glow.sought()
+        guard let b = glow.frame(.progress) else { return }
+        glow.glow(.seekRelease, at: CGRect(x: b.minX + b.width * min(max(fraction, 0), 1), y: b.midY, width: 0, height: 0))
+    }
+
+    /// The finger on the rating bar: a column up to it (Android drawGlowHold Rating).
+    private func glowRatingHold(_ value: Double?) {
+        guard ratingHeld, let bar = glow.frame(.rating) else { return }
+        let v = value ?? 0
+        glow.setHold(.init(kind: .rating, point: ratingGlowPoint(bar, v), bar: bar, value: v))
+    }
+
+    /// The rating landed: a band leaves the bar at its height; a cleared one drains down the bar.
+    private func glowRatingCommitted(_ value: Double?) {
+        glow.setHold(nil)
+        guard let bar = glow.frame(.rating) else { return }
+        if let v = value, v > 0 {
+            glow.glow(.ratingCommit, at: CGRect(origin: ratingGlowPoint(bar, v), size: .zero), value: v)
+        } else {
+            glow.glow(.ratingClear, at: bar, area: bar)
+        }
     }
 
     // MARK: Lyric tools idle (Android LyricToolsIdle.kt)
@@ -312,7 +375,10 @@ struct NowPlayingView: View, Equatable {
                                     set: { if !$0 { LyricsActions.shared.dismissSearch() } })) {
             LyricsSearchSheet(scheme: scheme, onSelect: { match in
                 // The song the search was opened for, never the live one.
-                if let t = LyricsActions.shared.search.target { LyricsActions.shared.applySearchResult(match, for: t) }
+                if let t = LyricsActions.shared.search.target {
+                    LyricsActions.shared.applySearchResult(match, for: t)
+                    glow.glow(.lyricsReveal, at: nil, area: glow.frame(.lyrics))
+                }
             }, onClose: { LyricsActions.shared.dismissSearch() })
             .reportsSheetRise()
             .ySolidSheet(scheme.surfaceContainerLow)
@@ -322,7 +388,10 @@ struct NowPlayingView: View, Equatable {
             LyricsEditSheet(scheme: scheme, initialText: lyricsEditTarget.map(editableLyrics) ?? "", onApply: { text in
                 lyricsEditing = false
                 // The song the editor was opened on, never the live one.
-                if let t = lyricsEditTarget { LyricsActions.shared.applyEdited(text, for: t) }
+                if let t = lyricsEditTarget {
+                    LyricsActions.shared.applyEdited(text, for: t)
+                    glow.glow(.lyricsReveal, at: nil, area: glow.frame(.lyrics))
+                }
             }, onCancel: { lyricsEditing = false })
             .reportsSheetRise()
             .ySolidSheet(scheme.surfaceContainerLow)
@@ -467,6 +536,13 @@ struct NowPlayingView: View, Equatable {
                 pageGradient.ignoresSafeArea()
             } else if npMorph == nil {
                 base
+            }
+            if demo == nil {
+                // The room's lights, over the background and under everything on it.
+                NowPlayingGlowLayer(glow: glow, primary: scheme.primary, secondary: scheme.secondary,
+                                    tertiary: scheme.tertiary, dark: colorScheme == .dark)
+                    .ignoresSafeArea()
+                    .npFade(open, contentFade)
             }
             GeometryReader { geo in
                 // With the keyboard up the shell hands this page a shorter
@@ -703,6 +779,7 @@ struct NowPlayingView: View, Equatable {
                               // OneLineLyricRow: the 32 pt line centered in its slot.
                               ? Self.oneLineAnchor(clear)
                               : clear * Tokens.np.LYRICS_ANCHOR_FRACTION.cg, fadeTop: !oneLine, oneLine: oneLine)
+                .glowAnchor(.lyrics, glow)
                 // The small About window takes its own taps (its Settings /
                 // Retry buttons first, Android SongInfoDisplay in a tap-to-open box).
                 if !expanded && !unsyncedLyricsShown(page, stage: stage) && !(page == .about && stage == .compact) {
@@ -862,6 +939,7 @@ struct NowPlayingView: View, Equatable {
                 .matchedGeometryEffect(id: panel ? "np.cover.panel" : "np.cover", in: npNamespace, isSource: open)
                 .npFade(open, presenceFade)
                 .npMorphAnchor(.cover)
+                .glowAnchor(.cover, glow)
                 // A right-click: the song's sheet, inside the cover's tap so it never focuses the artwork.
                 .onSecondaryClick {
                     PlaylistActions.shared.openMenu(PlaylistEntry(album: p.album, track: p.track), context: .nowPlaying)
@@ -891,13 +969,20 @@ struct NowPlayingView: View, Equatable {
                     touch("rating", down)
                     if down {
                         ratingTarget = engineTrack
+                        glowRatingHold(ratingBinding.wrappedValue)
                     } else if let t = ratingTarget {
                         // Committed to the song the finger went down on.
+                        let value = ratingBinding.wrappedValue
                         data.commitRating(t, client: model.session.client)
                         ratingTarget = nil
+                        glowRatingCommitted(value)
+                    } else {
+                        glowRatingCommitted(ratingBinding.wrappedValue)
                     }
                 }
                 .frame(width: Tokens.np.RATING_BAR_WIDTH.cg, height: max(0, cover - Tokens.np.RATING_BAR_INSET.cg))
+                .glowAnchor(.rating, glow)
+                .onChange(of: ratingBinding.wrappedValue) { _, v in glowRatingHold(v) }
                 Spacer().frame(height: Tokens.np.RATING_TO_HEART_GAP.cg)
                 heart
                 Spacer().frame(height: Tokens.np.HEART_BOTTOM_GAP.cg)
@@ -976,6 +1061,7 @@ struct NowPlayingView: View, Equatable {
         guard let t = ratingTarget else { return }
         data.discardDraftRating(t)
         ratingTarget = nil
+        glow.setHold(nil)
         withAnimation(Yoin.spatial) { ratingHeld = false }
         touch("rating", false)
     }
@@ -986,9 +1072,13 @@ struct NowPlayingView: View, Equatable {
     }
 
     private func toggleFavorite() {
+        let was = isFavorite
+        // The heart filled: two beats and a ring of dots; emptied: a dim light drawn back in.
+        // Apple Music's + adds to the library: dots pour into it.
+        glow.glow(was ? .favoriteOff : (heartIsLibrary ? .gatherInto : .favoriteOn), from: .heart)
         // Android FavoriteButton: a confirm to like, a tick to unlike (not on the demo phone).
         if demo == nil {
-            if isFavorite { UISelectionFeedbackGenerator().selectionChanged() }
+            if was { UISelectionFeedbackGenerator().selectionChanged() }
             else { UINotificationFeedbackGenerator().notificationOccurred(.success) }
         }
         withAnimation(Yoin.spatialFast) {
@@ -1023,6 +1113,7 @@ struct NowPlayingView: View, Equatable {
                 .contentShape(.circle)
         }
         .buttonStyle(PressReport { touch("heart", $0) })
+        .glowAnchor(.heart, glow)
         .modifier(HeartSurface(world: heartLifts, lifted: ratingHeld, rest: heartSurfaceTint,
                                surface: surface, scheme: scheme, brand: brand,
                                auto: favorite ? scheme.tertiary : scheme.tertiaryContainer))
@@ -1304,6 +1395,7 @@ struct NowPlayingView: View, Equatable {
         lyricsFollow = true
         lyricsRecenterTick += 1
         model.player.seek(to: Double(times[i]) / 1000)
+        glow.lineTapped()
     }
 
     private func leaveLyricsSelect(follow: Bool) {
@@ -1328,6 +1420,7 @@ struct NowPlayingView: View, Equatable {
         UIPasteboard.general.string = LyricsRules.clipboardText(lines: p.lines, translations: p.translations,
                                                                 passageStarts: p.starts, title: t.title, artist: t.artist)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+        glow.glow(.lineGlow, at: nil, targetY: glow.lyricsLineY)
         PlaylistActions.shared.show(p.lines.count == 1 ? String(localized: "Copied 1 line") : String(localized: "Copied \(p.lines.count) lines"))
         withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
     }
@@ -1341,6 +1434,7 @@ struct NowPlayingView: View, Equatable {
             LyricHighlightProcessor.shared.keepUserPick(p.lines, startMs: ms, track: t,
                                                         account: model.profiles.active.flatMap(MemoryLedgerSource.account(of:)))
         }
+        glow.glow(.lineGlow, at: nil, targetY: glow.lyricsLineY)
         lyricsShare = LyricsShareSnapshot(lines: p.lines, translations: p.translations, passageStarts: p.starts,
                                           title: t.title, artist: t.artist)
     }
@@ -1659,11 +1753,20 @@ struct NowPlayingView: View, Equatable {
             notes: NotesStore.sorted(notes, noteSort), sort: $noteSort, scheme: scheme,
             draftAnchorMs: draftAnchorMs, writing: composing,
             playheadMs: { playheadMs },
-            onSeek: { ms in if engineTrack != nil { model.player.seek(to: Double(ms) / 1000) } },
+            onSeek: { ms in
+                guard engineTrack != nil else { return }
+                model.player.seek(to: Double(ms) / 1000)
+                glow.lineTapped()
+            },
             onDelete: { id in
                 // Not written: the note stays, and says so.
                 let gone = NotesStore.shared.delete(id: id)
-                if gone == nil { PlaylistActions.shared.show(String(localized: "Couldn't delete the note. Try again")) }
+                if gone == nil {
+                    PlaylistActions.shared.show(String(localized: "Couldn't delete the note. Try again"))
+                } else {
+                    // Its line's light shrinks back.
+                    glow.glow(.noteDelete, at: nil, targetY: glow.lyricsLineY)
+                }
                 return gone
             },
             onRestore: { note in
@@ -1918,15 +2021,23 @@ struct NowPlayingView: View, Equatable {
                 let grow = Self.transportKeyExpandedRatio
                 let playWidth = playRest + (pausePressed ? grow * playRest : 0) - (nextPressed ? grow * control : 0)
                 let nextWidth = control + (nextPressed ? grow * control : 0) - (pausePressed ? grow * playRest : 0)
-                Button { if demo == nil { model.player.togglePlayPause() } } label: {
+                Button {
+                    guard demo == nil else { return }
+                    glow.tapped(.playPause)
+                    model.player.togglePlayPause()
+                } label: {
                     playPauseLabel(playing: playing, pressed: pausePressed)
                         .frame(width: word)
                         .padding(.horizontal, pad)
                         .frame(width: max(0, playWidth), height: control)
                         .contentShape(.capsule)
                 }
-                .buttonStyle(PressReport { touch("pause", $0) })
+                .buttonStyle(PressReport { down in
+                    touch("pause", down)
+                    if demo == nil { glow.playHeld(down, playing: playing) }
+                })
                 .labGlass("transportPrimary", scheme: scheme, brand: brand, auto: scheme.primary, in: Capsule())
+                .glowAnchor(.play, glow)
                 .accessibilityLabel(playing ? String(localized: "Pause") : String(localized: "Play"))
                 .animation(Yoin.standardFastSpatial, value: playing)
                 .animation(Yoin.standardDefaultSpatial, value: pausePressed)
@@ -1936,8 +2047,11 @@ struct NowPlayingView: View, Equatable {
                 roundButton("skip_next_filled", fill: scheme.primary, ink: scheme.onPrimary,
                             label: String(localized: "playback.next", defaultValue: "Next"), touchKey: "Next",
                             width: max(0, nextWidth), size: control) {
-                    if demo == nil { model.player.next() }
+                    guard demo == nil else { return }
+                    glow.tapped(.next)
+                    model.player.next()
                 }
+                .glowAnchor(.next, glow)
                 .animation(Yoin.standardFastSpatial, value: playing)
                 .animation(Yoin.standardDefaultSpatial, value: pausePressed)
                 .animation(Yoin.standardDefaultSpatial, value: nextPressed)
@@ -1958,10 +2072,17 @@ struct NowPlayingView: View, Equatable {
                 } else {
                 PlayModeButton(shuffle: model.player.shuffle, repeatMode: model.player.repeatMode,
                                scheme: scheme, brand: brand,
-                               onCycle: { model.player.cyclePlayMode() },
-                               onShuffle: { model.player.setShuffle($0) },
-                               onRepeat: { model.player.setRepeat($0) },
+                               onCycle: { modeTouchedAt = Date(); model.player.cyclePlayMode() },
+                               onShuffle: { modeTouchedAt = Date(); model.player.setShuffle($0) },
+                               onRepeat: { modeTouchedAt = Date(); model.player.setRepeat($0) },
                                onPress: { touch(String(localized: "Play mode"), $0) }, size: control)
+                    .glowAnchor(.mode, glow)
+                    // The key's one soft glow (Android playModeGlowKind), for a turn made here.
+                    .onChange(of: PlayModeKey(shuffle: model.player.shuffle, repeatMode: model.player.repeatMode)) { old, new in
+                        guard Date().timeIntervalSince(modeTouchedAt) < 2,
+                              let kind = PlayModeKey.glowKind(from: old, to: new) else { return }
+                        glow.glow(kind, from: .mode)
+                    }
                 }
             }
             .frame(height: control)
@@ -1974,8 +2095,11 @@ struct NowPlayingView: View, Equatable {
             // start of the top row in short focus.
             roundButton("skip_previous_filled", fill: scheme.secondary, ink: scheme.onSecondary, label: String(localized: "Previous"),
                         size: control) {
-                if demo == nil { model.player.previous() }
+                guard demo == nil else { return }
+                glow.tapped(.previous)
+                model.player.previous()
             }
+            .glowAnchor(.previous, glow)
             .offset(y: short ? 0 : control + rowGap + (secondRow - control) / 2)
         }
         }
@@ -2018,10 +2142,13 @@ struct NowPlayingView: View, Equatable {
                             noteInk: colorScheme == .dark ? Color.white : scheme.onPrimary,
                             live: transportLive,
                             actedScrub: demo?.scrub,
-                            onScrubbing: { touch("progress", $0) }) { fraction in
+                            onScrubbing: { touch("progress", $0) },
+                            onScrubMove: { glowScrub($0) }) { fraction in
                 model.player.seek(to: fraction * duration)
+                glowSeekReleased(fraction)
             }
                 .frame(height: 40, alignment: .bottom)
+                .glowAnchor(.progress, glow)
                 .demoTarget("progressBar")
                 // The demo phone's bar is looked at: a sideways drag on it turns the tips.
                 .allowsHitTesting(demo == nil)
@@ -2334,7 +2461,9 @@ struct NowPlayingView: View, Equatable {
                     // `present()` is the fallback). A Spotify song plays in the
                     // Spotify app: its Connect devices instead (Codex N17).
                     .overlay { if !spotifySong, demo == nil { AirPlayRoutePicker(trigger: airPlay) } }
+                    .glowAnchor(.devices, glow)
                 pill("note", String(localized: "Write"), shape: AnyShape(Capsule())) { startWriting() }
+                    .glowAnchor(.write, glow)
                     .demoTarget("write")
             }
         }
@@ -2469,6 +2598,8 @@ struct NowPlayingView: View, Equatable {
             return
         }
         notesSaved += 1
+        // Ink rises from Write to the line, which lights.
+        glow.glow(.noteSave, at: glow.frame(.write) ?? glow.frame(.progress), targetY: glow.lyricsLineY)
         draft = ""
         // The keyboard stays up for the next line, filed at the next moment
         // of what plays now.
@@ -3255,6 +3386,7 @@ extension NowPlayingView {
                         let f = proxy.frame(in: .global)
                         return CGPoint(x: f.midX, y: f.midY)
                     } action: { bandLyrics = $0 }
+                    .glowAnchor(.lyrics, glow)
                     .clipped()
                     // The page fades at its sides instead of a hard cut while it swipes.
                     .mask(HStack(spacing: 0) {
