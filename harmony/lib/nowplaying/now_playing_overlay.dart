@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/component/corner_mask.dart';
 import 'now_playing_presentation.dart';
 import 'now_playing_screen.dart';
 import 'overlay_controller.dart';
@@ -113,10 +114,6 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
       builder: (context, child) {
         final colors = Theme.of(context).colorScheme;
         final f = controller.full.value.clamp(0.0, 1.0);
-        final corner = Radius.circular(NowPlayingPanelTokens.corner * (1 - f));
-        final shape = RoundedSuperellipseBorder(
-          borderRadius: BorderRadiusDirectional.only(topStart: corner, bottomStart: corner),
-        );
         return Align(
           alignment: AlignmentDirectional.centerEnd,
           child: IgnorePointer(
@@ -127,6 +124,7 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
                 width: controller.containerWidth,
                 child: Stack(
                   fit: StackFit.expand,
+                  clipBehavior: Clip.none,
                   children: [
                     // Behind the panel's rounded start corners: the shell's
                     // page colour, not the window's black (Android fills
@@ -146,16 +144,46 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
                     // sheet composited over the panel (QA r2_33 / r2_34).
                     // Its own surface and an explicit anti-aliased clip keep
                     // every layer inside — sheets and their scrims included.
-                    DecoratedBox(
-                      decoration: ShapeDecoration(
-                        shape: shape,
-                        color: colors.surface,
-                        shadows: nowPlayingPanelShadows(1 - f),
+                    // The shadow is a plain gradient strip beside the panel's
+                    // start edge: blurred shadows (drawShadow and BoxShadow
+                    // alike) rasterised as a solid black wedge in the
+                    // bottom-start corner on HarmonyOS once a sheet
+                    // composited over the panel (QA r2_33, r3_03).
+                    PositionedDirectional(
+                      start: -NowPlayingPanelTokens.shadowElevation,
+                      top: 0,
+                      bottom: 0,
+                      width: NowPlayingPanelTokens.shadowElevation,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: AlignmentDirectional.centerStart,
+                              end: AlignmentDirectional.centerEnd,
+                              colors: [
+                                Colors.black.withValues(alpha: 0),
+                                Colors.black.withValues(alpha: 0.10 * (1 - f)),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
-                      child: ClipPath(
-                        clipper: ShapeBorderClipper(shape: shape, textDirection: Directionality.of(context)),
-                        clipBehavior: Clip.antiAlias,
-                        child: child,
+                    ),
+                    // The corners are painted, not clipped: an anti-aliased
+                    // clip over the player's navigator rasterised a black
+                    // wedge once a sheet composited over it (QA r3_03).
+                    ColoredBox(
+                      color: colors.surface,
+                      child: CornerMask(
+                        radius: NowPlayingPanelTokens.corner * (1 - f),
+                        topStart: true,
+                        bottomStart: true,
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [colors.surfaceContainer, colors.surface, colors.surfaceContainerLow],
+                        ),
+                        child: child!,
                       ),
                     ),
                   ],

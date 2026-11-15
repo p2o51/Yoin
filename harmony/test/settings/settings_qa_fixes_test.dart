@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/ui/component/corner_mask.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/media_id.dart';
 import 'package:yoin/data/profile/profile.dart';
@@ -140,16 +141,16 @@ void main() {
       await tester.runAsync(settle);
       await tester.pumpAndSettle();
       expect(find.byType(LicensesScreen), findsOneWidget);
-      final clip = find.ancestor(of: find.byType(LicensesScreen), matching: find.byType(ClipRSuperellipse));
+      // Corners are painted over (CornerMask), never clipped (HarmonyOS clip seams).
+      final clip = find.ancestor(of: find.byType(LicensesScreen), matching: find.byType(CornerMask));
       expect(clip, findsOneWidget);
-      expect(tester.widget<ClipRSuperellipse>(clip).clipBehavior, Clip.antiAlias);
-      // The page colour is painted inside the clip, not by a shape outside it.
-      expect(find.descendant(of: clip, matching: find.byType(ColoredBox)), findsWidgets);
-      // No second clip on the panel's edge: the page's scroll leaves clipping to the panel.
+      // The page colour is painted under the mask.
+      expect(find.ancestor(of: clip, matching: find.byType(ColoredBox)), findsWidgets);
+      // The scroll clips square to the pane (hard edge, no seam); the mask rounds it.
       final list = tester.widget<ListView>(
         find.descendant(of: find.byType(LicensesScreen), matching: find.byType(ListView)),
       );
-      expect(list.clipBehavior, Clip.none);
+      expect(list.clipBehavior, Clip.hardEdge);
     });
   });
 

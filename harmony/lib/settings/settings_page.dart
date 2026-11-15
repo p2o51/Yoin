@@ -46,7 +46,7 @@ class _SettingsSubPageState extends State<SettingsSubPage> {
       controller: _scroll,
       // In the pane the panel's own clip bounds the scroll: a second clip on
       // the same bottom edge left a dark hairline there on the MateBook.
-      clipBehavior: widget.inPane ? Clip.none : Clip.hardEdge,
+      clipBehavior: Clip.hardEdge,
       padding: EdgeInsets.fromLTRB(
         SettingsMetrics.pageHorizontal,
         SettingsMetrics.pageTop,

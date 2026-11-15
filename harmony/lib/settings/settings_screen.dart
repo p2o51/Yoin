@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../ui/component/corner_mask.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
@@ -270,11 +271,18 @@ class SettingsPanePanel extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => ClipRSuperellipse(
-    borderRadius: BorderRadius.circular(ShapeTokens.panel),
-    clipBehavior: Clip.antiAlias,
-    child: ColoredBox(
-      color: color,
+  // Corners painted with the list pane's colour instead of a clip: on
+  // HarmonyOS clipping the pane left a dark seam along the clip edge and let
+  // row layers past the round (QA r2_29, r3_14).
+  Widget build(BuildContext context) => ColoredBox(
+    color: color,
+    child: CornerMask(
+      radius: ShapeTokens.panel,
+      topStart: true,
+      bottomStart: true,
+      topEnd: true,
+      bottomEnd: true,
+      fill: settingsListPaneColor(Theme.of(context).colorScheme),
       // Ink (row splashes) still needs a Material; a transparent one paints nothing.
       child: Material(type: MaterialType.transparency, child: child),
     ),
