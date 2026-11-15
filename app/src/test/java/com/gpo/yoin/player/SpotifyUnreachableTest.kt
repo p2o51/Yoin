@@ -427,6 +427,7 @@ class SpotifyUnreachableTest {
         runCurrent()
         appRemote.failWith = SpotifyDisconnectedException()
         appRemote.initialState = state(paused = true)
+        cameBackAt = snapshots.size
         player.onHostStart(context)
         advanceTimeBy(2_500)
         runCurrent()
@@ -444,9 +445,11 @@ class SpotifyUnreachableTest {
 
     /** No hint (asleep or otherwise) while the woken Spotify is given its time. */
     private fun assertStillWaiting() {
-        assertNull(snapshots.last().connectionFailure)
-        assertTrue(snapshots.last().connectionPhase != ConnectionPhase.Error)
+        assertTrue(snapshots.drop(cameBackAt).none { it.connectionPhase == ConnectionPhase.Error })
     }
+
+    /** Where [snapshots] stood when Yoin came back from Spotify. */
+    private var cameBackAt = 0
 
     /** Yoin back from the Spotify it opened, which now takes its time to answer a connect. */
     private fun TestScope.slowComeBack(player: SpotifyAppRemotePlayer, spotifyState: PlayerState) {
@@ -455,6 +458,7 @@ class SpotifyUnreachableTest {
         appRemote.failWith = null
         appRemote.holdConnects = true
         appRemote.initialState = spotifyState
+        cameBackAt = snapshots.size
         player.onHostStart(context)
         runCurrent()
     }
