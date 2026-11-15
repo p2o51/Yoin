@@ -135,12 +135,13 @@ final class SpotifyRemote {
         if r.isConnected, broken {
             PlayTrace.log("SR reconnect #\(connectionNumber): broken")
             close(r)
-            try? await Task.sleep(for: .milliseconds(Self.reconnectGapMs))
-            guard r === link else { return false }
+            guard await closed(r) else { return false }
         }
-        if r.isConnected { return true }
+        // A broken connection still reading as connected isn't one (audit 11-15 #6: past the old fixed
+        // 600 ms gap an SDK still closing it read as connected).
+        if r.isConnected { return !broken }
         if let token, let t = try? await token() { r.accessToken = t }
-        if r.isConnected { return true }
+        if r.isConnected { return !broken }
         return await withCheckedContinuation { cont in
             connectWaiters.append(cont)
             guard connectWaiters.count == 1 else { return }
@@ -166,6 +167,20 @@ final class SpotifyRemote {
     nonisolated static let connectTimeoutSec: Double = 3
     /// The close lands before the next connect, else the SDK reads the old connection as still up.
     nonisolated static let reconnectGapMs = 600
+    /// How long a close is waited for past that gap before the reconnect gives up on it (audit 11-15 #6).
+    nonisolated static let closeWaitCapMs = 2000
+
+    /// Waits for [r]'s close to land: the gap, then until the SDK no longer reads it as connected (up to
+    /// [closeWaitCapMs]). False when [r] was replaced meanwhile or never closed.
+    private func closed(_ r: AppRemoteLink) async -> Bool {
+        try? await Task.sleep(for: .milliseconds(Self.reconnectGapMs))
+        var waited = 0
+        while r.isConnected, r === link, waited < Self.closeWaitCapMs {
+            try? await Task.sleep(for: .milliseconds(100))
+            waited += 100
+        }
+        return r === link && !r.isConnected
+    }
     /// Fresh connections opened on their own (a failed subscription) before the caller decides.
     nonisolated static let maxHeals = 2
 
@@ -210,9 +225,9 @@ final class SpotifyRemote {
         healTask = Task { [weak self] in
             guard let self else { return false }
             self.close(r)
-            try? await Task.sleep(for: .milliseconds(Self.reconnectGapMs))
+            let gone = await self.closed(r)
             self.healTask = nil
-            guard r === self.link else { return false }
+            guard gone else { return false }
             return await self.connect(timeout: Self.connectTimeoutSec)
         }
     }
@@ -227,6 +242,9 @@ final class SpotifyRemote {
     /// connected); it is closed cleanly instead and reconnected on return. Spotify keeps playing.
     func dropForBackground() {
         guard let link, link.isConnected else { return }
+        // Yoin's own close: not Spotify going away (audit 11-15 #27: read as that, it stopped the clock
+        // and showed the position App Remote last reported).
+        closing = true
         link.disconnect()
     }
 
@@ -262,8 +280,7 @@ final class SpotifyRemote {
                 PlayTrace.log("SR reconnect #\(connectionNumber): broken (handback)")
                 close(r)
                 Task { [weak self] in
-                    try? await Task.sleep(for: .milliseconds(Self.reconnectGapMs))
-                    guard let self, r === self.link, !r.isConnected else { return }
+                    guard let self, await self.closed(r) else { return }
                     self.connectionNumber += 1
                     PlayTrace.log("SR connecting #\(self.connectionNumber) (handback)")
                     r.connect()
