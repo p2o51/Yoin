@@ -49,14 +49,15 @@ enum Tips {
     /// Every tip, in the order the bubble goes through them.
     static let catalog: [Tip] = [
         // Keyboard shortcuts (Android KeyboardShortcuts, first in its list): the iPad's and the Mac's keys
-        // (YoinCommands); Gemini's iOS line (.argon/ios-tips-1115). No keyboard symbol in YoinSymbols yet.
+        // (YoinCommands); Gemini's iOS line (.argon/ios-tips-1115).
         Tip(id: "KeyboardShortcuts", icon: "keyboard", updated: "2026-11-15",
             title: "Keyboard shortcuts",
-            text: "Control playback and navigate with a keyboard; press Launcher key (⌘ on a Mac keyboard) + / to see all shortcuts",
+            text: "Control playback and navigate with a keyboard; hold ⌘ on iPad or check Controls and Go in the menu bar on Mac to see all shortcuts",
             titleZhHans: "键盘快捷键",
-            textZhHans: "用外接键盘控制播放与切换页面，按启动器键（Mac 键盘上是 ⌘）+ / 查看全部快捷键",
+            textZhHans: "用键盘控制播放与切换页面；iPad 上按住 ⌘，或在 Mac 菜单栏的「控制」与「前往」里查看全部快捷键",
             keyboard: true),
-        // Library's pull to refresh (Android LibraryRefresh; LibraryView `.refreshable`); Gemini's line.
+        // Library's pull to refresh (Android LibraryRefresh; LibraryView `.refreshable`); Android's line, which Gemini
+        // kept for iOS (.argon/ios-tips-1115).
         Tip(id: "LibraryRefresh", icon: "refresh", updated: "2026-11-15",
             title: "Refresh Library",
             text: "Pull down at the top of Library to refresh the current view",
@@ -96,14 +97,14 @@ enum Tips {
             text: "Memories includes all your accounts, and switches to that account first when you play or go to the album",
             titleZhHans: "各账号的回忆",
             textZhHans: "Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号"),
-        // Speakers Spotify lists without an id, and the ones used before (Android SpotifySpeakers, #176; iOS
-        // SpotifyDevicesSheet / SpotifyDeviceMemory); Android's own strings (home_tip_spotify_speakers). No
-        // speaker symbol in YoinSymbols on iOS yet: the cast one, as the sheet's More devices… row uses.
-        Tip(id: "SpotifySpeakers", icon: "cast", updated: "2026-11-08",
-            title: "Connect more speakers",
-            text: "Tap More devices… in Now Playing > Devices to switch Spotify to Sonos, PS5, and more; recently used speakers stay in the list",
-            titleZhHans: "连接更多音箱",
-            textZhHans: "正在播放 > 设备里点「更多设备…」，将 Spotify 切到 Sonos、PS5 等音箱；用过的会留在列表里"),
+        // Yoin's Devices sheet for a Spotify song (Android SpotifySpeakers, #176; iOS SpotifyDevicesSheet /
+        // SpotifyDeviceMemory). Gemini's iOS line (.argon/ios-tips-1115, 2026-11-15): Android's said More devices
+        // switches to Sonos, which on iOS opens the Spotify app.
+        Tip(id: "SpotifySpeakers", icon: "speaker", updated: "2026-11-15",
+            title: "Spotify speakers",
+            text: "In Now Playing > Devices, switch Spotify to a speaker and keep controlling it in Yoin; tap refresh to update, and recently used speakers stay in the list",
+            titleZhHans: "Spotify 音箱",
+            textZhHans: "正在播放 > 设备里将 Spotify 切到音箱上，继续在 Yoin 里控制；点刷新可更新，最近用过的音箱会留在列表里"),
         // Yoin Labs (Android #189); Argon's iOS wording.
         Tip(id: "Labs", icon: "sparkle", updated: "2026-11-10",
             title: "Yoin Labs",
