@@ -110,6 +110,49 @@ void main() {
     });
   }
 
+  testWidgets('should_pageTheRightColumnWithTheSwipe_when_spread', (tester) async {
+    await pumpAt(tester, const Size(1280, 800));
+    final review = find.text('Late-night record.');
+    final rest = tester.getTopLeft(review).dx;
+    final gesture = await tester.startGesture(const Offset(900, 500));
+    for (var i = 0; i < 10; i++) {
+      await gesture.moveBy(const Offset(-30, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    // The whole spread pages with the finger, the right column as much as the left page (Android MemorySpreadPage).
+    final mid = tester.getTopLeft(review).dx;
+    expect(mid, closeTo(rest - 270, 30));
+    // The leaving page's "Memories / Last heard" slot is gone before it reaches the Home pill.
+    double shown(Element e) {
+      var a = 1.0;
+      e.visitAncestorElements((p) {
+        final w = p.widget;
+        if (w is Opacity) a *= w.opacity;
+        return true;
+      });
+      return a;
+    }
+
+    final pillEnd = tester.getTopRight(find.text('Home')).dx;
+    for (final e in find.text('Memories').evaluate()) {
+      final box = e.renderObject! as RenderBox;
+      final left = box.localToGlobal(Offset.zero).dx;
+      if (left < pillEnd + 40) expect(shown(e), 0, reason: 'slot at $left');
+    }
+    await gesture.up();
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  test('should_fadeTheSlotsOutBeforeThePill_when_pageLeavesLeftward', () {
+    const rest = 116.0; // slot A
+    const pill = 104.0; // its pill's end
+    expect(memoriesBarSlotLeave(travel: 0, restStart: rest, pillEnd: pill), 1);
+    expect(memoriesBarSlotLeave(travel: -200, restStart: rest, pillEnd: pill), 1);
+    expect(memoriesBarSlotLeave(travel: (rest - pill + memoriesBarSlotFade) / 2, restStart: rest, pillEnd: pill), closeTo(0.5, 1e-9));
+    // Gone once its start has crossed the pill's end and the mask's fade.
+    expect(memoriesBarSlotLeave(travel: rest - pill + memoriesBarSlotFade, restStart: rest, pillEnd: pill), 0);
+  });
+
   test('should_clearSlotsUpToThePillsEnd_when_maskingTheBar', () {
     final (a, b) = memoriesBarSlotMaskStops(400, 104);
     expect(a * 400, closeTo(104, 1e-9));

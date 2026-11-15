@@ -18,6 +18,18 @@ enum MemoriesTier { phone, medium, spread }
 /// Home pill's trailing edge (a slot never shows beside or through the pill).
 const double memoriesBarSlotFade = 12;
 
+/// A page's bar slots leaving toward the Home pill ([travel] dp left of
+/// their rest, whose leftmost element starts at [restStart]): 1 at rest, 0 by
+/// the time that element has reached the pill's end ([pillEnd]) and crossed
+/// the mask's fade — gone before any of it could show beside the pill.
+/// Moving right (travel ≤ 0) they keep only the page visibility.
+double memoriesBarSlotLeave({required double travel, required double restStart, required double pillEnd}) {
+  if (travel <= 0) return 1;
+  final run = (restStart - pillEnd) + memoriesBarSlotFade;
+  if (run <= 0) return 0;
+  return _clamp(1 - travel / run, 0, 1);
+}
+
 /// The bar slots' mask stops along a bar [width] wide: clear up to
 /// [clearTo] (the pill's end), opaque from [memoriesBarSlotFade] past it.
 (double, double) memoriesBarSlotMaskStops(double width, double clearTo) {

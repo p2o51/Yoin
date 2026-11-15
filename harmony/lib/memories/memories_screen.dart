@@ -1091,6 +1091,7 @@ class _TopBar extends ConsumerWidget {
                               layout: layout,
                               dark: dark,
                               slotEnd: slotEnd,
+                              pillEnd: layout.pillStart + pillWidth,
                               reducedMotion: reducedMotion,
                               lastHeard: memories[i].lastHeardAt == null
                                   ? null
@@ -1214,6 +1215,7 @@ class _PageSlots extends StatelessWidget {
     required this.layout,
     required this.dark,
     required this.slotEnd,
+    required this.pillEnd,
     required this.reducedMotion,
     required this.lastHeard,
     required this.onCloseDiary,
@@ -1228,6 +1230,9 @@ class _PageSlots extends StatelessWidget {
   final MemoriesLayout layout;
   final bool dark;
   final double slotEnd;
+
+  /// The Home pill's trailing edge right now (it narrows with the diary).
+  final double pillEnd;
   final bool reducedMotion;
   final String? lastHeard;
   final VoidCallback onCloseDiary;
@@ -1240,6 +1245,13 @@ class _PageSlots extends StatelessWidget {
     if (visible <= 0) return const SizedBox.shrink();
     // The page itself moves −rel·W; the slots add 0.6·W·rel, travelling at 40%.
     final dx = rel * width - barParallax(rel, width);
+    // Leaving toward the pill, the slots are gone by the time they reach it.
+    final leave = memoriesBarSlotLeave(
+      travel: -dx,
+      restStart: p > 0.5 ? layout.barCoverStart : layout.slotAStart,
+      pillEnd: pillEnd,
+    );
+    if (leave <= 0) return const SizedBox.shrink();
     final slotA = reducedMotion
         ? 1 - smoothstep(0, MemoriesTokens.reducedSwap, p)
         : 1 - smoothstep(0, MemoriesTokens.slotAFadeTo, p);
@@ -1253,7 +1265,7 @@ class _PageSlots extends StatelessWidget {
       child: Transform.translate(
         offset: Offset(dx, 0),
         child: Opacity(
-          opacity: visible,
+          opacity: visible * leave,
           child: Stack(
             children: [
               if (slotA > 0.001)
