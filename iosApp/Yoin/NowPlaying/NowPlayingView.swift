@@ -881,7 +881,7 @@ struct NowPlayingView: View, Equatable {
             Spacer().frame(width: retreat ? 0 : Tokens.np.RATING_GAP.cg)
             VStack(spacing: 0) {
                 RatingBar(value: ratingBinding, scheme: scheme, held: ratingHeld,
-                          gestureKey: engineTrack.map(NowPlayingData.key) ?? "mock") { down in
+                          gestureKey: engineTrack.map(NowPlayingData.key) ?? "mock", haptics: demo == nil) { down in
                     // One spring lifts and settles the bar (scale, glass, shadow).
                     withAnimation(Yoin.spatial) { ratingHeld = down }
                     touch("rating", down)
@@ -982,6 +982,11 @@ struct NowPlayingView: View, Equatable {
     }
 
     private func toggleFavorite() {
+        // Android FavoriteButton: a confirm to like, a tick to unlike (not on the demo phone).
+        if demo == nil {
+            if isFavorite { UISelectionFeedbackGenerator().selectionChanged() }
+            else { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+        }
         withAnimation(Yoin.spatialFast) {
             if let t = engineTrack {
                 data.toggleFavorite(t, client: model.session.client, apple: model.store.apple)
@@ -2589,12 +2594,21 @@ struct RatingBar: View {
     /// if this changes mid-touch, the rest of the touch is ignored (no value,
     /// no release; the owner cancels).
     var gestureKey: String = ""
+    /// Off on the Tips demo phone (as PlayModeControl's).
+    var haptics = true
     @Environment(\.colorScheme) private var colorScheme
     /// Finger down / up.
     var onHold: (Bool) -> Void = { _ in }
 
     @State private var down = false
     @State private var downKey: String?
+    /// The score the touch went down on, and the last 0.1 step it ticked (Android RatingSlider: the
+    /// first position sets the baseline silently, each step crossed afterwards ticks).
+    @State private var downValue: Double?
+    @State private var lastStep: Double?
+    /// A tick per 0.1 step crossed; a confirm when the release leaves a new score (Android ratingBloom).
+    @State private var stepTicks = 0
+    @State private var commits = 0
 
     /// The number as the bar draws it, over the whole bar (so a mask in the bar's own frame lines up).
     private func ratingLabel(_ label: String) -> some View {
@@ -2672,19 +2686,29 @@ struct RatingBar: View {
                         if !down {
                             down = true
                             downKey = gestureKey
+                            downValue = value
+                            lastStep = nil
                             onHold(true)
                         }
                         guard downKey == gestureKey else { return }
                         let raw = Double((1 - v.location.y / h) * 10)
-                        value = (min(10.0, max(0.0, raw)) * 10).rounded() / 10
+                        let snapped = (min(10.0, max(0.0, raw)) * 10).rounded() / 10
+                        if haptics, let lastStep, lastStep != snapped { stepTicks &+= 1 }
+                        lastStep = snapped
+                        value = snapped
                     }
                     .onEnded { _ in
                         let own = downKey == gestureKey
                         down = false
                         downKey = nil
-                        if own { onHold(false) }
+                        if own {
+                            if haptics, value != downValue { commits &+= 1 }
+                            onHold(false)
+                        }
                     }
             )
+            .sensoryFeedback(.selection, trigger: stepTicks)
+            .sensoryFeedback(.success, trigger: commits)
             .animation(Yoin.spatialFast, value: value)
         }
         .scaleEffect(held ? RatingLift.scale : 1)

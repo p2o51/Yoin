@@ -36,6 +36,8 @@ struct QueueSheet: View {
             }
             if !queued.isEmpty {
                 sectionLabel(String(localized: "Next in queue")) {
+                    // Android QueueSheet: Clear confirms.
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
                     withAnimation(Yoin.spatial) { for q in queued { engine.remove(id: q.item.id) } }
                 }
                 part(queued)

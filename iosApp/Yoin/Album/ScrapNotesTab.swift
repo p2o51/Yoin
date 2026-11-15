@@ -19,6 +19,8 @@ struct ScrapNotesTab: View {
     @State private var editingNote: String?
     @State private var draft: ScrapNoteRows.Draft?
     @State private var started = false
+    /// The row whose menu is open (Android `picked`): it stays lit until the menu goes (review I16).
+    @State private var picked: String?
 
     private var toast: PlaylistActions { .shared }
 
@@ -116,19 +118,9 @@ struct ScrapNotesTab: View {
     /// in outline.
     private func lyricRow(_ line: ScrapLyricLine, noted: Bool) -> some View {
         let at = NotesStore.formatPosition(line.startMs)
-        return Menu {
-            Button {
-                withAnimation(Yoin.spatial) {
-                    editingNote = nil
-                    draft = .init(positionMs: line.startMs)
-                }
-            } label: {
-                Label { Text("New note") } icon: { Image("yoin.add") }
-            }
-            Button { play(line.startMs) } label: {
-                Label { Text("Play from \(at)") } icon: { Image("yoin.play_filled") }
-            }
-        } label: {
+        let key = "lyric:\(line.startMs):\(line.text)"
+        let open = picked == key
+        return Button { picked = key } label: {
             Text(line.text)
                 .font(.gsf(13, noted ? .medium : .regular))
                 .lineSpacing(YoinType.lineSpacing(size: 13, lineHeight: 13 * 1.75))
@@ -137,31 +129,34 @@ struct ScrapNotesTab: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
+                // Android LyricRow lights the line while its menu is open (surfaceContainerHigh there). Over
+                // the iOS sheet's glass that tone all but vanished in dark mode: a primary wash reads in both.
+                .background(open ? scheme.primary.opacity(0.16) : .clear, in: .rect(cornerRadius: 8))
                 .contentShape(.rect(cornerRadius: 8))
         }
         .buttonStyle(.plain).pointerHighlight()
+        .scrapRowMenu(key: key, picked: $picked, items: [
+            .init(title: String(localized: "New note"), icon: "yoin.add") {
+                withAnimation(Yoin.spatial) {
+                    editingNote = nil
+                    draft = .init(positionMs: line.startMs)
+                }
+            },
+            .init(title: String(localized: "Play from \(at)"), icon: "yoin.play_filled") { play(line.startMs) },
+        ])
+        .animation(Yoin.effects, value: open)
         .accessibilityHint(String(localized: "New note"))
     }
 
     /// Android NoteCard: the note on the clipping's paper with its rail, the moment stamp over the words.
     private func noteCard(_ note: SongNote) -> some View {
         let at = note.positionMs.map(NotesStore.formatPosition)
-        return Menu {
-            Button {
-                withAnimation(Yoin.spatial) {
-                    draft = nil
-                    editingNote = note.id
-                }
-            } label: {
-                Label { Text("Edit note", comment: "The scrapbook note menu's Edit") } icon: { Image("yoin.edit") }
-            }
-            Button { play(note.positionMs) } label: {
-                Label { Text(at.map { String(localized: "Play from \($0)") } ?? String(localized: "Play")) } icon: {
-                    Image("yoin.play_filled")
-                }
-            }
-        } label: {
-            ScrapNoteCard(scheme: scheme) {
+        let key = "note:\(note.id)"
+        let open = picked == key
+        return Button { picked = key } label: {
+            // Android NoteCard: the paper changes while its menu is open (0.8 there, which lightened it on
+            // Android's darker sheet; here it barely showed): a primary wash over the paper.
+            ScrapNoteCard(scheme: scheme, lit: open) {
                 if let at { ScrapNoteStamp(text: at, scheme: scheme) }
                 Text(note.content)
                     .font(.gsf(15))
@@ -172,6 +167,17 @@ struct ScrapNotesTab: View {
             }
         }
         .buttonStyle(.plain).pointerHighlight()
+        .scrapRowMenu(key: key, picked: $picked, items: [
+            .init(title: String(localized: "Edit note", comment: "The scrapbook note menu's Edit"), icon: "yoin.edit") {
+                withAnimation(Yoin.spatial) {
+                    draft = nil
+                    editingNote = note.id
+                }
+            },
+            .init(title: at.map { String(localized: "Play from \($0)") } ?? String(localized: "Play"),
+                  icon: "yoin.play_filled") { play(note.positionMs) },
+        ])
+        .animation(Yoin.effects, value: open)
     }
 
     // MARK: Actions
@@ -263,6 +269,18 @@ struct ScrapNotesTab: View {
         case "edit": editingNote = notes.first?.id
         case "draft": draft = .init(positionMs: ScrapNotesDemo.draftMs)
         case "plain-draft": draft = .init(positionMs: nil)
+        // A row's menu open, for screenshots of the lit row (review I16).
+        // Late enough for the sheet to have risen (a popover asked for mid-rise is dropped).
+        case "menu-note", "menu-lyric":
+            let note = notes.first.map { "note:\($0.id)" }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.5))
+                if mode == "menu-note" {
+                    picked = note
+                } else if let l = lyrics.lines.dropFirst(1).first {
+                    picked = "lyric:\(l.startMs):\(l.text)"
+                }
+            }
         default: break
         }
     }
@@ -273,6 +291,8 @@ struct ScrapNotesTab: View {
 /// x 11 inset 14 (journalRail), padding 24 / 14 / 10 / 12, 6 above and below.
 private struct ScrapNoteCard<Content: View>: View {
     var scheme: CoverScheme
+    /// Its menu is open: a primary wash over the paper (Android NoteCard's lit paper).
+    var lit = false
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -282,8 +302,14 @@ private struct ScrapNoteCard<Content: View>: View {
             .background(alignment: .leading) {
                 Capsule().fill(scheme.primary).frame(width: 3).padding(.vertical, 14).padding(.leading, 11)
             }
-            .background(scheme.surfaceContainerHighest,
-                        in: .rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
+            .background {
+                RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous)
+                    .fill(scheme.surfaceContainerHighest)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Tokens.shape.CARD.cg, style: .continuous)
+                            .fill(scheme.primary.opacity(lit ? 0.16 : 0))
+                    }
+            }
             .contentShape(.rect(cornerRadius: Tokens.shape.CARD.cg, style: .continuous))
             .padding(.vertical, 6)
     }
@@ -436,3 +462,57 @@ enum ScrapNotesDemo {
     }
 }
 #endif
+
+// MARK: - The row menu
+
+/// One choice in a Notes row's menu.
+struct ScrapRowMenuItem {
+    var title: String
+    var icon: String
+    var action: () -> Void
+}
+
+/// A lyric line's or note's menu (Android YoinDropdownMenu under the row). Drawn here rather than a
+/// SwiftUI `Menu`, which says nothing when it opens or closes: the row needs to know, to stay lit while
+/// its menu is up (review I16). A popover from the row, a popover on iPhone too, menu-like rows inside.
+private struct ScrapRowMenu: ViewModifier {
+    var key: String
+    @Binding var picked: String?
+    var items: [ScrapRowMenuItem]
+
+    func body(content: Content) -> some View {
+        content.popover(isPresented: Binding(get: { picked == key },
+                                             set: { if !$0, picked == key { picked = nil } }),
+                        // Under the row (Android's dropdown), so it doesn't cover the tabs above; the system
+                        // turns it over when there's no room below.
+                        attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.offset) { i, item in
+                    if i > 0 { Divider() }
+                    Button {
+                        picked = nil
+                        item.action()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(item.title).font(.body)
+                            Spacer(minLength: 16)
+                            Image(item.icon).font(.body)
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain).pointerHighlight()
+                }
+            }
+            .frame(minWidth: 220)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+extension View {
+    fileprivate func scrapRowMenu(key: String, picked: Binding<String?>, items: [ScrapRowMenuItem]) -> some View {
+        modifier(ScrapRowMenu(key: key, picked: picked, items: items))
+    }
+}

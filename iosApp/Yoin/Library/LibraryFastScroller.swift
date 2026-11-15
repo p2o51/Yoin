@@ -31,6 +31,11 @@ struct LibraryFastScroller: View {
     @Binding var held: Bool
 
     @State private var grab: CGFloat?
+    /// Android YoinFastScroller: one segment tick per tick passed (a letter, a year), not per change of
+    /// the bubble's words (a timeline's months within a year), at most one per 45 ms.
+    @State private var lastRun: Int?
+    @State private var lastTickAt: Date = .distantPast
+    @State private var runTicks = 0
 
     var body: some View {
         GeometryReader { g in
@@ -82,13 +87,16 @@ struct LibraryFastScroller: View {
                                 if grab == nil { grab = fraction; held = true }
                                 let f = min(1, max(0, (grab ?? 0) + v.translation.height / extent))
                                 onDrag(f)
+                                tickIfRunChanged(f)
                             }
                             .onEnded { _ in
                                 grab = nil
+                                lastRun = nil
                                 withAnimation(Yoin.effects) { held = false }
                             }
                     )
                     .allowsHitTesting(visible)
+                    .sensoryFeedback(.selection, trigger: runTicks)
             }
             .frame(width: g.size.width, height: g.size.height, alignment: .topTrailing)
             .opacity(visible ? 1 : 0)
@@ -111,11 +119,35 @@ struct LibraryFastScroller: View {
 
     /// The section the bubble names: the one holding the last item of the thumb's row.
     private var currentSection: Section? {
-        guard !sections.isEmpty else { return nil }
+        let at = sectionIndex(at: fraction)
+        return at >= 0 ? sections[at] : nil
+    }
+
+    private func sectionIndex(at fraction: CGFloat) -> Int {
+        guard !sections.isEmpty else { return -1 }
         let math = FastScrollMath.shared
         let index = math.labelIndex(fraction: Float(fraction), itemCount: Int32(itemCount), itemsPerLine: Int32(columns))
-        let at = Int(math.sectionAt(starts: starts, index: index))
-        return at >= 0 ? sections[at] : nil
+        return Int(math.sectionAt(starts: starts, index: index))
+    }
+
+    /// The tick a section falls under: the last ticked section at or before it (Android tickRuns).
+    private func run(of section: Int) -> Int {
+        guard section >= 0 else { return -1 }
+        let picked = FastScrollMath.shared.tickSections(starts: starts, tickLabels: sections.map(\.label),
+                                                         itemsPerLine: Int32(columns))
+        var run = -1
+        for i in 0..<Int(picked.size) where Int(picked.get(index: Int32(i))) <= section { run = i }
+        return run
+    }
+
+    private func tickIfRunChanged(_ fraction: CGFloat) {
+        let run = run(of: sectionIndex(at: fraction))
+        defer { if run >= 0 { lastRun = run } }
+        guard run >= 0, let lastRun, run != lastRun else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastTickAt) >= 0.045 else { return }
+        lastTickAt = now
+        runTicks &+= 1
     }
 
     /// One tick per run and per row, centred where the bubble first names it
