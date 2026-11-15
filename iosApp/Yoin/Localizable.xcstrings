@@ -2779,7 +2779,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "写给 %2$@ 的 %1$@"
+            "value": "写给 %2$@的 %1$@"
           }
         }
       }

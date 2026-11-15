@@ -678,6 +678,9 @@ private struct RecapDetailLayer: View {
     var bottom: CGFloat
     var onDismiss: () -> Void
 
+    @State private var contentHeight: CGFloat?
+    private static let maxCard: CGFloat = 520
+
     var body: some View {
         ZStack(alignment: .bottom) {
             if detail != nil {
@@ -696,34 +699,40 @@ private struct RecapDetailLayer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
+    /// As tall as its contents, scrolling only past the cap. Its height is measured: a `maxHeight` frame would
+    /// take the whole cap and float short contents in its middle.
     private func card(_ detail: RecapDetail) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                switch detail {
-                case .word(let k):
-                    title(k.text, k.count == 1 ? String(localized: "Used once") : String(localized: "Used \(k.count) times"))
-                    ForEach(Array(k.notes.enumerated()), id: \.offset) { _, note in
-                        snippet(note.text, SpotoolfyRecapView.writtenFor(note))
-                    }
-                case .lyric(let l):
-                    title(l.trackTitle ?? String(localized: "Unknown track"), l.artist)
-                    snippet(SpotoolfyRecapView.quote(l.lyric),
-                            String(localized: "Kept on \(SpotoolfyRecapView.date(l.capturedAt))"))
-                    if !l.note.isEmpty { snippet(l.note, String(localized: "What you wrote with it")) }
-                case .note(let n):
-                    title(n.trackTitle ?? String(localized: "Unknown track"), n.artist)
-                    snippet(n.text, SpotoolfyRecapView.date(n.writtenAt))
-                }
-            }
-            .padding(20)
+            cardContents(detail)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0 }
         }
         .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: 560)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxHeight: 520)
+        .frame(height: min(contentHeight ?? Self.maxCard, Self.maxCard))
         .background(scheme.surfaceContainerHigh, in: .rect(cornerRadius: 28))
         .padding(12)
         .padding(.bottom, bottom)
+    }
+
+    private func cardContents(_ detail: RecapDetail) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            switch detail {
+            case .word(let k):
+                title(k.text, k.count == 1 ? String(localized: "Used once") : String(localized: "Used \(k.count) times"))
+                ForEach(Array(k.notes.enumerated()), id: \.offset) { _, note in
+                    snippet(note.text, SpotoolfyRecapView.writtenFor(note))
+                }
+            case .lyric(let l):
+                title(l.trackTitle ?? String(localized: "Unknown track"), l.artist)
+                snippet(SpotoolfyRecapView.quote(l.lyric),
+                        String(localized: "Kept on \(SpotoolfyRecapView.date(l.capturedAt))"))
+                if !l.note.isEmpty { snippet(l.note, String(localized: "What you wrote with it")) }
+            case .note(let n):
+                title(n.trackTitle ?? String(localized: "Unknown track"), n.artist)
+                snippet(n.text, SpotoolfyRecapView.date(n.writtenAt))
+            }
+        }
+        .padding(20)
     }
 
     private func title(_ text: String, _ sub: String?) -> some View {
