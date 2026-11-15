@@ -282,7 +282,7 @@ class SpotifyUnreachableTest {
         player.onHostStop()
         runCurrent()
         player.onHostStart(context)
-        advanceTimeBy(SPOTIFY_UNREACHABLE_AFTER_MS + 100)
+        advanceTimeBy(SPOTIFY_WAKE_GRACE_MS + 100)
         runCurrent()
 
         assertEquals(1, spotifyLaunches)
@@ -363,6 +363,94 @@ class SpotifyUnreachableTest {
         comeBack(player, spotifyState = state(uri = "spotify:track:theirs", paused = false))
 
         assertEquals(0, webStarts)
+    }
+
+    @Test
+    fun should_showWhatSpotifyPlays_when_theWokenSpotifyAnswersSlowly() = playerTest {
+        // 51's Fold 8, 2026-11-15: Spotify, opened after a long sleep, took longer than 1.5 s to
+        // take a connection; each one was cut and Yoin showed nothing until it was relaunched.
+        val player = hintShown()
+        slowComeBack(player, spotifyState = state(uri = "spotify:track:theirs", paused = false))
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertEquals(ConnectionPhase.Connecting, snapshots.last().connectionPhase)
+
+        appRemote.answerHeldConnects()
+        advanceTimeBy(SPOTIFY_START_HEARD_TIMEOUT_MS + 2_000)
+        runCurrent()
+
+        assertEquals(0, webStarts)
+        assertEquals(1, spotifyLaunches)
+        assertNull(snapshots.last().pendingTrack)
+        assertEquals(MediaId.spotify("theirs"), snapshots.last().currentTrack?.id)
+        assertTrue(snapshots.last().isPlaying)
+    }
+
+    @Test
+    fun should_playTheHeldSong_when_theWokenSpotifyAnswersSlowlyAndIsPaused() = playerTest {
+        val player = hintShown()
+        slowComeBack(player, spotifyState = state(paused = true))
+        advanceTimeBy(3_000)
+        runCurrent()
+
+        appRemote.answerHeldConnects()
+        advanceTimeBy(SPOTIFY_START_HEARD_TIMEOUT_MS + 2_000)
+        runCurrent()
+
+        assertEquals(1, webStarts)
+        assertEquals(song, snapshots.last().currentTrack)
+    }
+
+    @Test
+    fun should_notOpenSpotifyAgain_when_theUserTapsAgainWhileItWakes() = playerTest {
+        val player = hintShown()
+        slowComeBack(player, spotifyState = state(paused = true))
+
+        tap(player)
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertEquals(1, spotifyLaunches)
+        assertEquals(ConnectionPhase.Connecting, snapshots.last().connectionPhase)
+
+        appRemote.answerHeldConnects()
+        advanceTimeBy(SPOTIFY_START_HEARD_TIMEOUT_MS + 2_000)
+        runCurrent()
+
+        assertEquals(1, webStarts)
+        assertEquals(song, snapshots.last().currentTrack)
+    }
+
+    @Test
+    fun should_keepTrying_when_theWokenSpotifyRefusesTheFirstConnects() = playerTest {
+        val player = hintShown()
+        player.onHostStop()
+        runCurrent()
+        appRemote.failWith = SpotifyDisconnectedException()
+        appRemote.initialState = state(paused = true)
+        player.onHostStart(context)
+        advanceTimeBy(2_500)
+        runCurrent()
+        assertTrue(appRemote.connects >= 3)
+        assertEquals(ConnectionPhase.Connecting, snapshots.last().connectionPhase)
+
+        appRemote.failWith = null
+        appRemote.answers = true
+        advanceTimeBy(SPOTIFY_START_HEARD_TIMEOUT_MS + 2_000)
+        runCurrent()
+
+        assertEquals(1, webStarts)
+        assertEquals(song, snapshots.last().currentTrack)
+    }
+
+    /** Yoin back from the Spotify it opened, which now takes its time to answer a connect. */
+    private fun TestScope.slowComeBack(player: SpotifyAppRemotePlayer, spotifyState: PlayerState) {
+        player.onHostStop()
+        runCurrent()
+        appRemote.failWith = null
+        appRemote.holdConnects = true
+        appRemote.initialState = spotifyState
+        player.onHostStart(context)
+        runCurrent()
     }
 
     /** Taps [song] with the Spotify app asleep, and lets the hint come up. */
@@ -494,6 +582,10 @@ class SpotifyUnreachableTest {
         var connects = 0
         var initialState: PlayerState? = null
 
+        /** A connect waits for [answerHeldConnects] (a Spotify slow to wake) instead of never answering. */
+        var holdConnects = false
+        private val heldConnects = mutableListOf<Connector.ConnectionListener>()
+
         /** A direct state read waits for [answerStateRead] instead of answering at once. */
         var holdStateRead = false
         private var heldRead: (() -> Unit)? = null
@@ -515,8 +607,16 @@ class SpotifyUnreachableTest {
             when {
                 answers -> listener.onConnected(remote)
                 failWith != null -> listener.onFailure(failWith)
+                holdConnects -> heldConnects += listener
                 else -> Unit
             }
+        }
+
+        /** Spotify finally answers every connect still out; later ones connect at once. */
+        fun answerHeldConnects() {
+            answers = true
+            holdConnects = false
+            heldConnects.toList().also { heldConnects.clear() }.forEach { it.onConnected(remote) }
         }
 
         override fun disconnect(remote: SpotifyAppRemote) = Unit
