@@ -75,7 +75,12 @@ struct ArtistDetailView: View {
                         Spacer().frame(height: Tokens.detail.ARTIST_BOTTOM_PADDING.cg)
                     }
                 }
-                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, y in scrollY = y }
+                // From the top at rest (the offset starts at minus the top inset, as on Home and Search):
+                // the top blur, the ring's turn and its dissolve all count from there, as Android's
+                // scrollState does.
+                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, y in
+                    scrollY = y
+                }
                 // Content starts below the header and scrolls up under it, into the album page's top.
                 .scrollPosition($scrollPosition)
                 .task {
