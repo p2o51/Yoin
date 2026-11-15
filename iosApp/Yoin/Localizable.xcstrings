@@ -10627,6 +10627,26 @@
           }
         }
       }
+    },
+    "%@. Paused with %lld songs left.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@。已暂停，还剩 %lld 首。"
+          }
+        }
+      }
+    },
+    "Added %lld of %lld songs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加 %lld 首，共 %lld 首"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
