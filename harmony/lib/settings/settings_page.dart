@@ -44,8 +44,8 @@ class _SettingsSubPageState extends State<SettingsSubPage> {
     final colors = Theme.of(context).colorScheme;
     final list = ListView(
       controller: _scroll,
-      // In the pane the panel's own clip bounds the scroll: a second clip on
-      // the same bottom edge left a dark hairline there on the MateBook.
+      // The scroll clips itself; in the pane the corners are painted over it
+      // (SettingsPanePanel's CornerMask), never clipped.
       clipBehavior: Clip.hardEdge,
       padding: EdgeInsets.fromLTRB(
         SettingsMetrics.pageHorizontal,
@@ -76,7 +76,7 @@ class _SettingsSubPageState extends State<SettingsSubPage> {
           titleTop: SettingsBar.headlineOffset,
           titleHeight: SettingsBar.lineHeight(context, Theme.of(context).textTheme.displaySmall!),
         ),
-        body: SafeArea(top: false, bottom: false, child: list),
+        body: SafeArea(top: false, bottom: false, child: SettingsSeam(controller: _scroll, child: list)),
       ),
     );
   }

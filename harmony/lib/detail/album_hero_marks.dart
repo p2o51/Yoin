@@ -551,12 +551,17 @@ class AlbumRatedCoverage extends ConsumerWidget {
           ? const SizedBox.shrink()
           : Padding(
               padding: const EdgeInsetsDirectional.only(start: AlbumHeroTokens.coverageGap),
-              child: Text(
-                text,
-                maxLines: 1,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+              // Its own node, the size of its words: left to merge upward it took the hero's whole
+              // drag region as its bounds.
+              child: Semantics(
+                container: true,
+                child: Text(
+                  text,
+                  maxLines: 1,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
               ),
             ),

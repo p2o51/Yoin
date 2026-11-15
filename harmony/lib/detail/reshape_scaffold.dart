@@ -4,9 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart' show Drag;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
+import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../theme/motion.dart';
+import '../theme/system_bars.dart';
 import '../theme/tokens.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
@@ -176,148 +178,219 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
               );
         // Page 0's flying pieces (the spectrum, the cover) go with page 0 as the pager drags.
         double shift() => paged ? -_page.value * w : 0;
-        return Stack(
-          children: [
-            const Positioned.fill(child: DetailPageBackground()),
-            // The cover → spectrum bar (AlbumSpectrumBar.kt): as the cover leaves, a copy of it breaks
-            // into strips that sort themselves into the cover's tone-locked bands, filling the header.
-            if (content != null)
+        return _BarStatusIcons(
+          reveal: _reveal,
+          page: _page,
+          enabled: content != null,
+          child: Stack(
+            children: [
+              const Positioned.fill(child: DetailPageBackground()),
+              // The cover → spectrum bar (AlbumSpectrumBar.kt): as the cover leaves, a copy of it breaks
+              // into strips that sort themselves into the cover's tone-locked bands, filling the header.
+              if (content != null)
+                Positioned.fill(
+                  child: AnimatedBuilder(
+                    animation: _page,
+                    builder: (context, child) => Transform.translate(offset: Offset(shift(), 0), child: child),
+                    child: AlbumSpectrumLayer(
+                      reveal: _reveal,
+                      coverUrl: content.coverUrl,
+                      cover: restCover,
+                      bar: Rect.fromLTWH(0, 0, w, headerBottom),
+                      reduce: reduce,
+                    ),
+                  ),
+                ),
               Positioned.fill(
-                child: AnimatedBuilder(
-                  animation: _page,
-                  builder: (context, child) => Transform.translate(offset: Offset(shift(), 0), child: child),
-                  child: AlbumSpectrumLayer(
-                    reveal: _reveal,
-                    coverUrl: content.coverUrl,
-                    cover: restCover,
-                    bar: Rect.fromLTWH(0, 0, w, headerBottom),
-                    reduce: reduce,
-                  ),
-                ),
-              ),
-            Positioned.fill(
-              top: headerBottom,
-              child: body == null
-                  ? (widget.stateView ?? const SizedBox.shrink())
-                  : !paged
-                  ? body
-                  : ReshapePager(
-                      openPage: _openPage,
-                      child: Listener(
-                        // A finger on the pager takes over from a dot's spring.
-                        onPointerDown: (_) => _pageSpring.stop(),
-                        child: PageView(
-                          controller: _pager,
-                          children: [
-                            body,
-                            Builder(builder: (context) => content!.secondPage!(context, _page)),
-                          ],
-                        ),
-                      ),
-                    ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              top: topInset,
-              height: DetailHeaderMetrics.bandHeight,
-              child: _Header(
-                reveal: _reveal,
-                page: _page,
-                docks: content != null,
-                reduce: reduce,
-                title: widget.title,
-                titleTrailing: widget.titleTrailing,
-                meta: widget.meta,
-                endPadding: widget.headerEndPadding,
-              ),
-            ),
-            if (paged)
-              Positioned(
-                top: topInset + DetailHeaderMetrics.bandHeight,
-                height: AlbumPageDotsTokens.cellHeight,
-                left: 0,
-                right: 0,
-                child: Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: Padding(
-                    // Under the title column: past the back button and its gap (less the cell's own inset).
-                    padding: const EdgeInsetsDirectional.only(
-                      start:
-                          DetailHeaderMetrics.paddingStart +
-                          48 +
-                          DetailHeaderMetrics.titleGap -
-                          4 -
-                          (AlbumPageDotsTokens.cellWidth / 2 - AlbumPageDotsTokens.dot),
-                    ),
-                    child: DetailColorsBuilder(
-                      builder: (context, colors) => AnimatedBuilder(
-                        animation: Listenable.merge([_reveal, _page]),
-                        builder: (context, _) {
-                          final ink = PullUpMath.textProgress(_reveal.expand) * (1 - _page.value).clamp(0.0, 1.0);
-                          // One palette, the cover scheme's (AlbumPageDots): its secondary for the page
-                          // shown, its onSurfaceVariant at 0.3 for the other; white twins over the bar.
-                          return AlbumPageDots(
-                            page: _page,
-                            active: Color.lerp(colors.secondary, Colors.white, ink)!,
-                            inactive: Color.lerp(
-                              colors.muted.withValues(alpha: AlbumPageDotsTokens.inactiveAlpha),
-                              Colors.white.withValues(alpha: AlbumPageDotsTokens.inactiveOnBarAlpha),
-                              ink,
-                            )!,
-                            onPage: _openPage,
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            if (content != null)
-              AnimatedBuilder(
-                animation: Listenable.merge([_reveal, _page]),
-                builder: (context, _) {
-                  final expand = _reveal.expand;
-                  final rect = (reduce ? restCover : PullUpMath.coverRect(restCover, stamp, expand)).shift(
-                    Offset(shift(), 0),
-                  );
-                  final alpha = reduce ? PullUpMath.heroAlpha(expand) : 1.0;
-                  final docked = expand >= 0.5;
-                  return Positioned.fromRect(
-                    rect: rect,
-                    child: Opacity(
-                      opacity: alpha,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: docked ? () => _reveal.setExpanded(false) : null,
-                        onVerticalDragUpdate: docked ? null : (d) => _reveal.dragBy(d.delta.dy),
-                        onVerticalDragEnd: docked ? null : (d) => _reveal.release(d.velocity.pixelsPerSecond.dy),
-                        // The cover sits over the pager: a sideways drag on it still turns the page.
-                        onHorizontalDragStart: paged ? _pageDragStart : null,
-                        onHorizontalDragUpdate: paged ? (d) => _pageDrag?.update(d) : null,
-                        onHorizontalDragEnd: paged ? (d) => _pageDrag?.end(d) : null,
-                        onHorizontalDragCancel: paged ? () => _pageDrag?.cancel() : null,
-                        child: Material(
-                          type: MaterialType.transparency,
-                          elevation: 0,
-                          child: MediaArtwork(
-                            url: content.coverUrl,
-                            fallbackIcon: content.fallbackIcon,
-                            radius: PullUpMath.coverCorner(expand),
-                            decodeWidth: 640,
-                            fallbackIconSize: lerpDouble(48, 24, expand)!,
+                top: headerBottom,
+                child: body == null
+                    ? (widget.stateView ?? const SizedBox.shrink())
+                    : !paged
+                    ? body
+                    : ReshapePager(
+                        openPage: _openPage,
+                        child: Listener(
+                          // A finger on the pager takes over from a dot's spring.
+                          onPointerDown: (_) => _pageSpring.stop(),
+                          child: PageView(
+                            controller: _pager,
+                            children: [
+                              body,
+                              Builder(builder: (context) => content!.secondPage!(context, _page)),
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                  );
-                },
               ),
-          ],
+              Positioned(
+                left: 0,
+                right: 0,
+                top: topInset,
+                height: DetailHeaderMetrics.bandHeight,
+                child: _Header(
+                  reveal: _reveal,
+                  page: _page,
+                  docks: content != null,
+                  reduce: reduce,
+                  title: widget.title,
+                  titleTrailing: widget.titleTrailing,
+                  meta: widget.meta,
+                  endPadding: widget.headerEndPadding,
+                ),
+              ),
+              if (paged)
+                Positioned(
+                  top: topInset + DetailHeaderMetrics.bandHeight,
+                  height: AlbumPageDotsTokens.cellHeight,
+                  left: 0,
+                  right: 0,
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Padding(
+                      // Under the title column: past the back button and its gap (less the cell's own inset).
+                      padding: const EdgeInsetsDirectional.only(
+                        start:
+                            DetailHeaderMetrics.paddingStart +
+                            48 +
+                            DetailHeaderMetrics.titleGap -
+                            4 -
+                            (AlbumPageDotsTokens.cellWidth / 2 - AlbumPageDotsTokens.dot),
+                      ),
+                      child: DetailColorsBuilder(
+                        builder: (context, colors) => AnimatedBuilder(
+                          animation: Listenable.merge([_reveal, _page]),
+                          builder: (context, _) {
+                            final ink = PullUpMath.textProgress(_reveal.expand) * (1 - _page.value).clamp(0.0, 1.0);
+                            // One palette, the cover scheme's (AlbumPageDots): its secondary for the page
+                            // shown, its onSurfaceVariant at 0.3 for the other; white twins over the bar.
+                            return AlbumPageDots(
+                              page: _page,
+                              active: Color.lerp(colors.secondary, Colors.white, ink)!,
+                              inactive: Color.lerp(
+                                colors.muted.withValues(alpha: AlbumPageDotsTokens.inactiveAlpha),
+                                Colors.white.withValues(alpha: AlbumPageDotsTokens.inactiveOnBarAlpha),
+                                ink,
+                              )!,
+                              onPage: _openPage,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (content != null)
+                AnimatedBuilder(
+                  animation: Listenable.merge([_reveal, _page]),
+                  builder: (context, _) {
+                    final expand = _reveal.expand;
+                    final rect = (reduce ? restCover : PullUpMath.coverRect(restCover, stamp, expand)).shift(
+                      Offset(shift(), 0),
+                    );
+                    final alpha = reduce ? PullUpMath.heroAlpha(expand) : 1.0;
+                    final docked = expand >= 0.5;
+                    return Positioned.fromRect(
+                      rect: rect,
+                      child: Opacity(
+                        opacity: alpha,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: docked ? () => _reveal.setExpanded(false) : null,
+                          onVerticalDragUpdate: docked ? null : (d) => _reveal.dragBy(d.delta.dy),
+                          onVerticalDragEnd: docked ? null : (d) => _reveal.release(d.velocity.pixelsPerSecond.dy),
+                          // The cover sits over the pager: a sideways drag on it still turns the page.
+                          onHorizontalDragStart: paged ? _pageDragStart : null,
+                          onHorizontalDragUpdate: paged ? (d) => _pageDrag?.update(d) : null,
+                          onHorizontalDragEnd: paged ? (d) => _pageDrag?.end(d) : null,
+                          onHorizontalDragCancel: paged ? () => _pageDrag?.cancel() : null,
+                          child: Material(
+                            type: MaterialType.transparency,
+                            elevation: 0,
+                            child: MediaArtwork(
+                              url: content.coverUrl,
+                              fallbackIcon: content.fallbackIcon,
+                              radius: PullUpMath.coverCorner(expand),
+                              decodeWidth: 640,
+                              fallbackIconSize: lerpDouble(48, 24, expand)!,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
         );
       },
     );
   }
+}
+
+/// Status-bar icons follow the bar (AlbumBarStatusBarEffect): light over the
+/// formed spectrum (it sits under the status bar), the theme's default
+/// otherwise — and again once the pager has carried the bar away with page 0.
+/// Published through the window's status-bar style (lib/theme/system_bars.dart);
+/// rebuilds only when the docked state flips.
+class _BarStatusIcons extends StatefulWidget {
+  const _BarStatusIcons({required this.reveal, required this.page, required this.enabled, required this.child});
+
+  final RevealController reveal;
+  final ValueListenable<double> page;
+  final bool enabled;
+  final Widget child;
+
+  @override
+  State<_BarStatusIcons> createState() => _BarStatusIconsState();
+}
+
+class _BarStatusIconsState extends State<_BarStatusIcons> {
+  late bool _docked = _isDocked();
+
+  bool _isDocked() =>
+      widget.enabled &&
+      widget.reveal.expand > PullUpTokens.barDockedThreshold &&
+      widget.page.value < PullUpTokens.barDockedThreshold;
+
+  void _sync() {
+    final docked = _isDocked();
+    if (docked != _docked) setState(() => _docked = docked);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.reveal.addListener(_sync);
+    widget.page.addListener(_sync);
+  }
+
+  @override
+  void didUpdateWidget(_BarStatusIcons old) {
+    super.didUpdateWidget(old);
+    if (old.reveal != widget.reveal) {
+      old.reveal.removeListener(_sync);
+      widget.reveal.addListener(_sync);
+    }
+    if (old.page != widget.page) {
+      old.page.removeListener(_sync);
+      widget.page.addListener(_sync);
+    }
+    _docked = _isDocked();
+  }
+
+  @override
+  void dispose() {
+    widget.reveal.removeListener(_sync);
+    widget.page.removeListener(_sync);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
+    // Every spectrum band is dark enough for white (≥ 7:1): the bar reads as a dark surface.
+    value: yoinStatusBarStyle(_docked ? Brightness.dark : Theme.of(context).brightness),
+    child: widget.child,
+  );
 }
 
 class _Body extends StatelessWidget {
@@ -401,9 +474,14 @@ class _Body extends StatelessWidget {
                 behavior: HitTestBehavior.translucent,
                 onVerticalDragUpdate: reveal.expanded ? null : (d) => reveal.dragBy(d.delta.dy),
                 onVerticalDragEnd: reveal.expanded ? null : (d) => reveal.release(d.velocity.pixelsPerSecond.dy),
-                child: Opacity(
-                  opacity: PullUpMath.heroAlpha(expand),
-                  child: Transform.translate(offset: Offset(0, PullUpMath.heroShift(expand)), child: child),
+                // The drag's node spans the whole hero: its texts keep nodes of their own instead of
+                // merging into it (one "1/9 rated" node the size of the page).
+                child: Semantics(
+                  explicitChildNodes: true,
+                  child: Opacity(
+                    opacity: PullUpMath.heroAlpha(expand),
+                    child: Transform.translate(offset: Offset(0, PullUpMath.heroShift(expand)), child: child),
+                  ),
                 ),
               ),
             );

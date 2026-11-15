@@ -28,6 +28,7 @@ import '../nowplaying/haptics.dart';
 import '../settings/account_identity.dart';
 import '../settings/settings_screen.dart';
 import '../settings/settings_view_model.dart';
+import '../shell/bar_suppression.dart';
 import '../shell/chrome_back.dart';
 import '../theme/motion.dart';
 import '../ui/component/desktop_input.dart';
@@ -129,6 +130,7 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
         anchor: rect,
         accounts: accounts,
         navigator: navigator,
+        barSuppression: ref.read(barSuppressionProvider.notifier),
         onEditHome: widget.onEditHome,
         onPick: (card) => switchHomeAccount(ref, card.id),
         onClosed: () {
@@ -192,7 +194,9 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     final accounts = ref.watch(homeAccountsProvider).value ?? const <AccountCard>[];
     final active = accounts.where((a) => a.isActive).firstOrNull;
     final others = otherAccounts(accounts);
-    final title = widget.fallbackTitle;
+    // Android labels the button with the active card's title (the username,
+    // else the profile's name); the header's title is only the fallback.
+    final title = active?.title ?? widget.fallbackTitle;
     final ring = colors.surfaceContainer;
     return Semantics(
       button: true,
@@ -398,12 +402,18 @@ class _AccountCardOverlay extends StatefulWidget {
     required this.navigator,
     required this.onPick,
     required this.onClosed,
+    this.barSuppression,
     this.onEditHome,
   });
 
   final Rect anchor;
   final List<AccountCard> accounts;
   final NavigatorState navigator;
+
+  /// The window's one bar goes behind the card's scrim like any modal's
+  /// (the sheets' and dialogs' suppression): away while the card is up, back
+  /// as it starts to fold into the avatar.
+  final BarSuppression? barSuppression;
   final void Function(AccountCard) onPick;
   final VoidCallback onClosed;
   final VoidCallback? onEditHome;
@@ -419,11 +429,16 @@ class _AccountCardOverlayState extends State<_AccountCardOverlay> with TickerPro
   }));
   VoidCallback? _after;
   bool _closing = false;
+  final Object _barToken = Object();
 
   @override
   void initState() {
     super.initState();
     _back.attach(widget.navigator);
+    // Not while the tree builds (a provider write then is refused).
+    scheduleMicrotask(() {
+      if (mounted && !_closing) widget.barSuppression?.add(_barToken);
+    });
     _p.animation.addListener(_onTick);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -450,6 +465,7 @@ class _AccountCardOverlayState extends State<_AccountCardOverlay> with TickerPro
   void close([VoidCallback? then]) {
     if (_closing) return;
     _closing = true;
+    widget.barSuppression?.remove(_barToken);
     _after = then;
     if (MediaQuery.disableAnimationsOf(context)) {
       _p.snapTo(0);
@@ -461,6 +477,8 @@ class _AccountCardOverlayState extends State<_AccountCardOverlay> with TickerPro
 
   @override
   void dispose() {
+    final suppression = widget.barSuppression;
+    scheduleMicrotask(() => suppression?.remove(_barToken));
     _back.dispose();
     _p.dispose();
     super.dispose();

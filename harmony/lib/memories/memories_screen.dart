@@ -19,6 +19,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -132,6 +133,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   late final MemoriesDiaryController _p = MemoriesDiaryController(vsync: this);
   PageController? _pages;
   final Map<int, ScrollController> _scrolls = {};
+  final Map<int, ValueNotifier<double>> _titleLifts = {};
   final MemoryAwards _awards = MemoryAwards();
   late final MemoryPalettes _palettes = MemoryPalettes(vsync: this);
   late final MemoriesRevealHandle _handle = ref.read(memoriesRevealHandleProvider);
@@ -186,6 +188,9 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     for (final s in _scrolls.values) {
       s.dispose();
     }
+    for (final l in _titleLifts.values) {
+      l.dispose();
+    }
     _awards.dispose();
     _palettes.dispose();
     super.dispose();
@@ -222,6 +227,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   }
 
   ScrollController _scrollFor(int index) => _scrolls.putIfAbsent(index, ScrollController.new);
+  ValueNotifier<double> _titleLiftFor(int index) => _titleLifts.putIfAbsent(index, () => ValueNotifier(0));
 
   PageController _pagesFor(int initial) => _pages ??= PageController(initialPage: initial)..addListener(_onPage);
 
@@ -431,7 +437,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
                     child: _Wash(memories: memories, pages: _pages!, dark: dark),
                   ),
                 switch (state) {
-                  MemoriesContent() => _deck(context, state, layout, top, dark),
+                  MemoriesContent() => _heldOverKeyboard(context, _deck(context, state, layout, top, dark), c.maxHeight),
                   _ => GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onVerticalDragStart: (_) => _verticalStart(false),
@@ -500,6 +506,33 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     );
   }
 
+  /// While a title is edited the keyboard shrinks the page; the deck keeps
+  /// the height it had (Android's card isn't resized by the IME, it rises
+  /// over it) and is told the keyboard's room as its bottom inset, so the
+  /// card lifts its whole face — Cancel and Save included, laid out and
+  /// tappable — above the keyboard instead of squeezing under it.
+  Widget _heldOverKeyboard(BuildContext context, Widget deck, double height) {
+    // One tree shape either way: the deck's PageView must never remount (its controller would attach twice).
+    var held = _heightAtEdit ?? height;
+    // The diary scrolls: its own field scrolls clear of the keyboard as the page shrinks.
+    if (held < height || (!_spread && _p.fraction >= 0.5)) held = height;
+    final media = MediaQuery.of(context);
+    final covered = held - height;
+    return ClipRect(
+      child: OverflowBox(
+        alignment: Alignment.topCenter,
+        minHeight: held,
+        maxHeight: held,
+        child: MediaQuery(
+          data: media.copyWith(
+            viewInsets: media.viewInsets.copyWith(bottom: math.max(media.viewInsets.bottom, covered)),
+          ),
+          child: deck,
+        ),
+      ),
+    );
+  }
+
   Widget _deck(BuildContext context, MemoriesContent state, MemoriesLayout layout, double top, bool dark) {
     final pages = _pagesFor(state.currentPage);
     final spreadFit = layout.isSpread
@@ -549,6 +582,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
             onPlayNote: (t, n) => _playNote(memory, t, n),
             onSaveReview: (text) => ref.read(memoriesViewModelProvider.notifier).saveReview(memory, text),
             titleEditing: _titleEditing,
+            titleLift: _titleLiftFor(index),
             current: index == state.currentPage,
           );
         },
@@ -661,10 +695,15 @@ class _MemoryPage extends ConsumerWidget {
     required this.onSaveReview,
     this.titleEditing,
     this.current = false,
+    this.titleLift,
   });
 
   /// The deck's title editor.
   final MemoryTitleEditing? titleEditing;
+
+  /// The card's keyboard lift, which its flying cover rides as well (on
+  /// Android the cover is in the lifted card; here the page draws it).
+  final ValueNotifier<double>? titleLift;
 
   /// This is the page the deck rests on: its titles can open.
   final bool current;
@@ -780,7 +819,9 @@ class _MemoryPage extends ConsumerWidget {
                     ),
                   ),
                 // The cover: one element, flying from the card to the bar's 40 dp slot.
-                _flyingCover(cardCover.translate(0, p < 0 ? -p * MemoriesTokens.diaryMorphDistance : 0), barCover, pc),
+                _liftedWithCard(
+                  _flyingCover(cardCover.translate(0, p < 0 ? -p * MemoriesTokens.diaryMorphDistance : 0), barCover, pc),
+                ),
                 // The card (the cover slot is left to the flying cover).
                 Positioned(
                   left: 0,
@@ -812,6 +853,7 @@ class _MemoryPage extends ConsumerWidget {
                               onOpenAlbum: onOpenAlbum,
                               titleEditing: titleEditing,
                               titleEnabled: current && !diaryOpen,
+                              titleLift: titleLift,
                             ),
                           ),
                         ),
@@ -912,6 +954,22 @@ class _MemoryPage extends ConsumerWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// [cover] (a Positioned) moved up by the card's keyboard lift.
+  Widget _liftedWithCard(Widget cover) {
+    final lift = titleLift;
+    if (lift == null || cover is! Positioned) return cover;
+    return ValueListenableBuilder<double>(
+      valueListenable: lift,
+      builder: (context, up, _) => Positioned(
+        left: cover.left,
+        top: cover.top == null ? null : cover.top! - up,
+        width: cover.width,
+        height: cover.height,
+        child: cover.child,
       ),
     );
   }

@@ -106,6 +106,7 @@ class MemoryCardFace extends StatelessWidget {
     this.interactive = true,
     this.titleEditing,
     this.titleEnabled = false,
+    this.titleLift,
   });
 
   final MemoryEntry memory;
@@ -127,6 +128,9 @@ class MemoryCardFace extends StatelessWidget {
 
   /// The page is current and the card takes input: its title can open.
   final bool titleEnabled;
+
+  /// Where the card's keyboard lift is told, for the cover the page draws outside it.
+  final ValueNotifier<double>? titleLift;
 
   @override
   Widget build(BuildContext context) {
@@ -226,6 +230,7 @@ class MemoryCardFace extends StatelessWidget {
             final titleLift = reducedMotion ? 0.0 : -travel * 48;
             return MemoryTitleLift(
               lift: lift,
+              mirror: this.titleLift,
               child: Stack(
                 children: [
                   // Exhibit.

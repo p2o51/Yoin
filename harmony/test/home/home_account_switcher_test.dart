@@ -8,6 +8,7 @@ import 'package:yoin/home/home_account_switcher.dart';
 import 'package:yoin/home/home_screen.dart';
 import 'package:yoin/home/home_view_model.dart';
 import 'package:yoin/settings/settings_view_model.dart';
+import 'package:yoin/shell/bar_suppression.dart';
 import 'package:yoin/theme/theme.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
@@ -67,6 +68,15 @@ void main() {
     c.dispose();
   }
 
+  testWidgets('should_nameTheAccountUser_when_avatarIsRead', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final (c, _, _) = await twoAccounts(tester);
+    // Android home_account_cd with card.title: the username, not the server host.
+    expect(find.bySemanticsLabel('Account: u'), findsOneWidget);
+    semantics.dispose();
+    await done(tester, c);
+  });
+
   testWidgets('should_openCardAndSwitch_when_anotherAccountIsPicked', (tester) async {
     final (c, _, second) = await twoAccounts(tester);
     await tester.tap(find.byType(HomeAccountButton));
@@ -90,6 +100,19 @@ void main() {
     expect(find.text('Manage accounts'), findsNothing);
     expect(find.byType(HomeScreen), findsOneWidget);
     expect((await c.read(profileRepositoryProvider).activeProfile())!.id, first);
+    await done(tester, c);
+  });
+
+  testWidgets('should_sendTheBarAwayWhileTheCardIsUp_when_avatarTapped', (tester) async {
+    final (c, _, _) = await twoAccounts(tester);
+    expect(c.read(barSuppressedProvider), isFalse);
+    await tester.tap(find.byType(HomeAccountButton));
+    await settleFrames(tester);
+    expect(c.read(barSuppressedProvider), isTrue);
+    await tester.binding.handlePopRoute();
+    await settleFrames(tester);
+    expect(find.text('Manage accounts'), findsNothing);
+    expect(c.read(barSuppressedProvider), isFalse);
     await done(tester, c);
   });
 

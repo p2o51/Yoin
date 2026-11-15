@@ -124,6 +124,12 @@ abstract final class SettingsMetrics {
   // A license's own page.
   static const double licenseTextTop = 4;
 
+  // The chrome seam under Settings' bar (SeamDissolve.kt SeamTop.Chrome):
+  // scrolled content dissolves over [seamBand] below the bar, the band
+  // growing in over the first [seamRevealDistance] of scroll.
+  static const double seamBand = 12; // SeamDissolve Band
+  static const double seamRevealDistance = 40; // SeamDissolve RevealDistance
+
   // List-detail on wide windows (SettingsTablet; main_split_config.xml splitRatio 0.33).
   static const double splitListFraction = 0.33;
   static const double splitListMinWidth = 360;

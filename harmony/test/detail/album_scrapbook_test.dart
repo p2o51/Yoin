@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
@@ -6,6 +7,7 @@ import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/detail/album_scrapbook.dart';
 import 'package:yoin/detail/album_scrapbook_page.dart';
+import 'package:yoin/detail/album_spectrum_layer.dart';
 import 'package:yoin/detail/detail_routes.dart';
 import 'package:yoin/playback/playback_controller.dart';
 import 'package:yoin/platform/storage/stores.dart';
@@ -200,6 +202,36 @@ void main() {
       // Until the cover resolves the page stands on the app scheme: secondary, and onSurfaceVariant at 0.3.
       expect(dots.active, scheme.secondary);
       expect(dots.inactive, scheme.onSurfaceVariant.withValues(alpha: AlbumPageDotsTokens.inactiveAlpha));
+      await close(tester);
+    });
+
+    testWidgets('should_lightenStatusIcons_when_barFormedUnderThem', (tester) async {
+      await open(tester);
+      expect(SystemChrome.latestStyle?.statusBarIconBrightness, Brightness.dark, reason: 'light page at rest');
+
+      await tester.drag(find.textContaining('Song\u00A0t2', findRichText: true).first, const Offset(0, -500));
+      await settle(tester);
+      expect(SystemChrome.latestStyle?.statusBarIconBrightness, Brightness.light, reason: 'over the dark bar');
+
+      await tester.tapAt(tester.getCenter(find.byType(AlbumPageDots)) + const Offset(12, 0));
+      await settle(tester);
+      expect(SystemChrome.latestStyle?.statusBarIconBrightness, Brightness.dark, reason: 'the bar went with page 0');
+      await close(tester);
+    });
+
+    testWidgets('should_clipSpectrumToItsLayer_when_painted', (tester) async {
+      await open(tester);
+      final layer = find.descendant(of: find.byType(AlbumSpectrumLayer), matching: find.byType(CustomPaint)).first;
+      expect(tester.renderObject(layer), paints..clipRect());
+      await close(tester);
+    });
+
+    testWidgets('should_keepHeroTextNodesTheirOwnSize_when_readAloud', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await open(tester);
+      final node = tester.getSemantics(find.bySemanticsLabel(RegExp('tracks')).first);
+      expect(node.rect.height, lessThan(60), reason: 'not merged into the hero drag region');
+      semantics.dispose();
       await close(tester);
     });
 

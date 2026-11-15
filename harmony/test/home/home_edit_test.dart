@@ -306,6 +306,7 @@ void main() {
       }
 
       final next = tester.getRect(plate(HomeSection.jumpBackIn));
+      final restSize = tester.getSize(plate(HomeSection.activities));
       final gesture = await tester.startGesture(tester.getCenter(find.byIcon(YoinSymbols.dragHandle).first));
       await gesture.moveBy(const Offset(0, 30));
       await tester.pump(const Duration(milliseconds: 16));
@@ -315,6 +316,8 @@ void main() {
       await frames(tester, 10);
       // Painted in the overlay, after (over) the whole feed.
       expect(inFeed(HomeSection.activities), isFalse);
+      // The overlay is bounded: the lifted section keeps the list's size, not the overlay's room.
+      expect(tester.getSize(plate(HomeSection.activities)), restSize);
       expect(inFeed(HomeSection.jumpBackIn), isTrue);
       final lifted = subtree(plate(HomeSection.activities));
       final below = subtree(plate(HomeSection.jumpBackIn));
@@ -339,6 +342,7 @@ void main() {
       await frames(tester, 30);
       expect(find.bySemanticsLabel('Hide Jump Back In'), findsOneWidget);
       expect(find.bySemanticsLabel('Reorder Jump Back In'), findsOneWidget);
+      expect(find.bySemanticsLabel('Undo'), findsOneWidget);
       semantics.dispose();
       await done(tester, c);
     });

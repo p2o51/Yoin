@@ -198,7 +198,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         body: SafeArea(
           top: false,
           bottom: false,
-          child: wide ? _ListDetail(list: list, pane: pane, onOpen: _open, onDone: () => setState(() => _pane = null)) : list,
+          child: wide
+              ? _ListDetail(
+                  list: SettingsSeam(controller: _scroll, child: list),
+                  pane: pane,
+                  onOpen: _open,
+                  onDone: () => setState(() => _pane = null),
+                )
+              : SettingsSeam(controller: _scroll, child: list),
         ),
       ),
     );

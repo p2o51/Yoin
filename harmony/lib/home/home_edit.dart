@@ -388,10 +388,19 @@ class HomeEditActions extends ConsumerWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          tooltip: strings.undo,
-          onPressed: edit.canUndo ? controller.undo : null,
-          icon: const Icon(YoinSymbols.undo),
+        // A tooltip alone is no label on HarmonyOS' reader: say it.
+        Semantics(
+          container: true,
+          button: true,
+          enabled: edit.canUndo,
+          label: strings.undo,
+          onTap: edit.canUndo ? controller.undo : null,
+          excludeSemantics: true,
+          child: IconButton(
+            tooltip: strings.undo,
+            onPressed: edit.canUndo ? controller.undo : null,
+            icon: const Icon(YoinSymbols.undo),
+          ),
         ),
         const SizedBox(width: HomeEditMetrics.actionGap),
         FilledButton(onPressed: controller.exit, child: Text(strings.done)),

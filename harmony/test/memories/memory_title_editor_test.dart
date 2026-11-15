@@ -11,6 +11,7 @@ import 'package:yoin/memories/memories_ui_state.dart';
 import 'package:yoin/memories/memories_view_model.dart';
 import 'package:yoin/memories/memory_title_editor.dart';
 import 'package:yoin/platform/storage/stores.dart';
+import 'package:yoin/ui/component/cover_art.dart';
 
 import '../support/fake_playback_engine.dart';
 
@@ -172,6 +173,36 @@ void main() {
       expect(find.descendant(of: find.byType(MemoryTitleSlot), matching: find.byType(TextField)), findsNothing);
       expect(deck.saved, isEmpty);
       expect(tester.widget<PageView>(find.byType(PageView)).physics, isNot(isA<NeverScrollableScrollPhysics>()));
+    });
+
+    testWidgets('should_liftTheWholeCardAboveTheKeyboard_when_editingTheTitleOnAPhone', (tester) async {
+      await pump(tester);
+      Rect r(Finder f) => tester.getRect(f);
+      await tester.tap(titleOf('Glass Orchard a').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      final cover = r(find.byType(CoverArt).first);
+      final field = r(find.byType(TextField));
+      // The keyboard comes up over the lower half.
+      tester.view.viewInsets = const FakeViewPadding(bottom: 330);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
+      final liftedCover = r(find.byType(CoverArt).first);
+      final liftedField = r(find.byType(TextField));
+      // It rose, as one piece: the title keeps its place under the cover.
+      expect(liftedField.top, lessThan(field.top));
+      expect(liftedField.top - liftedCover.bottom, closeTo(field.top - cover.bottom, 0.5));
+      expect(liftedCover.size, cover.size);
+      // Cancel and Save whole, above the keyboard.
+      final pill = r(find.byType(MemoryJournalSavePill));
+      expect(pill.height, 36);
+      expect(pill.bottom, lessThanOrEqualTo(850 - 330));
+      expect(r(find.text('Cancel')).bottom, lessThanOrEqualTo(850 - 330));
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.descendant(of: find.byType(MemoryTitleSlot), matching: find.byType(TextField)), findsNothing);
     });
 
     testWidgets('should_editLeftPageTitle_when_spread', (tester) async {

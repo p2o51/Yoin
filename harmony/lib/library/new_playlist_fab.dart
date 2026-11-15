@@ -29,8 +29,14 @@ class NewPlaylistFab extends ConsumerStatefulWidget {
   ConsumerState<NewPlaylistFab> createState() => _NewPlaylistFabState();
 }
 
-class _NewPlaylistFabState extends ConsumerState<NewPlaylistFab> with SingleTickerProviderStateMixin {
+class _NewPlaylistFabState extends ConsumerState<NewPlaylistFab> with TickerProviderStateMixin, WidgetsBindingObserver {
   bool _expanded = true;
+
+  /// 1 while the FAB steps aside: its own name dialog is up, or the
+  /// keyboard is (the window resizes for it, and the FAB would ride up with
+  /// the IME behind the dialog). Fades on the fast effects spring.
+  late final SpringValue _aside = SpringValue(vsync: this, initial: 0, spring: YoinSprings.fastEffects);
+  bool _dialogUp = false;
 
   /// How far up the snackbar pushes the FAB (logical px, ≥ 0).
   late final SpringValue _lift = SpringValue(
@@ -43,6 +49,13 @@ class _NewPlaylistFabState extends ConsumerState<NewPlaylistFab> with SingleTick
   void initState() {
     super.initState();
     widget.controller.addListener(_onScroll);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// The keyboard coming or going (window metrics): re-read the IME inset.
+  @override
+  void didChangeMetrics() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -58,6 +71,8 @@ class _NewPlaylistFabState extends ConsumerState<NewPlaylistFab> with SingleTick
   void dispose() {
     widget.controller.removeListener(_onScroll);
     _lift.dispose();
+    _aside.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -75,6 +90,7 @@ class _NewPlaylistFabState extends ConsumerState<NewPlaylistFab> with SingleTick
     YoinHaptics.tick();
     final strings = ComponentStrings.of(context);
     final writes = ref.read(playlistWritesProvider);
+    setState(() => _dialogUp = true);
     final name = await showPlaylistNameDialog(
       context,
       title: strings.playlistNewTitle, // library_playlist_dialog_title
@@ -82,6 +98,7 @@ class _NewPlaylistFabState extends ConsumerState<NewPlaylistFab> with SingleTick
       confirmLabel: strings.playlistCreate, // library_playlist_create
       cancelLabel: strings.playlistCancel, // library_playlist_cancel
     );
+    if (mounted) setState(() => _dialogUp = false);
     if (name == null) return;
     YoinHaptics.confirm();
     String text;
@@ -99,14 +116,32 @@ class _NewPlaylistFabState extends ConsumerState<NewPlaylistFab> with SingleTick
     final strings = ComponentStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final lift = ref.watch(snackbarLiftProvider);
+    // The window's own keyboard inset (the Scaffold above may already have
+    // taken it out of this subtree's MediaQuery).
+    final imeUp = MediaQueryData.fromView(View.of(context)).viewInsets.bottom > 0;
+    final aside = _dialogUp || imeUp ? 1.0 : 0.0;
     if (MediaQuery.disableAnimationsOf(context)) {
       _lift.snapTo(lift);
+      _aside.snapTo(aside);
     } else {
       _lift.animateTo(lift);
+      _aside.animateTo(aside);
     }
     return AnimatedBuilder(
-      animation: _lift.animation,
-      builder: (context, child) => Transform.translate(offset: Offset(0, -_lift.value), child: child),
+      animation: Listenable.merge([_lift.animation, _aside.animation]),
+      builder: (context, child) {
+        final a = _aside.value.clamp(0.0, 1.0);
+        return IgnorePointer(
+          ignoring: a > 0.01,
+          child: ExcludeSemantics(
+            excluding: a > 0.5,
+            child: Opacity(
+              opacity: 1 - a,
+              child: Transform.translate(offset: Offset(0, -_lift.value), child: child),
+            ),
+          ),
+        );
+      },
       child: _fab(strings, colors),
     );
   }

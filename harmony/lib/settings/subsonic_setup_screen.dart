@@ -123,7 +123,7 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
     final account = state.account;
     final list = ListView(
       controller: _scroll,
-      // In the pane the panel's clip bounds the scroll (no second clip edge).
+      // The scroll clips itself; the pane's corners are painted over it.
       clipBehavior: Clip.hardEdge,
       padding: EdgeInsets.fromLTRB(
         SettingsMetrics.pageHorizontal,
@@ -172,7 +172,7 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
             managing ? Theme.of(context).textTheme.headlineLarge! : Theme.of(context).textTheme.displaySmall!,
           ),
         ),
-        body: SafeArea(top: false, bottom: false, child: list),
+        body: SafeArea(top: false, bottom: false, child: SettingsSeam(controller: _scroll, child: list)),
       ),
     );
   }

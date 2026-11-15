@@ -77,21 +77,24 @@ class _AppleMusicSetupScreenState extends ConsumerState<AppleMusicSetupScreen> {
         body: SafeArea(
           top: false,
           bottom: false,
-          child: ListView(
+          child: SettingsSeam(
             controller: _scroll,
-            padding: EdgeInsets.fromLTRB(
-              SettingsMetrics.pageHorizontal,
-              SettingsMetrics.pageTop,
-              SettingsMetrics.pageHorizontal,
-              SettingsMetrics.pageBottom + MediaQuery.paddingOf(context).bottom,
+            child: ListView(
+              controller: _scroll,
+              padding: EdgeInsets.fromLTRB(
+                SettingsMetrics.pageHorizontal,
+                SettingsMetrics.pageTop,
+                SettingsMetrics.pageHorizontal,
+                SettingsMetrics.pageBottom + MediaQuery.paddingOf(context).bottom,
+              ),
+              children: [
+                const _ServiceHero(),
+                const SizedBox(height: SettingsMetrics.sectionGap),
+                _RequirementsGroup(requirements: [strings.introAppleNeedSub, strings.introAppleNeedToken]),
+                const SizedBox(height: SettingsMetrics.sectionGap),
+                _ConnectGroup(endpoint: _endpoint, onConnect: _connect),
+              ],
             ),
-            children: [
-              const _ServiceHero(),
-              const SizedBox(height: SettingsMetrics.sectionGap),
-              _RequirementsGroup(requirements: [strings.introAppleNeedSub, strings.introAppleNeedToken]),
-              const SizedBox(height: SettingsMetrics.sectionGap),
-              _ConnectGroup(endpoint: _endpoint, onConnect: _connect),
-            ],
           ),
         ),
       ),

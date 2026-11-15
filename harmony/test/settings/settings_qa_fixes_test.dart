@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
@@ -8,13 +9,18 @@ import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/media_id.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
+import 'package:yoin/home/home_bubble_tips.dart';
 import 'package:yoin/detail/detail_page.dart' show DetailBackButton;
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/settings/license_packages.dart';
 import 'package:yoin/settings/licenses.dart';
+import 'package:yoin/settings/settings_components.dart';
+import 'package:yoin/settings/settings_metrics.dart';
+import 'package:yoin/settings/settings_strings.dart';
 import 'package:yoin/settings/settings_screen.dart';
 import 'package:yoin/settings/stream_quality_screen.dart';
 import 'package:yoin/settings/subsonic_setup_screen.dart';
+import 'package:yoin/settings/tips.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
 import '../support/fake_music_source.dart';
@@ -175,6 +181,59 @@ void main() {
       );
       expect(notShippedDartPackages, isNot(contains('flutter')));
       expect(notShippedDartPackages, containsAll(['analyzer', '_fe_analyzer_shared']));
+    });
+  });
+
+  group('tips count', () {
+    testWidgets('should_countTipAsRead_when_tippedInTipsAndBackInSettings', (tester) async {
+      await pump(tester, const Size(400, 1600));
+      const strings = SettingsStrings.forLanguage(chinese: false);
+      expect(find.text(tipsReadSummary(strings, const {})), findsOneWidget);
+      // Opening the page alone reads nothing (Android: a tip is read on its own page).
+      await tester.tap(find.text('Tips'));
+      await tester.pumpAndSettle();
+      final tip = HomeBubbleTip.values.first;
+      await tester.tap(find.text(tip.title(zh: false)));
+      await tester.runAsync(settle);
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(TipsScreen))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text(tipsReadSummary(strings, {tip})), findsOneWidget);
+    });
+  });
+
+  group('seam', () {
+    test('should_growBandWithScroll_when_scrolledFromRest', () {
+      expect(SettingsSeam.reveal(0), 0);
+      expect(SettingsSeam.reveal(SettingsMetrics.seamRevealDistance / 2), 0.5);
+      expect(SettingsSeam.reveal(400), 1);
+    });
+
+    testWidgets('should_maskContentUnderBar_when_accountPageScrolled', (tester) async {
+      await tester.runAsync(() => ProfileRepository(store, store)
+          .add(provider: MediaId.providerSubsonic, displayName: 'ann @ home.test', credentials: _home));
+      await pump(tester, const Size(400, 800));
+      await tester.tap(find.text('ann'));
+      await tester.runAsync(settle);
+      await tester.pumpAndSettle();
+      final page = find.byType(SubsonicSetupScreen);
+      Iterable<ShaderMaskLayer> masks() sync* {
+        Iterable<Layer> walk(Layer? l) sync* {
+          for (var c = l; c != null; c = c.nextSibling) {
+            yield c;
+            if (c is ContainerLayer) yield* walk(c.firstChild);
+          }
+        }
+        yield* walk(tester.layers.first).whereType<ShaderMaskLayer>();
+      }
+
+      expect(find.descendant(of: page, matching: find.byType(SettingsSeam)), findsOneWidget);
+      expect(masks(), isEmpty, reason: 'nothing masked at rest');
+      final list = find.descendant(of: page, matching: find.byType(ListView));
+      await tester.drag(list, const Offset(0, -200));
+      await tester.pumpAndSettle();
+      expect(masks(), isNotEmpty, reason: 'scrolled content dissolves under the bar');
+      expect(tester.takeException(), isNull);
     });
   });
 }

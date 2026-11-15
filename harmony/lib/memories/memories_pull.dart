@@ -28,11 +28,11 @@ class MemoriesPullDetector extends ConsumerStatefulWidget {
 class _MemoriesPullDetectorState extends ConsumerState<MemoriesPullDetector> {
   int? _pointer;
   Offset _travel = Offset.zero;
-  bool _atTopAtDown = false;
+  bool _vertical = false;
   bool _pulling = false;
   bool _decided = false;
   bool _crossed = false;
-  final VelocityTracker _velocity = VelocityTracker.withKind(PointerDeviceKind.touch);
+  VelocityTracker _velocity = VelocityTracker.withKind(PointerDeviceKind.touch);
 
   bool get _atTop => !widget.scroll.hasClients || widget.scroll.position.pixels <= 0.5;
 
@@ -41,8 +41,10 @@ class _MemoriesPullDetectorState extends ConsumerState<MemoriesPullDetector> {
     final reveal = ref.read(memoriesRevealHandleProvider).controller;
     if (reveal == null || reveal.ownsBack) return;
     _pointer = e.pointer;
+    // A fresh tracker per touch: no sample from the last gesture leaks into this release.
+    _velocity = VelocityTracker.withKind(e.kind);
     _travel = Offset.zero;
-    _atTopAtDown = _atTop;
+    _vertical = false;
     _pulling = false;
     _decided = false;
     _crossed = false;
@@ -59,10 +61,18 @@ class _MemoriesPullDetectorState extends ConsumerState<MemoriesPullDetector> {
       _travel += e.delta;
       if (_travel.distance < kTouchSlop) return;
       _decided = true;
-      // Down, mostly vertical, from the very top: the pull takes it.
-      _pulling = _atTopAtDown && _atTop && _travel.dy > 0 && _travel.dy.abs() > _travel.dx.abs();
-      if (!_pulling) return;
+      // A sideways drag (a shelf, a pager) is never the pull.
+      _vertical = _travel.dy.abs() > _travel.dx.abs();
+      // Down from the very top: the pull takes it, the slop included.
+      if (_vertical && _travel.dy > 0 && _atTop) {
+        _pulling = true;
+        reveal.dragBy(_travel.dy, height);
+        return;
+      }
     }
+    // Like Android's onPreScroll: any downward move with the feed at its top
+    // starts the pull, also a drag that scrolled the feed back up to it.
+    if (!_pulling && _vertical && e.delta.dy > 0 && _atTop) _pulling = true;
     if (!_pulling) return;
     // The feed lets go of this drag and holds at its top.
     if (widget.scroll.hasClients && widget.scroll.position.pixels != 0) widget.scroll.jumpTo(0);

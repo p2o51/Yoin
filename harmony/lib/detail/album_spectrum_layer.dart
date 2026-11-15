@@ -170,6 +170,9 @@ class _SpectrumPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // The strips' 1.5px overdraw never leaves the layer: slid off with page 0, nothing of the bar stays
+    // along the next page's edge.
+    canvas.clipRect(Offset.zero & size);
     final t = swap();
     paintAlbumSpectrum(
       canvas,

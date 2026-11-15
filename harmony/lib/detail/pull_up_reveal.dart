@@ -39,6 +39,9 @@ abstract final class PullUpTokens {
 
   /// Hero slot = cover + this band (the deferred brand blocks' room).
   static const double heroBand = 56;
+
+  /// The bar counts as formed (status-bar icons go light) past this (AlbumBarDockedThreshold).
+  static const double barDockedThreshold = 0.5;
 }
 
 /// Pure hand-off math (layout/paint read it per frame).

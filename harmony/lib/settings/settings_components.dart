@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../detail/detail_page.dart';
 import '../theme/motion.dart';
@@ -71,6 +72,86 @@ class SettingsHeadline extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// The seam under Settings' bar (Android seamDissolveViewport(top =
+/// SeamTop.Chrome)): content scrolled up toward the bar dissolves into the
+/// page over a band below it instead of being cut off under the back button.
+/// At rest (no scroll) nothing is masked; the band grows in over the first
+/// [SettingsMetrics.seamRevealDistance] of scroll. Repaints from [controller].
+class SettingsSeam extends StatelessWidget {
+  const SettingsSeam({super.key, required this.controller, required this.child});
+
+  final ScrollController controller;
+  final Widget child;
+
+  /// 0 at rest .. 1 once scrolled [SettingsMetrics.seamRevealDistance].
+  static double reveal(double offset) => (offset / SettingsMetrics.seamRevealDistance).clamp(0.0, 1.0);
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    child: child,
+    // Always the same tree (the mask only skips its layer at rest): swapping
+    // a ShaderMask in would remount the scroll view and lose its position.
+    builder: (context, child) {
+      // A push transition can briefly attach the page twice: read the last.
+      final r = controller.hasClients ? reveal(controller.positions.last.pixels) : 0.0;
+      return _SeamMask(band: SettingsMetrics.seamBand * r, child: child);
+    },
+  );
+}
+
+class _SeamMask extends SingleChildRenderObjectWidget {
+  const _SeamMask({required this.band, super.child});
+
+  final double band;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderSeamMask(band);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderSeamMask renderObject) => renderObject.band = band;
+}
+
+/// Masks the top [band] of its child from clear to whole; paints plainly
+/// (no layer) while the band is empty.
+class _RenderSeamMask extends RenderProxyBox {
+  _RenderSeamMask(this._band);
+
+  double _band;
+  set band(double value) {
+    if (value == _band) return;
+    _band = value;
+    markNeedsPaint();
+  }
+
+  @override
+  bool get alwaysNeedsCompositing => child != null && _band > 0;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    if (child == null) return;
+    if (_band <= 0) {
+      layer = null;
+      context.paintChild(child, offset);
+      return;
+    }
+    final bounds = Offset.zero & size;
+    final shader = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      stops: [0, (_band / size.height.clamp(1.0, double.infinity)).clamp(0.0, 1.0)],
+      colors: const [Color(0x00000000), Color(0xFF000000)],
+    ).createShader(bounds);
+    final mask = (layer as ShaderMaskLayer?) ?? ShaderMaskLayer();
+    mask
+      ..shader = shader
+      ..maskRect = offset & size
+      ..blendMode = BlendMode.dstIn;
+    layer = context.pushLayer(mask, (ctx, o) => ctx.paintChild(child, o), offset) as ShaderMaskLayer?;
   }
 }
 

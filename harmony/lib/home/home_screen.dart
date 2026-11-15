@@ -554,7 +554,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       showWhenUnlinked: false,
       child: AnimatedBuilder(
         animation: Listenable.merge([_shiftOf(section).animation, _lift.animation]),
-        child: SizedBox(width: _liftSize.width, child: body),
+        // Its size from the list, tight: the overlay is bounded, and a section given room grows into it.
+        child: SizedBox.fromSize(size: _liftSize, child: body),
         builder: (context, child) => Transform.translate(
           offset: Offset(0, _dragging == section ? _dragDy : _shiftOf(section).value),
           child: Transform.scale(scale: 1 + (HomeEditMetrics.dragLiftScale - 1) * _lift.value, child: child),

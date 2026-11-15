@@ -62,7 +62,7 @@ void main() {
     expect(find.text('Good morning'), findsOneWidget);
     expect(find.text('No activity yet'), findsOneWidget);
     expect(find.text('Activities'), findsNothing);
-    expect(find.bySemanticsLabel('Account: Navidrome'), findsOneWidget);
+    expect(find.bySemanticsLabel('Account: u'), findsOneWidget, reason: 'the active card title (username), as Android');
 
     await _tearDown(tester, h.container);
   });

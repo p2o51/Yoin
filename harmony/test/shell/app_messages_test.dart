@@ -129,4 +129,47 @@ void main() {
       expect(tester.getRect(fab).bottom, moreOrLessEquals(rest, epsilon: 0.5));
     });
   });
+
+  group('new playlist fab', () {
+    Future<Finder> pumpFab(WidgetTester tester) async {
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await pumpApp(
+        tester,
+        home: Scaffold(
+          body: Stack(
+            children: [
+              ListView(controller: scroll, children: const [SizedBox(height: 10)]),
+              Positioned(right: 16, bottom: 120, child: NewPlaylistFab(controller: scroll)),
+            ],
+          ),
+        ),
+      );
+      return find.descendant(of: find.byType(NewPlaylistFab), matching: find.byType(Opacity)).first;
+    }
+
+    testWidgets('should_stepAside_when_itsNameDialogIsUp', (tester) async {
+      final fade = await pumpFab(tester);
+      expect(tester.widget<Opacity>(fade).opacity, moreOrLessEquals(1, epsilon: 0.001));
+      await tester.tap(find.byType(NewPlaylistFab));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(tester.widget<Opacity>(fade).opacity, moreOrLessEquals(0, epsilon: 0.001), reason: 'not riding up with the keyboard behind the dialog');
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Opacity>(fade).opacity, moreOrLessEquals(1, epsilon: 0.001));
+    });
+
+    testWidgets('should_stepAside_when_keyboardIsUp', (tester) async {
+      final fade = await pumpFab(tester);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 800);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      expect(tester.widget<Opacity>(fade).opacity, moreOrLessEquals(0, epsilon: 0.001));
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      expect(tester.widget<Opacity>(fade).opacity, moreOrLessEquals(1, epsilon: 0.001));
+    });
+  });
 }
