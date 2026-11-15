@@ -26,6 +26,11 @@ struct HomeView: View {
     @State private var pageBleed = EdgeInsets()
     /// The header avatar's target in the window: the account card grows out of it.
     @State private var accountFrame: CGRect = .zero
+    #if DEBUG
+    /// The live Home's avatar target for `-accountCardOpen`: the hook runs on the first Home, which launch
+    /// rebuilds, so that instance's own `accountFrame` stays .zero (the card would grow out of the corner).
+    @MainActor private static var liveAccountFrame: CGRect = .zero
+    #endif
 
     /// App-wide tokens follow the playing cover (design.md 颜色系统 3).
     private var scheme: CoverScheme { CoverScheme(seed: model.accent, dark: colorScheme == .dark) }
@@ -204,7 +209,8 @@ struct HomeView: View {
         guard UserDefaults.standard.string(forKey: "accountCardOpen") == "home" else { return }
         Task {
             try? await Task.sleep(for: .seconds(3))
-            openAccountCard()
+            let edit = edit
+            model.openAccountCard(avatarTarget: Self.liveAccountFrame, reduced: reduceMotion) { edit.enter() }
             // `-accountCardPick <n>`: then the n-th other account's row, as a tap.
             let n = UserDefaults.standard.integer(forKey: "accountCardPick") - 1
             // `-accountCardClose YES`: or a plain close (✕), the big avatar flying back into the header.
@@ -455,7 +461,12 @@ struct HomeView: View {
                         .opacity(AccountSwitcher.shared.shown ? 0 : 1)
                 }
                 .buttonStyle(.plain).pointerHighlight()
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { accountFrame = $0 }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                    accountFrame = $0
+                    #if DEBUG
+                    Self.liveAccountFrame = $0
+                    #endif
+                }
                 .accessibilityLabel("Account")
                 .accessibilityValue(model.headerAccountValue)
                 // Hold and slide onto another account (Android #162).

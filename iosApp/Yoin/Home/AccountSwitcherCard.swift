@@ -129,6 +129,9 @@ final class AccountSwitcher {
     /// account row's (a switch's flight takes off from it).
     private(set) var bigAvatar: CGRect = .zero
     private(set) var rowAvatars: [String: CGRect] = [:]
+    /// A switch's account in use when it was picked: the card keeps showing it while it goes (the old
+    /// account's big avatar leaves with the contents), though the switch may land before the card is back.
+    private(set) var heldActive: String?
     @ObservationIgnored private(set) var editHome: (() -> Void)?
     @ObservationIgnored private var afterClose: (() -> Void)?
     @ObservationIgnored private var opening = false
@@ -141,6 +144,7 @@ final class AccountSwitcher {
         self.editHome = editHome
         picked = nil
         flight = nil
+        heldActive = nil
         closing = false
         progress = 0
         opening = true
@@ -176,6 +180,7 @@ final class AccountSwitcher {
             closing = false
             picked = nil
             flight = nil
+            heldActive = nil
             bigAvatar = .zero
             rowAvatars = [:]
             editHome = nil
@@ -187,7 +192,9 @@ final class AccountSwitcher {
 
     /// A row picked for a switch: its colour first (the effects spring), then the card goes, the row's avatar
     /// flying up into the header while [stillSwitching] (a switch that failed meanwhile closes plainly).
-    func beginSwitch(to id: String, stillSwitching: @escaping @MainActor () -> Bool = { true }, run: @escaping () -> Void) {
+    func beginSwitch(to id: String, from active: String?, stillSwitching: @escaping @MainActor () -> Bool = { true },
+                     run: @escaping () -> Void) {
+        heldActive = active
         withAnimation(Yoin.effects) { picked = id }
         run()
         Task { @MainActor in
@@ -195,6 +202,9 @@ final class AccountSwitcher {
             close(flying: stillSwitching() ? id : nil)
         }
     }
+
+    /// The account the card shows as in use: the held one through a switch, else [live].
+    func cardActive(_ live: String?) -> String? { heldActive ?? live }
 
     /// Takes no more input: a switch was picked, or the card is going.
     var takesInput: Bool { shown && !closing && picked == nil }
@@ -237,7 +247,7 @@ extension AppModel {
             let profiles = profiles
             // A switch that doesn't land (the server doesn't answer, another switch is running) says so, as
             // Android's switchFailures snackbar does; the card has gone back into the avatar by then.
-            switcher.beginSwitch(to: id, stillSwitching: {
+            switcher.beginSwitch(to: id, from: profiles.activeId, stillSwitching: {
                 // Under way or landed: the pick goes up (Android stillSwitching).
                 profiles.switchingTo == id || profiles.activeId == id
             }) {
@@ -280,7 +290,7 @@ struct AccountSwitcherLayer: View {
                 let origin = geo.frame(in: .global).origin
                 let from = s.anchor.offsetBy(dx: -origin.x, dy: -origin.y)
                 let p = min(max(s.progress, 0), 1)
-                let active = model.profiles.active
+                let active = s.cardActive(model.profiles.activeId).flatMap(model.profiles.profile)
                 ZStack {
                     // A tap outside closes it; the page itself steps back (SheetRise), as under a sheet.
                     Color.clear
@@ -322,7 +332,7 @@ extension AccountSwitcherLayer {
                                     size: AccountCardLogic.rowAvatar, headerRing: ring,
                                     cardRing: p.service.tone(dark: dark).container)
             } else if s.flight == nil, let active = AccountCardLogic.split(model.profiles.profiles,
-                                                                           active: model.profiles.activeId).active,
+                                                                           active: s.cardActive(model.profiles.activeId)).active,
                       !s.bigAvatar.isEmpty {
                 AccountAvatarFlight(p: s.progress, header: from, card: s.bigAvatar, profile: active,
                                     shape: shapes[active.id] ?? 0, size: AccountCardLogic.bigAvatar,
@@ -467,7 +477,7 @@ private struct AccountCardContent: View {
     }
 
     private var column: some View {
-        let (active, others) = AccountCardLogic.split(profiles.profiles, active: profiles.activeId)
+        let (active, others) = AccountCardLogic.split(profiles.profiles, active: switcher.cardActive(profiles.activeId))
         let shapes = profiles.avatarShapes
         let needsReconnect = model.activeNeedsReconnect
         return VStack(spacing: 0) {
