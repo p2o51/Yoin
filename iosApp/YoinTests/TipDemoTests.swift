@@ -158,9 +158,11 @@ final class TipDemoTests: XCTestCase {
             "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads",
             "EditHome", "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn", "MiniPlayerMenu", "NoteMoments",
             "LibrarySearch", "Labs", "Name", "VolumeLeveling", "PullForMemories", "MemoriesAllAccounts",
+            "KeyboardShortcuts", "LibraryRefresh", "SpotifySpeakers",
         ])
         for id in TipIllustration.scenes {
-            XCTAssertNotNil(Tips.tip(id), "\(id) has a demo but is not a tip")
+            // The catalog, not Tips.all: KeyboardShortcuts is left out on an iPhone.
+            XCTAssertTrue(Tips.catalog.contains { $0.id == id }, "\(id) has a demo but is not a tip")
             XCTAssertTrue(TipIllustration.has(id))
         }
         XCTAssertFalse(TipIllustration.has("ContinueOn"))
@@ -323,11 +325,30 @@ final class TipDemoTests: XCTestCase {
     // MARK: Slice 3
 
     func test_should_haveAScene_when_aTipAndroidActsOutExistsHere() {
-        // Every tip but the Devices sheet's (SpotifySpeakers: More devices opens the Spotify app here), Handoff's
-        // (ContinueOn: the system's offer, no Yoin card) and the widgets' (HomeScreenWidgets: the widget views
-        // live in the extension) (docs/fidelity/tips.md, Without a scene).
-        let without = Tips.all.map(\.id).filter { !TipIllustration.has($0) }
-        XCTAssertEqual(Set(without), ["SpotifySpeakers", "ContinueOn", "HomeScreenWidgets"])
+        // Every tip but Handoff's (ContinueOn: the system's offer, no Yoin card) and the widgets'
+        // (HomeScreenWidgets: the widget views live in the extension) (docs/fidelity/tips.md, Without a scene).
+        let without = Tips.catalog.map(\.id).filter { !TipIllustration.has($0) }
+        XCTAssertEqual(Set(without), ["ContinueOn", "HomeScreenWidgets"])
+    }
+
+    func test_should_moveToTheRecentSpeaker_when_theDevicesDemoPicksIt() {
+        let speaker = TipDemo.devices[TipDemo.recentSpeaker]
+        XCTAssertTrue(speaker.remembered, "the demo picks the speaker kept as recently used")
+        XCTAssertFalse(speaker.spotifyOnly, "Yoin moves to it itself; the demo never opens the Spotify app")
+        XCTAssertEqual(TipDemo.devices.filter(\.isActive).map(\.id), ["phone"])
+        let after = TipDemo.devices(playingOn: speaker.id)
+        XCTAssertEqual(after.filter(\.isActive).map(\.id), [speaker.id])
+        XCTAssertFalse(after[TipDemo.recentSpeaker].remembered)
+        XCTAssertEqual(SpotifyDevicesSheet.detail(after[TipDemo.recentSpeaker], moving: false), String(localized: "Playing here"))
+        // The Kitchen Sonos stays one Spotify itself moves to.
+        XCTAssertTrue(TipDemo.devices.contains { $0.spotifyOnly })
+    }
+
+    func test_should_playTheNextSong_when_theKeyboardDemoSkips() {
+        let first = TipDemo.nowPlaying(song: 0), second = TipDemo.nowPlaying(song: 1)
+        XCTAssertNotEqual(first.track.id, second.track.id)
+        XCTAssertEqual(first.album, second.album)
+        XCTAssertEqual(DemoKey.allCases, [.space, .next, .search])
     }
 
     // MARK: Memories

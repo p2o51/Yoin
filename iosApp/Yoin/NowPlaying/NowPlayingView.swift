@@ -2317,11 +2317,14 @@ struct NowPlayingView: View, Equatable {
                     if demo == nil { model.queueSheetOpen = true }
                 }
                 // Yoin as the remote of another Spotify device: the pill names it.
-                pill("devices", spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices") : String(localized: "Devices"),
+                pill("devices", demo?.deviceName
+                        ?? (spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices") : String(localized: "Devices")),
                      shape: AnyShape(RoundedRectangle(cornerRadius: 20))) {
-                    guard demo == nil else { return }
+                    // The demo phone's Devices: its own made-up sheet (Tips, SpotifySpeakers).
+                    if let demo { demo.onDevices(); return }
                     if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
                 }
+                    .demoTarget("devicesPill")
                     // The system route picker, invisible, over the pill: a
                     // finger lands on its own button (the forwarding in
                     // `present()` is the fallback). A Spotify song plays in the
