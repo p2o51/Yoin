@@ -7,6 +7,7 @@ import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/media_id.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
+import 'package:yoin/detail/detail_page.dart' show DetailBackButton;
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/settings/license_packages.dart';
 import 'package:yoin/settings/licenses.dart';
@@ -82,6 +83,45 @@ void main() {
       expect(row.right, lessThanOrEqualTo(pane.right));
     });
 
+    Future<void> openQualityInPane(WidgetTester tester) async {
+      await openAccount(tester, const Size(1920, 1200));
+      await tester.ensureVisible(find.text('Streaming quality'));
+      await tester.tap(find.text('Streaming quality'));
+      await tester.runAsync(settle);
+      await tester.pumpAndSettle();
+      expect(find.byType(StreamQualityScreen), findsOneWidget);
+    }
+
+    testWidgets('should_returnToAccountPage_when_paneBackButtonTapped', (tester) async {
+      await openQualityInPane(tester);
+      final back = find.descendant(of: find.byType(StreamQualityScreen), matching: find.byType(DetailBackButton));
+      expect(back, findsOneWidget);
+      await tester.tap(back);
+      await tester.runAsync(settle);
+      await tester.pumpAndSettle();
+      expect(find.byType(StreamQualityScreen), findsNothing);
+      expect(find.byType(SubsonicSetupScreen), findsOneWidget);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+    });
+
+    testWidgets('should_returnToAccountPageNotLeaveSettings_when_systemBack', (tester) async {
+      await openQualityInPane(tester);
+      await tester.binding.handlePopRoute();
+      await tester.runAsync(settle);
+      await tester.pumpAndSettle();
+      expect(find.byType(StreamQualityScreen), findsNothing);
+      expect(find.byType(SubsonicSetupScreen), findsOneWidget);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      // Back on a page the list opened, back is Settings' own again.
+      final route = ModalRoute.of(tester.element(find.byType(SettingsScreen)))!;
+      expect(route.popDisposition, isNot(RoutePopDisposition.doNotPop));
+    });
+
+    testWidgets('should_showNoPaneBack_when_accountPageInPane', (tester) async {
+      await openAccount(tester, const Size(1920, 1200));
+      expect(find.descendant(of: find.byType(SubsonicSetupScreen), matching: find.byType(DetailBackButton)), findsNothing);
+    });
+
     testWidgets('should_pushPage_when_narrowWindow', (tester) async {
       await openAccount(tester, const Size(400, 1600));
       await tester.ensureVisible(find.text('Streaming quality'));
@@ -105,6 +145,11 @@ void main() {
       expect(tester.widget<ClipRSuperellipse>(clip).clipBehavior, Clip.antiAlias);
       // The page colour is painted inside the clip, not by a shape outside it.
       expect(find.descendant(of: clip, matching: find.byType(ColoredBox)), findsWidgets);
+      // No second clip on the panel's edge: the page's scroll leaves clipping to the panel.
+      final list = tester.widget<ListView>(
+        find.descendant(of: find.byType(LicensesScreen), matching: find.byType(ListView)),
+      );
+      expect(list.clipBehavior, Clip.none);
     });
   });
 

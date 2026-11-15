@@ -167,7 +167,16 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
               child: _ChromeBar(controller: _controller, away: _barAway),
             ),
           ),
-          NowPlayingLayer(controller: _controller),
+          // The player's own Navigator blocks the semantics painted before
+          // it (its route's barrier). Full, that is right: nothing under it
+          // is visible. As the side panel, the bar and the content beside it
+          // stay on screen and usable, so they must stay in the a11y tree:
+          // the panel is then its own semantics container.
+          ListenableBuilder(
+            listenable: _controller,
+            builder: (context, child) => Semantics(container: _controller.panelOpen, child: child),
+            child: NowPlayingLayer(controller: _controller),
+          ),
           PlaybackSnackbarHost(
             barAway: Listenable.merge([_controller.bar.animation, _barAway.animation]),
             barAwayValue: () => math.max(_controller.bar.value, _barAway.value),

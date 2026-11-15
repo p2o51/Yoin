@@ -378,4 +378,25 @@ void main() {
     expect(c.besideInset + c.offsetX, closeTo(panel, 1), reason: 'and keeps meeting it through the exit');
     await tester.pumpAndSettle();
   });
+
+  testWidgets('should_onlyCloseComposer_when_backWhileWritingInFull', (tester) async {
+    await setUpController(tester);
+    c.window = const YoinWindowInfo(1100, 800);
+    c.openPlayer();
+    await tester.pumpAndSettle();
+    c.toggleFullscreen();
+    await tester.pumpAndSettle();
+    var writing = true;
+    c.handleComposerBack = () {
+      if (!writing) return false;
+      writing = false;
+      return true;
+    };
+    expect(c.handleBack(), isTrue);
+    expect(writing, isFalse, reason: 'the pen goes down first');
+    expect(c.presentation, NowPlayingPresentation.dualPane, reason: 'and Full stays Full (QA r2_37)');
+    expect(c.handleBack(), isTrue);
+    expect(c.presentation, NowPlayingPresentation.panel, reason: 'the next back is Full → panel');
+    await tester.pumpAndSettle();
+  });
 }

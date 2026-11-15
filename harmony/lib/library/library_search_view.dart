@@ -137,9 +137,18 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
   @override
   void initState() {
     super.initState();
-    // A search that stepped aside for the detail column comes back as it was.
-    _field.text = ref.read(librarySearchProvider).query;
+    // A search that stepped aside for the detail column comes back as it
+    // was, the kept query selected so typing replaces it (QA r2_22).
+    final kept = ref.read(librarySearchProvider).query;
+    _seeded = kept.isNotEmpty;
+    _field.value = TextEditingValue(
+      text: kept,
+      selection: TextSelection(baseOffset: 0, extentOffset: kept.length),
+    );
   }
+
+  /// The field opened on a kept query.
+  bool _seeded = false;
 
   @override
   void didChangeDependencies() {
@@ -152,7 +161,9 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
   void dispose() {
     // Collapsing clears the query and the type filter — unless a result
     // went to the detail column, which keeps them (adaptive-principles §5).
-    if (!(_route?.handedToColumn ?? false)) _search.clear();
+    // After the frame: Riverpod forbids changing a provider while the tree
+    // is being finalised.
+    if (!(_route?.handedToColumn ?? false)) Future.microtask(_search.clear);
     _field.dispose();
     for (final c in _scrolls.values) {
       c.dispose();
@@ -195,6 +206,7 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
                     child: TextField(
                       controller: _field,
                       autofocus: true,
+                      selectAllOnFocus: _seeded,
                       textInputAction: TextInputAction.search,
                       style: Theme.of(context).textTheme.bodyLarge,
                       onChanged: _search.search,

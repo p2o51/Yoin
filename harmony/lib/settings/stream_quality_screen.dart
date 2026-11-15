@@ -67,6 +67,8 @@ class StreamQualityScreen extends ConsumerWidget {
     return SettingsSubPage(
       title: strings.streamQualityTitle,
       inPane: inPane,
+      // Opened from the account's page: back returns there.
+      paneBack: inPane,
       children: [
         _QualityGroup(
           title: strings.streamQualityWifi,

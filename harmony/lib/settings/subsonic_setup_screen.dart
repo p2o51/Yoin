@@ -123,6 +123,8 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
     final account = state.account;
     final list = ListView(
       controller: _scroll,
+      // In the pane the panel's clip bounds the scroll (no second clip edge).
+      clipBehavior: widget.inPane ? Clip.none : Clip.hardEdge,
       padding: EdgeInsets.fromLTRB(
         SettingsMetrics.pageHorizontal,
         SettingsMetrics.pageTop,

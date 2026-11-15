@@ -145,6 +145,11 @@ class NowPlayingOverlayController extends ChangeNotifier {
   /// Back layering seen from outside (the queue sheet hooks in here).
   bool Function()? handleInnerBack;
 
+  /// The note composer's back level (the screen hooks in here): while it
+  /// is being written in, back only puts the pen down — before the stage,
+  /// focus and Full → panel.
+  bool Function()? handleComposerBack;
+
   bool get expanded => _expanded;
   NowPlayingStage get stage => _stage;
 
@@ -444,6 +449,7 @@ class NowPlayingOverlayController extends ChangeNotifier {
   bool handleBack() {
     if (!_expanded) return false;
     if (handleInnerBack?.call() ?? false) return true;
+    if (handleComposerBack?.call() ?? false) return true;
     if (_stage == NowPlayingStage.expanded && _shown.presentation != NowPlayingPresentation.dualPane) {
       stepBackStage();
     } else if (_stage == NowPlayingStage.immersive) {

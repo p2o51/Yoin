@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/nowplaying/now_playing_overlay.dart';
 import 'package:yoin/nowplaying/now_playing_presentation.dart';
 import 'package:yoin/nowplaying/overlay_controller.dart';
 import 'package:yoin/shell/app_chrome.dart';
@@ -174,5 +175,32 @@ void main() {
     expect(np(tester).expanded, isFalse, reason: 'the page asked for must be visible');
     expect(shell.pane.hasEntries, isTrue);
     expect(find.text('page 476'), findsOneWidget);
+  });
+
+  testWidgets('should_drawPanelWithoutPhysicalShadowAndClipEverything_when_panelOpen', (tester) async {
+    // QA r2_33 / r2_34: PhysicalShape's drawShadow rasterised a black wedge
+    // in the bottom-start corner under a sheet. The panel is a shape-decorated
+    // surface with blurred shadows and an anti-aliased clip around its navigator.
+    await pump(tester, const Size(1280, 800));
+    np(tester).openPlayer();
+    await tester.pumpAndSettle();
+    final npNavigator = find.descendant(of: find.byType(NowPlayingLayer), matching: find.byType(Navigator)).first;
+    expect(find.ancestor(of: npNavigator, matching: find.byType(PhysicalShape)), findsNothing);
+    final clips = find
+        .ancestor(of: npNavigator, matching: find.byType(ClipPath))
+        .evaluate()
+        .map((e) => e.widget as ClipPath);
+    expect(
+      clips.any(
+        (c) =>
+            c.clipBehavior == Clip.antiAlias &&
+            c.clipper is ShapeBorderClipper &&
+            (c.clipper! as ShapeBorderClipper).shape is RoundedSuperellipseBorder,
+      ),
+      isTrue,
+      reason: 'the panel shape clips everything in its navigator (sheets and scrims too)',
+    );
+    expect(nowPlayingPanelShadows(1), isNotEmpty);
+    expect(nowPlayingPanelShadows(0), isEmpty, reason: 'Full has no shadow');
   });
 }

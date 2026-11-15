@@ -15,6 +15,7 @@ import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/component/yoin_pull_to_refresh.dart';
 import 'library_filter_row.dart';
+import 'library_search.dart';
 import 'library_search_view.dart';
 import 'library_strings.dart';
 import 'library_view_model.dart';
@@ -158,11 +159,20 @@ class _SearchHeader extends StatelessWidget {
                   Icon(YoinSymbols.search, color: colors.onSurfaceVariant),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: Text(
-                      strings.searchPlaceholder,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.bodyLarge?.copyWith(color: colors.onSurfaceVariant),
+                    // A query kept from a result opened in the detail column
+                    // shows here, so the search is visibly one tap away.
+                    child: Consumer(
+                      builder: (context, ref, _) {
+                        final kept = ref.watch(librarySearchProvider.select((st) => st.query.trim()));
+                        return Text(
+                          kept.isEmpty ? strings.searchPlaceholder : kept,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.bodyLarge?.copyWith(
+                            color: kept.isEmpty ? colors.onSurfaceVariant : colors.onSurface,
+                          ),
+                        );
+                      },
                     ),
                   ),
                   IconButton(

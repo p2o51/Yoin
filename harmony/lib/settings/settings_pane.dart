@@ -5,6 +5,14 @@ import 'package:flutter/widgets.dart';
 /// pages.
 sealed class SettingsPane {
   const SettingsPane();
+
+  /// The page this one was opened from inside the pane: back (the pane
+  /// page's own back button, and system back) returns there. Null for the
+  /// pages the list opens directly.
+  SettingsPane? get parent => switch (this) {
+    StreamQualityPane(:final profileId) => AccountPane(profileId),
+    _ => null,
+  };
 }
 
 final class AccountPane extends SettingsPane {

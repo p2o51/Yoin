@@ -8,6 +8,19 @@ import 'overlay_controller.dart';
 /// HarmonyOS exposes no corner value to Flutter yet).
 const double screenCornerFallback = 28;
 
+/// The side panel's shadow at [strength] (1 = the panel, 0 = Full): the
+/// M3 level-5-ish key + ambient pair for [NowPlayingPanelTokens.shadowElevation],
+/// as blurred shape shadows (never black where the panel's corner is).
+List<BoxShadow> nowPlayingPanelShadows(double strength) {
+  final s = strength.clamp(0.0, 1.0);
+  if (s == 0) return const [];
+  const e = NowPlayingPanelTokens.shadowElevation;
+  return [
+    BoxShadow(color: Colors.black.withValues(alpha: 0.20 * s), blurRadius: e, offset: const Offset(0, e / 4)),
+    BoxShadow(color: Colors.black.withValues(alpha: 0.12 * s), blurRadius: e * 1.5),
+  ];
+}
+
 /// The Now Playing layer (ShellOverlayDown): scrim + the player, displaced
 /// by the controller's ONE offset. Composed only while open or leaving; the
 /// vertical drag on the whole player feeds the same controller as the
@@ -127,14 +140,23 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
                         ),
                       ),
                     ),
-                    PhysicalShape(
-                      clipper: ShapeBorderClipper(shape: shape, textDirection: Directionality.of(context)),
-                      clipBehavior: Clip.antiAlias,
-                      elevation: NowPlayingPanelTokens.shadowElevation * (1 - f),
-                      // Opaque so the shadow shows only outside the panel.
-                      color: Theme.of(context).colorScheme.surface,
-                      shadowColor: Colors.black,
-                      child: child,
+                    // The panel's shadow is a blurred shape shadow, not
+                    // PhysicalShape's drawShadow: on device that rasterised
+                    // a solid black wedge in the bottom-start corner once a
+                    // sheet composited over the panel (QA r2_33 / r2_34).
+                    // Its own surface and an explicit anti-aliased clip keep
+                    // every layer inside — sheets and their scrims included.
+                    DecoratedBox(
+                      decoration: ShapeDecoration(
+                        shape: shape,
+                        color: colors.surface,
+                        shadows: nowPlayingPanelShadows(1 - f),
+                      ),
+                      child: ClipPath(
+                        clipper: ShapeBorderClipper(shape: shape, textDirection: Directionality.of(context)),
+                        clipBehavior: Clip.antiAlias,
+                        child: child,
+                      ),
                     ),
                   ],
                 ),

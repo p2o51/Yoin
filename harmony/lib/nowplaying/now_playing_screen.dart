@@ -166,6 +166,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
   void initState() {
     super.initState();
     widget.controller.addListener(_onStage);
+    widget.controller.handleComposerBack = _closeComposer;
     widget.controller.detail.animation.addListener(_gateFocus);
     widget.controller.full.animation.addListener(_onFull);
     _page.animation.addListener(_gateFocus);
@@ -215,8 +216,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_onStage);
+      if (oldWidget.controller.handleComposerBack == _closeComposer) oldWidget.controller.handleComposerBack = null;
       oldWidget.controller.detail.animation.removeListener(_gateFocus);
       widget.controller.addListener(_onStage);
+      widget.controller.handleComposerBack = _closeComposer;
       widget.controller.detail.animation.addListener(_gateFocus);
     }
   }
@@ -224,6 +227,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
   @override
   void dispose() {
     widget.controller.removeListener(_onStage);
+    if (widget.controller.handleComposerBack == _closeComposer) widget.controller.handleComposerBack = null;
     widget.controller.detail.animation.removeListener(_gateFocus);
     widget.controller.full.animation.removeListener(_onFull);
     _notes.removeListener(_onNotes);
@@ -241,6 +245,16 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
   }
 
   bool get _reduced => MediaQuery.disableAnimationsOf(context);
+
+  /// Back while writing puts the pen down and nothing else (the draft
+  /// stays): the composer is its own back level, before the stage and
+  /// Full → panel (QA r2_37).
+  bool _closeComposer() {
+    if (!_notes.focused && !_notes.pendingFocus) return false;
+    _notes.cancelPendingFocus();
+    _notes.focus.unfocus();
+    return true;
+  }
 
   /// Back to Compact (or the player closing) ends the writing.
   void _onStage() {

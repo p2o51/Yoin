@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../playback/playback_controller.dart';
 import '../shell/bar_suppression.dart';
+import '../shell/chrome_back.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/component/spring_cross_fade.dart';
@@ -87,10 +89,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _scroll = ScrollController();
   SettingsPane? _pane;
 
+  /// While the pane shows a page opened from another pane page (Streaming
+  /// quality from an account), back belongs to the pane: the page's back
+  /// button (maybePop) and system back both return to [SettingsPane.parent]
+  /// instead of leaving Settings. Shared infrastructure, no PopScope.
+  late final ChromeBackEntry _paneBack = ChromeBackEntry(() => scheduleMicrotask(_paneUp));
+
   @override
   void dispose() {
+    _paneBack.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  void _paneUp() {
+    final parent = _pane?.parent;
+    if (!mounted || parent == null) return;
+    setState(() => _pane = parent);
+  }
+
+  /// Holds back exactly while a wide window shows a pane sub-page.
+  void _syncPaneBack(SettingsPane? shown) {
+    final route = ModalRoute.of(context);
+    final wantsBack = shown?.parent != null && (route?.isCurrent ?? false);
+    if (wantsBack && !_paneBack.isAttached) {
+      _paneBack.attach(Navigator.of(context));
+    } else if (!wantsBack && _paneBack.isAttached) {
+      _paneBack.detach();
+    }
   }
 
   bool get _wide => YoinWindowInfo.of(context).layoutMode == LayoutMode.wide;
@@ -128,6 +154,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (paneProfile != null && state is SettingsContent && !state.accounts.any((a) => a.id == paneProfile)) {
       pane = null;
     }
+    final shownPane = pane;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncPaneBack(shownPane);
+    });
     final list = ListView(
       controller: _scroll,
       padding: EdgeInsets.fromLTRB(
