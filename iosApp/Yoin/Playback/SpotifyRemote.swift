@@ -42,7 +42,7 @@ protocol AppRemoteLink: AnyObject {
     func playContext(_ uri: String, index: Int, _ done: @escaping (Error?) -> Void)
     func resume(_ done: @escaping (Error?) -> Void)
     func pause(_ done: @escaping (Error?) -> Void)
-    func seek(toMs ms: Int)
+    func seek(toMs ms: Int, _ done: @escaping (Error?) -> Void)
     func skip(forward: Bool, _ done: @escaping (Error?) -> Void)
     func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void)
     func setShuffle(_ on: Bool)
@@ -323,7 +323,8 @@ final class SpotifyRemote {
     func resume(_ done: ((Error?) -> Void)? = nil) { request("resume", { $0.resume($1) }, done) }
     func pause(_ done: ((Error?) -> Void)? = nil) { request("pause", { $0.pause($1) }, done) }
     func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) { request("enqueue", { $0.enqueue(uri, $1) }, done) }
-    func seek(toMs ms: Int) { link?.seek(toMs: ms) }
+    /// A failed seek marks the connection as any failed request does (a tapped lyric line went nowhere).
+    func seek(toMs ms: Int) { request("seek", { $0.seek(toMs: ms, $1) }, nil) }
     func skip(forward: Bool) { request(forward ? "next" : "previous", { $0.skip(forward: forward, $1) }, nil) }
     func setShuffle(_ on: Bool) { link?.setShuffle(on) }
     func setRepeat(_ mode: SPTAppRemotePlaybackOptionsRepeatMode) { link?.setRepeat(mode) }
@@ -456,7 +457,10 @@ final class SDKAppRemoteLink: NSObject, AppRemoteLink {
 
     func resume(_ done: @escaping (Error?) -> Void) { remote.playerAPI?.resume(answer(done)) }
     func pause(_ done: @escaping (Error?) -> Void) { remote.playerAPI?.pause(answer(done)) }
-    func seek(toMs ms: Int) { remote.playerAPI?.seek(toPosition: ms, callback: nil) }
+    func seek(toMs ms: Int, _ done: @escaping (Error?) -> Void) {
+        guard let player = remote.playerAPI else { return done(SpotifyRemote.notConnected) }
+        player.seek(toPosition: ms, callback: answer(done))
+    }
     func skip(forward: Bool, _ done: @escaping (Error?) -> Void) {
         forward ? remote.playerAPI?.skip(toNext: answer(done)) : remote.playerAPI?.skip(toPrevious: answer(done))
     }

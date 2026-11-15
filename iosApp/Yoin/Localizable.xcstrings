@@ -3887,6 +3887,16 @@
         }
       }
     },
+    "Next in Spotify": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify 接下来播放"
+          }
+        }
+      }
+    },
     "Next up": {
       "localizations": {
         "zh-Hans": {

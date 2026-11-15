@@ -136,6 +136,48 @@ final class SpotifyBrokenConnectionTests: XCTestCase {
         XCTAssertLessThanOrEqual(app.wakes, 2, "never a loop of trips to Spotify")
     }
 
+    /// A tester's 0.6.0 build (2026-11-15): a tapped lyric line didn't seek until Spotify was opened and
+    /// left. A seek no state answers gets a fresh connection and goes again on it.
+    func test_should_reconnectAndSeekAgain_when_noStateAnswersASeek() async throws {
+        engine.play(queue: [song(a)])
+        try await waitUntil(8, "for A") { self.app.statesSent > 0 && self.engine.failure == nil }
+        try await Task.sleep(for: .milliseconds(300))
+        let made = app.connectionsMade
+        app.seekSilent = true
+        engine.seek(to: 42)
+        try await waitUntil(SpotifyAudioOutput.seekEchoSec + 4, "for the seek again") { self.app.seeks.count >= 2 }
+        XCTAssertEqual(app.seeks, [42_000, 42_000])
+        XCTAssertGreaterThan(app.connectionsMade, made, "a fresh connection carries the second seek")
+        XCTAssertEqual(app.wakes, 1, "Spotify isn't woken for it")
+    }
+
+    func test_should_keepTheConnection_when_aStateAnswersTheSeek() async throws {
+        engine.play(queue: [song(a)])
+        try await waitUntil(8, "for A") { self.app.statesSent > 0 && self.engine.failure == nil }
+        try await Task.sleep(for: .milliseconds(300))
+        let made = app.connectionsMade
+        engine.seek(to: 42)
+        try await Task.sleep(for: .seconds(SpotifyAudioOutput.seekEchoSec + 0.8))
+        XCTAssertEqual(app.seeks, [42_000])
+        XCTAssertEqual(app.connectionsMade, made)
+    }
+
+    func test_should_readTheConnectionAsSilent_only_whenMeplayerDisagreesAfterAQuietSpell() {
+        let a = uri(self.a), b = uri(self.b)
+        // Spotify moved on to B and App Remote said nothing for 12 s: silent.
+        XCTAssertTrue(SpotifyAudioOutput.remoteWentSilent(webURI: b, webPlaying: true, shownURI: a, playing: true, sinceRemoteSec: 12))
+        // Spotify stopped at the song's end while Yoin's clock runs on: silent.
+        XCTAssertTrue(SpotifyAudioOutput.remoteWentSilent(webURI: a, webPlaying: false, shownURI: a, playing: true, sinceRemoteSec: 30))
+        // A state just came (me/player trails it): not yet.
+        XCTAssertFalse(SpotifyAudioOutput.remoteWentSilent(webURI: b, webPlaying: true, shownURI: a, playing: true, sinceRemoteSec: 1))
+        // They agree: a song plays on with no state, as it does between changes.
+        XCTAssertFalse(SpotifyAudioOutput.remoteWentSilent(webURI: a, webPlaying: true, shownURI: a, playing: true, sinceRemoteSec: 120))
+        XCTAssertFalse(SpotifyAudioOutput.remoteWentSilent(webURI: nil, webPlaying: false, shownURI: a, playing: true, sinceRemoteSec: 120))
+        XCTAssertTrue(SpotifyAudioOutput.overran(timeSec: 203, durationSec: 200))
+        XCTAssertFalse(SpotifyAudioOutput.overran(timeSec: 201, durationSec: 200))
+        XCTAssertFalse(SpotifyAudioOutput.overran(timeSec: 500, durationSec: 0))
+    }
+
     func test_should_markTheConnectionBroken_only_onRequestFailedOrTerminated() {
         let failed = NSError(domain: SPTAppRemoteErrorDomain, code: SPTAppRemoteErrorCode.requestFailedError.rawValue)
         let terminated = NSError(domain: SPTAppRemoteErrorDomain, code: SPTAppRemoteErrorCode.connectionTerminatedError.rawValue)
@@ -166,6 +208,9 @@ final class FakeSpotifyApp {
     var relinkTo: String? { didSet { publish() } }
     var webEmpty = false { didSet { publish() } }
     var nextConnectionBad = false
+    /// Seeks App Remote was sent, and whether the connection answers them with no state (it took them nowhere).
+    var seeks: [Int] = []
+    var seekSilent = false
     var plays: [String] = []
     var lastPlayAt = Date.distantPast
     var wakes = 0
@@ -289,7 +334,10 @@ final class FakeLink: AppRemoteLink {
     func playContext(_ uri: String, index: Int, _ done: @escaping (Error?) -> Void) { answer(done) }
     func resume(_ done: @escaping (Error?) -> Void) { answer(done) }
     func pause(_ done: @escaping (Error?) -> Void) { answer(done) }
-    func seek(toMs ms: Int) {}
+    func seek(toMs ms: Int, _ done: @escaping (Error?) -> Void) {
+        app.seeks.append(ms)
+        answer(done) { [self] in if !app.seekSilent { push() } }
+    }
     func skip(forward: Bool, _ done: @escaping (Error?) -> Void) { answer(done) }
     func enqueue(_ uri: String, _ done: @escaping (Error?) -> Void) { answer(done) }
     func setShuffle(_ on: Bool) {}

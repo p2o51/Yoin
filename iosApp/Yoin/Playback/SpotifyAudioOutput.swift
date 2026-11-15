@@ -96,6 +96,13 @@ final class SpotifyAudioOutput: AudioOutput {
     /// Looks for Spotify playing somewhere while Yoin is visible, even with its own player idle (51,
     /// 2026-11-06: open Yoin while the Pixel plays and Yoin shows that song).
     private var watchTimer: Timer?
+    /// When App Remote last pushed a state, and the length of the song it named (Spotify's own song too).
+    private var lastRemoteStateAt = Date.distantPast
+    private var stateDurationSec: Double = 0
+    /// The song whose run past its end has already asked me/player (once per song).
+    private var endCheckedURI: String?
+    /// A seek sent over App Remote that no state has answered yet (see seek).
+    private var seekEcho: UUID?
     /// The engine answers a failure with a pause; after a failure Yoin reported that pause is not
     /// sent (a command is never error handling: a pause to a device that lost the song was refused).
     private var quietPause = false
@@ -207,6 +214,8 @@ final class SpotifyAudioOutput: AudioOutput {
         resetStart()
         enqueueWhenPlaying = false
         sawCurrent = false
+        endCheckedURI = nil
+        seekEcho = nil
         playing = false
         lastTime = startSec
         lastTick = Date()
@@ -1269,13 +1278,37 @@ final class SpotifyAudioOutput: AudioOutput {
         events?.outputTimeDidChange(sec)
         guard !silent, !starting else { return }
         let ms = Int(sec * 1000)
-        if isHere { return command(aim(song: true)) { $0.seek(toMs: ms) } }
+        if isHere {
+            command(aim(song: true)) { $0.seek(toMs: ms) }
+            return awaitSeekEcho(ms: ms)
+        }
         let seek = { [weak self] in
             guard let self else { return }
             self.transport(report: false, self.aim(song: true)) { try await $0.seekPlayback(toMs: ms, deviceId: $1, while: $2) }
         }
         if !holdWhileLanding(seek) { seek() }
     }
+
+    /// App Remote answers a seek with a state at the new spot. None within [seekEchoSec] is a connection
+    /// that took the seek nowhere (a tester's tapped lyric line, 2026-11-15): a fresh one, and the seek
+    /// again on it.
+    private func awaitSeekEcho(ms: Int) {
+        let token = UUID()
+        seekEcho = token
+        let gen = generation, uri = shownURI
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.seekEchoSec))
+            guard let self, self.seekEcho == token, gen == self.generation, uri == self.shownURI else { return }
+            self.seekEcho = nil
+            PlayTrace.log("SR seek to \(ms) ms unanswered: reconnecting")
+            self.remote.markBroken("a seek went unanswered")
+            guard await self.remote.connect(timeout: SpotifyRemote.connectTimeoutSec),
+                  gen == self.generation, uri == self.shownURI else { return }
+            self.remote.seek(toMs: ms)
+        }
+    }
+
+    nonisolated static let seekEchoSec: Double = 2.5
 
     /// A command to this iPhone's Spotify through App Remote, reconnecting first (the connection is
     /// closed while Yoin is in the background). One message when the app can't be reached.
@@ -1380,11 +1413,14 @@ final class SpotifyAudioOutput: AudioOutput {
             guard Self.watchStillValid(asked: control, current: self.control, askedGen: gen, generation: self.generation)
             else { return PlayTrace.log("SP watch: a stale answer, dropped") }
             PlayTrace.log("SP watch \(Self.describe(now)) driving=\(self.isDriving)")
+            if self.isDriving, self.isHere, self.remote.isConnected, self.device.matches(now) {
+                // App Remote reports this iPhone: me/player only checks that it still does.
+                return self.checkRemoteSilent(now)
+            }
             guard now.isPlaying, now.trackURI != nil else { return }
             if self.isDriving {
                 // Playing somewhere App Remote doesn't report from (another device, or this iPhone
                 // with the connection closed): read it the Web API's way.
-                guard !(self.isHere && self.remote.isConnected && self.device.matches(now)) else { return }
                 return self.apply(now)
             }
             guard self.adopt?() == true else { return }
@@ -1406,6 +1442,38 @@ final class SpotifyAudioOutput: AudioOutput {
     }
 
     nonisolated static let watchSec: Double = 10
+
+    /// A connection that reads as connected can stop carrying anything while Yoin stays in front (a
+    /// tester's 0.6.0 build, 2026-11-15: at a song's end Yoin sat at -0:00 until Spotify was opened
+    /// and left, and a tapped lyric line didn't seek). me/player showing another song, or Spotify
+    /// paused or playing against what App Remote last said, with no state pushed for
+    /// [silentAfterSec], is such a connection: it is replaced, and the fresh one's first state is
+    /// what Yoin follows (me/player itself can trail Spotify by a few seconds, so it isn't applied).
+    private func checkRemoteSilent(_ now: SpotifySource.PlayerNow) {
+        let since = Date().timeIntervalSince(lastRemoteStateAt)
+        guard Self.remoteWentSilent(webURI: now.trackURI.map(ownURI), webPlaying: now.isPlaying,
+                                    shownURI: shownURI, playing: playing, sinceRemoteSec: since)
+        else { return }
+        PlayTrace.log("SR silent for \(Int(since)) s: me/player has \(now.trackURI ?? "-") playing=\(now.isPlaying); reconnecting")
+        remote.markBroken("silent while Spotify moved on")
+        Task { _ = await remote.connect(timeout: SpotifyRemote.connectTimeoutSec) }
+    }
+
+    nonisolated static let silentAfterSec: Double = 4
+
+    nonisolated static func remoteWentSilent(webURI: String?, webPlaying: Bool, shownURI: String?, playing: Bool,
+                                             sinceRemoteSec: Double) -> Bool {
+        guard sinceRemoteSec >= silentAfterSec, let webURI, shownURI != nil else { return false }
+        return webURI != shownURI || webPlaying != playing
+    }
+
+    /// The song ran past its end here with no word from App Remote: me/player is asked now, not at the
+    /// next watch (up to [watchSec] later).
+    nonisolated static func overran(timeSec: Double, durationSec: Double) -> Bool {
+        durationSec > 0 && timeSec > durationSec + endOverrunSec
+    }
+
+    nonisolated static let endOverrunSec: Double = 2
 
     /// A watch answer counts only for the source that asked it, in the session it asked in.
     nonisolated static func watchStillValid(asked: AnyObject, current: AnyObject?, askedGen: Int, generation: Int) -> Bool {
@@ -1531,6 +1599,8 @@ final class SpotifyAudioOutput: AudioOutput {
 
     private func playerState(_ s: RemotePlayerState) {
         let uri = ownURI(s.uri)
+        lastRemoteStateAt = Date()
+        seekEcho = nil
         // A wake's handback waits on this first real state (see connected).
         if wakeWait != nil { wakeState(uri: uri, paused: s.isPaused, final: false) }
         // App Remote speaks for this iPhone only.
@@ -1605,6 +1675,8 @@ final class SpotifyAudioOutput: AudioOutput {
     private func apply(_ s: State) {
         PlayTrace.log("SP state \(s.uri) paused=\(s.isPaused) pos=\(s.positionMs) starting=\(starting) wantsPlay=\(wantsPlay)")
         let uri = s.uri
+        if s.durationMs > 0 { stateDurationSec = Double(s.durationMs) / 1000 }
+        if uri != endCheckedURI { endCheckedURI = nil }
         let before = reportedTime
         lastTime = Double(s.positionMs) / 1000
         reportedTime = lastTime
@@ -1772,7 +1844,14 @@ final class SpotifyAudioOutput: AudioOutput {
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.playing else { return }
-                self.events?.outputTimeDidChange(self.currentTimeSec)
+                let t = self.currentTimeSec
+                self.events?.outputTimeDidChange(t)
+                if self.isHere, self.remote.isConnected, self.endCheckedURI == nil,
+                   Self.overran(timeSec: t, durationSec: self.stateDurationSec) {
+                    self.endCheckedURI = self.shownURI
+                    PlayTrace.log("SP ran past the song's end with no state: asking me/player")
+                    self.watch()
+                }
             }
         }
     }

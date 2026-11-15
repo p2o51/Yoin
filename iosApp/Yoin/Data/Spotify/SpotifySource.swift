@@ -318,6 +318,41 @@ final class SpotifySource {
                          albumId: r.item?.album?.id.flatMap { $0.isEmpty ? nil : $0 })
     }
 
+    /// One song of Spotify's own queue as the queue sheet lists it.
+    struct QueueEntry: Equatable, Sendable, Identifiable {
+        /// Its place in the list (a song can be queued twice).
+        var id: Int
+        var uri: String
+        var title: String
+        var artist: String
+        var coverURL: URL?
+    }
+
+    private struct QueueDTO: Decodable {
+        let currentlyPlaying: SpotifyDTO.Track?
+        let queue: [SpotifyDTO.Track]?
+    }
+
+    /// What Spotify plays after the current song, in its order (Android SpotifyMusicSource.playerQueue,
+    /// GET me/player/queue): the listener's queue first, then the rest of the album or playlist, about
+    /// twenty songs. A podcast episode or a local file is left out.
+    func playerQueue() async throws -> [QueueEntry] {
+        let r = try await api.get("me/player/queue", as: QueueDTO.self)
+        return Self.queueEntries(r.queue ?? [])
+    }
+
+    nonisolated static func queueEntries(_ tracks: [SpotifyDTO.Track]) -> [QueueEntry] {
+        tracks.filter { $0.type != "episode" && $0.isLocal != true && $0.id != nil }.enumerated().map { i, t in
+            // The smallest picture that still fills a 48 pt row; else the largest there is.
+            let images = t.album?.images ?? []
+            let cover = images.filter { ($0.width ?? 0) >= 120 }.min { ($0.width ?? 0) < ($1.width ?? 0) }
+                ?? images.max { ($0.width ?? 0) < ($1.width ?? 0) }
+            return QueueEntry(id: i, uri: "spotify:track:\(t.id ?? "")", title: t.name ?? "",
+                              artist: (t.artists ?? []).compactMap(\.name).joined(separator: ", "),
+                              coverURL: cover.flatMap { URL(string: $0.url) })
+        }
+    }
+
     // Transport on a Connect device (Android SpotifyApiClient pause / resume / seek).
 
     func pausePlayback(deviceId: String?, while still: SpotifyWebAPI.StillWanted? = nil) async throws {
