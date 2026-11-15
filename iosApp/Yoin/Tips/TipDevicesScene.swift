@@ -17,6 +17,9 @@ struct SpotifySpeakersDemo: View {
     @State private var devices = TipDemo.devices
     @State private var loading = false
     @State private var moving: String?
+    /// The sheet's tallest height so far: it keeps it, as the system sheet keeps its detent, so a row's
+    /// detail going from two lines to one doesn't drop its top edge.
+    @State private var sheetHeight: CGFloat = 0
     /// One more per move or refresh begun, so a later one (the user's) outlives an earlier one's end.
     @State private var turn = 0
 
@@ -83,6 +86,10 @@ struct SpotifySpeakersDemo: View {
                                    // The Spotify app's own picker: nothing to open on the phone.
                                    onMore: {})
                     .animation(Yoin.effects, value: devices)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                        if h > sheetHeight { sheetHeight = h }
+                    }
+                    .frame(minHeight: sheetHeight, alignment: .top)
                     // The system sheet's grabber, in the 24 above the title.
                     .overlay(alignment: .top) {
                         Capsule()

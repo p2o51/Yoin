@@ -62,6 +62,12 @@ struct SpotifyDevicesSheet: View {
         return typeLabel(d.type)
     }
 
+    /// A row's symbol by Spotify's device type: a speaker for the ones that only play sound, else the
+    /// computer-and-phone one.
+    static func icon(_ type: String) -> String {
+        ["Speaker", "AVR", "CastAudio"].contains(type) ? "speaker" : "devices"
+    }
+
     /// Spotify's device type in the app's language (Android shows an icon, no word, so there are no
     /// Android strings for these); a type Spotify adds later shows as it comes.
     static func typeLabel(_ type: String) -> String {
@@ -201,8 +207,7 @@ struct SpotifyDevicesList: View {
     private var moreDevices: some View {
         Button(action: onMore) {
             HStack(spacing: 16) {
-                // No speaker symbol in Yoin Symbols for iOS yet: Cast is the nearest.
-                YoinIcon("cast", size: 22)
+                YoinIcon("speaker", size: 22)
                     .foregroundStyle(scheme.onSurfaceVariant)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("More devices…")
@@ -227,7 +232,7 @@ struct SpotifyDevicesList: View {
     private func row(_ d: SpotifySource.Device) -> some View {
         Button { onRow(d) } label: {
             HStack(spacing: 16) {
-                YoinIcon(d.isActive ? "equalizer" : "devices", size: 22)
+                YoinIcon(d.isActive ? "equalizer" : SpotifyDevicesSheet.icon(d.type), size: 22)
                     .foregroundStyle(d.isActive ? scheme.primary : scheme.onSurfaceVariant)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(d.name)
@@ -236,6 +241,9 @@ struct SpotifyDevicesList: View {
                     Text(SpotifyDevicesSheet.detail(d, moving: moving == d.id))
                         .yoinRole(Tokens.type.bodyMedium)
                         .foregroundStyle(scheme.onSurfaceVariant)
+                        // One line gives way to the next at once: a cross-fade laid "Moving…" over the line it
+                        // replaced (two lines over one in Chinese).
+                        .contentTransition(.identity)
                 }
                 Spacer(minLength: 0)
             }

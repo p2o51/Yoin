@@ -121,6 +121,9 @@ struct KeyboardShortcutsDemo: View {
     @State private var pressed: DemoKey?
     @State private var songs: [NowPlayingDemo] = (0..<3).map { TipDemo.nowPlaying(song: $0) }
 
+    /// Where on a keycap the dot presses (down from its top).
+    static let keyFy: CGFloat = 0.9
+
     private var demo: NowPlayingDemo { songs[song % songs.count] }
 
     private func press(_ key: DemoKey) {
@@ -146,16 +149,19 @@ struct KeyboardShortcutsDemo: View {
             pressed = nil
             try await DemoTiming.delay(300)
             for key in DemoKey.allCases {
-                try await finger.moveTo("key-\(key.rawValue)")
+                // Low on the key, so the dot leaves its face readable.
+                try await finger.moveTo("key-\(key.rawValue)", fy: Self.keyFy)
                 try await finger.tap { pressed = key; press(key) }
                 pressed = nil
+                // Search covers the keys: the dot lifts off until it goes for the ✕.
+                if key == .search { try await finger.lift() }
                 try await DemoTiming.delay(key == .search ? 1_600 : 900)
             }
             try await finger.moveTo("searchClose")
             try await finger.tap { searching = false }
             try await DemoTiming.delay(600)
             // Space again: the bar plays on.
-            try await finger.moveTo("key-\(DemoKey.space.rawValue)")
+            try await finger.moveTo("key-\(DemoKey.space.rawValue)", fy: Self.keyFy)
             try await finger.tap { pressed = .space; press(.space) }
             pressed = nil
             try await finger.lift()
