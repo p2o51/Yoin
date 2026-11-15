@@ -17,6 +17,8 @@ final class SpotifySource {
 
     /// Track ids known to be in Liked Songs (library reads, saves, contains answers).
     private(set) var liked: Set<String> = []
+    /// Track ids known not to be (contains answers, un-saves): any other id's heart is unknown.
+    private var notLiked: Set<String> = []
     /// Playlist raw id → the raw offset of each row the page shows, for `resolvePlaylistContextOffset`.
     private var playlistOffsets: [String: [Int]] = [:]
     /// The signed-in user's id, for playlist ownership (SpotifySource+Playlists); read from `me` when unset.
@@ -121,13 +123,16 @@ final class SpotifySource {
         return r.compactMap { $0 }.map { SpotifyMapping.playlistItem($0, me: me) }
     }
 
-    func noteLiked(_ ids: [String]) { liked.formUnion(ids) }
+    func noteLiked(_ ids: [String]) {
+        liked.formUnion(ids)
+        notLiked.subtract(ids)
+    }
 
     /// Liked Songs, newest like first (the API's order), the first few hundred.
     func librarySongs(cap: Int = 300) async throws -> [PlaylistEntry] {
         let r = try await api.all("me/tracks", ["limit": "50"], of: SpotifyDTO.SavedTrack.self, cap: cap)
         let tracks = r.compactMap(\.track)
-        liked.formUnion(tracks.compactMap(\.id))
+        noteLiked(tracks.compactMap(\.id))
         return SpotifyMapping.entries(tracks, saved: liked)
     }
 
@@ -146,8 +151,7 @@ final class SpotifySource {
                 tracks += more.items
                 next = more.next
             }
-            // Each track's heart, asked (Codex N11): the Liked Songs read so far covers only some.
-            _ = await savedStates(tracks.compactMap(\.id))
+            // The hearts known so far; the caller asks for the rest once the page shows (Codex N11).
             return SpotifyMapping.album(a, tracks: tracks, saved: liked)
         } catch let e as SpotifyAPIError where e.isNotFound {
             return nil
@@ -218,7 +222,6 @@ final class SpotifySource {
         }
         let (tracks, offsets) = SpotifyMapping.playableTracks(Array(items.prefix(cap)))
         playlistOffsets[rawId] = offsets
-        _ = await savedStates(Array(Set(tracks.compactMap(\.id))))
         return await withWriteMetadata(SpotifyMapping.playlist(p, tracks: tracks, saved: liked), p, positions: offsets)
     }
 
@@ -226,6 +229,11 @@ final class SpotifySource {
     /// `play` request with a context; nil when unknown (the caller plays the bare track).
     func resolvePlaylistContextOffset(_ rawId: String, visibleIndex: Int) -> Int? {
         playlistOffsets[rawId]?[safe: visibleIndex]
+    }
+
+    /// Songs appended at [offsets] (an add patched into the page instead of reading it again).
+    func notePlaylistAppended(_ rawId: String, offsets: [Int]) {
+        playlistOffsets[rawId]?.append(contentsOf: offsets)
     }
 
     // MARK: Search
@@ -491,7 +499,7 @@ final class SpotifySource {
         if liked.contains(rawId) { return true }
         do {
             let saved = try await contains(["spotify:track:\(rawId)"]).first ?? false
-            if saved { liked.insert(rawId) }
+            noteSaved(rawId, saved)
             return saved
         } catch {
             log.info("library check failed: \(Self.message(for: error), privacy: .public)")
@@ -499,17 +507,49 @@ final class SpotifySource {
         }
     }
 
-    /// Several tracks' hearts in one go (one request per 40); a track whose batch failed is left out.
+    /// The heart as far as it is known: nil when no read has said (a failed check is not "not liked").
+    func knownSaved(_ rawId: String) -> Bool? {
+        if liked.contains(rawId) { return true }
+        return notLiked.contains(rawId) ? false : nil
+    }
+
+    /// How many `contains` reads a heart fill runs at once (the gate caps the account at three).
+    static let heartFillWidth = 3
+
+    /// Several tracks' hearts (one request per 40, [heartFillWidth] at a time); a track whose batch
+    /// failed is left out, its heart unknown rather than off.
     func savedStates(_ rawIds: [String]) async -> [String: Bool] {
         var out: [String: Bool] = [:]
-        for batch in rawIds.chunked(40) {
-            guard let answer = try? await contains(batch.map { "spotify:track:\($0)" }) else { continue }
-            for (id, saved) in zip(batch, answer) {
-                out[id] = saved
-                if saved { liked.insert(id) } else { liked.remove(id) }
-            }
+        let batches = Array(Set(rawIds)).sorted().chunked(40)
+        await withTaskGroup(of: ([String], [Bool]?).self) { group in
+            var next = 0
+            var running = 0
+            repeat {
+                // Up to [heartFillWidth] reads out; the next starts as one answers.
+                while next < batches.count, running < Self.heartFillWidth {
+                    let batch = batches[next]
+                    next += 1
+                    running += 1
+                    group.addTask { await self.heartBatch(batch) }
+                }
+                guard let (batch, answer) = await group.next() else { break }
+                running -= 1
+                for (id, saved) in zip(batch, answer ?? []) {
+                    out[id] = saved
+                    noteSaved(id, saved)
+                }
+            } while running > 0 || next < batches.count
         }
         return out
+    }
+
+    /// One `contains` read for [batch]; nil answer when it failed.
+    private func heartBatch(_ batch: [String]) async -> ([String], [Bool]?) {
+        (batch, try? await contains(batch.map { "spotify:track:\($0)" }))
+    }
+
+    private func noteSaved(_ id: String, _ saved: Bool) {
+        if saved { liked.insert(id); notLiked.remove(id) } else { liked.remove(id); notLiked.insert(id) }
     }
 
     // MARK: Albums in the library (Android setAlbumSaved / the ▾ menu's Save to library)
@@ -529,12 +569,12 @@ final class SpotifySource {
 
     func save(_ rawId: String) async throws {
         try await api.send("PUT", "me/library", ["uris": "spotify:track:\(rawId)"])
-        liked.insert(rawId)
+        noteSaved(rawId, true)
     }
 
     func unsave(_ rawId: String) async throws {
         try await api.send("DELETE", "me/library", ["uris": "spotify:track:\(rawId)"])
-        liked.remove(rawId)
+        noteSaved(rawId, false)
     }
 }
 

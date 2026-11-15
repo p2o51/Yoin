@@ -1142,7 +1142,16 @@ final class LibraryStore {
                 album = try await client.getAlbum(id: id).map(mapping.album)
             }
             try ensureLive()
-            guard let album else { return nil }
+            guard var album else { return nil }
+            if let spotify {
+                album.tracks = Self.keepingUnknownHearts(album.tracks, before: albumDetails[id]?.tracks ?? [], spotify)
+                fillSpotifyHearts(album.tracks, spotify) { [self] states in
+                    guard var a = albumDetails[id], Self.applyHearts(states, to: &a.tracks) else { return }
+                    albumDetails[id] = a
+                    dropFromDisk(.album, id)
+                    persist(codec?.dto(a), kind: .album, id: id, epoch: diskEpoch)
+                }
+            }
             albumDetails[id] = album
             return codec?.dto(album)
         }
@@ -1209,6 +1218,18 @@ final class LibraryStore {
             } else if let spotify {
                 if var d = try await spotify.playlist(id) {
                     if d.palette.cover == nil, let row = playlistSummary(id) { d.palette = row.palette }
+                    let before = playlistDetails[id]?.entries.map(\.track) ?? []
+                    let tracks = Self.keepingUnknownHearts(d.entries.map(\.track), before: before, spotify)
+                    for i in d.entries.indices { d.entries[i].track.starred = tracks[i].starred }
+                    fillSpotifyHearts(tracks, spotify) { [self] states in
+                        patchPlaylists { _, details in
+                            guard var p = details[id] else { return }
+                            var t = p.entries.map(\.track)
+                            guard Self.applyHearts(states, to: &t) else { return }
+                            for i in p.entries.indices { p.entries[i].track.starred = t[i].starred }
+                            details[id] = p
+                        }
+                    }
                     detail = d
                 }
             } else if let client, let mapping {
@@ -1218,6 +1239,50 @@ final class LibraryStore {
             guard let detail else { return nil }
             playlistDetails[id] = detail
             return codec?.dto(detail)
+        }
+    }
+
+    // MARK: Spotify hearts
+
+    /// A page's hearts as the account knows them: a song no read has answered for keeps the heart the
+    /// page had before (a failed check is not "not liked"); one Spotify said isn't liked goes off.
+    nonisolated static func keepingUnknownHearts(_ tracks: [Track], before: [Track],
+                                                 _ known: (String) -> Bool?) -> [Track] {
+        let had = Dictionary(before.map { ($0.id.rawId, $0.starred) }, uniquingKeysWith: { $0 || $1 })
+        return tracks.map { t in
+            var t = t
+            t.starred = known(t.id.rawId) ?? (t.starred || had[t.id.rawId] == true)
+            return t
+        }
+    }
+
+    private static func keepingUnknownHearts(_ tracks: [Track], before: [Track], _ spotify: SpotifySource) -> [Track] {
+        keepingUnknownHearts(tracks, before: before) { spotify.knownSaved($0) }
+    }
+
+    /// [states] over [tracks]; whether any heart changed.
+    nonisolated static func applyHearts(_ states: [String: Bool], to tracks: inout [Track]) -> Bool {
+        var changed = false
+        for i in tracks.indices {
+            guard let s = states[tracks[i].id.rawId], s != tracks[i].starred else { continue }
+            tracks[i].starred = s
+            changed = true
+        }
+        return changed
+    }
+
+    /// The hearts of a page just read, asked once it shows (Codex N11: the Liked Songs read covers only
+    /// some, and a long playlist is many reads). [apply] gets the answers; a batch that failed is left out.
+    private func fillSpotifyHearts(_ tracks: [Track], _ spotify: SpotifySource,
+                                   apply: @escaping @MainActor ([String: Bool]) -> Void) {
+        let ids = tracks.map(\.id.rawId).filter { spotify.knownSaved($0) == nil }
+        guard !ids.isEmpty else { return }
+        let gen = generation
+        Task { [weak self] in
+            let states = await spotify.savedStates(ids)
+            guard let self, gen == self.generation, self.spotify === spotify, !states.isEmpty else { return }
+            for (id, saved) in states { self.hearts.report(saved, provider: SpotifyMapping.provider, songId: id, overwrite: true) }
+            apply(states)
         }
     }
 
