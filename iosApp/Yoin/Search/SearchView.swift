@@ -218,7 +218,18 @@ struct SearchView: View {
     /// surfaceContainerHighest at 72 %, bodyLarge onSurfaceVariant, padding
     /// 20 × 18, centred in the results area (the search surface yields to
     /// the keyboard, so the centre is above it). Labels only, no prompt.
+    @ViewBuilder
     private var noResults: some View {
+        if !model.store.isReal && model.activeNeedsReconnect {
+            // Nothing can be searched until the account is signed in again: not "No results".
+            ReconnectPanel(scheme: scheme)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else {
+            noResultsLabel
+        }
+    }
+
+    private var noResultsLabel: some View {
         Text("No results found")
             .yoinRole(Tokens.type.bodyLarge)
             .foregroundStyle(scheme.onSurfaceVariant)

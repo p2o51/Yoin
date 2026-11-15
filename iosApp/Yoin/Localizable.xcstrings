@@ -10647,6 +10647,16 @@
           }
         }
       }
+    },
+    "Reconnect Spotify": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新连接 Spotify"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
