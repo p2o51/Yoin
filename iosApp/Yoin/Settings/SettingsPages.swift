@@ -138,8 +138,8 @@ struct AboutYoinView: View {
                 }
                 .buttonStyle(.plain).pointerHighlight()
                 .background(row, in: CloudSyncView.segment(0, 1))
-                .sheet(isPresented: $recapOpen) {
-                    SpotoolfyRecapView(recap: recap, scheme: app) { recapOpen = false }
+                .fullScreenCover(isPresented: $recapOpen) {
+                    SpotoolfyRecapView(recap: recap, scheme: app, fromSettings: true) { recapOpen = false }
                 }
             }
         }
