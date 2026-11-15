@@ -89,4 +89,47 @@ final class SpotifySpeakerTests: XCTestCase {
         XCTAssertNil(SpotifyAudioOutput.keptTarget(kind: .listener, lastTarget: "k1", read: .some(nil)), "gone from me/player")
         XCTAssertNil(SpotifyAudioOutput.keptTarget(kind: .listener, lastTarget: nil, read: .some(paused)))
     }
+
+    // #51
+    func test_should_sendOnlyTheLastOfAPauseAndAPlay_when_tappedInARow() async throws {
+        WebStub.onSpeaker = true
+        app.running = true
+        app.playing = "spotify:track:\(a)"
+        engine.play(queue: [song(a), song(b)])
+        try await waitUntil(5, "for the start") { self.starts.count == 1 }
+        // The start is seen on the speaker (held commands go).
+        try await Task.sleep(for: .seconds(SpotifyAudioOutput.verifySec + 0.5))
+        engine.pause()
+        engine.resume()
+        try await Task.sleep(for: .milliseconds(800))
+        XCTAssertFalse(WebStub.commands.contains("PUT /v1/me/player/pause"), "the pause a play overtook isn't sent")
+        XCTAssertEqual(starts.count, 2, "the play is")
+    }
+
+    func test_should_ignoreAReadFromBeforeAWebCommand_onlyWhileItContradictsIt() {
+        let now = Date()
+        let pause = SpotifyAudioOutput.WebIntent(uri: "u", paused: true, positionSec: nil, playing: false, at: now)
+        XCTAssertEqual(SpotifyAudioOutput.readVerdict(pause, uri: "u", isPlaying: true, progressSec: 30, ageSec: 0.7), .ignore)
+        XCTAssertEqual(SpotifyAudioOutput.readVerdict(pause, uri: "u", isPlaying: false, progressSec: 30, ageSec: 0.7), .apply)
+        XCTAssertEqual(SpotifyAudioOutput.readVerdict(pause, uri: "u", isPlaying: true, progressSec: 30, ageSec: 3.5), .apply,
+                       "past the window the read is the truth")
+        XCTAssertEqual(SpotifyAudioOutput.readVerdict(pause, uri: "other", isPlaying: true, progressSec: 0, ageSec: 0.7), .apply,
+                       "another song is applied as usual")
+        let seek = SpotifyAudioOutput.WebIntent(uri: "u", paused: nil, positionSec: 95, playing: true, at: now)
+        XCTAssertEqual(SpotifyAudioOutput.readVerdict(seek, uri: "u", isPlaying: true, progressSec: 31, ageSec: 0.6), .ignore)
+        XCTAssertEqual(SpotifyAudioOutput.readVerdict(seek, uri: "u", isPlaying: true, progressSec: 96, ageSec: 0.6), .apply)
+    }
+
+    // #50
+    func test_should_needTwoEmptyReads_beforeCallingAStartDropped() {
+        let uri = "spotify:track:\(a)"
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(nil, uri: uri, fromSec: 0, elapsed: 3, emptiesInRow: 1), .waiting)
+        XCTAssertEqual(SpotifyAudioOutput.startCheck(nil, uri: uri, fromSec: 0, elapsed: 7, emptiesInRow: 2), .dropped)
+    }
+
+    // #60
+    func test_should_seekAfterTheStart_onlyWhenTheSpotMovedMeanwhile() {
+        XCTAssertTrue(SpotifyAudioOutput.seeksAfterStart(startSec: 0, soughtSec: 95))
+        XCTAssertFalse(SpotifyAudioOutput.seeksAfterStart(startSec: 42, soughtSec: 42.4))
+    }
 }
