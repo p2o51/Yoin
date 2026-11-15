@@ -1,5 +1,6 @@
 package com.gpo.yoin.shared.data.lyrics
 
+import com.gpo.yoin.shared.data.model.LyricCreditRole
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -253,6 +254,25 @@ class NetEaseLyricsProviderTest {
         assertNotNull(lrc)
         assertTrue(lrc!!.contains("[00:01.00]hello"))
         assertTrue(lrc.contains("[00:02.50]world"))
+    }
+
+    @Test
+    fun fetchLyric_keeps_yrc_credit_lines_for_the_parser_to_take() = runTest {
+        // 作词 / 作曲 stay in the LRC (Android NetEaseLyricsProvider); LrcParser moves them into the credits.
+        val yrc = listOf(
+            """{"t":0,"c":[{"tx":"作词 : "},{"tx":"唐恬"}]}""",
+            """{"t":500,"c":[{"tx":"作曲 : "},{"tx":"钱雷"}]}""",
+            """{"t":22290,"c":[{"tx":"都 是勇敢的"}]}""",
+            """{"t":36960,"c":[{"tx":"制作 一首歌"}]}""",
+        ).joinToString("\\n").replace("\"", "\\\"")
+
+        web.enqueue(200, """{"lrc":{"lyric":"$yrc"}}""")
+
+        val lrc = provider.fetchLyric("321")!!
+        assertTrue(lrc.contains("[00:00.00]作词 : 唐恬"))
+        val lyrics = LrcParser.parse(lrc)
+        assertEquals(listOf("都 是勇敢的", "制作 一首歌"), lyrics.lines.map { it.text })
+        assertEquals("唐恬", lyrics.credits?.namesFor(LyricCreditRole.Lyricist))
     }
 
     @Test

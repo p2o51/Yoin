@@ -40,7 +40,7 @@ struct DownloadsView: View {
             .animation(Yoin.spatial, value: offline.entries.map(\.id))
             .animation(Yoin.effects, value: offline.entries)
         }
-        .safeAreaBar(edge: .top) { topBar }
+        .safeAreaBar(edge: .top) { topBar.topEdgeBlur(app.surfaceContainer) }
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .alert("Remove all downloads?", isPresented: $confirmRemoveAll) {

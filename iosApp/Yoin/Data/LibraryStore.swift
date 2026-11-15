@@ -94,6 +94,8 @@ final class LibraryStore {
     private(set) var phases: [String: Phase] = [:]
     /// The last failed load's message per key (shown with its Retry); cleared when the key loads.
     private(set) var failures: [String: String] = [:]
+    /// The same failure as a tester's report (ErrorDiagnostics, Android `diagnosticReport`): Copy details.
+    private(set) var failureReports: [String: String] = [:]
 
     private(set) var albumDetails: [String: Album] = [:]
     private(set) var artistPages: [String: ArtistPage] = [:]
@@ -200,6 +202,7 @@ final class LibraryStore {
         favoriteAlbums = []
         phases = [:]
         failures = [:]
+        failureReports = [:]
         albumDetails = [:]
         artistPages = [:]
         playlistDetails = [:]
@@ -707,6 +710,7 @@ final class LibraryStore {
                 if gen == self.generation {
                     self.phases[key] = .loaded
                     self.failures[key] = nil
+                    self.failureReports[key] = nil
                 }
             } catch {
                 let message = self.message(for: error)
@@ -715,6 +719,7 @@ final class LibraryStore {
                 if gen == self.generation {
                     self.phases[key] = .failed
                     self.failures[key] = message
+                    self.failureReports[key] = ErrorDiagnostics.report(error)
                 }
             }
         }

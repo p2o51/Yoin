@@ -251,8 +251,10 @@ final class AccountScope {
             // That account's downloads run (another account's wait).
             if subsonic != oldValue {
                 OfflineDownloads.shared.accountChanged()
-                // Song ids are per server: another account's lyrics and facts never stand in (Codex #9).
+                // Song ids are per server: another account's lyrics and facts never stand in (Codex #9),
+                // nor its songs' ReplayGain (#213 review).
                 NowPlayingData.shared.accountChanged()
+                ReplayGainSettings.shared.accountChanged()
             }
         }
     }

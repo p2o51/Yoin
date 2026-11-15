@@ -44,7 +44,7 @@ struct NeoDBVoicesView: View {
         }
         .animation(Yoin.effects, value: model.state.kind)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .safeAreaBar(edge: .top) { topBar }
+        .safeAreaBar(edge: .top) { topBar.topEdgeBlur(scheme.surface) }
         .safeAreaBar(edge: .bottom) {
             NeoDBVoicesWaysOut(scheme: scheme, neoDBUrl: model.content?.album.itemUrl,
                                doubanUrl: model.content?.album.doubanUrl,

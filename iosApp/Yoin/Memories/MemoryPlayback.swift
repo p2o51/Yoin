@@ -56,13 +56,42 @@ extension AppModel {
                 PlaylistActions.shared.show(String(localized: "Couldn't switch account"))
                 return false
             }
-            let clock = ContinuousClock()
-            let deadline = clock.now + wait
-            while store.generation == before || !store.isReal || store.provider != provider {
-                guard clock.now < deadline, !Task.isCancelled, profiles.activeId == profileId else { return false }
-                try? await Task.sleep(for: .milliseconds(20))
-            }
+            return await libraryFollows(profileId, provider: provider, since: before, wait: wait)
         }
         return store.isReal && store.provider == provider
+    }
+
+    /// Waits, at most [wait], until the library reads from [profileId]'s account: the store has started over
+    /// since generation [before] (nil: no switch to wait for), its source is [provider]'s, its rows' scope is
+    /// that account's, and it stays so for one more turn. Two accounts of one service look alike by source
+    /// alone, and a switch between two Spotify accounts can start the store over twice (once while the old
+    /// account's source is still in place, once when the new one's is built): only the scope tells them
+    /// apart (#213 review). False when the time runs out, the task is cancelled or another account is in use.
+    func libraryFollows(_ profileId: String, provider: String, since before: Int?,
+                        wait: Duration = AppModel.otherAccountSourceWait) async -> Bool {
+        let expected = profiles.profile(profileId).flatMap { libraryScope(of: $0) }
+        let clock = ContinuousClock()
+        let deadline = clock.now + wait
+        var steady: Int?
+        while true {
+            let restarted = before.map { store.generation != $0 } ?? true
+            let ready = restarted && store.isReal && store.provider == provider
+                && (expected == nil || store.historyScope == expected)
+            if ready, steady == store.generation { return true }
+            steady = ready ? store.generation : nil
+            guard clock.now < deadline, !Task.isCancelled, profiles.activeId == profileId else { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// The scope the library's rows carry while [p] is the account in use (LibraryStore.historyScope): its
+    /// Subsonic server and user, its Spotify user, or Apple Music. Nil when it can't be told (a Spotify
+    /// account without a sign-in).
+    func libraryScope(of p: Profile) -> String? {
+        switch p.service {
+        case .subsonic: p.subsonicScope
+        case .spotify: profiles.store.spotify(p.id).map { AccountScope.spotifyScope(userId: $0.userId) }
+        case .appleMusic: AppleMusicMapping.provider
+        }
     }
 }

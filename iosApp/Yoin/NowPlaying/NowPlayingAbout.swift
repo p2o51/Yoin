@@ -21,12 +21,12 @@ struct SongFacts: Equatable {
     /// What the Now Playing spine reads from the server's record (Subsonic only).
     var spine: SpineSourceFacts?
 
-    /// From the queue entry alone (Apple Music, or the server unreachable).
+    /// From the queue entry alone (Apple Music, or the server unreachable): its album, artist and length.
     init(_ t: PlayableTrack, complete: Bool = true) {
         var f: [Fact] = []
-        Self.add(&f, "Album", t.album)
-        Self.add(&f, "Artist", t.artist)
-        if t.durationSec > 0 { Self.add(&f, "Duration", Self.duration(Int(t.durationSec.rounded()))) }
+        Self.add(&f, String(localized: "Album"), t.album)
+        Self.add(&f, String(localized: "Artist"), t.artist)
+        if t.durationSec > 0 { Self.add(&f, String(localized: "Length"), Self.duration(Int(t.durationSec.rounded()))) }
         facts = f
         self.complete = complete
     }
@@ -34,34 +34,21 @@ struct SongFacts: Equatable {
     /// The mock snapshot (screenshots without a server).
     init(album: Album, track: Track) {
         var f: [Fact] = []
-        Self.add(&f, "Album", album.title)
-        Self.add(&f, "Artist", album.artist)
-        if album.year > 0 { Self.add(&f, "Year", String(album.year)) }
-        Self.add(&f, "Duration", Self.duration(track.durationSec))
+        Self.add(&f, String(localized: "Album"), album.title)
+        Self.add(&f, String(localized: "Artist"), album.artist)
+        if album.year > 0 { Self.add(&f, String(localized: "Year"), String(album.year)) }
+        Self.add(&f, String(localized: "Length"), Self.duration(track.durationSec))
         facts = f
     }
 
-    /// From the server's record (Subsonic `getSong`).
+    /// From the server's record (Subsonic `getSong`): Android's receipt, everything the server says about
+    /// the song (`SpineSourceFacts.receiptRows`), the queue entry's length when the server gives none.
+    @MainActor
     init(_ s: SongInfo, fallback t: PlayableTrack) {
-        var f: [Fact] = []
-        Self.add(&f, "Album", s.album ?? t.album)
-        Self.add(&f, "Artist", s.artist ?? t.artist)
-        if let y = s.year?.intValue, y > 0 { Self.add(&f, "Year", String(y)) }
-        Self.add(&f, "Genre", s.genre)
-        if let n = s.track?.intValue, n > 0 {
-            let disc = s.disc?.intValue ?? 1
-            Self.add(&f, "Track", disc > 1 ? String(localized: "\(n), disc \(disc)") : String(n))
-        }
-        let sec = s.durationSec?.intValue ?? Int(t.durationSec.rounded())
-        if sec > 0 { Self.add(&f, "Duration", Self.duration(sec)) }
-        Self.add(&f, "Format", Self.format(suffix: s.suffix, contentType: s.contentType, bitRate: s.bitRate?.intValue))
-        if let bytes = s.size?.int64Value, bytes > 0 {
-            Self.add(&f, "Size", ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
-        }
-        if let plays = s.playCount?.intValue { Self.add(&f, "Plays", String(plays)) }
-        Self.add(&f, "Last played", s.played.flatMap(Self.date))
-        facts = f
-        spine = SpineSourceFacts(s)
+        var spine = SpineSourceFacts(s)
+        if spine.durationSec == nil, t.durationSec > 0 { spine.durationSec = Int(t.durationSec.rounded()) }
+        facts = spine.receiptRows(.localized)
+        self.spine = spine
     }
 
     private static func add(_ f: inout [Fact], _ label: String, _ value: String?) {
@@ -69,27 +56,10 @@ struct SongFacts: Equatable {
         f.append(Fact(label: label, value: v))
     }
 
-    static func duration(_ sec: Int) -> String { String(format: "%d:%02d", sec / 60, sec % 60) }
-
-    /// "FLAC 1,411 kbps": the file type, then its bit rate.
-    static func format(suffix: String?, contentType: String?, bitRate: Int?) -> String? {
-        let kind = suffix.flatMap { $0.isEmpty ? nil : $0.uppercased() }
-            ?? contentType.flatMap { $0.split(separator: "/").last.map { $0.uppercased() } }
-        let rate = bitRate.flatMap { $0 > 0 ? String(localized: "\($0.formatted()) kbps") : nil }
-        let parts = [kind, rate].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
-    }
-
-    /// The server's ISO-8601 time as a medium date.
-    static func date(_ iso: String) -> String? {
-        let parser = ISO8601DateFormatter()
-        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let parsed = parser.date(from: iso) ?? {
-            parser.formatOptions = [.withInternetDateTime]
-            return parser.date(from: iso)
-        }()
-        guard let d = parsed else { return nil }
-        return d.formatted(date: .abbreviated, time: .omitted)
+    /// Android `formatDuration`: 245 → "4:05", an hour or more → "1:02:05".
+    static func duration(_ sec: Int) -> String {
+        sec >= 3600 ? String(format: "%d:%02d:%02d", sec / 3600, sec % 3600 / 60, sec % 60)
+            : String(format: "%d:%02d", sec / 60, sec % 60)
     }
 }
 
@@ -174,10 +144,15 @@ struct NowPlayingAboutView: View {
     var expanded: Bool
     var scheme: CoverScheme
     var bottomPadding: CGFloat = 56
+    /// The credits the lyrics source wrote into the lyrics (Android `credits`): they answer lyricist,
+    /// composer and producer before Gemini, with or without it; expanded, the rest sit behind "N more".
+    var credits: SongCredits? = nil
     @Environment(\.colorScheme) private var colorScheme
     /// The long-pressed row whose sheet is up.
     @State private var menuFor: AboutEntrySheet.Target?
     @State private var pressed = 0
+    /// The lyrics' other credits are open (Android AboutReceipt `expanded`, per credits).
+    @State private var allCredits = false
 
     private var loader: SongAboutLoader { .shared }
 
@@ -201,7 +176,7 @@ struct NowPlayingAboutView: View {
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .transition(.opacity)
             case .ready(let facts):
-                list(facts.facts.map { Item(label: $0.label, value: $0.value) })
+                list(Self.rows(entries: [], facts: facts, expanded: expanded, credits: credits))
                     .transition(.opacity)
             case .searching:
                 searching.transition(.opacity)
@@ -210,10 +185,10 @@ struct NowPlayingAboutView: View {
                     .task(id: song.key) { await SongAboutLoader.shared.ensure(title: song.title, artist: song.artist, album: song.album) }
                     .transition(.opacity)
             case .gemini(let entries, let facts):
-                list(Self.rows(entries: entries, facts: facts, expanded: expanded))
+                list(Self.rows(entries: entries, facts: facts, expanded: expanded, credits: credits))
                     .transition(.opacity)
             case .noKey(let facts):
-                list((facts?.facts ?? []).map { Item(label: $0.label, value: $0.value) }, header: AnyView(noKey))
+                list(Self.rows(entries: [], facts: facts, expanded: expanded, credits: credits), header: AnyView(noKey))
                     .transition(.opacity)
             case .failed(let message, let song):
                 failed(message, song).transition(.opacity)
@@ -235,6 +210,7 @@ struct NowPlayingAboutView: View {
             }
         }
         .sensoryFeedback(.impact(weight: .medium), trigger: pressed)
+        .onChange(of: credits) { allCredits = false }
         #if DEBUG
         .task {
             // `-aboutDemo sheet`: the question's sheet, as a long-press opens it.
@@ -322,37 +298,53 @@ struct NowPlayingAboutView: View {
         var value: String
         /// Android's small window sets the review 8 lower with its own heading gap.
         var gapAbove: CGFloat = 0
-        /// Gemini's or the listener's row (nil: the server's facts).
+        /// Gemini's or the listener's row (nil: the server's facts, or the lyrics' credits).
         var entry: SongAboutStore.Entry? = nil
+        /// Part of the receipt (who wrote it, when and where, the server's facts); false for the review
+        /// and the asks under it. The lyrics' other credits and notices close the receipt.
+        var receipt = true
         var id: String { entry.map { "\($0.kind)/\($0.entryKey)" } ?? label + "\u{1}" + value }
     }
 
-    /// Android's receipt order (`aboutReceiptRows`): who wrote it and when
-    /// and where (Gemini's canonical rows, blank ones skipped), then
-    /// everything the server says, then the review, then the asks and the
-    /// listener's own entries (every one expanded under a 20 gap, the
-    /// latest only in the small window under a 12 gap). The server's facts
-    /// show whenever there are any, whatever else is on the page.
-    static func rows(entries: [SongAboutStore.Entry], facts: SongFacts?, expanded: Bool) -> [Item] {
+    /// Android's receipt order (`aboutReceiptRows`): who wrote it (the
+    /// lyrics' credits first, then Gemini's canonical rows, blank ones
+    /// skipped; the arranger only from the lyrics) and when and where
+    /// (Gemini), then everything the server says, then the review, then the
+    /// asks and the listener's own entries (every one expanded under a 20
+    /// gap, the latest only in the small window under a 12 gap). The
+    /// server's facts show whenever there are any, whatever else is on the page.
+    static func rows(entries: [SongAboutStore.Entry], facts: SongFacts?, expanded: Bool,
+                     credits: SongCredits? = nil) -> [Item] {
         let canonical = entries.filter { $0.kind == SongAboutStore.Kind.canonical }
         func row(_ key: String) -> Item? {
             canonical.first { $0.entryKey == key }.map {
                 Item(label: label(key, expanded: expanded), value: $0.answerText, entry: $0)
             }
         }
-        let receiptOrder = [SongAboutStore.Canon.lyricist, SongAboutStore.Canon.composer,
-                            SongAboutStore.Canon.producer, SongAboutStore.Canon.creationTime,
-                            SongAboutStore.Canon.creationLocation]
-        var out = receiptOrder.compactMap(row)
+        /// Android `credited`: the lyrics' names for the role (the server's composer after them), else
+        /// Gemini's row.
+        func credited(_ key: String) -> Item? {
+            let server = key == SongAboutStore.Canon.composer ? facts?.spine?.composer : nil
+            if let names = credits?.names(forAboutKey: key) ?? server {
+                return Item(label: label(key, expanded: expanded), value: names)
+            }
+            return row(key)
+        }
+        var out = [credited(SongAboutStore.Canon.lyricist), credited(SongAboutStore.Canon.composer)]
+            .compactMap { $0 }
+        if let arranger = credits?.arranger { out.append(Item(label: String(localized: "Arranger"), value: arranger)) }
+        out += [credited(SongAboutStore.Canon.producer), row(SongAboutStore.Canon.creationTime),
+                row(SongAboutStore.Canon.creationLocation)].compactMap { $0 }
         out += (facts?.facts ?? []).map { Item(label: $0.label, value: $0.value) }
         if var review = row(SongAboutStore.Canon.review) {
             review.gapAbove = expanded ? 0 : 8
+            review.receipt = false
             out.append(review)
         }
         let asks = entries.filter { $0.kind != SongAboutStore.Kind.canonical }
         for (i, ask) in (expanded ? asks : Array(asks.prefix(1))).enumerated() {
             out.append(Item(label: ask.heading ?? "", value: ask.answerText,
-                            gapAbove: i == 0 ? (expanded ? 20 : 12) : 0, entry: ask))
+                            gapAbove: i == 0 ? (expanded ? 20 : 12) : 0, entry: ask, receipt: false))
         }
         return out
     }
@@ -378,38 +370,13 @@ struct NowPlayingAboutView: View {
 
     @ViewBuilder
     private func list(_ items: [Item], header: AnyView? = nil) -> some View {
+        // The receipt ends where the review starts: the lyrics' other credits and notices go there.
+        let cut = items.firstIndex { !$0.receipt } ?? items.count
         let column = VStack(alignment: .leading, spacing: 0) {
             if let header { header }
-            ForEach(items) { item in
-                let thinking = item.entry.map { loader.regenerating.contains($0.ref) } ?? false
-                VStack(alignment: .leading, spacing: expanded ? 2 : 0) {
-                    Text(item.label)
-                        .yoinRole(expanded ? Tokens.type.titleMedium : Tokens.type.labelMedium)
-                        .foregroundStyle(scheme.primary)
-                    // Gemini is writing this row again: dots in place of the old text.
-                    if thinking {
-                        ThinkingDots(color: scheme.primary)
-                            .padding(.top, 10).padding(.bottom, 6)
-                            .transition(.opacity)
-                    } else {
-                        Text(Self.markdown(item.value))
-                            .yoinRole(expanded ? Tokens.type.bodyLarge : Tokens.type.bodyMedium)
-                            .foregroundStyle(scheme.onSurface)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .transition(.opacity)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, expanded ? 8 : 3)
-                .padding(.top, item.gapAbove)
-                .animation(Yoin.effects, value: thinking)
-                .contentShape(.rect)
-                .modifier(RowMenu(entry: expanded ? item.entry : nil, label: item.label) { target in
-                    pressed += 1
-                    menuFor = target
-                })
-                .accessibilityElement(children: .combine)
-            }
+            ForEach(items[..<cut]) { item in itemView(item) }
+            if expanded, let credits { creditsFoot(credits) }
+            ForEach(items[cut...]) { item in itemView(item) }
             Spacer().frame(height: bottomPadding)
         }
         // A scroll view takes exactly the height it is given (the small
@@ -417,6 +384,96 @@ struct NowPlayingAboutView: View {
         ScrollView(.vertical, showsIndicators: false) { column }
             .scrollDisabled(!expanded)
             .mask(Self.fade(top: 0, bottom: expanded ? 64 : 48))
+    }
+
+    /// One row: the label in primary over the value.
+    private func itemView(_ item: Item) -> some View {
+        let thinking = item.entry.map { loader.regenerating.contains($0.ref) } ?? false
+        return VStack(alignment: .leading, spacing: expanded ? 2 : 0) {
+            Text(item.label)
+                .yoinRole(expanded ? Tokens.type.titleMedium : Tokens.type.labelMedium)
+                .foregroundStyle(scheme.primary)
+            // Gemini is writing this row again: dots in place of the old text.
+            if thinking {
+                ThinkingDots(color: scheme.primary)
+                    .padding(.top, 10).padding(.bottom, 6)
+                    .transition(.opacity)
+            } else {
+                Text(Self.markdown(item.value))
+                    .yoinRole(expanded ? Tokens.type.bodyLarge : Tokens.type.bodyMedium)
+                    .foregroundStyle(scheme.onSurface)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, expanded ? 8 : 3)
+        .padding(.top, item.gapAbove)
+        .animation(Yoin.effects, value: thinking)
+        .contentShape(.rect)
+        .modifier(RowMenu(entry: expanded ? item.entry : nil, label: item.label) { target in
+            pressed += 1
+            menuFor = target
+        })
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Android AboutReceipt's foot, expanded: the lyrics' other credits behind "N more" (the first
+    /// roles quieter beside it, a free-form line as "Note"), then the copyright notices, small and
+    /// centred.
+    @ViewBuilder
+    private func creditsFoot(_ credits: SongCredits) -> some View {
+        if !credits.others.isEmpty {
+            if allCredits {
+                ForEach(Array(credits.others.enumerated()), id: \.offset) { _, credit in
+                    if credit.role.isEmpty {
+                        Text(credit.names)
+                            .yoinRole(Tokens.type.bodySmall)
+                            .foregroundStyle(scheme.onSurface)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    } else {
+                        itemView(Item(label: credit.role, value: credit.names))
+                    }
+                }
+            }
+            Button {
+                withAnimation(Yoin.spatial) { allCredits.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(allCredits ? String(localized: "Show less") : String(localized: "\(credits.others.count) more"))
+                        .yoinRole(Tokens.type.labelMedium)
+                        .foregroundStyle(scheme.primary)
+                        .lineLimit(1)
+                    if !allCredits {
+                        let note = String(localized: "lyricCredits.note", defaultValue: "Note")
+                        Text(credits.others.prefix(3).map { $0.role.isEmpty ? note : $0.role }.joined(separator: "、") + "…")
+                            .yoinRole(Tokens.type.labelMedium)
+                            .foregroundStyle(scheme.onSurfaceVariant)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+        }
+        if !credits.notices.isEmpty {
+            VStack(spacing: 2) {
+                ForEach(Array(credits.notices.enumerated()), id: \.offset) { _, notice in
+                    Text(notice)
+                        .yoinRole(Tokens.type.labelSmall)
+                        .foregroundStyle(scheme.onSurfaceVariant)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.vertical, 10)
+        }
     }
 
     /// A vertical mask: clear at the edges, solid between.
@@ -508,10 +565,14 @@ struct AskGeminiBar: View {
 /// Android `AskGeminiBar` focused: the 252 pt card (28 corners), the dot,
 /// then the question field (titleMedium, "Ask Gemini" placeholder at 60 %).
 /// Return sends (Android ImeAction.Send); an empty question isn't sent.
+/// While the field is empty the quick questions not yet asked about the song
+/// ([prompts]) sit at its foot, scrolling out to the card's edges; one fills
+/// the field (owner 2026-11-02).
 struct AskGeminiField: View {
     var scheme: CoverScheme
     @Binding var text: String
     var focus: FocusState<Bool>.Binding
+    var prompts: [String] = []
     var onSubmit: (String) -> Void
     @Environment(\.colorScheme) private var colorScheme
 
@@ -519,10 +580,15 @@ struct AskGeminiField: View {
 
     /// As on the bar: white in dark.
     private var onGlass: Color { colorScheme == .dark ? .white : scheme.onPrimaryContainer }
+    private var showsPrompts: Bool { text.isEmpty && !prompts.isEmpty }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let card = RoundedRectangle(cornerRadius: AskGeminiBar.corner, style: .continuous)
+        // Only the top and bottom are padded, so the quick questions can scroll edge to edge (Android).
+        VStack(alignment: .leading, spacing: 0) {
             AskGeminiBar.dot(scheme)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
             TextField(text: $text, prompt: Text("Ask Gemini")
                 .foregroundStyle(onGlass.opacity(0.6)), axis: .vertical) {
                 Text("Ask Gemini")
@@ -539,13 +605,24 @@ struct AskGeminiField: View {
                 submit()
             }
             .onSubmit(submit)
+            .padding(.horizontal, 20)
             .frame(maxHeight: .infinity, alignment: .topLeading)
+            if showsPrompts {
+                QuickPromptsRow(prompts: prompts, container: scheme.surface, content: scheme.onSurface,
+                                inset: 20) { prompt in
+                    text = prompt
+                    focus.wrappedValue = true
+                }
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
-        .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height, alignment: .topLeading)
-        .npPillGlass("npFloating", tint: scheme.primaryContainer,
-                     in: RoundedRectangle(cornerRadius: AskGeminiBar.corner, style: .continuous))
+        .animation(Yoin.spatial, value: showsPrompts)
+        // The card clips what scrolls in it, as Android's Surface does.
+        .clipShape(card)
+        .npPillGlass("npFloating", tint: scheme.primaryContainer, in: card)
     }
 
     private func submit() {
@@ -556,7 +633,7 @@ struct AskGeminiField: View {
     }
 }
 
-/// An About row's long-press: opens its sheet (only Gemini's rows and the
+/// An About row's long-press, or a right-click: opens its sheet (only Gemini's rows and the
 /// listener's own, and only on the expanded page).
 private struct RowMenu: ViewModifier {
     var entry: SongAboutStore.Entry?
@@ -566,6 +643,7 @@ private struct RowMenu: ViewModifier {
     func body(content: Content) -> some View {
         if let entry {
             content
+                .onSecondaryClick { open(.init(entry: entry, label: label)) }
                 .onLongPressGesture(minimumDuration: 0.4) { open(.init(entry: entry, label: label)) }
                 .accessibilityAction(named: "Options for this entry") { open(.init(entry: entry, label: label)) }
         } else {

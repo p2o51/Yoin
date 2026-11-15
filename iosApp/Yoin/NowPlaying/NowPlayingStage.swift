@@ -355,7 +355,8 @@ enum NowPlayingStageLaunch {
         guard let raw = UserDefaults.standard.string(forKey: "npTab") else { return nil }
         let name = raw.replacingOccurrences(of: "-full", with: "")
         if let i = Int(name) { return NowPlayingDetailPage(rawValue: i) }
-        return NowPlayingDetailPage.allCases.first { $0.title.lowercased() == name.lowercased() }
+        // The case's own name: the title is in the app's language (`-npTab about` in Chinese too).
+        return NowPlayingDetailPage.allCases.first { "\($0)" == name.lowercased() }
     }
 
     static var focusDemo: Bool { UserDefaults.standard.bool(forKey: "npFocusDemo") }

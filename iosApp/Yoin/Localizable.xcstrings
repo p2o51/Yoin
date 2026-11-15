@@ -1044,7 +1044,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "加入资料库"
+            "value": "已添加"
           }
         }
       }
@@ -4263,16 +4263,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "笔记和评分会放进新连接的 Spotify 账号"
-          }
-        }
-      }
-    },
-    "Notes on songs\nSong and album ratings, album reviews\nMemory titles, About and Ask\nPlaylist cloud backups": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "歌曲笔记\n歌曲与专辑评分、专辑乐评\nMemories 标题、歌曲信息与问 Gemini\n歌单云备份"
           }
         }
       }
@@ -7888,16 +7878,6 @@
         }
       }
     },
-    "Write a note while a song plays, or score an album, and it shows up here.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "听歌时写下一笔，或者给专辑打个分，就会出现在这里。"
-          }
-        }
-      }
-    },
     "Nothing kept in this stretch.": {
       "localizations": {
         "zh-Hans": {
@@ -9506,6 +9486,712 @@
           "stringUnit": {
             "state": "translated",
             "value": "有线 %1$@　蓝牙 %2$@　扬声器 %3$@"
+          }
+        }
+      }
+    },
+    "Up to %lld accounts": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多 %lld 个账号"
+          }
+        }
+      }
+    },
+    "Cancelled": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消"
+          }
+        }
+      }
+    },
+    "Couldn't save the sign-in (Keychain error %d)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存登录状态（钥匙串错误 %d）"
+          }
+        }
+      }
+    },
+    "Stream directly from your server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接从你的服务器串流播放"
+          }
+        }
+      }
+    },
+    "Synced with your server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与你的服务器保持同步"
+          }
+        }
+      }
+    },
+    "Browse and edit your playlists": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览与编辑你的播放列表"
+          }
+        }
+      }
+    },
+    "Keep albums and playlists on this device": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把专辑和播放列表保存在本机"
+          }
+        }
+      }
+    },
+    "Browse your library and search the Apple Music catalog": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览个人资料库，搜索 Apple Music 目录"
+          }
+        }
+      }
+    },
+    "Play catalog songs directly in Yoin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Yoin 内直接播放目录歌曲"
+          }
+        }
+      }
+    },
+    "Your saved albums, playlists, Liked Songs and Spotify's catalog": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你保存的专辑、播放列表、已点赞的歌曲，以及 Spotify 目录"
+          }
+        }
+      }
+    },
+    "Plays through the Spotify app, controlled from Yoin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 Spotify 应用播放，在 Yoin 里控制"
+          }
+        }
+      }
+    },
+    "The heart saves to your Spotify library": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点爱心即存进你的 Spotify 资料库"
+          }
+        }
+      }
+    },
+    "Server address, username, password": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器地址、用户名、密码"
+          }
+        }
+      }
+    },
+    "Apple Music subscription": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music 订阅"
+          }
+        }
+      }
+    },
+    "Spotify Premium, the Spotify app, and a Client ID from developer.spotify.com": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify Premium、Spotify 应用，以及 developer.spotify.com 上的 Client ID"
+          }
+        }
+      }
+    },
+    "Couldn't reach the server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接服务器"
+          }
+        }
+      }
+    },
+    "Private session": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私密会话"
+          }
+        }
+      }
+    },
+    "Refresh devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新设备"
+          }
+        }
+      }
+    },
+    "Spatial": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空间音频"
+          }
+        }
+      }
+    },
+    "Arranger": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编曲"
+          }
+        }
+      }
+    },
+    "%lld more": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多 %lld 项"
+          }
+        }
+      }
+    },
+    "Show less": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起"
+          }
+        }
+      }
+    },
+    "lyricCredits.note": {
+      "comment": "A free-form credit line from the lyrics (\"Recorded at …\") in About's credits preview; not the notes feature",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备注"
+          }
+        }
+      }
+    },
+    "Quick questions": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷提问"
+          }
+        }
+      }
+    },
+    "What does this song sample?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这首歌采样了谁？"
+          }
+        }
+      }
+    },
+    "Who sampled this song?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "谁采样了这首歌？"
+          }
+        }
+      }
+    },
+    "What are the lyrics about?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌词在讲什么？"
+          }
+        }
+      }
+    },
+    "How was it written?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "是怎么写出来的？"
+          }
+        }
+      }
+    },
+    "What covers are there?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有哪些翻唱？"
+          }
+        }
+      }
+    },
+    "How was it received?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当时反响如何？"
+          }
+        }
+      }
+    },
+    "Channels": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "声道"
+          }
+        }
+      }
+    },
+    "Mono": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单声道"
+          }
+        }
+      }
+    },
+    "Stereo": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立体声"
+          }
+        }
+      }
+    },
+    "%lld channels": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 声道"
+          }
+        }
+      }
+    },
+    "File size": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件大小"
+          }
+        }
+      }
+    },
+    "%@ MB": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ MB"
+          }
+        }
+      }
+    },
+    "BPM": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BPM"
+          }
+        }
+      }
+    },
+    "Plays": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放次数"
+          }
+        }
+      }
+    },
+    "Comment": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备注"
+          }
+        }
+      }
+    },
+    "File": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件"
+          }
+        }
+      }
+    },
+    "about.added": {
+      "comment": "About's receipt: when the file was added to the server's library (Android np_about_added); the generic Added is a confirmation",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入资料库"
+          }
+        }
+      }
+    },
+    "On repeat": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常听"
+          }
+        }
+      }
+    },
+    "Been a while": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "久违"
+          }
+        }
+      }
+    },
+    "No recent activity": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近期无动态"
+          }
+        }
+      }
+    },
+    "Nothing to jump back into": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无可接着听的内容"
+          }
+        }
+      }
+    },
+    "Nothing added this month": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本月暂无添加"
+          }
+        }
+      }
+    },
+    "Nothing to rediscover yet": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无可重温的内容"
+          }
+        }
+      }
+    },
+    "Nothing played lately": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近期无播放记录"
+          }
+        }
+      }
+    },
+    "No playlists in your library": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资料库中无播放列表"
+          }
+        }
+      }
+    },
+    "Nothing played on your other accounts lately": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他账号最近没有播放"
+          }
+        }
+      }
+    },
+    "No lyric cards yet": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无歌词卡片"
+          }
+        }
+      }
+    },
+    "On. Multichannel songs are spatialized on this output.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已开启。当前输出上，多声道歌曲会被空间化。"
+          }
+        }
+      }
+    },
+    "Ready. The current output can't be spatialized; it starts on headphones that support spatial audio.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已就绪。当前输出不支持空间化，戴上支持空间音频的耳机后自动生效。"
+          }
+        }
+      }
+    },
+    "Copy details": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制诊断信息"
+          }
+        }
+      }
+    },
+    "Sync notes, ratings and translations": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步笔记、评分与翻译"
+          }
+        }
+      }
+    },
+    "Notes, ratings and reviews": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "笔记、评分与评论"
+          }
+        }
+      }
+    },
+    "Lyric translations": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌词翻译"
+          }
+        }
+      }
+    },
+    "Home layout and settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首页布局与设置"
+          }
+        }
+      }
+    },
+    "Works offline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支持离线记录"
+          }
+        }
+      }
+    },
+    "Notes on songs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲笔记"
+          }
+        }
+      }
+    },
+    "Song and album ratings, album reviews": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌曲与专辑评分、专辑评论"
+          }
+        }
+      }
+    },
+    "Memory titles, About and Ask": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memories 标题、歌曲信息与问 Gemini"
+          }
+        }
+      }
+    },
+    "Home layout": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首页布局"
+          }
+        }
+      }
+    },
+    "AI lyric translations": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 歌词翻译"
+          }
+        }
+      }
+    },
+    "Playlist cloud backups": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌单云备份"
+          }
+        }
+      }
+    },
+    "Translation language and Spotify Client ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻译语言与 Spotify Client ID"
+          }
+        }
+      }
+    },
+    "Account names, server addresses": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账号名称、服务器地址"
+          }
+        }
+      }
+    },
+    "Creating on %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在 %@ 上创建"
+          }
+        }
+      }
+    },
+    "%lld added": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加 %lld 首"
           }
         }
       }

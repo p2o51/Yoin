@@ -127,10 +127,10 @@ struct PhoneShell: View {
         // (labRecede draws it too): black read as a flash at the corners.
         .background(Yoin.surface.ignoresSafeArea())
         .overlay(alignment: .top) {
-            // Soft top edge under the status bar. The system scroll-edge
-            // effect only runs under a real bar, and the root pages hide the
-            // navigation bar (custom headers), so this approximates it: a
-            // material band that fades out downward, like Apple Music's top.
+            // Home's top under the status bar (Library's and Search's headers
+            // carry their own). The system scroll-edge effect only runs under
+            // a real bar, and Home has none (its header scrolls), so this is
+            // the album page's top over the status bar (StatusEdgeBand).
             // Off the morph's own progress (a frame of the fold fades it in
             // step), not an insert on `npExpanded`, which landed in one frame
             // at the end of the close.
@@ -177,25 +177,34 @@ struct MemoriesBarRetreat: ViewModifier {
     }
 }
 
-/// Soft top edge under the status bar. The system scroll-edge effect only
-/// runs under a real bar, and the root pages hide the navigation bar (custom
-/// headers), so this approximates it: a material band that fades out
-/// downward, like Apple Music's top. Hidden under Now Playing, by the morph's
-/// progress (read here, so its frames re-render the band only).
+/// Home's top under the status bar. The system scroll-edge effect only runs
+/// under a real bar, and Home has none (its header scrolls with the feed), so
+/// this is the album page's top there (TopEdgeBlur, 51 2026-11-14): its strong
+/// progressive blur in Home's top colour, solid over the status bar and easing
+/// out over [tail] below it. It comes in once the feed has scrolled up under the status
+/// bar (at rest it would frost the greeting) and steps aside for Library and
+/// Search, whose headers carry their own. Hidden under Now Playing, by the
+/// morph's progress (read here, so its frames re-render the band only).
 struct StatusEdgeBand: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// How far below the status bar it falls off: long enough to read as soft (51, 2026-11-15: 22 was short
+    /// and showed as an edge in dark).
+    static let tail: CGFloat = 44
 
     var body: some View {
         let shown = model.np.mounted ? 1 - min(max(model.np.progress, 0), 1) : (model.npExpanded ? 0 : 1)
+        let home = model.section == .home && !model.searchActive && model.homeScrolledUnder
         GeometryReader { g in
-            Rectangle()
-                .fill(GlassLab.solidSurfaces ? AnyShapeStyle(Yoin.surface) : AnyShapeStyle(.ultraThinMaterial))
-                .mask(LinearGradient(stops: [.init(color: .black, location: 0),
-                                             .init(color: .black, location: 0.45),
-                                             .init(color: .clear, location: 1)],
-                                     startPoint: .top, endPoint: .bottom))
-                .frame(height: g.safeAreaInsets.top + 22)
+            let top = g.safeAreaInsets.top
+            // Home's own colour (HomeView's scheme and page wash).
+            ProgressiveEdgeBlur(tint: CoverScheme(seed: model.accent, dark: colorScheme == .dark).surfaceContainer,
+                                strong: true, fadeFrom: Double(top / (top + Self.tail)))
+                .frame(height: top + Self.tail)
                 .ignoresSafeArea(edges: .top)
+                .opacity(home ? 1 : 0)
+                .animation(Yoin.effects, value: home)
         }
         .opacity(shown)
         .allowsHitTesting(false)

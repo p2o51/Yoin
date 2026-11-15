@@ -54,6 +54,17 @@ final class RatingOutboxTests: XCTestCase {
         XCTAssertEqual(outbox.waiting(for: "b").map(\.songId), ["s1"])
     }
 
+    /// I10: a removed account's songs leave, for good; another account's stay.
+    func test_should_dropOnlyThatAccount_when_itIsForgotten() {
+        let outbox = RatingOutbox(fileURL: url)
+        outbox.mark(.init(scope: "a", songId: "s1"))
+        outbox.mark(.init(scope: "b", songId: "s1"))
+        outbox.mark(.init(scope: "a", songId: "s2"))
+        outbox.forget(scope: "a")
+        XCTAssertEqual(outbox.pending, [.init(scope: "b", songId: "s1")])
+        XCTAssertEqual(RatingOutbox(fileURL: url).pending, [.init(scope: "b", songId: "s1")], "and after a relaunch")
+    }
+
     func test_should_keepSong_when_anotherAccountIsInUse() async {
         let outbox = RatingOutbox(fileURL: nil)
         let e = RatingOutbox.Entry(scope: "a", songId: "s1")

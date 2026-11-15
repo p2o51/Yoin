@@ -62,7 +62,7 @@ struct TipsView: View {
                 .padding(.bottom, 40 + ShellBarMetrics.clearance)
                 .animation(Yoin.effects, value: store.read)
             }
-            .safeAreaBar(edge: .top) { topBar }
+            .safeAreaBar(edge: .top) { topBar.topEdgeBlur(app.surfaceContainer) }
             .background(app.surfaceContainer.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .task {

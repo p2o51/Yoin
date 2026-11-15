@@ -204,7 +204,8 @@ private struct PadColumns: View {
                         .toolbar(.hidden, for: .navigationBar)
                         .navigationDestination(for: Route.self, destination: pushedDestination)
                 }
-                // The root pages' soft band under the status bar (a pushed page has its own top).
+                // Home's top under the status bar (StatusEdgeBand; Library's header and a pushed page carry
+                // their own).
                 .overlay(alignment: .top) { if model.path.isEmpty { StatusEdgeBand() } }
                 // A pushed detail page gets the Play split, over the dock's row (the dock spans the window).
                 .overlay(alignment: .bottomLeading) {

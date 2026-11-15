@@ -19,6 +19,8 @@ struct HomeLyricCardsSection: View {
     var demo: LyricCardsDemo? = nil
     private let store = LyricHighlightStore.shared
     private let processor = LyricHighlightProcessor.shared
+    /// How each card's song has been heard (Android's card kind), worked out once per set of cards.
+    @State private var kinds: [String: LyricHighlightSelector.Bucket] = [:]
 
     var body: some View {
         let s = scheme ?? .brand(dark: false)
@@ -44,6 +46,10 @@ struct HomeLyricCardsSection: View {
             let now = LyricHighlightProcessor.nowMs
             if let first = cards.first { store.markShown(first.id, at: now) }
         }
+        .task(id: cards.map(\.id)) {
+            guard demo == nil, let account = model.profiles.active.flatMap(MemoryLedgerSource.account(of:)) else { return }
+            kinds = processor.kinds(of: cards, account: account)
+        }
     }
 
     private func card(_ c: LyricHighlightRow, _ s: CoverScheme) -> some View {
@@ -63,8 +69,9 @@ struct HomeLyricCardsSection: View {
                         Text(c.artist).homeType(Tokens.type.labelMedium).foregroundStyle(s.onSurfaceVariant).lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                    if c.isUserPick {
-                        Text("Your pick").homeType(Tokens.type.labelSmall).foregroundStyle(s.onSecondaryContainer)
+                    // How the song has been heard; nothing for a song not heard yet (Android).
+                    if let kind = c.isUserPick ? LyricHighlightSelector.Bucket.user : kinds[c.id], let label = Self.label(kind) {
+                        Text(label).homeType(Tokens.type.labelSmall).foregroundStyle(s.onSecondaryContainer)
                             .padding(.horizontal, 8).frame(height: 22)
                             .background(s.secondaryContainer, in: .capsule)
                     }
@@ -78,6 +85,16 @@ struct HomeLyricCardsSection: View {
         }
         .buttonStyle(PressScale())
         .accessibilityHint(Text("Play from this line"))
+    }
+
+    /// Android `labelRes`: on repeat, been a while, your pick; a fresh song has none.
+    static func label(_ kind: LyricHighlightSelector.Bucket) -> String? {
+        switch kind {
+        case .heavy: String(localized: "On repeat")
+        case .rediscover: String(localized: "Been a while")
+        case .user: String(localized: "Your pick")
+        case .fresh: nil
+        }
     }
 
     private func palette(_ c: LyricHighlightRow) -> CoverPalette {

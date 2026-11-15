@@ -919,12 +919,12 @@ final class G3RulesTests: XCTestCase {
         }
     }
 
-    /// Codex C07: what the player logs of a stream URL never carries the credentials.
+    /// Codex C07: what the player logs of a stream URL never carries the credentials, nor (Android
+    /// f7db9708) the server's address.
     func test_should_logNoCredentials_when_describingAStreamURL() {
         let url = URL(string: "https://music.example/rest/stream.view?id=s1&u=alice&t=abc&s=salt&v=1.16.1&c=Yoin&maxBitRate=128")!
         let logged = AVAudioOutput.describe(url)
-        for secret in ["alice", "abc", "salt"] { XCTAssertFalse(logged.contains(secret), logged) }
-        XCTAssertTrue(logged.contains("id=s1"))
-        XCTAssertTrue(logged.contains("maxBitRate=128"))
+        for secret in ["alice", "abc", "salt", "music.example"] { XCTAssertFalse(logged.contains(secret), logged) }
+        XCTAssertEqual(logged, "https://…/stream.view?id=s1&maxBitRate=128")
     }
 }

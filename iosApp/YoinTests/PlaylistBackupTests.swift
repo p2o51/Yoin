@@ -456,6 +456,39 @@ final class PlaylistBackupTests: XCTestCase {
         XCTAssertEqual(model.phase, .choosing)
     }
 
+    /// Android RestoreLiveUpdate: matching shows outside the app as each song comes back, and goes once it's
+    /// over (the review waits in the app); the write shows, then what came of it; a dropped restore goes.
+    func test_should_showTheRestoreOutsideTheApp_whileMatchingAndWhileWriting() async throws {
+        let s = store()
+        s.save(PlaylistSnapshots.shared.backup(
+            id: "b1", playlist: playlist([track("s1", "Creep", "Radiohead", 238), track("s2", "Nowhere", "Nobody")]),
+            provider: "spotify", profileId: nil, profileLabel: "Chen", now: 5))
+        let creep = MatchTrack(id: "subsonic:t1", title: "Creep", artist: "Radiohead", album: nil,
+                               durationSec: KotlinInt(int: 238), isrc: nil)
+        let target = StubDestination(results: ["Creep Radiohead": [creep]])
+        let shown = RecordingProgress()
+        let model = PlaylistRestoreModel(backupId: "b1", store: s, progress: shown, destination: { _ in target })
+        let demo = RestoreTarget(id: "subsonic:demo", label: "demo", provider: "subsonic")
+
+        model.open()
+        model.restore(to: demo)
+        try await waitFor { if case .review = model.phase { true } else { false } }
+        XCTAssertEqual(shown.events, ["matching Commute on demo 0/2 --", "matching Commute on demo 1/2 m-",
+                                      "matching Commute on demo 2/2 mn", "clear"])
+
+        model.create()
+        try await waitFor { if case .done = model.phase { true } else { false } }
+        XCTAssertEqual(Array(shown.events.suffix(2)), ["writing Commute on demo 1", "finished Commute on demo, 1 added"])
+
+        shown.events = []
+        model.sheetClosed()
+        model.open()
+        target.searchDelay = .seconds(5)
+        model.restore(to: demo)
+        model.cancel()
+        XCTAssertEqual(shown.events, ["matching Commute on demo 0/2 --", "clear"])
+    }
+
     /// Codex #2: the account chosen at Restore to is the one written to, even if the lookup would now
     /// answer with another account (a switch in another window); it is let go once the restore is over.
     func test_should_writeToTheChosenAccount_when_theAccountInUseChangesMidRestore() async throws {
@@ -637,6 +670,27 @@ private final class StubDestination: RestoreDestination {
         if let failAddAfter, batches.count >= failAddAfter { throw URLError(.timedOut) }
         batches.append(trackIds)
     }
+}
+
+/// What a restore showed outside the app, in words.
+@MainActor
+private final class RecordingProgress: RestoreProgressSink {
+    var events: [String] = []
+
+    func matching(playlist: String, target: RestoreTarget, done: Int, total: Int, outcomes: [ReviewStatus]) {
+        let bar = RestoreBar.encode(outcomes.map(RestoreLiveActivity.cell), total: total)
+        events.append("matching \(playlist) on \(target.label) \(done)/\(total) \(bar)")
+    }
+
+    func writing(playlist: String, target: RestoreTarget, count: Int) {
+        events.append("writing \(playlist) on \(target.label) \(count)")
+    }
+
+    func finished(playlist: String, target: RestoreTarget, record: PlaylistRestoreRecord) {
+        events.append("finished \(playlist) on \(target.label), " + (record.failed ? "failed" : "\(record.added) added"))
+    }
+
+    func clear() { events.append("clear") }
 }
 
 /// Configured accounts with canned sources, counting what was opened and closed.

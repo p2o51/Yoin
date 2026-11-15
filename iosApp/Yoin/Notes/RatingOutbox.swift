@@ -71,6 +71,15 @@ final class RatingOutbox {
 
     func isPending(_ entry: Entry) -> Bool { pending.contains(entry) }
 
+    /// The account was removed: the songs its server was still owed go with it, rather than wait for an
+    /// account that is gone (I10; 51, 2026-11-15). Its rating rows stay, as on Android.
+    func forget(scope: String) {
+        let before = pending.count
+        pending.removeAll { $0.scope == scope }
+        ratedAgain = ratedAgain.filter { $0.scope != scope }
+        if pending.count != before { persist() }
+    }
+
     /// Sends [entry]'s newest value until the server has it. A rating given while the send was out is
     /// sent after it; a failure keeps the entry for the next try (the account again, or the network).
     func push(_ entry: Entry, next: () -> Next, send: (Int32) async throws -> Void) async -> Outcome {

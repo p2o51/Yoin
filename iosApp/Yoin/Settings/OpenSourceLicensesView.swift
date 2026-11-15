@@ -84,7 +84,7 @@ struct OpenSourceLicensesView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 40 + ShellBarMetrics.clearance)
         }
-        .safeAreaBar(edge: .top) { topBar }
+        .safeAreaBar(edge: .top) { topBar.topEdgeBlur(app.surfaceContainer) }
         .background(app.surfaceContainer.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $open) { c in licenseSheet(c) }

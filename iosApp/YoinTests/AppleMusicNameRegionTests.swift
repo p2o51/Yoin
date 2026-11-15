@@ -178,6 +178,25 @@ final class AppleMusicNameRegionTests: XCTestCase {
         XCTAssertTrue(reads.isEmpty)
     }
 
+    func test_should_ask_each_storefront_at_once() async {
+        // Each storefront's read waits until the other's has started: asked one after the other, neither
+        // would answer within the resolver's time (Android: one async per storefront, awaited together).
+        let r = AppleMusicNameResolver(timeout: .seconds(3), catalog: { [unowned self] storefront, kind, ids, language in
+            reads.append(Read(storefront: storefront, kind: kind, ids: ids, language: language))
+            let clock = ContinuousClock()
+            let deadline = clock.now + .seconds(1)
+            while reads.count < 2, clock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+            guard reads.count == 2 else { throw Offline() }
+            return [ids[0]: .init(title: storefront == "jp" ? "晴る" : "좋은 날", artist: nil, album: nil)]
+        }, byIsrc: { _, _, _ in [:] })
+        let songs = [song("1", "Sunny", "Yorushika", genre: "J-Pop"), song("2", "Good Day", "IU", genre: "K-Pop")]
+
+        let renamed = await r.songs(.original, accountStorefront: "us", songs)
+
+        XCTAssertEqual(Set(reads.map(\.storefront)), ["jp", "kr"])
+        XCTAssertEqual(renamed.map(\.title), ["晴る", "좋은 날"])
+    }
+
     func test_should_batch_300_songs_to_a_request() async {
         let songs = (1...301).map { song("\($0)", "Song \($0)", "Artist") }
 

@@ -8,8 +8,12 @@ import Foundation
  * at a time. Answers live for the process; a song the server doesn't know is not asked again. An account whose
  * lookup fails (offline, signed out) is left alone until the ledger next asks.
  *
- * Streaming services are not asked here (Android asks the account in use, one song at a time on a budget):
- * their songs keep whatever the device knows.
+ * The streaming account in use is asked too (Android: the account in use for the others), as sparingly as
+ * Android asks it: a streaming service counts every request against the account (Spotify: one `GET /tracks/{id}`
+ * a song), so one song at a time with a breath between, the newest [servicePerPass] a pass, and no more than
+ * [serviceBudget] songs an account while the process lives (a big import must not cost hundreds of requests
+ * every launch, and a 429 would close the account's Web API to Home, search and playback alike). One such
+ * lane at a time, whoever asks (Home's grid and the page read one ledger).
  */
 @MainActor
 final class LedgerTrackResolver {
@@ -31,6 +35,12 @@ final class LedgerTrackResolver {
 
     /// Lookups in flight on Subsonic servers.
     static let parallel = 4
+    /// A streaming account's songs asked in one pass, newest first.
+    static let servicePerPass = 20
+    /// Songs a streaming account is asked about while the process lives: one pass's worth.
+    static let serviceBudget = 20
+    /// The breath between a streaming account's lookups.
+    static let serviceSpacing: Duration = .milliseconds(250)
     /// The server doesn't know the song.
     static let unknown = LedgerTrack(title: nil, albumId: nil, albumName: nil, artist: nil, coverKey: nil)
 
@@ -38,6 +48,10 @@ final class LedgerTrackResolver {
     private(set) var answers: [String: LedgerTrack] = [:]
     /// Songs being asked about now: a second pass (the page left and opened again) doesn't ask them twice.
     private(set) var inFlight: Set<String> = []
+    /// How many songs each streaming account has answered for this process ([serviceBudget]).
+    private(set) var serviceAnswered: [LedgerAccount: Int] = [:]
+    /// A streaming lane is running: another pass leaves the service to it.
+    private var serviceLaneBusy = false
 
     /// What a new pass mustn't ask: answered, or being asked.
     var asked: Set<String> { Set(answers.keys).union(inFlight) }
@@ -45,20 +59,66 @@ final class LedgerTrackResolver {
     /// The answers that name something, for the ledger's lookup (a copy: the lookup runs off the main actor).
     var known: [String: LedgerTrack] { answers.filter { $0.value != Self.unknown } }
 
-    /// The songs in [entries] whose album isn't known, on a Subsonic account, not yet asked about (newest first).
-    nonisolated static func pending(_ entries: [LedgerEntry], asked: Set<String>) -> [Wanted] {
+    /// The songs in [entries] whose album isn't known, on a Subsonic account or the streaming account in use
+    /// ([service]), not yet asked about (newest first).
+    nonisolated static func pending(_ entries: [LedgerEntry], asked: Set<String>, service: LedgerAccount? = nil) -> [Wanted] {
         var seen = Set<String>()
         return entries.compactMap { e -> Wanted? in
             guard e.album == nil, let id = e.songId, e.kind == .trackRating || e.kind == .songNote,
-                  e.account.provider == "subsonic" else { return nil }  // AccountScope.subsonicProvider
+                  e.account.provider == "subsonic" || e.account == service else { return nil }  // AccountScope.subsonicProvider
             let w = Wanted(account: e.account, songId: id)
             return !asked.contains(w.key) && seen.insert(w.key).inserted ? w : nil
         }
     }
 
-    /// Asks for [wanted], [parallel] at a time. [ask] returns the song, nil when the server doesn't know it, or
-    /// throws when the account can't answer now (its other songs are then skipped this pass).
-    func resolve(_ wanted: [Wanted], ask: @escaping @MainActor @Sendable (Wanted) async throws -> LedgerTrack?) async -> Pass {
+    /// Asks for [wanted]: a Subsonic server's songs [parallel] at a time, then a streaming account's one at a
+    /// time ([serviceSpacing] apart, within its pass and budget). [ask] returns the song, nil when the service
+    /// doesn't know it, or throws when the account can't answer now (its other songs are then skipped this pass).
+    func resolve(_ wanted: [Wanted], spacing: Duration = LedgerTrackResolver.serviceSpacing,
+                 ask: @escaping @MainActor @Sendable (Wanted) async throws -> LedgerTrack?) async -> Pass {
+        let servers = wanted.filter { $0.account.provider == "subsonic" }
+        let services = wanted.filter { $0.account.provider != "subsonic" }
+        var pass = await resolveServers(servers, ask: ask)
+        if !services.isEmpty, !Task.isCancelled, !serviceLaneBusy {
+            serviceLaneBusy = true
+            let more = await resolveService(services, spacing: spacing, ask: ask)
+            serviceLaneBusy = false
+            pass = Pass(answered: pass.answered + more.answered, found: pass.found || more.found)
+        }
+        return pass
+    }
+
+    /// A streaming account's songs, one at a time: the newest of this pass, within the account's budget.
+    private func resolveService(_ wanted: [Wanted], spacing: Duration,
+                                ask: @escaping @MainActor @Sendable (Wanted) async throws -> LedgerTrack?) async -> Pass {
+        var failed = Set<LedgerAccount>()
+        var answered = 0, found = false, requests = 0
+        for w in wanted.prefix(Self.servicePerPass) {
+            guard !Task.isCancelled else { break }
+            if failed.contains(w.account) || answers[w.key] != nil || inFlight.contains(w.key)
+                || serviceAnswered[w.account, default: 0] >= Self.serviceBudget { continue }
+            if requests > 0 { try? await Task.sleep(for: spacing) }
+            guard !Task.isCancelled else { break }
+            requests += 1
+            inFlight.insert(w.key)
+            let result: LedgerTrack??
+            do { result = .some(try await ask(w)) } catch { result = nil }
+            inFlight.remove(w.key)
+            if Task.isCancelled { break }
+            // Offline, rate limited or signed out: the account's other songs would fail the same way.
+            guard let answer = result else { failed.insert(w.account); continue }
+            let track = answer ?? Self.unknown
+            answers[w.key] = track
+            serviceAnswered[w.account, default: 0] += 1
+            answered += 1
+            if track.isNews { found = true }
+        }
+        return Pass(answered: answered, found: found)
+    }
+
+    /// Subsonic servers' songs, [parallel] at a time.
+    private func resolveServers(_ wanted: [Wanted],
+                                ask: @escaping @MainActor @Sendable (Wanted) async throws -> LedgerTrack?) async -> Pass {
         var failed = Set<LedgerAccount>()
         var answered = 0, found = false
         var queue = wanted[...]
@@ -95,6 +155,6 @@ final class LedgerTrackResolver {
     }
 
     #if DEBUG
-    func forgetAll() { answers = [:]; inFlight = [] }
+    func forgetAll() { answers = [:]; inFlight = []; serviceAnswered = [:] }
     #endif
 }

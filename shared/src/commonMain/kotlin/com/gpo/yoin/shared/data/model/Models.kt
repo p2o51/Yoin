@@ -78,7 +78,31 @@ data class SongInfo(
      * server sent none of them. Defaults to null so a cached page from before it decodes.
      */
     val audio: SongAudio? = null,
+    /** OpenSubsonic beats per minute; null when the server doesn't know. */
+    val bpm: Int? = null,
+    /** The file's comment tag; null when blank. */
+    val comment: String? = null,
+    /** ISO-8601 time the file was added to the library, as the server sent it. */
+    val created: String? = null,
+    /** OpenSubsonic `displayComposer`: the song's composers as one line; null when blank. */
+    val composer: String? = null,
 ) {
+    /**
+     * The constructor from before [bpm], [comment], [created] and [composer] existed (Swift: the init that
+     * ends with `audio:`).
+     */
+    constructor(
+        ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,
+        albumId: String?, track: Int?, disc: Int?, durationSec: Int?, coverArtId: String?, year: Int?,
+        genre: String?, starred: Boolean, starredAt: String?, userRating: Int?, suffix: String?,
+        contentType: String?, bitRate: Int?, size: Long?, path: String?, playCount: Int?, played: String?,
+        artists: List<SongArtist>, audio: SongAudio?,
+    ) : this(
+        ref, id, title, artist, artistId, album, albumId, track, disc, durationSec, coverArtId, year,
+        genre, starred, starredAt, userRating, suffix, contentType, bitRate, size, path, playCount, played,
+        artists, audio, null, null, null, null,
+    )
+
     /** The constructor from before [audio] existed (Swift: the init with `artists:` and no `audio:`). */
     constructor(
         ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,
@@ -267,6 +291,13 @@ data class Lyrics(
     val synced: Boolean,
     val lines: List<LyricLine>,
     val language: String? = null,
+    /**
+     * The production credits the lyrics source wrote into the lyrics
+     * ("作词 : 唐恬", "Mixed by …", copyright notices), taken out of [lines] so
+     * the lyrics view shows only what is sung. Null when there were none.
+     * See [com.gpo.yoin.shared.data.lyrics.LyricCreditsExtractor] (Android `Lyrics.credits`).
+     */
+    val credits: LyricCredits? = null,
 ) {
     /** The lines joined with "\n". */
     val text: String get() = lines.joinToString("\n") { it.text }
@@ -281,6 +312,46 @@ data class Lyrics(
         return found
     }
 }
+
+/**
+ * Credits found at the start and end of a song's lyrics, in file order (Android
+ * `LyricCredits`). [roles] are "role : names" lines (plus a few free-form English
+ * lines such as "Recorded at …", whose [LyricCredit.role] is empty); [notices] are
+ * copyright and licensing lines, shown small at the bottom of About.
+ *
+ * Swift: `credits.namesFor(role: .lyricist)`, `credits.others`, `credits.notices`.
+ */
+@Serializable
+data class LyricCredits(
+    val roles: List<LyricCredit>,
+    val notices: List<String> = emptyList(),
+) {
+    /** Names for one of the four headline roles, merged across lines; null when absent. */
+    fun namesFor(role: LyricCreditRole): String? =
+        roles.filter { it.headline == role }
+            .map(LyricCredit::names)
+            .filter(String::isNotBlank)
+            .distinct()
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(" / ")
+
+    /** Every credit that isn't one of the four headline roles. */
+    val others: List<LyricCredit> get() = roles.filter { it.headline == null }
+
+    fun isEmpty(): Boolean = roles.isEmpty() && notices.isEmpty()
+}
+
+@Serializable
+data class LyricCredit(
+    /** The role as the source wrote it ("混音", "Bass Guitar"); empty for a free-form line. */
+    val role: String,
+    val names: String,
+    val headline: LyricCreditRole? = null,
+)
+
+/** The roles About shows up front, in this order (Android `LyricCreditRole`). */
+@Serializable
+enum class LyricCreditRole { Lyricist, Composer, Arranger, Producer }
 
 /** What `ping` learns about the server. */
 @Serializable

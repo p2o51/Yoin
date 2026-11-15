@@ -254,6 +254,14 @@ final class ProfileStore {
         spotifyTokens[id] = tokens
     }
 
+    /// Reads [id]'s server sign-in from the Keychain again (one locked at launch may answer now, Codex #7);
+    /// true when there is one to use.
+    @discardableResult
+    func reloadSignIn(_ id: String) -> Bool {
+        if case .found(let a) = credentials.load(id) { signIns[id] = a }
+        return signIns[id] != nil
+    }
+
     /// A Spotify account's tokens (read once a run; an unsigned build keeps them for the run).
     func spotify(_ id: String) -> SpotifyTokens? {
         if let t = spotifyTokens[id] { return t }
@@ -353,6 +361,8 @@ final class ProfileManager {
     @ObservationIgnored var endPlayback: () -> Void = {}
     /// Asks a server once (tests answer without a network).
     @ObservationIgnored var probe: (ServerSession.Account) async throws -> ServerSession.Probe = { try await ServerSession.probe($0) }
+    /// Subsonic ratings servers are still owed; a removed account's go with it.
+    @ObservationIgnored var ratingOutbox: RatingOutbox = .shared
     /// Bumps on every switch, connect and removal: an answer for an older one never commits.
     @ObservationIgnored private var generation = 0
     /// A launch argument's source (`-activeSource mock` for screenshots) wins over the account in use.
@@ -398,6 +408,18 @@ final class ProfileManager {
     private(set) var spotifyRevoked: Set<String> = []
 
     func markSpotifyRevoked(_ id: String) { spotifyRevoked.insert(id) }
+
+    /// Reconnect on the account card (Android ProfileManager.retryActiveSource): one more try at the account
+    /// in use without a switch. A server account's sign-in is read from the Keychain again and, found, put
+    /// back in use as at launch; Spotify's tokens are read again whenever they are asked for. True when the
+    /// account needs nothing from its owner afterwards; false: its page is the way on.
+    func retryActive() async -> Bool {
+        guard let p = active, switchingTo == nil else { return false }
+        if p.service == .subsonic, store.signIn(p.id) == nil, store.reloadSignIn(p.id) {
+            settle(p)
+        }
+        return !needsSignIn(p)
+    }
 
     // MARK: Switching
 
@@ -500,19 +522,19 @@ final class ProfileManager {
         do {
             answered = try await probe(account)
         } catch {
-            return gen == generation ? Self.short(error) : "Cancelled"
+            return gen == generation ? Self.short(error) : String(localized: "Cancelled")
         }
         guard gen == generation else {
             answered.client.close()
-            return "Cancelled"
+            return String(localized: "Cancelled")
         }
         switch store.saveSubsonic(account, editing: editing) {
         case .failure(.full):
             answered.client.close()
-            return "Up to \(ProfileStore.maxProfiles) accounts"
+            return String(localized: "Up to \(ProfileStore.maxProfiles) accounts")
         case .failure(.keychain(let status)):
             answered.client.close()
-            return "Couldn't save the sign-in (Keychain error \(status))"
+            return String(localized: "Couldn't save the sign-in (Keychain error \(status))")
         case .success(let saved):
             if activate || saved.id == activeId || activeId == nil {
                 commit(saved, probe: answered, account: account)
@@ -552,12 +574,12 @@ final class ProfileManager {
         } catch {
             return error.localizedDescription
         }
-        guard gen == generation else { return "Cancelled" }
+        guard gen == generation else { return String(localized: "Cancelled") }
         switch store.saveSpotify(tokens) {
         case .failure(.full):
-            return "Up to \(ProfileStore.maxProfiles) accounts"
+            return String(localized: "Up to \(ProfileStore.maxProfiles) accounts")
         case .failure(.keychain(let status)):
-            return "Couldn't save the sign-in (Keychain error \(status))"
+            return String(localized: "Couldn't save the sign-in (Keychain error \(status))")
         case .success(let saved):
             spotifyRevoked.remove(saved.id)
             // A new sign-in may be another subscription: what Spotify refused before no longer counts.
@@ -588,6 +610,12 @@ final class ProfileManager {
     /// the first account left, without waiting for its server (as a launch does); none left, the mock.
     func remove(_ id: String) {
         generation += 1
+        // The ratings its server is still owed go with it (I10), unless another saved account is the same
+        // server and user.
+        if let scope = store.profile(id)?.subsonicScope,
+           !store.profiles.contains(where: { $0.id != id && $0.subsonicScope == scope }) {
+            ratingOutbox.forget(scope: scope)
+        }
         withAnimation(Yoin.spatial) {
             if switchingTo == id { switchingTo = nil }
             if failure?.profileId == id { failure = nil }
@@ -667,6 +695,6 @@ final class ProfileManager {
     /// A transport error arrives as the whole NSError dump: one line is enough on a card.
     static func short(_ error: Error) -> String {
         let message = ServerSession.message(for: error)
-        return message.contains("Domain=") || message.count > 90 ? "Couldn't reach the server" : message
+        return message.contains("Domain=") || message.count > 90 ? String(localized: "Couldn't reach the server") : message
     }
 }

@@ -23,6 +23,8 @@ devices until some are given, so a start answers 404 as Spotify does with nothin
 
     python3 iosApp/scripts/fake_spotify.py --device "QA Mac:Computer" --device "Pixel 11 Pro:Smartphone"
     curl -X POST 127.0.0.1:4997/_qa/devices -d '{"devices":[{"name":"QA Mac","type":"Computer"}]}'
+    # a device in a private session (its row says so)
+    curl -X POST 127.0.0.1:4997/_qa/devices -d '{"devices":[{"name":"QA Mac","type":"Computer","private":true}]}'
     # a Sonos: no id, refuses transfers, missing from the list ("hidden") while me/player names it
     curl -X POST 127.0.0.1:4997/_qa/devices -d '{"devices":[{"name":"Living Room","type":"Speaker","noId":true,"restricted":true,"hidden":true}]}'
     curl -X POST 127.0.0.1:4997/_qa/play -d '{"device":"Pixel 11 Pro","track":"tr0003","playing":true}'
@@ -151,16 +153,17 @@ class Player:
             name, kind = spec.get("name", "Device"), spec.get("type", "Computer")
             did = spec.get("id") or re.sub(r"[^a-z0-9]", "", name.lower())[:12] or uuid.uuid4().hex[:8]
             self.devices.append({"id": did, "name": name, "type": kind, "no_id": bool(spec.get("noId")),
-                                 "restricted": bool(spec.get("restricted")), "hidden": bool(spec.get("hidden"))})
+                                 "restricted": bool(spec.get("restricted")), "hidden": bool(spec.get("hidden")),
+                                 "private": bool(spec.get("private"))})
         if self.active and not self.device(self.active):
             self.active, self.playing = None, False
 
     @staticmethod
     def wire(d, active):
         """A device as Spotify answers it: a speaker on the local network (Sonos) may come with no id
-        ("noId") and refuse Web API transfers ("restricted")."""
+        ("noId") and refuse Web API transfers ("restricted"); a device may be in a private session ("private")."""
         return {"id": None if d["no_id"] else d["id"], "name": d["name"], "type": d["type"], "is_active": active,
-                "is_private_session": False, "is_restricted": d["restricted"],
+                "is_private_session": d.get("private", False), "is_restricted": d["restricted"],
                 "volume_percent": 60, "supports_volume": True}
 
     def settle(self):

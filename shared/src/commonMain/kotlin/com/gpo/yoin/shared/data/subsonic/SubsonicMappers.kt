@@ -1,6 +1,7 @@
 package com.gpo.yoin.shared.data.subsonic
 
 import com.gpo.yoin.shared.data.lyrics.LrcParser
+import com.gpo.yoin.shared.data.lyrics.LyricCreditsExtractor
 import com.gpo.yoin.shared.data.model.AlbumInfo
 import com.gpo.yoin.shared.data.model.ArtistIndex
 import com.gpo.yoin.shared.data.model.ArtistInfo
@@ -53,6 +54,10 @@ internal fun SongDto.toSongInfo(): SongInfo = SongInfo(
     artists = artists.filter { it.name.isNotBlank() }.takeIf { it.size > 1 }
         ?.map { SongArtist(it.name.trim(), it.id?.takeIf(String::isNotEmpty)) }.orEmpty(),
     audio = songAudio(),
+    bpm = bpm?.takeIf { it > 0 },
+    comment = comment?.trim()?.takeIf { it.isNotEmpty() },
+    created = created?.takeIf { it.isNotEmpty() },
+    composer = displayComposer?.trim()?.takeIf { it.isNotEmpty() },
 )
 
 /** The audio facts, null when the server sent none (a Subsonic that isn't OpenSubsonic). */
@@ -173,13 +178,14 @@ internal fun StarredDto.toStarred(): Starred = Starred(
 /**
  * OpenSubsonic structured lyrics → [Lyrics]. Android's rule: the first entry;
  * synced when it says so and at least one line has a start, lines sorted by
- * time (servers may send them out of order). Additionally applies the
- * entry's `offset` (positive = sooner), clamped at 0.
+ * time (servers may send them out of order); the credit lines go into
+ * [Lyrics.credits] ([LyricCreditsExtractor]), as for every other source.
+ * Additionally applies the entry's `offset` (positive = sooner), clamped at 0.
  */
 internal fun LyricsListDto.toLyrics(): Lyrics? {
     val structured = structuredLyrics.firstOrNull() ?: return null
     if (structured.line.isEmpty()) return null
-    return if (structured.synced && structured.line.any { it.start != null }) {
+    val lyrics = if (structured.synced && structured.line.any { it.start != null }) {
         val offset = structured.offset ?: 0L
         Lyrics(
             synced = true,
@@ -195,6 +201,7 @@ internal fun LyricsListDto.toLyrics(): Lyrics? {
             lines = structured.line.map { LyricLine(timeMs = 0L, text = it.value) },
         )
     }
+    return LyricCreditsExtractor.extract(lyrics)
 }
 
 /** Classic `getLyrics`: the value may itself be LRC, so run it through [LrcParser]. */

@@ -13,6 +13,8 @@ struct YoinWidgetsBundle: WidgetBundle {
     var body: some Widget {
         PlayWidget()
         MemoryWidget()
+        // A playlist restore on the Lock Screen and in the Dynamic Island (RestoreActivityViews.swift).
+        RestoreActivityWidget()
     }
 }
 
