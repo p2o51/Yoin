@@ -117,7 +117,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
     expect(_state(tester).isSplit, isFalse);
-    expect(tester.getSize(find.byType(PlayModeButton)).width, moreOrLessEquals(NowPlayingTokens.controlSize, epsilon: 0.01));
+    expect(
+      tester.getSize(find.byType(PlayModeButton)).width,
+      moreOrLessEquals(NowPlayingTokens.controlSize, epsilon: 0.01),
+    );
   });
 
   testWidgets('should_merge_when_segmentLongPressed', (tester) async {

@@ -1,7 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:yoin/data/lyrics/lyrics_translation.dart';
+import 'package:yoin/data/lyrics/netease_provider.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/nowplaying/lyric_tools.dart';
 import 'package:yoin/nowplaying/lyrics_selection.dart';
@@ -59,6 +65,7 @@ Future<NowPlayingOverlayController> _pumpExpanded(
         ...nowPlayingOverrides(controller: playback, source: source),
         upNextPrefetchDelayProvider.overrideWithValue(Duration.zero),
         imageShareProvider.overrideWithValue(share ?? _RecordingShare()),
+        netEaseTranslatorProvider.overrideWithValue(_netEaseWithTranslation()),
       ],
       child: MaterialApp(
         home: Material(
@@ -80,6 +87,39 @@ Future<NowPlayingOverlayController> _pumpExpanded(
   await tester.pumpAndSettle();
   return controller;
 }
+
+/// NetEase knows "Song 0" and translates every "line i" as "译 i".
+NetEaseTranslator _netEaseWithTranslation() => NetEaseTranslator(
+  provider: NetEaseLyricsProvider(
+    client: MockClient((request) async {
+      String stamp(int i) =>
+          '[${(i * 4 ~/ 60).toString().padLeft(2, '0')}:${(i * 4 % 60).toString().padLeft(2, '0')}.00]';
+      final body = request.url.path == '/cloudsearch'
+          ? {
+              'result': {
+                'songs': [
+                  {
+                    'id': 5,
+                    'name': 'Song 0',
+                    'ar': [
+                      {'name': 'Artist 0'},
+                    ],
+                  },
+                ],
+              },
+            }
+          : {
+              'lrc': {
+                'lyric': [for (var i = 0; i < 30; i++) '${stamp(i)}line $i'].join('\n'),
+              },
+              'tlyric': {
+                'lyric': [for (var i = 0; i < 30; i++) '${stamp(i)}译 $i'].join('\n'),
+              },
+            };
+      return http.Response.bytes(utf8.encode(jsonEncode(body)), 200);
+    }),
+  ),
+);
 
 LyricToolsController _tools(WidgetTester tester) =>
     LyricToolsScope.maybeOf(tester.element(find.byType(LyricToolsBar).first))!;
@@ -107,16 +147,16 @@ void main() {
           ),
         );
 
-    testWidgets('should_showSearchSelectRecenterAt52_when_atRest', (tester) async {
+    testWidgets('should_showFourKeysAt52_when_atRest', (tester) async {
       await pump(tester);
-      for (final key in ['lyrics-tool-search', 'lyrics-tool-select', 'lyrics-tool-recenter']) {
+      for (final key in ['lyrics-tool-search', 'lyrics-tool-translate', 'lyrics-tool-select', 'lyrics-tool-recenter']) {
         expect(tester.getSize(find.byKey(ValueKey(key))), const Size(52, 52));
       }
-      expect(find.byKey(const ValueKey('lyrics-tool-translate')), findsNothing, reason: 'no translation source');
       expect(_enabled(tester, 'lyrics-tool-recenter'), isFalse);
       expect(_enabled(tester, 'lyrics-tool-select'), isTrue);
+      expect(_enabled(tester, 'lyrics-tool-translate'), isFalse, reason: 'no lines to translate');
       final gap =
-          tester.getTopLeft(find.byKey(const ValueKey('lyrics-tool-select'))).dx -
+          tester.getTopLeft(find.byKey(const ValueKey('lyrics-tool-translate'))).dx -
           tester.getTopRight(find.byKey(const ValueKey('lyrics-tool-search'))).dx;
       expect(gap, LyricToolsMetrics.keyGap);
     });
@@ -128,6 +168,30 @@ void main() {
       expect(_enabled(tester, 'lyrics-tool-recenter'), isFalse);
     });
 
+    testWidgets('should_keepTranslateLit_when_itsTranslationRuns', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: Center(
+              child: LyricsActionBar(
+                busy: true,
+                translating: true,
+                canTranslate: true,
+                canSelect: true,
+                canRecenter: true,
+                onSearch: () {},
+                onSelect: () {},
+                onRecenter: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(_enabled(tester, 'lyrics-tool-translate'), isTrue);
+      expect(_enabled(tester, 'lyrics-tool-search'), isFalse);
+      expect(_enabled(tester, 'lyrics-tool-select'), isFalse);
+    });
+
     testWidgets('should_labelSelectAsAdd_when_noLyrics', (tester) async {
       await pump(tester, canSelect: false);
       expect(find.bySemanticsLabel('Add lyrics'), findsOneWidget);
@@ -135,6 +199,32 @@ void main() {
   });
 
   group('select mode', () {
+    testWidgets('should_showTranslationUnderLines_when_translateTapped', (tester) async {
+      await _pumpExpanded(tester);
+      expect(find.text('译 2'), findsNothing);
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const ValueKey('lyrics-tool-translate')));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('译 2'), findsOneWidget);
+      expect(find.text('Lyrics translated'), findsNothing, reason: 'snackbar lives in the shell');
+
+      // Again: the layer hides (the translation stays for the song).
+      await tester.tap(find.byKey(const ValueKey('lyrics-tool-translate')));
+      await tester.pumpAndSettle();
+      expect(find.text('译 2'), findsNothing);
+    });
+
+    testWidgets('should_fitFourKeysAt52_when_phone', (tester) async {
+      await _pumpExpanded(tester);
+      final keys = ['lyrics-tool-search', 'lyrics-tool-translate', 'lyrics-tool-select', 'lyrics-tool-recenter'];
+      for (final k in keys) {
+        expect(tester.getSize(find.byKey(ValueKey(k))), const Size(52, 52));
+      }
+      expect(tester.getTopRight(find.byKey(const ValueKey('lyrics-tool-recenter'))).dx, lessThanOrEqualTo(412 - 24));
+    });
+
     testWidgets('should_showToolsInExpandedAccessory_when_lyricsPage', (tester) async {
       await _pumpExpanded(tester);
       expect(find.byKey(const ValueKey('lyrics-tool-search')), findsOneWidget);

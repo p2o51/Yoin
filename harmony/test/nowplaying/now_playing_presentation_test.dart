@@ -43,7 +43,10 @@ void main() {
   });
 
   test('should_growEnlargedColumn_when_windowWidens', () {
-    expect(nowPlayingEnlargedSpec(800), const NowPlayingEnlargedSpec(columnWidth: 640, ratingColumn: 104, controlSize: 60));
+    expect(
+      nowPlayingEnlargedSpec(800),
+      const NowPlayingEnlargedSpec(columnWidth: 640, ratingColumn: 104, controlSize: 60),
+    );
     final fold = nowPlayingEnlargedSpec(690);
     expect(fold.columnWidth, 530);
     expect(fold.ratingColumn, closeTo(82, 0.01));
@@ -52,15 +55,30 @@ void main() {
 
   test('should_followAndroidRules_when_sizeClassChangesWhileOpen', () {
     expect(
-      fullscreenAfterLayoutChange(previous: LayoutMode.compact, current: LayoutMode.medium, expanded: true, wasFullscreen: false),
+      fullscreenAfterLayoutChange(
+        previous: LayoutMode.compact,
+        current: LayoutMode.medium,
+        expanded: true,
+        wasFullscreen: false,
+      ),
       isTrue,
     );
     expect(
-      fullscreenAfterLayoutChange(previous: LayoutMode.medium, current: LayoutMode.wide, expanded: true, wasFullscreen: true),
+      fullscreenAfterLayoutChange(
+        previous: LayoutMode.medium,
+        current: LayoutMode.wide,
+        expanded: true,
+        wasFullscreen: true,
+      ),
       isTrue,
     );
     expect(
-      fullscreenAfterLayoutChange(previous: LayoutMode.wide, current: LayoutMode.medium, expanded: true, wasFullscreen: false),
+      fullscreenAfterLayoutChange(
+        previous: LayoutMode.wide,
+        current: LayoutMode.medium,
+        expanded: true,
+        wasFullscreen: false,
+      ),
       isFalse,
     );
     expect(
@@ -68,7 +86,12 @@ void main() {
       isFalse,
     );
     expect(
-      fullscreenAfterLayoutChange(previous: LayoutMode.wide, current: LayoutMode.compact, expanded: true, wasFullscreen: true),
+      fullscreenAfterLayoutChange(
+        previous: LayoutMode.wide,
+        current: LayoutMode.compact,
+        expanded: true,
+        wasFullscreen: true,
+      ),
       isTrue,
     );
   });
@@ -83,20 +106,22 @@ void main() {
     // adaptive-principles §4 table: 1000/1100 + detail column → straight to Full two-column.
     const twoColumns = 744.0;
     for (final width in [1000.0, 1100.0, 1163.0]) {
-      final frame = NowPlayingFrame.resolve(
-        YoinWindowInfo(width, 800),
-        fullscreen: false,
-        minContentWidth: twoColumns,
-      );
+      final frame = NowPlayingFrame.resolve(YoinWindowInfo(width, 800), fullscreen: false, minContentWidth: twoColumns);
       expect(frame.panelAvailable, isFalse, reason: '$width');
       expect(frame.presentation, NowPlayingPresentation.dualPane, reason: '$width');
       expect(frame.panelFamily, isFalse);
     }
     // 1164 − 420 = 744: both columns fit beside the panel.
-    final fits = NowPlayingFrame.resolve(const YoinWindowInfo(1164, 800), fullscreen: false, minContentWidth: twoColumns);
+    final fits = NowPlayingFrame.resolve(
+      const YoinWindowInfo(1164, 800),
+      fullscreen: false,
+      minContentWidth: twoColumns,
+    );
     expect(fits.presentation, NowPlayingPresentation.panel);
     // Without the column the same 1100 window keeps its panel.
-    expect(NowPlayingFrame.resolve(const YoinWindowInfo(1100, 800), fullscreen: false).presentation,
-        NowPlayingPresentation.panel);
+    expect(
+      NowPlayingFrame.resolve(const YoinWindowInfo(1100, 800), fullscreen: false).presentation,
+      NowPlayingPresentation.panel,
+    );
   });
 }

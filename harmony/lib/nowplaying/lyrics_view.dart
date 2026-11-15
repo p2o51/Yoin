@@ -130,7 +130,11 @@ class LyricsView extends StatelessWidget {
     this.durationMs,
     this.horizontalInset = 0,
     this.linesAbove = NowPlayingFocusTokens.linesAbove,
+    this.showTranslation = false,
   });
+
+  /// Full list: each line's translation shows under it (Android LyricsFullscreenPane).
+  final bool showTranslation;
 
   final LyricsListMode mode;
   final LyricsState lyrics;
@@ -209,6 +213,7 @@ class LyricsView extends StatelessWidget {
         durationMs: durationMs,
         horizontalInset: horizontalInset,
         linesAbove: linesAbove,
+        showTranslation: showTranslation && mode == LyricsListMode.full,
       ),
     };
   }
@@ -230,8 +235,10 @@ class _LyricsList extends StatefulWidget {
     required this.durationMs,
     required this.horizontalInset,
     required this.linesAbove,
+    required this.showTranslation,
   });
 
+  final bool showTranslation;
   final LyricsListMode mode;
   final String songKey;
   final LyricSheet sheet;
@@ -646,6 +653,8 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
         runBottom: !selected.contains(index + 1),
         // spotoolfy keeps the line being sung lit while you pick.
         playingInSelect: selecting && active,
+        secondary: full ? line.translation : null,
+        showSecondary: widget.showTranslation,
       );
       if (!full) return child;
       return GestureDetector(
@@ -1022,6 +1031,7 @@ class _LyricLineView extends StatefulWidget {
     required this.stretch,
     this.linesAbove = NowPlayingFocusTokens.linesAbove,
     this.secondary,
+    this.showSecondary = true,
     this.selectMode = false,
     this.role = LyricSelectionRole.idle,
     this.runTop = true,
@@ -1040,8 +1050,12 @@ class _LyricLineView extends StatefulWidget {
   final bool synced;
   final double stretch;
 
-  /// Full list: a second line (the title card's artist).
+  /// Full list: a second line (the title card's artist, a lyric's translation).
   final String? secondary;
+
+  /// The second line shows; it opens from the line's lower edge on the
+  /// spatial spring and fades in (Android's translation expandVertically).
+  final bool showSecondary;
   final bool selectMode;
   final LyricSelectionRole role;
 
@@ -1075,6 +1089,16 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
     vsync: this,
     initial: _targetBottomCorner,
     spring: YoinSprings.standardFastSpatial,
+  );
+  late final SpringValue _secondaryOpen = SpringValue(
+    vsync: this,
+    initial: widget.showSecondary ? 1 : 0,
+    spring: YoinSprings.defaultSpatial,
+  );
+  late final SpringValue _secondaryAlpha = SpringValue(
+    vsync: this,
+    initial: widget.showSecondary ? 1 : 0,
+    spring: YoinSprings.defaultEffects,
   );
 
   bool get _full => widget.mode == LyricsListMode.full;
@@ -1128,6 +1152,13 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
     _picked.animateTo(_isPicked ? 1 : 0);
     _topCorner.animateTo(_targetTopCorner);
     _bottomCorner.animateTo(_targetBottomCorner);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _secondaryOpen.snapTo(widget.showSecondary ? 1 : 0);
+      _secondaryAlpha.snapTo(widget.showSecondary ? 1 : 0);
+    } else {
+      _secondaryOpen.animateTo(widget.showSecondary ? 1 : 0);
+      _secondaryAlpha.animateTo(widget.showSecondary ? 1 : 0);
+    }
     if (widget.stretch != oldWidget.stretch) {
       _held.spring = widget.stretch > 0 ? YoinSprings.slowSpatial : YoinSprings.defaultSpatial;
       if (MediaQuery.disableAnimationsOf(context)) {
@@ -1147,6 +1178,8 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
     _picked.dispose();
     _topCorner.dispose();
     _bottomCorner.dispose();
+    _secondaryOpen.dispose();
+    _secondaryAlpha.dispose();
     super.dispose();
   }
 
@@ -1174,6 +1207,8 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
         _on.animation,
         _held.animation,
         _picked.animation,
+        _secondaryOpen.animation,
+        _secondaryAlpha.animation,
       ]),
       builder: (context, child) {
         final s = _scale.value;
@@ -1185,34 +1220,47 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
           child: Transform(
             alignment: AlignmentDirectional.centerStart,
             transform: Matrix4.diagonal3Values(s, s, 1),
-            child: secondary == null
-                ? Transform(
-                    alignment: AlignmentDirectional.centerStart,
-                    transform: Matrix4.diagonal3Values(lastLineStretchScale(_held.value), 1, 1),
-                    child: line,
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      line,
-                      Padding(
-                        padding: const EdgeInsets.only(top: LyricsPaneMetrics.secondaryGap),
-                        child: Text(
-                          secondary,
-                          style: secondaryBase
-                              .merge(
-                                gsf(
-                                  secondaryBase.fontSize!,
-                                  weight: emphasized ? 500 : 400,
-                                  height: secondaryBase.height,
-                                ),
-                              )
-                              .copyWith(color: color.withValues(alpha: emphasized ? 0.82 : 0.7)),
+            child: () {
+              final stretched = Transform(
+                alignment: AlignmentDirectional.centerStart,
+                transform: Matrix4.diagonal3Values(lastLineStretchScale(_held.value), 1, 1),
+                child: line,
+              );
+              final open = _secondaryOpen.value.clamp(0.0, 1.0);
+              if (secondary == null || open <= 0.001) return stretched;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  stretched,
+                  // The gap lives inside the opening block, so a closed row is one line tall.
+                  ClipRect(
+                    child: Align(
+                      alignment: AlignmentDirectional.topStart,
+                      heightFactor: open,
+                      child: Opacity(
+                        opacity: _secondaryAlpha.value.clamp(0.0, 1.0),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: LyricsPaneMetrics.secondaryGap),
+                          child: Text(
+                            secondary,
+                            style: secondaryBase
+                                .merge(
+                                  gsf(
+                                    secondaryBase.fontSize!,
+                                    weight: emphasized ? 500 : 400,
+                                    height: secondaryBase.height,
+                                  ),
+                                )
+                                .copyWith(color: color.withValues(alpha: emphasized ? 0.82 : 0.7)),
+                          ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
+                ],
+              );
+            }(),
           ),
         );
       },

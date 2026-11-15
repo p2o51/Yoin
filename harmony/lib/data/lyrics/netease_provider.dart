@@ -22,7 +22,13 @@ class NetEaseLyricsProvider extends LyricProvider {
   String get name => 'netease';
 
   @override
-  Future<List<SongMatch>> searchMultiple(String title, String artist, {int limit = 3}) async {
+  Future<List<SongMatch>> searchMultiple(String title, String artist, {int limit = 3}) async => [
+    for (final c in await searchCandidates(title, artist, limit: limit)) c.match,
+  ];
+
+  /// `cloudsearch` in NetEase's own order, with what the translation lookup
+  /// matches on (artists, album, length). Entries without an id are skipped.
+  Future<List<NetEaseCandidate>> searchCandidates(String title, String artist, {int limit = 10}) async {
     if (limit <= 0) return const [];
     final uri = Uri.parse(
       '$baseUrl/cloudsearch',
@@ -33,7 +39,7 @@ class NetEaseLyricsProvider extends LyricProvider {
       final root = jsonDecode(utf8.decode(response.bodyBytes));
       final songs = root is Map ? (root['result'] is Map ? root['result']['songs'] : null) : null;
       if (songs is! List) return const [];
-      final out = <SongMatch>[];
+      final out = <NetEaseCandidate>[];
       for (final song in songs) {
         if (out.length >= limit) break;
         if (song is! Map || song['id'] == null) continue;
@@ -43,11 +49,18 @@ class NetEaseLyricsProvider extends LyricProvider {
               if (a is Map && a['name'] is String && (a['name'] as String).trim().isNotEmpty)
                 (a['name'] as String).trim(),
         ];
+        final name = song['name'] as String?;
         out.add(
-          SongMatch(
-            songId: '${song['id']}',
-            title: (song['name'] as String?) ?? title,
-            artist: artists.isEmpty ? artist : artists.first,
+          NetEaseCandidate(
+            match: SongMatch(
+              songId: '${song['id']}',
+              title: name ?? title,
+              artist: artists.isEmpty ? artist : artists.first,
+            ),
+            title: name,
+            artists: artists,
+            album: song['al'] is Map ? (song['al'] as Map)['name'] as String? : null,
+            durationMs: (song['dt'] as num?)?.toInt(),
           ),
         );
       }
@@ -59,21 +72,61 @@ class NetEaseLyricsProvider extends LyricProvider {
   }
 
   @override
-  Future<String?> fetchLyric(String songId) async {
+  Future<String?> fetchLyric(String songId) async => (await fetchLyricWithTranslation(songId))?.lyric;
+
+  /// The song's LRC and NetEase's own (Simplified Chinese) translation LRC,
+  /// `tlyric` — null when it has none.
+  Future<LyricPayload?> fetchLyricWithTranslation(String songId) async {
     final uri = Uri.parse('$baseUrl/lyric/new').replace(queryParameters: {'id': songId});
     try {
       final response = await _client.get(uri).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
       final root = jsonDecode(utf8.decode(response.bodyBytes));
       if (root is! Map || root['lrc'] is! Map) return null;
-      final lrc = (root['lrc'] as Map)['lyric'];
-      if (lrc is! String || lrc.isEmpty) return null;
-      return lrc.trimLeft().startsWith('{') ? netEaseJsonLyricToLrc(lrc) : lrc;
+      String? read(Object? block) {
+        final raw = block is Map ? block['lyric'] : null;
+        if (raw is! String || raw.isEmpty) return null;
+        return raw.trimLeft().startsWith('{') ? netEaseJsonLyricToLrc(raw) : raw;
+      }
+
+      final lrc = read(root['lrc']);
+      if (lrc == null) return null;
+      return LyricPayload(lyric: lrc, translatedLyric: read(root['tlyric']));
     } catch (e) {
       debugPrint('NetEase lyric failed: ${e.runtimeType}');
       return null;
     }
   }
+}
+
+/// One NetEase search hit with what matching needs; [title] is null when NetEase sent none.
+@immutable
+final class NetEaseCandidate {
+  const NetEaseCandidate({
+    required this.match,
+    required this.title,
+    required this.artists,
+    this.album,
+    this.durationMs,
+  });
+
+  final SongMatch match;
+  final String? title;
+  final List<String> artists;
+  final String? album;
+  final int? durationMs;
+}
+
+/// A provider's lyric LRC and its own translation LRC (LyricPayload).
+@immutable
+final class LyricPayload {
+  const LyricPayload({required this.lyric, this.translatedLyric});
+
+  /// A translation line that says "no translation here" (QQ's convention; UNTRANSLATED_LINE).
+  static const untranslatedLine = '//';
+
+  final String lyric;
+  final String? translatedLyric;
 }
 
 /// NetEase's word-timed JSON lines (`{"t": 12345, "c": [{"tx": "…"}, …]}`)

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/lyrics/lrc_parser.dart';
+import '../data/lyrics/lyrics_translation.dart';
 import '../data/lyrics/user_lyrics_store.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
@@ -79,7 +80,15 @@ final class NowPlayingContent extends NowPlayingUiState {
     required this.context,
     required this.isWavePlaying,
     this.upNext,
+    this.showTranslation = false,
+    this.translating = false,
   });
+
+  /// The lyric translation layer shows under each line (Android showLyricsTranslation; off after a song change).
+  final bool showTranslation;
+
+  /// A translation is being fetched (Android lyricsActionInFlight == Translate).
+  final bool translating;
 
   final Track track;
 
@@ -124,7 +133,9 @@ final class NowPlayingContent extends NowPlayingUiState {
       listEquals(other.upcoming, upcoming) &&
       other.playMode == playMode &&
       identical(other.context, context) &&
-      other.upNext == upNext;
+      other.upNext == upNext &&
+      other.showTranslation == showTranslation &&
+      other.translating == translating;
 
   @override
   int get hashCode => Object.hash(
@@ -143,7 +154,27 @@ final class NowPlayingContent extends NowPlayingUiState {
     playMode,
     context,
     upNext,
+    showTranslation,
+    translating,
   );
+}
+
+/// What the Translate key did (Android translateLyrics' outcomes, NetEase only).
+enum LyricsTranslateOutcome {
+  /// The song already had translations: the layer was shown or hidden.
+  toggled,
+
+  /// NetEase's translation arrived and shows.
+  translated,
+
+  /// The lines already read as Chinese (Android AlreadyTargetLanguage).
+  alreadyChinese,
+
+  /// NetEase has no translation that lines up with these lyrics, or the lookup failed.
+  failed,
+
+  /// Nothing to do (no lyrics, busy, the song moved on).
+  ignored,
 }
 
 /// Now Playing's view model (Android NowPlayingViewModel): projects the
@@ -164,6 +195,14 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
 
   PlaybackController get _controller => ref.read(playbackControllerProvider.notifier);
 
+  /// The song whose translation layer shows, and the one being translated.
+  String? _showTranslationFor;
+  String? _translatingFor;
+  String? _lastSongKey;
+
+  /// NetEase song ids of lyrics the user applied from NetEase (song key → id).
+  final Map<String, String> _netEaseIds = {};
+
   @override
   NowPlayingUiState build() {
     final snapshot = ref.watch(playerSnapshotProvider);
@@ -172,6 +211,11 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     if (track == null) return const NowPlayingIdle();
     final key = track.id.toString();
     final caps = source?.capabilities ?? const <Capability>{};
+    // A song change turns the translation layer off (Android resets showLyricsTranslation).
+    if (key != _lastSongKey) {
+      _lastSongKey = key;
+      _showTranslationFor = null;
+    }
 
     ref.onDispose(() {
       if (_prefetchTimer?.isActive ?? false) {
@@ -207,6 +251,8 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       playMode: snapshot.playMode,
       context: snapshot.context,
       upNext: upNext,
+      showTranslation: _showTranslationFor == key,
+      translating: _translatingFor == key,
     );
   }
 
@@ -303,6 +349,8 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       try {
         final chosen = await userStore?.read(key);
         if (chosen != null) {
+          final id = chosen.providerSongId;
+          if (chosen.provider == 'netease' && id != null) _netEaseIds[key] = id;
           _landLyrics(generation, key, lyricSheetOf(LrcParser.parse(chosen.lrc)));
           return;
         }
@@ -346,11 +394,80 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       return false;
     }
     if (!ref.mounted) return false;
+    if (provider == 'netease' && providerSongId != null) {
+      _netEaseIds[key] = providerSongId;
+    } else {
+      _netEaseIds.remove(key);
+    }
     _cacheLyrics(key, sheet);
+    if (_showTranslationFor == key) _showTranslationFor = null;
     final now = state;
     if (now is! NowPlayingContent || now.songKey != key) return false;
-    state = _copy(now, lyrics: LyricsReady(sheet));
+    state = _copy(now, lyrics: LyricsReady(sheet), showTranslation: false);
     return true;
+  }
+
+  /// The Translate key (Android NowPlayingViewModel.translateLyrics), with
+  /// NetEase's own translations as the only source for now: a song that
+  /// already has them shows / hides the layer; otherwise NetEase is asked —
+  /// by the NetEase id when the lyrics shown came from NetEase, else by
+  /// title + artist — its translation is put onto these lines by timestamp,
+  /// kept for the song, and shown.
+  Future<LyricsTranslateOutcome> translateLyrics() async {
+    final current = state;
+    if (current is! NowPlayingContent || current.lyrics is! LyricsReady || _translatingFor != null) {
+      return LyricsTranslateOutcome.ignored;
+    }
+    final key = current.songKey;
+    final sheet = (current.lyrics as LyricsReady).sheet;
+    if (sheet.isEmpty) return LyricsTranslateOutcome.ignored;
+    if (sheet.rows.any((r) => r.translation?.trim().isNotEmpty ?? false)) {
+      _showTranslationFor = _showTranslationFor == key ? null : key;
+      state = _copy(current, showTranslation: _showTranslationFor == key);
+      return LyricsTranslateOutcome.toggled;
+    }
+    final texts = [for (final r in sheet.rows) r.text];
+    if (lyricsAppearMostlyChinese(texts)) return LyricsTranslateOutcome.alreadyChinese;
+
+    _translatingFor = key;
+    state = _copy(current, translating: true);
+    Map<int, String> translations = const {};
+    try {
+      final store = ref.read(lyricsTranslationStoreProvider);
+      translations = await store?.read(key, texts) ?? const {};
+      if (translations.isEmpty) {
+        translations = await ref
+            .read(netEaseTranslatorProvider)
+            .translate(
+              lines: [for (final r in sheet.rows) (startMs: r.startMs, text: r.text)],
+              title: current.track.title ?? '',
+              artist: current.track.artist ?? '',
+              durationMs: current.durationMs,
+              providerSongId: _netEaseIds[key],
+            );
+        if (translations.isNotEmpty) await store?.write(key, texts, translations);
+      }
+    } catch (e) {
+      debugPrint('translate failed: ${e.runtimeType}');
+      translations = const {};
+    }
+    if (!ref.mounted) return LyricsTranslateOutcome.ignored;
+    if (_translatingFor == key) _translatingFor = null;
+    final now = state;
+    if (now is! NowPlayingContent || now.songKey != key) return LyricsTranslateOutcome.ignored;
+    final nowSheet = now.lyrics is LyricsReady ? (now.lyrics as LyricsReady).sheet : null;
+    if (translations.isEmpty || nowSheet != sheet) {
+      state = _copy(now, translating: false);
+      return translations.isEmpty ? LyricsTranslateOutcome.failed : LyricsTranslateOutcome.ignored;
+    }
+    final translated = LyricSheet([
+      for (var i = 0; i < sheet.rows.length; i++)
+        LyricRow(sheet.rows[i].text, startMs: sheet.rows[i].startMs, translation: translations[i]),
+    ]);
+    _cacheLyrics(key, translated);
+    _showTranslationFor = key;
+    state = _copy(now, lyrics: LyricsReady(translated), translating: false, showTranslation: true);
+    return LyricsTranslateOutcome.translated;
   }
 
   void _landLyrics(int generation, String key, LyricSheet sheet) {
@@ -437,6 +554,8 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     bool? isStarred,
     double? rating,
     UpNextLyrics? upNext,
+    bool? showTranslation,
+    bool? translating,
   }) => NowPlayingContent(
     track: c.track,
     isPlaying: c.isPlaying,
@@ -453,6 +572,8 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     playMode: c.playMode,
     context: c.context,
     upNext: upNext ?? c.upNext,
+    showTranslation: showTranslation ?? c.showTranslation,
+    translating: translating ?? c.translating,
   );
 }
 

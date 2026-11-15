@@ -270,7 +270,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     return LyricToolsActions(
       hasLyrics: !sheet.isEmpty,
       hasSyncedLyrics: sheet.isSynced,
-      busy: _lyricsBusy,
+      busy: _lyricsBusy || (content?.translating ?? false),
+      translating: content?.translating ?? false,
+      onTranslate: _translateLyrics,
       onSearch: () => _openLyricsSearch(content),
       onEdit: () => _openLyricsEditor(sheet),
       onCopy: () => _copyLyrics(content, sheet),
@@ -285,6 +287,24 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
         }
       },
     );
+  }
+
+  /// Translate (Android onTranslateClick): NetEase's translation, or the
+  /// layer shown / hidden; the outcome speaks in the snackbar as Android's does.
+  Future<void> _translateLyrics() async {
+    final strings = NowPlayingStrings.of(context);
+    final outcome = await ref.read(nowPlayingViewModelProvider.notifier).translateLyrics();
+    if (!mounted) return;
+    switch (outcome) {
+      case LyricsTranslateOutcome.translated:
+        _say(strings.msgLyricsTranslated);
+      case LyricsTranslateOutcome.alreadyChinese:
+        _say(strings.msgAlreadyChinese);
+      case LyricsTranslateOutcome.failed:
+        _say(strings.msgTranslateFailed);
+      case LyricsTranslateOutcome.toggled || LyricsTranslateOutcome.ignored:
+        break;
+    }
   }
 
   void _say(String text) => ref.read(playbackControllerProvider.notifier).showMessage(text);
@@ -350,7 +370,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
       ClipboardData(
         text: lyricsClipboardText(
           lines,
-          includeTranslation: false,
+          includeTranslation: content.showTranslation,
           strings: strings,
           songTitle: content.track.title,
           artist: content.track.artist,
@@ -374,7 +394,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
       snapshot: LyricsShareSnapshot(
         lines: lines,
         passageStarts: lyricPassageStarts(sheet.rows, selected),
-        showTranslation: false,
+        showTranslation: content.showTranslation,
         songTitle: content.track.title ?? '',
         artist: content.track.artist ?? '',
         cover: content.track.coverArt,
@@ -1214,6 +1234,7 @@ class _Stage extends ConsumerWidget {
                   onDragEnd: onPageDragEnd,
                   lyrics: LyricsView(
                     mode: LyricsListMode.full,
+                    showTranslation: state.showTranslation,
                     lyrics: state.lyrics,
                     songKey: state.songKey,
                     clock: clock,
@@ -2485,6 +2506,7 @@ class _DualPane extends ConsumerWidget {
                                   padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
                                   child: LyricsView(
                                     mode: LyricsListMode.full,
+                                    showTranslation: state.showTranslation,
                                     lyrics: state.lyrics,
                                     songKey: state.songKey,
                                     clock: clock,
@@ -2853,6 +2875,7 @@ class _LandscapePane extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
               child: LyricsView(
                 mode: LyricsListMode.full,
+                showTranslation: state.showTranslation,
                 lyrics: state.lyrics,
                 songKey: state.songKey,
                 clock: clock,

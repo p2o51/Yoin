@@ -46,8 +46,13 @@ class StageTabs extends StatelessWidget {
           : Row(
               children: [
                 _TextTabs(selected: selected, onSelect: onSelect),
-                const Spacer(),
-                tools!,
+                // Four keys beside the tabs: a narrow row scales them down rather than overflow.
+                Expanded(
+                  child: Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: FittedBox(fit: BoxFit.scaleDown, child: tools),
+                  ),
+                ),
               ],
             ),
     );

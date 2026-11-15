@@ -83,6 +83,8 @@ final class LyricToolsActions {
     required this.busy,
     required this.onSearch,
     required this.onEdit,
+    this.translating = false,
+    this.onTranslate = _noop,
     required this.onCopy,
     required this.onShare,
     this.onBeforeSelect,
@@ -105,7 +107,13 @@ final class LyricToolsActions {
 
   /// A lyrics action (search apply, editor apply) is running: the keys wait.
   final bool busy;
+
+  /// NetEase's translation is being fetched: the Translate key stays lit (taps wait).
+  final bool translating;
   final VoidCallback onSearch;
+
+  /// Translate: NetEase's own translation, or show / hide the layer once it's there.
+  final VoidCallback onTranslate;
 
   /// The LRC editor (the ✓ with no lines yet, and select mode's Edit).
   final VoidCallback onEdit;
@@ -134,7 +142,8 @@ class LyricToolsController extends ChangeNotifier {
     final changed =
         value.hasLyrics != _actions.hasLyrics ||
         value.hasSyncedLyrics != _actions.hasSyncedLyrics ||
-        value.busy != _actions.busy;
+        value.busy != _actions.busy ||
+        value.translating != _actions.translating;
     _actions = value;
     if (changed) notifyListeners();
   }
@@ -269,6 +278,9 @@ class _LyricToolsBarState extends State<LyricToolsBar> with TickerProviderStateM
       builder: (context, following, _) => LyricsActionBar(
         iconSize: widget.iconSize,
         busy: actions.busy,
+        translating: actions.translating,
+        canTranslate: actions.hasLyrics,
+        onTranslate: actions.onTranslate,
         canSelect: actions.hasLyrics,
         canRecenter: !following && actions.hasSyncedLyrics,
         onSearch: actions.onSearch,
@@ -322,14 +334,16 @@ class _LyricToolsBarState extends State<LyricToolsBar> with TickerProviderStateM
   }
 }
 
-/// The lyric tools (LyricsActionBar): Search, ✓ Select, Recenter. Android's
-/// fourth key, Translate, needs a translation source — the lyric providers'
-/// own Chinese translations for a Chinese target, Gemini otherwise — and
-/// Harmony has neither yet, so the key isn't shown rather than shown dead.
+/// The lyric tools (LyricsActionBar): Search, Translate, ✓ Select,
+/// Recenter. Translate uses NetEase's own translations (owner 2026-11-15);
+/// it stays lit while its translation runs and ignores taps until it ends.
 class LyricsActionBar extends StatelessWidget {
   const LyricsActionBar({
     super.key,
     required this.busy,
+    this.translating = false,
+    this.canTranslate = false,
+    this.onTranslate,
     required this.canSelect,
     required this.canRecenter,
     required this.onSearch,
@@ -339,6 +353,9 @@ class LyricsActionBar extends StatelessWidget {
   });
 
   final bool busy;
+  final bool translating;
+  final bool canTranslate;
+  final VoidCallback? onTranslate;
   final bool canSelect;
   final bool canRecenter;
   final VoidCallback onSearch;
@@ -358,6 +375,15 @@ class LyricsActionBar extends StatelessWidget {
           label: strings.cdSearchLyrics,
           enabled: !busy,
           onTap: onSearch,
+        ),
+        LyricsKey(
+          key: const ValueKey('lyrics-tool-translate'),
+          icon: YoinSymbols.translate,
+          label: strings.cdTranslateLyrics,
+          enabled: (!busy || translating) && canTranslate,
+          onTap: () {
+            if (!busy) onTranslate?.call();
+          },
         ),
         LyricsKey(
           key: const ValueKey('lyrics-tool-select'),

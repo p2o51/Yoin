@@ -80,6 +80,12 @@ class NowPlayingStrings {
   String get msgCouldntSearch => _zh ? '无法搜索歌词' : "Couldn't search lyrics"; // np_msg_couldnt_search
   String get msgCouldntApply => _zh ? '无法应用歌词' : "Couldn't apply lyrics"; // np_msg_couldnt_apply
   String get msgLyricsApplied => _zh ? '已应用歌词' : 'Lyrics applied'; // np_msg_lyrics_applied
+  String get msgLyricsTranslated => _zh ? '已翻译歌词' : 'Lyrics translated'; // np_msg_lyrics_translated
+  // np_msg_already_language, with the target NetEase serves (Simplified Chinese).
+  String get msgAlreadyChinese => _zh ? '歌词似乎已经是 简体中文' : 'Lyrics already appear to be Simplified Chinese';
+
+  /// Android shows the repository's raw error here ("Failed to translate lyrics", English only).
+  String get msgTranslateFailed => 'Failed to translate lyrics';
 
   /// np_msg_lyrics_applied_qq / _netease / _huawei / _lrclib / _from.
   String msgLyricsAppliedFrom(String id) => switch (id) {
