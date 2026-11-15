@@ -29,11 +29,12 @@ final class FavoritesStore {
 
     static func key(provider: String, songId: String) -> String { LocalRatings.key(provider: provider, songId: songId) }
 
-    /// The user's own tap, else [known] (what the caller's copy of the song
-    /// says), else what the source reported, else off.
+    /// The user's own tap, else a fresh answer (a recheck or a write the source took, newer than any
+    /// page's copy), else [known] (what the caller's copy of the song says), else what the source
+    /// reported, else off.
     func isFavorite(provider: String, songId: String, known: Bool? = nil) -> Bool {
         let k = Self.key(provider: provider, songId: songId)
-        return chosen[k] ?? known ?? reported[k] ?? false
+        return chosen[k] ?? (fresh.contains(k) ? reported[k] : nil) ?? known ?? reported[k] ?? false
     }
 
     /// Whether anything is known about the song beyond the caller's copy.
@@ -64,6 +65,7 @@ final class FavoritesStore {
         let k = Self.key(provider: provider, songId: songId)
         guard token == readToken(provider: provider, songId: songId), pending[k] == nil, !sending.contains(k) else { return }
         if reported[k] != starred { reported[k] = starred }
+        fresh.insert(k)
         confirmed[k] = starred
         if chosen[k] != nil { chosen[k] = nil }
     }
@@ -141,6 +143,10 @@ final class FavoritesStore {
                     guard gen == generation else { return }
                     confirmed[k] = want
                     reported[k] = want
+                    fresh.insert(k)
+                    // The source holds the tap now: it no longer pins the heart, so a later recheck (a
+                    // like undone in the Spotify app) shows (audit 11-15 #19). A newer tap still waiting keeps it.
+                    if pending[k] == nil, chosen[k] == want { chosen[k] = nil }
                 } catch {
                     log.error("heart write failed: \(ServerSession.message(for: error), privacy: .public)")
                     guard gen == generation else { return }
@@ -161,6 +167,9 @@ final class FavoritesStore {
     @ObservationIgnored private var sending: Set<String> = []
     /// Per song, how many taps it has had (a read begun before the last one is stale).
     @ObservationIgnored private var writes: [String: Int] = [:]
+    /// Songs whose [reported] value is a fresh answer (a recheck, a write the source took): it outranks
+    /// the copy a page was built with, which may be hours old (audit 11-15 #19).
+    private var fresh: Set<String> = []
 
     /// Sign-in / sign-out / another source: the user's taps and the source's answers belong to the old one.
     func reset() {
@@ -171,5 +180,6 @@ final class FavoritesStore {
         pending = [:]
         sending = []
         writes = [:]
+        fresh = []
     }
 }

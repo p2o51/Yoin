@@ -90,3 +90,20 @@ extension SpotifySource {
         try await api.send("PUT", "me/player/repeat", ["state": SpotifyModes(shuffle: false, repeatMode: mode).repeatState])
     }
 }
+
+extension SpotifySource {
+    /// Adds the songs, in order, to the queue of the device Spotify plays on now (POST me/player/queue,
+    /// audit 11-15 #20): for a speaker, where App Remote can't reach. Stops at the first refusal; true
+    /// when every song went in.
+    func addToActiveQueue(_ trackIds: [String]) async -> Bool {
+        for id in trackIds {
+            do {
+                try await api.send("POST", "me/player/queue", ["uri": "spotify:track:\(id)"])
+            } catch {
+                log.info("queue add failed: \(Self.message(for: error), privacy: .public)")
+                return false
+            }
+        }
+        return !trackIds.isEmpty
+    }
+}

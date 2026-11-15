@@ -427,6 +427,10 @@ struct NowPlayingView: View, Equatable {
             guard let t = engineTrack else { return }
             await data.prepare(t, client: model.session.client, apple: model.store.apple)
         }
+        // Spotify's own song: where Spotify plays it from, read once per song (audit 11-15 #35).
+        .task(id: model.player.externalTrack.map(NowPlayingData.key)) {
+            SpotifyPlayingFrom.shared.observe(model.player.externalTrack, model: model)
+        }
         // The next song's lyrics, once this one has settled (a skip cancels it).
         .task(id: model.player.upNextTrack.map(NowPlayingData.key)) {
             guard let next = model.player.upNextTrack else { return }
@@ -2404,7 +2408,16 @@ struct NowPlayingView: View, Equatable {
         if !model.store.isReal {
             return (String(localized: "PLAYING FROM ALBUM"), playback.album.title, String(localized: "Go to album"), albumRoute(playback))
         }
-        guard model.player.externalTrack == nil, let from = model.playingFrom, !from.title.isEmpty else {
+        if let own = model.player.externalTrack {
+            // Spotify's own song: where Spotify plays it from, not the parked queue's page (audit 11-15 #35).
+            guard let from = SpotifyPlayingFrom.shared.label(for: own) else { return (nil, String(localized: "NOW PLAYING"), "", nil) }
+            let route: (() -> Void)? = from.route.map { route in { [model] in
+                Self.leaveForRoute(model)
+                model.open(route)
+            } }
+            return (from.kind, from.name, from.hint, route)
+        }
+        guard let from = model.playingFrom, !from.title.isEmpty else {
             return (nil, String(localized: "NOW PLAYING"), "", nil)
         }
         let hint = switch from {
@@ -2430,10 +2443,33 @@ struct NowPlayingView: View, Equatable {
     /// The song's artist, when it can be resolved to a page.
     private func artistRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
         let album = p.album
-        guard demo == nil, !album.artist.isEmpty, album.artistId != nil || album.id.provider == "mock" else { return nil }
+        guard demo == nil, !album.artist.isEmpty else { return nil }
+        guard album.artistId != nil || album.id.provider == "mock" else { return spotifyArtistRoute(p) }
         return { [model] in
             Self.leaveForRoute(model)
             model.openArtist(album.artist, id: album.artistId)
+        }
+    }
+
+    /// A Spotify song whose artist Yoin holds no id for (one played from the Spotify app, or from Home or
+    /// Search before its album page was opened): the tap reads the song from Spotify once and opens its
+    /// first artist (audit 11-15 #36; Android maps App Remote's artist URI).
+    private func spotifyArtistRoute(_ p: PlaybackSnapshot) -> (() -> Void)? {
+        guard p.track.id.provider == SpotifyMapping.provider, let spotify = model.store.spotify,
+              !(model.player.currentTrack.map(SpotifyEpisodes.isEpisode) ?? false) else { return nil }
+        let songId = p.track.id.rawId
+        let fallbackName = p.album.artist
+        return { [model] in
+            Task {
+                let entry = try? await spotify.track(songId)
+                let credit = entry?.track.credits.first { !($0.id ?? "").isEmpty }
+                guard let id = credit?.id ?? entry?.album.artistId, !id.isEmpty else {
+                    PlaylistActions.shared.show(String(localized: "Couldn't open the artist"))
+                    return
+                }
+                Self.leaveForRoute(model)
+                model.openArtist(credit?.name ?? entry?.album.artist ?? fallbackName, id: id)
+            }
         }
     }
 
