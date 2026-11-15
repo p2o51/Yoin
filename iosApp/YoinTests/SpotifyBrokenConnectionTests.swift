@@ -146,7 +146,10 @@ final class SpotifyBrokenConnectionTests: XCTestCase {
         app.seekSilent = true
         engine.seek(to: 42)
         try await waitUntil(SpotifyAudioOutput.seekEchoSec + 4, "for the seek again") { self.app.seeks.count >= 2 }
-        XCTAssertEqual(app.seeks, [42_000, 42_000])
+        XCTAssertEqual(app.seeks.count, 2)
+        XCTAssertEqual(app.seeks.first, 42_000)
+        // Sent again where the song is by now (it played on meanwhile), not back at 42 s.
+        XCTAssertTrue((42_000...49_000).contains(app.seeks[1]), "second seek at \(app.seeks[1])")
         XCTAssertGreaterThan(app.connectionsMade, made, "a fresh connection carries the second seek")
         XCTAssertEqual(app.wakes, 1, "Spotify isn't woken for it")
     }

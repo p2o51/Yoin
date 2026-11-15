@@ -219,6 +219,7 @@ final class SpotifyAudioOutput: AudioOutput {
         enqueueWhenPlaying = false
         sawCurrent = false
         endCheckedURI = nil
+        stateDurationSec = 0
         seekEcho = nil
         playing = false
         lastTime = startSec
@@ -1250,7 +1251,12 @@ final class SpotifyAudioOutput: AudioOutput {
         }
         playing = true
         lastTick = Date()
-        if isHere { return command(aim(song: false), web: { try await $0.resumePlayback(deviceId: $1, while: $2) }) { $0.resume() } }
+        if isHere {
+            let viaRemote = remote.isConnected && !remote.broken
+            command(aim(song: false), web: { try await $0.resumePlayback(deviceId: $1, while: $2) }) { $0.resume() }
+            if viaRemote { awaitEcho("play", resend: { $0.resume() }) }
+            return
+        }
         let resume = { [weak self] in
             guard let self else { return }
             self.transport(report: true, self.aim(song: false)) { try await $0.resumePlayback(deviceId: $1, while: $2) }
@@ -1272,12 +1278,18 @@ final class SpotifyAudioOutput: AudioOutput {
         lastTick = Date()
         playing = false
         awaitingPlay = false
-        if isHere { return command(aim(song: true), web: { try await $0.pausePlayback(deviceId: $1, while: $2) }) { $0.pause() } }
+        if isHere {
+            let viaRemote = remote.isConnected && !remote.broken
+            command(aim(song: true), web: { try await $0.pausePlayback(deviceId: $1, while: $2) }) { $0.pause() }
+            if viaRemote { awaitEcho("pause", resend: { $0.pause() }) }
+            return
+        }
         if !holdWhileLanding({ [weak self] in self?.sendPause() }) { sendPause() }
     }
 
     func seek(to sec: Double) {
         PlayTrace.log("SP seek \(sec)")
+        let from = currentTimeSec
         lastTime = sec
         lastTick = Date()
         pendingStart = sec
@@ -1287,8 +1299,16 @@ final class SpotifyAudioOutput: AudioOutput {
         if isHere {
             let viaWeb = !remote.isConnected || remote.broken
             command(aim(song: true), web: { try await $0.seekPlayback(toMs: ms, deviceId: $1, while: $2) }) { $0.seek(toMs: ms) }
-            // A seek through the Web API has no App Remote state to answer it.
-            if !viaWeb { awaitSeekEcho(ms: ms) }
+            // A seek through the Web API has no App Remote state to answer it, and a seek to about where
+            // Spotify already is may get none either (it didn't move).
+            if !viaWeb, Self.seekExpectsEcho(fromSec: from, toSec: sec) {
+                let sentAt = Date()
+                awaitEcho("seek to \(ms) ms", resend: { [weak self] r in
+                    // Sent again where the song would be by now, not back where the first one aimed.
+                    let late = (self?.playing ?? false) ? Int(Date().timeIntervalSince(sentAt) * 1000) : 0
+                    r.seek(toMs: ms + late)
+                })
+            }
             return
         }
         let seek = { [weak self] in
@@ -1298,10 +1318,13 @@ final class SpotifyAudioOutput: AudioOutput {
         if !holdWhileLanding(seek) { seek() }
     }
 
-    /// App Remote answers a seek with a state at the new spot. None within [seekEchoSec] is a connection
-    /// that took the seek nowhere (a tester's tapped lyric line, 2026-11-15): a fresh one, and the seek
-    /// again on it.
-    private func awaitSeekEcho(ms: Int) {
+    /// App Remote answers a command with a state (a seek at the new spot, a pause, a play, the next
+    /// song). None within [seekEchoSec] is a connection that took the command nowhere (a tester's tapped
+    /// lyric line, 2026-11-15): a fresh one, and [resend] on it. A seek, a pause or a play is safe to
+    /// send twice; a skip isn't (nil: the fresh connection's state shows where Spotify is). At most one
+    /// such replacement per [echoReconnectGapSec], so an account or a state that never answers can't
+    /// loop it.
+    private func awaitEcho(_ what: String, resend: ((SpotifyRemote) -> Void)?) {
         let token = UUID()
         seekEcho = token
         let gen = generation, uri = shownURI
@@ -1309,15 +1332,28 @@ final class SpotifyAudioOutput: AudioOutput {
             try? await Task.sleep(for: .seconds(Self.seekEchoSec))
             guard let self, self.seekEcho == token, gen == self.generation, uri == self.shownURI else { return }
             self.seekEcho = nil
-            PlayTrace.log("SR seek to \(ms) ms unanswered: reconnecting")
-            self.remote.markBroken("a seek went unanswered")
+            guard Date().timeIntervalSince(self.lastEchoReconnect) > Self.echoReconnectGapSec else {
+                return PlayTrace.log("SR \(what) unanswered: left alone (replaced one shortly before)")
+            }
+            self.lastEchoReconnect = Date()
+            PlayTrace.log("SR \(what) unanswered: reconnecting")
+            self.remote.markBroken("\(what) went unanswered")
             guard await self.remote.connect(timeout: SpotifyRemote.connectTimeoutSec),
                   gen == self.generation, uri == self.shownURI else { return }
-            self.remote.seek(toMs: ms)
+            resend?(self.remote)
         }
     }
 
+    private var lastEchoReconnect = Date.distantPast
     nonisolated static let seekEchoSec: Double = 2.5
+    nonisolated static let echoReconnectGapSec: Double = 30
+
+    /// A seek within [seekEchoMinSec] of where the song is moves Spotify too little to be sure of an answer.
+    nonisolated static func seekExpectsEcho(fromSec: Double, toSec: Double) -> Bool {
+        abs(toSec - fromSec) >= seekEchoMinSec
+    }
+
+    nonisolated static let seekEchoMinSec: Double = 1.5
 
     /// A command to this iPhone's Spotify through App Remote, reconnecting first (the connection is
     /// closed while Yoin is in the background). One message when the app can't be reached.
@@ -1447,12 +1483,14 @@ final class SpotifyAudioOutput: AudioOutput {
         guard !silent, !starting, !awaitingWake, pollTimer == nil, let control else { return }
         let gen = generation
         Task { [weak self] in
-            guard let now = try? await control.playerNow() else { return }
+            let read: SpotifySource.PlayerNow?
+            do { read = try await control.playerNow() } catch { return }  // a failed read changes nothing
             guard let self, !self.starting, !self.awaitingWake, self.pollTimer == nil else { return }
             // An answer for the account (or the session) that asked: one that comes back after an account
             // switch or a new start is the old one's (Codex 11-07).
             guard Self.watchStillValid(asked: control, current: self.control, askedGen: gen, generation: self.generation)
             else { return PlayTrace.log("SP watch: a stale answer, dropped") }
+            guard let now = read else { return self.watchSawIdle() }
             PlayTrace.log("SP watch \(Self.describe(now)) driving=\(self.isDriving)")
             if self.isDriving, self.isHere, self.remote.isConnected, self.device.matches(now) {
                 // App Remote reports this iPhone: me/player only checks that it still does.
@@ -1483,6 +1521,22 @@ final class SpotifyAudioOutput: AudioOutput {
     }
 
     nonisolated static let watchSec: Double = 10
+
+    /// me/player answered 204: nothing plays on the account. A song Yoin shows playing on this iPhone
+    /// with App Remote quiet for [silentAfterSec] has ended (the last of a list, after which Spotify
+    /// goes idle and App Remote sent nothing): shown stopped rather than a clock running past -0:00,
+    /// and the connection is replaced (once a minute at most).
+    private func watchSawIdle() {
+        guard isDriving, isHere, playing else { return }
+        let since = Date().timeIntervalSince(lastRemoteStateAt)
+        guard !remote.isConnected || since >= Self.silentAfterSec else { return }
+        PlayTrace.log("SP watch: nothing plays (204) while shown playing; App Remote quiet \(Int(since)) s")
+        apply(nil)
+        guard remote.isConnected, Date().timeIntervalSince(lastSilentReplace) > Self.silentReplaceGapSec else { return }
+        lastSilentReplace = Date()
+        remote.markBroken("silent while Spotify went idle")
+        Task { _ = await remote.connect(timeout: SpotifyRemote.connectTimeoutSec) }
+    }
 
     /// App Remote for this iPhone's Spotify; while it can't be reached (a tester's 11-15 log: every
     /// connect failed while Spotify played here), me/player is read every [pollSec] as for a speaker,
@@ -1534,6 +1588,13 @@ final class SpotifyAudioOutput: AudioOutput {
     }
 
     nonisolated static let endOverrunSec: Double = 2
+    nonisolated static let restartedBelowMs = 3000
+
+    /// The time shown: never past the song's end (the clock runs on between states; at an end App
+    /// Remote didn't report, it read -0:00 and kept going).
+    nonisolated static func shownTime(_ t: Double, durationSec: Double) -> Double {
+        durationSec > 0 ? min(t, durationSec) : t
+    }
 
     /// A watch answer counts only for the source that asked it, in the session it asked in.
     nonisolated static func watchStillValid(asked: AnyObject, current: AnyObject?, askedGen: Int, generation: Int) -> Bool {
@@ -1749,7 +1810,8 @@ final class SpotifyAudioOutput: AudioOutput {
         PlayTrace.log("SP state \(s.uri) paused=\(s.isPaused) pos=\(s.positionMs) starting=\(starting) wantsPlay=\(wantsPlay)")
         let uri = s.uri
         if s.durationMs > 0 { stateDurationSec = Double(s.durationMs) / 1000 }
-        if uri != endCheckedURI { endCheckedURI = nil }
+        // Another song, or the same one from its start again (repeat one): its end is checked anew.
+        if uri != endCheckedURI || s.positionMs < Self.restartedBelowMs { endCheckedURI = nil }
         let before = reportedTime
         lastTime = Double(s.positionMs) / 1000
         reportedTime = lastTime
@@ -1860,9 +1922,12 @@ final class SpotifyAudioOutput: AudioOutput {
     func skipExternal(forward: Bool) {
         guard !silent else { return }
         if isHere {
-            return command(aim(song: true), web: { try await $0.skipPlayback(forward: forward, deviceId: $1, while: $2) }) {
+            let viaRemote = remote.isConnected && !remote.broken
+            command(aim(song: true), web: { try await $0.skipPlayback(forward: forward, deviceId: $1, while: $2) }) {
                 $0.skip(forward: forward)
             }
+            if viaRemote { awaitEcho(forward ? "next" : "previous", resend: nil) }
+            return
         }
         transport(report: true, aim(song: true)) { try await $0.skipPlayback(forward: forward, deviceId: $1, while: $2) }
     }
@@ -1922,7 +1987,7 @@ final class SpotifyAudioOutput: AudioOutput {
             MainActor.assumeIsolated {
                 guard let self, self.playing else { return }
                 let t = self.currentTimeSec
-                self.events?.outputTimeDidChange(t)
+                self.events?.outputTimeDidChange(Self.shownTime(t, durationSec: self.stateDurationSec))
                 if self.isHere, self.remote.isConnected, self.endCheckedURI == nil,
                    Self.overran(timeSec: t, durationSec: self.stateDurationSec) {
                     self.endCheckedURI = self.shownURI
