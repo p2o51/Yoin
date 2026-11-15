@@ -124,7 +124,7 @@ struct TipsView: View {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .yGlassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
             .settingsPaneBack()

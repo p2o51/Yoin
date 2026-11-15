@@ -363,6 +363,7 @@ struct AlbumDetailView: View {
         .statusBarLight(barLight)
         .sheet(isPresented: $rating) {
             AlbumRateSheet(album: album, scheme: s)
+                .ySolidSheet(s.surfaceContainerLow)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -497,7 +498,7 @@ struct AlbumDetailView: View {
                 .contentShape(.circle)
         }
         .buttonStyle(.plain).pointerHighlight()
-        .glassEffect(glass, in: .circle)
+        .yGlassEffect(glass, in: .circle)
         .accessibilityLabel("Back")
     }
 
@@ -588,7 +589,7 @@ struct AlbumDetailView: View {
                             .contentShape(.circle)
                     }
                     .buttonStyle(.plain).pointerHighlight()
-                    .glassEffect(glass, in: .circle)
+                    .yGlassEffect(glass, in: .circle)
                     .frame(width: 48, height: 48)
                     .accessibilityLabel("More actions")
                     .padding(.trailing, -12)
@@ -710,7 +711,7 @@ struct AlbumDetailView: View {
     private func glassBar(w: CGFloat, top: CGFloat) -> some View {
         Color.clear
             .frame(width: w, height: top + headerContent)
-            .glassEffect(.regular.tint(s.surfaceContainer.opacity(0.35)),
+            .yGlassEffect(.regular.tint(s.surfaceContainer.opacity(0.35)),
                          in: UnevenRoundedRectangle(bottomLeadingRadius: 28, bottomTrailingRadius: 28,
                                                     style: .continuous))
             .opacity(smooth(p, 0.3, 0.85))

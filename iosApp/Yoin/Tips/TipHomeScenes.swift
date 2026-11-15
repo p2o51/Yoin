@@ -270,7 +270,7 @@ struct DemoShellBar: View {
         let accent = section == .home ? scheme.primary : scheme.secondary
         let face = ShellNavFace(section: section, selected: on, labelled: idle, scheme: scheme, fills: idle)
         if on && lab.extra("barSelectedStyle") >= 0.5 {
-            face.glassEffect(.regular.tint(accent.opacity(lab.style("barSelected").tintOpacity)).interactive(), in: .capsule)
+            face.yGlassEffect(.regular.tint(accent.opacity(lab.style("barSelected").tintOpacity)).interactive(), solid: accent, in: .capsule)
         } else {
             face.labGlass(on ? "barSelected" : "barUnselected", scheme: scheme, brand: brand, auto: accent, in: Capsule())
         }

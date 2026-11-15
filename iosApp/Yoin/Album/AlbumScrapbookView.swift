@@ -225,6 +225,7 @@ struct AlbumScrapbookView: View {
                             scoreEditable: !isMock, initialEditing: open.editing, initialTab: open.tab,
                             onPlayFrom: { ms in play(open.track, at: ms) })
                 .reportsSheetRise()
+                .ySolidSheet(s.surfaceContainerLow)
         }
         }
     }

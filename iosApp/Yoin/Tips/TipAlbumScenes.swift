@@ -42,14 +42,14 @@ struct DemoPlaySplit: View {
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity)
                 .frame(height: 60)
-                .glassEffect(.regular.tint(tint),
+                .yGlassEffect(.regular.tint(tint), solid: tint,
                              in: UnevenRoundedRectangle(topLeadingRadius: 30, bottomLeadingRadius: 30,
                                                         bottomTrailingRadius: inner, topTrailingRadius: inner))
                 YoinIcon("chevron_down", size: 22)
                     .foregroundStyle(s.onPrimary)
                     .padding(.horizontal, 14)
                     .frame(height: 60)
-                    .glassEffect(.regular.tint(tint),
+                    .yGlassEffect(.regular.tint(tint), solid: tint,
                                  in: UnevenRoundedRectangle(topLeadingRadius: inner, bottomLeadingRadius: inner,
                                                             bottomTrailingRadius: 30, topTrailingRadius: 30))
             }

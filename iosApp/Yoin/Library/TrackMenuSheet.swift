@@ -684,10 +684,10 @@ private struct PlaylistActionsHost: ViewModifier {
         @Bindable var actions = PlaylistActions.shared
         content
             .sheet(item: $actions.menu, onDismiss: { PlaylistActions.shared.flushPendingAdd() }) { t in
-                TrackMenuSheet(track: t.entry, context: t.context).environment(model).reportsSheetRise()
+                TrackMenuSheet(track: t.entry, context: t.context).environment(model).reportsSheetRise().ySolidSheet()
             }
             .sheet(item: $actions.adding) { t in
-                AddToPlaylistSheet(entries: t.entries).environment(model).reportsSheetRise()
+                AddToPlaylistSheet(entries: t.entries).environment(model).reportsSheetRise().ySolidSheet()
             }
             .alert("Rename playlist", isPresented: Binding(get: { actions.renaming != nil },
                                                            set: { if !$0 { actions.renaming = nil } }),
@@ -747,7 +747,7 @@ struct ToastPill: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
-        .glassEffect(toast.action == nil ? .regular : .regular.interactive(), in: .capsule)
+        .yGlassEffect(toast.action == nil ? .regular : .regular.interactive(), in: .capsule)
         .allowsHitTesting(toast.action != nil)
     }
 }

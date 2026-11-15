@@ -80,6 +80,19 @@ struct PhoneShell: View {
                 ShellBar(npNamespace: npNS)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 2)
+                    // The band spans the screen however narrow the bar is. With nothing playing, a
+                    // detail page's bar is the Play split alone, and a band sized to the bar was a
+                    // light box with hard sides. The bar itself still gets the same proposal.
+                    .frame(maxWidth: .infinity)
+                    .background {
+                        if GlassLab.solidSurfaces {
+                            SolidBarEdgeBlur()
+                                // The bar region adapts to dark content under it; the band keeps the app's look.
+                                .environment(\.colorScheme, GlassLab.solidColorScheme(.light))
+                                .padding(.top, -36)
+                                .ignoresSafeArea(edges: [.bottom, .horizontal])
+                        }
+                    }
                     // Slides away under the keyboard while searching.
                     .offset(y: model.searchActive ? 140 : 0)
                     .opacity(model.searchActive ? 0 : 1)

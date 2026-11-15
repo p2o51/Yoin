@@ -10196,6 +10196,26 @@
         }
       }
     },
+    "Solid Surfaces": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实色界面"
+          }
+        }
+      }
+    },
+    "Replace in-app Liquid Glass with opaque bars, panels, and filled buttons": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把应用内的 Liquid Glass 换成不透明的底栏、面板和实色按钮"
+          }
+        }
+      }
+    },
     "From Spotoolfy": {
       "localizations": {
         "zh-Hans": {

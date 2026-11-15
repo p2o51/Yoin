@@ -303,7 +303,7 @@ struct NowPlayingView: View, Equatable {
             if let spotify = model.store.spotify { SpotifyDevicesSheet(spotify: spotify, scope: model.store.spotifyAccount?.scope, scheme: scheme).reportsSheetRise() }
         }
         .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
-            QueueSheet().reportsSheetRise()
+            QueueSheet().reportsSheetRise().ySolidSheet(scheme.surfaceContainerLow)
         }
         // Every sheet NP presents reports its rise, so the page recedes under
         // it (World depth) as it does under the Queue.
@@ -315,6 +315,7 @@ struct NowPlayingView: View, Equatable {
                 if let t = LyricsActions.shared.search.target { LyricsActions.shared.applySearchResult(match, for: t) }
             }, onClose: { LyricsActions.shared.dismissSearch() })
             .reportsSheetRise()
+            .ySolidSheet(scheme.surfaceContainerLow)
             .presentationDetents([.large])
         }
         .sheet(isPresented: $lyricsEditing) {
@@ -324,11 +325,13 @@ struct NowPlayingView: View, Equatable {
                 if let t = lyricsEditTarget { LyricsActions.shared.applyEdited(text, for: t) }
             }, onCancel: { lyricsEditing = false })
             .reportsSheetRise()
+            .ySolidSheet(scheme.surfaceContainerLow)
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $lyricsShare) { snap in
             LyricsShareSheet(snapshot: snap, scheme: scheme) { lyricsShare = nil }
                 .reportsSheetRise()
+                .ySolidSheet(scheme.surfaceContainerLow)
                 .presentationDetents([.large])
         }
         // Select mode, the lyric search and the editor belong to one song's
@@ -781,8 +784,9 @@ struct NowPlayingView: View, Equatable {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .labGlass("transportSecondary", scheme: scheme, brand: brand,
-                      auto: scheme.surfaceContainerHighest, in: Circle())
+            // Solid surfaces: Android's StageTopBar, the glyph alone.
+            .unlessSolid { $0.labGlass("transportSecondary", scheme: scheme, brand: brand,
+                                       auto: scheme.surfaceContainerHighest, in: Circle()) }
             .frame(width: 48, height: 48)
             .accessibilityLabel(stage == .compact ? String(localized: "Collapse Now Playing") : String(localized: "Back"))
             // DockedCoverSlot: the cover row flies the cover into it.
@@ -1852,7 +1856,7 @@ struct NowPlayingView: View, Equatable {
     private func lyricWindow<C: View>(clear: CGFloat, under: CGFloat, fadeTop: Bool, interactive: Bool = false,
                                       @ViewBuilder _ lines: () -> C) -> some View {
         let total = clear + under
-        let underStrength = GlassLab.shared.extra("lyricsUnder")
+        let underStrength = GlassLab.solidSurfaces ? 0 : GlassLab.shared.extra("lyricsUnder")
         return lines()
         .frame(height: total, alignment: .top)
         .clipped()
@@ -2342,7 +2346,7 @@ struct NowPlayingView: View, Equatable {
     private var pillInk: Color {
         lab.neutralTint("npPills") ? scheme.onSurface
             : lab.style("npPills").role == .primaryContainer ? scheme.onPrimaryContainer
-            : colorScheme == .dark ? Color.white : scheme.onPrimary
+            : colorScheme == .dark && !GlassLab.solidSurfaces ? Color.white : scheme.onPrimary
     }
 
     private func pill(_ icon: String, _ title: String, shape: AnyShape, dropsToQueue: Bool = false,
@@ -2785,7 +2789,7 @@ struct RatingHeartLift: View {
                     ZStack {
                         if lifted {
                             Capsule().fill(.clear)
-                                .glassEffect(.regular.tint(tint.opacity(st.tintOpacity)).interactive(), in: .capsule)
+                                .yGlassEffect(.regular.tint(tint.opacity(st.tintOpacity)).interactive(), solid: tint, in: .capsule)
                                 .glassEffectTransition(.materialize)
                         }
                     }
@@ -2794,7 +2798,7 @@ struct RatingHeartLift: View {
                     ZStack {
                         if lifted {
                             Circle().fill(.clear)
-                                .glassEffect(.regular.tint(heartTint.opacity(0.8)).interactive(), in: .circle)
+                                .yGlassEffect(.regular.tint(heartTint.opacity(0.8)).interactive(), solid: heartTint, in: .circle)
                                 .glassEffectTransition(.materialize)
                         }
                     }
@@ -2908,12 +2912,12 @@ extension View {
             case .regular, .clear:
                 let base: Glass = st.variant == .clear ? .clear : .regular
                 let tinted = st.tintOn ? base.tint(tint.opacity(st.tintOpacity * strength)) : base
-                glassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
+                yGlassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
             case .none, .material:
                 background(shape.fill(tint.opacity(strength)))
             }
         }
-        .shadow(color: GlassLab.shared.shadowColor(tint).opacity(shadow ? st.shadowOpacity : 0),
+        .shadow(color: GlassLab.shared.shadowColor(tint).opacity(shadow && !GlassLab.solidSurfaces ? st.shadowOpacity : 0),
                 radius: st.shadowRadius, y: st.shadowY)
     }
 
@@ -2933,7 +2937,7 @@ extension View {
             let tint = st.role.color(in: scheme, brand: .brand(dark: false), auto: auto)
             let base: Glass = st.variant == .clear ? .clear : .regular
             let tinted = st.tintOn ? base.tint(tint.opacity(st.tintOpacity * (held ? 0.6 : 1))) : base
-            glassEffect(held || st.interactive ? tinted.interactive() : tinted, in: shape)
+            yGlassEffect(held || st.interactive ? tinted.interactive() : tinted, in: shape)
         case .none, .material:
             labGlass(id, scheme: scheme, brand: .brand(dark: false), auto: auto, in: shape)
         }
@@ -2997,6 +3001,9 @@ struct PlayModeButton: View {
         GlassLab.shared.style("transportSecondary").tintOn && !GlassLab.shared.neutralTint("transportSecondary")
     }
     private var ink: Color { tinted ? scheme.onTertiaryContainer : scheme.onSurface }
+    /// Android playModeColors: the merged button is lit (primary) in any mode
+    /// but the default repeat-all; shown with solid surfaces (glass keeps its floor).
+    private var mergedLit: Bool { GlassLab.solidSurfaces && !split && (shuffle || repeatMode != .all) }
 
     var body: some View {
         let width = split ? splitWidth : size
@@ -3027,7 +3034,7 @@ struct PlayModeButton: View {
             } else {
                 let merged = PlayModeGlyph(shuffle: shuffle, repeatMode: repeatMode)
                 glyph(merged.icon, one: merged.one, off: merged.off)
-                    .foregroundStyle(ink)
+                    .foregroundStyle(mergedLit ? scheme.onPrimary : ink)
                     .frame(width: size, height: size)
                     .contentShape(.capsule)
                     .pointerHighlight()
@@ -3045,7 +3052,8 @@ struct PlayModeButton: View {
             if haptics { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
             setSplit(!split)
         }, onPressingChanged: { onPress($0) })
-        .labGlass("transportSecondary", scheme: scheme, brand: brand, auto: scheme.tertiaryContainer, in: Capsule())
+        .labGlass("transportSecondary", scheme: scheme, brand: brand,
+                  auto: mergedLit ? scheme.primary : scheme.tertiaryContainer, in: Capsule())
         .animation(Yoin.spatial, value: split)
         .animation(Yoin.effects, value: shuffle)
         .animation(Yoin.effects, value: repeatMode)
@@ -3343,8 +3351,9 @@ extension NowPlayingView {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .labGlass("transportSecondary", scheme: scheme, brand: brand,
-                      auto: scheme.surfaceContainerHighest, in: Circle())
+            // Solid surfaces: Android's StageTopBar, the glyph alone.
+            .unlessSolid { $0.labGlass("transportSecondary", scheme: scheme, brand: brand,
+                                       auto: scheme.surfaceContainerHighest, in: Circle()) }
             .frame(width: 48, height: 48)
             .accessibilityLabel(stage == .focus ? String(localized: "Back") : String(localized: "Collapse Now Playing"))
             let from = playingFrom

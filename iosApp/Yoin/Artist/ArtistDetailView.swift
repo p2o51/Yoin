@@ -160,7 +160,7 @@ struct ArtistDetailView: View {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .yGlassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
             Spacer().frame(width: Tokens.detail.HEADER_TITLE_GAP.cg)
@@ -194,7 +194,7 @@ struct ArtistDetailView: View {
             }
             .buttonStyle(.plain).pointerHighlight()
             // Pinned header button over scrolling content: a glass circle.
-            .glassEffect(.regular.interactive(), in: .circle)
+            .yGlassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel(following ? String(localized: "Favorited") : String(localized: "Favorite"))
             .transition(.opacity)

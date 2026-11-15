@@ -18,7 +18,10 @@ import SwiftUI
 ///   leading edge with a moving sine edge (4 pt).
 struct ShellBar: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) private var envColorScheme
+    /// Solid surfaces: the app's appearance, not the one the bar's glass
+    /// adapted to over dark content.
+    private var colorScheme: ColorScheme { GlassLab.solidColorScheme(envColorScheme) }
     var npNamespace: Namespace.ID
     /// iPad (PadShell): one of the bar's two floating pieces on its own. nil = the phone's whole bar.
     var pad: PadBarPart? = nil
@@ -105,6 +108,7 @@ struct ShellBar: View {
         }
         .animation(Yoin.spatial, value: model.player.failure)
         .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
+        .environment(\.colorScheme, colorScheme)
     }
 
     /// A song that couldn't be played holds playback on it (Codex A39): said over the bar, with what
@@ -171,7 +175,7 @@ struct ShellBar: View {
         let selected = model.section == s && !(pad != nil && model.searchActive)
         // The phone's idle bar labels its halves; iPad's nav capsule always does.
         let labelled = model.isIdle || pad == .nav
-        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 && !lab.solidSurfaces
         let button = Button {
             tap(.library) {
                 // iPad: Search is a place of its own beside the sections; Home / Library leave it.
@@ -190,7 +194,7 @@ struct ShellBar: View {
         if selected && tintedStyle {
             // Tinted-glass style: force the tint on, in the accent role.
             button
-                .glassEffect(.regular.tint(accent(s).opacity(lab.style("barSelected").tintOpacity)).interactive(),
+                .yGlassEffect(.regular.tint(accent(s).opacity(lab.style("barSelected").tintOpacity)).interactive(), solid: accent(s),
                              in: .capsule)
                 .glassEffectID(s == .home ? "home" : "library", in: glassNS)
                 .accessibilityLabel(s == .home ? String(localized: "Home") : String(localized: "Library"))
@@ -216,8 +220,9 @@ struct ShellBar: View {
     /// selected like Home and Library while it is open.
     private var padSearchButton: some View {
         let selected = model.searchActive
-        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5
-        let ink: Color = !selected ? Yoin.ink : tintedStyle ? scheme.onTertiary : scheme.tertiary
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 && !lab.solidSurfaces
+        let ink: Color = lab.solidSurfaces ? (selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant)
+            : !selected ? Yoin.ink : tintedStyle ? scheme.onTertiary : scheme.tertiary
         let button = Button {
             if !model.searchActive { model.openSearch(from: .library) }
         } label: {
@@ -226,7 +231,7 @@ struct ShellBar: View {
                 .labContrast(selected ? "barSelected" : "barUnselected")
                 .frame(width: height, height: height)
                 .background {
-                    if selected && !tintedStyle {
+                    if selected && !tintedStyle && !lab.solidSurfaces {
                         Circle()
                             .fill((colorScheme == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.07))
                                 .opacity(lab.extra("barSelectionPill") / 0.55))
@@ -238,7 +243,7 @@ struct ShellBar: View {
         .buttonStyle(.plain).pointerHighlight()
         return Group {
             if selected && tintedStyle {
-                button.glassEffect(.regular.tint(scheme.tertiary.opacity(lab.style("barSelected").tintOpacity)).interactive(),
+                button.yGlassEffect(.regular.tint(scheme.tertiary.opacity(lab.style("barSelected").tintOpacity)).interactive(), solid: scheme.tertiary,
                                    in: .circle)
             } else {
                 button.labGlass(selected ? "barSelected" : "barUnselected", scheme: scheme, brand: brand,
@@ -253,7 +258,7 @@ struct ShellBar: View {
     private var phoneSearchButton: some View {
         Button { model.openSearch(from: .bar) } label: {
             YoinIcon("search", size: 24)
-                .foregroundStyle(Yoin.ink)
+                .foregroundStyle(lab.solidSurfaces ? scheme.onSurfaceVariant : Yoin.ink)
                 .labContrast("barUnselected")
                 .frame(width: height, height: height)
                 .contentShape(.circle)
@@ -345,7 +350,7 @@ struct ShellBar: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .glassEffect(.regular.tint(tint).interactive(),
+            .yGlassEffect(.regular.tint(tint).interactive(), solid: tint,
                          in: UnevenRoundedRectangle(topLeadingRadius: 30, bottomLeadingRadius: 30,
                                                     bottomTrailingRadius: inner, topTrailingRadius: inner))
             .glassEffectID("split.play", in: glassNS)
@@ -382,7 +387,7 @@ struct ShellBar: View {
                     .contentShape(.rect)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .glassEffect(.regular.tint(tint).interactive(),
+            .yGlassEffect(.regular.tint(tint).interactive(), solid: tint,
                          in: UnevenRoundedRectangle(topLeadingRadius: inner, bottomLeadingRadius: inner,
                                                     bottomTrailingRadius: 30, topTrailingRadius: 30))
             .glassEffectID("split.more", in: glassNS)
@@ -430,16 +435,21 @@ struct ShellNavFace: View {
     /// The idle bar's halves share the bar's width.
     var fills = false
     var height: CGFloat = 60
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) private var envColorScheme
+    /// Solid surfaces: the app's appearance, not the one the bar's glass
+    /// adapted to over dark content.
+    private var colorScheme: ColorScheme { GlassLab.solidColorScheme(envColorScheme) }
 
     var body: some View {
         let lab = GlassLab.shared
-        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5
+        let tintedStyle = lab.extra("barSelectedStyle") >= 0.5 && !lab.solidSurfaces
         let icon = switch section {
         case .home: selected ? "home_filled" : "home"
         case .library: selected ? "library_filled" : "library"
         }
-        let ink: Color = !selected ? Yoin.ink
+        // Solid surfaces: Android's YoinButtonGroup inks.
+        let ink: Color = lab.solidSurfaces ? (selected ? scheme.onPrimaryContainer : scheme.onSurfaceVariant)
+            : !selected ? Yoin.ink
             : tintedStyle ? (section == .home ? scheme.onPrimary : scheme.onSecondary)
             : (section == .home ? scheme.primary : scheme.secondary)
         HStack(spacing: 8) {
@@ -454,7 +464,7 @@ struct ShellNavFace: View {
         .frame(width: labelled ? nil : (selected ? 68 : 54), height: height)
         .frame(maxWidth: fills ? .infinity : nil)
         .background {
-            if selected && !tintedStyle {
+            if selected && !tintedStyle && !lab.solidSurfaces {
                 // Apple-style selection highlight inside the glass.
                 // Grey on light glass (white vanished on it), light on dark.
                 Capsule()
@@ -472,7 +482,10 @@ struct ShellNavFace: View {
 /// morph (`np`); the morph draws a copy without cover and title (those fly).
 struct PillContent: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) private var envColorScheme
+    /// Solid surfaces: the app's appearance, not the one the bar's glass
+    /// adapted to over dark content.
+    private var colorScheme: ColorScheme { GlassLab.solidColorScheme(envColorScheme) }
     var np: NowPlayingPresentation? = nil
     var showCover = true
     var showTitle = true
@@ -520,12 +533,12 @@ struct PillContent: View {
                 }
             VStack(alignment: .leading, spacing: 1) {
                 // A long title or artist scrolls (Android pill basicMarquee, parity C-U9).
-                MarqueeText(text: s.title, font: .gsf(15, .semibold), color: Yoin.ink)
+                MarqueeText(text: s.title, font: .gsf(15, .semibold), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
                     .opacity(showTitle ? 1 : 0)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
                         np?.pillTitleFrame = r
                     }
-                MarqueeText(text: s.artist, font: .gsf(13), color: Yoin.inkVariant)
+                MarqueeText(text: s.artist, font: .gsf(13), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant)
             }
             .lineLimit(1)
             .labContrast("miniPlayer")

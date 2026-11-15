@@ -40,7 +40,7 @@ struct PlaylistRestoreSheet: View {
         .presentationContentInteraction(.scrolls)
         .sensoryFeedback(.selection, trigger: tick)
         .sheet(isPresented: Binding(get: { model.search != nil }, set: { if !$0 { model.closeSearch() } })) {
-            if case .review(let t, _) = model.phase { RestoreSearchSheet(model: model, target: t) }
+            if case .review(let t, _) = model.phase { RestoreSearchSheet(model: model, target: t).ySolidSheet() }
         }
     }
 

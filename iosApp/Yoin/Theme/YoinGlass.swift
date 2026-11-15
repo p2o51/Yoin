@@ -53,10 +53,10 @@ private struct YoinGlassModifier<S: InsettableShape>: ViewModifier {
     func body(content: Content) -> some View {
         switch flavor {
         case .system:
-            content.glassEffect(glass, in: shape)
+            content.yGlassEffect(glass, in: shape)
         case .yoin:
             content
-                .glassEffect(glass, in: shape)
+                .yGlassEffect(glass, in: shape)
                 .overlay {
                     // Grain: a tiny Metal noise shader, overlay-blended.
                     Rectangle()

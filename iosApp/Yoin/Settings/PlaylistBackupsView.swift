@@ -209,6 +209,7 @@ struct PlaylistBackupView: View {
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: Binding(get: { restore.sheetOpen }, set: { if !$0 { restore.sheetClosed() } })) {
             PlaylistRestoreSheet(model: restore, targets: BackupTexts.targets())
+                .ySolidSheet()
         }
         .alert("Delete this backup?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
@@ -240,7 +241,7 @@ struct PlaylistBackupView: View {
                 .contentShape(.circle)
         }
         .buttonStyle(.plain).pointerHighlight()
-        .glassEffect(.regular.interactive(), in: .circle)
+        .yGlassEffect(.regular.interactive(), in: .circle)
         .frame(width: 48, height: 48)
         .accessibilityLabel("More options")
     }
@@ -578,7 +579,7 @@ enum BackupChrome {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain).pointerHighlight()
-            .glassEffect(.regular.interactive(), in: .circle)
+            .yGlassEffect(.regular.interactive(), in: .circle)
             .frame(width: 48, height: 48)
             .accessibilityLabel("Back")
             .settingsPaneBack()

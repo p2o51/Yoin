@@ -14,6 +14,7 @@ enum Yoin {
     }
 
     static let surface = dyn(0xFCF8FF, 0x141218)
+    static let surfaceContainerLow = dyn(0xF7F2FA, 0x1D1B20)
     static let surfaceContainer = dyn(0xF1ECF6, 0x211F26)
     static let surfaceContainerHigh = dyn(0xEAE5F0, 0x2B2930)
     static let ink = dyn(0x1C1B20, 0xE6E0EA)

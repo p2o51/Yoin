@@ -153,6 +153,11 @@ final class GlassLab {
     var sharedMotion = UserDefaults.standard.bool(forKey: "glassLab.sharedMotion") {
         didSet { UserDefaults.standard.set(sharedMotion, forKey: "glassLab.sharedMotion") }
     }
+    /// Solid surfaces (prototype): every glass surface becomes Android's
+    /// opaque tonal fill. `-solidSurfaces YES` or Settings › Labs.
+    var solidSurfaces = UserDefaults.standard.bool(forKey: "solidSurfaces") {
+        didSet { UserDefaults.standard.set(solidSurfaces, forKey: "solidSurfaces") }
+    }
     var panelOpen = false
     var panelAtTop = false
     var panelCollapsed = false
@@ -414,8 +419,38 @@ final class GlassLab {
         UserDefaults.standard.set(data, forKey: Self.key)
     }
 
-    func style(_ id: String) -> SurfaceStyle { styles[id] ?? SurfaceStyle(tintOpacity: 0) }
-    func extra(_ id: String) -> Double { extras[id] ?? 0 }
+    func style(_ id: String) -> SurfaceStyle {
+        let st = styles[id] ?? SurfaceStyle(tintOpacity: 0)
+        // Solid surfaces: Now Playing's controls take Android's colour roles
+        // (each call site's `auto`: PAUSE / Next primary, Previous secondary,
+        // play mode tertiaryContainer, pills primary, heart tertiary(Container),
+        // rating surfaceVariant), opaque, no shadow. The presets' neutral
+        // floors were a glass idea.
+        if solidSurfaces, let role = Self.solidAndroidRoles[id] {
+            return SurfaceStyle(variant: .none, tintOn: true, role: role, tintOpacity: 1, interactive: false,
+                                cornerRadius: st.cornerRadius)
+        }
+        return st
+    }
+
+    /// The surfaces that wear Android's roles with solid surfaces on.
+    /// `.auto` = the call site's own Android role. The bar (Android
+    /// YoinButtonGroup): the selected tab and the song pill primaryContainer,
+    /// the rest surfaceContainerHighest.
+    static let solidAndroidRoles: [String: ToneRole] = [
+        "transportPrimary": .auto, "transportSecondary": .auto, "heart": .auto, "npPills": .auto,
+        "ratingTrack": .auto, "npFloating": .auto,
+        "barSelected": .primaryContainer, "barUnselected": .surfaceContainerHighest, "miniPlayer": .primaryContainer,
+    ]
+
+    func extra(_ id: String) -> Double {
+        // Solid surfaces: no lifting into glass, the liked heart keeps its own tertiary.
+        if solidSurfaces, id == "liftInFlow" || id == "heartLikedAccent" { return 0 }
+        if solidSurfaces, id == "ratingFill" { return 1 }
+        // Solid surfaces: no ambient inside the opaque pill.
+        if solidSurfaces, id == "pillAmbient" { return 0 }
+        return extras[id] ?? 0
+    }
 
     /// A surface's tint opacity in this appearance (Gemini's dark multiplier).
     func tintOpacity(_ id: String, dark: Bool) -> Double {
@@ -443,7 +478,7 @@ final class GlassLab {
 
     /// World: one accent per layer (the selected / primary item); the
     /// layer's other floating controls take a neutral tint.
-    var oneAccentPerLayer: Bool { preset == .world }
+    var oneAccentPerLayer: Bool { preset == .world && !solidSurfaces }
 
     var colorScheme: ColorScheme? {
         switch appearance {
@@ -487,13 +522,13 @@ extension View {
     /// glass tinted surfaceContainerHighest so it groups with the chip row.
     func labSearchGlass<S: Shape>(scheme: CoverScheme, in shape: S) -> some View {
         let o = GlassLab.shared.extra("searchChromeTint")
-        return glassEffect(o > 0 ? .regular.tint(scheme.surfaceContainerHighest.opacity(o)).interactive()
+        return yGlassEffect(o > 0 ? .regular.tint(scheme.surfaceContainerHighest.opacity(o)).interactive()
                                  : .regular.interactive(), in: shape)
     }
 
     /// The contrast shadow under an icon or label on a Glass Lab surface.
     func labContrast(_ id: String) -> some View {
-        shadow(color: .black.opacity(GlassLab.shared.style(id).contrastShadow), radius: 1.5, y: 0.5)
+        shadow(color: .black.opacity(GlassLab.solidSurfaces ? 0 : GlassLab.shared.style(id).contrastShadow), radius: 1.5, y: 0.5)
     }
 }
 
@@ -510,6 +545,12 @@ private struct LabGlass<S: Shape>: ViewModifier {
         let st = lab.style(id)
         let tint = st.role.color(in: scheme, brand: brand, auto: auto)
         let opacity = st.tintOn ? lab.tintOpacity(id, dark: colorScheme == .dark) : 0
+        if lab.solidSurfaces {
+            // Solid surfaces: Android's opaque tonal fill, no shadow. A
+            // surface whose glass was untinted (or barely tinted) takes the
+            // neutral container; an accent keeps its colour, fully opaque.
+            content.background(shape.fill(lab.solidFill(id, tint: tint, opacity: opacity, scheme: scheme)))
+        } else {
         Group {
             switch st.variant {
             case .none:
@@ -524,10 +565,27 @@ private struct LabGlass<S: Shape>: ViewModifier {
             case .regular, .clear:
                 let base: Glass = st.variant == .clear ? .clear : .regular
                 let tinted = st.tintOn ? base.tint(tint.opacity(opacity)) : base
-                content.glassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
+                content.yGlassEffect(st.interactive ? tinted.interactive() : tinted, in: shape)
             }
         }
         .shadow(color: lab.shadowColor(tint).opacity(st.shadowOpacity), radius: st.shadowRadius, y: st.shadowY)
+        }
+    }
+}
+
+extension GlassLab {
+    /// The opaque fill a Glass Lab surface gets with solid surfaces on.
+    func solidFill(_ id: String, tint: Color, opacity: Double, scheme: CoverScheme) -> Color {
+        let st = style(id)
+        if !st.tintOn || opacity < 0.05 { return scheme.surfaceContainerHigh }
+        switch st.role {
+        case .surface, .surfaceContainer, .surfaceContainerHighest, .surfaceVariant, .background:
+            return tint
+        default:
+            // An accent (PAUSE, selected tab): Android's container colour, so
+            // the glyph on it (onPrimaryContainer-ish) stays readable.
+            return opacity >= 0.6 ? tint : scheme.secondaryContainer
+        }
     }
 }
 
@@ -554,8 +612,8 @@ extension View {
                     shape.fill(tint.opacity(lab.extra("liftRestOpacity")))
                         .opacity(lifted ? 0 : 1)
                 }
-                .glassEffect(lifted ? glass : .identity, in: shape)
-                .shadow(color: .black.opacity(lifted ? st.shadowOpacity : 0), radius: st.shadowRadius, y: st.shadowY)
+                .yGlassEffect(glass, in: shape, enabled: lifted)
+                .shadow(color: .black.opacity(lifted && !lab.solidSurfaces ? st.shadowOpacity : 0), radius: st.shadowRadius, y: st.shadowY)
                 .animation(Yoin.effects, value: lifted)
         } else {
             labGlass(id, scheme: scheme, brand: .brand(dark: false), auto: auto, in: shape)
@@ -577,7 +635,7 @@ extension View {
             .ignoresSafeArea()
             .overlay { self }
             // Blur inside the corner mask, so the plane's silhouette stays crisp.
-            .blur(radius: lab.extra(k + "Blur") * d)
+            .blur(radius: lab.solidSurfaces ? 0 : lab.extra(k + "Blur") * d)
             // The world behind keeps the display's corners as it steps back,
             // and gives up the status-bar and home-indicator bands (the look
             // behind a sheet) by the same depth: they slide away with what
@@ -608,7 +666,7 @@ extension View {
 
     /// A cover as a physical object: a soft contact shadow straight down.
     func labCoverShadow() -> some View {
-        shadow(color: .black.opacity(GlassLab.shared.extra("coverContactShadow")), radius: 10, y: 6)
+        shadow(color: .black.opacity(GlassLab.solidSurfaces ? 0 : GlassLab.shared.extra("coverContactShadow")), radius: 10, y: 6)
     }
 }
 
@@ -653,7 +711,7 @@ struct GlassLabPanel: View {
             }
             .frame(width: min(geo.size.width - 24, 400))
             .background(.regularMaterial, in: .rect(cornerRadius: 24, style: .continuous))
-            .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+            .yGlassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
             .offset(x: settled.width + drag.width, y: settled.height + drag.height)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: lab.panelAtTop ? .top : .bottom)
             .padding(.top, lab.panelAtTop ? 54 : 0)
