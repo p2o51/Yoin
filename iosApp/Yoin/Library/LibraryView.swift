@@ -331,8 +331,8 @@ struct LibraryView: View {
             // The account Library is reading, as on Home (Android: 资料库也要显示当前的账号).
             // A short tap: the account card, minus Home's own Edit Home (Android HomeAccountSwitcherHost).
             Button { if !AccountFan.shared.swallowsTap { openAccountCard() } } label: {
-                HeaderAccountAvatar(profile: model.profiles.active,
-                                    shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
+                HeaderAccountAvatar(profile: model.headerProfile,
+                                    shape: model.headerProfileShape,
                                     fallback: scheme.primary, onFallback: scheme.onPrimary,
                                     ring: scheme.surfaceContainer,
                                     needsReconnect: model.activeNeedsReconnect, error: scheme.error)

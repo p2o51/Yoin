@@ -207,6 +207,11 @@ struct HomeView: View {
             openAccountCard()
             // `-accountCardPick <n>`: then the n-th other account's row, as a tap.
             let n = UserDefaults.standard.integer(forKey: "accountCardPick") - 1
+            // `-accountCardClose YES`: or a plain close (✕), the big avatar flying back into the header.
+            if n < 0, UserDefaults.standard.bool(forKey: "accountCardClose") {
+                try? await Task.sleep(for: .seconds(1.5))
+                AccountSwitcher.shared.close()
+            }
             guard n >= 0 else { return }
             try? await Task.sleep(for: .seconds(1.5))
             let others = AccountCardLogic.split(model.profiles.profiles, active: model.profiles.activeId).others
@@ -441,8 +446,8 @@ struct HomeView: View {
                 Button { if !AccountFan.shared.swallowsTap { openAccountCard() } } label: {
                     // 32 dp avatar in a 48 dp target: the account in use (its shape, service colour and
                     // letter); with none, the mock's (profile 0 = Cookie6Sided).
-                    HeaderAccountAvatar(profile: model.profiles.active,
-                                        shape: model.profiles.activeId.flatMap { model.profiles.avatarShapes[$0] } ?? 0,
+                    HeaderAccountAvatar(profile: model.headerProfile,
+                                        shape: model.headerProfileShape,
                                         fallback: BackdropColors(model.playback.album.palette).accent.mix(with: scheme.primary, by: 0.5),
                                         onFallback: scheme.onPrimary, ring: scheme.surfaceContainer,
                                         needsReconnect: model.activeNeedsReconnect, error: scheme.error)

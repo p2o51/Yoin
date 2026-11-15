@@ -14,6 +14,13 @@ import UIKit
  * Closing runs the same p back into the avatar; a trip elsewhere (Settings, an account's page, the feedback
  * form) waits until the card is back in it. Reduce Motion: the card fades where it sits (effects spring).
  *
+ * The avatars fly (Android HomeAccountSwitcherDialog, review I11): on the same p the header's avatar flies
+ * from its spot to the card's big one (and back on a plain close), the big one hidden until it lands. A
+ * close that is a switch reads as the pick going up: once the picked row has its colour, its avatar flies
+ * from the row into the header's spot (40 → the header's 32) while the old account's big avatar goes with
+ * the contents; the header shows the new account under it as the layer leaves. The header's face (its
+ * letter) and the card's (glyph and badge) cross over the first third of the trip. None under Reduce Motion.
+ *
  * Surface: the song sheet's (SheetSurface in Library/TrackMenuSheet.swift; owner 2026-11-13: the two
  * should be one material): the sheet's Liquid Glass and corner, the rows in the sheet's translucent
  * segments. The avatar's colour tints the glass as it grows and is gone by p 0.4. The page under it steps
@@ -35,6 +42,8 @@ enum AccountCardLogic {
     /// How long the picked row's colour runs (the effects spring to 0.9, Android SWITCH_SELECTION_BEAT)
     /// before the card goes back into the avatar.
     static let selectionBeat: TimeInterval = 0.22
+    /// Past this p a flight has landed: the card's own avatar shows (a spring's overshoot isn't flown).
+    static let landed: CGFloat = 0.999
 
     /// Centred, 16 off each side, never wider than 420.
     static func cardWidth(available: CGFloat) -> CGFloat { max(0, min(available - 32, maxWidth)) }
@@ -114,6 +123,12 @@ final class AccountSwitcher {
     private(set) var picked: String?
     private(set) var closing = false
     /// Home's own entry; nil where the card opens elsewhere (Library), which leaves it out.
+    /// A switch's flight (I11): the account whose row avatar flies up into the header as the card closes.
+    private(set) var flight: String?
+    /// Where the card's avatars are, in the layer's space: the big one (the header's flies to it) and each
+    /// account row's (a switch's flight takes off from it).
+    private(set) var bigAvatar: CGRect = .zero
+    private(set) var rowAvatars: [String: CGRect] = [:]
     @ObservationIgnored private(set) var editHome: (() -> Void)?
     @ObservationIgnored private var afterClose: (() -> Void)?
     @ObservationIgnored private var opening = false
@@ -125,6 +140,7 @@ final class AccountSwitcher {
         self.reduced = reduced
         self.editHome = editHome
         picked = nil
+        flight = nil
         closing = false
         progress = 0
         opening = true
@@ -139,11 +155,19 @@ final class AccountSwitcher {
         withAnimation(reduced ? Yoin.effects : Yoin.spatial) { progress = 1 }
     }
 
-    /// Back into the avatar; [then] runs once it is there.
-    func close(then action: (() -> Void)? = nil) {
+    /// Where the card's big avatar is laid out (the layer's space).
+    func bigAvatarLaidOut(_ r: CGRect) { if r != bigAvatar { bigAvatar = r } }
+
+    /// Where an account row's avatar is laid out (the layer's space).
+    func rowAvatarLaidOut(_ id: String, _ r: CGRect) { if rowAvatars[id] != r { rowAvatars[id] = r } }
+
+    /// Back into the avatar; [then] runs once it is there. [flying]: a switch's close, that account's row
+    /// avatar flying up into the header.
+    func close(flying: String? = nil, then action: (() -> Void)? = nil) {
         guard shown, !closing else { return }
         closing = true
         opening = false
+        flight = reduced ? nil : flying.flatMap { rowAvatars[$0] == nil ? nil : $0 }
         afterClose = action
         withAnimation(reduced ? Yoin.effects : Yoin.spatial, completionCriteria: .logicallyComplete) {
             progress = 0
@@ -151,6 +175,9 @@ final class AccountSwitcher {
             shown = false
             closing = false
             picked = nil
+            flight = nil
+            bigAvatar = .zero
+            rowAvatars = [:]
             editHome = nil
             let action = afterClose
             afterClose = nil
@@ -158,13 +185,14 @@ final class AccountSwitcher {
         }
     }
 
-    /// A row picked for a switch: its colour first (the effects spring), then the card goes.
-    func beginSwitch(to id: String, run: @escaping () -> Void) {
+    /// A row picked for a switch: its colour first (the effects spring), then the card goes, the row's avatar
+    /// flying up into the header while [stillSwitching] (a switch that failed meanwhile closes plainly).
+    func beginSwitch(to id: String, stillSwitching: @escaping @MainActor () -> Bool = { true }, run: @escaping () -> Void) {
         withAnimation(Yoin.effects) { picked = id }
         run()
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(AccountCardLogic.selectionBeat / max(LaunchConfig.animationSpeed, 0.01)))
-            close()
+            close(flying: stillSwitching() ? id : nil)
         }
     }
 
@@ -181,6 +209,14 @@ extension AppModel {
         #endif
         return profiles.active.map(profiles.needsSignIn) ?? false
     }
+
+    /// The account the header avatar shows: a switch's target while it runs (a switch's flight lands there
+    /// as the new account, Android closeInto), else the one in use. A switch that fails gives way back.
+    var headerProfile: Profile? {
+        profiles.switchingTo.flatMap(profiles.profile) ?? profiles.active
+    }
+
+    var headerProfileShape: Int { headerProfile.flatMap { profiles.avatarShapes[$0.id] } ?? 0 }
 
     /// What VoiceOver says for the header avatar: the account, and that it needs reconnecting (the dot).
     var headerAccountValue: String {
@@ -201,7 +237,10 @@ extension AppModel {
             let profiles = profiles
             // A switch that doesn't land (the server doesn't answer, another switch is running) says so, as
             // Android's switchFailures snackbar does; the card has gone back into the avatar by then.
-            switcher.beginSwitch(to: id) {
+            switcher.beginSwitch(to: id, stillSwitching: {
+                // Under way or landed: the pick goes up (Android stillSwitching).
+                profiles.switchingTo == id || profiles.activeId == id
+            }) {
                 Task {
                     await profiles.switchTo(id)
                     if AccountCardLogic.switchFailed(picked: id, activeAfter: profiles.activeId) {
@@ -258,6 +297,7 @@ struct AccountSwitcherLayer: View {
                         .modifier(AccountCardMorph(
                             p: s.progress, from: from, to: cardRect, reduced: s.reduced,
                             seed: active.map { $0.service.tone(dark: colorScheme == .dark).accent } ?? app.primary))
+                    flight(s, from: from)
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .coordinateSpace(.named(space))
@@ -265,6 +305,74 @@ struct AccountSwitcherLayer: View {
             .accessibilityAddTraits(.isModal)
             .accessibilityAction(.escape) { s.close() }
         }
+    }
+}
+
+extension AccountSwitcherLayer {
+    /// The avatar in flight (I11), over the card: a switch's (the picked row's, into the header), else the
+    /// header's (to the big avatar and back). Nothing under Reduce Motion or before the card is laid out.
+    @ViewBuilder
+    fileprivate func flight(_ s: AccountSwitcher, from: CGRect) -> some View {
+        let dark = colorScheme == .dark
+        let shapes = model.profiles.avatarShapes
+        let ring = app.surfaceContainer
+        if !s.reduced, !cardRect.isEmpty, !from.isEmpty {
+            if let id = s.flight, let p = model.profiles.profile(id), let row = s.rowAvatars[id] {
+                AccountAvatarFlight(p: s.progress, header: from, card: row, profile: p, shape: shapes[id] ?? 0,
+                                    size: AccountCardLogic.rowAvatar, headerRing: ring,
+                                    cardRing: p.service.tone(dark: dark).container)
+            } else if s.flight == nil, let active = AccountCardLogic.split(model.profiles.profiles,
+                                                                           active: model.profiles.activeId).active,
+                      !s.bigAvatar.isEmpty {
+                AccountAvatarFlight(p: s.progress, header: from, card: s.bigAvatar, profile: active,
+                                    shape: shapes[active.id] ?? 0, size: AccountCardLogic.bigAvatar,
+                                    headerRing: ring, cardRing: app.surfaceContainerHigh)
+            }
+        }
+    }
+}
+
+/// An avatar between the header's spot (p 0) and its place on the card (p 1), in the layer's space. The
+/// header's face (its letter on the service colour) gives way to the card's (glyph and badge) over the
+/// first third of the trip; at rest (p 1) it's gone and the card's own avatar shows.
+private struct AccountAvatarFlight: View, @preconcurrency Animatable {
+    var p: CGFloat
+    /// The header avatar's drawn bounds (its 32 and ring).
+    var header: CGRect
+    /// The card avatar's bounds.
+    var card: CGRect
+    var profile: Profile
+    var shape: Int
+    /// The card avatar's own size (AccountAvatar's).
+    var size: CGFloat
+    var headerRing: Color
+    var cardRing: Color
+
+    var animatableData: CGFloat {
+        get { p }
+        set { p = newValue }
+    }
+
+    var body: some View {
+        let t = min(max(p, 0), 1)
+        let r = AccountCardLogic.lerp(header, card, t)
+        let cardFace = AccountCardLogic.smoothstep(0, 0.35, Double(t))
+        let headerSize = header.width
+        ZStack(alignment: .topLeading) {
+            if t < AccountCardLogic.landed {
+                AccountAvatar(profile: profile, shape: shape, ring: cardRing, size: size)
+                    .scaleEffect(r.width / size, anchor: .topLeading)
+                    .offset(x: r.minX, y: r.minY)
+                    .opacity(cardFace)
+                HeaderAccountAvatar(profile: profile, shape: shape, fallback: .clear, onFallback: .clear, ring: headerRing)
+                    .scaleEffect(headerSize > 0 ? r.width / headerSize : 1)
+                    .offset(x: r.midX - 24, y: r.midY - 24)
+                    .opacity(1 - cardFace)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -294,6 +402,7 @@ private struct AccountCardMorph: ViewModifier, @preconcurrency Animatable {
         // The avatar's colour over the glass, gone by p 0.4.
         let seedAlpha = reduced ? 0 : 1 - Double(min(max(p * 2.5, 0), 1))
         content
+            .environment(\.accountCardP, measured ? p : 0)
             .opacity(measured ? (reduced ? Double(p) : AccountCardLogic.contentAlpha(Double(p))) : 0)
             .background(alignment: .topLeading) {
                 shape.fill(seed.opacity(seedAlpha))
@@ -308,6 +417,11 @@ private struct AccountCardMorph: ViewModifier, @preconcurrency Animatable {
             }
             .onDisappear { SheetRise.shared.report(riseSource.id, nil) }
     }
+}
+
+extension EnvironmentValues {
+    /// The card's p as drawn (per frame, from its morph): its avatars hide while their twins fly.
+    @Entry var accountCardP: CGFloat = 1
 }
 
 /// One identity per card for SheetRise's sources.
@@ -334,6 +448,7 @@ private struct AccountCardContent: View {
     @Environment(\.openURL) private var openURL
 
     private var profiles: ProfileManager { model.profiles }
+    private let space = "accountCard"
 
     /// The most the card may take (the screen less 48): past it, it scrolls inside.
     var maxHeight: CGFloat
@@ -372,8 +487,8 @@ private struct AccountCardContent: View {
                 .accessibilityLabel("Close")
             }
             if let active {
-                AccountAvatar(profile: active, shape: shapes[active.id] ?? 0, ring: app.surfaceContainerHigh,
-                              size: AccountCardLogic.bigAvatar)
+                CardBigAvatar(profile: active, shape: shapes[active.id] ?? 0, ring: app.surfaceContainerHigh,
+                              switcher: switcher, space: space)
                     .padding(.top, 4)
                     .accessibilityHidden(true)
                 Text(active.title)
@@ -501,6 +616,9 @@ private struct AccountCardContent: View {
             HStack(spacing: 12) {
                 AccountAvatar(profile: p, shape: shape, ring: picked ? tone.container : app.surfaceContainerHigh,
                               size: AccountCardLogic.rowAvatar)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { switcher.rowAvatarLaidOut(p.id, $0) }
+                    // Up in the air on a switch's close: the row it left is empty under it.
+                    .opacity(switcher.flight == p.id ? 0 : 1)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(p.title)
                         .yoinRole(Tokens.type.titleMedium)
@@ -549,6 +667,24 @@ private struct AccountCardContent: View {
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+/// The card's big avatar. It reads the card's drawn p (per frame) on its own, so the rest of the card isn't
+/// redrawn with it: while the header's avatar flies to it (opening, or a plain close) it waits hidden.
+private struct CardBigAvatar: View {
+    var profile: Profile
+    var shape: Int
+    var ring: Color
+    var switcher: AccountSwitcher
+    var space: String
+    @Environment(\.accountCardP) private var drawnP
+
+    var body: some View {
+        let flying = !switcher.reduced && switcher.flight == nil && drawnP < AccountCardLogic.landed
+        AccountAvatar(profile: profile, shape: shape, ring: ring, size: AccountCardLogic.bigAvatar)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { switcher.bigAvatarLaidOut($0) }
+            .opacity(flying ? 0 : 1)
     }
 }
 
