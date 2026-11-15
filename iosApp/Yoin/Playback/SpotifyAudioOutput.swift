@@ -177,6 +177,10 @@ final class SpotifyAudioOutput: AudioOutput {
             let type = n.userInfo?["type"] as? String
             MainActor.assumeIsolated { self?.followTransfer(id: id, name: name, type: type) }
         })
+        observers.append(c.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+                                       queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.becameActive() }
+        })
         observers.append(c.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil,
                                        queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.background() }
@@ -1502,14 +1506,20 @@ final class SpotifyAudioOutput: AudioOutput {
     private func checkRemoteSilent(_ now: SpotifySource.PlayerNow) {
         let since = Date().timeIntervalSince(lastRemoteStateAt)
         guard Self.remoteWentSilent(webURI: now.trackURI.map(ownURI), webPlaying: now.isPlaying,
-                                    shownURI: shownURI, playing: playing, sinceRemoteSec: since)
+                                    shownURI: shownURI, playing: playing, sinceRemoteSec: since),
+              Date().timeIntervalSince(lastSilentReplace) > Self.silentReplaceGapSec
         else { return }
+        // At most one replacement a minute: me/player trailing Spotify, or naming a relinked copy of
+        // the song by another id, must not turn into a reconnect on every watch.
+        lastSilentReplace = Date()
         PlayTrace.log("SR silent for \(Int(since)) s: me/player has \(now.trackURI ?? "-") playing=\(now.isPlaying); reconnecting")
         remote.markBroken("silent while Spotify moved on")
         Task { _ = await remote.connect(timeout: SpotifyRemote.connectTimeoutSec) }
     }
 
     nonisolated static let silentAfterSec: Double = 4
+    nonisolated static let silentReplaceGapSec: Double = 60
+    private var lastSilentReplace = Date.distantPast
 
     nonisolated static func remoteWentSilent(webURI: String?, webPlaying: Bool, shownURI: String?, playing: Bool,
                                              sinceRemoteSec: Double) -> Bool {
@@ -1553,6 +1563,18 @@ final class SpotifyAudioOutput: AudioOutput {
             startPolling()
             refresh()
         }
+    }
+
+    /// The watch and the poll start once Yoin is active again. [foreground] runs at willEnterForeground,
+    /// while applicationState still reads .background, so both timers' guards turned it down: a
+    /// tester's build 28 log (2026-11-15) read me/player once on every return and never again, and a
+    /// song that ended on the speaker left Yoin at -0:00 until the next return from Spotify. This
+    /// iPhone with App Remote out of reach is polled the same way (connectHereOrPoll's own start ran
+    /// into the same guard); a connection that comes up stops it.
+    private func becameActive() {
+        startWatching()
+        guard isDriving, !silent else { return }
+        if !isHere || !remote.isConnected { startPolling() }
     }
 
     /// Back from the App Store with Spotify installed: its card stops asking for it, and a song held on

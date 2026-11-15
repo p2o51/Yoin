@@ -964,6 +964,8 @@ extension AppModel {
                 AccountScope.shared.spotify = nil
                 SpotifyRemote.shared.token = nil
                 SpotifyRemote.shared.bind(account: nil)
+                // The output stops reading me/player for an account that's no longer active.
+                playbackSystem.spotifyOutput?.control = nil
             }
             return
         }
