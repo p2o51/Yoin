@@ -10587,6 +10587,46 @@
           }
         }
       }
+    },
+    "Spotify sign-in expired": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify 登录已过期"
+          }
+        }
+      }
+    },
+    "Spotify is busy. Try again in %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify 请求过多，%@后再试"
+          }
+        }
+      }
+    },
+    "Spotify request failed (%lld)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify 请求失败（%lld）"
+          }
+        }
+      }
+    },
+    "Unreadable answer from Spotify (%@)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 Spotify 的回应（%@）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

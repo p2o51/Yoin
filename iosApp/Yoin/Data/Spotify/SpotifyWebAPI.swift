@@ -19,13 +19,23 @@ enum SpotifyAPIError: Error, LocalizedError, Equatable {
         if case .http(404, let m) = self { (m ?? "").localizedCaseInsensitiveContains("active device") } else { false }
     }
 
+    /// A wait as the message says it: seconds under two minutes, else minutes, else hours (rounded up).
+    static func waitText(_ seconds: Int) -> String {
+        let f = DateComponentsFormatter()
+        f.unitsStyle = .short
+        f.maximumUnitCount = 1
+        f.allowedUnits = seconds < 120 ? [.second] : seconds < 2 * 3600 ? [.minute] : [.hour]
+        let rounded = seconds < 120 ? max(1, seconds) : seconds < 2 * 3600 ? (seconds + 59) / 60 * 60 : (seconds + 3599) / 3600 * 3600
+        return f.string(from: TimeInterval(rounded)) ?? "\(seconds)s"
+    }
+
     var errorDescription: String? {
         switch self {
-        case .unauthorized: "Spotify sign-in expired"
-        case .rateLimited(let s): "Spotify is rate limiting requests; try again in \(s)s"
-        case .http(let status, let message): message ?? "Spotify request failed (\(status))"
-        case .decoding(let path): "Unreadable answer from Spotify (\(path))"
-        case .badRequest: "Bad request"
+        case .unauthorized: String(localized: "Spotify sign-in expired")
+        case .rateLimited(let s): String(localized: "Spotify is busy. Try again in \(Self.waitText(s))")
+        case .http(let status, let message): message ?? String(localized: "Spotify request failed (\(status))")
+        case .decoding(let path): String(localized: "Unreadable answer from Spotify (\(path))")
+        case .badRequest: String(localized: "Bad request")
         }
     }
 }
@@ -38,6 +48,9 @@ enum SpotifyAPIError: Error, LocalizedError, Equatable {
 /// 429: waits `Retry-After` seconds (default 5, at most [maxRetryWait]) and
 /// asks again up to [maxRetries] times; a longer wait, or one that keeps
 /// coming, throws `.rateLimited` so the screen can say so instead of hanging.
+/// The wait is the account's ([gate], one per client): a request that comes
+/// while it runs waits it out when short, else fails at once with the time left.
+/// Reads go out at most three at a time; player commands skip the line.
 final class SpotifyWebAPI: Sendable {
     static let liveBase = URL(string: "https://api.spotify.com/v1")!
     /// The live API, or the QA fake (`-spotifyFake`, DEBUG builds only).
@@ -52,9 +65,11 @@ final class SpotifyWebAPI: Sendable {
     private let sleep: @Sendable (Int) async throws -> Void
     /// Refreshes the token after a 401 (the request is then tried once more); nil: the 401 is thrown.
     private let refresh: (@Sendable () async throws -> Void)?
+    let gate: SpotifyRateGate
 
     init(token: @escaping @Sendable () async throws -> String,
          refresh: (@Sendable () async throws -> Void)? = nil,
+         gate: SpotifyRateGate = SpotifyRateGate(),
          session: URLSession = .shared,
          base: URL = SpotifyWebAPI.defaultBase,
          maxRetries: Int = 2,
@@ -67,6 +82,7 @@ final class SpotifyWebAPI: Sendable {
         self.maxRetryWait = maxRetryWait
         self.sleep = sleep
         self.refresh = refresh
+        self.gate = gate
     }
 
     static let decoder: JSONDecoder = {
@@ -101,8 +117,22 @@ final class SpotifyWebAPI: Sendable {
         let url = try url(path, query)
         var attempt = 0
         var refreshed = false
+        // Player commands keep their own timing (a skip mustn't queue behind a library read).
+        let gated = !path.hasPrefix("me/player")
+        // This request just waited out its own 429: the backoff it set is over for it.
+        var waited = false
         while true {
             if let still, await !still() { throw SpotifyCommandDropped() }
+            if gated, !waited {
+                let left = await gate.remaining()
+                if left > 0 {
+                    guard left <= maxRetryWait else { throw SpotifyAPIError.rateLimited(retryAfter: left) }
+                    try await sleep(left)
+                    waited = true
+                    continue
+                }
+            }
+            waited = false
             var req = URLRequest(url: url)
             req.httpMethod = method
             let bearer = try await token()
@@ -114,7 +144,15 @@ final class SpotifyWebAPI: Sendable {
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
             let t0 = Date()
-            let (data, response) = try await session.data(for: req)
+            if gated { await gate.acquire() }
+            let data: Data, response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+                if gated { await gate.release() }
+            } catch {
+                if gated { await gate.release() }
+                throw error
+            }
             guard let http = response as? HTTPURLResponse else { throw SpotifyAPIError.badRequest }
             if path.hasPrefix("me/player") {
                 PlayTrace.log("API \(method) \(url.path)?\(url.query ?? "") → \(http.statusCode) in \(String(format: "%.2f", Date().timeIntervalSince(t0)))s retry-after=\(http.value(forHTTPHeaderField: "Retry-After") ?? "-")\(http.statusCode >= 300 ? " " + (Self.errorMessage(data) ?? "") : "")")
@@ -128,9 +166,11 @@ final class SpotifyWebAPI: Sendable {
                 try await refresh()
             case 429:
                 let wait = max(1, Int(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? Self.defaultRetryAfter)
+                await gate.recordBackoff(wait)
                 guard attempt < maxRetries, wait <= maxRetryWait else { throw SpotifyAPIError.rateLimited(retryAfter: wait) }
                 attempt += 1
                 try await sleep(wait)
+                waited = true
             case let status:
                 throw SpotifyAPIError.http(status: status, message: Self.errorMessage(data))
             }
