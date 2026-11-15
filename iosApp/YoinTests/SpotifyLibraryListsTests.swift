@@ -90,4 +90,40 @@ final class SpotifyLibraryListsTests: XCTestCase {
         XCTAssertEqual(info.ownedByMe, false)
         XCTAssertTrue(info.entries.isEmpty)
     }
+
+    func test_should_count_a_list_stale_only_when_older_than_its_age() {
+        let now = Date()
+        XCTAssertFalse(LibraryStore.isStale(nil, maxAge: 3600, now: now))
+        XCTAssertFalse(LibraryStore.isStale(now.addingTimeInterval(-3599), maxAge: 3600, now: now))
+        XCTAssertTrue(LibraryStore.isStale(now.addingTimeInterval(-3601), maxAge: 3600, now: now))
+        XCTAssertTrue(LibraryStore.isStale(.distantPast, maxAge: 3600, now: now))
+    }
+
+    func test_should_keep_the_rows_past_the_first_read_when_liked_songs_refresh() {
+        let a = album("al", artist: "X", artistId: "x")
+        let shown = ["t1", "t2", "t3", "t4", "t5"].map { entry($0, album: a) }
+        // t0 liked elsewhere, t2 unliked elsewhere: the fresh first read is two rows.
+        let fresh = ["t0", "t1"].map { entry($0, album: a) }
+        XCTAssertEqual(LibraryStore.refreshedLikedSongs(fresh, over: shown).map(\.track.id.rawId),
+                       ["t0", "t1", "t3", "t4", "t5"])
+        // A fresh read as long as what shows replaces it.
+        XCTAssertEqual(LibraryStore.refreshedLikedSongs(shown, over: fresh).map(\.track.id.rawId),
+                       ["t1", "t2", "t3", "t4", "t5"])
+    }
+
+    func test_should_keep_a_save_or_removal_over_the_read_when_younger_than_a_minute() {
+        let now = Date()
+        let kept = album("al1", artist: "X", artistId: "x"), removed = album("al2", artist: "Y", artistId: "y")
+        let saved = album("al3", artist: "Z", artistId: "z")
+        let edits = [LibraryStore.SavedAlbumEdit(album: removed, saved: false, at: now.addingTimeInterval(-10)),
+                     LibraryStore.SavedAlbumEdit(album: saved, saved: true, at: now.addingTimeInterval(-5))]
+        // Spotify still lists the removed album and not yet the saved one.
+        let read = [kept, removed]
+        XCTAssertEqual(LibraryStore.applyingSavedAlbumEdits(read, edits, now: now).map(\.id.rawId), ["al3", "al1"])
+        // An older shelf only loses the removed one.
+        XCTAssertEqual(LibraryStore.applyingSavedAlbumEdits(read, edits, now: now, top: false).map(\.id.rawId), ["al1"])
+        // Past the grace Spotify's list stands.
+        XCTAssertEqual(LibraryStore.applyingSavedAlbumEdits(read, edits, now: now.addingTimeInterval(120)).map(\.id.rawId),
+                       ["al1", "al2"])
+    }
 }

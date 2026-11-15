@@ -138,6 +138,11 @@ final class LibraryStore {
             if provider == SpotifyMapping.provider { self.followLikedSongs(songId) }
         }
         Task { await disk.purgeExpired() }
+        // audit 11-15 #66: iOS keeps Yoin suspended for days; back in front, what is past its age reads again.
+        NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.refreshStaleSpotify() }
+        }
     }
 
     /// A new client (sign-in, sign-out, another server) or another source
@@ -204,6 +209,10 @@ final class LibraryStore {
         favoriteArtists = []
         favoriteAlbums = []
         phases = [:]
+        loadedAt = [:]
+        savedAlbumEdits = [:]
+        homeLoadedAt = nil
+        offlineCopies = []
         failures = [:]
         failureReports = [:]
         albumDetails = [:]
@@ -227,6 +236,8 @@ final class LibraryStore {
     // MARK: Home
 
     func loadHome(force: Bool = false) async {
+        // Home showing again: a Spotify feed past its age reads again behind it (audit 11-15 #66).
+        if !force, homePhase == .loaded { refreshStaleSpotify() }
         guard force || homePhase == .idle || homePhase == .failed else { return }
         guard isReal else { return }
         // A launch or an account: plays and ratings left over from before go out now.
@@ -311,8 +322,11 @@ final class LibraryStore {
         do {
             let l = try await spotify.homeLists()
             guard gen == generation else { return }
-            let lists = HomeLists(recent: l.recent, frequent: l.frequent, newest: l.newest, highest: [],
-                                  random: l.older, recentTracks: l.recentTracks,
+            homeLoadedAt = Date()
+            let edits = liveSavedAlbumEdits()
+            let lists = HomeLists(recent: l.recent, frequent: l.frequent,
+                                  newest: Self.applyingSavedAlbumEdits(l.newest, edits, now: Date()), highest: [],
+                                  random: Self.applyingSavedAlbumEdits(l.older, edits, now: Date(), top: false), recentTracks: l.recentTracks,
                                   trackPool: l.trackPool.isEmpty ? l.recentTracks : l.trackPool)
             homeLists = lists
             homePhase = .loaded
@@ -681,6 +695,8 @@ final class LibraryStore {
     // MARK: Library lists
 
     func loadLibrary(_ kind: LibraryKind?) async {
+        // Library showing again: Spotify lists past their age read again behind the rows (audit 11-15 #66).
+        refreshStaleSpotify()
         switch kind {
         case nil:
             async let a: Void = loadAlbums()
@@ -707,6 +723,7 @@ final class LibraryStore {
         let p = phase(key)
         guard force || p == .idle || p == .failed else { return }
         let gen = generation
+        let quiet = Self.quietRefresh && p == .loaded
         phases[key] = .loading
         let task = Task { @MainActor in
             do {
@@ -714,6 +731,8 @@ final class LibraryStore {
                 try await Self.$loadGeneration.withValue(gen) { try await body() }
                 if gen == self.generation {
                     self.phases[key] = .loaded
+                    // A stored copy shown because the read failed is as old as ever: due again next time.
+                    self.loadedAt[key] = self.offlineCopies.remove(key) != nil ? .distantPast : Date()
                     self.failures[key] = nil
                     self.failureReports[key] = nil
                 }
@@ -721,7 +740,10 @@ final class LibraryStore {
                 let message = self.message(for: error)
                 self.log.error("\(key, privacy: .public) failed: \(message, privacy: .public)")
                 if QAProbe.diag { print("[diag] \(key) failed: \(message) — \(error)") }
-                if gen == self.generation {
+                if quiet, gen == self.generation {
+                    // A refresh behind rows already shown: the rows stay, no Retry over them (audit 11-15 #66).
+                    self.phases[key] = .loaded
+                } else if gen == self.generation {
                     self.phases[key] = .failed
                     self.failures[key] = message
                     self.failureReports[key] = ErrorDiagnostics.report(error)
@@ -735,6 +757,60 @@ final class LibraryStore {
 
     /// The generation the running load began in (set by `once` for its body and the tasks it starts).
     @TaskLocal static var loadGeneration: Int?
+
+    // MARK: Staleness (audit 11-15 #66)
+
+    /// A load running behind rows already shown: a failure keeps them (no Retry), and Liked Songs keeps the
+    /// rows read past its first page.
+    @TaskLocal static var quietRefresh = false
+    /// When each list key last loaded (Android SpotifyLibrarySyncCoordinator's sync age).
+    @ObservationIgnored private var loadedAt: [String: Date] = [:]
+    @ObservationIgnored private var homeLoadedAt: Date?
+    /// Keys whose last load showed the stored copy because the read failed.
+    @ObservationIgnored private var offlineCopies: Set<String> = []
+    /// Android's library sync window: a list older than this reads again when shown or back in front.
+    nonisolated static let spotifyListMaxAge: TimeInterval = 60 * 60
+    /// An open playlist page past this reads again when it shows (it changes in Spotify more than a list).
+    nonisolated static let playlistPageMaxAge: TimeInterval = 5 * 60
+
+    nonisolated static func isStale(_ at: Date?, maxAge: TimeInterval, now: Date) -> Bool {
+        guard let at else { return false }
+        return now.timeIntervalSince(at) > maxAge
+    }
+
+    /// The Spotify lists and Home loaded more than [spotifyListMaxAge] ago, read again behind what shows.
+    func refreshStaleSpotify(now: Date = Date()) {
+        guard spotify != nil else { return }
+        let keys = ["albums", "artists", "playlists", "songs", "favorites"].filter {
+            phase($0) == .loaded && inFlight[$0] == nil && Self.isStale(loadedAt[$0], maxAge: Self.spotifyListMaxAge, now: now)
+        }
+        for key in keys {
+            loadedAt[key] = now
+            Task {
+                await Self.$quietRefresh.withValue(true) {
+                    switch key {
+                    case "albums": await loadAlbums(force: true)
+                    case "artists": await loadArtists(force: true)
+                    case "playlists": await loadPlaylists(force: true)
+                    case "songs": await loadSongs(force: true)
+                    default: await loadFavorites(force: true)
+                    }
+                }
+            }
+        }
+        if homePhase == .loaded, Self.isStale(homeLoadedAt, maxAge: Self.spotifyListMaxAge, now: now) {
+            homeLoadedAt = now
+            Task { await loadHome(force: true) }
+        }
+    }
+
+    /// Liked Songs read again from the top while more rows than the first read show: the fresh read, then
+    /// the rows shown past it that it doesn't hold (a refresh doesn't cut a long list back to one read).
+    nonisolated static func refreshedLikedSongs(_ fresh: [PlaylistEntry], over shown: [PlaylistEntry]) -> [PlaylistEntry] {
+        guard shown.count > fresh.count else { return fresh }
+        let have = Set(fresh.map(\.track.id))
+        return fresh + shown.dropFirst(fresh.count).filter { !have.contains($0.track.id) }
+    }
 
     /// Throws when the running load began under another source / account: a load publishes nothing after
     /// a reset (Codex C01). Every fetch calls it after its last await, before assigning what it read.
@@ -800,6 +876,7 @@ final class LibraryStore {
                 try await fetchAndStore()
             } catch {
                 guard storedAt != nil else { throw error }
+                offlineCopies.insert(key)
                 log.info("\(key, privacy: .public): offline, showing the stored copy")
             }
         }
@@ -868,7 +945,8 @@ final class LibraryStore {
                     if progressive, (try? ensureLive()) != nil { albums = partial }
                 })
                 try ensureLive()
-                albums = all
+                // A save or removal of the last minute stands over what Spotify listed (audit 11-15 #71).
+                albums = Self.applyingSavedAlbumEdits(all, liveSavedAlbumEdits(), now: Date())
                 return codec?.dtoAlbums(albums)
             }
             guard let client, let mapping else { return nil }
@@ -984,9 +1062,14 @@ final class LibraryStore {
                 // Liked Songs (Android: Spotify's Songs is the saved tracks), the first read then more as the list ends.
                 let read = try await spotify.librarySongs(offset: 0)
                 try ensureLive()
-                songs = read.songs
-                spotifySongsNext = read.next
-                songsMore = read.next == nil ? .none : .available
+                if Self.quietRefresh, read.next != nil, songs.count > read.songs.count {
+                    // A refresh behind a longer list: its later rows stay, and so does where the next read starts.
+                    songs = Self.refreshedLikedSongs(read.songs, over: songs)
+                } else {
+                    songs = read.songs
+                    spotifySongsNext = read.next
+                    songsMore = read.next == nil ? .none : .available
+                }
             } else {
                 guard let client, let mapping else { return nil }
                 // A refresh starts again from the newest album.
@@ -1216,7 +1299,13 @@ final class LibraryStore {
     func playlist(_ id: String) -> PlaylistInfo? { playlistDetails[id] }
 
     func loadPlaylist(_ id: String, force: Bool = false) async {
-        await cachedLoad("playlist:\(id)", kind: .playlist, id: id, force: force,
+        // An open Spotify playlist page past its age reads again as it shows, behind the rows (audit 11-15 #66).
+        let key = "playlist:\(id)"
+        if !force, spotify != nil, phase(key) == .loaded, playlistDetails[id] != nil,
+           Self.isStale(loadedAt[key], maxAge: Self.playlistPageMaxAge, now: Date()) {
+            return await Self.$quietRefresh.withValue(true) { await loadPlaylist(id, force: true) }
+        }
+        await cachedLoad(key, kind: .playlist, id: id, force: force,
                          inMemory: { self.playlistDetails[id] != nil },
                          restore: { (d: DetailCacheDTO.Playlist, c) in self.playlistDetails[id] = c.playlist(d) }) { [self] in
             var detail: PlaylistInfo?
@@ -1553,19 +1642,59 @@ final class LibraryStore {
         persist(codec.map { c in artists.map(c.dto) }, kind: .list, id: "artists", epoch: diskEpoch)
     }
 
-    /// Library › Albums after a Save to library / Remove lands (AlbumLibraryState): the album joins at the
-    /// top or leaves, in memory and on disk, without reading the whole list again.
-    func patchSavedAlbum(_ album: Album, saved: Bool) {
-        guard phase("albums") == .loaded || !albums.isEmpty else { return }
-        var edited = albums
-        if saved {
-            guard !edited.contains(where: { $0.id == album.id }) else { return }
-            var row = album
-            row.tracks = []
-            edited.insert(row, at: 0)
-        } else {
-            edited.removeAll { $0.id == album.id }
+    /// A Save to library / Remove that landed, laid over the saved-album reads for [savedAlbumGrace]
+    /// (audit 11-15 #71, Android's saved-album change log): Spotify's list can still hold a removed album
+    /// (or lack a saved one) right after the write.
+    struct SavedAlbumEdit: Sendable {
+        var album: Album
+        var saved: Bool
+        var at: Date
+    }
+
+    @ObservationIgnored private var savedAlbumEdits: [String: SavedAlbumEdit] = [:]
+    nonisolated static let savedAlbumGrace: TimeInterval = 60
+
+    /// [albums] as read, with the edits younger than the grace laid over: a removed album out, a saved one
+    /// at the top when the read lacks it. [top]: false only takes removed ones out (an older shelf).
+    nonisolated static func applyingSavedAlbumEdits(_ albums: [Album], _ edits: [SavedAlbumEdit], now: Date,
+                                                    top: Bool = true) -> [Album] {
+        let live = edits.filter { now.timeIntervalSince($0.at) <= savedAlbumGrace }.sorted { $0.at < $1.at }
+        guard !live.isEmpty else { return albums }
+        var out = albums
+        for e in live {
+            if e.saved {
+                guard top, !out.contains(where: { $0.id == e.album.id }) else { continue }
+                var row = e.album
+                row.tracks = []
+                out.insert(row, at: 0)
+            } else {
+                out.removeAll { $0.id == e.album.id }
+            }
         }
+        return out
+    }
+
+    private func liveSavedAlbumEdits(_ now: Date = Date()) -> [SavedAlbumEdit] {
+        savedAlbumEdits = savedAlbumEdits.filter { now.timeIntervalSince($0.value.at) <= Self.savedAlbumGrace }
+        return Array(savedAlbumEdits.values)
+    }
+
+    /// Library › Albums and Home's Recently Added after a Save to library / Remove lands
+    /// (AlbumLibraryState): the album joins at the top or leaves, in memory and on disk, without reading
+    /// the whole list again; a read in the next minute keeps the change (audit 11-15 #71).
+    func patchSavedAlbum(_ album: Album, saved: Bool) {
+        let edit = SavedAlbumEdit(album: album, saved: saved, at: Date())
+        savedAlbumEdits[album.id.rawId] = edit
+        if var lists = homeLists, spotify != nil {
+            lists.newest = Self.applyingSavedAlbumEdits(lists.newest, [edit], now: edit.at)
+            lists.random = Self.applyingSavedAlbumEdits(lists.random, [edit], now: edit.at, top: false)
+            if lists.newest != homeLists?.newest || lists.random != homeLists?.random {
+                homeLists = lists
+                persist(codec?.dto(lists), kind: .home, id: "", epoch: diskEpoch)
+            }
+        }
+        guard phase("albums") == .loaded || !albums.isEmpty else { return }
+        let edited = Self.applyingSavedAlbumEdits(albums, [edit], now: edit.at)
         guard edited != albums else { return }
         withAnimation(Yoin.spatial) { albums = edited }
         dropFromDisk(.list, "albums")
