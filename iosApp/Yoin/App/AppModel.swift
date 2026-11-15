@@ -364,6 +364,8 @@ final class AppModel {
             }
         }
         watchPlaybackReports()
+        // Songs Spotify played while Yoin was away from the front go into history (audit 11-15 #18).
+        SpotifyListeningBackfill.shared.start(model: self)
         Task { await profiles.fillSpotifyAvatars() }
         player.onScrobble = { track, submission, listenedSec in
             // A podcast episode Spotify plays is no song: no play row.
