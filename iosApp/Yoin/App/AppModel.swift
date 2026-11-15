@@ -362,6 +362,8 @@ final class AppModel {
         watchPlaybackReports()
         Task { await profiles.fillSpotifyAvatars() }
         player.onScrobble = { track, submission, listenedSec in
+            // A podcast episode Spotify plays is no song: no play row.
+            guard !SpotifyEpisodes.isEpisode(track) else { return }
             store.scrobble(track, submission: submission)
             // Local play history (Data/History): a row when the song starts, marked once it counts with
             // the time really listened (a seek skips, it isn't listening).

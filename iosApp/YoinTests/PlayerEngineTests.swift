@@ -137,6 +137,74 @@ final class PlayerEngineTests: XCTestCase {
         XCTAssertNil(engine.failure)
     }
 
+    func test_should_recordSpotifysOwnSong_once_when_itPlaysLongEnough() {
+        // A song played from the Spotify app is a play (Android records whatever plays), counted once.
+        engine.play(queue: tracks(2), startAt: 0)
+        var calls: [(String, Bool)] = []
+        engine.onScrobble = { calls.append(($0.id, $1)); _ = $2 }
+        let theirs = PlayableTrack(id: "sp1", provider: "spotify", title: "Theirs", artist: "", album: "", albumId: nil,
+                                   durationSec: 60, streamURL: URL(string: "spotify-yoin://track/sp1")!, coverURL: nil)
+        engine.outputExternalTrackDidChange(theirs, positionSec: 0, playing: true)
+        XCTAssertTrue(calls.isEmpty, "not a play until it really plays")
+        for s in stride(from: 1.0, through: 31, by: 1) { output.tick(to: s) }
+        // Spotify reports the same song again: no second row, no second submission.
+        engine.outputExternalTrackDidChange(theirs, positionSec: 32, playing: true)
+        for s in stride(from: 33.0, through: 40, by: 1) { output.tick(to: s) }
+        XCTAssertEqual(calls.map(\.0), ["sp1", "sp1"])
+        XCTAssertEqual(calls.map(\.1), [false, true])
+    }
+
+    func test_should_notCountTimeUnderSpotifysSong_when_theQueuesSongComesBack() {
+        engine.play(queue: [track(1, duration: 60)], startAt: 0)
+        var submitted = false
+        engine.onScrobble = { if $1 && $0.id == "t1" { submitted = true }; _ = $2 }
+        output.tick(to: 1)
+        let theirs = PlayableTrack(id: "sp1", provider: "spotify", title: "Theirs", artist: "", album: "", albumId: nil,
+                                   durationSec: 60, streamURL: URL(string: "spotify-yoin://track/sp1")!, coverURL: nil)
+        engine.outputExternalTrackDidChange(theirs, positionSec: 0, playing: true)
+        engine.outputExternalTrackDidChange(nil, positionSec: 40, playing: true)
+        output.tick(to: 40.5)
+        XCTAssertFalse(submitted, "the jump back to the queue's song isn't listening")
+    }
+
+    func test_should_turnSpotifysModes_notTheQueues_when_theButtonIsTappedOnSpotifysOwnSong() {
+        engine.play(queue: tracks(3), startAt: 0)
+        var sent: [SpotifyModes] = []
+        engine.onExternalModes = { sent.append($0) }
+        let theirs = PlayableTrack(id: "sp1", provider: "spotify", title: "Theirs", artist: "", album: "", albumId: nil,
+                                   durationSec: 60, streamURL: URL(string: "spotify-yoin://track/sp1")!, coverURL: nil)
+        engine.spotifyModesDidChange(SpotifyModes(shuffle: false, repeatMode: .off))
+        engine.outputExternalTrackDidChange(theirs, positionSec: 0, playing: true)
+        XCTAssertFalse(engine.shownShuffle)
+        XCTAssertEqual(engine.shownRepeatMode, .off, "Spotify's own modes, not the queue's repeat all")
+        engine.cycleShownPlayMode()
+        XCTAssertEqual(sent, [SpotifyModes(shuffle: false, repeatMode: .all)])
+        engine.setShownShuffle(true)
+        XCTAssertEqual(sent.last, SpotifyModes(shuffle: true, repeatMode: .all))
+        XCTAssertTrue(engine.shownShuffle)
+        // The parked queue is untouched.
+        XCTAssertFalse(engine.shuffle)
+        XCTAssertEqual(engine.repeatMode, .all)
+        XCTAssertEqual(ids, ["t1", "t2", "t3"])
+        // A report that may predate the tap doesn't flip the button back.
+        engine.spotifyModesDidChange(SpotifyModes(shuffle: false, repeatMode: .off))
+        XCTAssertTrue(engine.shownShuffle)
+        // Back on the queue's song: the queue's modes again.
+        engine.outputExternalTrackDidChange(nil, positionSec: 0, playing: true)
+        XCTAssertFalse(engine.shownShuffle)
+        XCTAssertEqual(engine.shownRepeatMode, .all)
+    }
+
+    func test_should_readSpotifyModes_from_bothReportForms() {
+        XCTAssertEqual(SpotifyModes(shuffle: true, repeatRaw: 1), SpotifyModes(shuffle: true, repeatMode: .one))
+        XCTAssertEqual(SpotifyModes(shuffle: false, repeatRaw: 2).repeatMode, .all)
+        XCTAssertEqual(SpotifyModes(shuffle: false, repeatState: "context").repeatMode, .all)
+        XCTAssertEqual(SpotifyModes(shuffle: false, repeatState: "off").repeatMode, .off)
+        XCTAssertEqual(SpotifyModes(shuffle: false, repeatMode: .one).repeatState, "track")
+        XCTAssertEqual(SpotifyEpisodes.episodeId("spotify:episode:abc"), "abc")
+        XCTAssertNil(SpotifyEpisodes.episodeId("spotify:track:abc"))
+    }
+
     func test_should_load_start_and_preload_next_when_playing_a_queue() {
         engine.play(queue: tracks(3), startAt: 1)
         XCTAssertEqual(engine.currentTrack?.id, "t2")

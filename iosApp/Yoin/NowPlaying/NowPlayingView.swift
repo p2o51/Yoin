@@ -2070,15 +2070,16 @@ struct NowPlayingView: View, Equatable {
                                    outsideTouches: demo.splitTouches, haptics: false, size: control)
                         .demoTarget("mode")
                 } else {
-                PlayModeButton(shuffle: model.player.shuffle, repeatMode: model.player.repeatMode,
+                // Spotify's own song: Spotify's own modes, turned in Spotify (the parked queue's stay as they are).
+                PlayModeButton(shuffle: model.player.shownShuffle, repeatMode: model.player.shownRepeatMode,
                                scheme: scheme, brand: brand,
-                               onCycle: { modeTouchedAt = Date(); model.player.cyclePlayMode() },
-                               onShuffle: { modeTouchedAt = Date(); model.player.setShuffle($0) },
-                               onRepeat: { modeTouchedAt = Date(); model.player.setRepeat($0) },
+                               onCycle: { modeTouchedAt = Date(); model.player.cycleShownPlayMode() },
+                               onShuffle: { modeTouchedAt = Date(); model.player.setShownShuffle($0) },
+                               onRepeat: { modeTouchedAt = Date(); model.player.setShownRepeat($0) },
                                onPress: { touch(String(localized: "Play mode"), $0) }, size: control)
                     .glowAnchor(.mode, glow)
                     // The key's one soft glow (Android playModeGlowKind), for a turn made here.
-                    .onChange(of: PlayModeKey(shuffle: model.player.shuffle, repeatMode: model.player.repeatMode)) { old, new in
+                    .onChange(of: PlayModeKey(shuffle: model.player.shownShuffle, repeatMode: model.player.shownRepeatMode)) { old, new in
                         guard Date().timeIntervalSince(modeTouchedAt) < 2,
                               let kind = PlayModeKey.glowKind(from: old, to: new) else { return }
                         glow.glow(kind, from: .mode)
