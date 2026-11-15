@@ -126,8 +126,9 @@ final class SpotifyAudioOutput: AudioOutput {
     /// The last thing the engine did was stop (not load another song).
     private var stopped = false
     /// What the engine said of the coming load, and of the current song's (see nextLoad).
-    private var nextByListener = true
-    private var loadByListener = true
+    private var nextKind: OutputLoadKind = .listener
+    private var loadKind: OutputLoadKind = .listener
+    private var loadByListener: Bool { loadKind.byListener }
     /// When Spotify was last opened to wake it, over every load (audit 11-15 #8: each one reset it).
     private var lastWakeAt = Date.distantPast
     private var observers: [NSObjectProtocol] = []
@@ -205,13 +206,13 @@ final class SpotifyAudioOutput: AudioOutput {
         playing ? lastTime + Date().timeIntervalSince(lastTick) : lastTime
     }
 
-    func nextLoad(byListener: Bool) { nextByListener = byListener }
+    func nextLoad(_ kind: OutputLoadKind) { nextKind = kind }
 
     func load(_ current: URL, next: URL?, startSec: Double) {
-        PlayTrace.log("SP load \(current.lastPathComponent) start=\(startSec)\(nextByListener ? "" : " (auto)")")
+        PlayTrace.log("SP load \(current.lastPathComponent) start=\(startSec) (\(nextKind))")
         generation += 1
-        loadByListener = nextByListener
-        nextByListener = true
+        loadKind = nextKind
+        nextKind = .listener
         stopped = false
         rehandTask?.cancel()
         let item = Item(current)
@@ -265,9 +266,19 @@ final class SpotifyAudioOutput: AudioOutput {
     /// A Mac has its own rule (startOnMac).
     private func start(_ item: Item, gen: Int) async {
         if device.isMac { return await startOnMac(item, gen: gen) }
-        let now = (try? await control?.playerNow()) ?? nil
-        PlayTrace.log("SP start now=\(Self.describe(now))")
+        // The speaker Yoin was a remote for (a name shows only while it drives one).
+        let kept = SpotifyPlayingDevice.shared.name != nil ? target : nil
+        let read = await readPlayerNow()
+        let now = read ?? nil
+        PlayTrace.log("SP start now=\(read == nil ? "no answer" : Self.describe(now))")
         guard gen == generation else { return }
+        if let id = Self.keptTarget(kind: loadKind, lastTarget: kept, read: read) {
+            // Next, Previous, a row, a song's end or Retry on a speaker, playing or paused: it stays there
+            // (audit 11-15 #21: a paused speaker, or one failed read, moved the song to this iPhone).
+            target = id
+            startPolling()
+            return await send(item, gen: gen, modes: now?.deviceId == id ? now : nil)
+        }
         if let now, let id = Self.remoteTarget(now, this: device) {
             target = id
             SpotifyPlayingDevice.shared.name = now.deviceName
@@ -278,6 +289,32 @@ final class SpotifyAudioOutput: AudioOutput {
         SpotifyPlayingDevice.shared.name = nil
         stopPolling()
         await startHere(item, gen: gen, moveHereFirst: Self.idleElsewhere(now, this: device))
+    }
+
+    /// me/player, read twice before giving up on it: nil when neither read answered (a timeout, a rate
+    /// limit), .some(nil) for nothing active.
+    private func readPlayerNow() async -> SpotifySource.PlayerNow?? {
+        guard let control else { return .some(nil) }
+        for attempt in 0..<2 {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(Self.startReadRetrySec)) }
+            do { return .some(try await control.playerNow()) } catch {
+                PlayTrace.log("SP start read failed \(SpotifySource.message(for: error))")
+            }
+        }
+        return nil
+    }
+
+    nonisolated static let startReadRetrySec: Double = 0.5
+
+    /// The speaker a start stays on: [lastTarget] (the one Yoin was a remote for) when me/player still
+    /// has it active, paused too, for any load but a new queue (a new queue goes where something plays,
+    /// as before); and whatever the load when me/player couldn't be read at all.
+    nonisolated static func keptTarget(kind: OutputLoadKind, lastTarget: String?,
+                                       read: SpotifySource.PlayerNow??) -> String? {
+        guard let lastTarget else { return nil }
+        guard let read else { return lastTarget }
+        guard kind != .newQueue, let now = read, now.deviceId == lastTarget else { return nil }
+        return lastTarget
     }
 
     /// Spotify sits paused or idle on another device (me/player names one that isn't this iPhone or iPad
@@ -1344,7 +1381,7 @@ final class SpotifyAudioOutput: AudioOutput {
         case .atNextSong:
             // Not mid-song (it would cut in): the next song is the engine's, read right at the switch.
             staleHandoff = true
-            if duration > 0 { refresh(after: max(duration - currentTimeSec, 0) + Self.endReadSlackSec) }
+            armEndReads(force: true)
             return
         case .now:
             break
@@ -1393,18 +1430,58 @@ final class SpotifyAudioOutput: AudioOutput {
     /// The device was handed [handed] after the current song; the engine now has [fresh]. Same list:
     /// nothing. Different: at the song's very start a new start costs nothing audible, so now; later
     /// it waits for the next song (51: never cut into a song), which the end's read starts as the
-    /// engine's. Nothing handed (a list that ran out) waits for the end too.
+    /// engine's. Nothing handed (moved here from this iPhone, which hands one song at a time) is the
+    /// same: now at a song's start (audit 11-15 #23: the speaker stopped after the next song).
     nonisolated static func rehandTiming(handed: [Item], fresh: [Item], elapsedSec: Double,
                                          remainingSec: Double?) -> RehandTiming {
         guard handed != fresh else { return .none }
-        guard !handed.isEmpty else { return .atNextSong }
         if elapsedSec <= rehandEarlySec, (remainingSec ?? .infinity) > rehandMinRemainingSec { return .now }
         return .atNextSong
     }
 
     nonisolated static let rehandEarlySec: Double = 3
-    /// A read this long after the song's expected end catches Spotify on the stale next at once.
+    /// A read this long after the song's expected end catches Spotify on the stale next at once, and
+    /// another a little later (a speaker slow to switch).
     nonisolated static let endReadSlackSec: Double = 0.4
+    nonisolated static let endReadAgainSec: Double = 1.5
+
+    /// The reads at a speaker's song end: their own task, so the 4 s poll doesn't cancel them (audit 11-15
+    /// #45: the end read shared the poll's and never ran; a stale next played up to 4 s, and -0:00 sat
+    /// frozen as long at every switch).
+    private var endReadTask: Task<Void, Never>?
+    private var endReadAt = Date.distantPast
+
+    /// Reads me/player [endReadSlackSec] after the song's expected end, then [endReadAgainSec] later, on
+    /// a device Yoin is a remote for. Re-armed as reads move the clock; [force]: even if armed for about
+    /// then already.
+    private func armEndReads(force: Bool = false) {
+        guard !isHere, isDriving, playing, stateDurationSec > 0 else { return }
+        let left = max(stateDurationSec - currentTimeSec, 0)
+        let at = Date().addingTimeInterval(left + Self.endReadSlackSec)
+        guard force || endReadTask == nil || abs(at.timeIntervalSince(endReadAt)) > 1 else { return }
+        endReadTask?.cancel()
+        endReadAt = at
+        let gen = generation
+        endReadTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(left + Self.endReadSlackSec))
+            for wait in [0, Self.endReadAgainSec] {
+                if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+                guard !Task.isCancelled, let self, gen == self.generation else { return }
+                await self.readOnce()
+            }
+        }
+    }
+
+    /// One read of me/player, applied, outside the poll's task (nothing cancels it).
+    private func readOnce() async {
+        guard isDriving, !silent, let control else { return }
+        let gen = generation
+        let now: SpotifySource.PlayerNow?
+        do { now = try await control.playerNow() } catch { return }
+        guard gen == generation, control === self.control else { return }
+        PlayTrace.log("SP end read \(Self.describe(now))")
+        apply(now)
+    }
 
     /// Spotify moved on to [uri] by itself, beyond the next it was handed (it ran through its list or its
     /// context while iOS suspended Yoin): the song the engine should jump to, or nil when following
@@ -1417,9 +1494,12 @@ final class SpotifyAudioOutput: AudioOutput {
             else { return nil }
             return snapshot.urls.compactMap(Item.init).first { $0.trackURI == uri }
         }
-        guard let i = handed.firstIndex(where: { $0.trackURI == uri }),
-              Array(handed[...i]) == Array(upcoming.prefix(i + 1)) else { return nil }
-        return handed[i]
+        guard let i = handed.firstIndex(where: { $0.trackURI == uri }) else { return nil }
+        if Array(handed[...i]) == Array(upcoming.prefix(i + 1)) { return handed[i] }
+        // The queue changed after the list went out (an edit on a speaker, then the lock screen: audit
+        // 11-15 #22). A song of that list that is still ahead in the queue is followed there; the queue
+        // is handed again from it.
+        return upcoming.first { $0.trackURI == uri }
     }
     nonisolated static let rehandDelayMs = 600
     nonisolated static let modesQuietSec: Double = 3
@@ -2010,6 +2090,8 @@ final class SpotifyAudioOutput: AudioOutput {
         }
         stopPolling()
         refreshTask?.cancel()
+        endReadTask?.cancel()
+        endReadTask = nil
         wakeWait = nil
         awaitingWake = false
         awaitingFirstState = false
@@ -2146,6 +2228,7 @@ final class SpotifyAudioOutput: AudioOutput {
         apply(State(uri: uri, isPaused: !now.isPlaying, positionMs: now.progressMs, durationMs: now.durationMs,
                     shuffling: now.shuffle, repeatRaw: repeatRaw, title: now.trackName, artist: now.artistName,
                     album: now.albumName, coverURL: now.coverURL, albumId: now.albumId))
+        armEndReads()
     }
 
     /// App Remote names a cover `spotify:image:<id>`; Spotify serves it at i.scdn.co/image/<id>.
@@ -2264,7 +2347,10 @@ final class SpotifyAudioOutput: AudioOutput {
                     return
                 }
             }
-            if duration > 0, before >= duration - Self.carriedOnWindowSec {
+            // The song ran out (or Spotify is on the stale list Yoin couldn't re-hand mid-song: audit 11-15
+            // #22, its end read can come late).
+            if duration > 0, before >= duration - Self.carriedOnWindowSec
+                || (staleHandoff && !isHere && handedList.contains { $0.trackURI == uri }) {
                 // The song ran out and Spotify carried on by itself to something else (the list was
                 // stale, or its autoplay): the engine starts its next, back in Yoin's queue.
                 sawCurrent = false
@@ -2363,11 +2449,16 @@ final class SpotifyAudioOutput: AudioOutput {
                 let t = self.currentTimeSec
                 self.events?.outputTimeDidChange(Self.shownTime(t, durationSec: self.stateDurationSec))
                 // Connected or not (audit 11-15 #7: a dropped connection never asked); a poll already reads.
-                if self.isHere, self.endCheckedURI == nil, self.pollTimer == nil,
-                   Self.overran(timeSec: t, durationSec: self.stateDurationSec) {
-                    self.endCheckedURI = self.shownURI
-                    PlayTrace.log("SP ran past the song's end with no state: asking me/player")
-                    self.watch(overrun: true)
+                if self.endCheckedURI == nil, Self.overran(timeSec: t, durationSec: self.stateDurationSec) {
+                    if self.isHere, self.pollTimer == nil {
+                        self.endCheckedURI = self.shownURI
+                        PlayTrace.log("SP ran past the song's end with no state: asking me/player")
+                        self.watch(overrun: true)
+                    } else if !self.isHere {
+                        // A speaker: a read now, not at the next poll (audit 11-15 #45).
+                        self.endCheckedURI = self.shownURI
+                        Task { await self.readOnce() }
+                    }
                 }
             }
         }

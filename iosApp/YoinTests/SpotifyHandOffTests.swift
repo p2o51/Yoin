@@ -53,7 +53,9 @@ final class SpotifyHandOffTests: XCTestCase {
         let fresh = [item("x"), item("b"), item("c")]
         XCTAssertEqual(SpotifyAudioOutput.rehandTiming(handed: handed, fresh: fresh, elapsedSec: 1, remainingSec: 199), .now)
         XCTAssertEqual(SpotifyAudioOutput.rehandTiming(handed: handed, fresh: fresh, elapsedSec: 90, remainingSec: 110), .atNextSong)
-        XCTAssertEqual(SpotifyAudioOutput.rehandTiming(handed: [], fresh: fresh, elapsedSec: 1, remainingSec: 199), .atNextSong)
+        // Nothing handed (moved over from this iPhone): at a song's start too (audit 11-15 #23).
+        XCTAssertEqual(SpotifyAudioOutput.rehandTiming(handed: [], fresh: fresh, elapsedSec: 1, remainingSec: 199), .now)
+        XCTAssertEqual(SpotifyAudioOutput.rehandTiming(handed: [], fresh: fresh, elapsedSec: 90, remainingSec: 110), .atNextSong)
     }
 
     func test_should_catch_up_on_the_handed_list_only_when_it_is_still_the_queue() {
@@ -61,8 +63,11 @@ final class SpotifyHandOffTests: XCTestCase {
         let snapshot = OutputQueueSnapshot()
         XCTAssertEqual(SpotifyAudioOutput.jumpTarget(uri: "spotify:track:c", handed: handed, upcoming: handed,
                                                      context: nil, snapshot: snapshot), item("c"))
-        // The queue changed in front of it: Spotify's list is stale, Yoin's queue wins.
-        XCTAssertNil(SpotifyAudioOutput.jumpTarget(uri: "spotify:track:c", handed: handed, upcoming: [item("x"), item("c")],
+        // The queue changed in front of it: a song of the stale list still ahead in the queue is followed
+        // there (audit 11-15 #22); one the queue no longer has isn't.
+        XCTAssertEqual(SpotifyAudioOutput.jumpTarget(uri: "spotify:track:c", handed: handed, upcoming: [item("x"), item("c")],
+                                                     context: nil, snapshot: snapshot), item("c"))
+        XCTAssertNil(SpotifyAudioOutput.jumpTarget(uri: "spotify:track:c", handed: handed, upcoming: [item("x"), item("d")],
                                                    context: nil, snapshot: snapshot))
         XCTAssertNil(SpotifyAudioOutput.jumpTarget(uri: "spotify:track:z", handed: handed, upcoming: handed,
                                                    context: nil, snapshot: snapshot))

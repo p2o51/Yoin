@@ -408,9 +408,16 @@ final class WebStub: URLProtocol {
     nonisolated(unsafe) private static var relinked: String?
     nonisolated(unsafe) private static var paused = false
     nonisolated(unsafe) private static var requests: [String] = []
+    nonisolated(unsafe) private static var queries: [String] = []
+    /// me/player names a speaker ("Kitchen", id k1) instead of this iPhone.
+    nonisolated(unsafe) static var onSpeaker = false
     nonisolated(unsafe) private static var readTimes: [Date] = []
 
-    static func reset() { lock.withLock { playing = nil; relinked = nil; paused = false; readTimes = []; requests = [] } }
+    static func reset() {
+        lock.withLock { playing = nil; relinked = nil; paused = false; readTimes = []; requests = []; queries = []; onSpeaker = false }
+    }
+    /// The query of every request but the me/player reads, in order.
+    static var commandQueries: [String] { lock.withLock { queries } }
     static func set(_ uri: String?, relinkedTo: String?, paused: Bool = false) {
         lock.withLock { playing = uri; relinked = relinkedTo; self.paused = paused }
     }
@@ -426,7 +433,10 @@ final class WebStub: URLProtocol {
         let url = request.url!
         var status = 204, body = ""
         if !(request.httpMethod == "GET" && url.path.hasSuffix("/me/player")) {
-            Self.lock.withLock { Self.requests.append("\(request.httpMethod ?? "GET") \(url.path)") }
+            Self.lock.withLock {
+                Self.requests.append("\(request.httpMethod ?? "GET") \(url.path)")
+                Self.queries.append(url.query ?? "")
+            }
         }
         if request.httpMethod == "GET", url.path.hasSuffix("/me/player") {
             let (uri, copy, paused) = Self.lock.withLock {
@@ -437,7 +447,9 @@ final class WebStub: URLProtocol {
                 let item = copy.map { #"{"uri":"\#($0)","linked_from":{"uri":"\#(uri)"},"duration_ms":200000,"name":"S"}"# }
                     ?? #"{"uri":"\#(uri)","duration_ms":200000,"name":"S"}"#
                 status = 200
-                body = #"{"device":{"id":"ip","name":"iPhone","type":"Smartphone"},"is_playing":\#(!paused),"progress_ms":2729,"shuffle_state":false,"repeat_state":"off","item":\#(item)}"#
+                let device = Self.onSpeaker ? #"{"id":"k1","name":"Kitchen","type":"Speaker"}"#
+                    : #"{"id":"ip","name":"iPhone","type":"Smartphone"}"#
+                body = #"{"device":\#(device),"is_playing":\#(!paused),"progress_ms":2729,"shuffle_state":false,"repeat_state":"off","item":\#(item)}"#
             }
         }
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",

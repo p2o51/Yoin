@@ -157,7 +157,7 @@ final class PlayerEngine {
             currentIndex = start
         }
         consecutiveFailures = 0
-        loadCurrent(play: !paused, startSec: max(0, startSec))
+        loadCurrent(play: !paused, startSec: max(0, startSec), kind: .newQueue)
     }
 
     /// Takes [tracks] as the queue without starting anything (Add to queue on an empty player:
@@ -513,8 +513,8 @@ final class PlayerEngine {
         loadCurrent(play: true, startSec: at)
     }
 
-    /// [byListener] false: the engine moves on by itself (a song's end, a skip after an error).
-    private func loadCurrent(play: Bool, startSec: Double = 0, byListener: Bool = true) {
+    /// [kind]: why (a new queue, the listener within it, or the engine moving on by itself).
+    private func loadCurrent(play: Bool, startSec: Double = 0, kind: OutputLoadKind = .listener) {
         externalTrack = nil
         guard let item = currentItem else { return }
         ended = false
@@ -533,7 +533,7 @@ final class PlayerEngine {
         progress.durationSec = item.track.durationSec
         beginScrobble(item, at: start)
         isBuffering = true
-        output.nextLoad(byListener: byListener)
+        output.nextLoad(kind)
         output.load(streamURL(for: item, timeOffsetSec: offset), next: preloadedURL,
                     startSec: delivery.seeksByTime ? 0 : startSec)
         if play {
@@ -698,7 +698,7 @@ final class PlayerEngine {
             reachEnd()
             return
         }
-        loadCurrent(play: isPlaying, byListener: false)
+        loadCurrent(play: isPlaying, kind: .auto)
     }
 
     private func reachEnd() {
@@ -810,7 +810,7 @@ extension PlayerEngine: AudioOutputEvents {
         guard currentIndex != nil, !ended, externalTrack == nil else { return }
         guard let i = autoAdvanceIndex, queue.indices.contains(i) else { return reachEnd() }
         currentIndex = i
-        loadCurrent(play: true, byListener: false)
+        loadCurrent(play: true, kind: .auto)
     }
 
     func outputDidFail(_ message: String, network: Bool) {
