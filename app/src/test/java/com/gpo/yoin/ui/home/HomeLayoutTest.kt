@@ -35,11 +35,12 @@ class HomeLayoutTest {
                 HomeSection.OtherProfiles,
                 HomeSection.LyricHighlight,
                 HomeSection.MemoryGrid,
+                HomeSection.MadeForYou,
             ),
             layout.sections.map { it.section },
         )
         // Your Playlists appends shown (asked for by name), not hidden-and-new.
-        assertEquals(listOf(false, true, false, false, true, true, true, true, true), layout.sections.map { it.enabled })
+        assertEquals(listOf(false, true, false, false, true, true, true, true, true, true), layout.sections.map { it.enabled })
         assertEquals(setOf(HomeSection.Rediscover), layout.newSections)
     }
 
@@ -66,10 +67,11 @@ class HomeLayoutTest {
                 HomeSection.OtherProfiles,
                 HomeSection.LyricHighlight,
                 HomeSection.MemoryGrid,
+                HomeSection.MadeForYou,
             ),
             layout.sections.map { it.section },
         )
-        assertEquals(listOf(false, true, true, false, true, true, true, true, true), layout.sections.map { it.enabled })
+        assertEquals(listOf(false, true, true, false, true, true, true, true, true, true), layout.sections.map { it.enabled })
         assertTrue(layout.retained.isEmpty())
         assertEquals(setOf(HomeSection.Rediscover), layout.newSections)
     }
@@ -100,6 +102,7 @@ class HomeLayoutTest {
                 HomeSectionState(HomeSection.OtherProfiles, enabled = true),
                 HomeSectionState(HomeSection.LyricHighlight, enabled = true),
                 HomeSectionState(HomeSection.MemoryGrid, enabled = true),
+                HomeSectionState(HomeSection.MadeForYou, enabled = true),
             ),
         )
         assertEquals(layout, HomeLayout.reconcile(layout.toPrefs()))
@@ -135,8 +138,9 @@ class HomeLayoutTest {
                 HomeSection.OtherProfiles,
                 HomeSection.LyricHighlight,
                 HomeSection.MemoryGrid,
+                HomeSection.MadeForYou,
             ),
-            layout.sections.takeLast(6).map { it.section },
+            layout.sections.takeLast(7).map { it.section },
         )
         assertTrue(layout.newSections.isEmpty())
     }
@@ -182,8 +186,9 @@ class HomeLayoutTest {
                 HomeSection.OtherProfiles,
                 HomeSection.LyricHighlight,
                 HomeSection.MemoryGrid,
+                HomeSection.MadeForYou,
             ),
-            layout.sections.takeLast(6).map { it.section },
+            layout.sections.takeLast(7).map { it.section },
         )
         assertTrue(layout.sections.first { it.section == HomeSection.Activities }.enabled)
         assertTrue(layout.newSections.isEmpty())
@@ -297,6 +302,7 @@ class HomeLayoutTest {
                 HomeSectionState(HomeSection.OtherProfiles, enabled = true),
                 HomeSectionState(HomeSection.LyricHighlight, enabled = true),
                 HomeSectionState(HomeSection.MemoryGrid, enabled = true),
+                HomeSectionState(HomeSection.MadeForYou, enabled = true),
             ),
             moved.sections,
         )
@@ -316,6 +322,7 @@ class HomeLayoutTest {
                 HomeSection.OtherProfiles,
                 HomeSection.LyricHighlight,
                 HomeSection.MemoryGrid,
+                HomeSection.MadeForYou,
                 HomeSection.Activities,
             ),
             moved.enabledSections,

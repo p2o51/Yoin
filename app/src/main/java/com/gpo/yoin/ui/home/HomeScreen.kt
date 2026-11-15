@@ -40,6 +40,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.spotify.MadeForYouPlaylist
 import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -76,6 +77,7 @@ import kotlinx.coroutines.flow.first
 private const val HomeLoadingIndicatorDelayMillis = 180L
 
 private val NoOtherProfileItems = MutableStateFlow(emptyList<OtherProfileItem>())
+private val NoMadeForYou = MutableStateFlow(emptyList<MadeForYouPlaylist>())
 private val NoticeAlreadySeen = MutableStateFlow(true)
 private val NoSpotifyElsewhere = MutableStateFlow<SpotifyElsewhere?>(null)
 private val NoLyricIntro = MutableStateFlow<LyricHighlightIntro?>(null)
@@ -128,6 +130,8 @@ fun HomeScreen(
     lyricHighlights: LyricHighlightViewModel? = null,
     // The Memories grid's ledger (null = no grid).
     memoryLedger: MemoryLedgerViewModel? = null,
+    // Spotify's Made For You playlists (null = no shelf).
+    madeForYou: MadeForYouViewModel? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val memoryLedgerState by (memoryLedger?.state ?: NoMemoryLedger).collectAsState()
@@ -139,6 +143,12 @@ fun HomeScreen(
     // A new instance per source: covers resolved before it was up resolve again.
     val buildCoverArtUrl by viewModel.coverArtUrlBuilder.collectAsState()
     val otherProfileItems by (otherProfiles?.items ?: NoOtherProfileItems).collectAsState()
+    val madeForYouItems by (madeForYou?.items ?: NoMadeForYou).collectAsState()
+    // Read again each time Home comes up after a while (daylist changes through the day).
+    LifecycleStartEffect(madeForYou) {
+        madeForYou?.onHomeShown()
+        onStopOrDispose { }
+    }
     val otherProfilesNoticeSeen by (otherProfiles?.noticeSeen ?: NoticeAlreadySeen).collectAsState()
     val lyricHighlightCards by (lyricHighlights?.cards ?: NoLyricHighlights).collectAsState()
     val lyricHighlightAvailable by (lyricHighlights?.available ?: NoLyricHighlightDevice).collectAsState()
@@ -234,6 +244,7 @@ fun HomeScreen(
                 accountSwitcher?.switchTo(elsewhere.profileId)
             },
             otherProfileItems = otherProfileItems,
+            madeForYou = madeForYouItems,
             onOtherProfileItemClick = { item ->
                 if (otherProfilesNoticeSeen) {
                     switchAndPlay(item)
@@ -309,6 +320,7 @@ fun HomeContent(
     // On Your Other Accounts' items, and a tap on one.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
+    madeForYou: List<MadeForYouPlaylist> = emptyList(),
     lyricHighlights: List<HomeLyricHighlight> = emptyList(),
     lyricHighlightAvailable: Boolean = false,
     nanoTestLog: List<String> = emptyList(),
@@ -497,6 +509,7 @@ fun HomeContent(
                                 onSpotifyElsewhereClick = onSpotifyElsewhereClick,
                                 otherProfileItems = otherProfileItems,
                                 onOtherProfileItemClick = onOtherProfileItemClick,
+                                madeForYou = madeForYou,
                                 lyricHighlights = lyricHighlights,
                                 lyricHighlightAvailable = lyricHighlightAvailable,
                                 nanoTestLog = nanoTestLog,

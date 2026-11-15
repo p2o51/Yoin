@@ -216,6 +216,12 @@ class PlaybackManager(
     val events: SharedFlow<PlaybackEvent> = _events.asSharedFlow()
 
     init {
+        // Made For You (SpotifyMadeForYou.kt): Home and the Spotify source read App Remote's
+        // content tree over the player's own connection.
+        com.gpo.yoin.data.source.spotify.SpotifyContentBridge.browser =
+            com.gpo.yoin.data.source.spotify.SpotifyContentBrowser { uri, limit, offset ->
+                spotifyRemotePlayer.contentChildren(uri, limit, offset)
+            }
         castManager?.let { cm ->
             scope.launch {
                 cm.castState.collect { state ->

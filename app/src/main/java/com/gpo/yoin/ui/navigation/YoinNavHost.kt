@@ -139,6 +139,7 @@ import com.gpo.yoin.ui.home.HomeSongTap
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.home.LocalMemoryBubbleShell
 import com.gpo.yoin.ui.home.LyricHighlightViewModel
+import com.gpo.yoin.ui.home.MadeForYouViewModel
 import com.gpo.yoin.ui.home.OtherProfilesViewModel
 import com.gpo.yoin.ui.memories.ledger.MemoryLedgerViewModel
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
@@ -1047,6 +1048,8 @@ private fun YoinShell(
     val lyricHighlights: LyricHighlightViewModel = viewModel(factory = LyricHighlightViewModel.Factory(app.container))
     // Home's Memories grid: every account's memories, kept fresh as they're written.
     val memoryLedger: MemoryLedgerViewModel = viewModel(factory = MemoryLedgerViewModel.Factory(app.container))
+    // Home's Made For You: Spotify's playlists for the account, read from the Spotify app.
+    val madeForYou: MadeForYouViewModel = viewModel(factory = MadeForYouViewModel.Factory(app.container, app))
     val switchFailedMessage by rememberUpdatedState(stringResource(R.string.settings_switch_failed))
     LaunchedEffect(accountSwitcher) {
         accountSwitcher.switchFailures.collect {
@@ -1231,6 +1234,7 @@ private fun YoinShell(
                                 otherProfiles = otherProfiles,
                                 lyricHighlights = lyricHighlights,
                                 memoryLedger = memoryLedger,
+                                madeForYou = madeForYou,
                                 isPlaying = isPlaying,
                                 activeSongId = currentTrack?.id?.toString(),
                                 // Something above Home owns the screen (Now

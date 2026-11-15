@@ -116,6 +116,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gpo.yoin.R
+import com.gpo.yoin.data.source.spotify.MadeForYouPlaylist
 import com.gpo.yoin.data.source.spotify.SpotifyElsewhere
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
@@ -299,6 +300,8 @@ internal fun HomeEditorialContent(
     // What the other accounts play most (HomeOtherProfiles.kt); a tap switches and plays.
     otherProfileItems: List<OtherProfileItem> = emptyList(),
     onOtherProfileItemClick: (OtherProfileItem) -> Unit = {},
+    // Spotify's Made For You playlists (HomeMadeForYou.kt); a tap opens the playlist.
+    madeForYou: List<MadeForYouPlaylist> = emptyList(),
     // 「歌词一句」 (HomeLyricHighlight.kt): the line on show, whether this device has Gemini Nano at all
     // (without it the section is left out of the feed, edit mode and the tray), playing it, drawing another.
     lyricHighlights: List<HomeLyricHighlight> = emptyList(),
@@ -734,6 +737,7 @@ internal fun HomeEditorialContent(
         recentlyPlayed,
         playlists,
         otherProfileItems,
+        madeForYou,
         lyricHighlights,
         lyricHighlightAvailable,
         nanoTestLog.isNotEmpty(),
@@ -760,6 +764,7 @@ internal fun HomeEditorialContent(
                         HomeSection.LyricHighlight ->
                             lyricIntro != null || lyricHighlights.isNotEmpty() || nanoTestLog.isNotEmpty()
                         HomeSection.MemoryGrid -> memoryLedger?.isEmpty == false
+                        HomeSection.MadeForYou -> madeForYou.isNotEmpty()
                     }
                 },
                 available = { section -> section != HomeSection.LyricHighlight || lyricHighlightAvailable },
@@ -931,6 +936,7 @@ internal fun HomeEditorialContent(
         playlists,
         recentlyPlayed,
         otherProfileItems,
+        madeForYou,
         lyricHighlights,
         memoryLedger,
         buildCoverArtUrl,
@@ -947,6 +953,7 @@ internal fun HomeEditorialContent(
                 playlists = playlists,
                 recentlyPlayed = recentlyPlayed,
                 otherProfileItems = otherProfileItems,
+                madeForYou = madeForYou,
                 lyricHighlights = lyricHighlights,
                 memoryLedger = memoryLedger,
                 buildCoverArtUrl = buildCoverArtUrl,
@@ -1329,6 +1336,25 @@ internal fun HomeEditorialContent(
                                     },
                                 )
 
+                                // Spotify's Made For You playlists; a tap opens the playlist's page.
+                                HomeSection.MadeForYou -> MadeForYouSection(
+                                    playlists = madeForYou,
+                                    extractBackdropColors = shouldExtractBackdropColors,
+                                    onPlaylistClick = { playlist ->
+                                        onEntryClick(HomeEntryTarget.Playlist(playlist.mediaId.toString()))
+                                    },
+                                    frame = feedFrame,
+                                    shelfScrollEnabled = !editing,
+                                    modifier = remember(firstReveal) {
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .stagedBeat(
+                                                progress = { firstReveal.payload },
+                                                rise = 16.dp,
+                                            )
+                                    },
+                                )
+
                                 // Every memory on a grid; a tap opens All Memories.
                                 HomeSection.MemoryGrid -> memoryLedger?.let { ledger ->
                                     MemoryLedgerSection(
@@ -1599,6 +1625,7 @@ private fun homeStripCovers(
     playlists: List<LibraryPlaylist>,
     recentlyPlayed: List<Album>,
     otherProfileItems: List<OtherProfileItem>,
+    madeForYou: List<MadeForYouPlaylist>,
     lyricHighlights: List<HomeLyricHighlight>,
     memoryLedger: MemoryLedgerState?,
     buildCoverArtUrl: (String) -> String,
@@ -1649,6 +1676,7 @@ private fun homeStripCovers(
             .distinct()
             .take(count)
             .map { url -> stripCover(url, shapes.album) }
+        HomeSection.MadeForYou -> madeForYou.take(count).map { stripCover(it.imageUrl, shapes.playlist) }
     }
 }
 
@@ -2876,6 +2904,98 @@ private fun YourPlaylistsSection(
                 )
             }
         }
+    }
+}
+
+/**
+ * Made For You (owner 2026-11-15,「为你推荐」): the playlists Spotify makes for
+ * this account, the Recently Added card's size on the playlist backdrop shape,
+ * with who a mix is made of (or whose it is) under the name. Nothing on the
+ * cover (Spotify's rules allow nothing over its artwork).
+ */
+@Composable
+private fun MadeForYouSection(
+    playlists: List<MadeForYouPlaylist>,
+    extractBackdropColors: Boolean,
+    onPlaylistClick: (MadeForYouPlaylist) -> Unit,
+    frame: HomeFeedFrame,
+    shelfScrollEnabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val editCardScope = LocalHomeEditCardScope.current
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        HomeSectionTitle(text = stringResource(HomeSection.MadeForYou.titleRes))
+        val shelfState = rememberLazyListState()
+        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
+        LazyRow(
+            state = shelfState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
+                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
+            contentPadding = sidePadding,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.Top,
+            userScrollEnabled = shelfScrollEnabled,
+        ) {
+            itemsIndexed(
+                items = playlists,
+                key = { _, playlist -> "made-for-you:${playlist.rawId}" },
+            ) { index, playlist ->
+                MadeForYouCard(
+                    playlist = playlist,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onPlaylistClick(playlist) },
+                    modifier = Modifier.homeEditCard(index),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MadeForYouCard(
+    playlist: MadeForYouPlaylist,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Column(
+        modifier = modifier
+            .width(RecentlyAddedAlbumCover)
+            .noRippleClickable(
+                interactionSource = interactionSource,
+                enabled = homeEditInteractive(),
+                onClick = onClick,
+            )
+            .elasticPress(interactionSource),
+    ) {
+        WidgetBackdropArtwork(
+            model = playlist.imageUrl,
+            kind = WidgetShapeKind.Playlist,
+            contentDescription = playlist.title,
+            extractBackdropColors = extractBackdropColors,
+            interactionSource = interactionSource,
+            modifier = Modifier.size(RecentlyAddedAlbumCover),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = playlist.title,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.seamFade(),
+        )
+        Text(
+            text = playlist.cardSubtitle(),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.seamFade(),
+        )
     }
 }
 

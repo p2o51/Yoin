@@ -826,6 +826,57 @@ internal class SpotifyAppRemotePlayer(
     }
 
     /**
+     * App Remote's content tree: the children of [uri], [limit] from [offset]
+     * (`ContentApi.getChildrenOfItem`, its item marked as having children —
+     * Spotify lists a playlist's songs only then). For Made For You
+     * (SpotifyMadeForYou.kt). Waits up to [CONTENT_CONNECT_WAIT_MS] for a
+     * connection the Spotify account already wants (Home loads while it is
+     * still coming up); never connects for another account, plays or touches
+     * the queue.
+     */
+    suspend fun contentChildren(
+        uri: String,
+        limit: Int,
+        offset: Int,
+    ): Result<com.gpo.yoin.data.source.spotify.SpotifyContentPage> = withContext(Dispatchers.Main.immediate) {
+        if (remote?.isConnected != true && wantsConnection) {
+            if (connectJob?.isActive != true) connectIfPossible()
+            withTimeoutOrNull(CONTENT_CONNECT_WAIT_MS) {
+                while (remote?.isConnected != true) delay(CONNECTION_POLL_MS)
+            }
+        }
+        val connected = remote?.takeIf { it.isConnected }
+            ?: return@withContext Result.failure(IllegalStateException("App Remote is not connected"))
+        val parent = com.spotify.protocol.types.ListItem(uri, uri, null, "", "", false, true)
+        try {
+            val page = withTimeout(CONTENT_READ_TIMEOUT_MS) {
+                connected.contentApi.getChildrenOfItem(parent, limit, offset).awaitData()
+            } ?: return@withContext Result.failure(IllegalStateException("No content for $uri"))
+            Result.success(
+                com.gpo.yoin.data.source.spotify.SpotifyContentPage(
+                    items = page.items.orEmpty().mapNotNull { item ->
+                        val itemUri = item?.uri ?: return@mapNotNull null
+                        com.gpo.yoin.data.source.spotify.SpotifyContentItem(
+                            uri = itemUri,
+                            title = item.title.orEmpty(),
+                            subtitle = item.subtitle.orEmpty(),
+                            imageUrl = item.imageUri?.raw?.takeIf { it.startsWith("https://") },
+                            playable = item.playable,
+                        )
+                    },
+                    total = page.total,
+                )
+            )
+        } catch (timeout: TimeoutCancellationException) {
+            Result.failure(timeout)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    /**
      * For the debug library-state probe: runs [block] with App Remote
      * connected when it can be, connecting it for the probe when it isn't
      * (waiting up to [timeoutMs]; it connects only while a Yoin Activity is
@@ -1802,6 +1853,12 @@ internal class SpotifyAppRemotePlayer(
          * dropped connection stranded must not hold the heart check open.
          */
         const val LIBRARY_STATE_TIMEOUT_MS = 3_000L
+
+        /** How long a content-tree read ([contentChildren]) waits for the account's connection to come up. */
+        const val CONTENT_CONNECT_WAIT_MS = 4_000L
+
+        /** How long one content-tree page waits for Spotify's answer (the hub took ~1 s on the tablet). */
+        const val CONTENT_READ_TIMEOUT_MS = 8_000L
 
         /** How often [withProbeConnection] looks whether the connect (or the client id) landed. */
         const val CONNECTION_POLL_MS = 100L

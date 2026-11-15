@@ -200,7 +200,20 @@ class SpotifyMusicSource(
                 val playlist = orNullIfNotFound { apiClient.getPlaylist(rawId) }
                 if (playlist == null) {
                     playlistTrackOffsetsById.remove(rawId)
-                    return@supervisorScope cancelAndReturnNull()
+                    // A playlist Spotify makes (Daily Mix, Discover Weekly…) is a 404 to this
+                    // app; App Remote reads its songs from the Spotify app (SpotifyMadeForYou.kt).
+                    val made = if (isSpotifyMadePlaylist(rawId)) {
+                        SpotifyContentBridge.browser?.spotifyMadePlaylist(rawId)
+                    } else {
+                        null
+                    }
+                    if (made != null) {
+                        playlistTrackOffsetsById[rawId] = made.tracks.mapIndexed { index, track ->
+                            ListedPlaylistEntry(offset = index, trackRawId = track.id.rawId)
+                        }
+                    }
+                    meId.cancel()
+                    return@supervisorScope made
                 }
                 // Starts from the first page the playlist object embeds, when it does.
                 // A development-mode app may read the items of only the user's own and
@@ -550,7 +563,14 @@ class SpotifyMusicSource(
         if (parts.size != 3 || parts[0] != "spotify") return null
         val index = when (parts[1]) {
             "album" -> apiClient.getAlbumTracks(parts[2]).indexOfFirst { it.uri == trackUri }
-            "playlist" -> apiClient.getPlaylistItems(parts[2]).indexOfFirst { it.playable?.uri == trackUri }
+            // A Spotify-made playlist is a 404 to the Web API: the list App Remote read for its page.
+            "playlist" -> if (isSpotifyMadePlaylist(parts[2])) {
+                playlistTrackOffsetsById[parts[2]]
+                    ?.firstOrNull { "spotify:track:${it.trackRawId}" == trackUri }
+                    ?.offset ?: -1
+            } else {
+                apiClient.getPlaylistItems(parts[2]).indexOfFirst { it.playable?.uri == trackUri }
+            }
             else -> return null
         }
         return index.takeIf { it >= 0 }
