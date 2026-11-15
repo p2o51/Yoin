@@ -228,7 +228,7 @@ final class PlayerEngine {
 
     func resume() {
         guard currentIndex != nil || externalTrack != nil, !isPlaying else { return }
-        if externalTrack == nil, failure != nil { return retry() }
+        if failure != nil { return retry() }
         if externalTrack == nil, ended {
             ended = false
             loadCurrent(play: true)
@@ -495,7 +495,19 @@ final class PlayerEngine {
 
     /// Plays the failed song again from where it stopped (Retry; play does the same).
     func retry() {
-        guard failure != nil, currentIndex != nil else { return }
+        guard failure != nil else { return }
+        if externalTrack != nil {
+            // The failure is Spotify's own song's: Retry plays that song in Spotify again, never the parked
+            // queue's (audit 11-15 #38: it started the parked song over Spotify's).
+            failure = nil
+            consecutiveFailures = 0
+            onWillPlay?()
+            isPlaying = true
+            output.play()
+            onStateChange?()
+            return
+        }
+        guard currentIndex != nil else { return }
         let at = progress.positionSec
         consecutiveFailures = 0
         loadCurrent(play: true, startSec: at)
@@ -647,8 +659,10 @@ final class PlayerEngine {
     /// The network / server failed under the current song: hold on it (paused, the error kept, Retry
     /// starts it again where it was) instead of failing the whole queue one song at a time.
     private func holdAfterFailure(_ message: String) {
-        guard let track = currentItem?.track else { return }
-        progress.positionSec = max(progress.positionSec, output.currentTimeSec + timeBaseSec)
+        // Spotify's own song owns a failure while it plays, with no queue under it too (audit 11-15 #38:
+        // there was no banner, and the output's quiet pause swallowed the listener's next one).
+        guard let track = externalTrack ?? currentItem?.track else { return }
+        progress.positionSec = max(progress.positionSec, output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0))
         output.pause()
         isPlaying = false
         isBuffering = false
@@ -850,6 +864,8 @@ extension PlayerEngine: AudioOutputEvents {
     func outputPlayingDidChangeExternally(_ playing: Bool) {
         guard (currentIndex != nil && !ended) || externalTrack != nil, playing != isPlaying else { return }
         isPlaying = playing
+        // Spotify's own song playing again ends a failure held on it.
+        if playing, externalTrack != nil { failure = nil }
         if !playing {
             progress.positionSec = output.currentTimeSec + (externalTrack == nil ? timeBaseSec : 0)
             activeScrobble.lastTickSec = progress.positionSec

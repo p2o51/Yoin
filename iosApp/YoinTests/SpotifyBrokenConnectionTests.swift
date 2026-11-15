@@ -229,6 +229,8 @@ final class FakeSpotifyApp {
     var commands: [String] = []
     /// Pause, resume and skip go nowhere (no state, nothing changes) while set.
     var commandsSilent = false
+    /// Where the song is, as App Remote reports it (a seek that lands moves it).
+    var positionMs = 1000
     private var stateReadyAt = Date.distantPast
 
     var stateReady: Bool { Date() >= stateReadyAt }
@@ -320,7 +322,7 @@ final class FakeLink: AppRemoteLink {
 
     private var state: RemotePlayerState {
         RemotePlayerState(uri: app.appRemoteSilent || !app.stateReady ? "" : (app.playing ?? ""), isPaused: app.paused,
-                          positionMs: 1000, durationMs: 200_000)
+                          positionMs: app.positionMs, durationMs: 200_000)
     }
 
     private func push() {
@@ -359,6 +361,7 @@ final class FakeLink: AppRemoteLink {
         app.lastPlayAt = Date()
         answer(done) { [self] in
             app.plays.append(uri)
+            app.positionMs = 1000
             app.playing = uri
             push()
         }
@@ -383,7 +386,11 @@ final class FakeLink: AppRemoteLink {
     }
     func seek(toMs ms: Int, _ done: @escaping (Error?) -> Void) {
         app.seeks.append(ms)
-        answer(done) { [self] in if !app.seekSilent { push() } }
+        answer(done) { [self] in
+            guard !app.seekSilent else { return }
+            app.positionMs = ms
+            push()
+        }
     }
     func skip(forward: Bool, _ done: @escaping (Error?) -> Void) {
         app.commands.append(forward ? "next" : "previous")
