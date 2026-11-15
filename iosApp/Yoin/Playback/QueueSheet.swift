@@ -44,7 +44,7 @@ struct QueueSheet: View {
         let upcoming = Array(engine.upcoming.enumerated()).map { (index: start + $0.offset, item: $0.element) }
         let queued = upcoming.filter { $0.item.userQueued }
         let next = upcoming.filter { !$0.item.userQueued }
-        List {
+        return List {
             header
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
