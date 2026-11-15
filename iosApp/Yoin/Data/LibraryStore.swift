@@ -1227,7 +1227,18 @@ final class LibraryStore {
                     detail = d
                 }
             } else if let spotify {
-                if var d = try await spotify.playlist(id) {
+                let read = try await spotify.playlist(id)
+                if read == nil {
+                    try ensureLive()
+                    // audit 11-15 #24: Spotify's own playlists (Discover Weekly, Daily Mix …) answer 404 to a
+                    // Development Mode app. The page says to open it in Spotify instead of an empty "0 tracks",
+                    // kept in memory only so the next visit asks again; any other 404 is a playlist gone.
+                    guard SpotifySource.isSpotifyMade(id) else { throw PlaylistGone() }
+                    playlistDetails[id] = Self.spotifyMadeUnavailable(id, row: playlistSummary(id),
+                                                                      palette: placeholderPalette(coverId: id))
+                    return nil
+                }
+                if var d = read {
                     if d.palette.cover == nil, let row = playlistSummary(id) { d.palette = row.palette }
                     let before = playlistDetails[id]?.entries.map(\.track) ?? []
                     let tracks = Self.keepingUnknownHearts(d.entries.map(\.track), before: before, spotify)
@@ -1251,6 +1262,23 @@ final class LibraryStore {
             playlistDetails[id] = detail
             return codec?.dto(detail)
         }
+    }
+
+    /// A playlist Spotify no longer has (audit 11-15 #24): the page's Retry says so instead of "0 tracks".
+    struct PlaylistGone: LocalizedError {
+        var errorDescription: String? { String(localized: "This playlist no longer exists") }
+    }
+
+    /// A Spotify-made playlist whose songs Spotify won't hand this app (audit 11-15 #24): its library row's
+    /// name and cover, marked unavailable so Play is off and the page says to open it in Spotify.
+    nonisolated static func spotifyMadeUnavailable(_ id: String, row: LibraryItem?, palette: CoverPalette) -> PlaylistInfo {
+        var info = PlaylistInfo(id: MediaId(provider: SpotifyMapping.provider, rawId: id),
+                                title: row?.title ?? "", owner: row?.owner ?? "Spotify", isPublic: nil,
+                                description: nil, palette: row?.palette ?? palette, entries: [])
+        info.tracksUnavailable = true
+        info.songCount = row?.count
+        info.ownedByMe = false
+        return info
     }
 
     // MARK: Spotify hearts

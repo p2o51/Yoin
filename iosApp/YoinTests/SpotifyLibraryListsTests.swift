@@ -76,4 +76,18 @@ final class SpotifyLibraryListsTests: XCTestCase {
         XCTAssertEqual(SpotifyMapping.playlistSubtitle(nil), String(localized: "Playlist"))
         XCTAssertFalse(SpotifyMapping.playlistSubtitle(12).contains("·"))
     }
+
+    func test_should_mark_a_spotify_made_playlist_unavailable_when_spotify_answers_404() {
+        XCTAssertTrue(SpotifySource.isSpotifyMade("37i9dQZEVXcJZyENOWUFo7"))
+        XCTAssertFalse(SpotifySource.isSpotifyMade("3cEYpjA9oz9GiPac4AsH4n"))
+        var row = LibraryItem(id: MediaId(provider: SpotifyMapping.provider, rawId: "37i9dQZEVXcJZyENOWUFo7"),
+                              kind: .playlist, title: "Discover Weekly", subtitle: "", palette: palette)
+        row.count = 30
+        let info = LibraryStore.spotifyMadeUnavailable("37i9dQZEVXcJZyENOWUFo7", row: row, palette: palette)
+        XCTAssertTrue(info.tracksUnavailable)
+        XCTAssertEqual(info.title, "Discover Weekly")
+        XCTAssertEqual(info.songCount, 30)
+        XCTAssertEqual(info.ownedByMe, false)
+        XCTAssertTrue(info.entries.isEmpty)
+    }
 }

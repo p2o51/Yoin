@@ -252,6 +252,10 @@ final class SpotifySource {
         (try? await contains(["spotify:artist:\(rawId)"]).first) ?? false
     }
 
+    /// Spotify's own editorial and Made For You playlists (Discover Weekly, Daily Mix, Today's Top Hits …):
+    /// their ids start 37i9dQZ, and a Development Mode app gets 404 for them (audit 11-15 #24).
+    nonisolated static func isSpotifyMade(_ rawId: String) -> Bool { rawId.hasPrefix("37i9dQZ") }
+
     /// The playlist and its playable tracks, every occurrence (up to [cap], Codex N12). Someone else's
     /// playlist answers 403 for its items: it opens marked unreadable (N18). Local files, episodes and
     /// removed entries are left out.
