@@ -2214,7 +2214,9 @@ final class SpotifyAudioOutput: AudioOutput {
         rehandTask?.cancel()
         // Only a song Yoin has playing is paused: a stop after a start that never went out (Spotify
         // not installed, the wake failed) sent a pause to whatever device Spotify had active.
-        if !silent, wantsPlay, playing, !starting, !awaitingWake, let control {
+        // Spotify's own song is the listener's: an account switch or a stop leaves it playing (Android never
+        // pauses on a switch; audit 11-15 #40).
+        if !silent, wantsPlay, playing, !starting, !awaitingWake, !onSpotifysOwnSong, let control {
             let device = target
             Task { try? await control.pausePlayback(deviceId: device) }
         }

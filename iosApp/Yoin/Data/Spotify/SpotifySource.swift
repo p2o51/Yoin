@@ -650,7 +650,7 @@ final class SpotifySource {
 
     /// Whether the track is in Liked Songs (nil: unknown, the read failed).
     func isSaved(_ rawId: String) async -> Bool? {
-        if liked.contains(rawId) { return true }
+        // Always asked: the in-memory liked set can trail a heart changed in Spotify (audit 11-15 #19).
         do {
             let saved = try await contains(["spotify:track:\(rawId)"]).first ?? false
             noteSaved(rawId, saved)

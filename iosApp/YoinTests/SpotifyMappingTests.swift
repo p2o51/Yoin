@@ -310,8 +310,8 @@ final class SpotifyMappingTests: XCTestCase {
         XCTAssertTrue(songs.allSatisfy(\.track.starred))
         let capped = try await SpotifySource(api: makeAPI()).librarySongs(cap: 2)
         XCTAssertEqual(capped.count, 2)
-        let isSaved = await source.isSaved("t3")
-        XCTAssertEqual(isSaved, true, "known from the read, no request")
+        // Known from the read without a request (isSaved itself always asks: audit 11-15 #19).
+        XCTAssertEqual(source.knownSaved("t3"), true, "known from the read, no request")
     }
 
     @MainActor
