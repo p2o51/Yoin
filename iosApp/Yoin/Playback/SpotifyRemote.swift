@@ -244,7 +244,7 @@ final class SpotifyRemote {
             // playing on that very iPhone): only a missing app is called missing.
             let installed = SpotifyApp.isInstalled
             PlayTrace.log("SR wake not opened installed=\(installed)")
-            self?.onFailure?(installed ? SpotifyFailureCopy.handOffRefused : SpotifyFailureCopy.appMissing)
+            self?.onFailure?(installed ? SpotifyFailureCopy.openSpotify(on: SpotifyThisDevice.current.word) : SpotifyFailureCopy.appMissing)
         }
     }
 

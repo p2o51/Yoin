@@ -3897,16 +3897,6 @@
         }
       }
     },
-    "Spotify didn't accept Yoin. In your app on developer.spotify.com, add both Redirect URIs and the iOS bundle ID from Settings › Spotify, then try again.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spotify 没有接受 Yoin。请在 developer.spotify.com 上你的应用里，加上「设置 › Spotify」中列出的两个 Redirect URI 和 iOS bundle ID，然后再试一次。"
-          }
-        }
-      }
-    },
     "Next up": {
       "localizations": {
         "zh-Hans": {

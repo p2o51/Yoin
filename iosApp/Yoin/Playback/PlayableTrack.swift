@@ -101,11 +101,6 @@ enum SpotifyFailureCopy {
     static var notOpenOnMac: String { String(localized: "Spotify isn't open on this Mac") }
     /// No Spotify app on this device (player_spotify_app_missing).
     static var appMissing: String { String(localized: "Install the Spotify app to play Spotify tracks.") }
-    /// The Spotify app is installed but wouldn't take Yoin's hand-off (authorizeAndPlayURI said no): most
-    /// often the Spotify developer app behind the listener's own Client ID lacks Yoin's iOS entries.
-    static var handOffRefused: String {
-        String(localized: "Spotify didn't accept Yoin. In your app on developer.spotify.com, add both Redirect URIs and the iOS bundle ID from Settings › Spotify, then try again.")
-    }
 }
 
 /// Things the engine did on its own that the UI may want to surface.
