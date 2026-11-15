@@ -2,6 +2,16 @@
   "sourceLanguage": "en",
   "strings": {
     "": {},
+    "Your queue": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的队列"
+          }
+        }
+      }
+    },
     "Help and about": {
       "localizations": {
         "zh-Hans": {

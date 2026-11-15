@@ -427,6 +427,10 @@ struct NowPlayingView: View, Equatable {
             guard let t = engineTrack else { return }
             await data.prepare(t, client: model.session.client, apple: model.store.apple)
         }
+        // Spotify's own song: where Spotify plays it from, read once per song (audit 11-15 #35).
+        .task(id: model.player.externalTrack.map(NowPlayingData.key)) {
+            SpotifyPlayingFrom.shared.observe(model.player.externalTrack, model: model)
+        }
         // The next song's lyrics, once this one has settled (a skip cancels it).
         .task(id: model.player.upNextTrack.map(NowPlayingData.key)) {
             guard let next = model.player.upNextTrack else { return }
@@ -2401,7 +2405,16 @@ struct NowPlayingView: View, Equatable {
         if !model.store.isReal {
             return (String(localized: "PLAYING FROM ALBUM"), playback.album.title, String(localized: "Go to album"), albumRoute(playback))
         }
-        guard model.player.externalTrack == nil, let from = model.playingFrom, !from.title.isEmpty else {
+        if let own = model.player.externalTrack {
+            // Spotify's own song: where Spotify plays it from, not the parked queue's page (audit 11-15 #35).
+            guard let from = SpotifyPlayingFrom.shared.label(for: own) else { return (nil, String(localized: "NOW PLAYING"), "", nil) }
+            let route: (() -> Void)? = from.route.map { route in { [model] in
+                Self.leaveForRoute(model)
+                model.open(route)
+            } }
+            return (from.kind, from.name, from.hint, route)
+        }
+        guard let from = model.playingFrom, !from.title.isEmpty else {
             return (nil, String(localized: "NOW PLAYING"), "", nil)
         }
         let hint = switch from {

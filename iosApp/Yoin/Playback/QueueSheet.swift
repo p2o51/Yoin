@@ -20,16 +20,19 @@ struct QueueSheet: View {
     /// Android QueueRowHeight.
     private static let rowHeight: CGFloat = 64
 
+    @Environment(\.scenePhase) private var scenePhase
+
     /// Spotify's own queue while it plays a song of its own (picked in the Spotify app, here or on a
     /// speaker): App Remote never reports it, so it is read through the Web API, as Android does
-    /// (SpotifyMusicSource.playerQueue), when the sheet opens, after an Add to queue and every
-    /// [spotifyQueueRereadSec] while it is open.
+    /// (SpotifyMusicSource.playerQueue), when the sheet opens, when Spotify moves to another song, after
+    /// an Add to queue and when Yoin comes back to the front. No timed re-read: it would spend the
+    /// account's Web API allowance while the sheet sits open (audit 11-15 #37).
     @State private var spotifyQueue: SpotifyQueueRead = .loading
     /// The song [spotifyQueue] was read under: another song starts the list over.
     @State private var spotifyQueueSong: String?
     @State private var spotifyQueueRetry = 0
-
-    static let spotifyQueueRereadSec: Double = 5
+    /// Bumps when Yoin comes back to the front (a change made in the Spotify app shows then).
+    @State private var spotifyQueueForeground = 0
 
     /// Spotify plays a song that isn't the queue's: the sheet shows Spotify's queue, not Yoin's parked one.
     private var spotifysOwn: PlayableTrack? {
@@ -109,8 +112,10 @@ struct QueueSheet: View {
         }
     }
 
-    /// Spotify's song and what Spotify plays after it, read-only: Spotify's queue can't be reordered or
-    /// trimmed from outside, and a tap can't jump into it.
+    /// Spotify's song, Yoin's parked queue under it when there is one (tap a row to go back to it, audit
+    /// 11-15 #13; Android keeps its queue and slots the foreign song in), then what Spotify plays after
+    /// it, read-only: Spotify's queue can't be reordered or trimmed from outside, and its rows don't jump
+    /// (#37: until a tap can start there without the Web API on this iPhone, they don't look tappable).
     private func spotifyList(_ own: PlayableTrack) -> some View {
         List {
             header
@@ -119,6 +124,15 @@ struct QueueSheet: View {
                 .listRowSeparator(.hidden)
             sectionLabel(String(localized: "Now playing"))
             spotifyRow(title: own.title, artist: own.artist, cover: own.coverURL, current: true)
+            if let parked = engine.currentItem {
+                // The parked song and what follows it: a tap plays the queue again from there.
+                let start = (engine.currentIndex ?? -1) + 1
+                let upcoming = Array(engine.upcoming.enumerated()).map { (index: start + $0.offset, item: $0.element) }
+                sectionLabel(String(localized: "Your queue"))
+                row(parked, index: engine.currentIndex ?? 0, current: false)
+                    .moveDisabled(true)
+                part(upcoming)
+            }
             switch spotifyQueue {
             case .loading:
                 EmptyView()
@@ -137,15 +151,17 @@ struct QueueSheet: View {
         .modifier(SheetChrome())
         // Read again when Spotify moves to another song, after an Add to queue, on Retry, and every few
         // seconds while the sheet is open.
-        .task(id: SpotifyQueueKey(song: own.id, revision: model.spotifyQueueRevision, retry: spotifyQueueRetry)) {
+        .task(id: SpotifyQueueKey(song: own.id, revision: model.spotifyQueueRevision, retry: spotifyQueueRetry,
+                                  foreground: spotifyQueueForeground)) {
             if spotifyQueueSong != own.id {
                 spotifyQueueSong = own.id
                 spotifyQueue = .loading
             }
-            while !Task.isCancelled {
-                await readSpotifyQueue()
-                try? await Task.sleep(for: .seconds(Self.spotifyQueueRereadSec))
-            }
+            await readSpotifyQueue()
+        }
+        .task(id: own.id) { SpotifyPlayingFrom.shared.observe(own, model: model) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { spotifyQueueForeground += 1 }
         }
     }
 
@@ -241,8 +257,8 @@ struct QueueSheet: View {
     /// Library, Search): "Queue" / "Next up". The mock: its album.
     private var sourceTitle: String? {
         guard engine.currentTrack != nil else { return model.playback.album.title }
-        // Spotify's own song: Yoin's parked queue isn't where it plays from.
-        if spotifysOwn != nil { return nil }
+        // Spotify's own song: where Spotify plays it from (audit 11-15 #35), not the parked queue's page.
+        if let own = spotifysOwn { return SpotifyPlayingFrom.shared.label(for: own)?.name }
         guard let from = model.playingFrom, !from.title.isEmpty else { return nil }
         return from.title
     }
@@ -383,6 +399,7 @@ private struct SpotifyQueueKey: Equatable {
     var song: String
     var revision: Int
     var retry: Int
+    var foreground: Int
 }
 
 extension SpotifySource.QueueEntry {

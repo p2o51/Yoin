@@ -548,7 +548,10 @@ private struct PadDetailPlay: View {
                                                             bottomTrailingRadius: inner, topTrailingRadius: inner))
                     Menu {
                         Button("Shuffle play") { model.play(loading: { await entries() }, shuffle: true) }
-                        Button("Play next") { Task { model.enqueue(await entries(), next: true) { ok in if !ok { PlaylistActions.shared.show(String(localized: "Couldn't add to queue")) } } } }
+                        // Spotify plays its own song: only its queue takes songs, at the end (audit 11-15 #20).
+                        if model.player.externalTrack == nil {
+                            Button("Play next") { Task { model.enqueue(await entries(), next: true) { ok in if !ok { PlaylistActions.shared.show(String(localized: "Couldn't add to queue")) } } } }
+                        }
                         Button("Add to queue") { Task { model.enqueue(await entries(), next: false) { ok in if !ok { PlaylistActions.shared.show(String(localized: "Couldn't add to queue")) } } } }
                         if PlaylistActions.shared.canAddToPlaylist(model.store) {
                             Button("Add to playlist") { Task { PlaylistActions.shared.requestAdd(await entries()) } }
