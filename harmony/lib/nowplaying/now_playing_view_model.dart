@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/lyrics/lrc_parser.dart';
+import '../data/lyrics/user_lyrics_store.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../platform/playback/playback_engine.dart';
@@ -289,12 +291,28 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     final key = track.id.toString();
     _lyricsFetchFor = key;
     final generation = ++_lyricsGeneration;
-    if (!caps.contains(Capability.lyrics)) {
+    final userStore = ref.read(userLyricsStoreProvider);
+    if (!caps.contains(Capability.lyrics) && userStore == null) {
       // Done synchronously would mutate state during build: finish next microtask.
       scheduleMicrotask(() => _landLyrics(generation, key, LyricSheet.empty));
       return;
     }
     () async {
+      // The user's own pick first: it wins over the server's lyrics (Android's
+      // load order — the chosen lyrics_cache row, then the source).
+      try {
+        final chosen = await userStore?.read(key);
+        if (chosen != null) {
+          _landLyrics(generation, key, lyricSheetOf(LrcParser.parse(chosen.lrc)));
+          return;
+        }
+      } catch (e) {
+        debugPrint('user lyrics read failed: ${e.runtimeType}');
+      }
+      if (!caps.contains(Capability.lyrics)) {
+        _landLyrics(generation, key, LyricSheet.empty);
+        return;
+      }
       LyricSheet sheet;
       try {
         sheet = lyricSheetOf(await source.metadata.getLyrics(track));
@@ -303,6 +321,36 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
       }
       _landLyrics(generation, key, sheet);
     }();
+  }
+
+  /// Applies lyrics the user chose for the playing song (Android
+  /// YoinRepository.applyLyrics / applyLyricsSearchResult): typed or pasted
+  /// ([UserLyrics.manualProvider]) or a search result's. They are stored as
+  /// the user's pick for this song and shown at once; false when there is
+  /// nothing to apply or the song moved on.
+  Future<bool> applyLyrics(String rawLrc, {String provider = UserLyrics.manualProvider, String? providerSongId}) async {
+    final current = state;
+    final trimmed = rawLrc.trim();
+    if (current is! NowPlayingContent || trimmed.isEmpty) return false;
+    final key = current.songKey;
+    final sheet = lyricSheetOf(LrcParser.parse(trimmed));
+    // Whatever was still loading for this song is superseded.
+    _lyricsGeneration++;
+    _lyricsFetchFor = null;
+    try {
+      await ref
+          .read(userLyricsStoreProvider)
+          ?.write(key, UserLyrics(lrc: trimmed, provider: provider, providerSongId: providerSongId));
+    } catch (e) {
+      debugPrint('user lyrics write failed: ${e.runtimeType}');
+      return false;
+    }
+    if (!ref.mounted) return false;
+    _cacheLyrics(key, sheet);
+    final now = state;
+    if (now is! NowPlayingContent || now.songKey != key) return false;
+    state = _copy(now, lyrics: LyricsReady(sheet));
+    return true;
   }
 
   void _landLyrics(int generation, String key, LyricSheet sheet) {

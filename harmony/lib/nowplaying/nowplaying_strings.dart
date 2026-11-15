@@ -38,14 +38,78 @@ class NowPlayingStrings {
   String get cdCopyLyrics => _zh ? '复制所选歌词' : 'Copy selected lyrics'; // np_cd_copy_lyrics
   String get cdDoneSelecting => _zh ? '完成选择' : 'Done selecting lyrics'; // np_cd_done_selecting
   String lyricsSelectCount(int n, int total) => '$n / $total'; // np_lyrics_select_count
+  String get lyricsSelectTap => _zh ? '选择歌词行' : 'Select lines'; // np_lyrics_select_tap
   // np_lyrics_copied
   String lyricsCopied(int n) => _zh ? '已复制 $n 行' : (n == 1 ? 'Copied 1 line' : 'Copied $n lines');
+  String lyricsCredit(String title, String artist) => '$title · $artist'; // np_lyrics_credit
+  String lyricsClipboardWithCredit(String body, String credit) =>
+      '$body\n\n— $credit'; // np_lyrics_clipboard_with_credit
+  String get lyricsClipLabel => _zh ? '歌词' : 'Lyrics'; // np_lyrics_clip_label
 
-  /// np_lyrics_clipboard_with_credit + np_lyrics_credit.
-  String lyricsClipboard(String body, String? title, String? artist) {
-    final credit = [?title, ?artist].where((s) => s.isNotEmpty).join(' · ');
-    return credit.isEmpty ? body : '$body\n\n— $credit';
-  }
+  // Lyric tools (LyricsActionBar / LyricsSelectionBar).
+  String get cdSearchLyrics => _zh ? '搜索歌词' : 'Search lyrics'; // np_cd_search_lyrics
+  String get cdTranslateLyrics => _zh ? '翻译歌词' : 'Translate lyrics'; // np_cd_translate_lyrics
+  String get cdSelectLyrics => _zh ? '选择歌词' : 'Select lyrics'; // np_cd_select_lyrics
+  String get cdAddLyrics => _zh ? '添加歌词' : 'Add lyrics'; // np_cd_add_lyrics
+  String get cdShareLyricsImage => _zh ? '将所选歌词分享为图片' : 'Share selected lyrics as an image'; // np_cd_share_lyrics_image
+  String get cdEditLyrics => _zh ? '编辑歌词' : 'Edit lyrics'; // np_cd_edit_lyrics
+
+  // Lyrics search + LRC editor (LyricsSheets).
+  String get lyricsSearchPlaceholder => _zh ? '歌曲或艺术家' : 'Song or artist'; // np_lyrics_search_placeholder
+  String get cdCloseLyricsSearch => _zh ? '关闭歌词搜索' : 'Close lyrics search'; // np_cd_close_lyrics_search
+  String get cdClear => _zh ? '清除' : 'Clear'; // np_cd_clear
+  String get lyricsSearchingProviders => _zh ? '正在搜索歌词源…' : 'Searching providers...'; // np_lyrics_searching_providers
+  String get lyricsNoneFound => _zh ? '未找到歌词。' : 'No lyrics found.'; // np_lyrics_none_found
+  String get lyricsSearching => _zh ? '正在搜索…' : 'Searching...'; // np_lyrics_searching
+  String get lyricsNoResults => _zh ? '无结果' : 'No results'; // np_lyrics_no_results
+  String get lyricsApplyTitle => _zh ? '应用歌词' : 'Apply lyrics'; // np_lyrics_apply_title
+  String get lyricsFieldPlaceholder => _zh ? '歌词' : 'Lyrics'; // np_lyrics_field_placeholder
+  String get lyricsApply => _zh ? '应用' : 'Apply'; // np_lyrics_apply
+  String get lyricsCancel => _zh ? '取消' : 'Cancel'; // np_lyrics_cancel
+
+  /// np_lyrics_provider_qq / _netease / _huawei / _lrclib; unknown ids as they are.
+  String lyricsProviderLabel(String id) => switch (id) {
+    'qq' => _zh ? 'QQ 音乐' : 'QQ Music',
+    'netease' => _zh ? '网易云' : 'NetEase',
+    'huawei' => _zh ? '华为音乐' : 'Huawei Music',
+    'lrclib' => 'LRCLIB',
+    _ => id,
+  };
+  String get msgNeedTitleArtist =>
+      _zh ? '搜索歌词需要歌曲名或艺术家' : 'Need title or artist to search lyrics'; // np_msg_need_title_artist
+  String get msgCouldntSearch => _zh ? '无法搜索歌词' : "Couldn't search lyrics"; // np_msg_couldnt_search
+  String get msgCouldntApply => _zh ? '无法应用歌词' : "Couldn't apply lyrics"; // np_msg_couldnt_apply
+  String get msgLyricsApplied => _zh ? '已应用歌词' : 'Lyrics applied'; // np_msg_lyrics_applied
+
+  /// np_msg_lyrics_applied_qq / _netease / _huawei / _lrclib / _from.
+  String msgLyricsAppliedFrom(String id) => switch (id) {
+    'qq' => _zh ? '已应用来自 QQ 音乐的歌词' : 'Lyrics applied from QQ Music',
+    'netease' => _zh ? '已应用来自网易云的歌词' : 'Lyrics applied from NetEase',
+    'huawei' => _zh ? '已应用来自华为音乐的歌词' : 'Lyrics applied from Huawei Music',
+    'lrclib' => _zh ? '已应用来自 LRCLIB 的歌词' : 'Lyrics applied from LRCLIB',
+    _ => _zh ? '已应用来自 $id 的歌词' : 'Lyrics applied from $id',
+  };
+
+  // Share as image (LyricsShareCard).
+  String get shareTitle => _zh ? '分享歌词' : 'Share lyrics'; // np_share_title
+  String get shareSave => _zh ? '保存' : 'Save'; // np_share_save
+  String get shareSaving => _zh ? '正在保存…' : 'Saving…'; // np_share_saving
+  String get shareSaved => _zh ? '已保存' : 'Saved'; // np_share_saved
+  String get shareTryAgain => _zh ? '重试' : 'Try again'; // np_share_try_again
+  String get shareFailed => _zh ? '无法分享图片' : "Couldn't share the image"; // np_share_failed
+  String get shareAction => _zh ? '分享' : 'Share'; // np_share_action
+  String get shareFormatCard => _zh ? '卡片' : 'Card'; // np_share_format_card
+  String get shareFormatStory => 'Story'; // np_share_format_story
+  String get cdToneSoft => _zh ? '柔和配色' : 'Soft colours'; // np_cd_tone_soft
+  String get cdToneDeep => _zh ? '深色配色' : 'Deep colours'; // np_cd_tone_deep
+  String get cdToneVivid => _zh ? '鲜艳配色' : 'Vivid colours'; // np_cd_tone_vivid
+  String get cdToneMist => _zh ? '薄雾配色' : 'Mist colours'; // np_cd_tone_mist
+  String get shareBrand => 'Yoin'; // np_share_brand (not translatable)
+  String shareFileUntitled(String stamp) =>
+      _zh ? 'Yoin 歌词 $stamp.png' : 'Yoin lyrics $stamp.png'; // np_share_file_untitled
+  // np_share_file_named
+  String shareFileNamed(String title, String stamp) =>
+      _zh ? 'Yoin 歌词 - $title - $stamp.png' : 'Yoin lyrics - $title - $stamp.png';
 
   String get cdFullScreen => _zh ? '全屏' : 'Full screen'; // np_cd_full_screen
   String get cdBackToPanel => _zh ? '返回侧栏' : 'Back to side panel'; // np_cd_back_to_panel

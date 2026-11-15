@@ -1,5 +1,3 @@
-import 'package:yoin_symbols/yoin_symbols.dart';
-import 'package:flutter/services.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -9,9 +7,11 @@ import 'package:flutter/physics.dart';
 import '../theme/motion.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
-import 'lyrics_logic.dart';
-import 'now_playing_view_model.dart';
 import 'haptics.dart';
+import 'lyric_tools.dart';
+import 'lyrics_logic.dart';
+import 'lyrics_selection.dart';
+import 'now_playing_view_model.dart';
 import 'nowplaying_strings.dart';
 import 'playhead_clock.dart';
 import 'up_next_timing.dart';
@@ -32,11 +32,25 @@ abstract final class LyricsPaneMetrics {
   /// The window's (and focus's) bottom fade ends this far inside the
   /// window, so no line is ever cut by the edge the transport sits on.
   static const double windowFadeClear = 4;
+
+  /// The title card's artist under its title (LyricRow secondary).
+  static const double secondaryGap = 4;
+
+  /// Select mode's label: its padding above and below (the band it owns).
+  static const double captionPadV = 8;
+
+  /// A picked block's outer corners (SelectedLineCorner) and where two picks meet (SelectedRunInnerCorner).
+  static const double pickCorner = 16;
+  static const double pickInnerCorner = 4;
+
+  /// Unpicked lines while the pick has room (SelectModeLineAlpha); lines a tap can't add (OutsideLineAlpha).
+  static const double selectModeLineAlpha = 0.7;
+  static const double outsideLineAlpha = 0.42;
 }
 
 /// The lyric list's edge mask (LyricsDisplay `edgeFade(top, bottom)`) for a
-/// box [height] tall: opaque between the fades, transparent at the top edge
-/// and [clearBottom] above the bottom edge. The bottom fade eases out (alpha
+/// box [height] tall: opaque between the fades, transparent above [clearTop]
+/// (select mode's label band) and [clearBottom] above the bottom edge. The bottom fade eases out (alpha
 /// (1 − t)²), so a line straddling it dissolves instead of reading as cut.
 ({List<Color> colors, List<double> stops}) lyricsEdgeMask(
   double height, {
@@ -44,15 +58,18 @@ abstract final class LyricsPaneMetrics {
   required double fadeBottom,
   double clearBottom = 0,
   bool easeBottom = false,
+  double clearTop = 0,
 }) {
   const clear = Color(0x00000000);
   const opaque = Color(0xFF000000);
   if (height <= 0) return (colors: const [opaque, opaque], stops: const [0.0, 1.0]);
-  final top = (fadeTop / height).clamp(0.0, 0.5);
-  final end = (1 - clearBottom / height).clamp(0.5, 1.0);
-  final start = (end - fadeBottom / height).clamp(top, end);
-  final colors = <Color>[clear, opaque, opaque];
-  final stops = <double>[0, top, start];
+  final double band = (clearTop / height).clamp(0.0, 0.5);
+  final double top = math.min(((clearTop + fadeTop) / height).clamp(band, 0.5 + band), 1.0);
+  final double end = (1 - clearBottom / height).clamp(0.5, 1.0);
+  final double fadeIn = math.min(top, end);
+  final double start = (end - fadeBottom / height).clamp(fadeIn, end);
+  final colors = <Color>[clear, if (band > 0) clear, opaque, opaque];
+  final stops = <double>[0, if (band > 0) band, fadeIn, start];
   if (easeBottom) {
     const steps = 4;
     for (var i = 1; i < steps; i++) {
@@ -269,59 +286,75 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
   late final SpringValue _upNextRise = SpringValue(vsync: this, initial: 0, spring: YoinSprings.slowSpatial);
   late final SpringValue _currentBlock = SpringValue(vsync: this, initial: 1, spring: _slowEffects);
 
-  /// Select mode (LyricsSelection): a long-press picks a line, taps toggle
-  /// lines, Copy puts them on the clipboard with the song's credit.
-  bool _selecting = false;
-  final Set<int> _selected = {};
+  /// Select mode (the ✓ lyric tool; LyricsSelection), shared with the tools
+  /// through [LyricToolsScope]. Full list only.
+  LyricsSelection? _selection;
 
-  /// "Copied 3 lines", shown in the select bar for a moment after Copy.
-  String? _copied;
-  Timer? _copiedTimer;
+  /// A tap just tried to grow a full pick: the label names the cap for a moment.
+  bool _limitNudge = false;
+  Timer? _nudgeTimer;
 
-  void _startSelecting(int index) {
-    YoinHaptics.contextClick();
-    widget.autoFollow?.value = false;
-    setState(() {
-      _selecting = true;
-      _copied = null;
-      _selected
-        ..clear()
-        ..add(index);
-    });
-  }
+  /// The label's band above the list's window (0 → its height), standard spatial.
+  late final SpringValue _captionBand = SpringValue(
+    vsync: this,
+    initial: 0,
+    spring: YoinSprings.standardDefaultSpatial,
+  );
+  bool _wasSelecting = false;
 
-  void _toggle(int index) {
-    YoinHaptics.lightTick();
-    setState(() {
-      if (!_selected.remove(index)) _selected.add(index);
-      if (_selected.isEmpty) _selecting = false;
-    });
-  }
+  bool get _selecting => _selection?.active ?? false;
 
-  void _endSelecting() {
-    _copiedTimer?.cancel();
-    setState(() {
-      _selecting = false;
-      _selected.clear();
-      _copied = null;
-    });
-    widget.autoFollow?.value = true;
-  }
-
-  Future<void> _copy() async {
-    final rows = widget.sheet.rows;
-    final picked = (_selected.toList()..sort()).where((i) => i >= 0 && i < rows.length).toList();
-    if (picked.isEmpty) return;
-    final strings = NowPlayingStrings.of(context);
-    final body = picked.map((i) => rows[i].text).join('\n');
-    await Clipboard.setData(ClipboardData(text: strings.lyricsClipboard(body, widget.title, widget.artist)));
+  void _onSelection() {
     if (!mounted) return;
-    YoinHaptics.click();
-    setState(() => _copied = strings.lyricsCopied(picked.length));
-    _copiedTimer?.cancel();
-    _copiedTimer = Timer(const Duration(milliseconds: 1500), () {
-      if (mounted) _endSelecting();
-    });
+    final selecting = _selecting;
+    if (selecting != _wasSelecting) {
+      _wasSelecting = selecting;
+      _setNudge(false);
+      if (!selecting) {
+        // Leaving the mode glides back to the playhead (browsing for lines isn't "stop following").
+        WidgetsBinding.instance.addPostFrameCallback((_) => _seat(animate: true));
+      }
+    } else {
+      // Any accepted tap retires the nudge at once.
+      _setNudge(false);
+    }
+    _evaluateOutro();
+    setState(() {});
+  }
+
+  void _setNudge(bool on) {
+    _nudgeTimer?.cancel();
+    _nudgeTimer = null;
+    _limitNudge = on;
+    if (on) {
+      _nudgeTimer = Timer(selectLimitNudge, () {
+        if (mounted) setState(() => _limitNudge = false);
+      });
+    }
+  }
+
+  /// A tap on line [index] in select mode: a full pick refuses it with the
+  /// reject haptic and the cap on the label (nextLyricSelection).
+  void _tapInSelectMode(int index) {
+    final selection = _selection;
+    if (selection == null) return;
+    if (nextLyricSelection(selection.selected, index, maxLines: selection.maxLines).hitLimit) {
+      YoinHaptics.reject();
+      setState(() => _setNudge(true));
+    } else {
+      selection.toggle(index);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = _full ? LyricToolsScope.maybeOf(context)?.selection : null;
+    if (next == _selection) return;
+    _selection?.removeListener(_onSelection);
+    _selection = next;
+    _selection?.addListener(_onSelection);
+    _wasSelecting = _selecting;
   }
 
   bool get _full => widget.mode == LyricsListMode.full;
@@ -383,7 +416,9 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
 
   @override
   void dispose() {
-    _copiedTimer?.cancel();
+    _nudgeTimer?.cancel();
+    _selection?.removeListener(_onSelection);
+    _captionBand.dispose();
     widget.clock.removeListener(_onTick);
     widget.autoFollow?.removeListener(_onAutoFollow);
     _glide.dispose();
@@ -532,6 +567,8 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     if (!mounted || !_scroll.hasClients) return;
     if (!widget.sheet.isSynced) return;
     if (_full && !(widget.autoFollow?.value ?? true)) return;
+    // Select mode: the page holds still under the reader's taps.
+    if (_selecting) return;
     final position = _scroll.position;
     final target = _targetOffset().clamp(position.minScrollExtent, position.maxScrollExtent);
     if (!animate || !_seated || MediaQuery.disableAnimationsOf(context)) {
@@ -556,7 +593,8 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
   bool _onScrollNotification(ScrollNotification n) {
     if (_full && n is ScrollStartNotification && n.dragDetails != null) {
       _glide.stop();
-      widget.autoFollow?.value = false;
+      // Browsing for lines in select mode isn't "stop following".
+      if (!_selecting) widget.autoFollow?.value = false;
     }
     return false;
   }
@@ -585,6 +623,8 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     final focusMode = _focusMode;
     final focus = _focus;
     final gap = full ? LyricsPaneMetrics.spacing : NowPlayingTokens.lyricsListLineGap;
+    final selecting = full && _selecting;
+    final selected = _selection?.selected ?? const <int>{};
 
     Widget row(int index, LyricRow line) {
       final key = _rowKeys.putIfAbsent(index, GlobalKey.new);
@@ -593,29 +633,32 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
       final child = _LyricLineView(
         key: key,
         text: line.text,
-        active: active,
+        active: active && !selecting,
         distance: synced ? distance : 0,
         above: synced && focus >= 0 && index < focus,
         linesAbove: widget.linesAbove,
         mode: widget.mode,
         synced: synced,
-        stretch: index == _lastTimed ? _stretch : 0,
+        stretch: index == _lastTimed && !selecting ? _stretch : 0,
+        selectMode: selecting,
+        role: selecting ? lyricSelectionRole(index, selected) : LyricSelectionRole.idle,
+        runTop: !selected.contains(index - 1),
+        runBottom: !selected.contains(index + 1),
+        // spotoolfy keeps the line being sung lit while you pick.
+        playingInSelect: selecting && active,
       );
       if (!full) return child;
-      final picked = _selected.contains(index);
-      final shown = _PickTint(picked: picked, selecting: _selecting, child: child);
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onLongPress: _selecting ? null : () => _startSelecting(index),
-        onTap: _selecting
-            ? () => _toggle(index)
+        onTap: selecting
+            ? () => _tapInSelectMode(index)
             : line.startMs == null
             ? null
             : () {
                 widget.autoFollow?.value = true;
                 widget.onSeek(line.startMs!);
               },
-        child: shown,
+        child: child,
       );
     }
 
@@ -624,10 +667,10 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
     ];
 
     final current = <Widget>[
-      if (full && (widget.title != null))
+      if (full && (widget.title?.trim().isNotEmpty ?? false))
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: synced
+          onTap: synced && !selecting
               ? () {
                   widget.autoFollow?.value = true;
                   widget.onSeek(0);
@@ -635,7 +678,22 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
               : null,
           child: KeyedSubtree(
             key: _rowKeys.putIfAbsent(_header, GlobalKey.new),
-            child: _titleRow(context, title: widget.title!, artist: widget.artist, lit: focus == _header),
+            // The song's title card (LyricRow "header"): a lyric row with the
+            // artist as its second line; never pickable, so it steps back once
+            // a pick exists.
+            child: _LyricLineView(
+              text: widget.title!,
+              secondary: widget.artist,
+              active: focus == _header && !selecting,
+              distance: focus >= 0 ? focus + 1 : 0,
+              above: false,
+              linesAbove: widget.linesAbove,
+              mode: widget.mode,
+              synced: true,
+              stretch: 0,
+              selectMode: selecting,
+              role: selected.isNotEmpty ? LyricSelectionRole.outside : LyricSelectionRole.idle,
+            ),
           ),
         ),
       for (var i = 0; i < rows.length; i++) row(i, rows[i]),
@@ -662,7 +720,20 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
             SizedBox(height: NowPlayingFocusTokens.upNextGap),
             rising(
               _upNextHeader,
-              _titleRow(context, title: upNext.title, artist: upNext.artist, lit: _handingOver && full),
+              full
+                  // Rendered as the next song's own list renders its title card.
+                  ? _LyricLineView(
+                      text: upNext.title,
+                      secondary: upNext.artist,
+                      active: _handingOver,
+                      distance: _handingOver ? 0 : 99,
+                      above: false,
+                      linesAbove: widget.linesAbove,
+                      mode: widget.mode,
+                      synced: true,
+                      stretch: 0,
+                    )
+                  : _titleRow(context, title: upNext.title, artist: upNext.artist, lit: false),
               _upNextAlpha,
             ),
             for (var i = 0; i < upNext.sheet.rows.length; i++)
@@ -684,16 +755,33 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
           ];
 
     final side = NowPlayingTokens.columnPadding + widget.horizontalInset;
+    // Full: each row carries its own 12 dp inset, so a picked line's block
+    // reaches past the text into the page margin while the text stays on the
+    // page's edge line (LyricsRowInset).
     final padding = full
         ? const EdgeInsets.fromLTRB(
-            NowPlayingTokens.columnPadding,
+            NowPlayingTokens.columnPadding - LyricsPaneMetrics.rowInset,
             LyricsPaneMetrics.contentPad,
-            NowPlayingTokens.columnPadding,
+            NowPlayingTokens.columnPadding - LyricsPaneMetrics.rowInset,
             LyricsPaneMetrics.contentPad + LyricsPaneMetrics.tail,
           )
         : EdgeInsets.symmetric(horizontal: side, vertical: NowPlayingTokens.lyricsListPadding);
 
     final screenH = MediaQuery.sizeOf(context).height;
+    final strings = NowPlayingStrings.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final captionStyle = textTheme.labelLarge!;
+    final captionHeight =
+        MediaQuery.textScalerOf(context).scale(captionStyle.fontSize!) * (captionStyle.height ?? 1.4) +
+        2 * LyricsPaneMetrics.captionPadV;
+    if (full) {
+      final target = selecting ? captionHeight : 0.0;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _captionBand.snapTo(target);
+      } else {
+        _captionBand.animateTo(target);
+      }
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewport = constraints.maxHeight;
@@ -712,13 +800,6 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
             ? math.min(LyricsPaneMetrics.fade, viewport * LyricsPaneMetrics.fadeMaxShare)
             : (focusMode ? NowPlayingFocusTokens.fadeTop : LyricsPaneMetrics.windowFadeTop);
         final fadeBottom = full ? fadeTop : NowPlayingTokens.lyricsFadeBottom;
-        final mask = lyricsEdgeMask(
-          viewport,
-          fadeTop: fadeTop,
-          fadeBottom: fadeBottom,
-          clearBottom: full ? 0 : LyricsPaneMetrics.windowFadeClear,
-          easeBottom: !full,
-        );
         final list = NotificationListener<ScrollNotification>(
           onNotification: _onScrollNotification,
           child: SingleChildScrollView(
@@ -748,6 +829,27 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
             ),
           ),
         );
+        Widget masked(double band) {
+          final mask = lyricsEdgeMask(
+            viewport,
+            fadeTop: fadeTop,
+            fadeBottom: fadeBottom,
+            clearBottom: full ? 0 : LyricsPaneMetrics.windowFadeClear,
+            easeBottom: !full,
+            clearTop: band,
+          );
+          return ShaderMask(
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (rect) => LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: mask.colors,
+              stops: mask.stops,
+            ).createShader(rect),
+            child: list,
+          );
+        }
+
         final body = AnimatedBuilder(
           animation: _enter.animation,
           builder: (context, child) {
@@ -757,32 +859,31 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
               child: Transform.translate(offset: Offset(0, (1 - e) * viewport / 12), child: child),
             );
           },
-          child: ShaderMask(
-            blendMode: BlendMode.dstIn,
-            shaderCallback: (rect) => LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: mask.colors,
-              stops: mask.stops,
-            ).createShader(rect),
-            child: list,
-          ),
+          // Select mode's label gets its own band: the list's window (and its
+          // top fade) opens below it; the list keeps its size and place, so
+          // no line moves (lyricsWindowBelowBand).
+          child: full
+              ? AnimatedBuilder(
+                  animation: _captionBand.animation,
+                  builder: (context, _) => masked(math.max(0.0, _captionBand.value)),
+                )
+              : masked(0),
         );
         if (!full) return body;
         return Stack(
           fit: StackFit.expand,
           children: [
             body,
+            // The label sits in its band above the window, outside the fade.
             Positioned(
-              left: 0,
-              right: 0,
-              bottom: 8,
-              child: Center(
-                child: _SelectBar(
-                  visible: _selecting,
-                  label: _copied ?? NowPlayingStrings.of(context).lyricsSelectCount(_selected.length, rows.length),
-                  onCopy: _copied == null ? _copy : null,
-                  onDone: _endSelecting,
+              left: NowPlayingTokens.columnPadding,
+              right: NowPlayingTokens.columnPadding,
+              top: 0,
+              child: IgnorePointer(
+                child: _SelectCaption(
+                  visible: selecting,
+                  label: lyricsSelectionLabel(selected.length, strings, limitNudge: _limitNudge),
+                  nudging: _limitNudge,
                 ),
               ),
             ),
@@ -793,92 +894,104 @@ class _LyricsListState extends State<_LyricsList> with TickerProviderStateMixin 
   }
 }
 
-/// The select bar over the full list: the count (or "Copied N lines"),
-/// Copy and Done. Slides up and fades in on the Standard springs.
-class _SelectBar extends StatefulWidget {
-  const _SelectBar({required this.visible, required this.label, required this.onCopy, required this.onDone});
+/// Select mode's top label (Android's caption): "Select lines" / "N / 15";
+/// the cap in primary while a refused tap nudges. It fades in and out with
+/// the mode, and a new text cross-fades with the old one (AnimatedContent),
+/// both on the standard effects spring.
+class _SelectCaption extends StatefulWidget {
+  const _SelectCaption({required this.visible, required this.label, required this.nudging});
 
   final bool visible;
   final String label;
-  final VoidCallback? onCopy;
-  final VoidCallback onDone;
+  final bool nudging;
 
   @override
-  State<_SelectBar> createState() => _SelectBarState();
+  State<_SelectCaption> createState() => _SelectCaptionState();
 }
 
-class _SelectBarState extends State<_SelectBar> with TickerProviderStateMixin {
+class _SelectCaptionState extends State<_SelectCaption> with TickerProviderStateMixin {
   late final SpringValue _shown = SpringValue(
     vsync: this,
     initial: widget.visible ? 1 : 0,
-    spring: YoinSprings.standardDefaultSpatial,
+    spring: YoinSprings.defaultEffects,
   );
 
+  /// The label's texts and tones still showing: the newest last, fading in; older ones fading out.
+  final List<(String, bool, SpringValue)> _labels = [];
+
   @override
-  void didUpdateWidget(_SelectBar oldWidget) {
+  void initState() {
+    super.initState();
+    _labels.add((
+      widget.label,
+      widget.nudging,
+      SpringValue(vsync: this, initial: 1, spring: YoinSprings.defaultEffects),
+    ));
+  }
+
+  @override
+  void didUpdateWidget(_SelectCaption oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (MediaQuery.disableAnimationsOf(context)) {
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    if (reduced) {
       _shown.snapTo(widget.visible ? 1 : 0);
     } else {
       _shown.animateTo(widget.visible ? 1 : 0);
+    }
+    final last = _labels.last;
+    if (last.$1 == widget.label && last.$2 == widget.nudging) return;
+    for (final (_, _, alpha) in _labels) {
+      reduced ? alpha.snapTo(0) : alpha.animateTo(0);
+    }
+    final incoming = SpringValue(vsync: this, initial: reduced ? 1 : 0, spring: YoinSprings.defaultEffects);
+    if (!reduced) incoming.animateTo(1);
+    _labels.add((widget.label, widget.nudging, incoming));
+    // Keep the outgoing one, drop anything older (already gone).
+    while (_labels.length > 2) {
+      _labels.removeAt(0).$3.dispose();
     }
   }
 
   @override
   void dispose() {
     _shown.dispose();
+    for (final (_, _, alpha) in _labels) {
+      alpha.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final strings = NowPlayingStrings.of(context);
+    final style = Theme.of(context).textTheme.labelLarge!;
     return AnimatedBuilder(
-      animation: _shown.animation,
-      builder: (context, child) {
+      animation: Listenable.merge([_shown.animation, for (final l in _labels) l.$3.animation]),
+      builder: (context, _) {
         final v = _shown.value.clamp(0.0, 1.0);
         if (v <= 0.001) return const SizedBox.shrink();
-        return IgnorePointer(
-          ignoring: !widget.visible,
-          child: Opacity(
-            opacity: v,
-            child: Transform.translate(offset: Offset(0, 24 * (1 - v)), child: child),
+        return Opacity(
+          opacity: v,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: LyricsPaneMetrics.captionPadV),
+            child: Stack(
+              alignment: AlignmentDirectional.centerStart,
+              children: [
+                for (final (text, nudging, alpha) in _labels)
+                  Opacity(
+                    opacity: alpha.value.clamp(0.0, 1.0),
+                    child: Text(
+                      text,
+                      key: ValueKey('lyrics-select-caption-$text'),
+                      maxLines: 1,
+                      style: style.copyWith(color: nudging ? colors.primary : colors.onSurfaceVariant),
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },
-      child: Material(
-        color: colors.inverseSurface,
-        shape: const StadiumBorder(),
-        elevation: 3,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 4, 4),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                widget.label,
-                style: text.labelLarge!.copyWith(
-                  color: colors.onInverseSurface,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                tooltip: strings.cdCopyLyrics,
-                onPressed: widget.onCopy,
-                icon: Icon(YoinSymbols.copy, color: colors.onInverseSurface),
-              ),
-              IconButton(
-                tooltip: strings.cdDoneSelecting,
-                onPressed: widget.onDone,
-                icon: Icon(YoinSymbols.check, color: colors.onInverseSurface),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -890,6 +1003,13 @@ class _SelectBarState extends State<_SelectBar> with TickerProviderStateMixin {
 /// spring (left-centre origin), alpha and colour on the default effects
 /// spring. The song's last timed line widens in X with the outro ([stretch],
 /// I-2: slow spatial widening, default spatial release).
+///
+/// Full list rows (LyricsFullscreenPane LyricRow) also carry the select
+/// mode: a picked line sits on primaryContainer with onPrimaryContainer text;
+/// adjacent picks merge into one block (outer corners 16, 4 where two picks
+/// meet, on the standard fast spatial spring) that reaches 12 dp past the
+/// text into the page margin; the text never moves. Unpicked lines read 0.7,
+/// 0.42 once the pick is full (or for the title card once a pick exists).
 class _LyricLineView extends StatefulWidget {
   const _LyricLineView({
     super.key,
@@ -901,6 +1021,12 @@ class _LyricLineView extends StatefulWidget {
     required this.synced,
     required this.stretch,
     this.linesAbove = NowPlayingFocusTokens.linesAbove,
+    this.secondary,
+    this.selectMode = false,
+    this.role = LyricSelectionRole.idle,
+    this.runTop = true,
+    this.runBottom = true,
+    this.playingInSelect = false,
   });
 
   final String text;
@@ -914,6 +1040,18 @@ class _LyricLineView extends StatefulWidget {
   final bool synced;
   final double stretch;
 
+  /// Full list: a second line (the title card's artist).
+  final String? secondary;
+  final bool selectMode;
+  final LyricSelectionRole role;
+
+  /// Picked rows only: this row opens / closes its run (full corner there).
+  final bool runTop;
+  final bool runBottom;
+
+  /// The line being sung, while picking: lit in primary, nothing more.
+  final bool playingInSelect;
+
   @override
   State<_LyricLineView> createState() => _LyricLineViewState();
 }
@@ -921,22 +1059,58 @@ class _LyricLineView extends StatefulWidget {
 class _LyricLineViewState extends State<_LyricLineView> with TickerProviderStateMixin {
   late final SpringValue _scale = SpringValue(vsync: this, initial: _targetScale, spring: YoinSprings.defaultSpatial);
   late final SpringValue _alpha = SpringValue(vsync: this, initial: _targetAlpha, spring: YoinSprings.defaultEffects);
-  late final SpringValue _on = SpringValue(
+  late final SpringValue _on = SpringValue(vsync: this, initial: _targetOn, spring: YoinSprings.defaultEffects);
+  late final SpringValue _held = SpringValue(vsync: this, initial: widget.stretch, spring: YoinSprings.slowSpatial);
+  late final SpringValue _picked = SpringValue(
     vsync: this,
-    initial: widget.active ? 1 : 0,
+    initial: _isPicked ? 1 : 0,
     spring: YoinSprings.defaultEffects,
   );
-  late final SpringValue _held = SpringValue(vsync: this, initial: widget.stretch, spring: YoinSprings.slowSpatial);
+  late final SpringValue _topCorner = SpringValue(
+    vsync: this,
+    initial: _targetTopCorner,
+    spring: YoinSprings.standardFastSpatial,
+  );
+  late final SpringValue _bottomCorner = SpringValue(
+    vsync: this,
+    initial: _targetBottomCorner,
+    spring: YoinSprings.standardFastSpatial,
+  );
 
   bool get _full => widget.mode == LyricsListMode.full;
 
-  double get _targetScale => widget.active || !widget.synced ? 1 : (_full ? 0.96 : 0.94);
+  bool get _isPicked => _full && widget.selectMode && widget.role == LyricSelectionRole.picked;
+
+  bool get _emphasized => widget.active || _isPicked;
+
+  double get _targetOn => widget.active || (_full && widget.playingInSelect) ? 1 : 0;
+
+  double get _targetTopCorner =>
+      _isPicked && !widget.runTop ? LyricsPaneMetrics.pickInnerCorner : LyricsPaneMetrics.pickCorner;
+
+  double get _targetBottomCorner =>
+      _isPicked && !widget.runBottom ? LyricsPaneMetrics.pickInnerCorner : LyricsPaneMetrics.pickCorner;
+
+  double get _targetScale {
+    if (_full) return _emphasized ? 1 : 0.96;
+    return widget.active || !widget.synced ? 1 : 0.94;
+  }
 
   double get _targetAlpha {
-    if (!widget.synced) return _full ? 0.62 : 0.55;
+    if (_full) {
+      if (_emphasized) return 1;
+      if (widget.selectMode) {
+        return widget.role == LyricSelectionRole.outside
+            ? LyricsPaneMetrics.outsideLineAlpha
+            : LyricsPaneMetrics.selectModeLineAlpha;
+      }
+      if (!widget.synced) return 0.62;
+      final d = widget.distance;
+      return d <= 1 ? 0.62 : (d == 2 ? 0.50 : 0.40);
+    }
+    if (!widget.synced) return 0.55;
     if (widget.active) return 1;
     final d = widget.distance;
-    if (_full) return d <= 1 ? 0.62 : (d == 2 ? 0.50 : 0.40);
     if (widget.mode == LyricsListMode.focus && widget.above) {
       if (d > widget.linesAbove) return NowPlayingFocusTokens.farAboveAlpha;
       // The kept lines fade with their distance (the nearest at aboveAlpha).
@@ -950,7 +1124,10 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
     super.didUpdateWidget(oldWidget);
     _scale.animateTo(_targetScale);
     _alpha.animateTo(_targetAlpha);
-    _on.animateTo(widget.active ? 1 : 0);
+    _on.animateTo(_targetOn);
+    _picked.animateTo(_isPicked ? 1 : 0);
+    _topCorner.animateTo(_targetTopCorner);
+    _bottomCorner.animateTo(_targetBottomCorner);
     if (widget.stretch != oldWidget.stretch) {
       _held.spring = widget.stretch > 0 ? YoinSprings.slowSpatial : YoinSprings.defaultSpatial;
       if (MediaQuery.disableAnimationsOf(context)) {
@@ -967,6 +1144,9 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
     _alpha.dispose();
     _on.dispose();
     _held.dispose();
+    _picked.dispose();
+    _topCorner.dispose();
+    _bottomCorner.dispose();
     super.dispose();
   }
 
@@ -975,95 +1155,96 @@ class _LyricLineViewState extends State<_LyricLineView> with TickerProviderState
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final active = widget.active;
+    final full = _full;
     final focus = widget.mode == LyricsListMode.focus;
     final k = focus ? NowPlayingFocusTokens.lyricScale : 1.0;
-    final raw = _full ? text.headlineSmall! : (active ? text.bodyLarge! : text.bodyMedium!);
+    final emphasized = full ? _emphasized : active;
+    final raw = full ? text.headlineSmall! : (active ? text.bodyLarge! : text.bodyMedium!);
     final base = focus ? raw.copyWith(fontSize: raw.fontSize! * k) : raw;
-    final style = active
+    // Current line = SemiBold in the rounded cut (ROND 100); full list's others Medium.
+    final style = emphasized
         ? base.merge(gsf(base.fontSize!, weight: 600, height: base.height, round: 100))
-        : (_full ? base.merge(gsf(base.fontSize!, weight: 500, height: base.height)) : base);
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: _full ? LyricsPaneMetrics.rowPadV : NowPlayingTokens.lyricLinePads / 2 * k,
-      ),
-      child: AnimatedBuilder(
-        animation: Listenable.merge([_scale.animation, _alpha.animation, _on.animation, _held.animation]),
-        builder: (context, child) {
-          final s = _scale.value;
-          return Opacity(
-            opacity: _alpha.value.clamp(0.0, 1.0),
-            child: Transform(
-              alignment: AlignmentDirectional.centerStart,
-              transform: Matrix4.diagonal3Values(s * lastLineStretchScale(_held.value), s, 1),
-              child: Text(
-                widget.text,
-                style: style.copyWith(
-                  color: Color.lerp(colors.onSurfaceVariant, colors.primary, _on.value.clamp(0.0, 1.0)),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
+        : (full ? base.merge(gsf(base.fontSize!, weight: 500, height: base.height)) : base);
+    final secondary = full && (widget.secondary?.trim().isNotEmpty ?? false) ? widget.secondary : null;
+    final secondaryBase = text.bodyLarge!;
+    final content = AnimatedBuilder(
+      animation: Listenable.merge([
+        _scale.animation,
+        _alpha.animation,
+        _on.animation,
+        _held.animation,
+        _picked.animation,
+      ]),
+      builder: (context, child) {
+        final s = _scale.value;
+        final lit = Color.lerp(colors.onSurfaceVariant, colors.primary, _on.value.clamp(0.0, 1.0))!;
+        final color = Color.lerp(lit, colors.onPrimaryContainer, _picked.value.clamp(0.0, 1.0))!;
+        final line = Text(widget.text, style: style.copyWith(color: color));
+        return Opacity(
+          opacity: _alpha.value.clamp(0.0, 1.0),
+          child: Transform(
+            alignment: AlignmentDirectional.centerStart,
+            transform: Matrix4.diagonal3Values(s, s, 1),
+            child: secondary == null
+                ? Transform(
+                    alignment: AlignmentDirectional.centerStart,
+                    transform: Matrix4.diagonal3Values(lastLineStretchScale(_held.value), 1, 1),
+                    child: line,
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      line,
+                      Padding(
+                        padding: const EdgeInsets.only(top: LyricsPaneMetrics.secondaryGap),
+                        child: Text(
+                          secondary,
+                          style: secondaryBase
+                              .merge(
+                                gsf(
+                                  secondaryBase.fontSize!,
+                                  weight: emphasized ? 500 : 400,
+                                  height: secondaryBase.height,
+                                ),
+                              )
+                              .copyWith(color: color.withValues(alpha: emphasized ? 0.82 : 0.7)),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        );
+      },
     );
-  }
-}
-
-/// A picked line's tint (no stroke) on the effects spring; the inset that
-/// makes room for it on the spatial spring.
-class _PickTint extends StatefulWidget {
-  const _PickTint({required this.picked, required this.selecting, required this.child});
-
-  final bool picked;
-  final bool selecting;
-  final Widget child;
-
-  @override
-  State<_PickTint> createState() => _PickTintState();
-}
-
-class _PickTintState extends State<_PickTint> with TickerProviderStateMixin {
-  late final SpringValue _tint = SpringValue(
-    vsync: this,
-    initial: widget.picked ? 1 : 0,
-    spring: YoinSprings.defaultEffects,
-  );
-  late final SpringValue _inset = SpringValue(
-    vsync: this,
-    initial: widget.selecting ? 1 : 0,
-    spring: YoinSprings.standardDefaultSpatial,
-  );
-
-  @override
-  void didUpdateWidget(_PickTint oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _tint.animateTo(widget.picked ? 1 : 0);
-    _inset.animateTo(widget.selecting ? 1 : 0);
-  }
-
-  @override
-  void dispose() {
-    _tint.dispose();
-    _inset.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    if (!full) {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: NowPlayingTokens.lyricLinePads / 2 * k),
+        child: content,
+      );
+    }
     return AnimatedBuilder(
-      animation: Listenable.merge([_tint.animation, _inset.animation]),
-      builder: (context, child) => DecoratedBox(
-        decoration: BoxDecoration(
-          color: colors.primaryContainer.withValues(alpha: _tint.value.clamp(0.0, 1.0)),
-          borderRadius: BorderRadius.circular(12),
+      animation: Listenable.merge([_picked.animation, _topCorner.animation, _bottomCorner.animation]),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: LyricsPaneMetrics.rowInset,
+          vertical: LyricsPaneMetrics.rowPadV,
         ),
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8 * _inset.value.clamp(0.0, 1.0)),
-          child: child,
-        ),
+        child: content,
       ),
-      child: widget.child,
+      builder: (context, child) {
+        final picked = _picked.value.clamp(0.0, 1.0);
+        if (picked <= 0.001) return child!;
+        final top = Radius.circular(math.max(0.0, _topCorner.value));
+        final bottom = Radius.circular(math.max(0.0, _bottomCorner.value));
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.primaryContainer.withValues(alpha: picked),
+            borderRadius: BorderRadius.only(topLeft: top, topRight: top, bottomLeft: bottom, bottomRight: bottom),
+          ),
+          child: child,
+        );
+      },
     );
   }
 }

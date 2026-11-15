@@ -100,21 +100,23 @@ void main() {
     });
   });
 
-  testWidgets('should_showRecenterKeyOnlyWhileScrolledAway_when_expanded', (tester) async {
+  testWidgets('should_enableRecenterKeyOnlyWhileScrolledAway_when_expanded', (tester) async {
     final c = await _pump(tester, const Size(412, 892));
     c.expandStage();
     await tester.pumpAndSettle();
     expect(c.stage, NowPlayingStage.expanded);
-    final key = find.byKey(const ValueKey('np-recenter-key'));
-    expect(key, findsNothing, reason: 'following the playhead: no recenter key');
+    final key = find.byKey(const ValueKey('lyrics-tool-recenter'));
+    bool enabled() => tester.widget<Semantics>(key).properties.enabled ?? false;
+    expect(key, findsOneWidget, reason: 'Android keeps Recenter in the tools row, disabled while following');
+    expect(enabled(), isFalse);
 
     await tester.drag(find.text('line 6').last, const Offset(0, -300));
     await tester.pumpAndSettle();
-    expect(key, findsOneWidget);
+    expect(enabled(), isTrue);
 
     await tester.tap(key);
     await tester.pumpAndSettle();
-    expect(key, findsNothing);
+    expect(enabled(), isFalse);
   });
 
   group('lyricsEdgeMask', () {

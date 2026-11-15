@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 
 import '../platform/cards/cards_channel.dart';
 import '../platform/i18n/name_transliterator.dart';
+import '../platform/share/image_share.dart';
 import '../platform/window/window_controls.dart';
 import '../platform/yoin_platform.dart';
 import '../settings/stream_quality.dart';
@@ -21,4 +22,5 @@ List<Override> platformOverrides(YoinPlatform platform) => [
   networkBearerProvider.overrideWithValue(platform.networkBearer),
   nameTransliteratorProvider.overrideWithValue(platform.nameTransliterator),
   windowControlsProvider.overrideWithValue(platform.windowControls),
+  imageShareProvider.overrideWithValue(platform.imageShare),
 ];

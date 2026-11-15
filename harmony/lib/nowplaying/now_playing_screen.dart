@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
@@ -24,6 +25,11 @@ import 'flight.dart';
 import 'focus_budget.dart';
 import 'focus_idle.dart';
 import 'haptics.dart';
+import 'lyric_tools.dart';
+import 'lyrics_logic.dart';
+import 'lyrics_selection.dart';
+import 'lyrics_share.dart';
+import 'lyrics_sheets.dart';
 import 'lyrics_view.dart';
 import 'marquee.dart';
 import 'now_playing_background.dart';
@@ -115,6 +121,20 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
   final ValueNotifier<bool> _autoFollow = ValueNotifier(true);
   LyricFrame? _lastFrame;
 
+  /// The lyric tools: select mode, the auto-immersive idle count, Recenter's follow flag.
+  late final LyricToolsController _tools = LyricToolsController(autoFollow: _autoFollow);
+
+  /// A lyrics action is running (a search result or the editor applying): the keys wait.
+  bool _lyricsBusy = false;
+
+  /// What select mode belongs to: a song change or a lyrics swap leaves it.
+  String? _toolsSong;
+  LyricsState? _toolsLyrics;
+
+  /// The idle tools' slot collapsing (phone Expanded Lyrics page): 0 → 1 on the default spatial spring.
+  late final SpringValue _toolsAway = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
+  bool _toolsIdleEligible = false;
+
   /// The song's notes, the draft and delete-with-undo (one per player).
   late final NowPlayingNotes _notes = NowPlayingNotes(
     loadStore: () => ref.read(memoryStoreProvider.future),
@@ -166,13 +186,207 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
   void initState() {
     super.initState();
     widget.controller.addListener(_onStage);
-    widget.controller.handleComposerBack = _closeComposer;
+    widget.controller.handleComposerBack = _innerBack;
     widget.controller.detail.animation.addListener(_gateFocus);
     widget.controller.full.animation.addListener(_onFull);
     _page.animation.addListener(_gateFocus);
     _notes.addListener(_onNotes);
     _focusIdle.addListener(_onIdle);
+    _tools.addListener(_onTools);
+    _tools.idle.addListener(_onToolsIdle);
+    _autoFollow.addListener(_onTools);
   }
+
+  /// Select mode changed (the pager stops swiping, the tools stay) or the
+  /// follow flag did (it gates the auto-hide).
+  void _onTools() {
+    if (mounted) setState(() {});
+  }
+
+  /// The phone's Expanded Lyrics page: idle tools collapse their slot (the
+  /// title sinks to where their bottom edge was, the lyrics grow).
+  void _onToolsIdle() {
+    if (!mounted) return;
+    final target = _tools.idle.idle ? 1.0 : 0.0;
+    if (_reduced) {
+      _toolsAway.snapTo(target);
+    } else {
+      _toolsAway.animateTo(target);
+    }
+  }
+
+  /// The tools step away only while synced lyrics play and follow on the
+  /// Lyrics page with the tools on screen, and not while picking lines.
+  void _trackToolsIdle(NowPlayingUiState state) {
+    final c = widget.controller;
+    final presentation = c.frame.presentation;
+    final lyricsPage = _pageTarget == NowPlayingDetailPage.lyrics;
+    final toolsOnScreen = switch (presentation) {
+      NowPlayingPresentation.dualPane || NowPlayingPresentation.landscape => c.stage != NowPlayingStage.immersive,
+      _ => c.stage == NowPlayingStage.expanded || (_enlargedSpec() != null && c.stage == NowPlayingStage.compact),
+    };
+    final eligible = lyricToolsIdleEligible(
+      isPlaying: state is NowPlayingContent && state.isPlaying,
+      hasSyncedLyrics:
+          state is NowPlayingContent && state.lyrics is LyricsReady && (state.lyrics as LyricsReady).sheet.isSynced,
+      autoScroll: _autoFollow.value,
+      lyricsPageSelected: lyricsPage,
+      toolsOnScreen: toolsOnScreen,
+      selectingLines: _tools.selection.active,
+    );
+    if (eligible == _toolsIdleEligible) return;
+    _toolsIdleEligible = eligible;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tools.idle.track(_toolsIdleEligible);
+    });
+  }
+
+  /// Select mode lives on the Lyrics page of its song: it ends with a song
+  /// change, a lyrics swap, or the page leaving the screen.
+  void _syncSelection(NowPlayingUiState state) {
+    final c = widget.controller;
+    final song = state is NowPlayingContent ? state.songKey : null;
+    final lyrics = state is NowPlayingContent ? state.lyrics : null;
+    final onScreen =
+        _pageTarget == NowPlayingDetailPage.lyrics &&
+        switch (c.frame.presentation) {
+          NowPlayingPresentation.dualPane || NowPlayingPresentation.landscape => c.stage != NowPlayingStage.immersive,
+          _ => c.stage == NowPlayingStage.expanded,
+        };
+    final stale = song != _toolsSong || lyrics != _toolsLyrics || !onScreen;
+    _toolsSong = song;
+    _toolsLyrics = lyrics;
+    if (stale && _tools.selection.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _tools.selection.exit();
+      });
+    }
+  }
+
+  /// The lyric tools' actions for this song (LyricsTools).
+  LyricToolsActions _toolActions(NowPlayingUiState state) {
+    final content = state is NowPlayingContent ? state : null;
+    final sheet = content?.lyrics is LyricsReady ? (content!.lyrics as LyricsReady).sheet : LyricSheet.empty;
+    return LyricToolsActions(
+      hasLyrics: !sheet.isEmpty,
+      hasSyncedLyrics: sheet.isSynced,
+      busy: _lyricsBusy,
+      onSearch: () => _openLyricsSearch(content),
+      onEdit: () => _openLyricsEditor(sheet),
+      onCopy: () => _copyLyrics(content, sheet),
+      onShare: () => _shareLyrics(content, sheet),
+      // The enlarged phone's tab-row tools: select mode lives on the expanded page.
+      onBeforeSelect: () {
+        final c = widget.controller;
+        if (c.stage != NowPlayingStage.expanded &&
+            c.frame.presentation != NowPlayingPresentation.dualPane &&
+            c.frame.presentation != NowPlayingPresentation.landscape) {
+          c.expandStage();
+        }
+      },
+    );
+  }
+
+  void _say(String text) => ref.read(playbackControllerProvider.notifier).showMessage(text);
+
+  Future<void> _runLyricsAction(Future<void> Function() action) async {
+    if (_lyricsBusy) return;
+    setState(() => _lyricsBusy = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _lyricsBusy = false);
+    }
+  }
+
+  void _openLyricsSearch(NowPlayingContent? content) {
+    if (content == null) return;
+    final strings = NowPlayingStrings.of(context);
+    final query = lyricsSearchSeed(content.track.title, content.track.artist);
+    if (query.isEmpty) {
+      _say(strings.msgNeedTitleArtist);
+      return;
+    }
+    showLyricsSearch(
+      context,
+      initialQuery: query,
+      onApply: (hit) async {
+        var applied = false;
+        await _runLyricsAction(() async {
+          applied = await ref
+              .read(nowPlayingViewModelProvider.notifier)
+              .applyLyrics(hit.lrc, provider: hit.providerName, providerSongId: hit.providerSongId);
+        });
+        if (!mounted) return applied;
+        _say(applied ? lyricsAppliedMessage(strings, hit.providerName) : strings.msgCouldntApply);
+        return applied;
+      },
+    );
+  }
+
+  Future<void> _openLyricsEditor(LyricSheet sheet) async {
+    final strings = NowPlayingStrings.of(context);
+    final text = await showLyricsEditor(context, initialText: editableLyricsText(sheet.rows));
+    if (text == null || !mounted) return;
+    var applied = false;
+    await _runLyricsAction(() async {
+      applied = await ref.read(nowPlayingViewModelProvider.notifier).applyLyrics(text);
+    });
+    if (!mounted) return;
+    _say(applied ? strings.msgLyricsApplied : strings.msgCouldntApply);
+  }
+
+  /// Copy: the picked lines in song order with the song's credit, then out of
+  /// select mode (LyricsTools onCopyClick). HarmonyOS shows no copy
+  /// confirmation of its own, so "Copied N lines" goes to the snackbar (as
+  /// Android does below 13).
+  Future<void> _copyLyrics(NowPlayingContent? content, LyricSheet sheet) async {
+    final selected = _tools.selection.selected;
+    final lines = selectedLyricLines(sheet.rows, selected);
+    if (content == null || lines.isEmpty) return;
+    final strings = NowPlayingStrings.of(context);
+    YoinHaptics.confirm();
+    await Clipboard.setData(
+      ClipboardData(
+        text: lyricsClipboardText(
+          lines,
+          includeTranslation: false,
+          strings: strings,
+          songTitle: content.track.title,
+          artist: content.track.artist,
+          passageStarts: lyricPassageStarts(sheet.rows, selected),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    _say(strings.lyricsCopied(lines.length));
+    _tools.selection.exit();
+  }
+
+  /// Share: the pick frozen into the share sheet; shared → out of select mode.
+  void _shareLyrics(NowPlayingContent? content, LyricSheet sheet) {
+    final selected = _tools.selection.selected;
+    final lines = selectedLyricLines(sheet.rows, selected);
+    if (content == null || lines.isEmpty) return;
+    final selection = _tools.selection;
+    showLyricsShareSheet(
+      context,
+      snapshot: LyricsShareSnapshot(
+        lines: lines,
+        passageStarts: lyricPassageStarts(sheet.rows, selected),
+        showTranslation: false,
+        songTitle: content.track.title ?? '',
+        artist: content.track.artist ?? '',
+        cover: content.track.coverArt,
+      ),
+      onShared: selection.exit,
+      onMessage: _say,
+    );
+  }
+
+  /// The player's inner back levels the overlay controller asks first: the
+  /// composer, then select mode (system back leaves select mode first).
+  bool _innerBack() => _closeComposer() || _tools.handleBack();
 
   void _onIdle() {
     if (!mounted) return;
@@ -216,10 +430,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_onStage);
-      if (oldWidget.controller.handleComposerBack == _closeComposer) oldWidget.controller.handleComposerBack = null;
+      if (oldWidget.controller.handleComposerBack == _innerBack) oldWidget.controller.handleComposerBack = null;
       oldWidget.controller.detail.animation.removeListener(_gateFocus);
       widget.controller.addListener(_onStage);
-      widget.controller.handleComposerBack = _closeComposer;
+      widget.controller.handleComposerBack = _innerBack;
       widget.controller.detail.animation.addListener(_gateFocus);
     }
   }
@@ -227,9 +441,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
   @override
   void dispose() {
     widget.controller.removeListener(_onStage);
-    if (widget.controller.handleComposerBack == _closeComposer) widget.controller.handleComposerBack = null;
+    if (widget.controller.handleComposerBack == _innerBack) widget.controller.handleComposerBack = null;
     widget.controller.detail.animation.removeListener(_gateFocus);
     widget.controller.full.animation.removeListener(_onFull);
+    _tools.removeListener(_onTools);
+    _tools.idle.removeListener(_onToolsIdle);
+    _autoFollow.removeListener(_onTools);
+    _tools.dispose();
+    _toolsAway.dispose();
     _notes.removeListener(_onNotes);
     _notes.dispose();
     _page.dispose();
@@ -400,6 +619,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     final state = ref.watch(nowPlayingViewModelProvider);
     _syncNotes(state);
     _trackIdle(state);
+    _syncSelection(state);
+    _trackToolsIdle(state);
+    _tools.actions = _toolActions(state);
     ref.listen(memoryStoreProvider, (_, next) {
       final store = next.value;
       if (!next.hasValue || identical(store, _lastStore)) return;
@@ -430,108 +652,118 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     } else {
       _heroYield.animateTo(yieldHero ? 1 : 0);
     }
-    return FocusIdleTouchTracker(
-      idle: _focusIdle,
-      child: ColoredBox(
-        color: colors.surface,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            NowPlayingBackground(field: field, focus: widget.controller.focus.animation),
-            switch (state) {
-              NowPlayingIdle() => Center(
-                child: Text(
-                  strings.emptyNothingPlaying,
-                  style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurfaceVariant),
-                ),
-              ),
-              NowPlayingContent() when widget.controller.frame.presentation == NowPlayingPresentation.landscape =>
-                _LandscapePane(
-                  state: state,
-                  controller: widget.controller,
-                  insets: insets,
-                  metrics: _metrics(context),
-                  pressed: _pressed,
-                  autoFollow: _autoFollow,
-                  notes: _notes,
-                  page: _page.animation,
-                  pageTarget: _pageTarget,
-                  onSelectPage: _selectPage,
-                  onPageDrag: _onPageDrag,
-                  onPageDragEnd: _onPageDragEnd,
-                  onWrite: _writeLandscape,
-                  onBarHeight: _onBarHeight,
-                  barHeight: _barHeight.animation,
-                  atEase: _atEaseShown,
-                  onOfferFocus: _offerFocus,
-                ),
-              NowPlayingContent() when (_lastDual = _dualBody()) => _DualPane(
-                state: state,
-                controller: widget.controller,
-                insets: insets,
-                metrics: _metrics(context),
-                pressed: _pressed,
-                autoFollow: _autoFollow,
-                notes: _notes,
-                page: _page.animation,
-                pageTarget: _pageTarget,
-                onSelectPage: _selectPage,
-                onPageDrag: _onPageDrag,
-                onPageDragEnd: _onPageDragEnd,
-                onWrite: _write,
-                onBarHeight: _onBarHeight,
-                barHeight: _barHeight.animation,
-                atEase: _atEaseShown,
-                onOfferFocus: _offerFocus,
-              ),
-              NowPlayingContent() => Padding(
-                padding: insets,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final budget = resolveStageColumnBudget(
-                      width: constraints.maxWidth,
-                      height: constraints.maxHeight,
-                      metrics: _metrics(context),
-                      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                      previousFrame: _lastFrame,
-                      enlarged: _enlargedSpec(),
-                    );
-                    _lastFrame = budget.lyricFrame;
-                    final focus = resolveStageFocus(
-                      rest: budget,
-                      metrics: _metrics(context),
-                      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                      enlarged: _enlargedSpec(),
-                    );
-                    _offerFocus(focus != null);
-                    // The enlarged phone narrows to its cover row, centred (the
-                    // stage lays its column out in the middle of the width).
-                    return _Stage(
-                      budget: budget,
-                      focus: focus,
-                      atEase: _atEaseShown,
+    return LyricToolsScope(
+      controller: _tools,
+      // Any touch on the player re-arms the tools' idle count (lyricToolsTouchTracker).
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => _tools.idle.onInteraction(),
+        child: FocusIdleTouchTracker(
+          idle: _focusIdle,
+          child: ColoredBox(
+            color: colors.surface,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                NowPlayingBackground(field: field, focus: widget.controller.focus.animation),
+                switch (state) {
+                  NowPlayingIdle() => Center(
+                    child: Text(
+                      strings.emptyNothingPlaying,
+                      style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurfaceVariant),
+                    ),
+                  ),
+                  NowPlayingContent() when widget.controller.frame.presentation == NowPlayingPresentation.landscape =>
+                    _LandscapePane(
                       state: state,
                       controller: widget.controller,
+                      insets: insets,
+                      metrics: _metrics(context),
                       pressed: _pressed,
                       autoFollow: _autoFollow,
-                      windowTop: insets.top,
                       notes: _notes,
                       page: _page.animation,
                       pageTarget: _pageTarget,
                       onSelectPage: _selectPage,
                       onPageDrag: _onPageDrag,
                       onPageDragEnd: _onPageDragEnd,
-                      onWrite: _write,
-                      heroYield: _heroYield.animation,
-                      barHeight: _barHeight.animation,
+                      onWrite: _writeLandscape,
                       onBarHeight: _onBarHeight,
-                      imeLift: imeLift,
-                    );
-                  },
-                ),
-              ),
-            },
-          ],
+                      barHeight: _barHeight.animation,
+                      atEase: _atEaseShown,
+                      onOfferFocus: _offerFocus,
+                    ),
+                  NowPlayingContent() when (_lastDual = _dualBody()) => _DualPane(
+                    state: state,
+                    controller: widget.controller,
+                    insets: insets,
+                    metrics: _metrics(context),
+                    pressed: _pressed,
+                    autoFollow: _autoFollow,
+                    notes: _notes,
+                    page: _page.animation,
+                    pageTarget: _pageTarget,
+                    onSelectPage: _selectPage,
+                    onPageDrag: _onPageDrag,
+                    onPageDragEnd: _onPageDragEnd,
+                    onWrite: _write,
+                    onBarHeight: _onBarHeight,
+                    barHeight: _barHeight.animation,
+                    atEase: _atEaseShown,
+                    onOfferFocus: _offerFocus,
+                  ),
+                  NowPlayingContent() => Padding(
+                    padding: insets,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final budget = resolveStageColumnBudget(
+                          width: constraints.maxWidth,
+                          height: constraints.maxHeight,
+                          metrics: _metrics(context),
+                          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                          previousFrame: _lastFrame,
+                          enlarged: _enlargedSpec(),
+                        );
+                        _lastFrame = budget.lyricFrame;
+                        final focus = resolveStageFocus(
+                          rest: budget,
+                          metrics: _metrics(context),
+                          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                          enlarged: _enlargedSpec(),
+                        );
+                        _offerFocus(focus != null);
+                        // The enlarged phone narrows to its cover row, centred (the
+                        // stage lays its column out in the middle of the width).
+                        return _Stage(
+                          budget: budget,
+                          focus: focus,
+                          atEase: _atEaseShown,
+                          state: state,
+                          controller: widget.controller,
+                          pressed: _pressed,
+                          autoFollow: _autoFollow,
+                          windowTop: insets.top,
+                          notes: _notes,
+                          page: _page.animation,
+                          pageTarget: _pageTarget,
+                          onSelectPage: _selectPage,
+                          onPageDrag: _onPageDrag,
+                          onPageDragEnd: _onPageDragEnd,
+                          onWrite: _write,
+                          heroYield: _heroYield.animation,
+                          barHeight: _barHeight.animation,
+                          onBarHeight: _onBarHeight,
+                          imeLift: imeLift,
+                          toolsAway: _toolsAway.animation,
+                          enlarged: _enlargedSpec() != null,
+                        );
+                      },
+                    ),
+                  ),
+                },
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -551,7 +783,8 @@ class _StageDelegate extends MultiChildLayoutDelegate {
     required this.heroYield,
     required this.barHeight,
     required this.imeLift,
-  }) : super(relayout: Listenable.merge([detail, focus, atEase, page, heroYield, barHeight]));
+    required this.toolsCollapse,
+  }) : super(relayout: Listenable.merge([detail, focus, atEase, page, heroYield, barHeight, toolsCollapse]));
 
   final StageColumnBudget budget;
 
@@ -574,6 +807,11 @@ class _StageDelegate extends MultiChildLayoutDelegate {
   /// The keyboard's height over the column's bottom inset (Expanded Note only).
   final double imeLift;
 
+  /// The Expanded Lyrics page's tools slot closing (0 → 1): idle tools, or
+  /// the 16:9 page whose tools ride the tab row. The title sinks onto it and
+  /// the lyrics grow.
+  final Animation<double> toolsCollapse;
+
   @override
   void performLayout(Size size) {
     final d = detail.value.clamp(0.0, 1.0);
@@ -593,7 +831,8 @@ class _StageDelegate extends MultiChildLayoutDelegate {
     final barExtra = d * p * math.max(0.0, bar - s.accessory);
     final fullBarExtra = p * math.max(0.0, bar - full.accessory);
     final heroH = s.hero * (1 - y);
-    final accessoryH = s.accessory + barExtra;
+    final collapse = toolsCollapse.value.clamp(0.0, 1.0) * (1 - p);
+    final accessoryH = math.max(0.0, s.accessory + barExtra - d * collapse * LyricToolsMetrics.expandedAccessory);
 
     // The top bar keeps its 48 row; as it retreats over a shorter slot it
     // rides up with the slot's bottom edge.
@@ -643,7 +882,10 @@ class _StageDelegate extends MultiChildLayoutDelegate {
     }
     if (hasChild(_Slot.lyricsFull)) {
       // Laid out at its FINAL height always; only clipped / moved during the reshape.
-      final fullH = math.max(0.0, full.lyrics - imeLift - fullBarExtra + full.hero * y);
+      final fullH = math.max(
+        0.0,
+        full.lyrics - imeLift - fullBarExtra + full.hero * y + collapse * LyricToolsMetrics.expandedAccessory,
+      );
       layoutChild(_Slot.lyricsFull, BoxConstraints.tight(Size(budget.stageWidth, fullH)));
       positionChild(_Slot.lyricsFull, Offset(restX, lyricsTop + (lyrics - fullH)));
     }
@@ -671,7 +913,8 @@ class _StageDelegate extends MultiChildLayoutDelegate {
       old.page != page ||
       old.heroYield != heroYield ||
       old.barHeight != barHeight ||
-      old.imeLift != imeLift;
+      old.imeLift != imeLift ||
+      old.toolsCollapse != toolsCollapse;
 }
 
 /// What steps away in focus (FocusRetreat.kt): [progress] 0 = here, 1 =
@@ -723,9 +966,17 @@ class _Stage extends ConsumerWidget {
     required this.barHeight,
     required this.onBarHeight,
     required this.imeLift,
+    required this.toolsAway,
+    required this.enlarged,
   });
 
   final StageColumnBudget budget;
+
+  /// The idle lyric tools stepping away (0 → 1).
+  final Animation<double> toolsAway;
+
+  /// The enlarged phone: the lyric tools ride the tab row at rest.
+  final bool enlarged;
 
   /// The focus pose, or null: the cover is a plain image (no tap).
   final StageFocusPose? focus;
@@ -763,6 +1014,10 @@ class _Stage extends ConsumerWidget {
     final track = state.track;
     // The one-line lyric row is not a pager page: no swipe over it.
     final compactSwipe = budget.lyricFrame == LyricFrame.list;
+    final oneLine = budget.lyricFrame == LyricFrame.oneLine;
+    // Select mode: taps pick lines, the pager holds still.
+    final selecting = LyricToolsScope.maybeOf(context)?.selection.active ?? false;
+    final lyricsPage = pageTarget == NowPlayingDetailPage.lyrics;
     // Focus shown (0 = rest), less the Expanded share; what retreats with it.
     double focusShown() => focusPose == null
         ? 0
@@ -781,259 +1036,288 @@ class _Stage extends ConsumerWidget {
         ? controller.stepBackStage
         : (focusPose != null || inFocus ? controller.toggleFocus : null);
 
-    return CustomMultiChildLayout(
-      delegate: _StageDelegate(
-        budget: budget,
-        focusPose: focusPose,
-        focus: focusAnim,
-        atEase: atEase,
-        detail: detail,
-        page: page,
-        heroYield: heroYield,
-        barHeight: barHeight,
-        imeLift: imeLift,
-      ),
-      children: [
-        LayoutId(
-          id: _Slot.topBar,
-          child: _Retreat(
-            progress: retreat,
-            shift: const Offset(0, -NowPlayingFocusTokens.retreatLift),
-            child: _TopBar(
-              controller: controller,
-              context0: state.context,
-              onContextTap: _contextTarget(state.context, controller),
-            ),
-          ),
+    // Idle tools collapse their slot and the title sinks onto it: the first
+    // tap where title + tools stood only wakes the tools.
+    return LyricToolsWakeGuard(
+      enabled: expandedStage && lyricsPage && !oneLine,
+      band: budget.hero + LyricToolsMetrics.expandedAccessory,
+      child: CustomMultiChildLayout(
+        delegate: _StageDelegate(
+          budget: budget,
+          focusPose: focusPose,
+          focus: focusAnim,
+          atEase: atEase,
+          detail: detail,
+          page: page,
+          heroYield: heroYield,
+          barHeight: barHeight,
+          imeLift: imeLift,
+          // 16:9: the tools ride the tab row, so the Expanded page has no tools slot.
+          toolsCollapse: oneLine ? const AlwaysStoppedAnimation(1.0) : toolsAway,
         ),
-        if (!budget.coverHidden)
+        children: [
           LayoutId(
-            id: _Slot.cover,
-            child: FlightSlot(
-              element: FlightElement.cover,
-              pill: false,
-              child: _StageCover(
-                state: state,
-                detail: detail,
-                requestEdge: math.max(budget.cover, focusPose?.cover ?? 0),
-                onTap: coverTap,
-                onLongPress: () => showNowPlayingTrackMenu(context, controller, state.track),
-              ),
-            ),
-          ),
-        if (!budget.coverHidden)
-          LayoutId(
-            id: _Slot.rating,
-            child: IgnorePointer(
-              ignoring: !restStage,
-              child: AnimatedBuilder(
-                animation: ratingRetreat,
-                builder: (context, child) {
-                  final r = ratingRetreat.value.clamp(0.0, 1.0);
-                  return Opacity(
-                    opacity: 1 - r,
-                    child: Transform.translate(
-                      offset: Offset(NowPlayingFocusTokens.ratingRetreatShift * r, 0),
-                      child: child,
-                    ),
-                  );
-                },
-                child: Column(
-                  children: [
-                    Expanded(
-                      // Local 0–10 rating (shown for every source, like Android's local_ratings).
-                      child: RatingSlider(rating: state.rating, songKey: state.songKey, onCommit: vm.commitRating),
-                    ),
-                    if (state.canFavorite) ...[
-                      const SizedBox(height: NowPlayingTokens.ratingToHeartGap - 2),
-                      FavoriteHeart(starred: state.isStarred, onToggle: vm.toggleFavorite),
-                    ],
-                    const SizedBox(height: NowPlayingTokens.heartBottomGap - 2),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        LayoutId(
-          id: _Slot.tabs,
-          child: ClipRect(
+            id: _Slot.topBar,
             child: _Retreat(
               progress: retreat,
-              child: StageTabs(selected: pageTarget, detail: detail, onSelect: onSelectPage),
+              shift: const Offset(0, -NowPlayingFocusTokens.retreatLift),
+              child: _TopBar(
+                controller: controller,
+                context0: state.context,
+                onContextTap: _contextTarget(state.context, controller),
+              ),
             ),
           ),
-        ),
-        LayoutId(
-          id: _Slot.lyricsWindow,
-          child: IgnorePointer(
-            ignoring: !restStage,
-            child: FadeTransition(
-              opacity: windowShown,
-              child: _PagerSurface(
-                page: page,
-                swipe: compactSwipe,
-                onDrag: onPageDrag,
-                onDragEnd: onPageDragEnd,
-                onTap: controller.expandStage,
-                lyrics: LyricsView(
-                  mode: LyricsListMode.window,
-                  lyrics: state.lyrics,
-                  songKey: state.songKey,
-                  clock: clock,
-                  onSeek: vm.seekTo,
+          if (!budget.coverHidden)
+            LayoutId(
+              id: _Slot.cover,
+              child: FlightSlot(
+                element: FlightElement.cover,
+                pill: false,
+                child: _StageCover(
+                  state: state,
+                  detail: detail,
+                  requestEdge: math.max(budget.cover, focusPose?.cover ?? 0),
+                  onTap: coverTap,
+                  onLongPress: () => showNowPlayingTrackMenu(context, controller, state.track),
                 ),
-                note: ListenableBuilder(
-                  listenable: notes,
-                  builder: (context, _) => NoteCompactPane(notes: notes.notes, clock: clock),
+              ),
+            ),
+          if (!budget.coverHidden)
+            LayoutId(
+              id: _Slot.rating,
+              child: IgnorePointer(
+                ignoring: !restStage,
+                child: AnimatedBuilder(
+                  animation: ratingRetreat,
+                  builder: (context, child) {
+                    final r = ratingRetreat.value.clamp(0.0, 1.0);
+                    return Opacity(
+                      opacity: 1 - r,
+                      child: Transform.translate(
+                        offset: Offset(NowPlayingFocusTokens.ratingRetreatShift * r, 0),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: Column(
+                    children: [
+                      Expanded(
+                        // Local 0–10 rating (shown for every source, like Android's local_ratings).
+                        child: RatingSlider(rating: state.rating, songKey: state.songKey, onCommit: vm.commitRating),
+                      ),
+                      if (state.canFavorite) ...[
+                        const SizedBox(height: NowPlayingTokens.ratingToHeartGap - 2),
+                        FavoriteHeart(starred: state.isStarred, onToggle: vm.toggleFavorite),
+                      ],
+                      const SizedBox(height: NowPlayingTokens.heartBottomGap - 2),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          LayoutId(
+            id: _Slot.tabs,
+            child: ClipRect(
+              child: _Retreat(
+                progress: retreat,
+                child: StageTabs(
+                  selected: pageTarget,
+                  detail: detail,
+                  onSelect: onSelectPage,
+                  textOnly: oneLine,
+                  // The enlarged phone at rest (44) and the 16:9 expanded page
+                  // (40, fading in with the stage) carry the lyric tools at the
+                  // row's end; they fade in place when idle.
+                  tools: !lyricsPage
+                      ? null
+                      : oneLine
+                      ? FadeTransition(
+                          opacity: detail,
+                          child: const LyricToolsBar(iconSize: LyricToolsMetrics.shortTabKey, inPlaceGuard: true),
+                        )
+                      : enlarged
+                      ? const LyricToolsBar(iconSize: LyricToolsMetrics.enlargedTabKey, inPlaceGuard: true)
+                      : null,
                 ),
               ),
             ),
           ),
-        ),
-        if (focusPose != null && (inFocus || controller.focus.value > 0.01))
           LayoutId(
-            id: _Slot.lyricsFocus,
+            id: _Slot.lyricsWindow,
             child: IgnorePointer(
-              ignoring: !inFocus,
+              ignoring: !restStage,
               child: FadeTransition(
-                opacity: _Mapped(retreat, (r) => _smooth(0.15, 1, r)),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  // A tap on the focus lyrics opens them (the lyric window's tap).
+                opacity: windowShown,
+                child: _PagerSurface(
+                  page: page,
+                  swipe: compactSwipe,
+                  onDrag: onPageDrag,
+                  onDragEnd: onPageDragEnd,
                   onTap: controller.expandStage,
-                  child: LyricsView(
-                    mode: LyricsListMode.focus,
+                  lyrics: LyricsView(
+                    mode: LyricsListMode.window,
                     lyrics: state.lyrics,
                     songKey: state.songKey,
                     clock: clock,
                     onSeek: vm.seekTo,
+                  ),
+                  note: ListenableBuilder(
+                    listenable: notes,
+                    builder: (context, _) => NoteCompactPane(notes: notes.notes, clock: clock),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (focusPose != null && (inFocus || controller.focus.value > 0.01))
+            LayoutId(
+              id: _Slot.lyricsFocus,
+              child: IgnorePointer(
+                ignoring: !inFocus,
+                child: FadeTransition(
+                  opacity: _Mapped(retreat, (r) => _smooth(0.15, 1, r)),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    // A tap on the focus lyrics opens them (the lyric window's tap).
+                    onTap: controller.expandStage,
+                    child: LyricsView(
+                      mode: LyricsListMode.focus,
+                      lyrics: state.lyrics,
+                      songKey: state.songKey,
+                      clock: clock,
+                      onSeek: vm.seekTo,
+                      upNext: state.upNext,
+                      durationMs: state.durationMs,
+                      horizontalInset: focusPose.lyricInset,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (expandedStage || controller.detail.value > 0.01)
+            LayoutId(
+              id: _Slot.lyricsFull,
+              child: AnimatedBuilder(
+                animation: detail,
+                builder: (context, child) {
+                  final d = detail.value.clamp(0.0, 1.0);
+                  return Opacity(
+                    opacity: ((d - 0.1) / 0.6).clamp(0.0, 1.0),
+                    child: Transform.scale(scale: 0.96 + 0.04 * d, child: child),
+                  );
+                },
+                child: _PagerSurface(
+                  page: page,
+                  swipe: expandedStage && !selecting,
+                  onDrag: onPageDrag,
+                  onDragEnd: onPageDragEnd,
+                  lyrics: LyricsView(
+                    mode: LyricsListMode.full,
+                    lyrics: state.lyrics,
+                    songKey: state.songKey,
+                    clock: clock,
+                    onSeek: vm.seekTo,
+                    title: track.title,
+                    artist: track.artist,
+                    autoFollow: autoFollow,
                     upNext: state.upNext,
                     durationMs: state.durationMs,
-                    horizontalInset: focusPose.lyricInset,
+                    windowTop:
+                        windowTop +
+                        NowPlayingTokens.topBarNominal +
+                        NowPlayingTokens.coverGapMin +
+                        NowPlayingTokens.expandedTabRow +
+                        NowPlayingTokens.expandedTabGap,
                   ),
+                  note: NotePage(notes: notes, clock: clock),
                 ),
               ),
             ),
-          ),
-        if (expandedStage || controller.detail.value > 0.01)
           LayoutId(
-            id: _Slot.lyricsFull,
-            child: AnimatedBuilder(
-              animation: detail,
-              builder: (context, child) {
-                final d = detail.value.clamp(0.0, 1.0);
-                return Opacity(
-                  opacity: ((d - 0.1) / 0.6).clamp(0.0, 1.0),
-                  child: Transform.scale(scale: 0.96 + 0.04 * d, child: child),
-                );
-              },
-              child: _PagerSurface(
-                page: page,
-                swipe: expandedStage,
-                onDrag: onPageDrag,
-                onDragEnd: onPageDragEnd,
-                lyrics: LyricsView(
-                  mode: LyricsListMode.full,
-                  lyrics: state.lyrics,
-                  songKey: state.songKey,
-                  clock: clock,
-                  onSeek: vm.seekTo,
-                  title: track.title,
-                  artist: track.artist,
-                  autoFollow: autoFollow,
-                  upNext: state.upNext,
-                  durationMs: state.durationMs,
-                  windowTop:
-                      windowTop +
-                      NowPlayingTokens.topBarNominal +
-                      NowPlayingTokens.coverGapMin +
-                      NowPlayingTokens.expandedTabRow +
-                      NowPlayingTokens.expandedTabGap,
-                ),
-                note: NotePage(notes: notes, clock: clock),
-              ),
-            ),
-          ),
-        LayoutId(
-          id: _Slot.controls,
-          child: IgnorePointer(
-            ignoring: expandedStage,
-            child: AnimatedBuilder(
-              animation: detail,
-              builder: (context, child) {
-                final d = detail.value.clamp(0.0, 1.0);
-                return Opacity(
-                  opacity: 1 - d,
-                  child: Transform.translate(offset: Offset(0, 48 * d), child: child),
-                );
-              },
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: ListenableBuilder(
-                  listenable: notes,
-                  builder: (context, _) => TransportControls(
-                    noteAnchorsMs: [for (final n in notes.notes) ?n.positionMs],
-                    isPlaying: state.isPlaying,
-                    isWavePlaying: state.isWavePlaying,
-                    playMode: state.playMode,
-                    clock: clock,
-                    durationMs: state.durationMs,
-                    labelsUnder: inFocus && focusPose != null ? focusPose.labelsUnderWave : budget.labelsUnderWave,
-                    waveVisible: !expandedStage,
-                    atEase: atEase,
-                    onPlayPause: vm.togglePlayPause,
-                    onNext: vm.next,
-                    onPrevious: vm.previous,
-                    onSetPlayMode: vm.setPlayMode,
-                    showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
-                    onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
-                    onSeek: vm.seekToFraction,
-                    pressed: pressed,
+            id: _Slot.controls,
+            child: IgnorePointer(
+              ignoring: expandedStage,
+              child: AnimatedBuilder(
+                animation: detail,
+                builder: (context, child) {
+                  final d = detail.value.clamp(0.0, 1.0);
+                  return Opacity(
+                    opacity: 1 - d,
+                    child: Transform.translate(offset: Offset(0, 48 * d), child: child),
+                  );
+                },
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ListenableBuilder(
+                    listenable: notes,
+                    builder: (context, _) => TransportControls(
+                      noteAnchorsMs: [for (final n in notes.notes) ?n.positionMs],
+                      isPlaying: state.isPlaying,
+                      isWavePlaying: state.isWavePlaying,
+                      playMode: state.playMode,
+                      clock: clock,
+                      durationMs: state.durationMs,
+                      labelsUnder: inFocus && focusPose != null ? focusPose.labelsUnderWave : budget.labelsUnderWave,
+                      waveVisible: !expandedStage,
+                      atEase: atEase,
+                      onPlayPause: vm.togglePlayPause,
+                      onNext: vm.next,
+                      onPrevious: vm.previous,
+                      onSetPlayMode: vm.setPlayMode,
+                      showPlayModeSplitOnFullCycle: ref.watch(playModeSplitHintProvider),
+                      onShowedPlayModeSplit: ref.read(playModeSplitHintProvider.notifier).markShown,
+                      onSeek: vm.seekToFraction,
+                      pressed: pressed,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-        LayoutId(
-          id: _Slot.hero,
-          child: _HeroYield(
-            heroYield: heroYield,
-            height: budget.hero,
-            child: _Hero(
-              title: track.title ?? '',
-              artist: track.artist ?? '',
-              onTitleTap: switch (track.albumId) {
-                final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id)),
-                null => null,
-              },
-              onArtistTap: switch (track.artistId) {
-                final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openArtist(nav, id, name: track.artist)),
-                null => null,
-              },
-              isPlaying: state.isPlaying,
-              pressed: pressed,
-              oneLine: budget.heroOneLine,
-              formatTags: audioFormatTags(track.audioFormat),
+          LayoutId(
+            id: _Slot.hero,
+            child: _HeroYield(
+              heroYield: heroYield,
+              height: budget.hero,
+              child: _Hero(
+                title: track.title ?? '',
+                artist: track.artist ?? '',
+                onTitleTap: switch (track.albumId) {
+                  final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id)),
+                  null => null,
+                },
+                onArtistTap: switch (track.artistId) {
+                  final id? => () => _leaveTo(
+                    controller,
+                    (nav) => DetailRoutes.openArtist(nav, id, name: track.artist),
+                  ),
+                  null => null,
+                },
+                isPlaying: state.isPlaying,
+                pressed: pressed,
+                oneLine: budget.heroOneLine,
+                formatTags: audioFormatTags(track.audioFormat),
+              ),
             ),
           ),
-        ),
-        LayoutId(
-          id: _Slot.accessory,
-          child: _Accessory(
-            controller: controller,
-            compact: compact,
-            retreat: retreat,
-            autoFollow: autoFollow,
-            onSkip: vm.skipTo,
-            page: page,
-            notes: notes,
-            clock: clock,
-            onWrite: onWrite,
-            onBarHeight: onBarHeight,
+          LayoutId(
+            id: _Slot.accessory,
+            child: _Accessory(
+              controller: controller,
+              compact: compact,
+              retreat: retreat,
+              toolsInTabs: oneLine,
+              onSkip: vm.skipTo,
+              page: page,
+              notes: notes,
+              clock: clock,
+              onWrite: onWrite,
+              onBarHeight: onBarHeight,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -1636,14 +1920,14 @@ class _PagerPage extends StatelessWidget {
 }
 
 /// The accessory row: Queue and Write at rest; in Expanded the page's tools,
-/// paged with the detail pager — the Recenter key under Lyrics, the write
-/// bar under Note.
+/// paged with the detail pager — the lyric tools under Lyrics (unless they
+/// ride the tab row), the write bar under Note.
 class _Accessory extends StatelessWidget {
   const _Accessory({
     required this.controller,
     required this.compact,
     required this.retreat,
-    required this.autoFollow,
+    required this.toolsInTabs,
     required this.onSkip,
     required this.page,
     required this.notes,
@@ -1657,7 +1941,9 @@ class _Accessory extends StatelessWidget {
 
   /// Focus: the pills step away (fade and sink).
   final Animation<double> retreat;
-  final ValueNotifier<bool> autoFollow;
+
+  /// 16:9: the lyric tools moved up beside the tabs.
+  final bool toolsInTabs;
   final ValueChanged<int> onSkip;
   final Animation<double> page;
   final NowPlayingNotes notes;
@@ -1741,7 +2027,7 @@ class _Accessory extends StatelessWidget {
                                 padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
                                 child: Align(
                                   alignment: AlignmentDirectional.bottomStart,
-                                  child: _RecenterKey(autoFollow: autoFollow),
+                                  child: toolsInTabs ? const SizedBox.shrink() : const LyricToolsBar(),
                                 ),
                               ),
                             ),
@@ -1873,116 +2159,6 @@ class _QueuePillState extends State<_QueuePill> with TickerProviderStateMixin {
                 const SizedBox(width: 8),
                 Text(strings.pillQueue, style: style, maxLines: 1),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RecenterKey extends StatefulWidget {
-  const _RecenterKey({required this.autoFollow});
-
-  final ValueNotifier<bool> autoFollow;
-
-  @override
-  State<_RecenterKey> createState() => _RecenterKeyState();
-}
-
-/// Shown only while the reader has scrolled away (auto-follow off): it
-/// fades on the effects spring and grows from 0.8 on the spatial spring;
-/// while the list follows the playhead it is gone (no taps, no semantics).
-class _RecenterKeyState extends State<_RecenterKey> with TickerProviderStateMixin {
-  late final SpringValue _alpha = SpringValue(
-    vsync: this,
-    initial: widget.autoFollow.value ? 0 : 1,
-    spring: YoinSprings.defaultEffects,
-  );
-  late final SpringValue _scale = SpringValue(
-    vsync: this,
-    initial: widget.autoFollow.value ? 0 : 1,
-    spring: YoinSprings.fastSpatial,
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    widget.autoFollow.addListener(_onFollow);
-  }
-
-  @override
-  void didUpdateWidget(_RecenterKey oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.autoFollow != widget.autoFollow) {
-      oldWidget.autoFollow.removeListener(_onFollow);
-      widget.autoFollow.addListener(_onFollow);
-      _onFollow();
-    }
-  }
-
-  void _onFollow() {
-    if (!mounted) return;
-    final shown = widget.autoFollow.value ? 0.0 : 1.0;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _alpha.snapTo(shown);
-      _scale.snapTo(shown);
-    } else {
-      _alpha.animateTo(shown);
-      _scale.animateTo(shown);
-    }
-    setState(() {});
-  }
-
-  @override
-  void dispose() {
-    widget.autoFollow.removeListener(_onFollow);
-    _alpha.dispose();
-    _scale.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final strings = NowPlayingStrings.of(context);
-    final following = widget.autoFollow.value;
-    return IgnorePointer(
-      ignoring: following,
-      child: ExcludeSemantics(
-        excluding: following,
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_alpha.animation, _scale.animation]),
-          builder: (context, child) {
-            final a = _alpha.value.clamp(0.0, 1.0);
-            if (a <= 0.001) return const SizedBox.square(dimension: 52 + 8);
-            return Opacity(
-              opacity: a,
-              child: Transform.scale(scale: 0.8 + 0.2 * _scale.value, alignment: Alignment.center, child: child),
-            );
-          },
-          child: Semantics(
-            button: true,
-            label: strings.cdReturnCurrentLine,
-            excludeSemantics: true,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Material(
-                key: const ValueKey('np-recenter-key'),
-                color: colors.primaryContainer,
-                shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(52 * 0.31)),
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () {
-                    YoinHaptics.tick();
-                    widget.autoFollow.value = true;
-                  },
-                  child: SizedBox.square(
-                    dimension: 52,
-                    child: Icon(YoinSymbols.recenter, color: colors.onPrimaryContainer),
-                  ),
-                ),
-              ),
             ),
           ),
         ),
@@ -2331,7 +2507,6 @@ class _DualPane extends ConsumerWidget {
                             const SizedBox(height: DualPaneTokens.rightGap),
                             _DualTools(
                               page: page,
-                              autoFollow: autoFollow,
                               notes: notes,
                               clock: clock,
                               onBarHeight: onBarHeight,
@@ -2353,12 +2528,12 @@ class _DualPane extends ConsumerWidget {
   }
 }
 
-/// The right column's foot, paged with the pager: the Recenter key under
-/// Lyrics, the write bar under Note.
+/// The right column's foot, paged with the pager: the lyric tools under
+/// Lyrics (idle, they step away and their slot closes — the lyrics grow
+/// into it), the write bar under Note.
 class _DualTools extends StatelessWidget {
   const _DualTools({
     required this.page,
-    required this.autoFollow,
     required this.notes,
     required this.clock,
     required this.onBarHeight,
@@ -2368,7 +2543,6 @@ class _DualTools extends StatelessWidget {
 
   final Animation<double> barHeight;
   final Animation<double> page;
-  final ValueNotifier<bool> autoFollow;
   final NowPlayingNotes notes;
   final PlayheadClock clock;
   final ValueChanged<double> onBarHeight;
@@ -2378,50 +2552,51 @@ class _DualTools extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.only(bottom: bottom),
     child: LayoutBuilder(
-      builder: (context, constraints) => AnimatedBuilder(
-        animation: Listenable.merge([page, barHeight]),
-        builder: (context, _) {
-          final p = page.value.clamp(0.0, 1.0);
-          final width = constraints.maxWidth;
-          // The open write bar grows the slot on the Note page.
-          final bar = barHeight.value + NowPlayingNoteTokens.barTopGap;
-          final height = DualPaneTokens.accessoryHeight + p * math.max(0.0, bar - DualPaneTokens.accessoryHeight);
-          return SizedBox(
-            height: height,
-            child: ClipRect(
-              child: Stack(
-                fit: StackFit.expand,
-                alignment: AlignmentDirectional.bottomStart,
-                children: [
-                  _PagerPage(
-                    offset: -p * width,
-                    shown: p < 0.999,
-                    active: p < 0.5,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-                      child: Align(
-                        alignment: AlignmentDirectional.bottomStart,
-                        child: _RecenterKey(autoFollow: autoFollow),
+      builder: (context, constraints) => LyricToolsAwayBuilder(
+        builder: (context, away) => AnimatedBuilder(
+          animation: Listenable.merge([page, barHeight]),
+          builder: (context, _) {
+            final p = page.value.clamp(0.0, 1.0);
+            final width = constraints.maxWidth;
+            // The open write bar grows the slot on the Note page.
+            final bar = barHeight.value + NowPlayingNoteTokens.barTopGap;
+            final height =
+                DualPaneTokens.accessoryHeight * (1 - away * (1 - p)) +
+                p * math.max(0.0, bar - DualPaneTokens.accessoryHeight);
+            return SizedBox(
+              height: height,
+              child: ClipRect(
+                child: Stack(
+                  fit: StackFit.expand,
+                  alignment: AlignmentDirectional.bottomStart,
+                  children: [
+                    _PagerPage(
+                      offset: -p * width,
+                      shown: p < 0.999,
+                      active: p < 0.5,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                        child: Align(alignment: AlignmentDirectional.bottomStart, child: const LyricToolsBar()),
                       ),
                     ),
-                  ),
-                  _PagerPage(
-                    offset: (1 - p) * width,
-                    shown: p > 0.001,
-                    active: p >= 0.5,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-                      child: Align(
-                        alignment: AlignmentDirectional.bottomStart,
-                        child: NoteWriteBar(notes: notes, clock: clock, onNaturalHeight: onBarHeight),
+                    _PagerPage(
+                      offset: (1 - p) * width,
+                      shown: p > 0.001,
+                      active: p >= 0.5,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                        child: Align(
+                          alignment: AlignmentDirectional.bottomStart,
+                          child: NoteWriteBar(notes: notes, clock: clock, onNaturalHeight: onBarHeight),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     ),
   );
@@ -2697,15 +2872,8 @@ class _LandscapePane extends ConsumerWidget {
     );
 
     // The write bar under the Note page (the Lyrics page keeps its Recenter key).
-    Widget tools() => _DualTools(
-      page: page,
-      autoFollow: autoFollow,
-      notes: notes,
-      clock: clock,
-      onBarHeight: onBarHeight,
-      barHeight: barHeight,
-      bottom: 0,
-    );
+    Widget tools() =>
+        _DualTools(page: page, notes: notes, clock: clock, onBarHeight: onBarHeight, barHeight: barHeight, bottom: 0);
 
     // Focus: the focus lyrics (current line on the third row, two above it
     // fading) take the pager's place; the resting pager fades out under it.

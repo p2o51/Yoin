@@ -5,16 +5,21 @@ import '../data/model/model.dart';
 /// One line as Now Playing shows it; [startMs] is null for unsynced text.
 @immutable
 final class LyricRow {
-  const LyricRow(this.text, {this.startMs});
+  const LyricRow(this.text, {this.startMs, this.translation});
 
   final String text;
   final int? startMs;
 
-  @override
-  bool operator ==(Object other) => other is LyricRow && other.text == text && other.startMs == startMs;
+  /// The line's translation (Android LyricLine.translation). Harmony has no
+  /// translation source yet (see LyricsActionBar), so this stays null.
+  final String? translation;
 
   @override
-  int get hashCode => Object.hash(text, startMs);
+  bool operator ==(Object other) =>
+      other is LyricRow && other.text == text && other.startMs == startMs && other.translation == translation;
+
+  @override
+  int get hashCode => Object.hash(text, startMs, translation);
 }
 
 /// A song's lyrics, ready for the window and the full list.

@@ -17,8 +17,15 @@ List<BoxShadow> nowPlayingPanelShadows(double strength) {
   if (s == 0) return const [];
   const e = NowPlayingPanelTokens.shadowElevation;
   return [
-    BoxShadow(color: Colors.black.withValues(alpha: 0.20 * s), blurRadius: e, offset: const Offset(0, e / 4)),
-    BoxShadow(color: Colors.black.withValues(alpha: 0.12 * s), blurRadius: e * 1.5),
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.20 * s),
+      blurRadius: e,
+      offset: const Offset(0, e / 4),
+    ),
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.12 * s),
+      blurRadius: e * 1.5,
+    ),
   ];
 }
 

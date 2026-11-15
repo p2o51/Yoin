@@ -54,6 +54,10 @@ final class StageMetrics {
 
 typedef _T = NowPlayingTokens;
 
+/// The enlarged phone's tab row, tall enough for the lyric tools at its end
+/// (NowPlayingBudget.kt EnlargedToolTabRow; LyricToolsMetrics.enlargedTabKey).
+const double enlargedToolTabRow = 44;
+
 enum LyricFrame { list, oneLine }
 
 /// The phone column at rest (NowPlayingBudget.kt resolveStageColumnBudget,
@@ -224,8 +228,10 @@ StageColumnBudget resolveStageColumnBudget({
   final accessoryMin = _T.pillHeight + _T.accessoryAirMin;
   var heroOneLine = false;
   var frame = LyricFrame.list;
-  var tabs = math.max(_T.tabRowNominal, metrics.tabTextLine + _T.tabRowAir);
-  final tabsMin = metrics.tabTextLine;
+  // The enlarged phone's lyric tools ride the end of the tab row at rest
+  // (EnlargedToolTabRow): the row holds their 44 dp keys.
+  var tabs = enlarged != null ? enlargedToolTabRow : math.max(_T.tabRowNominal, metrics.tabTextLine + _T.tabRowAir);
+  final tabsMin = enlarged != null ? enlargedToolTabRow : metrics.tabTextLine;
   var tabGap = _T.tabGapNominal;
 
   final listMin = minLyricWindow(

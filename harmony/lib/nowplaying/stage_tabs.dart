@@ -13,14 +13,45 @@ import 'nowplaying_strings.dart';
 /// in). Each is composed only while it shows, so the invisible one never
 /// takes a tap. Android's About tab needs Gemini and is not on HarmonyOS.
 class StageTabs extends StatelessWidget {
-  const StageTabs({super.key, required this.selected, required this.detail, required this.onSelect});
+  const StageTabs({
+    super.key,
+    required this.selected,
+    required this.detail,
+    required this.onSelect,
+    this.tools,
+    this.textOnly = false,
+  });
 
   final NowPlayingDetailPage selected;
   final Animation<double> detail;
   final ValueChanged<NowPlayingDetailPage> onSelect;
 
+  /// The lyric tools at the end of the text tabs (the enlarged phone at rest;
+  /// the 16:9 expanded page), vertically centred on the row.
+  final Widget? tools;
+
+  /// 16:9 (断点交接 §3.1): the expanded page keeps the TEXT tabs instead of
+  /// the tab group, with [tools] at the row's end.
+  final bool textOnly;
+
   @override
   Widget build(BuildContext context) {
+    Widget textRow({required bool top}) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+      child: tools == null
+          ? Align(
+              alignment: top ? AlignmentDirectional.topStart : AlignmentDirectional.centerStart,
+              child: _TextTabs(selected: selected, onSelect: onSelect),
+            )
+          : Row(
+              children: [
+                _TextTabs(selected: selected, onSelect: onSelect),
+                const Spacer(),
+                tools!,
+              ],
+            ),
+    );
+    if (textOnly) return ClipRect(child: textRow(top: false));
     return AnimatedBuilder(
       animation: detail,
       builder: (context, _) {
@@ -34,13 +65,7 @@ class StageTabs extends StatelessWidget {
                   opacity: 1 - d,
                   child: Transform.translate(
                     offset: Offset(0, -NowPlayingTokens.tabCompactLift * d),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-                      child: Align(
-                        alignment: AlignmentDirectional.topStart,
-                        child: _TextTabs(selected: selected, onSelect: onSelect),
-                      ),
-                    ),
+                    child: textRow(top: true),
                   ),
                 ),
               if (d > 0)
