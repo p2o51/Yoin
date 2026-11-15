@@ -225,7 +225,7 @@ class HomeLayoutTest {
         )
 
         assertEquals(
-            listOf("activities", "jump_back_in", "recently_added", "rediscover", "recently_played", "your_playlists", "other_profiles", "lyric_highlight", "memory_grid", "your_tracks"),
+            listOf("activities", "jump_back_in", "recently_added", "rediscover", "recently_played", "your_playlists", "other_profiles", "lyric_highlight", "memory_grid", "made_for_you", "your_tracks"),
             HomeLayout.reconcile(prefs).toPrefs().map { it.id },
         )
     }
