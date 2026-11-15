@@ -2,14 +2,17 @@ package com.gpo.yoin.ui.home
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteractionCollection
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -129,7 +132,10 @@ class HomeEditIntegrationTest {
 
         enterEdit()
 
-        // The tray takes the footer's place.
+        // The tray takes the footer's place. Editing shows every empty section's placeholder,
+        // which can push the tray below this window in the lazy feed: scroll down to it.
+        rule.onNode(hasScrollToNodeAction() and IsVertical).performScrollToNode(hasText(ResetHome))
+        rule.waitForIdle()
         assertEquals(0, footerEntry().fetchSemanticsNodes().size)
         rule.onNodeWithText(ResetHome, useUnmergedTree = true).assertExists()
     }
@@ -162,6 +168,7 @@ class HomeEditIntegrationTest {
         const val AlbumArtist = "Muse"
         const val EditHome = "Edit Home"
         const val ResetHome = "Reset Home"
+        val IsVertical = SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)
         const val JbiPlaceholder = "Nothing to jump back into"
     }
 }
