@@ -203,7 +203,7 @@ private struct RestoreRing: View {
 }
 
 /// The Yoin mascot in its own colours, as Android's Live Update tracker draws it.
-private struct RestoreMascot: View {
+struct RestoreMascot: View {
     var body: some View {
         YoinArmsCanvas(arms: [(index: 0, color: RestoreColors.toCheck), (index: 1, color: RestoreColors.matched),
                               (index: 2, color: RestoreColors.navy)],

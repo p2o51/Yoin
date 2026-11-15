@@ -133,6 +133,11 @@ final class OfflineDownloads {
     @ObservationIgnored var sign: (_ songId: String, _ quality: Quality) -> URL? = { _, _ in nil }
     /// Fetches a signed url to a temporary file (tests answer without a network); nil: the URLSession.
     @ObservationIgnored var transfer: (@MainActor (URL) async throws -> (URL, URLResponse))?
+    /// Called whenever the songs change and as the one downloading moves: the Live Activity follows it
+    /// (DownloadLiveActivity).
+    @ObservationIgnored var onChange: (@MainActor () -> Void)?
+    /// How far the song downloading now has got (its key, 0...1); nil before its first bytes.
+    @ObservationIgnored private(set) var partial: (key: String, fraction: Double)?
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let directory: URL
@@ -323,8 +328,17 @@ final class OfflineDownloads {
     func accountChanged() {
         running?.task.cancel()
         running = nil
+        partial = nil
         for i in songs.indices where songs[i].state == .downloading { songs[i].state = .queued }
         pump()
+        onChange?()
+    }
+
+    /// The song downloading for [key] has [fraction] of its bytes (BackgroundTransfers).
+    func received(key: String, fraction: Double) {
+        guard running?.key == key else { return }
+        partial = (key, min(1, max(0, fraction)))
+        onChange?()
     }
 
     // MARK: Downloading
@@ -395,6 +409,7 @@ final class OfflineDownloads {
             return
         }
         running = nil
+        partial = nil
         switch result {
         case .file(let f, let size):
             if songs.contains(where: { $0.key == key }) {
@@ -471,6 +486,7 @@ final class OfflineDownloads {
 
     private func save() {
         pinDetails()
+        defer { onChange?() }
         guard let data = try? JSONEncoder().encode(songs) else { return }
         try? data.write(to: indexURL, options: .atomic)
     }

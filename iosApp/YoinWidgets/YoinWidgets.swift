@@ -15,6 +15,8 @@ struct YoinWidgetsBundle: WidgetBundle {
         MemoryWidget()
         // A playlist restore on the Lock Screen and in the Dynamic Island (RestoreActivityViews.swift).
         RestoreActivityWidget()
+        // Offline downloads on the Lock Screen and in the Dynamic Island (DownloadActivityViews.swift).
+        DownloadActivityWidget()
     }
 }
 

@@ -15,6 +15,8 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         var waiting: [String: CheckedContinuation<(URL, URLResponse), Error>] = [:]
         var mobile = false
         var session: URLSession?
+        /// The last share of each download passed on (the Live Activity needs no finer step than 1%).
+        var reported: [String: Int] = [:]
     }
     private let identifier: String
     let finishedDirectory: URL
@@ -101,7 +103,21 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         }
     }
 
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard let key = downloadTask.taskDescription, totalBytesExpectedToWrite > 0 else { return }
+        let percent = Int(totalBytesWritten * 100 / totalBytesExpectedToWrite)
+        let changed = lock.withLock { s -> Bool in
+            guard s.reported[key] != percent else { return false }
+            s.reported[key] = percent
+            return true
+        }
+        guard changed else { return }
+        Task { @MainActor in OfflineDownloads.shared.received(key: key, fraction: Double(percent) / 100) }
+    }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let key = task.taskDescription { lock.withLock { _ = $0.reported.removeValue(forKey: key) } }
         guard let error, let key = task.taskDescription else { return }
         lock.withLock { $0.waiting.removeValue(forKey: key) }?.resume(throwing: error)
     }
