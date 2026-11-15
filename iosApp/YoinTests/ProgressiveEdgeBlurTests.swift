@@ -16,7 +16,8 @@ final class ProgressiveEdgeBlurTests: XCTestCase {
         XCTAssertEqual(alpha[0], 1, accuracy: 1e-3)
         XCTAssertEqual(alpha[1], 1, accuracy: 1e-3, "solid up to the start")
         XCTAssertEqual(alpha.last ?? 1, 0, accuracy: 1e-3, "clear at the foot")
-        XCTAssertEqual(alpha[alpha.count / 2 + 1], 0.5, accuracy: 1e-3, "half way down, half")
+        // Stop 0 is the solid top, then the falloff's nine (eight steps): its middle is stop 1 + 4.
+        XCTAssertEqual(alpha[5], 0.5, accuracy: 1e-3, "half way down, half")
         XCTAssertEqual(alpha, alpha.sorted(by: >), "never brighter further down")
     }
 }

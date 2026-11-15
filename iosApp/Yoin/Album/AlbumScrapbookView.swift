@@ -992,9 +992,9 @@ struct ProgressiveEdgeBlur: View {
     /// The album's Strip top bar: a thicker blur that holds longer and falls
     /// off over a shorter edge (51, 2026-11-06: stronger, steeper).
     var strong = false
-    /// The strong blur, thicker and more of the page's colour: the artist
-    /// page's top, where the big ring otherwise glows through behind the title
-    /// (51, 2026-11-15).
+    /// Nearly the page's colour itself: the artist page's top, where the big
+    /// ring otherwise glows through behind the title (51, 2026-11-15). With
+    /// the strong falloff unless [fadeFrom] says where to start.
     var dense = false
     /// Where it starts to fall off (0–1 of its height), in place of the fixed
     /// falloff: from there it eases to clear at its foot, with no slope at
@@ -1006,13 +1006,13 @@ struct ProgressiveEdgeBlur: View {
     var body: some View {
         ZStack {
             if dense {
-                Rectangle().fill(.thickMaterial)
+                Rectangle().fill(.ultraThickMaterial)
             } else if strong {
                 Rectangle().fill(.regularMaterial)
             } else {
                 Rectangle().fill(.thinMaterial)
             }
-            Rectangle().fill(tint.opacity(dense ? 0.9 : strong ? 0.8 : 0.72))
+            Rectangle().fill(tint.opacity(dense ? 0.95 : strong ? 0.8 : 0.72))
         }
         .mask { LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom) }
         .allowsHitTesting(false)
