@@ -24,6 +24,7 @@ import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
 import com.gpo.yoin.data.remote.applemusic.AppleMusicStorefront
 import com.gpo.yoin.data.remote.applemusic.AppleMusicTrackRef
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.MadeForYouSource
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
@@ -35,6 +36,8 @@ import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.SongLinks
 import com.gpo.yoin.data.source.TrackNames
 import com.gpo.yoin.data.source.WebLinkKind
+import com.gpo.yoin.data.source.spotify.MadeForYouKind
+import com.gpo.yoin.data.source.spotify.MadeForYouPlaylist
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -63,7 +66,7 @@ class AppleMusicSource(
     private val api: AppleMusicApiClient = AppleMusicApiClient(tokenProvider::token, { credentials.musicUserToken }),
     /** The account's name region (Settings › this account), read on every list so a change applies at once. */
     private val nameRegion: () -> AppleMusicNameRegion = { AppleMusicNameRegion.Default },
-) : MusicSource, MusicLibrary, MusicMetadata, MusicWriteActions, MusicPlayback {
+) : MusicSource, MusicLibrary, MusicMetadata, MusicWriteActions, MusicPlayback, MadeForYouSource {
     override val id = MediaId.PROVIDER_APPLE_MUSIC
     override val capabilities: Set<Capability> = ServiceFeatureCatalog.appleMusic.capabilities
 
@@ -167,7 +170,9 @@ class AppleMusicSource(
         path: List<String>,
         query: Map<String, String> = emptyMap(),
         next: String? = null,
-        personal: Boolean = path.getOrNull(1) == "me",
+        // A personal mix (`pl.pm-…`) is a catalog playlist made for this user: reading it needs the
+        // Music User Token like the library does.
+        personal: Boolean = path.getOrNull(1) == "me" || path.any { it.startsWith(PERSONAL_MIX_PREFIX) },
         excludedQueryParameters: Set<String> = emptySet()
     ) = api.resourcePage(path, personal, query, next, excludedQueryParameters)
 
@@ -489,6 +494,25 @@ class AppleMusicSource(
     }
 
     override suspend fun getPlaylists(): List<Playlist> = all(path("playlists")).map(::listedPlaylist)
+
+    /**
+     * Home's Made For You (owner 2026-11-15): the personal mixes Apple Music makes for this account
+     * (Favorites Mix, New Music Mix, Chill Mix, Get Up! Mix…), from `GET /v1/me/recommendations`. Its
+     * groups and their titles are localized and come and go, so the mixes are picked by id (`pl.pm-`),
+     * in Apple's order. A mix the recommendations list without attributes is read from the catalog.
+     */
+    override suspend fun madeForYou(): List<MadeForYouPlaylist> {
+        val listed = madeForYouMixes(all(listOf("v1", "me", "recommendations")))
+        val bare = listed.filter { it.title.isBlank() }.map { it.rawId }
+        if (bare.isEmpty()) return listed
+        val read = page(
+            listOf("v1", "catalog", storefront(), "playlists"),
+            mapOf("ids" to bare.joinToString(",")),
+            personal = true,
+        ).resources().map(::madeForYouMix).associateBy { it.rawId }
+        return listed.mapNotNull { mix -> if (mix.title.isBlank()) read[mix.rawId] else mix }
+            .filter { it.title.isNotBlank() }
+    }
 
     /**
      * A library playlist Apple won't read from the library opens as its catalog playlist when it has one: one the
@@ -953,6 +977,28 @@ class AppleMusicSource(
                 ?.cover()
             return Artist(resource.mediaId(), a.text("name").orEmpty(), null, portrait)
         }
+        /** The personal mixes among the recommendation [groups], once each, in Apple's order. */
+        internal fun madeForYouMixes(groups: List<JsonObject>): List<MadeForYouPlaylist> = groups
+            .flatMap { group -> group.related("contents") }
+            .filter { it.text("type") == "playlists" && it.text("id")?.startsWith(PERSONAL_MIX_PREFIX) == true }
+            .map(::madeForYouMix)
+            .distinctBy { it.rawId }
+
+        /** One personal mix; a blank title when Apple listed it without attributes. */
+        internal fun madeForYouMix(resource: JsonObject): MadeForYouPlaylist {
+            val a = resource.attributes()
+            return MadeForYouPlaylist(
+                rawId = requireNotNull(resource.text("id")),
+                title = a.text("name").orEmpty(),
+                subtitle = a["description"]?.jsonObject?.text("short")
+                    ?: a["description"]?.jsonObject?.text("standard")
+                    ?: a.text("curatorName").orEmpty(),
+                imageUrl = (a.cover() as? CoverRef.Url)?.url,
+                kind = MadeForYouKind.AppleMix,
+                provider = MediaId.PROVIDER_APPLE_MUSIC,
+            )
+        }
+
         internal fun playlist(resource: JsonObject): Playlist {
             val a = resource.attributes()
             return Playlist(
@@ -1008,6 +1054,9 @@ private val RecentPlayedCatalogQuery = RecentPlayedPageQuery + ("include[library
 
 /** Apple's largest page for library collections and the artist albums relationship (default 25). */
 private val PageLimitQuery = mapOf("limit" to "100")
+
+/** Apple Music's personal mixes are catalog playlists with this id prefix (`pl.pm-…`). */
+private const val PERSONAL_MIX_PREFIX = "pl.pm-"
 
 /** A library artist with its catalog artist, the only one of the two that has a portrait. */
 private val LibraryArtistQuery = mapOf("include" to "catalog")
