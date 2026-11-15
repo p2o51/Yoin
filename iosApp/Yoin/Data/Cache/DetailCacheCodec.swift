@@ -73,6 +73,9 @@ enum DetailCacheDTO {
         var snapshotId: String? = nil
         var positions: [Int]? = nil
         var canWrite: Bool? = nil
+        /// Spotify wouldn't hand over the songs, and how many it says there are (absent in older pages).
+        var tracksUnavailable: Bool? = nil
+        var songCount: Int? = nil
     }
 
     struct ArtistPage: Codable, Sendable, Equatable {
@@ -161,7 +164,8 @@ struct DetailCacheCodec {
         .init(provider: p.id.provider, id: p.id.rawId, title: p.title, owner: p.owner, isPublic: p.isPublic,
               description: p.description, cover: coverKey(p.palette), entries: p.entries.map(dto),
               ownedByMe: p.ownedByMe, collaborative: p.collaborative ? true : nil, snapshotId: p.snapshotId,
-              positions: p.positions, canWrite: p.canWrite)
+              positions: p.positions, canWrite: p.canWrite, tracksUnavailable: p.tracksUnavailable ? true : nil,
+              songCount: p.songCount)
     }
 
     func dto(_ a: ArtistPage) -> DetailCacheDTO.ArtistPage {
@@ -211,7 +215,8 @@ struct DetailCacheCodec {
     func playlist(_ p: DetailCacheDTO.Playlist) -> PlaylistInfo {
         PlaylistInfo(id: MediaId(provider: p.provider, rawId: p.id), title: p.title, owner: p.owner,
                      isPublic: p.isPublic, description: p.description, palette: palette(p.cover, p.id),
-                     entries: p.entries.map(entry), ownedByMe: p.ownedByMe, collaborative: p.collaborative ?? false,
+                     entries: p.entries.map(entry), tracksUnavailable: p.tracksUnavailable ?? false,
+                     songCount: p.songCount, ownedByMe: p.ownedByMe, collaborative: p.collaborative ?? false,
                      snapshotId: p.snapshotId, positions: p.positions, canWrite: p.canWrite)
     }
 

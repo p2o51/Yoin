@@ -27,8 +27,8 @@ final class SpotifyRestoreDestination: RestoreDestination {
         try await spotify.searchSongsForMatch(query)
     }
 
-    func tracksByIsrc(_ isrcs: [String]) async -> [String: [MatchTrack]] {
-        await spotify.tracksByIsrc(isrcs)
+    func tracksByIsrc(_ isrcs: [String]) async throws -> [String: [MatchTrack]] {
+        try await spotify.tracksByIsrc(isrcs)
     }
 
     func createPlaylist(name: String, description: String?, trackIds: [String]) async throws -> String {

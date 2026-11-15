@@ -67,6 +67,8 @@ final class PlaylistActions {
 
     /// The picker's rows (nil = not fetched yet this time).
     private(set) var picks: [Pick]?
+    /// Why the picker's last read failed (its rows are then empty, not "no playlists"); nil when it didn't.
+    private(set) var picksFailure: String?
 
     /// Songs the menu handed to Add to playlist; shown once the menu is down.
     @ObservationIgnored private var pendingAdd: [PlaylistEntry]?
@@ -170,6 +172,7 @@ final class PlaylistActions {
     /// refetches too, so a playlist made elsewhere shows up).
     func loadPicks(_ store: LibraryStore, library: any MusicLibrary) async {
         let gen = store.generation
+        picksFailure = nil
         if let spotify = store.spotify {
             do {
                 let read = try await spotify.writablePlaylists()
@@ -181,6 +184,7 @@ final class PlaylistActions {
                 }
             } catch {
                 log.error("playlists failed: \(SpotifySource.message(for: error), privacy: .public)")
+                picksFailure = SpotifySource.message(for: error)
                 picks = []
             }
             return
@@ -202,6 +206,7 @@ final class PlaylistActions {
             }
         } catch {
             log.error("playlists failed: \(ServerSession.message(for: error), privacy: .public)")
+            picksFailure = ServerSession.message(for: error)
             picks = []
         }
     }
@@ -235,6 +240,7 @@ final class PlaylistActions {
         let entries = mine
         let id = pick.id
         let gen = store.generation
+        let before = store.playlist(id)
         store.patchPlaylists { rows, details in
             details[id]?.entries += entries
             // Spotify: the new rows' positions are known once the page is read again.
@@ -248,10 +254,17 @@ final class PlaylistActions {
                     try await client.updatePlaylist(id: id, name: nil, comment: nil, isPublic: nil,
                                                     songIdsToAdd: songIds, songIndexesToRemove: [])
                 case .spotify(let spotify):
-                    try await spotify.addTracks(songIds, to: id)
-                    // Its new snapshot and positions, for a removal later (none queued: nothing to clobber).
-                    if gen == store.generation, store.playlist(id) != nil, (queuedRemovals[id] ?? 0) == 0 {
-                        await store.loadPlaylist(id, force: true)
+                    let snapshot = try await spotify.addTracks(songIds, to: id)
+                    // Its new snapshot and positions, for a removal later (none queued: nothing to clobber):
+                    // the new rows are the playlist's last items, so the page is patched; read again only
+                    // when it can't be.
+                    if gen == store.generation, let now = store.playlist(id), (queuedRemovals[id] ?? 0) == 0 {
+                        if let patched = Self.appended(before, now: now, added: songIds.count, snapshot: snapshot) {
+                            store.patchPlaylists { _, details in details[id] = patched }
+                            spotify.notePlaylistAppended(id, offsets: Array(patched.positions?.suffix(songIds.count) ?? []))
+                        } else {
+                            await store.loadPlaylist(id, force: true)
+                        }
                     }
                 }
                 show(String(localized: "Added to \(pick.name)"))
@@ -281,6 +294,20 @@ final class PlaylistActions {
                 show(String(localized: "Couldn't add to \(pick.name)"))
             }
         }
+    }
+
+    /// [now] (the page with [added] rows appended ahead of Spotify) with the positions and snapshot the add
+    /// left: the new rows follow the [before] page's last item. nil when that can't be known (the page
+    /// wasn't read with positions, or changed in between).
+    nonisolated static func appended(_ before: PlaylistInfo?, now: PlaylistInfo, added: Int, snapshot: String?) -> PlaylistInfo? {
+        guard let before, let snapshot, let total = before.songCount, let positions = before.positions,
+              positions.count == before.entries.count, now.entries.count == before.entries.count + added,
+              positions.last.map({ $0 < total }) ?? true else { return nil }
+        var page = now
+        page.positions = positions + Array(total ..< total + added)
+        page.songCount = total + added
+        page.snapshotId = snapshot
+        return page
     }
 
     /// Android createPlaylistAndAddTargets: a new playlist holding [entries].
@@ -326,7 +353,7 @@ final class PlaylistActions {
                     }
                     var item = SpotifyMapping.playlistItem(made)
                     item.count = songIds.count
-                    item.subtitle = "Playlist · \(songIds.count) songs"
+                    item.subtitle = SpotifyMapping.playlistSubtitle(songIds.count)
                     if item.palette.cover == nil { item.palette = palette }
                     guard gen == store.generation else { return show(String(localized: "Added to \(name)")) }
                     store.patchPlaylists { rows, _ in

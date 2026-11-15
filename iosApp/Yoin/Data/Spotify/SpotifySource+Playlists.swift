@@ -238,14 +238,19 @@ extension SpotifySource {
     }
 
     /// Android `tracksByIsrc`: one `isrc:` search per code, one after another; a code whose search fails is
-    /// left out (the match falls back to a title search). A row naming another code is not taken.
-    func tracksByIsrc(_ isrcs: [String]) async -> [String: [MatchTrack]] {
+    /// left out (the match falls back to a title search). A row naming another code is not taken. A rate
+    /// limit or a lost sign-in throws (`RestoreInterrupted.stops`): every later search would fail too.
+    func tracksByIsrc(_ isrcs: [String]) async throws -> [String: [MatchTrack]] {
         var found: [String: [MatchTrack]] = [:]
         var seen = Set<String>()
         let pattern = /^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/
         for code in isrcs.map({ $0.trimmingCharacters(in: .whitespaces).uppercased() }) where seen.insert(code).inserted {
-            guard code.wholeMatch(of: pattern) != nil, !Task.isCancelled,
-                  let tracks = try? await searchSongsForMatch("isrc:\(code)") else { continue }
+            guard code.wholeMatch(of: pattern) != nil, !Task.isCancelled else { continue }
+            let tracks: [MatchTrack]
+            do { tracks = try await searchSongsForMatch("isrc:\(code)") } catch {
+                if RestoreInterrupted.stops(error) { throw error }
+                continue
+            }
             let exact = tracks.filter { ($0.isrc ?? code) == code }
             if !exact.isEmpty { found[code] = exact }
         }

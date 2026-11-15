@@ -3,11 +3,32 @@ import Foundation
 /// Spotify's two search scopes and the next page of a catalog search (Android
 /// LibraryViewModel searchSpotifySavedLibrary / loadMoreSearchResults).
 extension LibraryStore {
-    /// The saved library: Library's own lists, read first if they are not here yet.
-    func spotifyLibrarySearch(_ term: String, _ spotify: SpotifySource) async -> SpotifySource.SearchResults {
+    /// A saved-library search whose lists couldn't be read: not "No results" (the reason instead).
+    struct LibraryReadFailed: LocalizedError {
+        var message: String
+        var errorDescription: String? { message }
+    }
+
+    /// The saved library: Library's own lists, read first if they are not here yet, and every liked song
+    /// (not only the first read's). Nothing found while a list failed to read throws that list's failure.
+    func spotifyLibrarySearch(_ term: String, _ spotify: SpotifySource) async throws -> SpotifySource.SearchResults {
         await loadLibrary(nil)
         await loadSongs()
-        return SpotifySource.filterLibrary(term, artists: artists, albums: albums, songs: songs, playlists: playlists)
+        // The rest of Liked Songs, a read at a time; a failed read (the rate limit) stops here.
+        while spotifySongsNext != nil, songsMore == .available || songsMore == .failed, !Task.isCancelled {
+            let before = spotifySongsNext
+            await loadMoreSongs()
+            if songsMore == .failed || spotifySongsNext == before { break }
+        }
+        let r = SpotifySource.filterLibrary(term, artists: artists, albums: albums, songs: songs, playlists: playlists)
+        let found = !(r.artists.isEmpty && r.albums.isEmpty && r.songs.isEmpty && r.playlists.isEmpty)
+        if !found, let failed = ["albums", "artists", "playlists", "songs"].first(where: { phase($0) == .failed }) {
+            throw LibraryReadFailed(message: failures[failed] ?? String(localized: "Couldn't load your library"))
+        }
+        if !found, songsMore == .failed {
+            throw LibraryReadFailed(message: String(localized: "Couldn't load all of your liked songs"))
+        }
+        return r
     }
 
     /// What follows [kind]'s rows in the current search: a page being read, a failed read,

@@ -182,6 +182,21 @@ final class SpotifyMappingTests: XCTestCase {
         XCTAssertTrue(sleeps.values.isEmpty)
     }
 
+    func test_should_fail_fast_without_asking_when_the_account_is_backing_off() async {
+        SpotifyStubProtocol.route = { _, _ in .init(status: 429, headers: ["Retry-After": "600"], body: "") }
+        let api = makeAPI()
+        _ = try? await api.get("me/albums", as: SpotifyDTO.Paging<SpotifyDTO.Album>.self)
+        do {
+            _ = try await api.get("me/tracks", as: SpotifyDTO.Paging<SpotifyDTO.SavedTrack>.self)
+            XCTFail("expected rate limit")
+        } catch {
+            guard case .rateLimited(let left)? = error as? SpotifyAPIError else { return XCTFail("\(error)") }
+            XCTAssertTrue((590...600).contains(left))
+        }
+        // The second read never went out.
+        XCTAssertEqual(SpotifyStubProtocol.requests.count, 1)
+    }
+
     func test_should_surface_unauthorized_and_ask_the_token_again_when_server_answers_401() async throws {
         SpotifyStubProtocol.route = { req, n in
             n == 1 ? .init(status: 401, body: #"{"error":{"status":401,"message":"The access token expired"}}"#)

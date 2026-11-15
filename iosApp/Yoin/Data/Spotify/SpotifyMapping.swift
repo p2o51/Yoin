@@ -178,12 +178,18 @@ enum SpotifyMapping {
     static func playlistItem(_ p: SpotifyDTO.Playlist, me: String?) -> LibraryItem {
         let count = p.entries?.total
         return LibraryItem(id: MediaId(provider: provider, rawId: p.id), kind: .playlist, title: p.name ?? "",
-                           subtitle: count.map { "Playlist · \($0) songs" } ?? "Playlist",
+                           subtitle: playlistSubtitle(count),
                            palette: palette(p.images, key: p.id), count: count,
                            owner: owner(p).isEmpty ? nil : owner(p), ownedByMe: SpotifySource.owned(p, by: me))
     }
 
     static func playlistItem(_ p: SpotifyDTO.Playlist) -> LibraryItem { playlistItem(p, me: nil) }
+
+    /// A playlist row's second line: how many songs, else just what it is (a plain label, no "·" chain).
+    static func playlistSubtitle(_ count: Int?) -> String {
+        guard let count else { return String(localized: "Playlist") }
+        return count == 1 ? String(localized: "1 song") : String(localized: "\(count) songs")
+    }
 
     /// [tracks] are the playlist's playable entries, already in order. A
     /// playlist the app may not read the items of (someone else's, 2026-02) opens without any.
