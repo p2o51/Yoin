@@ -195,6 +195,9 @@ public struct WavyProgressBar: View {
     public var onSeek: (Double) -> Void
     /// True while a finger is on the bar, false when it lifts.
     public var onScrubbing: (Bool) -> Void
+    /// The finger's fraction as it moves (magnetized, as the bar shows it); nil when it lifts.
+    /// Now Playing's light follows it (Android WaveGlow.scrub).
+    public var onScrubMove: (Double?) -> Void
     /// Song-moment notes as fractions of the bar (Android `noteAnchorsMs`):
     /// the thumb is pulled onto them, scrubbing across one ticks, and the
     /// bubble reads "Note" (in the tint, with `noteInk`) while it sits on one.
@@ -239,8 +242,10 @@ public struct WavyProgressBar: View {
         live: Bool = true,
         actedScrub: Double? = nil,
         onScrubbing: @escaping (Bool) -> Void = { _ in },
+        onScrubMove: @escaping (Double?) -> Void = { _ in },
         onSeek: @escaping (Double) -> Void
     ) {
+        self.onScrubMove = onScrubMove
         self.live = live
         self.actedScrub = actedScrub.map { min(max($0, 0), 1) }
         self.noteAnchors = noteAnchors.map { min(max($0, 0), 1) }.sorted()
@@ -452,6 +457,7 @@ public struct WavyProgressBar: View {
                 } else {
                     scrub = f
                 }
+                onScrubMove(f)
             }
             .onEnded { value in
                 let f = magnetized(min(max(value.location.x / max(width, 1), 0), 1))
@@ -462,6 +468,7 @@ public struct WavyProgressBar: View {
                 withTransaction(t) { shown = f }
                 withAnimation(.spring(duration: 0.3, bounce: 0)) { scrub = nil }
                 seekCount += 1
+                onScrubMove(nil)
                 onScrubbing(false)
                 onSeek(f)
             }

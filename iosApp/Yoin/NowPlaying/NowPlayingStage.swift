@@ -299,12 +299,19 @@ struct OneLineLyricLine: View, Equatable {
 /// buttons, scrolls and drags underneath work exactly as before.
 struct TouchWatcher: UIViewRepresentable {
     var onTouch: () -> Void
+    /// Where the finger went down, in the window (SwiftUI's global space): Now Playing's lights
+    /// find the lyric line a seek came from (Android recordPointerDown).
+    var onTouchAt: (CGPoint) -> Void = { _ in }
 
     func makeUIView(context: Context) -> TouchWatcherView { TouchWatcherView() }
-    func updateUIView(_ view: TouchWatcherView, context: Context) { view.onTouch = onTouch }
+    func updateUIView(_ view: TouchWatcherView, context: Context) {
+        view.onTouch = onTouch
+        view.onTouchAt = onTouchAt
+    }
 
     final class TouchWatcherView: UIView {
         var onTouch: () -> Void = {}
+        var onTouchAt: (CGPoint) -> Void = { _ in }
         private var recognizer: Watcher?
 
         override init(frame: CGRect) {
@@ -319,15 +326,18 @@ struct TouchWatcher: UIViewRepresentable {
             if let r = recognizer { r.view?.removeGestureRecognizer(r) }
             recognizer = nil
             guard let window else { return }
-            let r = Watcher { [weak self] in self?.onTouch() }
+            let r = Watcher { [weak self] at in
+                self?.onTouch()
+                if let at { self?.onTouchAt(at) }
+            }
             window.addGestureRecognizer(r)
             recognizer = r
         }
     }
 
     final class Watcher: UIGestureRecognizer, UIGestureRecognizerDelegate {
-        let fire: () -> Void
-        init(fire: @escaping () -> Void) {
+        let fire: (CGPoint?) -> Void
+        init(fire: @escaping (CGPoint?) -> Void) {
             self.fire = fire
             super.init(target: nil, action: nil)
             cancelsTouchesInView = false
@@ -337,7 +347,7 @@ struct TouchWatcher: UIViewRepresentable {
         }
 
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-            fire()
+            fire(touches.first.map { $0.location(in: nil) })
             state = .failed
         }
 

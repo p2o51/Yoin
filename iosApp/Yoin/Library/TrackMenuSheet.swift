@@ -379,6 +379,7 @@ struct TrackMenuSheet: View {
                            isOn: Binding(get: { keepScreenOn }, set: { on in
                                keepScreenOn = on
                                UIApplication.shared.isIdleTimerDisabled = on && model.npExpanded
+                               if on { NotificationCenter.default.post(name: NowPlayingGlow.roomLift, object: nil) }
                                tapped += 1
                            }))
     }
