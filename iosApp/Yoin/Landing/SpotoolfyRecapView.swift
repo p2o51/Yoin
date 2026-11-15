@@ -252,7 +252,7 @@ private struct RecapIntroPage: View {
 }
 
 /// The big number counting up: an animatable view, so only the digits redraw while it counts.
-private struct RecapCountText: View, Animatable {
+private struct RecapCountText: View, @preconcurrency Animatable {
     var value: Double
     var animatableData: Double {
         get { value }
@@ -844,7 +844,7 @@ extension SpotoolfyRecapView {
 
     /// A lyric in quotes: “…” in English, 「…」 in Chinese.
     static func quote(_ text: String) -> String {
-        String(localized: "recap.lyricQuote \(text)", defaultValue: "“\(text)”")
+        String(localized: "recap.lyricQuote \(text)")
     }
 
     static func songLine(_ title: String?, _ artist: String?) -> String? {

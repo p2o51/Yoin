@@ -10,6 +10,7 @@ import SwiftUI
 
 struct SpotoolfyRecapDemoHost: ViewModifier {
     @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
     @State private var recap: SpotoolfyRecap?
 
     func body(content: Content) -> some View {
@@ -24,7 +25,7 @@ struct SpotoolfyRecapDemoHost: ViewModifier {
             .fullScreenCover(isPresented: Binding(get: { recap != nil }, set: { if !$0 { recap = nil } })) {
                 if let recap {
                     let d = UserDefaults.standard
-                    SpotoolfyRecapView(recap: recap, scheme: CoverScheme(seed: Yoin.violet, dark: false),
+                    SpotoolfyRecapView(recap: recap, scheme: CoverScheme(seed: Yoin.violet, dark: colorScheme == .dark),
                                        fromSettings: d.bool(forKey: "recapFromSettings"),
                                        onClose: { self.recap = nil },
                                        startPage: d.integer(forKey: "recapPage"),
