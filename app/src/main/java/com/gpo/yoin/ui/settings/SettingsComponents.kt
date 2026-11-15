@@ -48,7 +48,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -266,13 +265,13 @@ internal fun SettingsItem(
                 if (summaryContent != null) {
                     summaryContent()
                 } else {
+                    // Summaries wrap in full: no mid-page truncation (docs/design.md), and on a narrow phone
+                    // in English two lines cut the Labs descriptions short.
                     if (summary != null) {
                         Text(
                             text = summary,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     if (summaryDetail != null) {
@@ -280,8 +279,6 @@ internal fun SettingsItem(
                             text = summaryDetail,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
