@@ -127,11 +127,16 @@ struct LandingView: View {
         .fileImporter(isPresented: $pickingSpotoolfyFile, allowedContentTypes: [.json, .plainText, .data]) { result in
             Task { await spotoolfy.pick(result) }
         }
-        .sheet(isPresented: Bindable(spotoolfy).recapShown) {
+        // The recap, full screen (Android's SpotoolfyRecapActivity): "Join Yoin" on its last page goes straight on
+        // to Spotify's connect step; Close stays on this step.
+        .fullScreenCover(isPresented: Bindable(spotoolfy).recapShown) {
             if let recap = spotoolfy.recap {
-                SpotoolfyRecapView(recap: recap, scheme: scheme) { spotoolfy.recapShown = false }
-                    .presentationDetents([.large])
-                    .presentationBackground(scheme.surfaceContainer)
+                SpotoolfyRecapView(recap: recap, scheme: scheme) {
+                    spotoolfy.recapShown = false
+                } onJoin: {
+                    spotoolfy.recapShown = false
+                    if flow.step == .spotoolfy { move(forward: true) { $0.next() } }
+                }
             }
         }
         .alert(String(localized: "Spotoolfy's data won't be kept"), isPresented: $askDropSpotoolfy) {

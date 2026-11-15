@@ -10195,6 +10195,288 @@
           }
         }
       }
+    },
+    "From Spotoolfy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 Spotoolfy"
+          }
+        }
+      }
+    },
+    "note": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "条笔记"
+          }
+        }
+      }
+    },
+    "notes": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "条笔记"
+          }
+        }
+      }
+    },
+    "rating": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首歌打过分"
+          }
+        }
+      }
+    },
+    "ratings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首歌打过分"
+          }
+        }
+      }
+    },
+    "Swipe up": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向上滑"
+          }
+        }
+      }
+    },
+    "Keywords and lyrics": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关键词和歌词"
+          }
+        }
+      }
+    },
+    "Notes and lyrics": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "笔记和歌词"
+          }
+        }
+      }
+    },
+    "Keywords": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关键词"
+          }
+        }
+      }
+    },
+    "What you wrote, and what you kept": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你写下的，和你截下的"
+          }
+        }
+      }
+    },
+    "Words from your 1 note. Tap one to see where you wrote it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 1 条笔记里分出来的词。点一下，看看在哪儿写过。"
+          }
+        }
+      }
+    },
+    "Words from your %lld notes. Tap one to see where you wrote it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 %lld 条笔记里分出来的词。点一下，看看在哪儿写过。"
+          }
+        }
+      }
+    },
+    "1 note, too few for keywords, so here it is.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 条笔记，还不够分出关键词，先把它摆出来。"
+          }
+        }
+      }
+    },
+    "%lld notes, too few for keywords, so here they are.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条笔记，还不够分出关键词，先把它们摆出来。"
+          }
+        }
+      }
+    },
+    "No notes, only ratings. They come along too.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有笔记，只有评分。它们也会一起带过来。"
+          }
+        }
+      }
+    },
+    "Used once": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出现 1 次"
+          }
+        }
+      }
+    },
+    "Used %lld times": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出现 %lld 次"
+          }
+        }
+      }
+    },
+    "Written for “%@” on %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 写给《%1$@》"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Written for “%1$@” on %2$@"
+          }
+        }
+      }
+    },
+    "Kept on %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截于 %@"
+          }
+        }
+      }
+    },
+    "What you wrote with it": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当时写的笔记"
+          }
+        }
+      }
+    },
+    "Words you wrote most: %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你最常写的词：%@。"
+          }
+        }
+      }
+    },
+    "Lyrics you kept: %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你截下的歌词：%@。"
+          }
+        }
+      }
+    },
+    "Bring them into Yoin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "带着它们，加入 Yoin"
+          }
+        }
+      }
+    },
+    "Once Spotify is connected, these notes and ratings go into your Yoin and turn up in Now Playing, the album scrapbook, Memories and Rediscover.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 Spotify 之后，这些笔记和评分会放进你的 Yoin，出现在 Now Playing、专辑剪贴簿、Memories 和 Rediscover 里。"
+          }
+        }
+      }
+    },
+    "Join Yoin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入 Yoin"
+          }
+        }
+      }
+    },
+    "They're all in your Yoin: Now Playing's notes, the album scrapbook, Memories and Rediscover.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它们都在你的 Yoin 里：Now Playing 的笔记页、专辑剪贴簿、Memories 和 Rediscover。"
+          }
+        }
+      }
+    },
+    "recap.lyricQuote %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
