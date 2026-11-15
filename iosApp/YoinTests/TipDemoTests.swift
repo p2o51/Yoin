@@ -158,9 +158,11 @@ final class TipDemoTests: XCTestCase {
             "SpotifyElsewhere", "MemoryLedger", "LyricHighlight", "AccountQuickSwitch", "FocusCover", "Downloads",
             "EditHome", "CoverMenu", "SongMenu", "PlayModes", "KeepScreenOn", "MiniPlayerMenu", "NoteMoments",
             "LibrarySearch", "Labs", "Name", "VolumeLeveling", "PullForMemories", "MemoriesAllAccounts",
+            "KeyboardShortcuts", "LibraryRefresh", "SpotifySpeakers",
         ])
         for id in TipIllustration.scenes {
-            XCTAssertNotNil(Tips.tip(id), "\(id) has a demo but is not a tip")
+            // The catalog, not Tips.all: KeyboardShortcuts is left out on an iPhone.
+            XCTAssertTrue(Tips.catalog.contains { $0.id == id }, "\(id) has a demo but is not a tip")
             XCTAssertTrue(TipIllustration.has(id))
         }
         XCTAssertFalse(TipIllustration.has("ContinueOn"))
