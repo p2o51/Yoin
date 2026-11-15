@@ -69,6 +69,7 @@ enum class MadeForYouKind {
     DailyMix,
     Blend,
     Mix,
+
     /** An Apple Music personal mix (`pl.pm-…`): Favorites Mix, New Music Mix, Chill Mix, Get Up! Mix… */
     AppleMix,
     Other,

@@ -977,6 +977,7 @@ class AppleMusicSource(
                 ?.cover()
             return Artist(resource.mediaId(), a.text("name").orEmpty(), null, portrait)
         }
+
         /** The personal mixes among the recommendation [groups], once each, in Apple's order. */
         internal fun madeForYouMixes(groups: List<JsonObject>): List<MadeForYouPlaylist> = groups
             .flatMap { group -> group.related("contents") }
