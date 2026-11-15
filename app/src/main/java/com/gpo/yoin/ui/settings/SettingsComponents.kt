@@ -244,6 +244,8 @@ internal fun SettingsItem(
     summaryContent: (@Composable ColumnScope.() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     iconTone: SettingsTone? = null,
+    // A summary that explains what a switch does must be read whole; pass Int.MAX_VALUE for those.
+    summaryMaxLines: Int = 2,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
@@ -271,7 +273,7 @@ internal fun SettingsItem(
                             text = summary,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
+                            maxLines = summaryMaxLines,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }

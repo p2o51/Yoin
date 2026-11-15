@@ -105,6 +105,7 @@ internal fun LabsPageBody(
                                 null -> R.string.labs_nano_checking
                             },
                         ),
+                        summaryMaxLines = Int.MAX_VALUE,
                         // AICore's own words, small: what a bug report needs when a supported phone says no.
                         summaryDetail = state.reason?.takeIf { state.nano == NanoStatus.UNAVAILABLE },
                         trailing = {
@@ -132,6 +133,7 @@ internal fun LabsPageBody(
                             icon = YoinSymbols.Insights,
                             title = stringResource(R.string.nano_diag_title),
                             summary = stringResource(R.string.nano_diag_entry_detail),
+                            summaryMaxLines = Int.MAX_VALUE,
                             onClick = {
                                 haptics.performContextClick()
                                 onOpenDiagnostics()
@@ -164,6 +166,7 @@ internal fun LabsPageBody(
                         icon = YoinSymbols.MusicNote,
                         title = stringResource(HomeSection.LyricHighlight.titleRes),
                         summary = stringResource(R.string.labs_lyrics_detail),
+                        summaryMaxLines = Int.MAX_VALUE,
                         onClick = if (nanoHere) {
                             {
                                 haptics.performContextClick()
