@@ -16,7 +16,7 @@ struct DownloadActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    RestoreMascot()
+                    RestoreMascot(onDark: true)
                         .frame(width: 40, height: 40)
                         .padding(.leading, 4)
                 }
@@ -43,14 +43,14 @@ struct DownloadActivityWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     if context.state.stage.underWay {
-                        DownloadBar(state: context.state, track: .white.opacity(0.22))
+                        DownloadBar(state: context.state, track: .white.opacity(0.22), onDark: true)
                             .frame(height: 22)
                             .padding(.horizontal, 4)
                             .padding(.top, 4)
                     }
                 }
             } compactLeading: {
-                RestoreMascot()
+                RestoreMascot(onDark: true)
                     .frame(width: 24, height: 24)
             } compactTrailing: {
                 DownloadCount(state: context.state, compact: true)
@@ -80,11 +80,15 @@ private struct DownloadLockScreen: View {
                     DownloadHeadline(state: state)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.primary)
+                        // Through, "Downloaded for offline listening" beside the mascot and "41 songs" takes
+                        // two lines rather than being cut.
+                        .lineLimit(state.stage.underWay ? 1 : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                     DownloadSubject(state: state)
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .lineLimit(1)
                 Spacer(minLength: 8)
                 DownloadCount(state: state)
                     .font(.system(size: 16, weight: .semibold).monospacedDigit())
@@ -156,10 +160,12 @@ private struct DownloadCount: View {
     }
 }
 
-/// The bar: how far the run has got in Yoin's violet, the mascot where it has got to; faded while waiting.
+/// The bar: how far the run has got in Yoin's violet, the mascot where it has got to; the violet paler while
+/// waiting (the track and the mascot stay, so it still reads on a dark card).
 private struct DownloadBar: View {
     var state: DownloadActivityAttributes.ContentState
     var track: Color
+    var onDark: Bool? = nil
 
     var body: some View {
         GeometryReader { g in
@@ -170,14 +176,13 @@ private struct DownloadBar: View {
                     .fill(track)
                     .frame(width: g.size.width, height: 8)
                 Capsule()
-                    .fill(RestoreColors.matched)
+                    .fill(RestoreColors.matched.opacity(state.stage == .downloading ? 1 : 0.55))
                     .frame(width: max(8, g.size.width * reached), height: 8)
-                RestoreMascot()
+                RestoreMascot(onDark: onDark)
                     .frame(width: mascot, height: mascot)
                     .offset(x: (g.size.width - mascot) * reached)
             }
             .frame(width: g.size.width, height: g.size.height, alignment: .leading)
-            .opacity(state.stage == .downloading ? 1 : 0.4)
         }
         .accessibilityHidden(true)
     }
@@ -196,7 +201,7 @@ private struct DownloadRing: View {
                 .stroke(state.failed > 0 && !state.stage.underWay ? RestoreColors.toCheck : RestoreColors.matched,
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            RestoreMascot().padding(5)
+            RestoreMascot(onDark: true).padding(5)
         }
     }
 }
