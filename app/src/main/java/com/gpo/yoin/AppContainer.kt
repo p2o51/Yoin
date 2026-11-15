@@ -461,6 +461,8 @@ class AppContainer(private val context: Context) {
                 libraryOpenStore.clear(profileId)
                 librarySortStore.clear(profileId)
                 appleMusicNameRegionStore.remove(profileId)
+                // Ratings it still owed its server can't be sent now (I10).
+                database.localRatingDao().clearPendingForProfile(profileId)
             },
         ).also { manager ->
             applicationScope.launch {
@@ -468,6 +470,8 @@ class AppContainer(private val context: Context) {
                     // One-shot carry-forward: pre-3D inline credentialsJson
                     // blobs → encrypted file store + marker rows.
                     manager.runStartupMigrations()
+                    // Accounts deleted before the delete cleared them still owe ratings (I10).
+                    runCatching { database.localRatingDao().clearPendingForDeletedProfiles() }
                     runCatching {
                         manager.migrateAppleMusicValidation(
                             com.gpo.yoin.data.remote.applemusic.AppleMusicValidationStore(context)

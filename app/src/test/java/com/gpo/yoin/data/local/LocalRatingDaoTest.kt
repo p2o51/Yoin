@@ -82,6 +82,36 @@ class LocalRatingDaoTest {
         assertTrue(ratings.getRating(SONG, MediaId.PROVIDER_SUBSONIC, "other").first()!!.needsSync)
     }
 
+    @Test
+    fun should_stopOwingADeletedAccountsRatings_andKeepTheScores() = runTest {
+        ratings.upsert(rating(7.7f, needsSync = true, updatedAt = 10L))
+        ratings.upsert(rating(5.0f, needsSync = true, updatedAt = 10L).copy(profileId = "other"))
+
+        assertEquals(1, ratings.clearPendingForProfile(PROFILE))
+
+        val row = stored()
+        assertEquals(7.7f, row.rating)
+        assertFalse(row.needsSync)
+        assertEquals(10L, row.updatedAt)
+        assertTrue(ratings.getRating(SONG, MediaId.PROVIDER_SUBSONIC, "other").first()!!.needsSync)
+    }
+
+    @Test
+    fun should_clearOnlyRatingsOwedByAccountsThatAreGone_onTheStartupSweep() = runTest {
+        database.profileDao().upsert(
+            Profile(id = "kept", provider = MediaId.PROVIDER_SUBSONIC, displayName = "Kept", credentialsJson = "")
+        )
+        ratings.upsert(rating(7.7f, needsSync = true, updatedAt = 10L)) // PROFILE: deleted earlier
+        ratings.upsert(rating(5.0f, needsSync = true, updatedAt = 10L).copy(profileId = "kept"))
+        ratings.upsert(rating(3.0f, needsSync = true, updatedAt = 10L).copy(profileId = ""))
+
+        assertEquals(1, ratings.clearPendingForDeletedProfiles())
+
+        assertFalse(stored().needsSync)
+        assertTrue(ratings.getRating(SONG, MediaId.PROVIDER_SUBSONIC, "kept").first()!!.needsSync)
+        assertTrue(ratings.getRating(SONG, MediaId.PROVIDER_SUBSONIC, "").first()!!.needsSync)
+    }
+
     private suspend fun stored(): LocalRating = ratings.getRating(SONG, MediaId.PROVIDER_SUBSONIC, PROFILE).first()!!
 
     private fun rating(value: Float, needsSync: Boolean, updatedAt: Long) = LocalRating(
