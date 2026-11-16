@@ -14,6 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -22,7 +23,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
@@ -97,6 +97,9 @@ fun DetailBottomBar(
     // room (Go to artist, Share — 断点交接 §2.3); menu rows elsewhere.
     promotable: List<BarExtraAction> = emptyList(),
     menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
+    // When a bar that rises into place ([DETAIL_EXTRA_BAR_RISES]) may start:
+    // the page's entrance, so the rise plays on screen.
+    riseAfter: () -> Boolean = { true },
 ) {
     // A page hosted in the shell's detail column has no bar of its own: the
     // shell's ONE bar spans both columns and carries this page's Play split
@@ -123,11 +126,11 @@ fun DetailBottomBar(
         mutableStateOf(context.findActivityOrNull()?.intent?.getBooleanExtra(DETAIL_EXTRA_BAR_RISES, false) != true)
     }
     // The window composes and settles its first frames before it shows; rise
-    // once it holds focus, i.e. once it is on screen, or the rise plays unseen.
-    val platformWindow = LocalWindowInfo.current
+    // with the page's own entrance, or the rise plays unseen.
+    val currentRiseAfter = rememberUpdatedState(riseAfter)
     LaunchedEffect(Unit) {
         if (!risen) {
-            snapshotFlow { platformWindow.isWindowFocused }.first { it }
+            snapshotFlow { currentRiseAfter.value() }.first { it }
             risen = true
         }
     }
