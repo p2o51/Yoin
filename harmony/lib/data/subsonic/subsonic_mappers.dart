@@ -268,6 +268,7 @@ Playlist? playlistFromJson(SubsonicJson j, {String? currentUsername}) {
     canWrite: _bool(j['readonly']) != true && (owner == null || owner == currentUsername),
     comment: _text(j['comment']),
     ownedByMe: owner == null || currentUsername == null ? null : owner.toLowerCase() == currentUsername.toLowerCase(),
+    libraryAddedAt: _text(j['created']),
   );
 }
 

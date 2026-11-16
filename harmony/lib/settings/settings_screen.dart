@@ -25,6 +25,9 @@ import 'about_screen.dart';
 import 'ai_settings_screen.dart';
 import 'ai_sub_pages.dart';
 import 'apple_music_setup_screen.dart';
+import 'backup/playlist_backup_screen.dart';
+import 'backup/playlist_backup_strings.dart';
+import 'backup/playlist_backups_screen.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'licenses.dart';
@@ -156,6 +159,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         navigator.push(YoinPushRoute<void>(builder: (_) => const AboutScreen()));
       case CloudSyncPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const CloudSyncScreen()));
+      case PlaylistBackupsPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const PlaylistBackupsScreen()));
+      case PlaylistBackupPane(:final backupId):
+        navigator.push(YoinPushRoute<void>(builder: (_) => PlaylistBackupScreen(backupId: backupId)));
       case StreamQualityPane(:final profileId):
         navigator.push(YoinPushRoute<void>(builder: (_) => StreamQualityScreen(profileId: profileId)));
       case DownloadsPane():
@@ -273,6 +280,9 @@ class _ListDetail extends StatelessWidget {
       LicensesPane() => const LicensesScreen(inPane: true),
       AboutPane() => const AboutScreen(inPane: true),
       CloudSyncPane() => const CloudSyncScreen(inPane: true),
+      PlaylistBackupsPane() => const PlaylistBackupsScreen(inPane: true),
+      PlaylistBackupPane(:final backupId) =>
+        PlaylistBackupScreen(key: ValueKey(('backup', backupId)), backupId: backupId, inPane: true),
       StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
       DownloadsPane(:final profileId) => DownloadsScreen(key: ValueKey(('downloads', profileId)), inPane: true),
       VolumeLevelingPane(:final profileId) => VolumeLevelingScreen(key: ValueKey(('leveling', profileId)), inPane: true),
@@ -393,8 +403,8 @@ class _FeaturesGroup extends StatelessWidget {
   );
 }
 
-/// Settings › Sync and storage (Android SettingsScreen's settings_section_sync_storage).
-/// HarmonyOS has Cloud sync of that group (no NeoDB, playlist backups or cache row yet).
+/// Settings › Sync and storage (Android SettingsScreen's settings_section_sync_storage):
+/// Cloud sync, then Playlist cloud backup (PlaylistBackupsItem). HarmonyOS has no NeoDB or cache row yet.
 class _SyncStorageGroup extends StatelessWidget {
   const _SyncStorageGroup({required this.open, required this.listDetail, required this.onOpen});
 
@@ -405,8 +415,21 @@ class _SyncStorageGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SettingsGroup(
     title: CloudSyncStrings.of(context).sectionSyncStorage,
-    selected: {if (open is CloudSyncPane) 0},
-    children: [CloudSyncEntryRow(showChevron: listDetail, onTap: () => onOpen(const CloudSyncPane()))],
+    selected: {
+      if (open is CloudSyncPane) 0,
+      if (open is PlaylistBackupsPane || open is PlaylistBackupPane) 1,
+    },
+    children: [
+      CloudSyncEntryRow(showChevron: listDetail, onTap: () => onOpen(const CloudSyncPane())),
+      SettingsItem(
+        icon: YoinSymbols.playlist,
+        title: PlaylistBackupStrings.of(context).title,
+        trailing: listDetail
+            ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
+            : null,
+        onTap: () => onOpen(const PlaylistBackupsPane()),
+      ),
+    ],
   );
 }
 

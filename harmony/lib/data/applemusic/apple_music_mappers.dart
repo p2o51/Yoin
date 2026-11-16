@@ -254,6 +254,7 @@ Playlist? playlistFrom(AppleMusicJson resource) {
     comment: text(obj(a['description']), 'standard'),
     // Apple names no owner: a library playlist the user can edit is theirs (Android).
     ownedByMe: isLibraryId(id) && a['canEdit'] is bool ? a['canEdit'] as bool : null,
+    libraryAddedAt: text(a, 'dateAdded'),
   );
 }
 
@@ -269,6 +270,7 @@ Playlist playlistWithTracks(Playlist playlist, List<Track> tracks) => Playlist(
   canWrite: playlist.canWrite,
   comment: playlist.comment,
   ownedByMe: playlist.ownedByMe,
+  libraryAddedAt: playlist.libraryAddedAt,
 );
 
 /// A library playlist's catalog playlist (`playParams.globalId`, `pl.…`), if any.

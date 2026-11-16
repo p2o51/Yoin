@@ -18,7 +18,10 @@ Cloud project) read each other's data.
 | `home_layout` | ✔ | The sections JSON travels verbatim. Restore default now deletes the saved layout (as Android), so it syncs as “default”. |
 | `account` | ✔ | Provider, name, created time, “user @ host”. Never credentials. |
 | `song_about` (About, Ask answers, your own About entries) | ✔ | Global like Android's table; the AI's rows are stamped with the answer language and only applied in that language, your own entries in every language. Deletes never propagate (a removed row is a blank one). |
-| `setting`, `lyrics_translation`, `memory_copy`, `memory_title`, `playlist_backup` | carried | HarmonyOS has no such feature yet: the records are kept in the replica and published again unchanged, so an Android phone never loses them through this device. |
+| `setting` | ✔ | Translation language (written into the AI settings' prefs, field-level; declined while song About entries exist) and the scroll edge style (`seam_top_style` on the key-value store, Android's key and values). `spotify_client_id` is declined as unsupported (no Spotify here) and carried. |
+| `lyrics_translation` | ✔ | Paid (Gemini) translations only, write-once, with the lyrics snapshot (`lyrics`) stamped on and seeded as Android does. The cache keeps a paid index (`yoin.lyrics.translation.paid`) since the store can't list keys; translations written before it join it when read. A paid translation of other lines is kept beside the song's slot, never replaced. |
+| `playlist_backup` | ✔ | Settings › Playlist cloud backup. `content`/`versions`/`restores` travel as the exact JSON text; `sourceProfileId` never travels. |
+| `memory_copy`, `memory_title` | carried | HarmonyOS has no such sync yet: the records are kept in the replica and published again unchanged, so an Android phone never loses them through this device. |
 
 Play history, credentials, the Apple Music token service and caches never leave
 the device. Apple Music accounts never auto-bind (start syncing or link by hand),
@@ -39,7 +42,8 @@ exactly as on Android. There is no Spotify on HarmonyOS, so its identity step is
 | Settings › Sync and storage › Cloud sync | `lib/settings/sync/` |
 
 When it runs: when the app comes to the front (at most once a minute), about 8 s
-after a local change to a synced row (the observed key-value store), when the app
+after a local change to a synced row (the observed key-value store, a playlist
+backup, or a paid lyric translation in the lyrics cache), when the app
 leaves with changes waiting, and on Sync now. As on Android, no background job.
 
 ### Google sign-in without Play services
@@ -93,12 +97,10 @@ Google Cloud project** as Android's (otherwise it sees a different, empty
 
 - No “Needs Google Play services” states; the account picker is Google's own page
   in the browser instead of the Sign in with Google sheet.
-- The Settings group is “Sync and storage” with Cloud sync only (NeoDB, playlist
-  backups and the cache row don't exist here yet).
-- The “What you get” and “What syncs” lists leave out the rows HarmonyOS can't sync
-  (lyric translations, playlist backups, translation language / Spotify Client ID /
-  scroll edge style). The lead line and the What syncs summary are Android's copy
-  verbatim and still mention translations; new wording for HarmonyOS should come
+- The Settings group is “Sync and storage” with Cloud sync and Playlist cloud backup
+  (NeoDB and the cache row don't exist here yet).
+- The “What syncs” list leaves out Android's settings line (it names the Spotify
+  Client ID, which HarmonyOS doesn't have); new wording for HarmonyOS should come
   from the owner's copy model.
 - The browser's return page shows only “Yoin ✓” (no copy exists for it).
 - The replica is a JSON snapshot rather than SQLite; a crash between a domain write

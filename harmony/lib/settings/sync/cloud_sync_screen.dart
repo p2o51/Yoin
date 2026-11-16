@@ -141,6 +141,7 @@ class _OffContent extends ConsumerWidget {
           title: s.sectionWhatYouGet,
           children: [
             SettingsItem(icon: YoinSymbols.editNote, title: s.benefitNotes),
+            SettingsItem(icon: YoinSymbols.translate, title: s.benefitTranslations),
             SettingsItem(icon: YoinSymbols.settings, title: s.benefitSettings),
             SettingsItem(icon: YoinSymbols.cloudOffline, title: s.benefitOffline),
           ],
@@ -1035,7 +1036,17 @@ class _WhatSyncsItemState extends State<_WhatSyncsItem> with SingleTickerProvide
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _WhatSyncsList(title: s.whatSyncs, lines: [s.whatNotes, s.whatRatings, s.whatHome, s.whatAccounts]),
+                _WhatSyncsList(
+                  title: s.whatSyncs,
+                  lines: [
+                    s.whatNotes,
+                    s.whatRatings,
+                    s.whatHome,
+                    s.whatTranslations,
+                    s.whatPlaylistBackups,
+                    s.whatAccounts,
+                  ],
+                ),
                 const SizedBox(height: SettingsMetrics.syncExpandGap),
                 _WhatSyncsList(title: s.whatStays, lines: [s.whatHistory, s.whatSecrets, s.whatCaches]),
               ],

@@ -154,6 +154,7 @@ class PlaylistDetailNotifier extends Notifier<PlaylistDetailState> {
     tracks: tracks,
     canWrite: p.canWrite,
     comment: p.comment,
+    libraryAddedAt: p.libraryAddedAt,
   );
 
   Future<void> retry() async {

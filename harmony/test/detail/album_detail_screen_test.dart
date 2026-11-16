@@ -44,7 +44,7 @@ class _FilingSource extends LibraryFakeSource implements MusicPlaylistWrites {
   @override
   bool acceptsTracks(Playlist playlist) => true;
   @override
-  Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const []}) async =>
+  Future<Playlist> createPlaylist(String name, {String? description, List<MediaId> tracks = const []}) async =>
       Playlist(id: MediaId.subsonic('new'), name: name);
   @override
   Future<void> addTracksToPlaylist(MediaId playlistId, List<MediaId> tracks) async {}

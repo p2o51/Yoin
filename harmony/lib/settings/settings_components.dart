@@ -271,10 +271,14 @@ class SettingsBar extends StatelessWidget implements PreferredSizeWidget {
     required this.controller,
     required this.titleTop,
     required this.titleHeight,
+    this.actions = const [],
   });
 
   final String title;
   final ScrollController controller;
+
+  /// At the bar's end (a backup page's overflow menu).
+  final List<Widget> actions;
 
   /// Where the page's large title starts inside the scroll, and its height.
   final double titleTop;
@@ -312,6 +316,7 @@ class SettingsBar extends StatelessWidget implements PreferredSizeWidget {
         padding: const EdgeInsetsDirectional.only(start: SettingsMetrics.backStart, end: SettingsMetrics.backEnd),
         child: DetailBackButton(container: colors.surfaceContainerHighest, content: colors.onSurface),
       ),
+      actions: actions.isEmpty ? null : [...actions, const SizedBox(width: SettingsMetrics.backEnd)],
       title: AnimatedBuilder(
         animation: controller,
         builder: (context, child) {

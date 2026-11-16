@@ -14,6 +14,7 @@ sealed class SettingsPane {
     DownloadsPane(:final profileId) ||
     VolumeLevelingPane(:final profileId) => AccountPane(profileId),
     AiTiersPane() || AiTryPane() => const AiPane(),
+    PlaylistBackupPane() => const PlaylistBackupsPane(),
     _ => null,
   };
 }
@@ -74,6 +75,27 @@ final class CloudSyncPane extends SettingsPane {
   int get hashCode => 6;
 }
 
+/// Settings › Playlist cloud backup (PlaylistBackupsPage): every backup.
+final class PlaylistBackupsPane extends SettingsPane {
+  const PlaylistBackupsPane();
+  @override
+  bool operator ==(Object other) => other is PlaylistBackupsPane;
+  @override
+  int get hashCode => 10;
+}
+
+/// One backup's page (PlaylistBackupActivity), opened from the backups list:
+/// on a wide window it opens over the list in the right pane, back returns to it.
+final class PlaylistBackupPane extends SettingsPane {
+  const PlaylistBackupPane(this.backupId);
+  final String backupId;
+
+  @override
+  bool operator ==(Object other) => other is PlaylistBackupPane && other.backupId == backupId;
+  @override
+  int get hashCode => Object.hash(11, backupId);
+}
+
 /// Settings › AI features (the service, its tier and key, Custom, the answer language).
 final class AiPane extends SettingsPane {
   const AiPane();
@@ -115,7 +137,7 @@ final class AboutPane extends SettingsPane {
   @override
   bool operator ==(Object other) => other is AboutPane;
   @override
-  int get hashCode => 8;
+  int get hashCode => 12;
 }
 
 final class LicensesPane extends SettingsPane {

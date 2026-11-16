@@ -8,6 +8,7 @@ import '../data/offline/offline_model.dart';
 import '../data/source/music_source.dart';
 import '../library/playlist_writes.dart';
 import '../offline/offline_toggle.dart';
+import '../settings/backup/playlist_backup_strings.dart';
 import '../shell/detail_chrome.dart';
 import '../ui/component/add_to_playlist_sheet.dart';
 import '../ui/component/component_strings.dart';
@@ -21,6 +22,7 @@ import 'detail_strings.dart';
 import 'detail_track_menu.dart';
 import 'detail_track_rows.dart';
 import 'flowing_titles.dart';
+import 'playlist_backup_action.dart';
 import 'playlist_detail_view_model.dart';
 import 'playlist_sleeves.dart';
 import 'reshape_scaffold.dart';
@@ -236,9 +238,10 @@ class _PlaylistChrome extends ConsumerWidget {
 }
 
 /// The Playlist page's ▾ rows (PlaylistDetailScreen overflow + promotable):
-/// Download (an account that downloads; OfflineToggle), then Rename and
-/// Delete, for a playlist this account owns on a service that can change it,
-/// then Share (the playlist's public page, or a share link the server makes).
+/// Download (an account that downloads; OfflineToggle), Cloud backup, then
+/// Rename and Delete, for a playlist this account owns on a service that can
+/// change it, then Share (the playlist's public page, or a share link the
+/// server makes).
 List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, PlaylistDetailContent state) {
   final detailStrings = DetailStrings.of(context);
   final link = ref.watch(detailWebLinkProvider((WebLinkKind.playlist, state.playlist.id))).value;
@@ -264,15 +267,21 @@ List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, Pl
       if (context.mounted) showDetailMessage(context, text);
     },
   );
-  final download = [
+  final always = [
     if (offline != null) DetailMenuAction(icon: offline.icon, label: offline.label, onTap: offline.onTap),
+    // Cloud backup (PlaylistBackupService.backUp): read whole and saved; the snackbar's View opens it.
+    DetailMenuAction(
+      icon: YoinSymbols.cloud,
+      label: PlaylistBackupStrings.of(context).detailMenu,
+      onTap: () => backUpPlaylist(context, ref, state.playlist.id),
+    ),
   ];
   final abilities = playlistAbilities(ref.watch(activeSourceProvider).value);
-  if (!abilities.canEdit || !state.playlist.canWrite) return [...download, share];
+  if (!abilities.canEdit || !state.playlist.canWrite) return [...always, share];
   final strings = ComponentStrings.of(context);
   final vm = ref.read(playlistDetailProvider(state.playlist.id).notifier);
   return [
-    ...download,
+    ...always,
     DetailMenuAction(
       icon: YoinSymbols.edit,
       label: strings.playlistRename,

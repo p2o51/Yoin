@@ -199,6 +199,10 @@ final class Track {
     return name == null || name.isEmpty ? const [] : [ArtistCredit(name, artistId)];
   }
 
+  /// The credited artists' names (Android Track.creditedArtists): empty unless
+  /// the service named more than the one in [artist]. A playlist backup keeps them.
+  List<String> get creditedArtists => [for (final a in artists) a.name];
+
   /// [clearUserRating] drops the rating (a null [userRating] keeps it).
   Track copyWith({bool? isStarred, int? userRating, bool clearUserRating = false}) => Track(
         id: id,
@@ -312,6 +316,7 @@ final class Playlist {
     this.canWrite = false,
     this.comment,
     this.ownedByMe,
+    this.libraryAddedAt,
   });
   final MediaId id;
   final String name;
@@ -329,6 +334,10 @@ final class Playlist {
   /// login name, ignoring case; no owner is null. Apple Music: a library
   /// playlist's `canEdit`; catalogue playlists stay null.
   final bool? ownedByMe;
+  /// The service's own date for the playlist, ISO-8601 (Subsonic `created`,
+  /// Apple Music `dateAdded`; Android Playlist.libraryAddedAt): a playlist
+  /// backup shows it as "Playlist created".
+  final String? libraryAddedAt;
 }
 
 enum SearchResultType { tracks, albums, artists, playlists }

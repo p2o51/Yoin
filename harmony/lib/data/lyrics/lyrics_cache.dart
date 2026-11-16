@@ -369,16 +369,165 @@ class LyricsCacheStore {
     required String targetLanguage,
     required String model,
   }) async {
-    final raw = await _store.read(translationKey(songKey, model, targetLanguage));
+    final key = translationKey(songKey, model, targetLanguage);
+    var slot = await _readSlot(key);
+    final paid = !model.startsWith(LyricsCachePolicy.providerTranslationModelPrefix);
+    // A paid translation of other lines (synced in, or kept when the song's lyrics changed) has its own slot.
+    if (paid && slot != null && slot.hash != sourceHash) slot = await _readSlot(paidSlotKey(key, sourceHash));
+    if (slot == null || slot.hash != sourceHash) return null;
+    // Paid translations written before the index existed join it as they are read (sync lists them from it).
+    if (paid) await _indexPaid(slot.storageKey, songKey, targetLanguage, model, slot);
+    return slot.lines;
+  }
+
+  /// A paid translation of lines other than the slot's current ones, kept beside it (Android keys its
+  /// rows by the source hash too, so a song can hold several).
+  static String paidSlotKey(String translationKey, String sourceHash) => '$translationKey#$sourceHash';
+
+  /// Paid (Gemini) translations by storage key: what cloud sync lists, since the store can't list keys.
+  static const String paidIndexKey = 'yoin.lyrics.translation.paid';
+
+  Map<String, _PaidEntry>? _paid;
+
+  Future<Map<String, _PaidEntry>> _loadPaid() async {
+    final loaded = _paid;
+    if (loaded != null) return loaded;
+    final map = <String, _PaidEntry>{};
+    try {
+      final raw = await _store.read(paidIndexKey);
+      final json = raw == null ? null : jsonDecode(raw);
+      if (json is Map) {
+        json.forEach((key, value) {
+          final entry = _PaidEntry.fromJson(value);
+          if (key is String && entry != null) map[key] = entry;
+        });
+      }
+    } catch (e) {
+      debugPrint('paid translation index unreadable: ${e.runtimeType}');
+    }
+    return _paid = map;
+  }
+
+  Future<void> _savePaid() async {
+    final paid = _paid;
+    if (paid == null) return;
+    await _store.write(paidIndexKey, jsonEncode({for (final e in paid.entries) e.key: e.value.toJson()}));
+    if (!_paidChanges.isClosed) _paidChanges.add(null);
+  }
+
+  Future<void> _indexPaid(String storageKey, String songKey, String language, String model, _Slot slot) =>
+      _locked(() async {
+        final paid = await _loadPaid();
+        final entry = _PaidEntry(songKey: songKey, sourceHash: slot.hash, language: language, model: model);
+        if (paid[storageKey] == entry) return;
+        paid[storageKey] = entry;
+        await _savePaid();
+      });
+
+  Future<_Slot?> _readSlot(String storageKey) async {
+    final raw = await _store.read(storageKey);
     if (raw == null) return null;
     try {
       final json = jsonDecode(raw);
-      if (json is! Map || json['hash'] != sourceHash || json['lines'] is! List) return null;
-      return [for (final l in json['lines'] as List) l is String ? l : ''];
+      if (json is! Map || json['hash'] is! String || json['lines'] is! List) return null;
+      final at = json['at'];
+      return _Slot(
+        storageKey: storageKey,
+        hash: json['hash'] as String,
+        lines: [for (final l in json['lines'] as List) l is String ? l : ''],
+        cachedAt: at is int ? at : 0,
+        translationsJson: json['tj'] is String ? json['tj'] as String : null,
+      );
     } catch (_) {
       return null;
     }
   }
+
+  // Paid translations for cloud sync (Android `lyrics_translation_cache`'s Gemini rows) -----------------
+
+  /// Every paid translation the index knows, with the text sync carries: one per song, lines, language
+  /// and model (the song's own slot over a copy kept beside it, as [getTranslation] reads them).
+  Future<List<PaidTranslation>> paidTranslations() async {
+    final paid = await _locked(() async => Map.of(await _loadPaid()));
+    final byIdentity = <_PaidEntry, PaidTranslation>{};
+    final fromSlot = <_PaidEntry>{};
+    for (final e in paid.entries) {
+      final slot = await _readSlot(e.key);
+      if (slot == null || slot.hash != e.value.sourceHash) continue;
+      final own = e.key == translationKey(e.value.songKey, e.value.model, e.value.language);
+      if (byIdentity.containsKey(e.value) && !own) continue;
+      if (fromSlot.contains(e.value)) continue;
+      byIdentity[e.value] = e.value.translation(slot);
+      if (own) fromSlot.add(e.value);
+    }
+    return byIdentity.values.toList();
+  }
+
+  final _paidChanges = StreamController<void>.broadcast();
+
+  /// Fires when the paid index changed (a paid translation written, synced in or dropped): cloud sync
+  /// uploads it without waiting for the next foreground.
+  Stream<void> get paidChanges => _paidChanges.stream;
+
+  /// The paid translation for exactly these lines, language and model; null when none is kept.
+  Future<PaidTranslation?> paidTranslation({
+    required String songKey,
+    required String sourceHash,
+    required String targetLanguage,
+    required String model,
+  }) async {
+    final key = translationKey(songKey, model, targetLanguage);
+    final entry = _PaidEntry(songKey: songKey, sourceHash: sourceHash, language: targetLanguage, model: model);
+    for (final storageKey in [key, paidSlotKey(key, sourceHash)]) {
+      final slot = await _readSlot(storageKey);
+      if (slot != null && slot.hash == sourceHash) return entry.translation(slot);
+    }
+    return null;
+  }
+
+  /// Keeps [translation] unless one for the same lines, language and model is already here (write-once):
+  /// in the song's slot when that is free or holds these lines, else beside it. The text is kept as
+  /// received, so it reads back byte for byte.
+  Future<void> insertPaidTranslationIfAbsent(PaidTranslation translation, {required int cachedAt}) => _locked(() async {
+    final key = translationKey(translation.songKey, translation.model, translation.targetLanguage);
+    final current = await _readSlot(key);
+    if (current != null && current.hash == translation.sourceHash) return;
+    final side = paidSlotKey(key, translation.sourceHash);
+    if (current != null && await _readSlot(side) != null) return;
+    final storageKey = current == null ? key : side;
+    final lines = translation.lines;
+    if (lines == null) throw const FormatException('translationsJson');
+    await _store.write(
+      storageKey,
+      jsonEncode({'hash': translation.sourceHash, 'lines': lines, 'at': cachedAt, 'tj': translation.translationsJson}),
+    );
+    final paid = await _loadPaid();
+    paid[storageKey] = _PaidEntry(
+      songKey: translation.songKey,
+      sourceHash: translation.sourceHash,
+      language: translation.targetLanguage,
+      model: translation.model,
+    );
+    await _savePaid();
+  });
+
+  /// Drops the paid translation for exactly these lines, language and model (a synced delete).
+  Future<void> deletePaidTranslation({
+    required String songKey,
+    required String sourceHash,
+    required String targetLanguage,
+    required String model,
+  }) => _locked(() async {
+    final key = translationKey(songKey, model, targetLanguage);
+    final paid = await _loadPaid();
+    for (final storageKey in [key, paidSlotKey(key, sourceHash)]) {
+      final slot = await _readSlot(storageKey);
+      if (slot == null || slot.hash != sourceHash) continue;
+      await _store.write(storageKey, null);
+      paid.remove(storageKey);
+    }
+    await _savePaid();
+  });
 
   /// Stores a translation; a free `provider:*` one goes into the index (and the budget). Returns its bytes.
   Future<int> upsertTranslation({
@@ -391,9 +540,36 @@ class LyricsCacheStore {
   }) async {
     final key = translationKey(songKey, model, targetLanguage);
     final linesJson = jsonEncode(lines);
+    final paid = !model.startsWith(LyricsCachePolicy.providerTranslationModelPrefix);
+    if (paid) {
+      // Paid translations cost money and sync: the slot's earlier lines' one moves aside, never away.
+      final previous = await _readSlot(key);
+      if (previous != null && previous.hash != sourceHash) {
+        final side = paidSlotKey(key, previous.hash);
+        await _store.write(
+          side,
+          jsonEncode({
+            'hash': previous.hash,
+            'lines': previous.lines,
+            'at': previous.cachedAt,
+            'tj': previous.translationsJson,
+          }),
+        );
+        await _indexPaid(side, songKey, targetLanguage, model, previous);
+      }
+    }
     await _store.write(key, jsonEncode({'hash': sourceHash, 'lines': lines, 'at': cachedAt}));
     final bytes = LyricsCachePolicy.utf8Bytes(linesJson);
-    if (!model.startsWith(LyricsCachePolicy.providerTranslationModelPrefix)) return bytes;
+    if (paid) {
+      await _indexPaid(
+        key,
+        songKey,
+        targetLanguage,
+        model,
+        _Slot(storageKey: key, hash: sourceHash, lines: lines, cachedAt: cachedAt, translationsJson: null),
+      );
+      return bytes;
+    }
     await _locked(() async {
       final index = await _loadIndex();
       final previous = index[songKey] ?? const _IndexEntry.empty();
@@ -405,6 +581,98 @@ class LyricsCacheStore {
     });
     return bytes;
   }
+}
+
+/// A paid translation as cloud sync carries it (Android `lyrics_translation_cache` row).
+@immutable
+final class PaidTranslation {
+  const PaidTranslation({
+    required this.songKey,
+    required this.sourceHash,
+    required this.targetLanguage,
+    required this.model,
+    required this.translationsJson,
+    required this.cachedAt,
+  });
+
+  /// The track's [MediaId] string.
+  final String songKey;
+  final String sourceHash;
+  final String targetLanguage;
+  final String model;
+
+  /// The lines as a JSON array of strings, the exact text sync hashes.
+  final String translationsJson;
+  final int cachedAt;
+
+  /// The lines, or null when [translationsJson] isn't an array.
+  List<String>? get lines {
+    try {
+      final json = jsonDecode(translationsJson);
+      if (json is! List) return null;
+      return [for (final l in json) l is String ? l : ''];
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// One stored translation value.
+final class _Slot {
+  const _Slot({
+    required this.storageKey,
+    required this.hash,
+    required this.lines,
+    required this.cachedAt,
+    required this.translationsJson,
+  });
+
+  final String storageKey;
+  final String hash;
+  final List<String> lines;
+  final int cachedAt;
+
+  /// The text as synced in; null for one written here (then it is [lines] encoded).
+  final String? translationsJson;
+}
+
+/// What the paid index keeps per stored translation.
+final class _PaidEntry {
+  const _PaidEntry({required this.songKey, required this.sourceHash, required this.language, required this.model});
+
+  final String songKey;
+  final String sourceHash;
+  final String language;
+  final String model;
+
+  PaidTranslation translation(_Slot slot) => PaidTranslation(
+    songKey: songKey,
+    sourceHash: sourceHash,
+    targetLanguage: language,
+    model: model,
+    translationsJson: slot.translationsJson ?? jsonEncode(slot.lines),
+    cachedAt: slot.cachedAt,
+  );
+
+  Map<String, Object?> toJson() => {'s': songKey, 'h': sourceHash, 'l': language, 'm': model};
+
+  static _PaidEntry? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final s = json['s'], h = json['h'], l = json['l'], m = json['m'];
+    if (s is! String || h is! String || l is! String || m is! String) return null;
+    return _PaidEntry(songKey: s, sourceHash: h, language: l, model: m);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is _PaidEntry &&
+      other.songKey == songKey &&
+      other.sourceHash == sourceHash &&
+      other.language == language &&
+      other.model == model;
+
+  @override
+  int get hashCode => Object.hash(songKey, sourceHash, language, model);
 }
 
 final class _TranslationFootprint {

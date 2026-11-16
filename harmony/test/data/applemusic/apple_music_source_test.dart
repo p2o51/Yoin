@@ -473,6 +473,22 @@ void main() {
       ]);
     });
 
+    test('should_sendTheDescription_when_creatingWithOne', () async {
+      final server = _Server({
+        '/v1/me/library/playlists': (http.Request r) => _json(
+          '{"data":[{"id":"p.AbC","type":"library-playlists","attributes":{"name":"Road","canEdit":true}}]}',
+          201,
+        ),
+      });
+      await server.source().playlistWrites!.createPlaylist(
+        'Road',
+        tracks: [MediaId(MediaId.providerAppleMusic, '123')],
+        description: ' Late drives ',
+      );
+      final body = jsonDecode(server.lastTo('/v1/me/library/playlists').body) as Map<String, Object?>;
+      expect(body['attributes'], {'name': 'Road', 'description': 'Late drives'});
+    });
+
     test('should_appendToLibraryPlaylist_when_adding', () async {
       final server = _Server({
         '/v1/me/library/playlists/p.AbC/tracks': (http.Request r) => http.Response('', 204),
