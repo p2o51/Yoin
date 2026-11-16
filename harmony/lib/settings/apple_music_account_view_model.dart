@@ -21,6 +21,7 @@ final class AppleMusicAccountState {
     this.status = const AppleSetupIdle(),
     this.endpointError,
     this.nameRegion = AppleMusicNameRegion.defaultRegion,
+    this.storefront,
   });
 
   final bool loaded;
@@ -37,6 +38,10 @@ final class AppleMusicAccountState {
   final AppleSetupError? endpointError;
   final AppleMusicNameRegion nameRegion;
 
+  /// The storefront the last Reconnect signed in to (Android shows it under
+  /// the status once connected); null until then.
+  final String? storefront;
+
   bool get isBusy => status is AppleSetupAuthorizing || status is AppleSetupSaving;
 
   AppleMusicAccountState copyWith({
@@ -48,6 +53,7 @@ final class AppleMusicAccountState {
     AppleSetupError? endpointError,
     bool clearEndpointError = false,
     AppleMusicNameRegion? nameRegion,
+    String? storefront,
   }) => AppleMusicAccountState(
     loaded: loaded ?? this.loaded,
     account: account ?? this.account,
@@ -56,6 +62,7 @@ final class AppleMusicAccountState {
     status: status ?? this.status,
     endpointError: clearEndpointError ? null : (endpointError ?? this.endpointError),
     nameRegion: nameRegion ?? this.nameRegion,
+    storefront: storefront ?? this.storefront,
   );
 }
 
@@ -162,7 +169,14 @@ class AppleMusicAccountViewModel extends Notifier<AppleMusicAccountState> {
       if (ref.mounted) state = state.copyWith(status: const AppleSetupFailed(AppleMusicAuthFailure.unavailable));
       return;
     }
-    if (ref.mounted) state = state.copyWith(status: const AppleSetupIdle(), endpoint: trimmed, connected: true);
+    if (ref.mounted) {
+      state = state.copyWith(
+        status: const AppleSetupIdle(),
+        endpoint: trimmed,
+        connected: true,
+        storefront: result.storefront,
+      );
+    }
   }
 
   /// Keeps [region] for this account. Pages already read carry the old names,
@@ -171,14 +185,21 @@ class AppleMusicAccountViewModel extends Notifier<AppleMusicAccountState> {
   Future<void> setNameRegion(AppleMusicNameRegion region) async {
     if (state.nameRegion == region) return;
     final container = ref.container;
+    final previous = state.nameRegion;
     state = state.copyWith(nameRegion: region);
     try {
       await AppleMusicNameRegionStore(ref.read(keyValueStoreProvider)).write(profileId, region);
     } catch (_) {
+      // Not kept: the radio goes back to what is stored.
+      if (ref.mounted && state.nameRegion == region) state = state.copyWith(nameRegion: previous);
       return;
     }
     final active = await container.read(profileRepositoryProvider).activeProfile();
-    if (active?.id != profileId) return;
+    if (active?.id != profileId) {
+      // Another account: what Memories and Home read from it is read again.
+      container.read(accountsRevisionProvider.notifier).bump();
+      return;
+    }
     container.read(detailCacheProvider).clear();
     container.invalidate(activeSourceProvider);
   }

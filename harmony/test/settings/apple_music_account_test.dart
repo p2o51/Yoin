@@ -32,6 +32,21 @@ class _FakeAuth implements AppleMusicAuth {
 
 const _endpoint = 'https://tokens.example.com/token';
 
+/// [values] that refuses to keep a name region.
+class _RegionRefusingStore implements KeyValueStore {
+  _RegionRefusingStore(this.values);
+  final KeyValueStore values;
+
+  @override
+  Future<String?> read(String key) => values.read(key);
+
+  @override
+  Future<void> write(String key, String? value) {
+    if (key.startsWith('apple_music.name_region.')) throw StateError('disk full');
+    return values.write(key, value);
+  }
+}
+
 void main() {
   late InMemoryStore kv;
   late InMemoryStore secrets;
@@ -98,6 +113,24 @@ void main() {
       expect(await AppleMusicNameRegionStore(kv).read(apple.id), AppleMusicNameRegion.japan);
     });
 
+    test('should_goBackToStoredRegion_when_itCannotBeKept', () async {
+      final c = ProviderContainer(
+        overrides: [
+          keyValueStoreProvider.overrideWithValue(_RegionRefusingStore(kv)),
+          secretStoreProvider.overrideWithValue(secrets),
+          profileRepositoryProvider.overrideWithValue(repo),
+          appleMusicAuthProvider.overrideWithValue(auth),
+          activeSourceProvider.overrideWith((ref) async => LibraryFakeSource()),
+        ],
+      );
+      addTearDown(c.dispose);
+      c.listen(appleMusicAccountProvider(apple.id), (_, _) {});
+      await settle();
+      await c.read(appleMusicAccountProvider(apple.id).notifier).setNameRegion(AppleMusicNameRegion.japan);
+      expect(c.read(appleMusicAccountProvider(apple.id)).nameRegion, AppleMusicNameRegion.off);
+      expect(await AppleMusicNameRegionStore(kv).read(apple.id), AppleMusicNameRegion.off);
+    });
+
     test('should_replaceTokenAndKeepName_when_reconnected', () async {
       final c = container();
       await settle();
@@ -107,6 +140,8 @@ void main() {
       expect((await repo.profiles()).firstWhere((p) => p.id == apple.id).displayName, 'Apple Music');
       expect(auth.asked, [_endpoint]);
       expect(c.read(appleMusicAccountProvider(apple.id)).status, isA<AppleSetupIdle>());
+      // The storefront it signed in to shows under the status, as on Android.
+      expect(c.read(appleMusicAccountProvider(apple.id)).storefront, 'jp');
     });
 
     test('should_keepOldTokenAndSayFailed_when_signInFails', () async {

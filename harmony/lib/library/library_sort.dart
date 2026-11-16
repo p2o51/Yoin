@@ -622,18 +622,30 @@ List<FastScrollSection> recentsSections(List<int?> lastSeenMs, {required int now
 }
 
 /// [songs] by title the way Alphabetical sorts names (Android
-/// librarySongsByTitle): bucket, then the collation key, then the order they
-/// came in. [articles] are skipped at the start where the service skips them.
-List<Track> librarySongsByTitle(List<Track> songs, {List<String> articles = const []}) {
+/// librarySongsByTitle): bucket, then the collation key, then the artist the
+/// same way, then the order they came in. [articles] are skipped at the start
+/// where the service skips them; [latinNames] gives a Han name its pinyin
+/// first, as Alphabetical's [LibraryListInputs.latinNames] does.
+List<Track> librarySongsByTitle(
+  List<Track> songs, {
+  List<String> articles = const [],
+  Map<String, String> latinNames = const {},
+}) {
+  String keyOf(String? name) {
+    final text = (name ?? '').trim();
+    return collationKey(stripLeadingArticle(latinNames[text] ?? text, articles));
+  }
+
   final keyed = [
-    for (final (i, t) in songs.indexed)
-      (track: t, key: collationKey(stripLeadingArticle(t.title ?? '', articles)), position: i),
+    for (final (i, t) in songs.indexed) (track: t, key: keyOf(t.title), artist: keyOf(t.artist), position: i),
   ];
   keyed.sort((a, b) {
     final byBucket = _bucketOf(a.key).compareTo(_bucketOf(b.key));
     if (byBucket != 0) return byBucket;
     final byKey = a.key.compareTo(b.key);
-    return byKey != 0 ? byKey : a.position.compareTo(b.position);
+    if (byKey != 0) return byKey;
+    final byArtist = a.artist.compareTo(b.artist);
+    return byArtist != 0 ? byArtist : a.position.compareTo(b.position);
   });
   return [for (final k in keyed) k.track];
 }

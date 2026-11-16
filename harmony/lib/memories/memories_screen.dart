@@ -385,7 +385,8 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     requestAccountSwitch(
       context,
       owner: owner,
-      subject: memory.memoryTitle,
+      // The album's own name, as Android's notice says it (not the memory's title).
+      subject: memory.albumName,
       purpose: AccountSwitchPurpose.openAlbum,
       proceed: () => switchAccountThen(
         container,
@@ -431,7 +432,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     requestAccountSwitch(
       context,
       owner: owner,
-      subject: t.title.isEmpty ? m.memoryTitle : t.title,
+      subject: t.title.isEmpty ? m.albumName : t.title,
       purpose: AccountSwitchPurpose.play,
       proceed: () => switchAccountThen(container, owner.id, provider: t.trackId.provider, onLanded: (_) => play()),
     );
@@ -805,7 +806,11 @@ class _MemoryPage extends ConsumerWidget {
     final now = ref.watch(memoriesClockProvider)();
     final today = ref.watch(memoriesDayOfProvider)(now);
     final playingId = ref.watch(playerSnapshotProvider.select((s) => s.track?.id));
-    final playingHere = playingId != null && memory.diaryTracks.any((t) => t.track.trackId == playingId);
+    // The account in use plays: another account's notes never light (Android memoriesPlayhead).
+    final playingHere =
+        playingId != null &&
+        !memory.isFromOtherProfile &&
+        memory.diaryTracks.any((t) => t.track.trackId == playingId);
     final litNote = playingHere
         ? ref.watch(playheadProvider.select((h) => memoryLitNoteId(memory, playingId, h.positionMs)))
         : null;

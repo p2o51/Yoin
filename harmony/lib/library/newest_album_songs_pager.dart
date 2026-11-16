@@ -22,12 +22,15 @@ abstract interface class LibrarySongsPager {
 
 /// Songs for a service whose library lists songs of its own (Android
 /// readLibrarySongs, Apple Music): its first [size], read at once, in title
-/// order (Android songsByTitle: Apple sends them in two A–Z runs).
+/// order (Android songsByTitle: Apple sends them in two A–Z runs). [latinNames]
+/// gives Han titles and artists their pinyin first, as Alphabetical does
+/// (null when none of them has Han).
 final class ServiceLibrarySongsPager implements LibrarySongsPager {
-  ServiceLibrarySongsPager(this._collection, {this.size = 500});
+  ServiceLibrarySongsPager(this._collection, {this.size = 500, this.latinNames});
 
   final MusicLibraryCollection _collection;
   final int size;
+  final Future<Map<String, String>>? Function(Iterable<String> names)? latinNames;
   bool _ended = false;
 
   @override
@@ -37,8 +40,17 @@ final class ServiceLibrarySongsPager implements LibrarySongsPager {
   Future<List<Track>> next() async {
     if (_ended) return const [];
     final songs = await _collection.librarySongs(size: size);
+    var latin = const <String, String>{};
+    try {
+      final fetch = latinNames?.call({
+        for (final t in songs) ...[(t.title ?? '').trim(), (t.artist ?? '').trim()],
+      });
+      if (fetch != null) latin = await fetch;
+    } catch (_) {
+      // Sorted by the names as written.
+    }
     _ended = true;
-    return librarySongsByTitle(songs);
+    return librarySongsByTitle(songs, latinNames: latin);
   }
 }
 

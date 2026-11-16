@@ -52,7 +52,8 @@ void main() {
         // The account in use's source follows the stored active account.
         activeSourceProvider.overrideWith((ref) async {
           final active = await repo.activeProfile();
-          return active?.id == b.id ? sourceB : sourceA;
+          if (active == null) return null;
+          return active.id == b.id ? sourceB : sourceA;
         }),
         memoriesClockProvider.overrideWithValue(() => now),
         memoriesDayOfProvider.overrideWithValue((ms) {
@@ -161,6 +162,20 @@ void main() {
     // The same cards, in the same order, now seen from the other account.
     expect([for (final m in after) m.sessionId], [for (final m in before) m.sessionId]);
     expect({for (final m in after) m.albumName: m.otherProfile?.id}, {'Album a': a.id, 'Album x': null});
+  });
+
+  test('should_dropTheDeck_when_theLastAccountIsRemoved', () async {
+    await MemoryStore(kv, profileId: a.id).setAlbumReview(MediaId.subsonic('a'), 'Home.', nowMs: now);
+    final c = container();
+    expect(await settled(c), isA<MemoriesContent>());
+    await repo.remove(a.id);
+    await repo.remove(b.id);
+    c.invalidate(activeSourceProvider);
+    for (var i = 0; i < 40; i++) {
+      await pumpEventQueue();
+    }
+    // Nothing of a removed account's deck stays on screen.
+    expect(c.read(memoriesViewModelProvider), isA<MemoriesLoading>());
   });
 
   test('should_listOnlyUsableAccounts_when_filtering', () async {

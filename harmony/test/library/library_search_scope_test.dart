@@ -151,4 +151,25 @@ void main() {
     expect(pager.ended, isTrue);
     expect(await pager.next(), isEmpty);
   });
+
+  test('should_sortHanByPinyinThenByArtist_when_titlesTie', () async {
+    source.songs = [
+      Track(id: MediaId(MediaId.providerAppleMusic, '1'), title: 'Home', artist: 'Zed'),
+      Track(id: MediaId(MediaId.providerAppleMusic, '2'), title: '晴天', artist: 'Jay'),
+      Track(id: MediaId(MediaId.providerAppleMusic, '3'), title: 'Home', artist: 'Abe'),
+      Track(id: MediaId(MediaId.providerAppleMusic, '4'), title: 'Rain'),
+    ];
+    final asked = <String>{};
+    final pager = ServiceLibrarySongsPager(
+      source,
+      latinNames: (names) {
+        asked.addAll(names);
+        return Future.value({'晴天': 'qing tian'});
+      },
+    );
+    final songs = await pager.next();
+    // 晴天 files under Q (its pinyin), between Home and Rain; the two Homes by artist.
+    expect([for (final s in songs) s.id.rawId], ['3', '1', '2', '4']);
+    expect(asked, containsAll(['晴天', 'Jay']));
+  });
 }

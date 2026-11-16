@@ -429,7 +429,8 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
   LibrarySongsPager _newPager(MusicSource source) {
     final collection = source.libraryCollection;
     if (source.capabilities.contains(Capability.librarySongs) && collection != null) {
-      return ServiceLibrarySongsPager(collection);
+      final transliterator = ref.read(nameTransliteratorProvider);
+      return ServiceLibrarySongsPager(collection, latinNames: (names) => latinKeyMap(transliterator, names));
     }
     return NewestAlbumSongsPager(source.library, openAlbum: ref.read(detailCacheProvider).album);
   }

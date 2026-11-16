@@ -267,6 +267,7 @@ class _AccountGroup extends StatelessWidget {
       ),
     };
     final error = state.endpointError;
+    final storefront = state.status is AppleSetupIdle && state.storefront?.isNotEmpty == true ? state.storefront : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -307,6 +308,19 @@ class _AccountGroup extends StatelessWidget {
                 ),
                 const SizedBox(height: SettingsMetrics.formGap),
                 SpringCrossFade(childKey: statusLine.key!, fit: StackFit.loose, child: statusLine),
+                // The storefront it signed in to, once connected (Android AppleMusicValidationContent).
+                SpringReveal(
+                  visible: storefront != null,
+                  child: storefront == null
+                      ? null
+                      : Padding(
+                          padding: const EdgeInsets.only(top: SettingsMetrics.formGap),
+                          child: Text(
+                            storefront,
+                            style: theme.textTheme.bodyMedium!.copyWith(color: colors.onSurface),
+                          ),
+                        ),
+                ),
                 const SizedBox(height: SettingsMetrics.formGap),
                 FilledButton(
                   onPressed: canSubmit ? onReconnect : null,
