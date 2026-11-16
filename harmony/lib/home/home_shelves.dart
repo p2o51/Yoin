@@ -98,8 +98,7 @@ class RecentlyAddedSection extends StatelessWidget {
       gap: HomeSectionMetrics.shelfSpacing,
       shelf: SpringHeight(
         heightKey: (maxColumns, trackRows),
-        child: EdgeFadeShelf(
-          fade: false,
+        child: HomeShelf(
           height: height,
           padding: _shelfPadding(frame),
           itemCount: stacks.length + (hasGrid ? 1 : 0),
@@ -298,7 +297,7 @@ class MadeForYouSection extends ConsumerWidget {
     title: HomeStrings.of(context).sectionMadeForYou,
     frame: frame,
     gap: HomeSectionMetrics.shelfSpacing,
-    shelf: EdgeFadeShelf(
+    shelf: HomeShelf(
       height: shelfCardHeight(context),
       padding: _shelfPadding(frame),
       itemCount: playlists.length,
@@ -328,7 +327,7 @@ class MadeForYouSection extends ConsumerWidget {
   );
 }
 
-/// Recently Played: album cards, with the scroll-aware edge fade.
+/// Recently Played: album cards, bleeding to the screen edge (no fade).
 class RecentlyPlayedSection extends StatelessWidget {
   const RecentlyPlayedSection({super.key, required this.albums, required this.frame});
 
@@ -337,19 +336,22 @@ class RecentlyPlayedSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _ShelfSection(
-        title: HomeStrings.of(context).sectionRecentlyPlayed,
-        frame: frame,
-        gap: HomeSectionMetrics.shelfSpacing,
-        shelf: EdgeFadeShelf(
-          height: shelfCardHeight(context),
-          padding: _shelfPadding(frame),
-          itemCount: albums.length,
-          itemBuilder: (context, i) => Align(alignment: Alignment.topCenter, child: AlbumShelfCard(key: ValueKey(albums[i].id), album: albums[i])),
-        ),
-      );
+    title: HomeStrings.of(context).sectionRecentlyPlayed,
+    frame: frame,
+    gap: HomeSectionMetrics.shelfSpacing,
+    shelf: HomeShelf(
+      height: shelfCardHeight(context),
+      padding: _shelfPadding(frame),
+      itemCount: albums.length,
+      itemBuilder: (context, i) => Align(
+        alignment: Alignment.topCenter,
+        child: AlbumShelfCard(key: ValueKey(albums[i].id), album: albums[i]),
+      ),
+    ),
+  );
 }
 
-/// Your Playlists: playlist cards, with the scroll-aware edge fade.
+/// Your Playlists: playlist cards, bleeding to the screen edge (no fade).
 class YourPlaylistsSection extends StatelessWidget {
   const YourPlaylistsSection({super.key, required this.playlists, required this.frame});
 
@@ -358,15 +360,17 @@ class YourPlaylistsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _ShelfSection(
-        title: HomeStrings.of(context).sectionYourPlaylists,
-        frame: frame,
-        gap: HomeSectionMetrics.shelfSpacing,
-        shelf: EdgeFadeShelf(
-          height: shelfCardHeight(context),
-          padding: _shelfPadding(frame),
-          itemCount: playlists.length,
-          itemBuilder: (context, i) =>
-              Align(alignment: Alignment.topCenter, child: PlaylistShelfCard(key: ValueKey(playlists[i].id), playlist: playlists[i])),
-        ),
-      );
+    title: HomeStrings.of(context).sectionYourPlaylists,
+    frame: frame,
+    gap: HomeSectionMetrics.shelfSpacing,
+    shelf: HomeShelf(
+      height: shelfCardHeight(context),
+      padding: _shelfPadding(frame),
+      itemCount: playlists.length,
+      itemBuilder: (context, i) => Align(
+        alignment: Alignment.topCenter,
+        child: PlaylistShelfCard(key: ValueKey(playlists[i].id), playlist: playlists[i]),
+      ),
+    ),
+  );
 }

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/home/home_feed_density.dart';
 import 'package:yoin/home/home_jbi_template.dart';
+import 'package:yoin/home/home_row_presets.dart';
 import 'package:yoin/home/home_selection.dart';
 import 'package:yoin/home/home_ui_state.dart';
 
@@ -167,7 +168,28 @@ void main() {
       }
     });
 
-    test('should_levelBesideStandingCopyAndDropBesideLyingCopy_when_drifting', () {
+    test('should_matchAndroidCardTemplates_when_sameSeed', () {
+      // Known answers from origin/main's HomeJbiTemplate.kt (kotlinc, same seeds).
+      void expectTemplate(int columns, int seed, List<double> offsets, List<(int, int)> cards) {
+        final t = jbiTemplate(columns, jbiTemplateRows(columns), seed, signals: 2);
+        expect(t.offsets, offsets, reason: 'K=$columns seed=$seed');
+        expect(
+          [for (final p in t.pieces.where((p) => p.kind.isSignal)) (p.column, p.row)],
+          cards,
+          reason: 'K=$columns seed=$seed',
+        );
+      }
+
+      expectTemplate(3, 7, [0, 0.5, 0.5], [(1, 1), (1, 3)]);
+      expectTemplate(3, 42, [0, 0.25, 0.25], [(1, 0), (1, 3)]);
+      expectTemplate(4, 7, [0, 0.5, 0.25, 0.25], [(2, 0), (2, 2)]);
+      expectTemplate(5, 7, [0, 0, 0.5, 0, 0], [(0, 0), (3, 1)]);
+      expectTemplate(5, 42, [0, 0, 0.5, 0, 0], [(0, 0), (3, 0)]);
+      expectTemplate(6, 7, [0, 0, 0.5, 0, 0.5, 0.5], [(0, 0), (4, 0)]);
+      expectTemplate(9, 42, [0, 0.25, 0.5, 0, 0, 0.5, 0, 0.25, 0.25], [(3, 0), (7, 0)]);
+    });
+
+    test('should_dropBesideLyingCopyAndDriftElsewhere_when_drifting', () {
       for (var columns = 3; columns <= 10; columns++) {
         for (var signals = 0; signals <= 2; signals++) {
           for (var seed = 0; seed < 150; seed++) {
@@ -175,51 +197,113 @@ void main() {
             final at = 'K=$columns s=$signals seed=$seed';
             final o = t.offsets;
             expect(o.first, 0, reason: at);
+            // Boundaries inside a lying card's lane stay level.
             final level = <int>{};
+            // Boundaries that may stay level: left of a lying card (its cover side).
             final mayLevel = <int>{};
-            final dropped = <int>{};
-            for (final p in t.pieces) {
-              switch (p.kind) {
-                case JbiPieceKind.tallSignal:
-                  if (p.column > 0) level.add(p.column - 1);
-                  if (p.column < columns - 1) level.add(p.column);
-                case JbiPieceKind.wideSignal:
-                  level.add(p.column);
-                  if (p.column > 0) mayLevel.add(p.column - 1);
-                  if (p.endColumn < columns) dropped.add(p.endColumn - 1);
-                case JbiPieceKind.cover:
-                  break;
-              }
+            for (final p in t.pieces.where((p) => p.kind == JbiPieceKind.wideSignal)) {
+              level.add(p.column);
+              if (p.column > 0) mayLevel.add(p.column - 1);
             }
+            // A lying card's right neighbour: half a row lower, and the card on the top row.
             for (final p in t.pieces.where((p) => p.kind == JbiPieceKind.wideSignal && p.endColumn < columns)) {
-              final right = p.endColumn;
-              if (dropped.contains(right - 1) && !level.contains(right - 1)) {
-                expect(o[right], o[p.column] + 0.5, reason: at);
-                expect(p.row, 0, reason: at);
-              }
+              expect(o[p.endColumn], o[p.column] + 0.5, reason: at);
+              expect(p.row, 0, reason: at);
             }
             for (final c in level) {
               expect(o[c], o[c + 1], reason: at);
             }
+            // Drift: neighbouring lanes never start level.
             for (var c = 0; c < columns - 1; c++) {
               if (level.contains(c) || mayLevel.contains(c)) continue;
               expect(o[c], isNot(o[c + 1]), reason: '$at | $c');
             }
+            expect(o.every((x) => const [0.0, 0.25, 0.5, 0.75, 1.0].contains(x)), isTrue, reason: at);
           }
         }
       }
     });
 
-    test('should_keepTheTwoCardsInDifferentLanes_when_bothPresent', () {
+    test('should_keepTheTwoCardsApart_when_bothPresent', () {
       for (var columns = 3; columns <= 10; columns++) {
         for (var seed = 0; seed < 150; seed++) {
           final t = jbiTemplate(columns, jbiTemplateRows(columns), seed, signals: 2);
           final s = t.pieces.where((p) => p.kind.isSignal).toList();
           expect(s, hasLength(2));
           final (a, b) = (s[0], s[1]);
-          expect(a.endColumn <= b.column || b.endColumn <= a.column, isTrue);
-          if (columns >= 5) expect(a.endColumn < b.column || b.endColumn < a.column, isTrue, reason: 'K=$columns seed=$seed');
+          final at = 'K=$columns seed=$seed';
+          if (a.column == b.column) {
+            // Too narrow for two a lane apart (3 and 4 lanes): stacked in the
+            // right-hand lane with a row of covers between them.
+            expect(columns, lessThan(5), reason: at);
+            expect(a.column, columns - 2, reason: at);
+            expect((a.row - b.row).abs(), greaterThanOrEqualTo(2), reason: at);
+          } else {
+            // Side by side only with a lane of covers between them.
+            expect(a.endColumn < b.column || b.endColumn < a.column, isTrue, reason: at);
+          }
         }
+      }
+    });
+
+    test('should_keepARightHandCardOffTheBottomRow_when_moreRowsThanOne', () {
+      for (var columns = 3; columns <= 10; columns++) {
+        final rows = jbiTemplateRows(columns);
+        for (var seed = 0; seed < 150; seed++) {
+          final t = jbiTemplate(columns, rows, seed, signals: 1);
+          final card = t.pieces.singleWhere((p) => p.kind.isSignal);
+          if (card.endColumn == columns && rows > 1) {
+            expect(card.row, lessThan(rows - 1), reason: 'K=$columns seed=$seed');
+          }
+        }
+      }
+    });
+
+    test('should_neverStandACard_when_anyWidthPresetOrSeed', () {
+      // Owner 2026-11-14: no memory under its album's title — every card lies, cover beside copy.
+      expect(JbiPieceKind.values, [JbiPieceKind.cover, JbiPieceKind.wideSignal]);
+      for (var columns = 3; columns <= 10; columns++) {
+        final geometry = JbiGeometry(
+          columns: columns,
+          rows: jbiTemplateRows(columns),
+          columnWidth: 120,
+          coverSide: 100,
+          templated: true,
+        );
+        for (var seed = 0; seed < 40; seed++) {
+          final cards = rich(6, covers: 40);
+          final base = jbiLayout(cards, columns: columns, rows: geometry.rows, seed: seed);
+          if (base == null) continue;
+          for (final stop in jbiTemplateLadder(geometry, base, cards)) {
+            final layout = stop.payload;
+            expectSpanTiles(layout.template);
+            for (final cell in layout.cells.where((c) => c.piece.kind.isSignal)) {
+              expect(cell.piece.kind, JbiPieceKind.wideSignal);
+              // Its right neighbour (if any) still sits half a row lower, the card on top.
+              if (cell.piece.endColumn < columns) {
+                expect(cell.piece.row, 0);
+                expect(layout.template.offsets[cell.piece.endColumn], layout.template.offsets[cell.piece.column] + 0.5);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    test('should_varyCardTemplates_when_seedsDiffer', () {
+      for (var columns = 3; columns <= 10; columns++) {
+        final distinct = {
+          for (var seed = 0; seed < 40; seed++) jbiTemplate(columns, jbiTemplateRows(columns), seed, signals: 2),
+        };
+        // Every card lies, one in the right-hand lane above its bottom row:
+        // four and five lanes leave a single placement, so only that card's
+        // row and the drift vary there.
+        final floor = switch (columns) {
+          4 => 2,
+          5 => 4,
+          _ => 6,
+        };
+        expect(distinct.length, greaterThanOrEqualTo(floor), reason: 'K=$columns');
       }
     });
 
@@ -260,14 +344,148 @@ void main() {
     test('should_packAsAndroidPhone_when_threeColumns', () {
       final cards = rich(2, covers: 8);
       final rows = packWidgetRows(trimToPhoneShelf(cards), 3);
-      expect([for (final r in rows) r.map((c) => c.stableId).toList()], [
-        ['s1', 'grid-album:c1'],
-        ['grid-album:c2', 's2'],
-        ['grid-album:c3', 'grid-album:c4', 'grid-album:c5'],
-        ['grid-album:c6', 'grid-album:c7', 'grid-album:c8'],
-      ]);
+      // The second wide row alternates to the right and spreads down (owner 2026-11-14).
+      expect(
+        [for (final r in rows) r.map((c) => c.stableId).toList()],
+        [
+          ['s1', 'grid-album:c1'],
+          ['grid-album:c2', 'grid-album:c3', 'grid-album:c4'],
+          ['grid-album:c5', 's2'],
+          ['grid-album:c6', 'grid-album:c7', 'grid-album:c8'],
+        ],
+      );
       // No signals: plain rows of three, as before.
       expect(packWidgetRows(shelf(7), 3).map((r) => r.length), [3, 3, 1]);
+    });
+
+    test('should_spreadWideRowsEvenly_when_phoneShelfHasMoreRows', () {
+      int units(List<HomeWidgetCard> row) => row.fold(0, (n, c) => n + (c.expanded ? 2 : 1));
+      // The phone presets (2 / 3 / 4 / 6 rows) and a few longer shelves.
+      for (var rowCount = 2; rowCount <= 10; rowCount++) {
+        for (var k = 1; k <= (rowCount < 4 ? rowCount : 4); k++) {
+          final wides = [for (var i = 1; i <= k; i++) signal(i)];
+          final covers = shelf(rowCount * 3 - 2 * k);
+          final rows = packWidgetRows([...wides, ...covers], 3);
+          final at = 'R=$rowCount k=$k';
+          expect(rows, hasLength(rowCount), reason: at);
+          final wideRows = [
+            for (var r = 0; r < rows.length; r++)
+              if (rows[r].any((c) => c.expanded)) r,
+          ];
+          expect(wideRows, jbiSpreadRows(k, rowCount), reason: at);
+          expect(wideRows.first, 0, reason: at);
+          // Gaps differ by at most one row: even, not front-loaded.
+          final marks = [...wideRows, rowCount];
+          final gaps = [for (var i = 0; i + 1 < marks.length; i++) marks[i + 1] - marks[i]];
+          expect(
+            gaps.reduce((a, b) => a > b ? a : b) - gaps.reduce((a, b) => a < b ? a : b),
+            lessThanOrEqualTo(1),
+            reason: '$at $gaps',
+          );
+          // Never two wide rows touching while the shelf has room to part them.
+          if (2 * k <= rowCount) {
+            expect(gaps.take(gaps.length - 1).every((g) => g >= 2), isTrue, reason: '$at $wideRows');
+          }
+          // Every card once, covers and wides each in their ranking order.
+          final flat = rows.expand((r) => r).toList();
+          expect(flat.where((c) => !c.expanded).map((c) => c.stableId), covers.map((c) => c.stableId), reason: at);
+          expect(flat.where((c) => c.expanded).map((c) => c.stableId), wides.map((c) => c.stableId), reason: at);
+          for (final row in rows) {
+            expect(units(row), 3, reason: at);
+          }
+        }
+      }
+    });
+
+    test('should_spreadByCeiling_when_pickingRows', () {
+      expect(jbiSpreadRows(1, 2), [0]);
+      expect(jbiSpreadRows(2, 3), [0, 2]);
+      expect(jbiSpreadRows(2, 4), [0, 2]);
+      expect(jbiSpreadRows(3, 6), [0, 2, 4]);
+      expect(jbiSpreadRows(3, 7), [0, 3, 5]);
+      expect(jbiSpreadRows(2, 2), [0, 1]);
+      expect(jbiSpreadRows(3, 2), [0, 1, 2]);
+    });
+
+    test('should_leaveOnlyTheLastRowShort_when_tooFewCovers', () {
+      int units(List<HomeWidgetCard> row) => row.fold(0, (n, c) => n + (c.expanded ? 2 : 1));
+      // Two memories, three covers, three lanes: no partial row mid-shelf, no wide card alone at the bottom.
+      final rows = packWidgetRows([signal(1), signal(2), ...shelf(3)], 3);
+      expect(
+        [for (final r in rows) r.map((c) => c.stableId).toList()],
+        [
+          ['s1', 'grid-album:c1'],
+          ['grid-album:c2', 's2'],
+          ['grid-album:c3'],
+        ],
+      );
+      // Any short supply: a row is short only once the covers ran out — every
+      // row after it is a lone wide card or the last row.
+      for (var k = 1; k <= 4; k++) {
+        for (var n = 0; n <= 12; n++) {
+          final packed = packWidgetRows([for (var i = 1; i <= k; i++) signal(i), ...shelf(n)], 3);
+          final firstShort = packed.indexWhere((r) => units(r) < 3);
+          if (firstShort < 0) continue;
+          for (final row in packed.skip(firstShort + 1)) {
+            expect(row.every((c) => c.expanded), isTrue, reason: 'k=$k n=$n');
+          }
+        }
+      }
+    });
+
+    test('should_layNewSignalsInTheGrownRows_when_aTemplateHasSpareSignals', () {
+      final grewWithSignals = List.filled(11, 0);
+      for (var columns = 3; columns <= 10; columns++) {
+        final geometry = JbiGeometry(
+          columns: columns,
+          rows: jbiTemplateRows(columns),
+          columnWidth: 120,
+          coverSide: 100,
+          templated: true,
+        );
+        for (var seed = 0; seed < 30; seed++) {
+          final cards = rich(6, covers: 40);
+          final base = jbiLayout(cards, columns: columns, rows: geometry.rows, seed: seed)!;
+          final xl = jbiTemplateLadder(geometry, base, cards).last.payload;
+          final at = 'K=$columns seed=$seed';
+          if (identical(xl, base)) continue;
+          final baseIds = {for (final c in base.cells) c.card.stableId};
+          final xlIds = [for (final c in xl.cells) c.card.stableId];
+          // Every card of L is still seated, once; the grid tiles once.
+          expect(xlIds.toSet().containsAll(baseIds), isTrue, reason: at);
+          expect(xlIds.toSet(), hasLength(xlIds.length), reason: at);
+          expectSpanTiles(xl.template);
+          expect(xl.cells.map((c) => c.piece), xl.template.pieces, reason: at);
+          // The grown rows brought signal cards of their own, lying in the
+          // right-hand lane under a lying card already there, a row apart.
+          final added = [
+            for (final c in xl.cells)
+              if (c.piece.kind.isSignal && !baseIds.contains(c.card.stableId)) c,
+          ];
+          if (added.isNotEmpty) grewWithSignals[columns]++;
+          for (final cell in added) {
+            expect(cell.piece.kind, JbiPieceKind.wideSignal, reason: at);
+            expect(cell.piece.column, columns - 2, reason: at);
+            expect(cell.piece.row, greaterThanOrEqualTo(base.template.rows), reason: at);
+            expect(cell.card.expanded, isTrue, reason: at);
+          }
+          final laneRows = [
+            for (final c in xl.cells)
+              if (c.piece.kind.isSignal && c.piece.column == columns - 2) c.piece.row,
+          ]..sort();
+          for (var i = 0; i + 1 < laneRows.length; i++) {
+            expect(laneRows[i + 1] - laneRows[i], greaterThanOrEqualTo(2), reason: '$at $laneRows');
+          }
+        }
+      }
+      // The right-hand lane holds a lying card on most shelves, so a longer
+      // shelf keeps its memories coming at every width. Four lanes are the
+      // exception: its L template already stacks both cards in the right-hand
+      // lane, the second on its bottom row, so XL's one row can't seat a third.
+      for (var columns = 3; columns <= 10; columns++) {
+        if (columns == 4) continue;
+        expect(grewWithSignals[columns], greaterThan(0), reason: 'K=$columns');
+      }
     });
 
     test('should_limitSignalsByCells_when_rowsAndCellsGiven', () {

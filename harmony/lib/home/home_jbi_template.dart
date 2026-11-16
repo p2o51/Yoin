@@ -7,13 +7,14 @@
 /// data (the leading cover) picks the drift, so the same shelf always lands
 /// the same way; a wider pane gets more lanes, never bigger covers.
 ///
-/// Up to two signal cards (a rating / note card) sit among the covers:
-/// standing (1×2: cover over its copy) or lying (2×1: cover beside its copy,
-/// its two columns one lane). A standing card's neighbours start level with
-/// it; a lying card's right neighbour starts half a row lower. The same draws
-/// from the same seeded generator ([KotlinRandom]) as Android, so a shelf
-/// with the same leading id lands exactly as there. The phone's packed shelf
-/// ([packWidgetRows], [trimToPhoneShelf]) lives here too. Pure; unit-tested.
+/// Up to two signal cards (a rating / note card) sit among the covers, always
+/// lying (2×1: cover beside its copy, its two columns one lane; owner
+/// 2026-11-14 dropped the standing 1×2). A lying card's right neighbour starts
+/// half a row lower; two cards keep a lane of covers between them, or stack
+/// in the right-hand lane a row apart. The same draws from the same seeded
+/// generator ([KotlinRandom]) as Android, so a shelf with the same leading id
+/// lands exactly as there. The phone's packed shelf ([packWidgetRows],
+/// [jbiSpreadRows], [trimToPhoneShelf]) lives here too. Pure; unit-tested.
 library;
 
 import 'dart:math' as math;
@@ -83,7 +84,6 @@ final class KotlinRandom {
 /// One piece kind and the cells it spans.
 enum JbiPieceKind {
   cover(1, 1),
-  tallSignal(1, 2),
   wideSignal(2, 1);
 
   const JbiPieceKind(this.columnSpan, this.rowSpan);
@@ -180,6 +180,9 @@ const int jbiMaxSignals = 2;
 /// The phone's packed shelf: 3 × 4 = 12 cells; a signal card takes two.
 const int jbiPhoneShelfCells = 12;
 const int _jbiSignalCells = 2;
+
+/// The columns a lying signal card spans.
+const int _jbiSignalSpan = 2;
 const int _jbiTwoSignalMinCells = 9;
 
 /// Past the phone's twelve cells, a signal card for every this many more.
@@ -188,76 +191,63 @@ const double _jbiHalfRow = 0.5;
 
 /// The template for [columns] lanes of [rows] cells with [signals] signal
 /// cards (jbiTemplate). Seeded: the same arguments return the same template.
-/// Each card stands (1×2) or lies (2×1) by the seed — on one row both lie;
-/// the two never share a lane and stand apart when there is room. Lane 0
-/// always starts at the top.
+/// Every card lies (2×1, its cover beside its copy): owner 2026-11-14 ruled
+/// the standing 1×2 out — a note under its album's title doesn't read as one
+/// block with the picture. The cards never overlap and lie side by side only
+/// with a lane of covers between them; when the width can't hold that (three
+/// and four lanes) they stack in the right-hand lane with a row between. Lane
+/// 0 always starts at the top, under the section title.
 JbiTemplate jbiTemplate(int columns, int rows, int seed, {int signals = 0}) {
   final random = KotlinRandom((seed * 1000003).toSigned(32) + columns * 101 + rows * 13);
-  final wanted = [
-    for (var i = 0; i < signals.clamp(0, jbiMaxSignals); i++)
-      rows >= 2 && random.nextBoolean() ? JbiPieceKind.tallSignal : JbiPieceKind.wideSignal,
+  final wanted = signals.clamp(0, jbiMaxSignals);
+
+  // Where the cards go. A lying card's copy is on its right (owner:
+  // 「默认文本在视觉右边……右边是一个 1×1 的封面，这时候右边就应该往下半格，
+  // 以保证与左边区分开」): its right neighbour starts half a row lower, so the
+  // copy's top lines up with the card's own cover and nothing else. It sits on
+  // the top row, or the neighbour's cover above would put its title beside the
+  // copy; a card in the right-hand lane has no neighbour there and takes any
+  // row but the bottom one. Of every placement, the ones keeping the cards a
+  // lane apart win, then those with a card in the right-hand lane (the lane a
+  // longer preset can seat another card in, jbiPresetLayout); the seed picks
+  // among them.
+  List<JbiPiece> lying(int count) => [
+    for (final column in _bestPlacement(columns, count, random))
+      JbiPiece(column, column + _jbiSignalSpan < columns ? 0 : _rightLaneRow(rows, random), JbiPieceKind.wideSignal),
   ];
-  final lyingWanted = wanted.where((k) => k == JbiPieceKind.wideSignal).length;
-  // A lying card with no pair of columns free stands up.
-  final standing = [
-    for (final k in wanted)
-      k == JbiPieceKind.wideSignal && columns < 2 * lyingWanted && rows >= 2 ? JbiPieceKind.tallSignal : k,
-  ];
-  // On one row with too few columns for both lying cards, only the first goes in.
-  final kinds = standing.fold<int>(0, (n, k) => n + k.columnSpan) > columns ? standing.take(1).toList() : standing;
-  final placement = _bestPlacement(columns, kinds, random);
-  final pairStarts = [
-    for (var i = 0; i < kinds.length; i++)
-      if (kinds[i] == JbiPieceKind.wideSignal) placement[i],
-  ];
-  final lanes = _lanesOf(columns, pairStarts);
-  final spanning = <JbiPiece>[];
-  for (var i = 0; i < kinds.length; i++) {
-    final kind = kinds[i];
-    final column = placement[i];
-    final int row;
-    if (kind == JbiPieceKind.tallSignal) {
-      row = random.nextIntBelow(rows - 1);
-    } else if (column + kind.columnSpan < columns) {
-      row = 0;
-    } else {
-      row = random.nextIntBelow(rows);
-    }
-    spanning.add(JbiPiece(column, row, kind));
+  final List<JbiPiece> spanning;
+  if (wanted == 0 || columns < _jbiSignalSpan) {
+    spanning = const [];
+  } else if (wanted * _jbiSignalSpan + (wanted - 1) <= columns) {
+    // Side by side only when a lane of covers fits between them.
+    spanning = lying(wanted);
+  } else if (rows >= 3) {
+    // Too narrow for two a lane apart: both in the right-hand lane, a row of covers between them.
+    final column = columns - _jbiSignalSpan;
+    final first = random.nextIntBelow(rows - 2);
+    final second = first + 2 + random.nextIntBelow(rows - first - 2);
+    spanning = [JbiPiece(column, first, JbiPieceKind.wideSignal), JbiPiece(column, second, JbiPieceKind.wideSignal)];
+  } else {
+    // Too short to stack: only the first card goes in.
+    spanning = lying(1);
   }
-  final group = _runsOf(lanes, spanning);
-  // Runs in left-to-right order (they are contiguous).
-  final byRun = <int, List<int>>{};
-  for (var i = 0; i < lanes.length; i++) {
-    byRun.putIfAbsent(group[i], () => []).add(i);
+  final lanes = _lanesOf(columns, {for (final p in spanning) p.column});
+  // A lying card's lane at 0 (unless it is itself a right neighbour), the lane on its right half a row below it.
+  final required = List<double?>.filled(lanes.length, null);
+  final starts = {for (final p in spanning) p.column}.toList()..sort();
+  for (final column in starts) {
+    final laneIndex = _laneOf(lanes, column);
+    final rightLane = laneIndex + 1;
+    if (rightLane >= lanes.length) continue;
+    final top = required[laneIndex] ?? 0.0;
+    required[laneIndex] = top;
+    required[rightLane] = top + _jbiHalfRow;
   }
-  final runs = byRun.values.toList()..sort((a, b) => a.first.compareTo(b.first));
-  final runOfLane = List<int>.filled(lanes.length, 0);
-  for (var r = 0; r < runs.length; r++) {
-    for (final lane in runs[r]) {
-      runOfLane[lane] = r;
-    }
-  }
-  // A lying card's run at 0 (unless it is itself a right neighbour), the run on its right half a row below it.
-  final required = List<double?>.filled(runs.length, null);
-  final lying = spanning.where((p) => p.kind == JbiPieceKind.wideSignal).toList()..sort((a, b) => a.column.compareTo(b.column));
-  for (final card in lying) {
-    final laneIndex = lanes.indexWhere((l) => card.column >= l.$1 && card.column < l.$2);
-    final cardRun = runOfLane[laneIndex];
-    if (laneIndex + 1 >= runOfLane.length) continue;
-    final rightRun = runOfLane[laneIndex + 1];
-    if (rightRun == cardRun) continue;
-    final top = required[cardRun] ?? 0.0;
-    required[cardRun] = top;
-    required[rightRun] = top + _jbiHalfRow;
-  }
-  final runOffsets = _laneOffsets(required, random);
+  final laneOffsets = _laneOffsets(required, random);
   final offsets = List<double>.filled(columns, 0);
-  for (var r = 0; r < runs.length; r++) {
-    for (final laneIndex in runs[r]) {
-      for (var c = lanes[laneIndex].$1; c < lanes[laneIndex].$2; c++) {
-        offsets[c] = runOffsets[r];
-      }
+  for (var i = 0; i < lanes.length; i++) {
+    for (var c = lanes[i].$1; c < lanes[i].$2; c++) {
+      offsets[c] = laneOffsets[i];
     }
   }
   final taken = List.generate(rows, (_) => List.filled(columns, false));
@@ -277,17 +267,21 @@ JbiTemplate jbiTemplate(int columns, int rows, int seed, {int signals = 0}) {
   return JbiTemplate(columns: columns, rows: rows, offsets: offsets, pieces: pieces);
 }
 
+/// A right-hand card's row: any but the bottom one (when there are two or
+/// more), so a longer preset can lay another card a row of covers below it.
+int _rightLaneRow(int rows, KotlinRandom random) => random.nextIntBelow(math.max(1, rows - 1));
+
 int Function(JbiPiece, JbiPiece) _readingOrder(List<double> offsets) => (a, b) {
       final byTop = (a.row + offsets[a.column]).compareTo(b.row + offsets[b.column]);
       return byTop != 0 ? byTop : a.column.compareTo(b.column);
     };
 
-/// Lanes left to right as [start, end) columns: a lying card's two columns are one.
-List<(int, int)> _lanesOf(int columns, List<int> pairStarts) {
+/// Lanes left to right as [start, end) columns: a lying card's two columns (from [pairStarts]) are one.
+List<(int, int)> _lanesOf(int columns, Set<int> pairStarts) {
   final lanes = <(int, int)>[];
   var c = 0;
   while (c < columns) {
-    if (pairStarts.contains(c)) {
+    if (pairStarts.contains(c) && c + 1 < columns) {
       lanes.add((c, c + 2));
       c += 2;
     } else {
@@ -300,66 +294,32 @@ List<(int, int)> _lanesOf(int columns, List<int> pairStarts) {
 
 int _laneOf(List<(int, int)> lanes, int column) => lanes.indexWhere((l) => column >= l.$1 && column < l.$2);
 
-/// Run id per lane: a standing card's lane joins both neighbours (the lanes
-/// beside its copy); every other lane is a run of its own.
-List<int> _runsOf(List<(int, int)> lanes, List<JbiPiece> cards) {
-  final group = List<int>.generate(lanes.length, (i) => i);
-  void join(int a, int b) {
-    if (a < 0 || a >= lanes.length || b < 0 || b >= lanes.length) return;
-    final from = group[b];
-    final to = group[a];
-    for (var i = 0; i < group.length; i++) {
-      if (group[i] == from) group[i] = to;
-    }
-  }
-
-  for (final card in cards) {
-    if (card.kind != JbiPieceKind.tallSignal) continue;
-    final laneIndex = _laneOf(lanes, card.column);
-    join(laneIndex, laneIndex - 1);
-    join(laneIndex, laneIndex + 1);
-  }
-  return group;
-}
-
-/// The cards' columns ([kinds] in order): of every placement where they don't
-/// overlap, those keeping the two a lane apart and then leaving the most runs
-/// of lanes to stagger, the seed picking among them.
-List<int> _bestPlacement(int columns, List<JbiPieceKind> kinds, KotlinRandom random) {
-  if (kinds.isEmpty) return const [];
-  Iterable<int> spots(JbiPieceKind kind) sync* {
-    for (var c = 0; c <= columns - kind.columnSpan; c++) {
-      yield c;
-    }
-  }
-
+/// The first columns of [count] lying cards side by side: of every placement
+/// where they don't overlap, those keeping them a lane apart (two copies side
+/// by side read as one block), then those with a card in the right-hand lane,
+/// the seed picking among them.
+List<int> _bestPlacement(int columns, int count, KotlinRandom random) {
+  if (count <= 0) return const [];
   final candidates = <List<int>>[];
-  if (kinds.length == 1) {
-    for (final a in spots(kinds[0])) {
+  if (count == 1) {
+    for (var a = 0; a <= columns - _jbiSignalSpan; a++) {
       candidates.add([a]);
     }
   } else {
-    for (final a in spots(kinds[0])) {
-      for (final b in spots(kinds[1])) {
-        final aEnd = a + kinds[0].columnSpan;
-        final bEnd = b + kinds[1].columnSpan;
-        if (a < bEnd && b < aEnd) continue;
+    for (var a = 0; a <= columns - _jbiSignalSpan; a++) {
+      for (var b = 0; b <= columns - _jbiSignalSpan; b++) {
+        if (a < b + _jbiSignalSpan && b < a + _jbiSignalSpan) continue;
         candidates.add([a, b]);
       }
     }
   }
-  final scores = <int>[];
-  for (final placement in candidates) {
-    final pairs = [
-      for (var i = 0; i < kinds.length; i++)
-        if (kinds[i] == JbiPieceKind.wideSignal) placement[i],
-    ];
-    final lanes = _lanesOf(columns, pairs);
-    final cards = [for (var i = 0; i < kinds.length; i++) JbiPiece(placement[i], 0, kinds[i])];
-    final runs = _runsOf(lanes, cards).toSet().length;
-    final apart = cards.length < 2 || (_laneOf(lanes, cards[0].column) - _laneOf(lanes, cards[1].column)).abs() >= 2;
-    scores.add((apart ? 1000 : 0) + runs);
+  int score(List<int> placement) {
+    final apart = placement.length < 2 || (placement[0] - placement[1]).abs() > _jbiSignalSpan;
+    final rightLane = placement.any((c) => c + _jbiSignalSpan == columns);
+    return (apart ? 2 : 0) + (rightLane ? 1 : 0);
   }
+
+  final scores = [for (final p in candidates) score(p)];
   final best = scores.reduce(math.max);
   final top = [
     for (var i = 0; i < candidates.length; i++)
@@ -368,8 +328,8 @@ List<int> _bestPlacement(int columns, List<JbiPieceKind> kinds, KotlinRandom ran
   return top[random.nextIntBelow(top.length)];
 }
 
-/// One offset per run of lanes, in row pitches; a [required] one always wins.
-/// Otherwise the first is at 0 and each next one drifts to one of {0, ¼, ½},
+/// One offset per lane, in row pitches; a [required] one always wins (the
+/// lying cards' lanes and their right neighbours). Otherwise the first is at 0 and each next one drifts to one of {0, ¼, ½},
 /// never its left neighbour's nor a required right neighbour's.
 List<double> _laneOffsets(List<double?> required, KotlinRandom random) {
   final out = <double>[];
@@ -440,25 +400,54 @@ List<HomeWidgetCard> trimToPhoneShelf(List<HomeWidgetCard> cards, {int cells = j
 
 /// Packs the shelf into rows of [columns] units — a wide card two, a cover
 /// one. Each wide card shares its row with the next `columns - 2` covers,
-/// alternating which side it hugs; leftover covers fill whole rows. At 3
-/// columns this is Android's shipped phone packing exactly.
+/// alternating which side it hugs; the other rows are full rows of covers.
+/// Order otherwise follows the ranking, so the strongest cards still lead.
+///
+/// The wide rows are spread over the shelf ([jbiSpreadRows]) rather than
+/// stacked at its top (owner 2026-11-14: a phone shelf pulled to six rows had
+/// every memory in its first three, 「我希望它们出现得更均匀一些」); a short
+/// supply keeps covers back for the wide rows still to come, so only the last
+/// row is partial.
 List<List<HomeWidgetCard>> packWidgetRows(List<HomeWidgetCard> cards, int columns) {
   final wide = [for (final c in cards) if (c.expanded) c];
   final compact = [for (final c in cards) if (!c.expanded) c];
-  final rows = <List<HomeWidgetCard>>[];
-  var next = 0;
-  for (var pair = 0; pair < wide.length; pair++) {
-    final fill = <HomeWidgetCard>[];
-    while (fill.length < columns - 2 && next < compact.length) {
-      fill.add(compact[next++]);
-    }
-    rows.add(fill.isEmpty ? [wide[pair]] : (pair.isEven ? [wide[pair], ...fill] : [...fill, wide[pair]]));
+  final fillPerWide = math.max(0, columns - 2);
+  // The shelf's row count, as if every wide row came first.
+  var left = compact.length;
+  for (var i = 0; i < wide.length; i++) {
+    left -= math.min(fillPerWide, left);
   }
-  for (var i = next; i < compact.length; i += columns) {
-    rows.add(compact.sublist(i, math.min(i + columns, compact.length)));
+  final rowCount = wide.length + (left + columns - 1) ~/ columns;
+  final wideRows = jbiSpreadRows(wide.length, rowCount);
+  final rows = <List<HomeWidgetCard>>[];
+  var w = 0;
+  var c = 0;
+  while (w < wide.length || c < compact.length) {
+    // A wide row when its turn has come, or when a full row of covers now
+    // would leave the wide rows still to come short of covers.
+    final coversAfterFullRow = compact.length - c - columns;
+    if (w < wide.length && (rows.length >= wideRows[w] || coversAfterFullRow < fillPerWide * (wide.length - w))) {
+      final big = wide[w];
+      final fill = compact.sublist(c, math.min(c + fillPerWide, compact.length));
+      c += fill.length;
+      rows.add(fill.isEmpty ? [big] : (w.isEven ? [big, ...fill] : [...fill, big]));
+      w++;
+    } else {
+      final end = math.min(c + columns, compact.length);
+      rows.add(compact.sublist(c, end));
+      c = end;
+    }
   }
   return rows;
 }
+
+/// The rows [count] cards take on a shelf of [rows] rows, spread evenly: card
+/// `i` on row ⌈i × rows ÷ count⌉ — the first on the top row, the rest about
+/// rows ÷ count apart, never two on one row. More cards than rows: one per
+/// row from the top.
+List<int> jbiSpreadRows(int count, int rows) => count > rows
+    ? [for (var i = 0; i < count; i++) i]
+    : [for (var i = 0; i < count; i++) (i * rows + count - 1) ~/ count];
 
 // ---------------------------------------------------------------------------
 // Row presets (HomeJbiTemplate.kt jbiPresetLayout).
@@ -470,17 +459,17 @@ List<List<HomeWidgetCard>> packWidgetRows(List<HomeWidgetCard> cards, int column
 /// with the next covers in [cards] in reading order (a row the shelf can't
 /// fill is left off); the template's own rows and offsets stay. The rows
 /// added bring signal cards of their own when [cards] has more than the
-/// template seated ([jbiGrowSignals]): each stands in a lane away from the
-/// others, over the old bottom row and the first new one, and the cover it
-/// stands on moves down into the new rows — first of them, so the order of
-/// every card the smaller layout seated holds.
+/// template seated ([jbiGrowSignals]): each lies in the right-hand lane when
+/// that lane already holds a lying card (no neighbour on its copy's side, so
+/// any row reads right), a row of covers away from the card above it. Every
+/// card the smaller layout seated keeps its cell.
 ///
 /// Fewer rows: the bottom rows are cut. A signal card past the new bottom
-/// moves up in its own lane (a standing one on a single row lies down across
-/// its neighbour); past [jbiSignalLimit] the lower-ranked one leaves. Covers
-/// above the cut keep their cards; a cell a moved or departed signal leaves to
-/// a cover takes the first of the displaced covers in the old reading order,
-/// so the result seats only cards [layout] seated. Offsets stay.
+/// moves up in its own lane; past [jbiSignalLimit], or with no free row a
+/// cover apart from the card above, the lower-ranked one leaves. Covers above
+/// the cut keep their cards; a cell a moved or departed signal leaves to a
+/// cover takes the first of the displaced covers in the old reading order, so
+/// the result seats only cards [layout] seated. Offsets stay.
 JbiLayout jbiPresetLayout(JbiLayout layout, List<HomeWidgetCard> cards, int rows) {
   final template = layout.template;
   if (rows == template.rows) return layout;
@@ -505,41 +494,31 @@ JbiLayout _growJbiLayout(JbiLayout layout, List<HomeWidgetCard> cards, int rows)
   final seated = {for (final c in layout.cells) c.card.stableId};
   final spare = [for (final c in cards) if (!c.expanded && !seated.contains(c.stableId)) c];
   final spareSignals = [for (final c in cards) if (c.expanded && !seated.contains(c.stableId)) c];
-  // As many whole rows as the shelf fills: each standing card covers one new
-  // cell and lends its old cover another, so it takes no extra cover.
+  // As many whole rows as the shelf fills; each new card takes two cells.
   var addedRows = rows - oldRows;
-  var standing = <int>[];
+  var added = <JbiPiece>[];
   while (addedRows > 0) {
     final wanted = math.min(spareSignals.length, jbiGrowSignals(addedRows, columns));
-    standing = _growSignalColumns(layout, wanted);
-    if (spare.length >= addedRows * columns - 2 * standing.length) break;
+    added = _growSignalPieces(layout, addedRows, wanted);
+    if (spare.length >= addedRows * columns - _jbiSignalCells * added.length) break;
     addedRows--;
   }
   if (addedRows <= 0) return layout;
   final reading = _reading(template.offsets);
-  final bottom = oldRows - 1;
-  // The covers the new cards stand on, in the old reading order: they move down first.
-  final lent = [
-    for (final c in layout.cells)
-      if (c.piece.kind == JbiPieceKind.cover && c.piece.row == bottom && standing.contains(c.piece.column)) c,
-  ]..sort((a, b) => reading(a.piece, b.piece));
-  final kept = [for (final c in layout.cells) if (!lent.contains(c)) c];
-  final sortedStanding = [...standing]..sort();
+  final sortedAdded = [...added]..sort(reading);
   final signalCells = <JbiCell>[
-    for (var i = 0; i < sortedStanding.length; i++)
-      (card: spareSignals[i], piece: JbiPiece(sortedStanding[i], bottom, JbiPieceKind.tallSignal)),
+    for (var i = 0; i < sortedAdded.length; i++) (card: spareSignals[i], piece: sortedAdded[i]),
   ];
   final newCovers = <JbiPiece>[
     for (var r = oldRows; r < oldRows + addedRows; r++)
       for (var c = 0; c < columns; c++)
-        if (!(r == oldRows && standing.contains(c))) JbiPiece(c, r),
+        if (!added.any((p) => p.row == r && c >= p.column && c < p.endColumn)) JbiPiece(c, r),
   ]..sort(reading);
-  final supply = [...lent.map((c) => c.card), ...spare];
   var next = 0;
   final cells = <JbiCell>[
-    ...kept,
+    ...layout.cells,
     ...signalCells,
-    for (final piece in newCovers) (card: supply[next++], piece: piece),
+    for (final piece in newCovers) (card: spare[next++], piece: piece),
   ]..sort((a, b) => reading(a.piece, b.piece));
   return JbiLayout(
     JbiTemplate(columns: columns, rows: oldRows + addedRows, offsets: template.offsets, pieces: [for (final c in cells) c.piece]),
@@ -547,48 +526,26 @@ JbiLayout _growJbiLayout(JbiLayout layout, List<HomeWidgetCard> cards, int rows)
   );
 }
 
-/// Up to [count] lanes for new standing cards over [layout]'s bottom row: a
-/// lane whose bottom cell is a cover, never beside another signal card on
-/// that row or another new one, farthest from the signals already there
-/// first (ties by a seed from the template, so the same shelf grows the same
-/// way). Fewer when the lanes run out.
-List<int> _growSignalColumns(JbiLayout layout, int count) {
+/// Up to [count] new lying cards in the [addedRows] rows under [layout]: only
+/// in the right-hand lane, and only when a lying card already makes it one
+/// lane (two columns of different lanes never merge — their offsets differ).
+/// Each takes the first new row with a row of covers between it and the card
+/// above it in that lane. Fewer when the rows run out.
+List<JbiPiece> _growSignalPieces(JbiLayout layout, int addedRows, int count) {
   if (count <= 0) return const [];
   final template = layout.template;
-  final bottom = template.rows - 1;
-  final signalColumns = <int>{
+  final column = template.columns - _jbiSignalSpan;
+  final laneRows = <int>{
     for (final cell in layout.cells)
-      if (cell.piece.kind.isSignal)
-        for (var c = cell.piece.column; c < cell.piece.endColumn; c++) c,
+      if (cell.piece.kind == JbiPieceKind.wideSignal && cell.piece.column == column) cell.piece.row,
   };
-  final bottomSignal = <int>{
-    for (final cell in layout.cells)
-      if (cell.piece.kind.isSignal && bottom >= cell.piece.row && bottom < cell.piece.endRow)
-        for (var c = cell.piece.column; c < cell.piece.endColumn; c++) c,
-  };
-  final coverOnBottom = <int>{
-    for (final cell in layout.cells)
-      if (cell.piece.kind == JbiPieceKind.cover && cell.piece.row == bottom) cell.piece.column,
-  };
-  final random = KotlinRandom(template.columns * 7919 + template.rows * 104729 + template.pieces.length);
-  final picked = <int>[];
-  for (var n = 0; n < count; n++) {
-    final taken = [...signalColumns, ...picked];
-    final open = [
-      for (var c = 0; c < template.columns; c++)
-        if (coverOnBottom.contains(c) &&
-            !picked.contains(c) &&
-            !bottomSignal.contains(c - 1) &&
-            !bottomSignal.contains(c + 1) &&
-            !picked.contains(c - 1) &&
-            !picked.contains(c + 1))
-          c,
-    ];
-    if (open.isEmpty) return picked;
-    int distance(int c) => taken.isEmpty ? template.columns : taken.map((t) => (t - c).abs()).reduce(math.min);
-    final best = open.map(distance).reduce(math.max);
-    final ties = [for (final c in open) if (distance(c) == best) c];
-    picked.add(ties[random.nextIntBelow(ties.length)]);
+  if (laneRows.isEmpty) return const [];
+  final picked = <JbiPiece>[];
+  for (var r = template.rows; r < template.rows + addedRows; r++) {
+    if (picked.length == count) break;
+    if (laneRows.contains(r - 1)) continue;
+    laneRows.add(r);
+    picked.add(JbiPiece(column, r, JbiPieceKind.wideSignal));
   }
   return picked;
 }
@@ -621,28 +578,12 @@ JbiLayout _shrinkJbiLayout(JbiLayout layout, int rows) {
   final kept = <JbiCell>[];
   for (final cell in signals.take(limit)) {
     final piece = cell.piece;
-    final List<JbiPiece> candidates;
-    if (piece.endRow <= rows) {
-      candidates = [piece];
-    } else if (piece.kind == JbiPieceKind.tallSignal && rows >= 2) {
-      candidates = [piece.copyWith(row: rows - 2)];
-    } else if (piece.kind == JbiPieceKind.wideSignal) {
-      candidates = [piece.copyWith(row: rows - 1)];
-    } else {
-      // A standing card on one row lies down, across its right neighbour or else its left.
-      candidates = [
-        JbiPiece(piece.column, rows - 1, JbiPieceKind.wideSignal),
-        JbiPiece(piece.column - 1, rows - 1, JbiPieceKind.wideSignal),
-      ];
-    }
-    JbiPiece? placed;
-    for (final c in candidates) {
-      if (fits(c)) {
-        placed = c;
-        break;
-      }
-    }
-    if (placed == null) continue;
+    final placed = piece.endRow <= rows ? piece : piece.copyWith(row: rows - 1);
+    // Two cards stacked in one lane keep a row of covers between them.
+    final touching = kept.any(
+      (other) => other.piece.column == placed.column && (other.piece.row - placed.row).abs() == 1,
+    );
+    if (!fits(placed) || touching) continue;
     take(placed);
     kept.add((card: cell.card, piece: placed));
   }

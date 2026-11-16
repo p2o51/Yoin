@@ -357,7 +357,7 @@ void main() {
       expect(ladder.last.presets, [HomeRowPreset.l, HomeRowPreset.xl]);
     });
 
-    test('should_standNewSignalCards_when_growingWithSpareSignals', () {
+    test('should_layNewSignalCards_when_growingWithSpareSignals', () {
       final geometry = templated(6);
       final cards = shelf(signals: 4, covers: 40);
       final base = jbiLayout(cards, columns: geometry.columns, rows: geometry.rows, seed: 5)!;
@@ -365,6 +365,10 @@ void main() {
       expect(xl.template.rows, base.template.rows + 1);
       final signals = xl.cells.where((c) => c.piece.kind.isSignal).toList();
       expect(signals.length, greaterThan(base.cells.where((c) => c.piece.kind.isSignal).length));
+      // Every card lies; the new one in the right-hand lane, a row of covers under the one above it.
+      expect(signals.every((c) => c.piece.kind == JbiPieceKind.wideSignal), isTrue);
+      final added = signals.where((c) => !layoutIds(base).contains(c.card.stableId));
+      expect(added.every((c) => c.piece.column == 4 && c.piece.row == base.template.rows), isTrue);
       // Every card L seated is still on the shelf.
       expect(layoutIds(xl).containsAll(layoutIds(base)), isTrue);
       expect(jbiGrowSignals(1, 6), 1);

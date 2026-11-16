@@ -55,7 +55,7 @@ class RediscoverSection extends StatelessWidget {
         HomeEditShelfClip(
           escapeStart: frame.start,
           escapeEnd: frame.end,
-          child: EdgeFadeShelf(
+          child: HomeShelf(
             height: HomeRediscoverMetrics.cardHeight * scale,
             padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end),
             gap: gap,
