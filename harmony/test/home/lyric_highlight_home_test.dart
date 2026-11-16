@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +19,7 @@ import 'package:yoin/playback/playback_controller.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/theme/theme.dart';
 import 'package:yoin/theme/tokens.dart';
+import 'package:yoin/ui/navigation/yoin_push_route.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
 import 'home_fakes.dart';
@@ -267,6 +270,68 @@ void main() {
     });
   });
 
+  group('another set', () {
+    Set<String> shown(ProviderContainer c) => {for (final card in c.read(lyricHighlightCardsProvider)) card.songId.rawId};
+
+    testWidgets('should_drawAnotherSet_when_aPageOverHomeGoesAfterAWhile', (tester) async {
+      var now = homeTestNow;
+      final nav = GlobalKey<NavigatorState>();
+      final c = await _pumpHomeForSets(tester, clock: () => now, navigatorKey: nav);
+      final first = shown(c);
+      expect(first, hasLength(4));
+      now = now.add(lyricHighlightRotateAfter + const Duration(minutes: 1));
+      // A sheet over Home is not a page leaving: the set stays.
+      unawaited(
+        showModalBottomSheet<void>(
+          context: tester.element(find.byType(HomeScreen)),
+          builder: (_) => const SizedBox(height: 100),
+        ),
+      );
+      await _frames(tester, 30);
+      nav.currentState!.pop();
+      await _frames(tester, 30);
+      expect(shown(c), first);
+      nav.currentState!.push(YoinPushRoute<void>(builder: (_) => const Scaffold(body: SizedBox.expand())));
+      await _frames(tester, 40);
+      nav.currentState!.pop();
+      await _frames(tester, 40);
+      // The two never put on show come first.
+      expect(shown(c), containsAll({for (var i = 0; i < 6; i++) '$i'}.difference(first)));
+      await _doneHome(tester, c);
+    });
+
+    // The shell mutes a hidden page's tickers (shell_screen _Page): Library in front, Home's are off.
+    testWidgets('should_drawAnotherSet_when_backFromLibraryAfterAWhile', (tester) async {
+      var now = homeTestNow;
+      final visible = ValueNotifier(true);
+      addTearDown(visible.dispose);
+      final c = await _pumpHomeForSets(tester, clock: () => now, visible: visible);
+      final first = shown(c);
+      visible.value = false;
+      await _frames(tester, 5);
+      now = now.add(lyricHighlightRotateAfter + const Duration(minutes: 1));
+      visible.value = true;
+      await _frames(tester, 20);
+      expect(shown(c), containsAll({for (var i = 0; i < 6; i++) '$i'}.difference(first)));
+      await _doneHome(tester, c);
+    });
+
+    testWidgets('should_keepTheSet_when_backFromLibrarySoon', (tester) async {
+      var now = homeTestNow;
+      final visible = ValueNotifier(true);
+      addTearDown(visible.dispose);
+      final c = await _pumpHomeForSets(tester, clock: () => now, visible: visible);
+      final first = shown(c);
+      visible.value = false;
+      await _frames(tester, 5);
+      now = now.add(const Duration(minutes: 5));
+      visible.value = true;
+      await _frames(tester, 20);
+      expect(shown(c), first);
+      await _doneHome(tester, c);
+    });
+  });
+
   group('count engine', () {
     test('should_countWholeStepsFromWhereTheDotsOpened_when_dragged', () {
       expect(lyricCountAt(start: 4, dy: 40, anchor: 40), 4);
@@ -309,6 +374,35 @@ void main() {
       // A keyboard step.
       expect(engine.step(1), isTrue);
       expect(saved, 3);
+      engine.dispose();
+    });
+
+    test('should_keepTheCount_when_editModeClosedUnderTheFinger', () {
+      var editing = true;
+      final commits = <HomeRowPreset>[];
+      final feedback = CountingLyricCountFeedback();
+      final engine = HomeLyricCountEngine(
+        vsync: const TestVSync(),
+        editing: () => editing,
+        blocked: () => false,
+        saved: () => 4,
+        commit: (p) {
+          commits.add(p);
+          return true;
+        },
+        reduced: () => true,
+        feedback: feedback,
+      );
+      expect(engine.grab(100), isTrue);
+      engine.dragTo(140);
+      engine.dragTo(140 - 72);
+      expect(engine.count, 2);
+      // The app went to the background: edit mode closed, the finger still down.
+      editing = false;
+      engine.release();
+      expect(commits, isEmpty);
+      expect(feedback.confirms, 0);
+      expect(engine.held, isFalse);
       engine.dispose();
     });
 
@@ -356,9 +450,69 @@ void main() {
       expect(to(100, 500), 298, reason: 'a fling goes one card on');
       expect(to(450, 0), 500, reason: 'the last stops where the shelf runs out');
     });
+
+    test('should_settleByTheCurrentPitch_when_theWindowResized', () {
+      var pitch = 298.0;
+      final physics = LyricShelfPhysics(pitchOf: () => pitch);
+      ScrollMetrics at(double pixels) => FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 1000,
+        pixels: pixels,
+        viewportDimension: 400,
+        axisDirection: AxisDirection.right,
+        devicePixelRatio: 1,
+      );
+      expect(physics.createBallisticSimulation(at(140), 0)!.x(10), closeTo(0, 1));
+      // Narrower cards after a resize: the same physics object settles on the new starts.
+      pitch = 250;
+      expect(physics.createBallisticSimulation(at(140), 0)!.x(10), closeTo(250, 1));
+    });
   });
 
   test('should_offerTheSectionOnEveryDevice_when_listed', () {
     expect(HomeSection.lyricHighlight.availableInV1, isTrue);
   });
+}
+
+/// Home with six picks (four on show), for the tests that draw another set.
+Future<ProviderContainer> _pumpHomeForSets(
+  WidgetTester tester, {
+  required DateTime Function() clock,
+  GlobalKey<NavigatorState>? navigatorKey,
+  ValueListenable<bool>? visible,
+}) async {
+  tester.view.physicalSize = const Size(400, 2400);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  final h = await homeContainer(clock: clock);
+  for (var i = 0; i < 6; i++) {
+    await h.container
+        .read(lyricHighlightKeeperProvider)
+        .keepUserPick(track: _song('$i'), lines: ['line of song $i'], startMs: 30000);
+  }
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: h.container,
+      child: MaterialApp(
+        navigatorKey: navigatorKey,
+        theme: yoinTheme(Brightness.light),
+        builder: (context, child) => YoinWindowScope.measured(child: child!),
+        home: Scaffold(
+          body: ValueListenableBuilder<bool>(
+            valueListenable: visible ?? const AlwaysStoppedAnimation(true),
+            child: const HomeScreen(),
+            builder: (context, on, child) => TickerMode(enabled: on, child: child!),
+          ),
+        ),
+      ),
+    ),
+  );
+  await _frames(tester);
+  return h.container;
+}
+
+Future<void> _doneHome(WidgetTester tester, ProviderContainer c) async {
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pump(const Duration(seconds: 1));
+  c.dispose();
 }

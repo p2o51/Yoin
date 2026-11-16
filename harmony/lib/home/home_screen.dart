@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -202,15 +203,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         if (mounted) ref.read(homeEditProvider.notifier).exit();
       },
       // Each return to Home (after a while) brings other lyric cards.
-      onShow: () {
-        if (mounted) ref.read(lyricHighlightCardsProvider.notifier).onHomeShown();
-      },
+      onShow: _lyricHomeShown,
     );
     _scroll.addListener(() => _flow.onScroll(_scroll.position.pixels));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _onState(ref.read(homeViewModelProvider));
-      if (mounted) ref.read(lyricHighlightCardsProvider.notifier).onHomeShown();
+      _lyricHomeShown();
     });
+  }
+
+  /// Home came back into view (Android LifecycleStartEffect → onHomeShown): from the
+  /// background, from Library, or from a page pushed over it.
+  void _lyricHomeShown() {
+    if (mounted) ref.read(lyricHighlightCardsProvider.notifier).onHomeShown();
   }
 
   @override
@@ -456,6 +461,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       child: Stack(
         fit: StackFit.expand,
         children: [
+          // Back from a page pushed over Home, or from Library (Android: Home started again).
+          _UncoveredProbe(onUncovered: _lyricHomeShown),
           MemoriesPullDetector(
             scroll: _scroll,
             enabled: state is HomeContent && !editing,
@@ -1325,4 +1332,51 @@ class _ErrorPage extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Calls [onUncovered] when Home is back in front after something hid it
+/// whole (Android: Home re-entered, its LifecycleStartEffect ran again): a page
+/// pushed over it went, or the shell brought it back from Library. Both mute
+/// Home's tickers while it is hidden (the overlay's offstage entries, the
+/// shell's hidden page); a sheet or a menu over Home doesn't. Paints nothing.
+class _UncoveredProbe extends StatefulWidget {
+  const _UncoveredProbe({required this.onUncovered});
+
+  final VoidCallback onUncovered;
+
+  @override
+  State<_UncoveredProbe> createState() => _UncoveredProbeState();
+}
+
+class _UncoveredProbeState extends State<_UncoveredProbe> {
+  ValueListenable<TickerModeData>? _ticking;
+  bool _covered = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ticking = TickerMode.getValuesNotifier(context);
+    if (identical(ticking, _ticking)) return;
+    _ticking?.removeListener(_onTicking);
+    _ticking = ticking..addListener(_onTicking);
+    _onTicking();
+  }
+
+  void _onTicking() {
+    if (!(_ticking?.value.enabled ?? true)) {
+      _covered = true;
+    } else if (_covered) {
+      _covered = false;
+      widget.onUncovered();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticking?.removeListener(_onTicking);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

@@ -126,7 +126,7 @@ class _LyricHighlightSectionState extends State<LyricHighlightSection> {
           scrollDirection: Axis.horizontal,
           padding: padding,
           physics: widget.scrollEnabled && !single
-              ? LyricShelfPhysics(pitch: _pitch)
+              ? LyricShelfPhysics(pitchOf: () => _pitch)
               : const NeverScrollableScrollPhysics(),
           clipBehavior: Clip.none,
           // Every card stays built (four at most), as Android's pager keeps them composed.
@@ -178,14 +178,17 @@ class _LyricHighlightSectionState extends State<LyricHighlightSection> {
 
 /// The shelf's paging (Android's pager snapping): a release settles on the
 /// nearest card's start (a fling one card on), the last stops where the
-/// shelf runs out of room, on the spatial spring.
+/// shelf runs out of room, on the spatial spring. [pitchOf] is read at each
+/// release: a Scrollable keeps the physics it started with while the type
+/// stays the same, so a fixed pitch would go stale when the window resizes.
 class LyricShelfPhysics extends ScrollPhysics {
-  const LyricShelfPhysics({required this.pitch, super.parent});
+  const LyricShelfPhysics({required this.pitchOf, super.parent});
 
-  final double pitch;
+  final double Function() pitchOf;
 
   @override
-  LyricShelfPhysics applyTo(ScrollPhysics? ancestor) => LyricShelfPhysics(pitch: pitch, parent: buildParent(ancestor));
+  LyricShelfPhysics applyTo(ScrollPhysics? ancestor) =>
+      LyricShelfPhysics(pitchOf: pitchOf, parent: buildParent(ancestor));
 
   @override
   SpringDescription get spring => YoinSprings.defaultSpatial;
@@ -218,7 +221,7 @@ class LyricShelfPhysics extends ScrollPhysics {
     final to = target(
       pixels: position.pixels,
       velocity: velocity,
-      pitch: pitch,
+      pitch: pitchOf(),
       min: position.minScrollExtent,
       max: position.maxScrollExtent,
       minVelocity: tolerance.velocity,

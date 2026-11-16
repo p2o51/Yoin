@@ -236,7 +236,11 @@ class LyricHighlightCards extends Notifier<List<HomeLyricHighlight>> {
   /// set when the last one has been up a while.
   void onHomeShown() {
     if (_drawnAt == 0) return;
-    if (_nowMs - _drawnAt >= lyricHighlightRotateAfter.inMilliseconds) unawaited(_draw(keep: const []));
+    final now = _nowMs;
+    if (now - _drawnAt < lyricHighlightRotateAfter.inMilliseconds) return;
+    // Taken now, so a second "shown" in the same return (app and page at once) draws no second set.
+    _drawnAt = now;
+    unawaited(_draw(keep: const []));
   }
 
   Future<void> _draw({required List<HomeLyricHighlight> keep}) async {

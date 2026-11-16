@@ -137,12 +137,13 @@ class HomeLyricCountEngine extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The finger left; [cancelled] (another gesture took it) keeps the count as it was.
+  /// The finger left; [cancelled] (another gesture took it) keeps the count as it was, and so
+  /// does edit mode having closed under the finger (the app went to the background).
   void release({bool cancelled = false}) {
     if (!_held) return;
     final opened = reveal.value >= 1;
     _held = false;
-    if (!cancelled && opened && commit(lyricPresetFor(_count))) feedback.confirm();
+    if (!cancelled && opened && editing() && commit(lyricPresetFor(_count))) feedback.confirm();
     _spring(hot, 0);
     _spring(reveal, 0);
     notifyListeners();

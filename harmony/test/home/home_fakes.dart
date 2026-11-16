@@ -125,7 +125,8 @@ class MemoryActivityLog implements ActivityLog {
 final DateTime homeTestNow = DateTime.utc(2026, 11, 13, 9, 30);
 
 /// Everything Home needs, with one Subsonic account unless [withAccount] is false.
-/// Lyric Cards' one-off intro is answered unless [lyricIntroSeen] is false.
+/// Lyric Cards' one-off intro is answered unless [lyricIntroSeen] is false. [clock]
+/// stands in for Home's clock (fixed at [homeTestNow] otherwise).
 Future<({ProviderContainer container, InMemoryStore store, FakePlaybackEngine engine})> homeContainer({
   HomeFakeSource? source,
   MemoryActivityLog? log,
@@ -133,6 +134,7 @@ Future<({ProviderContainer container, InMemoryStore store, FakePlaybackEngine en
   bool addProfile = true,
   InMemoryStore? store,
   bool lyricIntroSeen = true,
+  DateTime Function()? clock,
 }) async {
   final values = store ?? InMemoryStore();
   if (lyricIntroSeen) values.values[LyricHighlightStore.introSeenKey] = '1';
@@ -147,7 +149,7 @@ Future<({ProviderContainer container, InMemoryStore store, FakePlaybackEngine en
       // An account switch builds and pings the target's source first.
       musicSourceFactoryProvider.overrideWithValue((_) => HomeFakeSource()),
       activityLogProvider.overrideWith((ref) async => withAccount ? (log ?? MemoryActivityLog()) : null),
-      homeClockProvider.overrideWithValue(() => homeTestNow),
+      homeClockProvider.overrideWithValue(clock ?? () => homeTestNow),
       homeActivityDebounceProvider.overrideWithValue(const Duration(milliseconds: 5)),
     ],
   );
