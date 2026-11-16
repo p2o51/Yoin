@@ -10,6 +10,7 @@ import '../memories/ledger/memory_ledger_view_model.dart';
 import '../memories/memories_pull.dart';
 import '../nowplaying/haptics.dart';
 import '../shell/chrome_back.dart';
+import '../shell/shell_back_order.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
@@ -98,10 +99,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   /// Edit Home's progress: 0 = the feed, 1 = editing (plates, spacing, header pose).
   late final SpringValue _edit = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
 
-  /// System back leaves edit mode (= Done) while it is on.
-  late final ChromeBackEntry _editBack = ChromeBackEntry(() => scheduleMicrotask(() {
-    if (mounted) ref.read(homeEditProvider.notifier).exit();
-  }));
+  /// System back leaves edit mode (= Done) while it is on — after a
+  /// full-window or side-panel player, before the column and Memories
+  /// (the window's back order).
+  late final ShellBackLedger _backOrder = ref.read(shellBackLedgerProvider);
+  late final ChromeBackEntry _editBack = ChromeBackEntry(
+    () => scheduleMicrotask(() {
+      if (mounted) ref.read(homeEditProvider.notifier).exit();
+    }),
+    owns: () => _backOrder.owns(ShellBackOwner.homeEdit),
+    priority: ChromeBackPriority.homeEdit,
+  );
   final GlobalKey _headerKey = GlobalKey();
   final Map<HomeSection, GlobalKey> _itemKeys = {};
   final Map<HomeSection, SpringValue> _shift = {};
@@ -181,6 +189,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _edit;
     _rows;
     _wiggle;
+    _backOrder.bindHomeEdit(() => ref.read(homeEditProvider).editing);
     _trayScroll.animation.addListener(_onTrayScroll);
     (_lift.animation as AnimationController).addStatusListener((_) => _maybeLower());
     _lifecycle = AppLifecycleListener(onHide: () {
@@ -203,6 +212,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _frameBlend.dispose();
     _lifecycle?.dispose();
     _edit.dispose();
+    _backOrder.unbindHomeEdit();
     _editBack.dispose();
     _wiggle.dispose();
     _trayScroll.dispose();

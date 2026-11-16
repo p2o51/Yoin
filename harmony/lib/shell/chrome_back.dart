@@ -5,12 +5,16 @@ import 'package:flutter/widgets.dart';
 
 /// Who wins a system back when several window-level owners are open at
 /// once (adaptive-principles principle 8: priority by gating, not by mount
-/// order). Now Playing sits above everything; Memories (over the shell
-/// column) above the detail column.
+/// order). The first-run landing covers everything. The shell's owners
+/// (Now Playing, Home edit, Memories, the detail column) each own back only
+/// while the window's `ShellBackLedger` names them — side-by-side surfaces
+/// close newest first — so of those at most one owns at a time and their
+/// priorities only break a tie that cannot happen.
 abstract final class ChromeBackPriority {
   /// The first-run landing covers the whole window, bar and player included.
   static const int landing = 40;
   static const int nowPlaying = 30;
+  static const int homeEdit = 25;
   static const int memories = 20;
   static const int detailColumn = 10;
 }

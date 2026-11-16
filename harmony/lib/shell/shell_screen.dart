@@ -12,6 +12,7 @@ import '../ui/adaptive/edge_split.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import 'chrome_back.dart';
+import 'shell_back_order.dart';
 import 'shell_state.dart';
 import 'yoin_section.dart';
 
@@ -38,11 +39,19 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   /// bar's hide and system back all feed this one controller.
   late final MemoriesRevealController _memories = MemoriesRevealController(vsync: this);
   late final MemoriesRevealHandle _memoriesHandle = ref.read(memoriesRevealHandleProvider);
+
+  /// The window's back order: Memories, the column and the Now Playing side
+  /// panel close newest first (ShellBackResolver).
+  late final ShellBackLedger _backOrder = ref.read(shellBackLedgerProvider);
   late final ChromeBackEntry _memoriesBack = ChromeBackEntry(
     _memoriesHandle.back,
-    owns: () => _memories.ownsBack,
+    owns: () => _backOrder.owns(ShellBackOwner.memories),
     priority: ChromeBackPriority.memories,
   );
+
+  /// The open state last noted in [_backOrder] (notes go on transitions).
+  bool _memoriesNoted = false;
+  bool _columnNoted = false;
 
   /// 1 = the shell is the top page; 0 = a page pushed over it (from Memories) has the bar.
   late final SpringValue _uncovered = SpringValue(vsync: this, initial: 1, spring: YoinSprings.standardDefaultSpatial);
@@ -50,12 +59,12 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
   /// The Wide window's detail column (adaptive-principles §3).
   late final DetailPaneController _pane = DetailPaneController(vsync: this);
 
-  /// Arbitrated below Now Playing and Memories (principle 8): with the
-  /// side panel or the player open, system back is theirs, whatever order
-  /// the entries were registered in.
+  /// Arbitrated by the back order (principle 8): beside a side panel or
+  /// Memories, system back is the column's only while it is the newest of
+  /// them, whatever order the entries were registered in.
   late final ChromeBackEntry _paneBack = ChromeBackEntry(
-    _onPaneBack,
-    owns: () => _pane.hasEntries,
+    _pane.handleBack,
+    owns: () => _backOrder.owns(ShellBackOwner.detailColumn),
     priority: ChromeBackPriority.detailColumn,
   );
 
@@ -67,17 +76,21 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
     _memories.addListener(_syncMemoriesBack);
     DetailPaneController.active = _pane;
     _pane.addListener(_syncPaneBack);
-  }
-
-  /// System back reaches every pop entry on the shell's route: the column
-  /// takes it only when nothing above it (Now Playing, Memories) is open.
-  void _onPaneBack() {
-    if (NowPlayingOverlayScope.read(context)?.expanded ?? false) return;
-    if (_memories.ownsBack) return;
-    _pane.handleBack();
+    _backOrder.bindShell(
+      homeSelected: () => ref.read(shellSectionProvider) == YoinSection.home,
+      memoriesOpen: () => _memories.ownsBack,
+      detailColumnOpen: () => _pane.hasEntries,
+    );
+    // A page shown in the column — also into one already open — is the
+    // newest thing entered: back leaves it first.
+    _pane.onPageShown = () => _backOrder.note(ShellBackOwner.detailColumn, open: true);
   }
 
   void _syncPaneBack() {
+    if (_pane.hasEntries != _columnNoted) {
+      _columnNoted = _pane.hasEntries;
+      _backOrder.note(ShellBackOwner.detailColumn, open: _columnNoted);
+    }
     final navigator = appNavigatorKey.currentState;
     if (_pane.hasEntries && navigator != null) {
       _paneBack.attach(navigator);
@@ -90,6 +103,10 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
 
   /// Back belongs to Memories exactly while it is open or opening.
   void _syncMemoriesBack() {
+    if (_memories.ownsBack != _memoriesNoted) {
+      _memoriesNoted = _memories.ownsBack;
+      _backOrder.note(ShellBackOwner.memories, open: _memoriesNoted);
+    }
     final navigator = appNavigatorKey.currentState;
     if (_memories.ownsBack && navigator != null) {
       _memoriesBack.attach(navigator);
@@ -103,6 +120,8 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
 
   @override
   void dispose() {
+    _backOrder.unbindShell();
+    _pane.onPageShown = null;
     _pane.removeListener(_syncPaneBack);
     _paneBack.dispose();
     _pane.dispose();

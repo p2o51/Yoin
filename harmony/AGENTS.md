@@ -52,6 +52,10 @@ how they map onto Flutter + ArkTS. Toolchain, build and install commands: `READM
   through the same controller as the button/gesture (Android's three-button path). Overlays (Now
   Playing, Memories) own one controller fed by their drag gesture, their buttons and system back.
 - No raw `PopScope`/`WillPopScope` in feature code; add shared back infrastructure instead.
+- Window-level back owners (Now Playing, Home edit, Memories, the detail column) own back only while
+  `ShellBackLedger` (`lib/shell/shell_back_order.dart`, Android `ShellBackResolver`) names them: the
+  full-window player first, then Home edit; the side-by-side surfaces close newest first, and going
+  deeper into an open one (a page shown or pushed in the column, lyrics / focus) makes it newest again.
 
 ## Adaptive
 

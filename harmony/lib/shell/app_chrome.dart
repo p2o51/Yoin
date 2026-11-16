@@ -36,6 +36,7 @@ import 'bar_suppression.dart';
 import 'chrome_back.dart';
 import 'desktop_shortcuts.dart';
 import 'detail_chrome.dart';
+import 'shell_back_order.dart';
 import 'shell_state.dart';
 import 'yoin_section.dart';
 import 'yoin_bottom_bar.dart';
@@ -63,13 +64,19 @@ class AppChrome extends ConsumerStatefulWidget {
 class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateMixin {
   late final NowPlayingOverlayController _controller = NowPlayingOverlayController(vsync: this);
 
-  /// Arbitrated above every other window-level owner (principle 8): the
-  /// side panel / player takes system back before the detail column.
+  /// The window's back order (principle 8): the full-window player takes
+  /// system back first; the side panel takes it while it is the newest of
+  /// the surfaces beside it (the detail column, Memories), else it waits.
+  late final ShellBackLedger _backOrder = ref.read(shellBackLedgerProvider);
   late final ChromeBackEntry _back = ChromeBackEntry(
     () => _controller.handleBack(),
-    owns: () => _controller.expanded,
+    owns: () => _backOrder.owns(ShellBackOwner.nowPlaying),
     priority: ChromeBackPriority.nowPlaying,
   );
+
+  /// The open state and stage last seen (the back order is noted on changes).
+  bool _openNoted = false;
+  NowPlayingStage _stageSeen = NowPlayingStage.compact;
   late final OverlayEntry _entry = OverlayEntry(builder: _buildLayers);
 
   /// 0 = the bar may show, 1 = a bar-less page (setup, search) sent it away.
@@ -81,6 +88,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   @override
   void initState() {
     super.initState();
+    _backOrder.bindNowPlaying(open: () => _controller.expanded, isPanel: () => _controller.panelOpen);
     _controller.addListener(_syncBack);
     DetailPaneController.columnOpen.addListener(_syncPanelFloor);
     _syncPanelFloor();
@@ -94,6 +102,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
 
   @override
   void dispose() {
+    _backOrder.unbindNowPlaying();
     _controller.removeListener(_syncBack);
     DetailPaneController.columnOpen.removeListener(_syncPanelFloor);
     _back.dispose();
@@ -126,8 +135,25 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   /// bar-less page sends it away (its bounds stop following it while it travels).
   void _syncSeamBar() => _seamBar.shown = !_controller.expanded && !ref.read(barSuppressedProvider);
 
-  /// Back belongs to the overlay exactly while it is open.
+  /// Opening or closing the player moves it in the back order, and so does
+  /// going further into it: the stage leaving Compact (lyrics, focus) makes
+  /// it the newest again, so back steps that back before it closes a
+  /// surface opened in between.
+  void _noteBackOrder() {
+    final open = _controller.expanded;
+    if (open != _openNoted) {
+      _openNoted = open;
+      _backOrder.note(ShellBackOwner.nowPlaying, open: open);
+    }
+    final stage = _controller.stage;
+    if (stage == _stageSeen) return;
+    _stageSeen = stage;
+    if (open && stage != NowPlayingStage.compact) _backOrder.note(ShellBackOwner.nowPlaying, open: true);
+  }
+
+  /// Back is the overlay's to take while it is open (the back order decides when).
   void _syncBack() {
+    _noteBackOrder();
     _syncKeepAwake();
     _syncSeamBar();
     final navigator = appNavigatorKey.currentState;

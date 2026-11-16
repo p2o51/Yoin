@@ -8,6 +8,7 @@ import 'package:yoin/nowplaying/now_playing_presentation.dart';
 import 'package:yoin/nowplaying/overlay_controller.dart';
 import 'package:yoin/shell/app_chrome.dart';
 import 'package:yoin/shell/chrome_back.dart';
+import 'package:yoin/shell/shell_back_order.dart';
 import 'package:yoin/shell/shell_state.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 import 'package:yoin/ui/navigation/pane/detail_pane.dart';
@@ -19,35 +20,45 @@ import '../support/nowplaying_fakes.dart';
 /// drops or rearranges the column, and system back is Now Playing's first.
 
 /// The shell's column wiring (ShellScreen): the window's pane, its back
-/// entry arbitrated below Now Playing, and the hand-over on narrowing.
-class _Shell extends StatefulWidget {
+/// entry arbitrated by the window's back order, and the hand-over on narrowing.
+class _Shell extends ConsumerStatefulWidget {
   const _Shell();
   @override
-  State<_Shell> createState() => _ShellState();
+  ConsumerState<_Shell> createState() => _ShellState();
 }
 
-class _ShellState extends State<_Shell> with TickerProviderStateMixin {
+class _ShellState extends ConsumerState<_Shell> with TickerProviderStateMixin {
   late final pane = DetailPaneController(vsync: this);
+  late final ShellBackLedger backOrder = ref.read(shellBackLedgerProvider);
   late final ChromeBackEntry _back = ChromeBackEntry(
     pane.handleBack,
-    owns: () => pane.hasEntries,
+    owns: () => backOrder.owns(ShellBackOwner.detailColumn),
     priority: ChromeBackPriority.detailColumn,
   );
   int handOvers = 0;
+  bool _noted = false;
 
   @override
   void initState() {
     super.initState();
     DetailPaneController.active = pane;
     pane.addListener(_sync);
+    backOrder.bindShell(homeSelected: () => true, memoriesOpen: () => false, detailColumnOpen: () => pane.hasEntries);
+    pane.onPageShown = () => backOrder.note(ShellBackOwner.detailColumn, open: true);
   }
 
   void _sync() {
+    if (pane.hasEntries != _noted) {
+      _noted = pane.hasEntries;
+      backOrder.note(ShellBackOwner.detailColumn, open: _noted);
+    }
     if (pane.hasEntries) _back.attach(appNavigatorKey.currentState!);
   }
 
   @override
   void dispose() {
+    backOrder.unbindShell();
+    pane.onPageShown = null;
     pane.removeListener(_sync);
     _back.dispose();
     pane.dispose();
@@ -76,9 +87,20 @@ class _ShellState extends State<_Shell> with TickerProviderStateMixin {
 }
 
 class _Page extends StatelessWidget {
-  const _Page();
+  const _Page({this.depth = 0});
+
+  final int depth;
+
   @override
-  Widget build(BuildContext context) => Text('page ${YoinWindowInfo.of(context).width.round()}');
+  Widget build(BuildContext context) => Column(
+    children: [
+      Text('page${depth > 0 ? ' $depth' : ''} ${YoinWindowInfo.of(context).width.round()}'),
+      TextButton(
+        onPressed: () => DetailPane.open(context, (_) => _Page(depth: depth + 1)),
+        child: Text('push $depth'),
+      ),
+    ],
+  );
 }
 
 void main() {
@@ -178,6 +200,106 @@ void main() {
     expect(shell.pane.hasEntries, isTrue);
     expect(find.text('page 476'), findsOneWidget);
   });
+
+  /// Closes the column [pump] opened and opens the side panel beside the shell.
+  Future<_ShellState> panelThenColumn(WidgetTester tester, {Size size = const Size(1280, 800)}) async {
+    final shell = await pump(tester, size);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(shell.pane.holdsColumn, isFalse);
+    np(tester).openPlayer();
+    await tester.pumpAndSettle();
+    expect(np(tester).panelOpen, isTrue);
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(np(tester).panelOpen, isTrue, reason: 'at 1280 the panel fits beside two columns');
+    expect(shell.pane.hasEntries, isTrue);
+    return shell;
+  }
+
+  testWidgets('should_closeTheColumnBeforeThePanel_when_theColumnOpenedLast', (tester) async {
+    final shell = await panelThenColumn(tester);
+    expect(shell.backOrder.recency, [ShellBackOwner.nowPlaying, ShellBackOwner.detailColumn]);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(shell.pane.holdsColumn, isFalse, reason: 'back undoes the newest step: the column');
+    expect(np(tester).panelOpen, isTrue, reason: 'the panel opened before it stays');
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(np(tester).expanded, isFalse);
+  });
+
+  testWidgets('should_popTheColumnsPushedPageFirst_when_pushedBesideAnOpenPanel', (tester) async {
+    // Opened: column, panel — then a page pushed inside the column.
+    final shell = await pump(tester, const Size(1280, 800));
+    np(tester).openPlayer();
+    await tester.pumpAndSettle();
+    expect(shell.backOrder.recency.last, ShellBackOwner.nowPlaying);
+    await tester.tap(find.text('push 0'));
+    await tester.pumpAndSettle();
+    expect(find.text('page 1 460'), findsOneWidget);
+    expect(shell.backOrder.recency.last, ShellBackOwner.detailColumn, reason: 'going deeper in the column');
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('page 1 460'), findsNothing, reason: 'the pushed page leaves first');
+    expect(shell.pane.hasEntries, isTrue);
+    expect(np(tester).panelOpen, isTrue);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(shell.pane.holdsColumn, isFalse, reason: 'the column is still the newest surface');
+    expect(np(tester).panelOpen, isTrue);
+  });
+
+  testWidgets('should_closeTheColumnFirst_when_aPageWasShownInItAfterThePanelOpened', (tester) async {
+    // Opened: column, panel — then another page from the shell swaps the open column's root.
+    final shell = await pump(tester, const Size(1280, 800));
+    np(tester).openPlayer();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(np(tester).panelOpen, isTrue);
+    expect(shell.backOrder.recency, [ShellBackOwner.nowPlaying, ShellBackOwner.detailColumn]);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(shell.pane.holdsColumn, isFalse);
+    expect(np(tester).panelOpen, isTrue);
+  });
+
+  for (final deeper in ['lyrics', 'focus']) {
+    testWidgets('should_stepThePlayerBackFirst_when_${deeper}EnteredBesideANewerColumn', (tester) async {
+      // Tall enough for the panel's cover to grow (focus is offered there).
+      final shell = await panelThenColumn(tester, size: Size(1280, deeper == 'focus' ? 1400 : 800));
+      final player = np(tester);
+      if (deeper == 'lyrics') {
+        player.expandStage();
+      } else {
+        player.focusOffered = true;
+        player.toggleFocus();
+      }
+      await tester.pumpAndSettle();
+      expect(player.stage, isNot(NowPlayingStage.compact));
+      expect(shell.backOrder.recency.last, ShellBackOwner.nowPlaying, reason: 'going deeper in the player');
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(player.stage, NowPlayingStage.compact, reason: 'back undoes the $deeper first');
+      expect(shell.pane.hasEntries, isTrue);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(player.expanded, isFalse, reason: 'the player is still the newest surface');
+      expect(shell.pane.hasEntries, isTrue);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(shell.pane.holdsColumn, isFalse);
+    });
+  }
 
   testWidgets('should_paintPanelCornersWithoutClipOrPhysicalShadow_when_panelOpen', (tester) async {
     // QA r2_33 / r3_03: PhysicalShape and then an anti-aliased clip around
