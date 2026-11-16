@@ -45,6 +45,7 @@ import 'focus_idle.dart';
 import 'gemini_wash.dart';
 import 'haptics.dart';
 import 'lyric_halftone.dart';
+import 'lyric_idle_hint.dart';
 import 'lyric_tools.dart';
 import 'lyrics_logic.dart';
 import 'lyrics_selection.dart';
@@ -1493,12 +1494,19 @@ class _Stage extends ConsumerWidget {
                   lyrics: LyricsSurfaceReporter(
                     primary: lyricsPage && !oneLine && restStage,
                     landingFromTop: NowPlayingEffectTokens.lyricsWindowLandingFromTop,
-                    child: LyricsView(
-                      mode: LyricsListMode.window,
+                    // 16:9: a line that holds turns the row into the unfold hint, once a day.
+                    child: LyricIdleHint(
+                      enabled: oneLine && lyricsPage && restStage,
                       lyrics: state.lyrics,
                       songKey: state.songKey,
                       clock: clock,
-                      onSeek: _lineSeek(context, vm),
+                      child: LyricsView(
+                        mode: LyricsListMode.window,
+                        lyrics: state.lyrics,
+                        songKey: state.songKey,
+                        clock: clock,
+                        onSeek: _lineSeek(context, vm),
+                      ),
                     ),
                   ),
                   about: _AboutCompactPage(controller: controller, track: track),

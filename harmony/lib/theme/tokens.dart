@@ -373,6 +373,23 @@ abstract final class NowPlayingTokens {
 
 /// Now Playing's notes (NoteContent.kt NoteLine / NoteSortToggle / NoteWriteBarDefaults,
 /// NoteFullscreenPane.kt, compact/NoteCompactPane.kt).
+/// The 16:9 one-line lyric row's once-a-day unfold hint (NowPlayingScreen.kt
+/// OneLineLyricRow / UnfoldHintSymbol, NowPlayingPresentation.kt).
+abstract final class LyricIdleHintTokens {
+  /// A line held at least this long counts as "stopped" (intro, break, a long note).
+  static const int delayMs = 8000;
+
+  /// How long the hint (and its moving symbol) stays before the lyric returns.
+  static const int showMs = 1800;
+
+  /// The symbol's box (Yoin Symbols' 24 grid).
+  static const double symbol = 24;
+
+  /// The two chevrons press this far toward the centre line, then spring this far outward and settle.
+  static const double press = 1.8;
+  static const double bounce = 2.6;
+}
+
 abstract final class NowPlayingNoteTokens {
   /// NoteLine: the fixed time-stamp column; rows' vertical padding; the un-lit scale.
   static const double stampColumn = 40;
