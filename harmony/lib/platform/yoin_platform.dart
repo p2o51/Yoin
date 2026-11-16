@@ -8,6 +8,7 @@ library;
 import 'dart:io' show Directory, Platform;
 
 import 'applemusic/apple_music_auth.dart';
+import 'audio/audio_host.dart';
 import 'browser/url_opener.dart';
 import 'background/background_transfer.dart';
 import 'cards/cards_channel.dart';
@@ -60,6 +61,8 @@ final class YoinPlatform {
     required this.castHost,
     required this.continueOnHost,
     required this.displayPosture,
+    required this.audio,
+    required this.volumeKeys,
   });
 
   final YoinHost host;
@@ -141,6 +144,15 @@ final class YoinPlatform {
   /// landscape Button Group stands (OHOS `yoin/posture` → @ohos.display fold
   /// status / crease region + the window's cutout avoid area; Windows: flat).
   final DisplayPostureHost displayPosture;
+  /// The sound output (streaming quality's Auto), the system's spatial audio
+  /// and Yoin's spatial switch (OHOS `yoin/audio`: the routing manager,
+  /// AudioSpatializationManager, AVPlayer's audio effect mode; Windows: a
+  /// speaker, no spatial audio).
+  final AudioHost audio;
+
+  /// The volume keys, taken over while a DLNA speaker plays (OHOS
+  /// `yoin/volume_keys` → inputConsumer 'keyPressed'; Windows: none).
+  final VolumeKeyHost volumeKeys;
 
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
@@ -167,6 +179,8 @@ final class YoinPlatform {
     castHost: ChannelCastHost(),
     continueOnHost: ChannelContinueOnHost(),
     displayPosture: ChannelDisplayPostureHost(),
+    audio: ChannelAudioHost(),
+    volumeKeys: ChannelVolumeKeyHost(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -196,6 +210,8 @@ final class YoinPlatform {
     castHost: const NoCastHost(),
     continueOnHost: const NoContinueOnHost(),
     displayPosture: const NoDisplayPostureHost(),
+    audio: const FixedAudioHost(),
+    volumeKeys: const NoVolumeKeyHost(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

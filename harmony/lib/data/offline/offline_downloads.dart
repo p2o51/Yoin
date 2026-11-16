@@ -356,6 +356,18 @@ class OfflineDownloads extends ChangeNotifier {
     return null;
   }
 
+  /// The quality [songId]'s finished download was kept at; null when the
+  /// active account has no finished download of it.
+  DownloadQuality? playableQuality(MediaId songId) {
+    final profileId = _state.activeProfileId;
+    if (profileId == null) return null;
+    final key = OfflineSong.keyOf(profileId, songId.toString());
+    for (final s in _state.songs) {
+      if (s.key == key) return s.state == OfflineSongState.done ? s.quality : null;
+    }
+    return null;
+  }
+
   /// A downloaded album as its page needs it with no network: the songs as
   /// they were downloaded, in disc and track order. Null when the active
   /// account didn't download [id].

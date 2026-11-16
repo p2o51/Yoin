@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:yoin/platform/audio/audio_host.dart';
 import 'package:yoin/platform/cast/cast_host.dart';
 import 'package:yoin/platform/playback/playback_engine.dart';
 import 'package:yoin/playback/output/dlna_client.dart';
@@ -176,6 +177,7 @@ PlaybackRouter testRouter({
   CastHost cast = const NoCastHost(),
   Future<Set<Uri>> Function()? search,
   DlnaClient? describer,
+  VolumeKeyHost volumeKeys = const NoVolumeKeyHost(),
 }) {
   RemoteQueueEngine engine(void Function(String?)? onFailure) => RemoteQueueEngine(
     onFailure: onFailure,
@@ -199,5 +201,24 @@ PlaybackRouter testRouter({
     castPlayer: engine(null),
     nowMs: clock.call,
     handoffTimeout: const Duration(milliseconds: 200),
+    volumeKeys: volumeKeys,
   );
+}
+
+/// The volume keys as a test presses them.
+class FakeVolumeKeys implements VolumeKeyHost {
+  bool intercepting = false;
+  final List<bool> requests = [];
+  final _presses = StreamController<int>.broadcast();
+
+  void press(int direction) => _presses.add(direction);
+
+  @override
+  Future<void> setIntercepting(bool on) async {
+    requests.add(on);
+    intercepting = on;
+  }
+
+  @override
+  Stream<int> get presses => _presses.stream;
 }

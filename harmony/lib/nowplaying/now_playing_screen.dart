@@ -27,7 +27,6 @@ import '../theme/motion.dart';
 import '../theme/playback_theme.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
-import '../ui/component/audio_format_tags.dart';
 import '../ui/component/expressive/expressive_shapes.dart';
 import '../ui/component/expressive/expressive_surface_button.dart';
 import 'about_logic.dart';
@@ -54,6 +53,7 @@ import 'lyrics_sheets.dart';
 import 'lyrics_view.dart';
 import 'marquee.dart';
 import 'now_playing_background.dart';
+import 'now_playing_format.dart';
 import 'note_compact_pane.dart';
 import 'note_controller.dart';
 import 'note_logic.dart';
@@ -1639,7 +1639,6 @@ class _Stage extends ConsumerWidget {
                 isPlaying: state.isPlaying,
                 pressed: pressed,
                 oneLine: budget.heroOneLine,
-                formatTags: audioFormatTags(track.audioFormat),
               ),
             ),
           ),
@@ -1989,7 +1988,6 @@ class _PanelToggle extends StatelessWidget {
 /// 0.992) on the Expressive slow spatial spring.
 class _Hero extends StatefulWidget {
   const _Hero({
-    this.formatTags = const [],
     required this.title,
     required this.artist,
     required this.isPlaying,
@@ -1998,9 +1996,6 @@ class _Hero extends StatefulWidget {
     this.onTitleTap,
     this.onArtistTap,
   });
-
-  /// The format tags beside the artist ("FLAC 16/44.1").
-  final List<String> formatTags;
 
   final String title;
   final String artist;
@@ -2159,19 +2154,13 @@ class _HeroState extends State<_Hero> with TickerProviderStateMixin {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (widget.formatTags.isEmpty)
-                  artist
-                else
-                  Row(
-                    children: [
-                      Flexible(child: artist),
-                      const SizedBox(width: 8),
-                      AudioFormatTagRow(
-                        tags: widget.formatTags,
-                        description: NowPlayingStrings.of(context).formatDescription(widget.formatTags.join(' ')),
-                      ),
-                    ],
-                  ),
+                // The format tags beside the artist ("FLAC 16/44.1", "MP3 320"): what arrives.
+                Row(
+                  children: [
+                    Flexible(child: artist),
+                    const NowPlayingFormatTags(),
+                  ],
+                ),
                 const SizedBox(height: NowPlayingTokens.heroLineGap),
                 title,
               ],
@@ -2961,15 +2950,7 @@ class _DualPane extends ConsumerWidget {
                                           ),
                                         ),
                                       ),
-                                      if (audioFormatTags(track.audioFormat).isNotEmpty) ...[
-                                        const SizedBox(width: 8),
-                                        AudioFormatTagRow(
-                                          tags: audioFormatTags(track.audioFormat),
-                                          description: strings.formatDescription(
-                                            audioFormatTags(track.audioFormat).join(' '),
-                                          ),
-                                        ),
-                                      ],
+                                      const NowPlayingFormatTags(),
                                     ],
                                   ),
                                   const SizedBox(height: DualPaneTokens.titleLineGap),

@@ -90,7 +90,6 @@ class _TabletopPaneState extends ConsumerState<_TabletopPane> with TickerProvide
     final clock = ref.watch(playheadClockProvider);
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final strings = NowPlayingStrings.of(context);
     final tabletopStrings = TabletopStrings.of(context);
     final track = state.track;
     final hinge = YoinWindowInfo.of(context).hingeBounds;
@@ -190,15 +189,8 @@ class _TabletopPaneState extends ConsumerState<_TabletopPane> with TickerProvide
                                     ),
                                   ),
                                 ),
-                                if (audioFormatTags(track.audioFormat).isNotEmpty) ...[
-                                  const SizedBox(width: 8),
-                                  AudioFormatTagRow(
-                                    tags: audioFormatTags(track.audioFormat),
-                                    description: strings.formatDescription(
-                                      audioFormatTags(track.audioFormat).join(' '),
-                                    ),
-                                  ),
-                                ],
+                                // What actually arrives (transcode, download, decoder), as the hero shows.
+                                const NowPlayingFormatTags(),
                               ],
                             ),
                             const SizedBox(height: _TT.artistToLyrics),

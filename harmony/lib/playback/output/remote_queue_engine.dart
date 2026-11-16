@@ -124,6 +124,9 @@ class RemoteQueueEngine {
   /// 0–1, as the renderer last reported it.
   double get volume => _volume;
 
+  /// The renderer takes a volume (RenderingControl).
+  bool get hasVolume => _transport?.hasVolume ?? false;
+
   /// Where the renderer is now: the last reading, moved on by the clock while it plays.
   int get positionMs {
     if (_observed != RendererState.playing || _loading || _failure != null) return _positionMs;

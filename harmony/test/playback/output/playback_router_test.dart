@@ -19,13 +19,15 @@ void main() {
   late PlaybackRouter router;
   late List<EngineState> states;
   late List<EngineEvent> events;
+  late FakeVolumeKeys keys;
 
   setUp(() {
     clock = FakeClock();
     native = MirrorNativeEngine();
     speakers = {};
     cast = FakeCastHost();
-    router = testRouter(clock: clock, native: native, speakers: speakers, cast: cast);
+    keys = FakeVolumeKeys();
+    router = testRouter(clock: clock, native: native, speakers: speakers, cast: cast, volumeKeys: keys);
     states = [];
     events = [];
     router.states.listen(states.add);
@@ -66,6 +68,63 @@ void main() {
     // The system session shows the speaker's song.
     expect(native.mirrored.last?.item.id, 'subsonic:t1');
     expect(native.mirrored.last?.isPlaying, isTrue);
+  });
+
+  test('should_moveTheSpeakersVolume_when_volumeKeysPressedWhileItPlays', () async {
+    await playLocally();
+    expect(keys.intercepting, isFalse);
+    await router.transferToDlna(fakeSpeaker('uuid:a'));
+    await pumpEventQueue();
+    expect(keys.intercepting, isTrue);
+    final speaker = speakers['uuid:a']!;
+    expect(speaker.volumeValue, 30);
+
+    keys.press(1);
+    await pumpEventQueue();
+    expect(speaker.volumeValue, 31);
+    expect(speaker.calls, contains('setVolume:31'));
+
+    // Quick presses add up from the last one asked for, not the last reading.
+    keys.press(-1);
+    keys.press(-1);
+    keys.press(-1);
+    await pumpEventQueue();
+    expect(speaker.volumeValue, 28);
+  });
+
+  test('should_stopAtTheEnds_when_volumeKeysHeld', () async {
+    await playLocally();
+    speakers['uuid:a'] = FakeRenderer()..volumeValue = 100;
+    await router.transferToDlna(fakeSpeaker('uuid:a'));
+    await pumpEventQueue();
+    keys.press(1);
+    keys.press(1);
+    await pumpEventQueue();
+    expect(speakers['uuid:a']!.volumeValue, 100);
+  });
+
+  test('should_giveTheKeysBack_when_switchingBackToThisDevice', () async {
+    await playLocally();
+    await router.transferToDlna(fakeSpeaker('uuid:a'));
+    await pumpEventQueue();
+    await router.transferToLocal();
+    await pumpEventQueue();
+    expect(keys.requests, [true, false]);
+    speakers['uuid:a']!.calls.clear();
+    keys.press(1);
+    await pumpEventQueue();
+    expect(speakers['uuid:a']!.calls, isEmpty);
+  });
+
+  test('should_leaveTheKeysToTheSystem_when_theSpeakerHasNoVolume', () async {
+    await playLocally();
+    speakers['uuid:a'] = FakeRenderer()..withVolume = false;
+    await router.transferToDlna(fakeSpeaker('uuid:a'));
+    await pumpEventQueue();
+    expect(keys.requests, isEmpty);
+    keys.press(1);
+    await pumpEventQueue();
+    expect(speakers['uuid:a']!.calls.where((c) => c.startsWith('setVolume')), isEmpty);
   });
 
   test('should_sendCommandsToTheSpeaker_when_itPlays', () async {

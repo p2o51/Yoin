@@ -35,6 +35,9 @@ class NowPlayingStrings {
   String get cdCloseNowPlaying => _zh ? '关闭正在播放' : 'Close Now Playing'; // np_cd_stage_close_now_playing
   String get cdBackNowPlaying => _zh ? '返回正在播放' : 'Back to Now Playing'; // np_cd_stage_back_now_playing
   String formatDescription(String tags) => _zh ? '音频格式 $tags' : 'Audio format $tags'; // np_format_description
+  String formatTranscodedDescription(String tags, String from) =>
+      _zh ? '音频格式 $tags，由 $from 转码' : 'Audio format $tags, transcoded from $from'; // np_format_transcoded_description
+  String get formatSpatial => _zh ? '空间音频' : 'Spatial'; // np_format_spatial
   String get waveNote => _zh ? '笔记' : 'Note'; // cmp_wave_note
   String get cdCopyLyrics => _zh ? '复制所选歌词' : 'Copy selected lyrics'; // np_cd_copy_lyrics
   String get cdDoneSelecting => _zh ? '完成选择' : 'Done selecting lyrics'; // np_cd_done_selecting

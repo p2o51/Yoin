@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import '../continueon/continue_on_controller.dart';
 import '../data/sync/cloud_sync_providers.dart';
 import '../offline/offline_providers.dart';
+import '../platform/audio/audio_host.dart';
 import '../platform/browser/url_opener.dart';
 import '../platform/cards/cards_channel.dart';
 import '../platform/i18n/name_transliterator.dart';
@@ -29,7 +30,9 @@ List<Override> platformOverrides(YoinPlatform platform) {
   // The output router stands in front of the phone's engine: DLNA speakers
   // and the system's cast device play the same queue (Devices pill).
   final engine = platform.playbackEngine;
-  final router = engine is QueuePlaybackEngine ? PlaybackRouter(engine, castHost: platform.castHost) : null;
+  final router = engine is QueuePlaybackEngine
+      ? PlaybackRouter(engine, castHost: platform.castHost, volumeKeys: platform.volumeKeys)
+      : null;
   return [
     // Observed, so cloud sync notices local changes to the rows it syncs.
     keyValueStoreProvider.overrideWithValue(ObservedKeyValueStore(platform.keyValueStore)),
@@ -52,5 +55,7 @@ List<Override> platformOverrides(YoinPlatform platform) {
     motionSensorsProvider.overrideWithValue(platform.motionSensors),
     continueOnHostProvider.overrideWithValue(platform.continueOnHost),
     displayPostureHostProvider.overrideWithValue(platform.displayPosture),
+    audioHostProvider.overrideWithValue(platform.audio),
+    volumeKeyHostProvider.overrideWithValue(platform.volumeKeys),
   ];
 }
