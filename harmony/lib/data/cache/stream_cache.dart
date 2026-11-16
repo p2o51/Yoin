@@ -295,7 +295,10 @@ class StreamCache extends ChangeNotifier {
       cachedAt: now,
       lastAccessedAt: now,
     );
+    // The same song stored again under another name (its kind changed): the old file goes.
+    final previous = _entries[key];
     _entries[key] = entry;
+    if (previous != null && previous.fileName != name) await _delete(File(_pathIn(dir, previous.fileName)));
     await _evict(keep: key);
     _save();
     if (!_disposed) notifyListeners();

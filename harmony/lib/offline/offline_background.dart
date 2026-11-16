@@ -1,10 +1,14 @@
 /// Downloads go on with the app behind (Android YoinDownloadService): while a
 /// song downloads or waits for a free slot, the app holds the data-transfer
 /// continuous task, whose notification shows how far the batch has come.
-/// Songs only waiting (for Wi‑Fi, a network, another account) don't hold it:
-/// the system cancels a data-transfer task whose progress stalls, and those
-/// carry on when the app is next in front. If the listener removes the
-/// notification the task isn't asked for again until the batch is over.
+/// Songs only waiting (for Wi‑Fi, a network, another account) don't hold it
+/// past [OfflineTransferKeeper.releaseGrace] (a dropped song retries within
+/// it): the system cancels a data-transfer task whose transfer stalls, and
+/// those carry on when the app is next in front. The notification is
+/// published again at least every [OfflineTransferKeeper.keepAliveInterval]
+/// (the system ends a task whose progress isn't updated for 10 minutes). If
+/// the listener removes the notification the task isn't asked for again
+/// until the batch is over; if the system ends it, it is asked for again.
 library;
 
 import 'dart:async';
@@ -72,6 +76,8 @@ class OfflineTransferKeeper {
     OfflineStrings Function()? strings,
     this.updateInterval = const Duration(seconds: 1),
     this.retryInterval = const Duration(seconds: 30),
+    this.releaseGrace = const Duration(seconds: 20),
+    this.keepAliveInterval = const Duration(minutes: 3),
     DateTime Function()? now,
   }) : _strings = strings ?? _systemStrings,
        _now = now ?? DateTime.now;
@@ -87,6 +93,16 @@ class OfflineTransferKeeper {
   /// A refused hold (the app was behind) is asked for again after this.
   final Duration retryInterval;
 
+  /// With nothing downloading but songs still waiting (a dropped song retries
+  /// after OfflineDownloads.retryDelay), the task is kept this long before it
+  /// goes, so the app isn't suspended before the retry.
+  final Duration releaseGrace;
+
+  /// The notification is published again this often while nothing changes (a
+  /// big song on a slow network): the system ends a data-transfer task whose
+  /// progress isn't updated for 10 minutes.
+  final Duration keepAliveInterval;
+
   final _batch = <String>{};
   bool _held = false;
   bool _declined = false;
@@ -96,8 +112,10 @@ class OfflineTransferKeeper {
   DateTime _lastSent = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime? _retryAfter;
   Future<void> _calls = Future.value();
-  StreamSubscription<void>? _ended;
+  StreamSubscription<bool>? _ended;
   Timer? _flush;
+  Timer? _grace;
+  Timer? _keepAlive;
 
   /// Whether the continuous task is held now, for tests.
   @visibleForTesting
@@ -105,13 +123,15 @@ class OfflineTransferKeeper {
 
   void start() {
     downloads.addListener(_changed);
-    _ended = host.ended.listen((_) => _onEnded());
+    _ended = host.ended.listen(_onEnded);
     _changed();
   }
 
   void dispose() {
     _disposed = true;
     _flush?.cancel();
+    _grace?.cancel();
+    _keepAlive?.cancel();
     downloads.removeListener(_changed);
     unawaited(_ended?.cancel());
     if (_held) {
@@ -128,19 +148,21 @@ class OfflineTransferKeeper {
     }
     final progress = transferProgress(songs, _batch);
     if (progress == null) {
-      // Nothing runs: the batch is over (or everything waits for a network).
-      _batch.clear();
-      _declined = false;
-      _retryAfter = null;
-      _shown = null;
-      _shownDone = -1;
-      _flush?.cancel();
-      if (_held) {
-        _held = false;
-        _enqueue(host.release);
+      // Nothing runs. Songs of this batch still waiting (a dropped song retries
+      // in a few seconds) keep the task a little longer; otherwise the batch is over.
+      final waits = songs.any((s) => s.state == OfflineSongState.waiting && _batch.contains(s.key));
+      if (waits && _held) {
+        _grace ??= Timer(releaseGrace, () {
+          _grace = null;
+          _endBatch();
+        });
+        return;
       }
+      _endBatch();
       return;
     }
+    _grace?.cancel();
+    _grace = null;
     if (_declined) return;
     final strings = _strings();
     final notice = TransferNotice(
@@ -167,12 +189,37 @@ class OfflineTransferKeeper {
     }
   }
 
+  /// The batch is over (or everything waits for a network): the task goes.
+  void _endBatch() {
+    _grace?.cancel();
+    _grace = null;
+    _batch.clear();
+    _declined = false;
+    _retryAfter = null;
+    _shown = null;
+    _shownDone = -1;
+    _flush?.cancel();
+    _flush = null;
+    _keepAlive?.cancel();
+    _keepAlive = null;
+    if (_held) {
+      _held = false;
+      _enqueue(host.release);
+    }
+  }
+
   void _send(TransferNotice notice, int done) {
     _shown = notice;
     _shownDone = done;
     _lastSent = _now();
     _flush?.cancel();
     _flush = null;
+    _keepAlive?.cancel();
+    _keepAlive = Timer(keepAliveInterval, () {
+      _keepAlive = null;
+      final shown = _shown;
+      if (!_disposed && _held && shown != null) _send(shown, _shownDone);
+    });
     final wasHeld = _held;
     _held = true;
     _enqueue(() async {
@@ -189,12 +236,19 @@ class OfflineTransferKeeper {
     });
   }
 
-  void _onEnded() {
+  void _onEnded(bool byUser) {
     if (_disposed || !_held) return;
     _held = false;
     _shown = null;
-    // The listener removed the notification: not asked for again until this batch is over.
-    _declined = true;
+    _keepAlive?.cancel();
+    _keepAlive = null;
+    if (byUser) {
+      // The listener removed the notification: not asked for again until this batch is over.
+      _declined = true;
+    } else {
+      // The system ended it (a slow transfer, a missed update): asked for again a little later.
+      _retryAfter = _now().add(retryInterval);
+    }
   }
 
   void _enqueue(Future<void> Function() call) {

@@ -39,7 +39,7 @@ class StreamCacheProxy {
   StreamCacheProxy({
     required this.cache,
     HttpClient Function()? client,
-    this.idleTimeout = const Duration(seconds: 15),
+    this.idleTimeout = defaultIdleTimeout,
     this.connectTimeout = const Duration(seconds: 30),
     this.stallTimeout = const Duration(seconds: 30),
     this.lookaheadBytes = 512 * 1024,
@@ -53,6 +53,10 @@ class StreamCacheProxy {
 
   /// A fetch no player reads stops after this (the song was skipped).
   final Duration idleTimeout;
+
+  /// Longer than the native engine's gapless lead (PlaybackEngine PRELOAD_LEAD_MS, 20 s): the spare player
+  /// reads the next song's start that long before it plays, and its fetch must still be running then.
+  static const defaultIdleTimeout = Duration(seconds: 30);
   final Duration connectTimeout;
 
   /// The server sent nothing for this long: the fetch counts as dropped.
@@ -171,6 +175,11 @@ class StreamCacheProxy {
     } catch (e) {
       // The player went away mid-answer, or the server failed before anything was sent.
       debugPrint('YoinStreamCache: request ended: ${e.runtimeType}');
+      try {
+        // Nothing sent yet (the server unreachable): an error, never an empty 200 the player takes for the song,
+        // so the native engine falls back to the server's address. Throws once the headers are out.
+        response.statusCode = HttpStatus.badGateway;
+      } catch (_) {}
       try {
         await response.close();
       } catch (_) {}

@@ -41,9 +41,10 @@ abstract interface class BackgroundTransferHost {
   /// Lets the task go, and its notification with it.
   Future<void> release();
 
-  /// The task ended without [release]: the user removed its notification, or
-  /// the system stopped it.
-  Stream<void> get ended;
+  /// The task ended without [release]: true when the user ended it (removed
+  /// its notification), false when the system did (slow transfer, no
+  /// progress for 10 minutes).
+  Stream<bool> get ended;
 }
 
 /// HarmonyOS: `yoin/transfer` → backgroundTaskManager (MODE_DATA_TRANSFER) + notificationManager (live view).
@@ -53,14 +54,17 @@ final class ChannelBackgroundTransferHost implements BackgroundTransferHost {
   static const channelName = 'yoin/transfer';
 
   final MethodChannel _channel;
-  final _ended = StreamController<void>.broadcast();
+  final _ended = StreamController<bool>.broadcast();
   bool _listening = false;
 
   void _listen() {
     if (_listening) return;
     _listening = true;
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'ended') _ended.add(null);
+      if (call.method == 'ended') {
+        final args = call.arguments;
+        _ended.add(args is Map && args['byUser'] == true);
+      }
       return null;
     });
   }
@@ -90,7 +94,7 @@ final class ChannelBackgroundTransferHost implements BackgroundTransferHost {
   }
 
   @override
-  Stream<void> get ended {
+  Stream<bool> get ended {
     _listen();
     return _ended.stream;
   }
@@ -107,5 +111,5 @@ final class NoBackgroundTransferHost implements BackgroundTransferHost {
   Future<void> release() async {}
 
   @override
-  Stream<void> get ended => const Stream.empty();
+  Stream<bool> get ended => const Stream.empty();
 }

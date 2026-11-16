@@ -153,6 +153,16 @@ void main() {
     expect(status, HttpStatus.notFound);
   });
 
+  test('should_answerAnError_when_theServerIsUnreachable', () async {
+    final address = proxy.addressFor(source())!;
+    await server.close();
+    final (status, _, body) = await get(address);
+    // Never an empty 200 the player would take for the song: the native engine falls back to the server's address.
+    expect(status, HttpStatus.badGateway);
+    expect(body, isEmpty);
+    expect(cache.sizeBytes, 0);
+  });
+
   test('should_storeTheSongAndPlayItFromStorage_when_itPlayedToTheEnd', () async {
     final address = proxy.addressFor(source())!;
     final (status, headers, body) = await get(address);

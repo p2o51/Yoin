@@ -29,7 +29,8 @@ const LIVE_VIEW_TYPE_TRANSFER = 8;
  * - `hold` {title, text, percent}: starts the task (API 21+, beside playback's own task) or updates its notification.
  *   Answers false when the task can't be held (the app is behind, an older system).
  * - `release`: ends the task and its notification.
- * - Dart hears `ended` when the task ended otherwise (the user removed the notification, the system stopped it).
+ * - Dart hears `ended` {byUser} when the task ended otherwise (the user removed the notification, or the system
+ *   stopped it: a slow transfer, no progress update).
  *
  * Why not `request.agent` (the system's own download service): a hosted transfer suspends the app anyway, the task
  * would keep the signed stream address (the account's token) in the system's records, a Subsonic error (a 200 with
@@ -47,7 +48,11 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
     if (task !== null && info.id === task.id) {
       hilog.info(DOMAIN, TAG, 'transfer task ended by the system or the user: %{public}d', info.reason);
       this.task = null;
-      this.channel?.invokeMethod('ended', null);
+      // The user ending it (removing the notification) is a no for this batch; the system ending it (a slow
+      // transfer, no progress update) is not, and Dart asks again once it can.
+      const args: Map<string, Any> = new Map();
+      args.set('byUser', isUserCancel(info));
+      this.channel?.invokeMethod('ended', args);
     }
   };
 
@@ -206,6 +211,12 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
     this.agent = agent;
     return agent;
   }
+}
+
+/** The user ended the task (USER_CANCEL; USER_CANCEL_REMOVE_NOTIFICATION is reserved for the same). */
+function isUserCancel(info: backgroundTaskManager.ContinuousTaskCancelInfo): boolean {
+  return info.reason === backgroundTaskManager.ContinuousTaskCancelReason.USER_CANCEL ||
+    info.reason === backgroundTaskManager.ContinuousTaskCancelReason.USER_CANCEL_REMOVE_NOTIFICATION;
 }
 
 function stringArg(call: MethodCall, key: string): string {

@@ -28,9 +28,9 @@ class _Host implements BackgroundTransferHost {
   final notices = <TransferNotice>[];
   int releases = 0;
   bool refuse = false;
-  final _ended = StreamController<void>.broadcast();
+  final _ended = StreamController<bool>.broadcast();
 
-  void end() => _ended.add(null);
+  void end({bool byUser = true}) => _ended.add(byUser);
 
   @override
   Future<bool> hold(TransferNotice notice) async {
@@ -43,7 +43,7 @@ class _Host implements BackgroundTransferHost {
   Future<void> release() async => releases++;
 
   @override
-  Stream<void> get ended => _ended.stream;
+  Stream<bool> get ended => _ended.stream;
 }
 
 OfflineState _state(List<OfflineSong> songs) => OfflineState(songs: songs, activeProfileId: 'p1', ready: true);
@@ -90,6 +90,8 @@ void main() {
         host: host,
         strings: () => en,
         updateInterval: const Duration(seconds: 1),
+        releaseGrace: const Duration(milliseconds: 50),
+        keepAliveInterval: const Duration(hours: 1),
         now: () => clock,
       )..start();
     });
@@ -145,8 +147,54 @@ void main() {
       await keeper.settled;
       downloads.show(_state([_song('a', OfflineSongState.waiting)]));
       await keeper.settled;
+      expect(keeper.held, isTrue, reason: 'kept a moment: a dropped song retries within it');
+      await Future<void>.delayed(const Duration(milliseconds: 70));
+      await keeper.settled;
       expect(keeper.held, isFalse, reason: 'a stalled data-transfer task would be cancelled by the system');
       expect(host.releases, 1);
+    });
+
+    test('should_keepTheTask_when_aDroppedSongRetriesWithinTheGrace', () async {
+      downloads.show(_state([_song('a', OfflineSongState.downloading)]));
+      await keeper.settled;
+      downloads.show(_state([_song('a', OfflineSongState.waiting)]));
+      await keeper.settled;
+      downloads.show(_state([_song('a', OfflineSongState.downloading, bytes: 1, total: 10)]));
+      await Future<void>.delayed(const Duration(milliseconds: 70));
+      await keeper.settled;
+      expect(keeper.held, isTrue);
+      expect(host.releases, 0);
+    });
+
+    test('should_publishTheProgressAgain_when_nothingChangesForAWhile', () async {
+      keeper.dispose();
+      keeper = OfflineTransferKeeper(
+        downloads: downloads,
+        host: host,
+        strings: () => en,
+        keepAliveInterval: const Duration(milliseconds: 40),
+        now: () => clock,
+      )..start();
+      downloads.show(_state([_song('a', OfflineSongState.downloading)]));
+      await keeper.settled;
+      expect(host.notices, hasLength(1));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await keeper.settled;
+      expect(host.notices.length, greaterThanOrEqualTo(2), reason: 'the system ends a task with no progress update');
+      expect(host.notices.last, host.notices.first);
+    });
+
+    test('should_askAgainLater_when_theSystemEndedTheTask', () async {
+      downloads.show(_state([_song('a', OfflineSongState.downloading), _song('b', OfflineSongState.queued)]));
+      await keeper.settled;
+      host.end(byUser: false);
+      await Future<void>.delayed(Duration.zero);
+      expect(keeper.held, isFalse);
+      clock = clock.add(const Duration(seconds: 31));
+      downloads.show(_state([_song('a', OfflineSongState.done), _song('b', OfflineSongState.downloading)]));
+      await keeper.settled;
+      expect(keeper.held, isTrue);
+      expect(host.notices.last.text, 'Downloading 1 / 2');
     });
 
     test('should_notAskAgain_when_theListenerRemovedTheNotification', () async {

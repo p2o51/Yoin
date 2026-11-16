@@ -90,6 +90,22 @@ void main() {
     expect(again.entries.single.title, 'One');
   });
 
+  test('should_deleteTheOldFile_when_theSongIsStoredAgainAsAnotherKind', () async {
+    final cache = make();
+    await cache.start();
+    final first = await cache.commit('k1', _song, await part(cache, 'k1', 100), generation: cache.generation);
+    final second = await cache.commit(
+      'k1',
+      _song,
+      await part(cache, 'k1', 200),
+      generation: cache.generation,
+      suffix: 'mp3',
+    );
+    expect(first!.fileName, isNot(second!.fileName));
+    expect(await File('${root.path}/${StreamCache.folderName}/${first.fileName}').exists(), isFalse);
+    expect(cache.sizeBytes, 200);
+  });
+
   test('should_evictTheLeastRecentlyPlayed_when_overTheBudget', () async {
     final cache = make(budget: 2500);
     await cache.start();
