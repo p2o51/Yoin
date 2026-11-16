@@ -99,8 +99,8 @@ const _phone = Size(392, 850);
 void main() {
   late ProviderContainer container;
 
-  Future<void> pump(WidgetTester tester, List<MemoryEntry> memories) async {
-    tester.view.physicalSize = _phone;
+  Future<void> pump(WidgetTester tester, List<MemoryEntry> memories, {Size size = _phone}) async {
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
@@ -135,6 +135,8 @@ void main() {
     final layer = tester.renderObject<RenderMorphLayer>(find.ancestor(of: of, matching: find.byType(MorphLayer)).first);
     return layer.debugPainted!;
   }
+
+  Finder pill() => find.ancestor(of: find.text('Home'), matching: find.byType(Material)).first;
 
   // The bar's 40 dp slot on a phone (pill 16 + 48), the status bar 0 in tests.
   const barSlot = Rect.fromLTWH(64, 12, 40, 40);
@@ -238,6 +240,8 @@ void main() {
     expect(tester.getRect(cardTitle), titleRest);
     expect(painted(tester, cardTitle).alpha, greaterThan(0));
     expect(page.scrollOffset, 800);
+    // The Home pill follows the cover: it stays narrow while the cover still waits in the bar.
+    expect(tester.getSize(pill()).width, MemoriesTokens.pillWidthDiary);
 
     // Below p .05 the text is gone: the scroll returns to its top, unseen, and the timing holds.
     await scrub(tester, 0.03);
@@ -290,5 +294,51 @@ void main() {
     expect(diary(tester).fraction, closeTo(0, 1e-3));
     expect(tester.getRect(cardCover()), rest);
     expect(painted(tester, cardCover()).alpha, 1);
+  });
+
+  testWidgets('should_riseTheTrackRowsAsOneBlock_when_theDiaryOpens', (tester) async {
+    await pump(tester, [_memory('a', title: 'The rain year', tracks: 3), _memory('b')]);
+    await scrub(tester, 0.6);
+    RenderMorphLayer block(String text) => tester.renderObject<RenderMorphLayer>(
+      find.ancestor(of: find.text(text), matching: find.byType(MorphLayer)).first,
+    );
+    // Android's liner is one block: every track row rides the same layer.
+    expect(block('Satellites 0'), same(block('Satellites 2')));
+    expect(block('Satellites 0').debugPainted!.dy, greaterThan(0));
+  });
+
+  testWidgets('should_landTheDiaryEmblemUncutAtFullSize_when_theDiaryButtonOpensACardStillDueItsAward', (tester) async {
+    final memories = [_memory('a', title: 'The rain year'), _memory('b')];
+    await pump(tester, memories);
+    final card = tester.widget<MemoryEmblemSlot>(
+      find.byWidgetPredicate((w) => w is MemoryEmblemSlot && !w.diary).first,
+    );
+    expect(card.awards.cardController(memories.first).isAwarded, isFalse);
+    await tester.tap(find.text('Diary').first);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(diary(tester).fraction, closeTo(1, 1e-3));
+    final slot = tester.widget<MemoryEmblemSlot>(find.byWidgetPredicate((w) => w is MemoryEmblemSlot && w.diary).first);
+    final dem = slot.awards.diaryController(memories.first);
+    // Full size and upright, not the small waiting pose a drag-opened diary nods out of; nothing cut yet.
+    expect(dem.emblemScale, 1);
+    expect(dem.cutProgress(0), 0);
+  });
+
+  testWidgets('should_landTheCoverAndTitleOnTheBarAndHead_when_theWindowIsMediumWidth', (tester) async {
+    // A tablet in portrait (800 dp, Medium): the card is a centred column, the bar keeps its own insets.
+    await pump(tester, [_memory('a', title: 'The rain year'), _memory('b')], size: const Size(800, 1280));
+    expect(tester.getRect(cardCover()).width, greaterThan(MemoriesTokens.barCover));
+    await scrub(tester, 1);
+    await tester.pump(const Duration(milliseconds: 600));
+    final bar = tester.getRect(barCover());
+    final landed = tester.getRect(cardCover());
+    expect(landed.center.dx, closeTo(bar.center.dx, 0.5));
+    expect(landed.center.dy, closeTo(bar.center.dy, 0.5));
+    expect(landed.width, closeTo(bar.width, 0.5));
+    final cardTitle = find.descendant(of: find.byType(MemoryCardFace), matching: find.text('The rain year')).first;
+    final diaryTitle = find.descendant(of: find.byType(MemoryDiary), matching: find.text('The rain year')).first;
+    expect(tester.getRect(cardTitle).center.dx, closeTo(tester.getRect(diaryTitle).center.dx, 0.5));
+    expect(tester.getRect(cardTitle).top, closeTo(tester.getRect(diaryTitle).top, 0.5));
   });
 }

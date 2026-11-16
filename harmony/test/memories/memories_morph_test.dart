@@ -281,4 +281,25 @@ void main() {
     expect(MemoriesTokens.coverFloorFrom, greaterThan(MemoriesTokens.coverSwapFrom));
     expect(smoothstep(MemoriesTokens.titleSwapFrom, MemoriesTokens.titleSwapTo, 1), 1);
   });
+
+  group('deck', () {
+    test('should_reindexEveryMorph_when_aMemoryLeavesTheDeck', () {
+      final diary = MemoriesDiaryController(vsync: const TestVSync());
+      final deck = MemoriesDiaryDeck(diary: diary, vsync: const TestVSync());
+      addTearDown(() {
+        deck.dispose();
+        diary.dispose();
+      });
+      final a = deck.morphFor(1, 0);
+      final b = deck.morphFor(2, 1);
+      final c = deck.morphFor(3, 2);
+      expect(deck.morphAt(1), same(b));
+      // The first memory went: the pages after it move up even before the deck rebuilds them.
+      deck.retain([2, 3]);
+      expect(deck.morphAt(0), same(b));
+      expect(deck.morphAt(1), same(c));
+      expect(deck.morphAt(2), isNull);
+      expect(deck.morphFor(1, 0), isNot(same(a)));
+    });
+  });
 }

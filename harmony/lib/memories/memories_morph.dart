@@ -230,6 +230,9 @@ double _ratio(double a, double b) => b > 0 ? a / b : 1;
 /// Slot B's album line (also what fallback A's title flies to).
 TextStyle memoriesBarAlbumStyle() => gsf(15, weight: 600, height: 1.3, letterSpacing: 0);
 
+/// Its size, read by every anchor pass (built once).
+final double _barAlbumFont = memoriesBarAlbumStyle().fontSize!;
+
 // ---------------------------------------------------------------- the layer
 
 /// One element's transform this frame: translation from its rest, a uniform
@@ -571,16 +574,20 @@ class MemoriesDiaryDeck extends ChangeNotifier {
     return morph;
   }
 
-  /// Only the memories still in the deck keep a morph.
-  void retain(Iterable<int> ids) {
-    final keep = ids.toSet();
+  /// Only the memories still in the deck keep a morph, each at its index in [ids] (the deck's order): a page
+  /// the deck has not rebuilt since a memory came or went never answers for another index.
+  void retain(List<int> ids) {
+    final index = {for (var i = 0; i < ids.length; i++) ids[i]: i};
     final gone = [
       for (final e in _morphs.entries)
-        if (!keep.contains(e.key)) e.key,
+        if (!index.containsKey(e.key)) e.key,
     ];
     // Its pieces may still be in this frame's tree: it lets go of the deck and its scroll, and is dropped.
     for (final id in gone) {
       _morphs.remove(id)?._release();
+    }
+    for (final e in _morphs.entries) {
+      e.value.page = index[e.key]!;
     }
   }
 
@@ -799,7 +806,7 @@ class MemoryPageMorph extends ChangeNotifier {
       barTitle: TextAnchor(
         cx: spec.slotBStart + spec.barTitleWidth / 2,
         y: spec.statusTop + (MemoriesTokens.barHeight - spec.barLines) / 2,
-        fontSize: memoriesBarAlbumStyle().fontSize!,
+        fontSize: _barAlbumFont,
       ),
       freezeAt: freezeAt,
       lag: diaryBlockLag(

@@ -419,7 +419,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
         _spread = layout.isSpread;
         final memories = state is MemoriesContent ? state.memories : const <MemoryEntry>[];
         _awards.sync(memories);
-        _morph.retain(memories.map((m) => m.sessionId));
+        _morph.retain([for (final m in memories) m.sessionId]);
         final source = ref.watch(activeSourceProvider).value;
         final fallback = MemoryPalette.fallback(colors.primary);
         for (final m in memories) {
@@ -485,7 +485,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
                     memories: memories,
                     pages: _pages,
                     diary: _p,
-                    morphAt: _morph.morphAt,
+                    deck: _morph,
                     spread: layout.isSpread,
                     layout: layout,
                     dark: dark,
@@ -591,7 +591,10 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
             onDiaryMove: _diaryMove,
             onDiaryUp: _diaryUp,
             onDiaryOverscroll: (n) => _diaryOverscroll(n, _scrollFor(index)),
-            onOpenDiary: _p.open,
+            onOpenDiary: () {
+              _awards.diaryOpening(memory);
+              _p.open();
+            },
             onOpenAlbum: () => _openAlbum(memory),
             onPlayTrack: (t) => _playTrack(memory, t),
             onPlayNote: (t, n) => _playNote(memory, t, n),
@@ -1037,7 +1040,7 @@ class _TopBar extends ConsumerWidget {
     required this.memories,
     required this.pages,
     required this.diary,
-    required this.morphAt,
+    required this.deck,
     this.spread = false,
     required this.layout,
     required this.dark,
@@ -1058,8 +1061,9 @@ class _TopBar extends ConsumerWidget {
   final PageController? pages;
   final MemoriesDiaryController diary;
 
-  /// The morph of the page at an index, while it is laid out (its bar cover flies with the card's).
-  final MemoryPageMorph? Function(int index) morphAt;
+  /// The card ⇄ diary morph: a page's bar cover flies with its card's, and the pill follows the current
+  /// page's cover flight (fp, which waits in the bar through a frozen collapse).
+  final MemoriesDiaryDeck deck;
 
   /// A spread has no diary state: the bar keeps slot A and the pill its label.
   final bool spread;
@@ -1094,9 +1098,11 @@ class _TopBar extends ConsumerWidget {
       onHorizontalDragUpdate: pages == null ? null : onHorizontalUpdate,
       onHorizontalDragEnd: pages == null ? null : onHorizontalEnd,
       child: AnimatedBuilder(
-        animation: Listenable.merge([diary, ?pages]),
+        animation: Listenable.merge([diary, deck, ?pages]),
         builder: (context, _) {
           final p = spread ? 0.0 : diary.fraction.clamp(0.0, 1.0);
+          // The pill makes room for the bar cover, so it follows the cover's flight (Android diaryProgress = fp).
+          final fp = spread ? 0.0 : deck.fp;
           final page = pages != null && pages!.hasClients && pages!.position.haveDimensions
               ? (pages!.page ?? 0)
               : (pages?.initialPage.toDouble() ?? 0);
@@ -1106,7 +1112,7 @@ class _TopBar extends ConsumerWidget {
           final pillWidth = lerpDouble(
             MemoriesTokens.pillWidth,
             MemoriesTokens.pillWidthDiary,
-            smoothstep(0, MemoriesTokens.pillNarrowTo, p),
+            smoothstep(0, MemoriesTokens.pillNarrowTo, fp),
           );
           return Padding(
             padding: EdgeInsets.only(top: statusTop),
@@ -1130,7 +1136,7 @@ class _TopBar extends ConsumerWidget {
                           if ((i - page).abs() < 1.6)
                             _PageSlots(
                               memory: memories[i],
-                              morph: spread ? null : morphAt(i),
+                              morph: spread ? null : deck.morphAt(i),
                               rel: i - page,
                               width: width,
                               p: p,
@@ -1174,7 +1180,7 @@ class _TopBar extends ConsumerWidget {
                                 const SizedBox(width: 3),
                                 Flexible(
                                   child: Opacity(
-                                    opacity: 1 - smoothstep(0, MemoriesTokens.pillLabelFadeTo, p),
+                                    opacity: 1 - smoothstep(0, MemoriesTokens.pillLabelFadeTo, fp),
                                     child: Text(
                                       strings.topbarHome,
                                       style: gsf(

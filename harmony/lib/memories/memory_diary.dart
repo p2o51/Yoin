@@ -214,17 +214,23 @@ class MemoryDiary extends StatelessWidget {
           onSave: onSaveReview,
         ),
       if (hasEntry && hasTracks) _Separator(tones: tones, type: type),
-      for (final group in memory.diaryTracks)
-        _TrackGroup(
-          group: group,
-          tones: tones,
-          type: type,
-          strings: strings,
-          interactive: interactive,
-          playing: group.track.trackId == playingTrackId,
-          litNoteId: litNoteId,
-          onTrack: () => onPlayTrack(group.track),
-          onNote: (note) => onPlayNote(group.track, note),
+      // The liner (every track row) is one block: it rises as one, like Android's DiaryLiner.
+      if (hasTracks)
+        _Liner(
+          children: [
+            for (final group in memory.diaryTracks)
+              _TrackGroup(
+                group: group,
+                tones: tones,
+                type: type,
+                strings: strings,
+                interactive: interactive,
+                playing: group.track.trackId == playingTrackId,
+                litNoteId: litNoteId,
+                onTrack: () => onPlayTrack(group.track),
+                onNote: (note) => onPlayNote(group.track, note),
+              ),
+          ],
         ),
       Padding(
         padding: const EdgeInsets.only(top: MemoriesTokens.diaryEndGap),
@@ -291,7 +297,7 @@ class MemoryDiary extends StatelessWidget {
                         ?head,
                         for (var k = 0; k < blocks.length; k++)
                           _block(
-                            blocks[k] is _TrackGroup
+                            blocks[k] is _Liner
                                 ? blocks[k]
                                 : Padding(
                                     padding: const EdgeInsets.symmetric(horizontal: MemoriesTokens.diaryRowBleed),
@@ -355,7 +361,7 @@ class MemoryDiary extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     for (final b in blocks)
-                      b is _TrackGroup
+                      b is _Liner
                           ? b
                           : Padding(
                               padding: const EdgeInsets.symmetric(horizontal: MemoriesTokens.diaryRowBleed),
@@ -685,6 +691,17 @@ class _Separator extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// The track rows as one block (they keep their own full-bleed rows).
+class _Liner extends StatelessWidget {
+  const _Liner({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: children);
 }
 
 class _TrackGroup extends StatelessWidget {

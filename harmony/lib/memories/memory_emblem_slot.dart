@@ -69,6 +69,9 @@ class MemoryAwards {
   final Map<int, GrooveAwardController> _diaries = {};
   final Set<int> _nodded = {};
 
+  /// Diaries the Diary button opened on a card still due its award: their 48 waits full size and uncut.
+  final Set<int> _uncut = {};
+
   List<MemoryEntry> _deck = const [];
   double _q = 1;
   bool _qSettling = false;
@@ -91,7 +94,11 @@ class MemoryAwards {
   GrooveAwardController diaryController(MemoryEntry m) => _diaries.putIfAbsent(m.sessionId, () {
     final c = GrooveAwardController();
     final card = _cards[m.sessionId];
-    c.setPending(!(card?.isAwarded ?? false));
+    if (_uncut.contains(m.sessionId) && !(card?.isAwarded ?? false)) {
+      c.setUncut();
+    } else {
+      c.setPending(!(card?.isAwarded ?? false));
+    }
     return c;
   });
 
@@ -106,6 +113,25 @@ class MemoryAwards {
   void diaryChanged(double p) {
     _p = p;
     _evaluate();
+  }
+
+  /// The Diary button opened the diary on [m] (Android onDiaryOpening): a running award stops, and a card
+  /// still due its award skips its nod — the 96 the morph flies in lands as a full-size, uncut 48, and the
+  /// card's award cuts both later.
+  void diaryOpening(MemoryEntry m) {
+    final active = _active;
+    if (active != null) {
+      // As when leaving the card: before its climax it is cut short and plays again in full next time.
+      final c = _cards[active];
+      if (c != null && c.revoke()) c.setPending(true);
+      _active = null;
+    }
+    final id = m.sessionId;
+    if (_cards[id]?.isAwarded ?? false) return;
+    _nodded.add(id);
+    _uncut.add(id);
+    // The diary is composed once p moves: a 48 not built yet starts uncut ([diaryController]).
+    _diaries[id]?.setUncut();
   }
 
   void pageChanged(double page) {
@@ -156,6 +182,8 @@ class MemoryAwards {
     if (_p >= 0.99) {
       final d = _diaries[resting];
       final card = _cards[resting];
+      // An uncut 48 shows the finished emblem once the card has had its award.
+      if (d != null && (card?.isAwarded ?? false) && _uncut.remove(resting)) d.finishInstantly();
       if (d != null && !_nodded.contains(resting)) {
         _nodded.add(resting);
         if (card?.isAwarded ?? false) {

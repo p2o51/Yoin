@@ -17,7 +17,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../home/widgets/spring_height.dart';
@@ -802,14 +801,10 @@ class _MemorySpringOpacityState extends State<MemorySpringOpacity> with SingleTi
 /// The keyboard lift of a surface that doesn't scroll: rises by [lift] px on
 /// the spatial spring (and back down when the keyboard goes).
 class MemoryTitleLift extends StatefulWidget {
-  const MemoryTitleLift({super.key, required this.lift, required this.child, this.mirror});
+  const MemoryTitleLift({super.key, required this.lift, required this.child});
 
   final double lift;
   final Widget child;
-
-  /// Told the lift as it moves: a part of the same surface drawn outside
-  /// [child] (the card's flying cover) rides it too.
-  final ValueNotifier<double>? mirror;
 
   @override
   State<MemoryTitleLift> createState() => _MemoryTitleLiftState();
@@ -819,35 +814,13 @@ class _MemoryTitleLiftState extends State<MemoryTitleLift> with SingleTickerProv
   late final SpringValue _lift = SpringValue(vsync: this, initial: widget.lift, spring: YoinSprings.defaultSpatial);
 
   @override
-  void initState() {
-    super.initState();
-    _lift.animation.addListener(_tell);
-    _tell();
-  }
-
-  void _tell() {
-    final mirror = widget.mirror;
-    if (mirror == null || mirror.value == _lift.value) return;
-    // A snap lands mid-build: the cover hears it once the frame is built.
-    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _tell();
-      });
-    } else {
-      mirror.value = _lift.value;
-    }
-  }
-
-  @override
   void didUpdateWidget(MemoryTitleLift old) {
     super.didUpdateWidget(old);
     MediaQuery.disableAnimationsOf(context) ? _lift.snapTo(widget.lift) : _lift.animateTo(widget.lift);
-    if (!identical(old.mirror, widget.mirror)) _tell();
   }
 
   @override
   void dispose() {
-    _lift.animation.removeListener(_tell);
     _lift.dispose();
     super.dispose();
   }
