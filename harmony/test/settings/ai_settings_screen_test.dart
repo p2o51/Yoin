@@ -32,6 +32,7 @@ void main() {
     WidgetTester tester,
     Widget child, {
     List<AiRecentSong> songs = const [],
+    Future<List<AiRecentSong>> Function()? loadSongs,
     Locale? locale,
   }) async {
     tester.view.physicalSize = const Size(420, 2400);
@@ -43,7 +44,7 @@ void main() {
           keyValueStoreProvider.overrideWithValue(plain),
           secretStoreProvider.overrideWithValue(secrets),
           aiClientProvider.overrideWithValue(ai),
-          aiRecentSongsProvider.overrideWith((ref) async => songs),
+          aiRecentSongsProvider.overrideWith((ref) => loadSongs?.call() ?? Future.value(songs)),
           aiLinkOpenerProvider.overrideWithValue((url) async {
             opened.add(url);
             return true;
@@ -420,6 +421,41 @@ void main() {
     expect(gated.prompts, hasLength(1));
     expect((container.read(aiTryProvider) as AiTryDone).song, lemon.song);
     expect(find.text('First.'), findsOneWidget);
+  });
+
+  testWidgets('should_keepTheSongsOnScreen_when_aNewPlayReloadsThem', (tester) async {
+    var loads = 0;
+    final next = Completer<List<AiRecentSong>>();
+    final container = await pump(
+      tester,
+      const AiTryScreen(),
+      loadSongs: () => ++loads == 1 ? Future.value([lemon]) : next.future,
+    );
+    expect(find.text('Lemon'), findsOneWidget);
+
+    container.invalidate(aiRecentSongsProvider);
+    await tester.pump();
+    expect(container.read(aiRecentSongsProvider).isLoading, isTrue);
+    expect(find.text('Lemon'), findsOneWidget, reason: 'the list stays while the new play is read');
+
+    next.complete([plastic, lemon]);
+    await tester.pumpAndSettle();
+    expect(find.text('Plastic Love'), findsOneWidget);
+    expect(find.text('Lemon'), findsOneWidget);
+  });
+
+  test('should_bringANewPlayToTheTop_when_theAccountPlaysASong', () async {
+    final store = MemoryStore(InMemoryStore(), profileId: 'p');
+    final container = ProviderContainer(overrides: [memoryStoreProvider.overrideWith((ref) async => store)]);
+    addTearDown(container.dispose);
+    final sub = container.listen(aiRecentSongsProvider, (_, _) {});
+    addTearDown(sub.close);
+    await store.recordTrackPlay(Track(id: MediaId.subsonic('1'), title: 'Lemon', artist: 'Kenshi Yonezu'), atMs: 10);
+    expect((await container.read(aiRecentSongsProvider.future)).map((s) => s.song.title), ['Lemon']);
+
+    await store.recordTrackPlay(Track(id: MediaId.subsonic('2'), title: 'Plastic Love'), atMs: 20);
+    await pumpEventQueue();
+    expect((await container.read(aiRecentSongsProvider.future)).map((s) => s.song.title), ['Plastic Love', 'Lemon']);
   });
 
   group('recentTestSongs', () {

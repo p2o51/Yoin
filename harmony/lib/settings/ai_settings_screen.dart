@@ -7,6 +7,7 @@ import '../home/widgets/spring_height.dart';
 import '../nowplaying/haptics.dart';
 import '../theme/motion.dart';
 import '../ui/component/expressive_text_field.dart';
+import '../ui/component/keep_in_view_above_keyboard.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/navigation/yoin_push_route.dart';
@@ -327,11 +328,13 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
           ),
         ),
         // One field per service: its own key, and a key shown in the clear for one is masked for the next.
-        SecretTextField(
-          key: ValueKey('ai-key-${provider.name}'),
-          controller: _keys[provider]!,
-          label: strings.aiKeyLabel,
-          placeholder: provider == AiProvider.gemini ? 'AIza…' : 'sk-…',
+        KeepInViewAboveKeyboard(
+          child: SecretTextField(
+            key: ValueKey('ai-key-${provider.name}'),
+            controller: _keys[provider]!,
+            label: strings.aiKeyLabel,
+            placeholder: provider == AiProvider.gemini ? 'AIza…' : 'sk-…',
+          ),
         ),
         const SizedBox(height: SettingsMetrics.aiKeyGap),
         Align(
@@ -374,52 +377,60 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
           ],
         ),
         const SizedBox(height: SettingsMetrics.aiGroupGap + SettingsMetrics.aiKeyGap),
-        ExpressiveTextField(
-          key: const ValueKey('ai-custom-url'),
-          controller: _url,
-          label: strings.aiCustomUrl,
-          placeholder: s.customFormat == AiApiFormat.openAi ? 'https://api.openai.com/v1' : 'https://api.anthropic.com',
-          keyboardType: TextInputType.url,
-          textInputAction: TextInputAction.next,
+        KeepInViewAboveKeyboard(
+          child: ExpressiveTextField(
+            key: const ValueKey('ai-custom-url'),
+            controller: _url,
+            label: strings.aiCustomUrl,
+            placeholder: s.customFormat == AiApiFormat.openAi
+                ? 'https://api.openai.com/v1'
+                : 'https://api.anthropic.com',
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.next,
+          ),
         ),
         const SizedBox(height: SettingsMetrics.aiGroupGap),
-        SecretTextField(
-          key: const ValueKey('ai-key-custom'),
-          controller: _keys[AiProvider.custom]!,
-          label: strings.aiKeyLabel,
-          placeholder: 'sk-…',
+        KeepInViewAboveKeyboard(
+          child: SecretTextField(
+            key: const ValueKey('ai-key-custom'),
+            controller: _keys[AiProvider.custom]!,
+            label: strings.aiKeyLabel,
+            placeholder: 'sk-…',
+          ),
         ),
         const SizedBox(height: SettingsMetrics.aiGroupGap),
         // The model field and the rows that come and go under it. They bring their own gaps, so a
         // row opening or closing moves what is below it the whole way, with no jump at either end.
-        Stack(
-          children: [
-            ExpressiveTextField(
-              key: const ValueKey('ai-custom-model'),
-              controller: _model,
-              label: strings.aiCustomModel,
-              placeholder: '',
-              textInputAction: TextInputAction.done,
-              endInset: SettingsMetrics.aiPullReserve,
-            ),
-            PositionedDirectional(
-              end: 0,
-              bottom: 0,
-              height: SettingsMetrics.fieldBoxHeight,
-              child: Center(
-                child: TextButton(
-                  key: const ValueKey('ai-custom-pull'),
-                  onPressed: !models.loading && s.customBaseUrl.trim().isNotEmpty && s.customKey.trim().isNotEmpty
-                      ? () {
-                          YoinHaptics.click();
-                          widget.actions.pullModels();
-                        }
-                      : null,
-                  child: Text(strings.aiCustomPull),
+        KeepInViewAboveKeyboard(
+          child: Stack(
+            children: [
+              ExpressiveTextField(
+                key: const ValueKey('ai-custom-model'),
+                controller: _model,
+                label: strings.aiCustomModel,
+                placeholder: '',
+                textInputAction: TextInputAction.done,
+                endInset: SettingsMetrics.aiPullReserve,
+              ),
+              PositionedDirectional(
+                end: 0,
+                bottom: 0,
+                height: SettingsMetrics.fieldBoxHeight,
+                child: Center(
+                  child: TextButton(
+                    key: const ValueKey('ai-custom-pull'),
+                    onPressed: !models.loading && s.customBaseUrl.trim().isNotEmpty && s.customKey.trim().isNotEmpty
+                        ? () {
+                            YoinHaptics.click();
+                            widget.actions.pullModels();
+                          }
+                        : null,
+                    child: Text(strings.aiCustomPull),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         ClipRect(
           child: SpringHeight(
@@ -518,11 +529,13 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
               children: [
                 // One field per service: its own key, and a key shown in the clear for one
                 // service is masked again for the next.
-                SecretTextField(
-                  key: ValueKey('ai-search-key-${_keyService.name}'),
-                  controller: _searchKeys[_keyService]!,
-                  label: strings.aiSearchKey(keyName),
-                  placeholder: '',
+                KeepInViewAboveKeyboard(
+                  child: SecretTextField(
+                    key: ValueKey('ai-search-key-${_keyService.name}'),
+                    controller: _searchKeys[_keyService]!,
+                    label: strings.aiSearchKey(keyName),
+                    placeholder: '',
+                  ),
                 ),
                 const SizedBox(height: SettingsMetrics.aiGroupGap),
                 Align(

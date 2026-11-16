@@ -224,7 +224,7 @@ abstract final class SettingsMetrics {
   static const double aiChartXLabelTop = 16;
   static const double aiChartEndText = 10;
   static const double aiChartGap = 4; // plot → legend
-  static const double aiChartNoteTop = 4; // legend → the search note (Custom)
+  static const double aiChartNoteTop = 8; // legend → the search note (Custom): the column's 4 and its own 4
   static const double aiDot = 5.5;
   static const double aiDotRing = 7.5;
   static const double aiDotGrow = 2; // the chosen dot and its ring grow by this
