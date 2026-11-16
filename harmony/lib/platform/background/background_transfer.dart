@@ -5,6 +5,11 @@
 /// ohos.permission.KEEP_BACKGROUND_RUNNING), whose live-view notification
 /// shows their progress, served on `yoin/transfer` by the ArkTS
 /// `YoinTransferPlugin`. The desktop doesn't suspend apps: nothing to hold.
+///
+/// One app holds one such task: downloads and a playlist restore share it
+/// through [SharedBackgroundTransfer] (shared_background_transfer.dart), never
+/// this host directly. The same channel posts the plain notification a
+/// finished restore leaves behind, and asks for the notification permission.
 library;
 
 import 'dart:async';
@@ -15,22 +20,42 @@ import 'package:flutter/services.dart';
 /// What the progress notification says.
 @immutable
 final class TransferNotice {
-  const TransferNotice({required this.title, required this.text, required this.percent});
+  const TransferNotice({required this.title, required this.text, required this.percent, this.chip, this.subText});
 
   final String title;
   final String text;
 
-  /// 0–100.
-  final int percent;
+  /// A line beside the text (Android's setSubText); null: none.
+  final String? subText;
 
-  Map<String, Object> toMap() => {'title': title, 'text': text, 'percent': percent};
+  /// 0–100; null: no bar (work whose length isn't known, Android's indeterminate bar).
+  final int? percent;
+
+  /// The status-bar capsule's short text ("12 / 45", Android's setShortCriticalText); null: none.
+  final String? chip;
+
+  Map<String, Object> toMap() => {
+    'title': title,
+    'text': text,
+    'percent': ?percent,
+    'chip': ?chip,
+    'subText': ?subText,
+  };
 
   @override
   bool operator ==(Object other) =>
-      other is TransferNotice && other.title == title && other.text == text && other.percent == percent;
+      other is TransferNotice &&
+      other.title == title &&
+      other.text == text &&
+      other.percent == percent &&
+      other.chip == chip &&
+      other.subText == subText;
 
   @override
-  int get hashCode => Object.hash(title, text, percent);
+  int get hashCode => Object.hash(title, text, percent, chip, subText);
+
+  @override
+  String toString() => 'TransferNotice($title, $text, $percent%, $chip)';
 }
 
 abstract interface class BackgroundTransferHost {
@@ -45,6 +70,17 @@ abstract interface class BackgroundTransferHost {
   /// its notification), false when the system did (slow transfer, no
   /// progress for 10 minutes).
   Stream<bool> get ended;
+
+  /// Whether the app may post notifications. With [ask], a system that hasn't
+  /// asked yet shows its dialog first (Android's POST_NOTIFICATIONS request).
+  Future<bool> notificationsAllowed({bool ask = false});
+
+  /// A plain notification that stays after the task, until swiped or replaced
+  /// (a finished restore's result); [id] identifies it.
+  Future<void> notify(int id, TransferNotice notice);
+
+  /// Takes the notification [id] posted by [notify] away.
+  Future<void> cancelNotice(int id);
 }
 
 /// HarmonyOS: `yoin/transfer` → backgroundTaskManager (MODE_DATA_TRANSFER) + notificationManager (live view).
@@ -98,6 +134,40 @@ final class ChannelBackgroundTransferHost implements BackgroundTransferHost {
     _listen();
     return _ended.stream;
   }
+
+  @override
+  Future<bool> notificationsAllowed({bool ask = false}) async {
+    try {
+      return await _channel.invokeMethod<bool>('notificationsAllowed', {'ask': ask}) ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (e) {
+      debugPrint('YoinTransfer: notification permission unknown: ${e.code}');
+      return false;
+    }
+  }
+
+  @override
+  Future<void> notify(int id, TransferNotice notice) async {
+    try {
+      await _channel.invokeMethod<void>('notify', {'id': id, ...notice.toMap()});
+    } on MissingPluginException {
+      // No native side (tests).
+    } on PlatformException catch (e) {
+      debugPrint('YoinTransfer: notice not posted: ${e.code}');
+    }
+  }
+
+  @override
+  Future<void> cancelNotice(int id) async {
+    try {
+      await _channel.invokeMethod<void>('cancelNotice', {'id': id});
+    } on MissingPluginException {
+      // No native side (tests).
+    } on PlatformException catch (e) {
+      debugPrint('YoinTransfer: notice not removed: ${e.code}');
+    }
+  }
 }
 
 /// Nothing to hold: a desktop app keeps running behind other windows (and tests).
@@ -112,4 +182,13 @@ final class NoBackgroundTransferHost implements BackgroundTransferHost {
 
   @override
   Stream<bool> get ended => const Stream.empty();
+
+  @override
+  Future<bool> notificationsAllowed({bool ask = false}) async => false;
+
+  @override
+  Future<void> notify(int id, TransferNotice notice) async {}
+
+  @override
+  Future<void> cancelNotice(int id) async {}
 }

@@ -78,6 +78,10 @@ class PlaylistBackupStrings {
   String get notFound => _zh ? '未找到' : 'Not found'; // playlist_restore_not_found
   String get create => _zh ? '创建歌单' : 'Create playlist'; // playlist_restore_create
   String get writingShort => _zh ? '正在创建' : 'Creating'; // playlist_restore_writing_short
+  String writing(String target) => _zh ? '正在 $target 上创建' : 'Creating on $target'; // playlist_restore_writing
+
+  /// The restore's progress notification while it matches (playlist_restore_live_matching).
+  String liveMatching(String target) => _zh ? '正在 $target 匹配' : 'Matching on $target';
   String done(String target) => _zh ? '已在 $target 上创建' : 'Created on $target'; // playlist_restore_done
   String notCreated(String target) =>
       _zh ? '未能在 $target 上创建' : 'Not created on $target'; // playlist_restore_not_created
