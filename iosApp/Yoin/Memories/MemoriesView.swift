@@ -81,7 +81,10 @@ struct MemoriesView: View {
                     .gesture(pageGesture(zone: .bar))
             }
             .coordinateSpace(.named(MemoryPageMorph.space))
-            .contentShape(.rect)
+            // The page's touch area is the whole window, not this frame: the frame stops at the bottom safe
+            // area (Home's bar band, given back as safe area), and a `.contentShape(.rect)` here cut every
+            // touch below it — Diary and Go to album sat there and never got their taps (51, 2026-11-16).
+            .background { Color.clear.contentShape(.rect).ignoresSafeArea() }
             // The page's own drag: the card body (and the bar band). In the
             // diary the text's scroll has the body; in a spread its left page.
             .gesture(pageGesture(zone: nil), including: layout.twoState && !deck.diary.isDiaryLevel ? .all : .subviews)
