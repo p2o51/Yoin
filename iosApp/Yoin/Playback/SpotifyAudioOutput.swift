@@ -998,11 +998,20 @@ final class SpotifyAudioOutput: AudioOutput {
 
     /// The ticker's check: the song is in its last seconds with the next still to go in.
     private func enqueueIfDue() {
-        guard enqueueWhenPlaying, nextToHand, sawCurrent, playing, !silent, leaving == nil,
-              remote.isConnected, !remote.broken,
-              Self.enqueueDue(remainingSec: duration > 0 ? duration - rawTimeSec : nil) else { return }
+        let due = Self.enqueueDue(remainingSec: duration > 0 ? duration - rawTimeSec : nil)
+        guard due, enqueueWhenPlaying, nextToHand, sawCurrent, playing, !silent, leaving == nil,
+              remote.isConnected, !remote.broken else {
+            // Once per song, in the window: what held the next back (device 11-16: none went in).
+            if due || (duration <= 0 && rawTimeSec > 0), enqueueHeldLogged != current?.trackURI, current != nil {
+                enqueueHeldLogged = current?.trackURI
+                PlayTrace.log("SP enqueue held: due=\(due) dur=\(Int(duration)) t=\(Int(rawTimeSec)) waiting=\(enqueueWhenPlaying) here=\(isHere) context=\(contextActive) own=\(onSpotifysOwnSong) next=\(next != nil) handed=\(handedNext != nil) starting=\(starting) saw=\(sawCurrent) playing=\(playing) leaving=\(leaving != nil) connected=\(remote.isConnected) broken=\(remote.broken)")
+            }
+            return
+        }
         enqueueNext()
     }
+
+    private var enqueueHeldLogged: String?
 
     /// App Remote's "try again later" (-3000), or a connection that broke (it is replaced first): worth
     /// one more go a second later.
@@ -1020,6 +1029,28 @@ final class SpotifyAudioOutput: AudioOutput {
         handedNext = next
         nextUnhanded = false
         let gen = generation, song = current
+        // Spotify may already be about to play it: a song started over App Remote plays on through its album
+        // (device 11-16: Sentence → Immortal → Reign → Heavy with nothing queued). Queued as well, it would
+        // play twice (audit 11-15 #4 (a)). me/player/queue's next decides; a failed read queues as before.
+        guard let control else { return sendEnqueue(next, song: song, gen: gen, retried: retried, done: done) }
+        Task { [weak self] in
+            let upcoming = try? await control.playerQueue()
+            guard let self else { return }
+            guard gen == self.generation, self.current == song, self.next == next else { done?(); return }
+            if Self.spotifyPlaysNextAlready(spotifysNext: upcoming?.first?.uri, next: next.trackURI) {
+                PlayTrace.log("SP enqueue skipped: \(next.trackId) is Spotify's own next already")
+                done?()
+                return
+            }
+            self.sendEnqueue(next, song: song, gen: gen, retried: retried, done: done)
+        }
+    }
+
+    nonisolated static func spotifyPlaysNextAlready(spotifysNext: String?, next: String) -> Bool {
+        spotifysNext == next
+    }
+
+    private func sendEnqueue(_ next: Item, song: Item?, gen: Int, retried: Bool, done: (() -> Void)?) {
         PlayTrace.log("SP enqueue \(next.trackId) after \(song?.trackId ?? "-") (\(Int(max(duration - rawTimeSec, 0))) s left; Yoin's songs already queued there: \(queuedHere.count))")
         remote.enqueue(next.trackURI) { [weak self] error in
             done?()
@@ -2102,7 +2133,11 @@ final class SpotifyAudioOutput: AudioOutput {
                 // App Remote reports this iPhone: me/player only checks that it still does. Without it,
                 // me/player is the state, a pause too (audit 11-15 #7: only a playing one was applied).
                 if self.remoteCarries { return self.checkRemoteSilent(now, decisive: overrun) }
-                return self.apply(now)
+                self.apply(now)
+                // The 4 s reads, if the path that should have started them didn't (device 11-16: after
+                // Devices › iPhone with App Remote refused, only this 10 s watch followed).
+                if self.pollTimer == nil { self.pollHereWhileUnreachable() }
+                return
             }
             guard now.isPlaying, now.trackURI != nil else { return }
             if self.isDriving {
@@ -2209,7 +2244,9 @@ final class SpotifyAudioOutput: AudioOutput {
     /// App Remote not carrying the state, not only "not connected": a broken connection the SDK still
     /// reads as connected left no reads but the 10 s watch.
     private func pollHereWhileUnreachable() {
-        guard Self.pollsHere(isHere: isHere, driving: isDriving, remoteCarries: remoteCarries, silent: silent) else { return }
+        guard Self.pollsHere(isHere: isHere, driving: isDriving, remoteCarries: remoteCarries, silent: silent) else {
+            return PlayTrace.log("SP no 4 s reads: here=\(isHere) driving=\(isDriving) carries=\(remoteCarries) silent=\(silent) target=\(target ?? "-")")
+        }
         PlayTrace.log("SP App Remote unreachable: reading me/player every \(Int(Self.pollSec)) s")
         startPolling()
     }
