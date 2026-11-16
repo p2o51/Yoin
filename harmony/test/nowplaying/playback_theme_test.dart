@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:yoin/app/providers.dart';
 import 'package:yoin/playback/now_playing_state.dart';
 import 'package:yoin/theme/playback_theme.dart';
 
