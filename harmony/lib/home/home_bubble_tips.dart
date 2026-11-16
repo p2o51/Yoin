@@ -5,8 +5,8 @@
 /// Only tips whose gesture or feature exists in this build are listed, in
 /// Android's order. Copy: Android's (strings_home.xml, key in the comment)
 /// where it holds on HarmonyOS; the rest was written for HarmonyOS by the
-/// owner's copy model (Gemini Carbon, .argon/harmony-tips-1116) and is used
-/// as given.
+/// owner's copy model (Gemini Carbon, .argon/harmony-tips-1116 and -1117)
+/// and is used as given.
 library;
 
 import 'dart:io' show Platform;
@@ -28,9 +28,13 @@ enum HomeBubbleTip {
   volumeLeveling(YoinSymbols.volumeUp, (2026, 11, 13)),
   homeScreenWidgets(YoinSymbols.library, (2026, 11, 13), desktop: false),
   libraryRefresh(YoinSymbols.refresh, (2026, 11, 13)),
-  memoryLedger(YoinSymbols.memory, (2026, 11, 12)),
+  memoryLedger(YoinSymbols.memory, (2026, 11, 17)),
   aiServices(YoinSymbols.sparkle, (2026, 11, 16)),
+  settingsRegrouped(YoinSymbols.settings, (2026, 11, 17)),
+  continueOn(YoinSymbols.tablet, (2026, 11, 17), desktop: false),
+  screenCorners(YoinSymbols.smartphone, (2026, 11, 17)),
   memoriesAllAccounts(YoinSymbols.memory, (2026, 11, 16)),
+  devices(YoinSymbols.speaker, (2026, 11, 17)),
   accountQuickSwitch(YoinSymbols.person, (2026, 11, 6)),
   miniPlayerMenu(YoinSymbols.playCircle, (2026, 11, 16)),
   focusCover(YoinSymbols.openInFull, (2026, 11, 3)),
@@ -43,6 +47,7 @@ enum HomeBubbleTip {
   noteMoments(YoinSymbols.editNote, (2026, 10, 17)),
   librarySearch(YoinSymbols.search, (2026, 11, 16)),
   keepScreenOn(YoinSymbols.lightMode, (2026, 10, 17)),
+  scrollEdge(YoinSymbols.settings, (2026, 11, 17)),
   name(YoinSymbols.sparkle, (2026, 10, 17));
 
   const HomeBubbleTip(this.icon, this._day, {this.desktop = true});
@@ -50,7 +55,7 @@ enum HomeBubbleTip {
   final IconData icon;
   final (int, int, int) _day;
 
-  /// False: the feature isn't there on a desktop build (Windows has no service widgets).
+  /// False: the feature isn't there on a desktop build (Windows has no service widgets and no app continuation).
   final bool desktop;
 
   DateTime get updated => DateTime(_day.$1, _day.$2, _day.$3);
@@ -77,7 +82,12 @@ enum HomeBubbleTip {
     libraryRefresh => zh ? '刷新资料库' : 'Refresh Library', // home_tip_library_refresh_title
     memoryLedger => zh ? '全部回忆' : 'All Memories', // home_tip_memory_ledger_title
     aiServices => zh ? 'AI 功能' : 'AI features', // home_tip_ai_services_title
+    settingsRegrouped => zh ? '设置重新分组' : 'Settings, regrouped', // home_tip_settings_regrouped_title
+    continueOn =>
+      zh ? '跨设备接着听' : 'Continue on another device', // Carbon 2026-11-17 (Android: home_tip_continue_on_title)
+    screenCorners => zh ? '屏幕圆角' : 'Screen corners', // home_tip_screen_corners_title
     memoriesAllAccounts => zh ? '各账号的回忆' : 'Memories across accounts', // home_tip_memories_all_accounts_title
+    devices => zh ? '音箱与投播' : 'Speakers and cast', // Carbon 2026-11-17 (Android: home_tip_spotify_speakers_title)
     accountQuickSwitch => zh ? '切换账号' : 'Switch accounts', // home_tip_account_quick_switch_title
     miniPlayerMenu => zh ? '迷你播放器菜单' : 'Mini player options', // home_tip_mini_player_menu_title
     focusCover => zh ? '轻点封面聚焦' : 'Tap cover to Focus', // home_tip_focus_cover_title
@@ -90,6 +100,7 @@ enum HomeBubbleTip {
     noteMoments => zh ? '笔记记住那一秒' : 'Notes pin the second', // home_tip_note_moments_title
     librarySearch => zh ? '快速搜索' : 'Quick search', // home_tip_library_search_title
     keepScreenOn => zh ? '屏幕常亮' : 'Keep screen on', // home_tip_keep_screen_on_title
+    scrollEdge => zh ? '滚动边缘' : 'Scroll edge', // home_tip_scroll_edge_title
     name => zh ? '名字的由来' : 'Behind the name', // home_tip_name_title
   };
 
@@ -146,23 +157,47 @@ enum HomeBubbleTip {
                 'Memory widget in 1×2, 2×2, or 2×4',
     // home_tip_library_refresh
     libraryRefresh => zh ? '在资料库顶部往下拉，刷新正在看的内容' : 'Pull down at the top of Library to refresh the current view',
-    // Carbon 2026-11-16 (home_tip_memory_ledger without the pixel bar, which isn't built here).
+    // home_tip_memory_ledger (the grid flies into the bar now, as on Android).
     memoryLedger =>
       zh
-          ? '点首页的「全部回忆」，在日历格点一格只看那段时间；下方右侧可切换时间线、卡片或可排序的列表，大屏上时间线和卡片排成 2–3 列'
-          : 'Tap All Memories on Home and tap a square on the grid to see just that time; switch between Timeline, '
-                'Cards, and a sortable List below on the right, with Timeline and Cards in 2–3 columns on large screens',
+          ? '点首页的「全部回忆」，在日历格点一格只看那段时间，往下滚格子会飞到顶栏拼成像素条；下方右侧可切换时间线、卡片或可排序的列表，大屏上时间线和卡片排成 2–3 列'
+          : 'Tap All Memories on Home, tap a square on the grid to see just that time, and scroll down as the squares '
+                'fly into a pixel bar at the top; switch between Timeline, Cards, and a sortable List below on the '
+                'right, with Timeline and Cards in 2–3 columns on large screens',
     // home_tip_ai_services
     aiServices =>
       zh
           ? '在设置 > AI 功能中选择 Gemini、DeepSeek、千问或自定义服务，切换「好」与「最佳」档位，或点「拿一首歌试试」当场测试'
           : 'Choose Gemini, DeepSeek, Qwen, or a Custom service in Settings > AI features, switch between Good and '
                 'Best, or tap Try a song to test it out',
+    // home_tip_settings_regrouped
+    settingsRegrouped =>
+      zh
+          ? '设置按外观、同步与存储、帮助与关于重新归类，NeoDB 移到了同步与存储'
+          : 'Settings is now grouped into Appearance, Sync and storage, and Help and about, with NeoDB under Sync and '
+                'storage',
+    // Carbon 2026-11-17 (HarmonyOS app continuation; Android: home_tip_continue_on).
+    continueOn =>
+      zh
+          ? '点另一台设备程序坞、任务栏或最近任务顶部的 Yoin 接续图标，选「在这里继续」从同一秒接着播'
+          : "Tap Yoin's continuation icon in another device's dock, taskbar, or recent tasks and choose Continue here "
+                'to pick up from the same second',
+    // home_tip_screen_corners
+    screenCorners =>
+      zh
+          ? '设置 > 外观 > 屏幕圆角，把页面与返回手势的圆角对上手机屏幕'
+          : 'Match page and back-gesture corners to your screen in Settings > Appearance > Screen corners',
     // home_tip_memories_all_accounts
     memoriesAllAccounts =>
       zh
           ? 'Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号'
           : 'Memories includes all your accounts, and switches to that account first when you play or go to the album',
+    // Carbon 2026-11-17 (system cast and DLNA; Android: home_tip_spotify_speakers, Spotify only).
+    devices =>
+      zh
+          ? '正在播放里点「设备」，切换蓝牙耳机与系统投播，或将 Subsonic 歌曲切到同一 Wi-Fi 的 DLNA 音箱；下拉可重新搜索'
+          : 'Tap Devices in Now Playing to switch Bluetooth headphones or system cast, or play Subsonic songs on '
+                'Wi-Fi DLNA speakers; pull down to scan again',
     // home_tip_account_quick_switch
     accountQuickSwitch => zh ? '长按头像并滑动以切换账号' : 'Long-press the avatar and slide to switch accounts',
     // home_tip_mini_player_menu
@@ -199,6 +234,8 @@ enum HomeBubbleTip {
     librarySearch => zh ? '长按底栏的资料库，直接搜索' : 'Long-press Library in the bar to search right away',
     // home_tip_keep_screen_on
     keepScreenOn => zh ? '屏幕常亮在封面的长按菜单里' : "Keep screen on is in the cover's long-press menu",
+    // home_tip_scroll_edge
+    scrollEdge => zh ? '设置 › 外观 › 滚动边缘，换掉列表顶部的潮线' : 'Change the top wave line in Settings › Appearance › Scroll edge',
     // home_tip_name
     name => zh ? 'Yoin 的名字来自日语「余韻」：余音不散' : 'Yoin comes from the Japanese word "余韻" — a lingering resonance',
   };

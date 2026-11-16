@@ -3,9 +3,16 @@
 /// and lyric tools, over the demo song.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../data/model/model.dart' show MediaId;
+import '../nowplaying/devices/devices_pill.dart';
+import '../nowplaying/devices/devices_sheet.dart';
+import '../nowplaying/devices/devices_strings.dart';
+import '../nowplaying/devices/devices_view_model.dart';
 import '../nowplaying/lyric_tools.dart';
 import '../nowplaying/lyrics_share.dart';
 import '../nowplaying/lyrics_view.dart';
@@ -581,6 +588,158 @@ class _LyricsSelectDemoState extends State<LyricsSelectDemo> with DemoSceneState
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Now Playing › Devices (Android TipDevicesScene.kt, here without Spotify):
+/// the Devices pill opens the real sheet, which looks for speakers again; a
+/// DLNA speaker on the same Wi-Fi turns up and the dot moves the music to it.
+/// Nothing leaves the phone.
+class DevicesDemo extends StatefulWidget {
+  const DevicesDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<DevicesDemo> createState() => _DevicesDemoState();
+}
+
+class _DevicesDemoState extends State<DevicesDemo> with DemoSceneState {
+  static const _speakerId = 'tip-dlna';
+
+  bool _open = false;
+  bool _searching = false;
+  bool _found = false;
+  bool _busy = false;
+  bool _onSpeaker = false;
+
+  Timer? _search;
+
+  @override
+  void dispose() {
+    _search?.cancel();
+    super.dispose();
+  }
+
+  /// A refresh (the user's) reads for a moment and finds the speaker.
+  void _refresh() {
+    put(() => _searching = true);
+    _search?.cancel();
+    _search = Timer(const Duration(milliseconds: TipSceneTokens.refreshMs), () {
+      put(() {
+        _searching = false;
+        _found = true;
+      });
+    });
+  }
+
+  /// Opening the sheet searches the Wi-Fi again (as the real one does).
+  void _openSheet() {
+    put(() => _open = true);
+    _refresh();
+  }
+
+  Future<void> _script(DemoFinger f) async {
+    _search?.cancel();
+    put(() {
+      _open = false;
+      _searching = false;
+      _found = false;
+      _busy = false;
+      _onSpeaker = false;
+    });
+    await f.wait(700);
+    await f.moveToKey(const ValueKey('np-pill-devices'));
+    await f.tap(_openSheet);
+    await f.lift();
+    // The search finds the speaker on the Wi-Fi.
+    await f.wait(TipSceneTokens.refreshMs + 600);
+    await f.moveToKey(const ValueKey('device-$_speakerId'));
+    await f.tap(() => put(() => _busy = true));
+    await f.lift();
+    await f.wait(800);
+    put(() {
+      _busy = false;
+      _onSpeaker = true;
+    });
+    await f.wait(2200);
+    put(() => _open = false);
+    await f.wait(500);
+  }
+
+  DevicesSheetState get _sheet => DevicesSheetState(
+    providerId: MediaId.providerSubsonic,
+    loading: _searching,
+    busyDeviceId: _busy ? _speakerId : null,
+    devices: [
+      YoinDevice(
+        id: YoinDevice.localId,
+        kind: DeviceKind.local,
+        name: '',
+        isActive: !_onSpeaker,
+        status: _onSpeaker ? DeviceStatus.switchBack : DeviceStatus.none,
+      ),
+      const YoinDevice(
+        id: YoinDevice.systemCastId,
+        kind: DeviceKind.systemCast,
+        name: '',
+        isActive: false,
+        status: DeviceStatus.notCasting,
+      ),
+      if (_found)
+        YoinDevice(
+          id: _speakerId,
+          kind: DeviceKind.dlna,
+          name: demoSpeakerName,
+          isActive: _onSpeaker,
+          status: _onSpeaker ? DeviceStatus.casting : DeviceStatus.dlna,
+        ),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final track = demoTrack(2, demoAlbums[2]);
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      screenWidth: TipTokens.tallScreenWidth,
+      child: DemoPlayerScope(
+        track: track,
+        playing: widget.playing,
+        builder: (context, player) => Stack(
+          children: [
+            DemoNowPlaying(
+              track: track,
+              clock: player.clock,
+              playing: widget.playing,
+              below: Align(
+                alignment: AlignmentDirectional.topStart,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: TipSceneTokens.titleGap),
+                  child: NowPlayingDevicesPill(label: DevicesStrings.of(context).pillDevices, onTap: _openSheet),
+                ),
+              ),
+            ),
+            DemoSheet(
+              open: _open,
+              onDismiss: () => put(() => _open = false),
+              // The real sheet's height is the window's to give; the phone's sheet sits in a bounded one.
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: TipSceneTokens.devicesSheetMax),
+                child: DevicesSheetBody(
+                  state: _sheet,
+                  onRefresh: _refresh,
+                  onSelect: (device) => put(() {
+                    _busy = false;
+                    _onSpeaker = device.id == _speakerId;
+                  }),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

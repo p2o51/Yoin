@@ -54,7 +54,11 @@ Widget tipDemo(HomeBubbleTip tip, bool playing) => switch (tip) {
   HomeBubbleTip.libraryRefresh => LibraryRefreshDemo(playing: playing),
   HomeBubbleTip.memoryLedger => MemoryLedgerDemo(playing: playing),
   HomeBubbleTip.aiServices => AiServicesDemo(playing: playing),
+  HomeBubbleTip.settingsRegrouped => SettingsRegroupedDemo(playing: playing),
+  HomeBubbleTip.continueOn => ContinueOnDemo(playing: playing),
+  HomeBubbleTip.screenCorners => ScreenCornersDemo(playing: playing),
   HomeBubbleTip.memoriesAllAccounts => MemoriesAllAccountsDemo(playing: playing),
+  HomeBubbleTip.devices => DevicesDemo(playing: playing),
   HomeBubbleTip.accountQuickSwitch => AccountQuickSwitchDemo(playing: playing),
   HomeBubbleTip.miniPlayerMenu => MiniPlayerMenuDemo(playing: playing),
   HomeBubbleTip.focusCover => FocusCoverDemo(playing: playing),
@@ -67,6 +71,7 @@ Widget tipDemo(HomeBubbleTip tip, bool playing) => switch (tip) {
   HomeBubbleTip.noteMoments => NoteMomentsDemo(playing: playing),
   HomeBubbleTip.librarySearch => LibrarySearchDemo(playing: playing),
   HomeBubbleTip.keepScreenOn => CoverMenuDemo(playing: playing, keepScreenOn: true),
+  HomeBubbleTip.scrollEdge => ScrollEdgeDemo(playing: playing),
   HomeBubbleTip.name => NameDemo(playing: playing),
 };
 

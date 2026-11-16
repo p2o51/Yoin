@@ -89,6 +89,7 @@ class ScreenCornersPageContent extends StatelessWidget {
     required this.onFollow,
     this.showBack = true,
     this.examplesPlaying = true,
+    this.onBack,
   });
 
   final double value;
@@ -99,6 +100,9 @@ class ScreenCornersPageContent extends StatelessWidget {
   final VoidCallback onFollow;
   final bool showBack;
   final bool examplesPlaying;
+
+  /// The back button's tap in place of popping (the Tips demo's).
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -139,6 +143,7 @@ class ScreenCornersPageContent extends StatelessWidget {
                                 child: DetailBackButton(
                                   container: scheme.surfaceContainerHighest,
                                   content: scheme.onSurface,
+                                  onBack: onBack,
                                 ),
                               )
                             else

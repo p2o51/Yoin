@@ -28,10 +28,13 @@ abstract final class DetailHeaderMetrics {
 /// 40dp (48 touch), surfaceContainer / onSurface, back glyph 22. Pops
 /// through the same Navigator path as the system back.
 class DetailBackButton extends StatelessWidget {
-  const DetailBackButton({super.key, this.container, this.content});
+  const DetailBackButton({super.key, this.container, this.content, this.onBack});
 
   final Color? container;
   final Color? content;
+
+  /// In place of popping the route (a Tips demo's page goes nowhere).
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +55,7 @@ class DetailBackButton extends StatelessWidget {
             tapTargetSize: MaterialTapTargetSize.padded,
           ),
           icon: const Icon(YoinSymbols.back, size: DetailHeaderMetrics.backIcon),
-          onPressed: () => Navigator.of(context).maybePop(),
+          onPressed: onBack ?? () => Navigator.of(context).maybePop(),
         ),
       ),
     );

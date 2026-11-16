@@ -1614,6 +1614,18 @@ abstract final class TipSceneTokens {
   /// The name page's notes: how long a ring lives and the echo between its three rings (ms).
   static const int noteLifeMs = 2400;
   static const int noteEchoMs = 220;
+
+  /// The screen-corners page starts at the roundest the demo uses (Android DemoStartDp).
+  static const double cornersStart = 64;
+
+  /// Where the other device is in the song a Continue On hand-off brings (Android's sample, 1:23).
+  static const int continuePositionMs = 83000;
+
+  /// The Devices sheet's tallest in the phone.
+  static const double devicesSheetMax = 480;
+
+  /// All Memories: room under the list, so its grid can scroll all the way up into the bar.
+  static const double ledgerRoom = 520;
 }
 
 /// Another account's things (Android MemoryOtherProfileLine.kt,

@@ -298,14 +298,13 @@ class _Actions extends StatelessWidget {
             Text(note, style: theme.textTheme.bodyMedium!.copyWith(color: theme.colorScheme.onSurfaceVariant)),
             const SizedBox(height: ContinueOnCardTokens.actionGap),
           ],
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              for (final (i, b) in buttons.indexed) ...[
-                if (i > 0) const SizedBox(width: ContinueOnCardTokens.actionGap),
-                b,
-              ],
-            ],
+          // Side by side at the end; stacked when a narrow window or a large font has no room for both.
+          OverflowBar(
+            alignment: MainAxisAlignment.end,
+            overflowAlignment: OverflowBarAlignment.end,
+            spacing: ContinueOnCardTokens.actionGap,
+            overflowSpacing: ContinueOnCardTokens.actionGap,
+            children: buttons,
           ),
         ],
       ),

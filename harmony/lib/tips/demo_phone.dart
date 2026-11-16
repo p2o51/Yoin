@@ -339,6 +339,25 @@ class DemoFinger {
 /// A script: plays the gesture once, putting the scene back at rest first.
 typedef DemoScript = Future<void> Function(DemoFinger finger);
 
+/// How much bigger than 168 × 300 the phone is drawn in a [window] this size:
+/// a tall window (a tablet held upright) gets a bigger phone, the demo being
+/// the page's subject; width keeps it to half the window.
+double demoPhoneGrow(Size window, {bool tall = false}) {
+  final phoneWidth = tall ? TipTokens.phoneHeight * TipTokens.tallAspect : TipTokens.phoneWidth;
+  return math
+      .min(
+        window.height * TipTokens.phoneHeightShare / TipTokens.phoneHeight,
+        window.width * TipTokens.phoneWidthShare / phoneWidth,
+      )
+      .clamp(1.0, TipTokens.phoneMaxGrow);
+}
+
+/// The phone frame's corner in its screen's own units ([TipTokens.screenWidth]
+/// wide, drawn [demoPhoneGrow] times 168 wide): what a screen-corner setting
+/// would match on this phone.
+double demoPhoneScreenCorner(Size window) =>
+    TipTokens.phoneCorner * TipTokens.screenWidth / (TipTokens.phoneWidth * demoPhoneGrow(window));
+
 /// A 168 × 300 phone (larger in a tall window) that plays [script] on a loop
 /// while [playing] and the user isn't touching it.
 class DemoPhone extends StatefulWidget {
@@ -451,15 +470,7 @@ class _DemoPhoneState extends State<DemoPhone> with TickerProviderStateMixin {
     final phoneWidth = widget.tall ? TipTokens.phoneHeight * TipTokens.tallAspect : TipTokens.phoneWidth;
     final screenWidth = widget.screenWidth ?? (widget.tall ? TipTokens.tallScreenWidth : TipTokens.screenWidth);
     final screenHeight = screenWidth * TipTokens.phoneHeight / phoneWidth;
-    // A tall window (a tablet held upright) gets a bigger phone: the demo is
-    // the page's subject. Width keeps it to half the window.
-    final window = MediaQuery.sizeOf(context);
-    final grow = math
-        .min(
-          window.height * TipTokens.phoneHeightShare / TipTokens.phoneHeight,
-          window.width * TipTokens.phoneWidthShare / phoneWidth,
-        )
-        .clamp(1.0, TipTokens.phoneMaxGrow);
+    final grow = demoPhoneGrow(MediaQuery.sizeOf(context), tall: widget.tall);
     final size = Size(phoneWidth * grow, TipTokens.phoneHeight * grow);
     final corner = BorderRadius.circular(TipTokens.phoneCorner);
     final screen = MediaQuery(

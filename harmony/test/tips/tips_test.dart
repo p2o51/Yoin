@@ -5,6 +5,11 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/home/home_bubble_tips.dart';
+import 'package:yoin/memories/ledger/memory_grid_view.dart';
+import 'package:yoin/nowplaying/devices/devices_sheet.dart';
+import 'package:yoin/settings/appearance/screen_corners_screen.dart';
+import 'package:yoin/settings/appearance/scroll_edge_screen.dart';
+import 'package:yoin/ui/component/seam/seam_style.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/settings/tips.dart';
 import 'package:yoin/theme/theme.dart';
@@ -55,10 +60,16 @@ void main() {
       expect(unreadTips({HomeBubbleTip.editHome}, tips), [HomeBubbleTip.name, HomeBubbleTip.playModes]);
     });
 
-    test('should_leaveServiceWidgetsOut_when_onADesktop', () {
+    test('should_leaveServiceWidgetsAndContinueOnOut_when_onADesktop', () {
       expect(HomeBubbleTip.available('ohos'), HomeBubbleTip.values);
       expect(HomeBubbleTip.available('windows'), isNot(contains(HomeBubbleTip.homeScreenWidgets)));
-      expect(HomeBubbleTip.available('windows').length, HomeBubbleTip.values.length - 1);
+      expect(HomeBubbleTip.available('windows'), isNot(contains(HomeBubbleTip.continueOn)));
+      expect(HomeBubbleTip.available('windows').length, HomeBubbleTip.values.length - 2);
+    });
+
+    test('should_bringAllMemoriesBackUnread_when_itWasReadBeforeTheLift', () {
+      // Read on 11-16, before the grid flew into the bar: the tip shows something new now.
+      expect(decodeReadTips(['memoryLedger@2026-11-12', 'aiServices@2026-11-16']), {HomeBubbleTip.aiServices});
     });
 
     test('should_writeBothLanguages_when_anyTipIsShown', () {
@@ -183,6 +194,85 @@ void main() {
         expect(tester.takeException(), isNull);
       });
     }
+
+    /// Plays the demo until [done] holds (at most [limit]); false if it never did.
+    Future<bool> playUntil(
+      WidgetTester tester,
+      bool Function() done, {
+      Duration limit = const Duration(seconds: 12),
+    }) async {
+      for (var t = Duration.zero; t < limit; t += const Duration(milliseconds: 16)) {
+        await tester.pump(const Duration(milliseconds: 16));
+        if (done()) return true;
+      }
+      return false;
+    }
+
+    /// Leaves the page: the demo stops and lets go of its timers.
+    Future<void> leave(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
+      await frames(tester, const Duration(seconds: 1));
+      expect(tester.takeException(), isNull);
+    }
+
+    testWidgets('should_flyTheGridIntoTheBar_when_theAllMemoriesDemoScrolls', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.memoryLedger);
+      final grid = find.ancestor(of: find.byType(MemoryGridView), matching: find.byType(Opacity)).first;
+      expect(tester.widget<Opacity>(grid).opacity, 1);
+      // The real grid steps aside once its squares take off for the bar.
+      expect(await playUntil(tester, () => tester.widget<Opacity>(grid).opacity == 0), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_findASpeakerAndPlayOnIt_when_theDevicesDemoPlays', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.devices);
+      final speaker = find.byKey(const ValueKey('device-tip-dlna'));
+      expect(speaker, findsNothing);
+      expect(await playUntil(tester, () => speaker.evaluate().isNotEmpty), isTrue);
+      expect(find.text('Living Room'), findsOneWidget);
+      expect(await playUntil(tester, () => tester.widget<DeviceRow>(speaker).device.isActive), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_offerContinueHere_when_theContinueOnDemoPlays', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.continueOn);
+      expect(await playUntil(tester, () => find.text('Continue here').evaluate().isNotEmpty), isTrue);
+      expect(find.text('From HUAWEI Mate 70'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_slideTheCornerDown_when_theScreenCornersDemoDrags', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.screenCorners);
+      ScreenCornersPageContent page() => tester.widget(find.byType(ScreenCornersPageContent));
+      expect(page().value, 64);
+      expect(page().following, isTrue);
+      expect(await playUntil(tester, () => page().value < 64 && !page().following), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_pickAnotherStyle_when_theScrollEdgeDemoTaps', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.scrollEdge);
+      bool chosen(SeamTopStyle style) =>
+          tester.widget<ScrollEdgeStyleCard>(find.byKey(ValueKey(style), skipOffstage: false)).selected;
+      expect(chosen(SeamTopStyle.tide), isTrue);
+      expect(await playUntil(tester, () => chosen(SeamTopStyle.dots)), isTrue);
+      expect(await playUntil(tester, () => chosen(SeamTopStyle.cookie)), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_showTheNewGroups_when_theSettingsRegroupedDemoIsShown', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.settingsRegrouped);
+      await frames(tester, const Duration(milliseconds: 300));
+      expect(find.text('Appearance'), findsOneWidget);
+      expect(find.text('NeoDB', skipOffstage: false), findsOneWidget);
+      expect(find.text('Help and about', skipOffstage: false), findsOneWidget);
+      await leave(tester);
+    });
 
     testWidgets('should_stepAside_when_theUserTouchesThePhone', (tester) async {
       await pumpDemo(tester, HomeBubbleTip.name);

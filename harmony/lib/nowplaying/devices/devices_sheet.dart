@@ -79,17 +79,41 @@ class _DevicesSheetState extends ConsumerState<DevicesSheet> {
     });
     final state = ref.watch(devicesViewModelProvider);
     final vm = ref.read(devicesViewModelProvider.notifier);
+
+    void refresh() {
+      YoinHaptics.tick();
+      vm.refresh();
+    }
+
+    return DevicesSheetBody(
+      state: state,
+      onRefresh: refresh,
+      onSelect: (device) {
+        YoinHaptics.contextClick();
+        vm.select(device);
+      },
+    );
+  }
+}
+
+/// What the Devices sheet shows, without its state: the title and subtitle
+/// with the refresh button, then the message and the rows (a pull refreshes).
+/// The Tips demo plays it with devices of its own.
+class DevicesSheetBody extends StatelessWidget {
+  const DevicesSheetBody({super.key, required this.state, required this.onRefresh, required this.onSelect});
+
+  final DevicesSheetState state;
+  final VoidCallback onRefresh;
+  final ValueChanged<YoinDevice> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
     final strings = DevicesStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final navBottom = MediaQuery.paddingOf(context).bottom;
     final error = state.error;
     final emptyText = state.isSubsonic ? strings.emptySubsonic : strings.emptyOther;
-
-    void refresh() {
-      YoinHaptics.tick();
-      vm.refresh();
-    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -119,7 +143,7 @@ class _DevicesSheetState extends ConsumerState<DevicesSheet> {
               IconButton(
                 key: const ValueKey('devices-refresh'),
                 tooltip: strings.cdRefresh,
-                onPressed: state.loading ? null : refresh,
+                onPressed: state.loading ? null : onRefresh,
                 icon: SizedBox.square(
                   dimension: 24,
                   child: SpringCrossFade(
@@ -141,7 +165,7 @@ class _DevicesSheetState extends ConsumerState<DevicesSheet> {
         Flexible(
           child: YoinPullToRefresh(
             refreshing: state.loading,
-            onRefresh: refresh,
+            onRefresh: onRefresh,
             child: ListView(
               shrinkWrap: true,
               physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
@@ -184,10 +208,7 @@ class _DevicesSheetState extends ConsumerState<DevicesSheet> {
                     key: ValueKey('device-${state.devices[i].id}'),
                     device: state.devices[i],
                     busy: state.busyDeviceId == state.devices[i].id,
-                    onTap: () {
-                      YoinHaptics.contextClick();
-                      vm.select(state.devices[i]);
-                    },
+                    onTap: () => onSelect(state.devices[i]),
                   ),
                 ],
               ],

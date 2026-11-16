@@ -10,8 +10,10 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../data/memory/memory_grid.dart';
 import '../data/memory/memory_ledger.dart';
 import '../data/model/model.dart';
+import '../detail/detail_page.dart' show DetailBackButton;
 import '../home/home_strings.dart';
 import '../landing/landing_mascot.dart';
+import '../memories/ledger/memory_grid_lift.dart';
 import '../memories/ledger/memory_grid_view.dart';
 import '../memories/ledger/memory_ledger_strings.dart';
 import '../memories/memories_strings.dart';
@@ -20,6 +22,9 @@ import '../memories/memory_card_face.dart' show MemoryPillButton;
 import '../memories/memory_other_profile_line.dart';
 import '../memories/palette/memory_palette.dart' show MemoryPaletteTones;
 import '../settings/account_identity.dart';
+import '../settings/settings_colors.dart';
+import '../settings/settings_components.dart' show SettingsBar, SettingsHeadline;
+import '../settings/settings_metrics.dart';
 import '../shell/bar_edit_pose.dart';
 import '../shell/yoin_bottom_bar.dart';
 import '../shell/yoin_section.dart';
@@ -785,8 +790,10 @@ class _AccountQuickSwitchDemoState extends State<AccountQuickSwitchDemo> with De
   }
 }
 
-/// All Memories: the real grid; a tap on a week shows just that stretch, and
-/// the view switches between Timeline, Cards and List.
+/// All Memories: the real grid; a tap on a week shows just that stretch;
+/// scrolling on, the grid's squares fly up into the bar as a pixel mosaic
+/// (the real lift layer), and the view switches between Timeline, Cards and
+/// List. Nothing opens: the back button stays in the phone.
 class MemoryLedgerDemo extends StatefulWidget {
   const MemoryLedgerDemo({super.key, required this.playing});
   final bool playing;
@@ -798,6 +805,19 @@ class MemoryLedgerDemo extends StatefulWidget {
 class _MemoryLedgerDemoState extends State<MemoryLedgerDemo> with DemoSceneState, TickerProviderStateMixin {
   late final LedgerColorBook _colors = LedgerColorBook(vsync: this);
   late final MemoryGrid _grid = _demoGrid();
+  late final List<LiftPixel> _pixels = liftPixels(_grid);
+  final ScrollController _scroll = ScrollController();
+  final MemoryGridLift _lift = MemoryGridLift();
+  late final MemoryGridLiftProgress _liftProgress = MemoryGridLiftProgress(_lift, _scroll);
+  final GlobalKey _layer = GlobalKey();
+  final GlobalKey _gridKey = GlobalKey();
+
+  /// The real grid steps aside the moment its copies take off.
+  final ValueNotifier<bool> _lifted = ValueNotifier(false);
+
+  /// 0 → 1 as the bar forms: its title and back button turn white.
+  late final SpringValue _white = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
+  bool _formed = false;
   int? _selected;
   int _view = 0;
 
@@ -834,12 +854,46 @@ class _MemoryLedgerDemoState extends State<MemoryLedgerDemo> with DemoSceneState
       final cover = album.cover;
       if (cover is CoverUrl) _colors.request(album, cover.url);
     }
+    _scroll.addListener(_onScroll);
   }
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
     _colors.dispose();
+    _lifted.dispose();
+    _white.dispose();
     super.dispose();
+  }
+
+  RenderBox? _layerBox() {
+    final box = _layer.currentContext?.findRenderObject();
+    return box is RenderBox && box.attached && box.hasSize ? box : null;
+  }
+
+  /// As the page follows its lift (MemoryLedgerScreen): the grid steps aside, the bar turns white once formed.
+  void _onScroll() {
+    final box = _layerBox();
+    final p = box == null ? 0.0 : _liftProgress.of(box, kToolbarHeight, measure: false);
+    _lifted.value = p > 0.001;
+    final formed = p > MemoryLedgerTokens.liftFormed;
+    if (formed == _formed) return;
+    put(() => _formed = formed);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _white.snapTo(formed ? 1 : 0);
+    } else {
+      _white.animateTo(formed ? 1 : 0);
+    }
+  }
+
+  /// How far the list scrolls for the grid to be wholly under the bar.
+  double _liftOffset() {
+    final grid = _gridKey.currentContext?.findRenderObject();
+    final layer = _layerBox();
+    if (grid is! RenderBox || layer == null || !grid.attached || !_scroll.hasClients) return 0;
+    final top = grid.localToGlobal(Offset.zero, ancestor: layer).dy - kToolbarHeight + _scroll.offset;
+    return (top + grid.size.height).clamp(0.0, _scroll.position.maxScrollExtent);
   }
 
   Future<void> _script(DemoFinger f) async {
@@ -847,16 +901,33 @@ class _MemoryLedgerDemoState extends State<MemoryLedgerDemo> with DemoSceneState
       _selected = null;
       _view = 0;
     });
+    if (_scroll.hasClients) _scroll.jumpTo(0);
     await f.wait(600);
     await f.moveTo('grid', fx: 0.62, fy: 0.5);
     await f.tap(() => put(() => _selected = 15));
     await f.wait(1100);
+    // Scrolling on: the squares rise into the bar.
+    final lift = _liftOffset();
+    await f.moveToPoint(0.5, 0.8);
+    await f.drag(
+      0.5,
+      0.45,
+      1200,
+      onProgress: (p) {
+        if (_scroll.hasClients) _scroll.jumpTo(lift * p);
+      },
+    );
+    await f.wait(900);
     await f.moveTo('view');
     await f.tap(() => put(() => _view = 1));
     await f.wait(1000);
     await f.tap(() => put(() => _view = 2));
     await f.lift();
-    await f.wait(1600);
+    await f.wait(1400);
+    if (_scroll.hasClients) {
+      await _scroll.animateTo(0, duration: const Duration(milliseconds: 900), curve: Curves.easeInOut);
+    }
+    await f.wait(500);
   }
 
   @override
@@ -877,66 +948,171 @@ class _MemoryLedgerDemoState extends State<MemoryLedgerDemo> with DemoSceneState
     return DemoPhone(
       playing: widget.playing,
       script: _script,
-      child: DemoSettingsPage(
-        title: strings.title,
-        children: [
-          DemoTarget(
-            'grid',
-            child: MemoryGridView(
-              grid: _grid,
-              colors: _colors,
-              placement: MemoryGridPlacement.page,
-              selected: _selected,
-              onCellClick: (i) => put(() => _selected = _selected == i ? null : i),
-            ),
-          ),
-          const SizedBox(height: TipSceneTokens.titleGap),
-          Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: DemoTarget(
-              'view',
-              child: OutlinedButton.icon(
-                onPressed: () => put(() => _view = (_view + 1) % 3),
-                icon: Icon(views[_view].$2),
-                label: Text(views[_view].$1),
-              ),
-            ),
-          ),
-          const SizedBox(height: TipSceneTokens.titleGap),
-          if (_view == 1)
-            Wrap(
-              spacing: TipSceneTokens.coverGap,
-              runSpacing: TipSceneTokens.coverGap,
-              children: [
-                for (final album in shown)
-                  CoverArt(cover: album.cover, size: TipSceneTokens.ledgerCard, radius: ShapeTokens.cover),
-              ],
-            )
-          else
-            for (final album in shown)
-              Padding(
-                padding: const EdgeInsets.only(bottom: TipSceneTokens.coverGap),
-                child: Row(
-                  children: [
-                    CoverArt(cover: album.cover, size: LibraryTokens.rowThumb, radius: ShapeTokens.thumb),
-                    const SizedBox(width: TipSceneTokens.titleGap),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(album.name, style: theme.textTheme.titleMedium!.copyWith(color: colors.onSurface)),
-                          Text(
-                            _view == 0 ? strings.kindSongNote : strings.kindAlbumRating,
-                            style: theme.textTheme.bodyMedium!.copyWith(color: colors.onSurfaceVariant),
-                          ),
-                        ],
+      child: ColoredBox(
+        color: settingsPageColor(colors),
+        child: Stack(
+          children: [
+            // The list starts under the bar, as on the page: only the lift's squares fly up into it.
+            Padding(
+              padding: const EdgeInsets.only(top: kToolbarHeight),
+              child: ListView(
+                controller: _scroll,
+                padding: const EdgeInsets.fromLTRB(
+                  MemoryLedgerTokens.pageSide,
+                  MemoryLedgerTokens.pageTop,
+                  MemoryLedgerTokens.pageSide,
+                  TipSceneTokens.ledgerRoom,
+                ),
+                children: [
+                  SettingsHeadline(title: strings.title),
+                  const SizedBox(height: MemoryLedgerTokens.gridTop),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: _lifted,
+                    builder: (context, lifted, child) => Opacity(opacity: lifted ? 0 : 1, child: child),
+                    child: KeyedSubtree(
+                      key: _gridKey,
+                      child: DemoTarget(
+                        'grid',
+                        child: MemoryGridView(
+                          grid: _grid,
+                          colors: _colors,
+                          placement: MemoryGridPlacement.page,
+                          selected: _selected,
+                          lift: _lift,
+                          onCellClick: (i) => put(() => _selected = _selected == i ? null : i),
+                        ),
                       ),
                     ),
-                  ],
+                  ),
+                  const SizedBox(height: TipSceneTokens.titleGap),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: DemoTarget(
+                      'view',
+                      child: OutlinedButton.icon(
+                        onPressed: () => put(() => _view = (_view + 1) % 3),
+                        icon: Icon(views[_view].$2),
+                        label: Text(views[_view].$1),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: TipSceneTokens.titleGap),
+                  if (_view == 1)
+                    Wrap(
+                      spacing: TipSceneTokens.coverGap,
+                      runSpacing: TipSceneTokens.coverGap,
+                      children: [
+                        for (final album in shown)
+                          CoverArt(cover: album.cover, size: TipSceneTokens.ledgerCard, radius: ShapeTokens.cover),
+                      ],
+                    )
+                  else
+                    for (final album in shown)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: TipSceneTokens.coverGap),
+                        child: Row(
+                          children: [
+                            CoverArt(cover: album.cover, size: LibraryTokens.rowThumb, radius: ShapeTokens.thumb),
+                            const SizedBox(width: TipSceneTokens.titleGap),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    album.name,
+                                    style: theme.textTheme.titleMedium!.copyWith(color: colors.onSurface),
+                                  ),
+                                  Text(
+                                    _view == 0 ? strings.kindSongNote : strings.kindAlbumRating,
+                                    style: theme.textTheme.bodyMedium!.copyWith(color: colors.onSurfaceVariant),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                ],
+              ),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  key: _layer,
+                  painter: MemoryGridLiftPainter(
+                    lift: _lift,
+                    progress: _liftProgress,
+                    pixels: _pixels,
+                    colors: _colors,
+                    faint: colors.onSurface.withValues(alpha: 0.07),
+                    barBottom: kToolbarHeight,
+                    into: _layerBox,
+                    reduced: MediaQuery.disableAnimationsOf(context),
+                    rtl: Directionality.of(context) == TextDirection.rtl,
+                    repaint: Listenable.merge([_scroll, _colors]),
+                  ),
                 ),
               ),
-        ],
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: kToolbarHeight,
+              child: _DemoLedgerBar(title: strings.title, scroll: _scroll, white: _white.animation),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// All Memories' bar in the phone (MemoryLedgerScreen's bar without its
+/// status-bar style): the back button, and the title rising in as the
+/// headline goes under; both turn white as the mosaic forms.
+class _DemoLedgerBar extends StatelessWidget {
+  const _DemoLedgerBar({required this.title, required this.scroll, required this.white});
+
+  final String title;
+  final ScrollController scroll;
+  final Animation<double> white;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final style = Theme.of(context).textTheme.titleLarge!;
+    final titleHeight = SettingsBar.lineHeight(context, Theme.of(context).textTheme.displaySmall!);
+    return AnimatedBuilder(
+      animation: Listenable.merge([scroll, white]),
+      builder: (context, _) {
+        final w = white.value.clamp(0.0, 1.0);
+        final ink = Color.lerp(colors.onSurface, Colors.white, w)!;
+        final offset = scroll.hasClients ? scroll.offset : 0.0;
+        final p = ((offset - SettingsBar.headlineOffset) / titleHeight.clamp(1.0, double.infinity)).clamp(0.0, 1.0);
+        return Row(
+          children: [
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: SettingsMetrics.backStart, end: SettingsMetrics.backEnd),
+              child: DetailBackButton(container: colors.surfaceContainerHighest, content: ink, onBack: () {}),
+            ),
+            Expanded(
+              child: Opacity(
+                opacity: p,
+                child: FractionalTranslation(
+                  translation: Offset(0, (1 - p) * 0.5),
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: style.copyWith(color: ink),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

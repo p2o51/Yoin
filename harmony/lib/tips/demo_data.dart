@@ -84,3 +84,9 @@ const demoLyrics = LyricSheet([
 /// A memory's title and its excerpt (Android TipHomeScenes DemoMemoriesPage).
 const demoMemoryTitle = 'Night walks in the rain';
 const demoMemoryExcerpt = 'The second side is the one I keep coming back to.';
+
+/// The DLNA speaker the Devices demo finds on the Wi-Fi.
+const demoSpeakerName = 'Living Room';
+
+/// The device a Continue On hand-off comes from in the demo.
+const demoOtherDeviceName = 'HUAWEI Mate 70';

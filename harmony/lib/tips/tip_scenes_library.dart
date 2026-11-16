@@ -8,6 +8,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../continueon/continue_on_card.dart';
+import '../continueon/continue_on_controller.dart';
+import '../continueon/continue_on_cursor.dart';
+import '../data/model/model.dart' show MediaId;
 import '../library/library_search.dart';
 import '../library/library_search_view.dart' show librarySearchFilterLabel;
 import '../library/library_strings.dart';
@@ -587,4 +591,83 @@ class _DemoSearchBar extends StatelessWidget {
       },
     );
   }
+}
+
+/// Continue On (Android TipLibraryScenes.kt ContinueOnDemo): another device
+/// hands its song over, the real card comes up over Library, and "Continue
+/// here" takes it (the other device pauses). Nothing plays.
+class ContinueOnDemo extends StatefulWidget {
+  const ContinueOnDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<ContinueOnDemo> createState() => _ContinueOnDemoState();
+}
+
+class _ContinueOnDemoState extends State<ContinueOnDemo> with DemoSceneState {
+  static const _continueKey = ValueKey('tip-continue-here');
+
+  bool _card = false;
+  bool _starting = false;
+
+  ContinueOnPrompt get _prompt {
+    final album = demoAlbums[2];
+    return ContinueOnPrompt(
+      cursor: ContinueOnCursor(
+        provider: MediaId.providerSubsonic,
+        accountKey: null,
+        trackId: 'tip-continue',
+        title: demoTrackTitles[0],
+        artist: album.artist,
+        album: album.name,
+        cover: null,
+        queueIds: const ['tip-continue'],
+        index: 0,
+        positionMs: TipSceneTokens.continuePositionMs,
+        capturedAtMs: 0,
+        playing: true,
+        repeatMode: 0,
+        shuffle: false,
+        context: null,
+        deviceName: demoOtherDeviceName,
+        pause: null,
+      ),
+      account: const ContinueOnAccountFound('tip-account', 'Home server'),
+      coverUrl: album.coverUrl,
+      stage: _starting ? ContinueOnStage.starting : ContinueOnStage.asking,
+    );
+  }
+
+  Future<void> _script(DemoFinger f) async {
+    put(() {
+      _card = false;
+      _starting = false;
+    });
+    await f.wait(700);
+    put(() => _card = true);
+    await f.wait(1400);
+    await f.moveToKey(_continueKey);
+    await f.tap(() => put(() => _starting = true));
+    await f.lift();
+    await f.wait(700);
+    put(() => _card = false);
+    await f.wait(1600);
+  }
+
+  @override
+  Widget build(BuildContext context) => DemoPhone(
+    playing: widget.playing,
+    script: _script,
+    child: Stack(
+      children: [
+        const DemoLibraryPage(),
+        ContinueOnCard(
+          prompt: _card ? _prompt : null,
+          continueKey: _continueKey,
+          onContinue: () => put(() => _starting = true),
+          onDismiss: () => put(() => _card = false),
+        ),
+      ],
+    ),
+  );
 }
