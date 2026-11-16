@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/model/model.dart';
 import '../memories/memory_title_editor.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
+import 'home_album_memory_mark.dart';
 import 'home_edit_wiggle.dart';
 import 'home_header.dart';
 import 'home_jbi_hidden.dart';
@@ -266,16 +268,20 @@ class JbiCoverCell extends ConsumerWidget {
         kickKey: card.stableId,
         child: ElasticPress(
           onTap: () => _tapCard(context, ref, card),
-          child: _CoverBlock(card: card, coverSide: coverSide),
+          // A plain album cover wears its memory mark (home_album_memory_mark.dart).
+          child: _CoverBlock(card: card, coverSide: coverSide, markAlbum: jbiMarkAlbum(card)),
         ),
       );
 }
 
 class _CoverBlock extends StatelessWidget {
-  const _CoverBlock({required this.card, required this.coverSide});
+  const _CoverBlock({required this.card, required this.coverSide, this.markAlbum});
 
   final HomeWidgetCard card;
   final double coverSide;
+
+  /// The album whose memory mark the cover wears; null = a bare cover (the signal cards').
+  final MediaId? markAlbum;
 
   @override
   Widget build(BuildContext context) {
@@ -290,7 +296,13 @@ class _CoverBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        BackdropCover(cover: card.cover, kind: card.kind, size: coverSide, requestSize: HomeCoverRequest.jbi),
+        BackdropCover(
+          cover: card.cover,
+          kind: card.kind,
+          size: coverSide,
+          requestSize: HomeCoverRequest.jbi,
+          markAlbum: markAlbum,
+        ),
         const SizedBox(height: HomeJbiMetrics.captionGap),
         VersionTitle(title: card.title, version: card.version, style: titleStyle),
         if (card.subtitle.trim().isNotEmpty) SeamText(card.subtitle, style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant)),

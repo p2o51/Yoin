@@ -7,6 +7,7 @@ import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
+import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/memories/ledger/memory_ledger_view_model.dart';
 import 'package:yoin/memories/memories_view_model.dart';
 import 'package:yoin/platform/storage/observed_store.dart';
@@ -16,6 +17,41 @@ import 'package:yoin/playback/local_ratings.dart';
 import '../support/library_fake_source.dart';
 
 const _creds = SubsonicCredentials(baseUrl: 'https://m.test', username: 'u', password: 'p');
+
+/// A server that answers single songs (getSong) from [songs].
+class _LookupSource extends LibraryFakeSource implements MusicTrackLookup {
+  _LookupSource(this.songs);
+
+  final Map<MediaId, Track> songs;
+  final asked = <MediaId>[];
+
+  @override
+  Future<Track?> getTrack(MediaId id) async {
+    asked.add(id);
+    return songs[id];
+  }
+}
+
+LocalRating _score(String profileId, String songId, double rating, int at) => LocalRating(
+  profileId: profileId,
+  songId: songId,
+  provider: MediaId.providerSubsonic,
+  rating: rating,
+  serverRating: serverRatingFor(rating),
+  updatedAt: at,
+);
+
+Future<MemoryLedgerState> _settled(ProviderContainer c, bool Function(MemoryLedgerState s) done) async {
+  bool settled() {
+    final s = c.read(memoryLedgerProvider).value;
+    return s != null && done(s);
+  }
+
+  for (var i = 0; i < 60 && !settled(); i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
+  return c.read(memoryLedgerProvider).value!;
+}
 
 void main() {
   final now = DateTime.utc(2026, 11, 14, 12).millisecondsSinceEpoch;
@@ -88,6 +124,51 @@ void main() {
     expect(state.entries.last.trackTitle, 'Song 2');
     expect(state.stats.writings, 2);
     expect(state.grid.scale, MemoryGridScale.month);
+  });
+
+  test('should_placeAServerScoreOnItsAlbum_when_theServerNamesIt', () async {
+    final server = _LookupSource({
+      MediaId.subsonic('z1'): Track(
+        id: MediaId.subsonic('z1'),
+        title: 'Far song',
+        album: 'Album z',
+        artist: 'Zed',
+        albumId: MediaId.subsonic('z'),
+      ),
+    });
+    source = server;
+    // A score pulled from the server: no play, no album page, no album here.
+    await LocalRatingStore(kv).write(profile.id, {MediaId.subsonic('z1'): _score(profile.id, 'z1', 7.9, now)});
+    final c = container();
+    c.listen(memoryLedgerProvider, (_, _) {});
+    await c.read(memoryLedgerProvider.future);
+    // The enricher or the ledger's own lookup names it, whichever asks first.
+    final state = await _settled(c, (s) => s.entries.single.album != null);
+    final entry = state.entries.single;
+    expect(entry.album!.albumId, MediaId.subsonic('z'));
+    expect(entry.album!.name, 'Album z');
+    expect(entry.album!.artist, 'Zed');
+    expect(entry.trackTitle, 'Far song');
+    expect(state.stats.albums, 1);
+    // Kept: a new ledger places it at once, nobody asks again.
+    server.asked.clear();
+    final again = container();
+    expect((await again.read(memoryLedgerProvider.future)).entries.single.album!.name, 'Album z');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(server.asked, isEmpty);
+  });
+
+  test('should_placeASongOnItsAlbum_when_playedHere', () async {
+    final store = MemoryStore.shared(kv, profile.id);
+    await store.recordAlbumPlay(MediaId.subsonic('p'), atMs: now - 1000, albumName: 'Album p', artistName: 'P');
+    await store.recordTrackPlay(
+      Track(id: MediaId.subsonic('p1'), title: 'Played song', album: 'Album p', albumId: MediaId.subsonic('p')),
+      atMs: now - 1000,
+    );
+    await LocalRatingStore(kv).write(profile.id, {MediaId.subsonic('p1'): _score(profile.id, 'p1', 6, now)});
+    final entry = (await container().read(memoryLedgerProvider.future)).entries.single;
+    expect(entry.album!.name, 'Album p');
+    expect(entry.trackTitle, 'Played song');
   });
 
   test('should_showNothing_when_nothingKept', () async {
@@ -203,6 +284,28 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
       expect(c.read(memoryLedgerProvider).value!.entries.single.profileId, b.id);
+    });
+
+    test('should_askItsOwnServer_when_anotherAccountsScoreHasNoAlbum', () async {
+      final theirs = _LookupSource({
+        MediaId.subsonic('y1'): Track(
+          id: MediaId.subsonic('y1'),
+          title: 'Their song',
+          album: 'Album y',
+          albumId: MediaId.subsonic('y'),
+        ),
+      });
+      sourceB = theirs;
+      // Synced from another device: B's score, nothing local names its album.
+      await LocalRatingStore(kv).write(b.id, {MediaId.subsonic('y1'): _score(b.id, 'y1', 9, now)});
+      final c = accounts();
+      c.listen(memoryLedgerProvider, (_, _) {});
+      await c.read(memoryLedgerProvider.future);
+      final state = await _settled(c, (s) => s.entries.single.album != null);
+      final album = state.entries.single.album!;
+      expect(album.name, 'Album y');
+      expect(album.profileId, b.id);
+      expect(theirs.asked, [MediaId.subsonic('y1')]);
     });
 
     test('should_reload_when_cloudSyncWritesOtherAccountsScores', () async {

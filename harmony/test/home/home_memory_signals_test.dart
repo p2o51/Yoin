@@ -8,6 +8,7 @@ import 'package:yoin/data/memory/album_memory_candidate.dart';
 import 'package:yoin/data/memory/memory_copy_cache.dart';
 import 'package:yoin/data/memory/memory_store.dart';
 import 'package:yoin/data/model/model.dart';
+import 'package:yoin/home/home_album_memory_mark.dart';
 import 'package:yoin/home/home_grid_pool_store.dart';
 import 'package:yoin/home/home_memory_signals.dart';
 import 'package:yoin/home/home_screen.dart';
@@ -15,6 +16,7 @@ import 'package:yoin/home/home_selection.dart';
 import 'package:yoin/home/home_ui_state.dart';
 import 'package:yoin/home/home_view_model.dart';
 import 'package:yoin/home/jump_back_in.dart';
+import 'package:yoin/memories/memories_ui_state.dart';
 import 'package:yoin/home/rediscover_section.dart';
 import 'package:yoin/home/rediscover_selection.dart';
 import 'package:yoin/platform/storage/stores.dart';
@@ -285,6 +287,33 @@ void main() {
       final container = await memoryHome(tester, const Size(1280, 800));
       expect(find.byType(JbiSignalCard), findsNWidgets(2));
       expect(tester.takeException(), isNull);
+      await done(tester, container);
+    });
+
+    testWidgets('should_markPlainAlbumCovers_when_somethingIsKeptOnThem', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final container = await memoryHome(tester, const Size(360, 800));
+      final profile = await container.read(profileRepositoryProvider).activeProfile();
+      final memories = MemoryStore.shared(container.read(keyValueStoreProvider), profile!.id);
+      for (var i = 1; i < 14; i++) {
+        await memories.setAlbumRating(MediaId.subsonic('g$i'), 7, nowMs: _now - _day);
+      }
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      final marks = container.read(homeMemorySignalsProvider).albumMarks;
+      expect(
+        marks[MediaId.subsonic('g1')],
+        const HomeAlbumMemoryMark(kind: MemoryScoreKind.albumRating, scoreText: '7.0'),
+      );
+      // Every plain album cover on the shelf wears its sticker; songs and the wide cards never do.
+      final covers = tester.widgetList<JbiCoverCell>(find.byType(JbiCoverCell));
+      final albums = covers.where((c) => c.card.kind == HomeCardKind.album).length;
+      expect(albums, greaterThan(0));
+      expect(albums, lessThan(covers.length));
+      expect(find.bySemanticsLabel('Your rating 7.0'), findsNWidgets(albums));
+      expect(find.descendant(of: find.byType(JbiSignalCard), matching: find.byType(AlbumMemoryMarkSlot)), findsNothing);
+      semantics.dispose();
       await done(tester, container);
     });
 

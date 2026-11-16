@@ -21,6 +21,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../app/providers.dart';
 import '../data/memory/album_memory_candidate.dart';
 import '../data/memory/memory_store.dart';
+import '../data/memory/track_album_links.dart';
 import '../detail/detail_cache.dart';
 import '../nowplaying/haptics.dart';
 import '../playback/local_ratings.dart';
@@ -122,6 +123,8 @@ String memoryNewsKey(AlbumMemoryCandidate? latest, int noteCount) => '${latest?.
 
 class HomeMemoryPillNotifier extends Notifier<HomeMemoryPillState> {
   StreamSubscription<MemoryStoreChange>? _changes;
+  StreamSubscription<void>? _linkChanges;
+  Timer? _linkDebounce;
   int _generation = 0;
 
   @override
@@ -135,7 +138,23 @@ class HomeMemoryPillNotifier extends Notifier<HomeMemoryPillState> {
     _changes = store?.changes.listen((c) {
       if (c != MemoryStoreChange.plays) _load(source?.provider, store);
     });
-    ref.onDispose(() => _changes?.cancel());
+    // A song's album learned: its notes and scores may make that album the latest memory.
+    _linkChanges?.cancel();
+    _linkChanges = store == null
+        ? null
+        : TrackAlbumLinkStore.shared(
+            ref.read(keyValueStoreProvider),
+            store.profileId,
+          ).changes.listen((_) {
+            // A lookup pass writes links in quick succession: one rebuild after it settles.
+            _linkDebounce?.cancel();
+            _linkDebounce = Timer(const Duration(milliseconds: 300), () => _load(source?.provider, store));
+          });
+    ref.onDispose(() {
+      _changes?.cancel();
+      _linkChanges?.cancel();
+      _linkDebounce?.cancel();
+    });
     scheduleMicrotask(() => _load(source?.provider, store));
     return const HomeMemoryPillState();
   }
@@ -145,6 +164,11 @@ class HomeMemoryPillNotifier extends Notifier<HomeMemoryPillState> {
     if (provider == null || store == null) return;
     try {
       final notes = await store.songNotes();
+      final trackAlbums = await loadTrackAlbums(
+        store,
+        TrackAlbumLinkStore.shared(ref.read(keyValueStoreProvider), store.profileId),
+      );
+      final notedAlbums = {for (final n in notes) ?(n.albumId ?? trackAlbums[n.trackId])};
       final inputs = AlbumMemoryInputs(
         profileId: store.profileId,
         provider: provider,
@@ -152,9 +176,10 @@ class HomeMemoryPillNotifier extends Notifier<HomeMemoryPillState> {
         songNotes: notes,
         albumPlays: [
           for (final p in await store.albumPlays())
-            if (await store.albumRating(p.albumId) != null || notes.any((n) => n.albumId == p.albumId)) p,
+            if (await store.albumRating(p.albumId) != null || notedAlbums.contains(p.albumId)) p,
         ],
         trackRatings: ref.read(localRatingsProvider),
+        trackAlbums: trackAlbums,
       );
       final pool = await buildAlbumMemoryCandidates(inputs, loadAlbum: ref.read(detailCacheProvider).album);
       if (!ref.mounted || generation != _generation) return;

@@ -17,6 +17,7 @@ import '../app/providers.dart';
 import '../data/memory/album_memory_candidate.dart';
 import '../data/memory/memory_copy_cache.dart';
 import '../data/memory/memory_store.dart';
+import '../data/memory/track_album_links.dart';
 import '../data/model/model.dart';
 import '../detail/detail_cache.dart';
 import '../neodb/neodb_providers.dart';
@@ -54,6 +55,7 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
   String? _profileId;
   int _generation = 0;
   StreamSubscription<MemoryStoreChange>? _storeChanges;
+  StreamSubscription<void>? _linkChanges;
   Timer? _refreshDebounce;
 
   @override
@@ -72,6 +74,7 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
     ref.listen(memoryCopySyncRevisionProvider, (_, _) => _scheduleRefresh());
     ref.onDispose(() {
       _storeChanges?.cancel();
+      _linkChanges?.cancel();
       _refreshDebounce?.cancel();
     });
     // A deck on screen stays while the accounts change under it (a switch
@@ -161,9 +164,17 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
     }
   }
 
+  /// A write, or a song's album learned (its notes and scores join the album's card).
   void _watchStore(MemoryStore? store) {
     _storeChanges?.cancel();
     _storeChanges = store?.changes.listen((_) => _scheduleRefresh());
+    _linkChanges?.cancel();
+    _linkChanges = store == null
+        ? null
+        : TrackAlbumLinkStore.shared(
+            ref.read(keyValueStoreProvider),
+            store.profileId,
+          ).changes.listen((_) => _scheduleRefresh());
   }
 
   void _scheduleRefresh() {
@@ -322,6 +333,7 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
       albumPlays: await store.albumPlays(),
       activity: await log?.recent() ?? const [],
       trackRatings: ratings,
+      trackAlbums: await loadTrackAlbums(store, TrackAlbumLinkStore.shared(kv, store.profileId)),
     );
     return (inputs, await store.titles());
   }
@@ -336,6 +348,7 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
       albumPlays: await store.albumPlays(),
       activity: await o.log.recent(),
       trackRatings: await o.ratings(),
+      trackAlbums: await loadTrackAlbums(store, TrackAlbumLinkStore.shared(ref.read(keyValueStoreProvider), o.id)),
     );
     return _Account.other(inputs, titles: await store.titles(), other: o);
   }
@@ -358,7 +371,8 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
       final ratingRow = a.inputs.albumRatings[c.albumId];
       final notes = [
         for (final n in a.inputs.songNotes)
-          if (n.albumId == c.albumId || (c.album?.tracks.any((t) => t.id == n.trackId) ?? false)) n,
+          // Written on the album, or on a song a link places there (as the candidate counted them).
+          if (a.inputs.albumOfNote(n) == c.albumId || (c.album?.tracks.any((t) => t.id == n.trackId) ?? false)) n,
       ];
       final words = a.other == null ? ai : null;
       final album = c.album;

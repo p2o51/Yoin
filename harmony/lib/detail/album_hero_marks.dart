@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,9 +8,9 @@ import '../data/model/model.dart';
 import '../memories/album_score.dart';
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
-import '../theme/theme.dart';
 import '../ui/component/artwork_image.dart';
 import '../ui/component/spring_cross_fade.dart';
+import 'detail_listening.dart';
 import 'detail_palette.dart';
 import 'dot_dissolve.dart';
 import 'detail_strings.dart';
@@ -20,8 +19,12 @@ import 'detail_strings.dart';
 /// AlbumSpectrumBar / AlbumDetailComponents). Detail-local until the shared
 /// tokens take them (report: YoinTokens.kt has no counterpart yet).
 abstract final class AlbumHeroTokens {
-  /// Emblem ↔ pen gap (scoreBesideComment Row spacedBy).
+  /// Emblem ↔ comment gap (scoreBesideComment Row spacedBy).
   static const double metaGap = 20;
+
+  /// The written review: at most three lines, the day it was written 4 under it.
+  static const int reviewMaxLines = 3;
+  static const double reviewDateGap = 4;
 
   /// Under the emblem row, before the track-count line (the row itself sits
   /// in the hero column's existing 8dp top padding).
@@ -216,232 +219,91 @@ Path parseSvgPathData(String d) {
 }
 
 // ---------------------------------------------------------------------------
-// Score emblem: the unrated mould.
+// The comment: the review as written, or the pen.
 // ---------------------------------------------------------------------------
 
-/// The album's score emblem as v1 can show it (Android ScoreEmblem →
-/// GrooveEmblem, Page surface, 64dp): always the unrated mould — a faint
-/// ground, one dotted ring per track (merged to the size's ring budget), a
-/// dashed Cookie12Sided slot and the word "Unrated". Harmony keeps no local
-/// album or track ratings yet (Android's score comes from them, never from the
-/// server's stars), so the album and average kinds have nothing to show.
-/// Not tappable: Android opens the rate sheet / scrapbook, both deferred.
-class AlbumUnratedEmblem extends StatelessWidget {
-  const AlbumUnratedEmblem({super.key, required this.trackCount, this.size = AlbumHeroTokens.emblem});
+/// The album's comment (Android AlbumHeroComment): the user's own words, so
+/// no "Comment" caption. Written, the review shows as text — three lines at
+/// most, then the day it was written (owner 2026-10-05: "写了就留 comment，
+/// 再加一个写的日期") — and a tap edits it; not written yet, only the pen.
+/// Writing the first words or clearing them crossfades the two.
+class AlbumHeroComment extends ConsumerWidget {
+  const AlbumHeroComment({super.key, required this.albumId, this.onEdit, this.now});
 
-  final int trackCount;
-  final double size;
+  final MediaId albumId;
+
+  /// Opens the rate sheet with the caret in the review; null: not interactive.
+  final VoidCallback? onEdit;
+
+  /// Today, for the date's "Today / Yesterday" (tests); null = the clock.
+  final DateTime? now;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final score = ref.watch(albumScoreProvider(albumId));
+    final review = score.review?.trim() ?? '';
+    final written = review.isNotEmpty;
+    return SpringCrossFade(
+      childKey: written,
+      fit: StackFit.loose,
+      child: written
+          ? AlbumReviewText(review: review, writtenAt: score.reviewUpdatedAt, onTap: onEdit, now: now)
+          : AlbumCommentPen(onTap: onEdit),
+    );
+  }
+}
+
+/// The written review (AlbumHeroComment's text branch): bodyMedium in
+/// onSurface, three lines then an ellipsis; under it, 4 apart, the day it was
+/// written in labelMedium / onSurfaceVariant (the Last Play day's words).
+/// The whole block is one button: "Edit comment".
+class AlbumReviewText extends StatelessWidget {
+  const AlbumReviewText({super.key, required this.review, this.writtenAt, this.onTap, this.now});
+
+  final String review;
+  final int? writtenAt;
+  final VoidCallback? onTap;
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final strings = DetailStrings.of(context);
+    final at = writtenAt;
     return Semantics(
-      image: true,
-      label: strings.emblemCdUnrated,
-      child: ExcludeSemantics(
-        child: SizedBox.square(
-          dimension: size,
-          child: CustomPaint(
-            painter: UnratedEmblemPainter(
-              geometry: UnratedEmblemGeometry(size: size, trackCount: trackCount),
-              outline: colors.outline,
-              ink: colors.onSurfaceVariant,
-              dark: colors.surface.computeLuminance() < 0.5,
-              word: strings.emblemUnrated,
+      button: onTap != null,
+      onTapHint: strings.albumCdEditComment,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          spacing: AlbumHeroTokens.reviewDateGap,
+          children: [
+            Text(
+              review,
+              maxLines: AlbumHeroTokens.reviewMaxLines,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(color: colors.onSurface),
             ),
-          ),
+            if (at != null)
+              Text(
+                lastPlayLabels(at, strings, now: now).$1,
+                maxLines: 1,
+                style: theme.textTheme.labelMedium?.copyWith(color: colors.onSurfaceVariant),
+              ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// GrooveGeometry for the unrated kind on a page (rim inset 0.5, no rim
-/// stroke), in dp. Ported from Android grooveGeometry.
-@immutable
-final class UnratedEmblemGeometry {
-  factory UnratedEmblemGeometry({required double size, required int trackCount}) {
-    final s = size;
-    final r = s / 2;
-    final tiny = s < 60;
-    final big = s >= 110;
-    final rimR = r - 0.5;
-    final labelR = s * (tiny ? 0.345 : (big ? 0.3 : 0.305)) * (s >= 60 && s < 88 ? 1.07 : 1.0);
-    final leadIn = tiny ? 0.9 : math.max(1.4, s * 0.016);
-    final gOut = rimR - leadIn;
-    final gIn = labelR + math.max(1.2, s * 0.017);
-    final band = gOut - gIn;
-    final cap = big ? 12 : (s >= 88 ? 8 : (s >= 64 ? 6 : 3));
-    final minPitch = tiny ? 1.3 : 1.72;
-    final n = math.max(trackCount, 1);
-    final ringCount = math.max(1, math.min(math.min(cap, n), (band / minPitch).floor()));
-    final pitch = band / ringCount;
-    return UnratedEmblemGeometry._(
-      size: s,
-      tiny: tiny,
-      rimRadius: rimR,
-      labelRadius: labelR,
-      ringRadii: [for (var i = 0; i < ringCount; i++) gOut - pitch * (i + 0.5)],
-      dotDiameter: math.min(pitch * 0.58, tiny ? 1.0 : 1.2),
-      labelStroke: tiny ? 1.4 : math.max(1.1, s * 0.013),
-      showsWord: s >= 64,
-      wordSize: s < 88 ? 9.5 : math.max(10.0, s * 0.125),
-      wordWidthAxis: s < 88 ? 76 : 92,
-    );
-  }
-
-  const UnratedEmblemGeometry._({
-    required this.size,
-    required this.tiny,
-    required this.rimRadius,
-    required this.labelRadius,
-    required this.ringRadii,
-    required this.dotDiameter,
-    required this.labelStroke,
-    required this.showsWord,
-    required this.wordSize,
-    required this.wordWidthAxis,
-  });
-
-  final double size;
-  final bool tiny;
-  final double rimRadius;
-  final double labelRadius;
-
-  /// Outer ring first.
-  final List<double> ringRadii;
-  final double dotDiameter;
-  final double labelStroke;
-  final bool showsWord;
-  final double wordSize;
-  final double wordWidthAxis;
-
-  /// The spindle hole of an empty pressing (below 64dp).
-  bool get showsSpindle => size < 64;
-  double get spindleRadius => math.max(1.6, size * 0.045);
-
-  /// Dots on ring [i] (GrooveGeometry.dotCount).
-  int dotCount(int i) {
-    final circumference = 2 * math.pi * ringRadii[i];
-    final target = math.max(tiny ? 2.3 : 2.6, dotDiameter * 2.3);
-    return math.max(6, (circumference / target).round());
-  }
-}
-
-class UnratedEmblemPainter extends CustomPainter {
-  UnratedEmblemPainter({
-    required this.geometry,
-    required this.outline,
-    required this.ink,
-    required this.dark,
-    required this.word,
-  });
-
-  final UnratedEmblemGeometry geometry;
-  final Color outline;
-  final Color ink;
-  final bool dark;
-  final String word;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final g = geometry;
-    final k = size.width / g.size;
-    final c = Offset(size.width / 2, size.height / 2);
-    // GrooveColors (Unrated, not on a cover).
-    final ground = outline.withValues(alpha: dark ? 0.1 : 0.06);
-    final dot = outline.withValues(alpha: g.tiny ? (dark ? 0.95 : 0.8) : (dark ? 0.82 : 0.6));
-    final slotFill = outline.withValues(alpha: dark ? 0.14 : 0.08);
-
-    canvas.drawCircle(c, g.rimRadius * k, Paint()..color = ground);
-
-    final dotPaint = Paint()
-      ..color = dot
-      ..strokeWidth = g.dotDiameter * k
-      ..strokeCap = StrokeCap.round;
-    for (var i = 0; i < g.ringRadii.length; i++) {
-      final n = g.dotCount(i);
-      final phase = i.isOdd ? 0.5 : 0.0;
-      final r = g.ringRadii[i] * k;
-      canvas.drawPoints(ui.PointMode.points, [
-        for (var j = 0; j < n; j++)
-          c + Offset(math.cos((j + phase) * 2 * math.pi / n), math.sin((j + phase) * 2 * math.pi / n)) * r,
-      ], dotPaint);
-    }
-
-    // The mould: a Cookie12Sided whose lobes reach labelRadius − stroke / 2.
-    final mould = cookie12Path(c, (g.labelRadius - g.labelStroke / 2) * k);
-    canvas.drawPath(mould, Paint()..color = slotFill);
-    final slot = Paint()
-      ..color = outline
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = g.labelStroke * k
-      ..strokeCap = StrokeCap.round;
-    // 24 dashes (two per lobe), the first starting on the top lobe's peak (where the path starts).
-    for (final metric in mould.computeMetrics()) {
-      final per = metric.length / 24;
-      for (var i = 0; i < 24; i++) {
-        canvas.drawPath(metric.extractPath(per * i, per * i + per * 0.55), slot);
-      }
-    }
-    if (g.showsSpindle) {
-      canvas.drawCircle(c, g.spindleRadius * k, Paint()..color = outline.withValues(alpha: 0.85));
-    }
-    if (g.showsWord) {
-      final f = g.wordSize * k;
-      final base = gsf(f, weight: 600, height: 1, letterSpacing: 0);
-      final tp = TextPainter(
-        text: TextSpan(
-          text: word,
-          style: base.copyWith(
-            color: ink,
-            fontVariations: [...?base.fontVariations, FontVariation('wdth', g.wordWidthAxis)],
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-        maxLines: 1,
-      )..layout();
-      tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
-      tp.dispose();
-    }
-  }
-
-  @override
-  bool shouldRepaint(UnratedEmblemPainter old) =>
-      old.geometry.size != geometry.size ||
-      old.geometry.ringRadii.length != geometry.ringRadii.length ||
-      old.outline != outline ||
-      old.ink != ink ||
-      old.dark != dark ||
-      old.word != word;
-}
-
-/// MaterialShapes.Cookie12Sided (a 12-point star, inner radius 0.8, corners
-/// rounded 0.5) as a smooth 12-lobe curve whose lobes reach [radius], the
-/// first lobe at 12 o'clock where the path starts.
-Path cookie12Path(Offset centre, double radius) {
-  const lobes = 12;
-  const steps = 240;
-  // Rounded corners pull the peaks in and fill the valleys: the lobes swing 0.88 … 1.
-  const valley = 0.88;
-  final path = Path();
-  for (var i = 0; i <= steps; i++) {
-    final a = -math.pi / 2 + i / steps * 2 * math.pi;
-    final wave = (math.cos(lobes * (a + math.pi / 2)) + 1) / 2;
-    final r = radius * (valley + (1 - valley) * wave);
-    final p = centre + Offset(math.cos(a), math.sin(a)) * r;
-    i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
-  }
-  return path..close();
-}
-
-// ---------------------------------------------------------------------------
-// Comment pen.
-// ---------------------------------------------------------------------------
-
-/// The album comment's pen (Android AlbumHeroComment): a 40dp tonal round
-/// button with the Edit glyph; opens the rate sheet with the caret in the review.
+/// The album comment's pen (Android AlbumHeroComment, no review yet): a 40dp
+/// tonal round button with the Edit glyph, "Write a comment"; opens the rate
+/// sheet with the caret in the review.
 class AlbumCommentPen extends StatelessWidget {
   const AlbumCommentPen({super.key, this.onTap});
 
@@ -452,7 +314,7 @@ class AlbumCommentPen extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Semantics(
       button: onTap != null,
-      label: DetailStrings.of(context).albumCdRate,
+      label: DetailStrings.of(context).albumCdWriteComment,
       excludeSemantics: true,
       child: Material(
         color: colors.secondaryContainer,
@@ -471,10 +333,11 @@ class AlbumCommentPen extends StatelessWidget {
   }
 }
 
-/// The emblem and the pen on one row, the cover's width (scoreBesideComment).
-/// The emblem is the album's live score (ScoreEmblem: album score, else the
-/// track average, else the empty mould); it and the pen open the rate and
-/// review sheet (AlbumRateSheet), the pen with the caret in the review.
+/// The emblem and the comment on one row, the cover's width
+/// (scoreBesideComment): the comment takes what the emblem leaves. The emblem
+/// is the album's live score (ScoreEmblem: album score, else the track
+/// average, else the empty mould); it and the comment open the rate and
+/// review sheet (AlbumRateSheet), the comment with the caret in the review.
 class AlbumHeroMetaRow extends StatelessWidget {
   const AlbumHeroMetaRow({
     super.key,
@@ -523,7 +386,12 @@ class AlbumHeroMetaRow extends StatelessWidget {
                 ),
                 AlbumRatedCoverage(albumId: albumId),
                 const SizedBox(width: AlbumHeroTokens.metaGap),
-                AlbumCommentPen(onTap: () => open(review: true)),
+                Expanded(
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: AlbumHeroComment(albumId: albumId, onEdit: () => open(review: true)),
+                  ),
+                ),
               ],
             );
           },

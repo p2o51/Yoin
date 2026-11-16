@@ -7,6 +7,7 @@ import '../../app/providers.dart';
 import '../../data/model/model.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
+import '../home_album_memory_mark.dart';
 import '../home_metrics.dart';
 import '../../ui/component/artwork_image.dart';
 import '../../ui/component/artwork_swap.dart';
@@ -88,12 +89,23 @@ class HomeArtwork extends StatelessWidget {
 /// Triangle on the Expressive fast spatial spring and presses the cover 0.97.
 /// Artists draw a bare full-size circle cover.
 class BackdropCover extends ConsumerWidget {
-  const BackdropCover({super.key, required this.cover, required this.kind, required this.size, this.requestSize = HomeCoverRequest.standard});
+  const BackdropCover({
+    super.key,
+    required this.cover,
+    required this.kind,
+    required this.size,
+    this.requestSize = HomeCoverRequest.standard,
+    this.markAlbum,
+  });
 
   final CoverRef? cover;
   final HomeCardKind kind;
   final double size;
   final int requestSize;
+
+  /// The album whose memory mark the cover wears (home_album_memory_mark.dart),
+  /// on the cover's own footprint, pressed with it; null = a bare cover.
+  final MediaId? markAlbum;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -118,7 +130,22 @@ class BackdropCover extends ConsumerWidget {
           ),
           Align(
             alignment: AlignmentDirectional.bottomEnd,
-            child: _PressedArtwork(child: HomeArtwork(image: image, kind: kind, size: artworkSide)),
+            child: _PressedArtwork(
+              child: markAlbum == null
+                  ? HomeArtwork(image: image, kind: kind, size: artworkSide)
+                  : Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        HomeArtwork(image: image, kind: kind, size: artworkSide),
+                        // Its disc half over the cover's top edge at the end corner: inside the backdrop.
+                        PositionedDirectional(
+                          top: -HomeTokens.memoryMarkLift,
+                          end: 0,
+                          child: AlbumMemoryMarkSlot(album: markAlbum!, coverUrl: image?.url, coverImage: image?.image),
+                        ),
+                      ],
+                    ),
+            ),
           ),
         ],
       ),

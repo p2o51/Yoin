@@ -19,11 +19,14 @@ import 'memories_view_model.dart';
 
 @immutable
 final class AlbumScore {
-  const AlbumScore({this.albumRating, this.review, this.average, this.ratedTracks = const []});
+  const AlbumScore({this.albumRating, this.review, this.reviewUpdatedAt, this.average, this.ratedTracks = const []});
 
   /// The user's album score (> 0), or null.
   final double? albumRating;
   final String? review;
+
+  /// When the review's words were last written; null without a review.
+  final int? reviewUpdatedAt;
 
   /// Average of the rated tracks, or null.
   final double? average;
@@ -70,6 +73,7 @@ class AlbumScoreNotifier extends Notifier<AlbumScore> {
     state = AlbumScore(
       albumRating: (row?.hasScore ?? false) ? row!.rating : null,
       review: row?.review,
+      reviewUpdatedAt: (row?.hasReview ?? false) ? row!.reviewUpdatedAt : null,
       average: scores.isEmpty ? null : scores.reduce((a, b) => a + b) / scores.length,
       ratedTracks: [for (final r in rated) r != null],
     );

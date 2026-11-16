@@ -658,6 +658,18 @@ abstract final class HomeTokens {
   static const double rediscoverBadgeHeight = 24;
   static const double rediscoverBadgePadding = 8;
   static const double rediscoverBadgeHang = 6;
+
+  /// An album cover's memory mark (HomeAlbumMemoryMark.kt, the Memories pill's
+  /// sticker): a 12 Cookie12Sided on a 16 page-coloured disc, its line 1.25
+  /// (dashes 2 with 1.5 gaps for notes only, PillOutlineAlpha 0.6), the disc
+  /// lifted half its size above the cover's top edge.
+  static const double memoryMarkBacking = 16;
+  static const double memoryMarkCookie = 12;
+  static const double memoryMarkLine = 1.25;
+  static const double memoryMarkDash = 2;
+  static const double memoryMarkGap = 1.5;
+  static const double memoryMarkNotesAlpha = 0.6;
+  static const double memoryMarkLift = memoryMarkBacking / 2;
 }
 
 /// Home's Memories bubble (Android ui/home/HomeMemoryBubble.kt): the resting

@@ -10,6 +10,13 @@
 /// the details cached on disk while it was in use (Android getCachedAlbumFor:
 /// never asked over the network here), and its covers come from its own
 /// server (the deck's [OtherProfileSource.coverFor]).
+///
+/// A song note or score whose song Yoin never played, nor saw on an album it
+/// loaded, is placed through the song's album link (track_album_links.dart).
+/// Songs nothing places yet are asked about on their service once the ledger
+/// shows (Android LedgerTrackResolver, runs while Home's grid reads the
+/// ledger): every answer is kept, reloads the ledger, and the next pass asks
+/// for what is still unknown, until a pass brings nothing.
 library;
 
 import 'dart:async';
@@ -22,6 +29,7 @@ import '../../data/activity/activity.dart';
 import '../../data/memory/memory_grid.dart';
 import '../../data/memory/memory_ledger.dart';
 import '../../data/memory/memory_store.dart';
+import '../../data/memory/track_album_links.dart';
 import '../../data/model/model.dart';
 import '../../data/profile/profile.dart';
 import '../../detail/detail_cache.dart';
@@ -32,6 +40,7 @@ import '../../settings/settings_view_model.dart';
 import '../memories_ui_state.dart';
 import '../memories_view_model.dart';
 import '../other_profiles.dart';
+import '../track_album_linker.dart';
 
 /// An account the ledger has memories from (Android LedgerProfile): what an
 /// entry's "From …" line shows, and whether its albums open from here.
@@ -159,7 +168,12 @@ const int memoryLedgerPlayedScan = 48;
 
 class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
   final Map<String, StreamSubscription<MemoryStoreChange>> _changes = {};
+  final Map<String, StreamSubscription<void>> _linkChanges = {};
   Timer? _debounce;
+  late TrackAlbumLinker _linker;
+
+  /// A pass of song lookups is out; the reload after it starts the next.
+  bool _resolving = false;
 
   /// Another account's cached album details, read from disk once while this
   /// ledger lives (they don't change while that account isn't in use).
@@ -168,6 +182,7 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
   @override
   Future<MemoryLedgerState> build() async {
     ref.watch(activeSourceProvider);
+    _linker = ref.read(trackAlbumLinkerProvider);
     final store = await ref.watch(memoryStoreProvider.future);
     ref.listen(localRatingsProvider, (previous, next) {
       if (previous != null && !identical(previous, next)) _scheduleReload();
@@ -192,6 +207,10 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
         s.cancel();
       }
       _changes.clear();
+      for (final s in _linkChanges.values) {
+        s.cancel();
+      }
+      _linkChanges.clear();
       _debounce?.cancel();
       _otherDetails.clear();
     });
@@ -210,14 +229,38 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
 
   /// Every listed account's rows reload the ledger when written (a note on
   /// this device, or another device's through cloud sync).
+  /// A song's album learned (here, by the enricher, or another reader) too.
   void _watchStores(Iterable<MemoryStore> stores) {
     final wanted = {for (final s in stores) s.profileId: s};
     for (final id in [..._changes.keys]) {
       if (!wanted.containsKey(id)) unawaited(_changes.remove(id)!.cancel());
     }
+    for (final id in [..._linkChanges.keys]) {
+      if (!wanted.containsKey(id)) unawaited(_linkChanges.remove(id)!.cancel());
+    }
+    final kv = ref.read(keyValueStoreProvider);
     for (final MapEntry(key: id, value: store) in wanted.entries) {
       _changes.putIfAbsent(id, () => store.changes.listen((_) => _scheduleReload()));
+      _linkChanges.putIfAbsent(id, () => TrackAlbumLinkStore.shared(kv, id).changes.listen((_) => _scheduleReload()));
     }
+  }
+
+  /// Asks the songs' services about [wanted], one pass at a time; a pass that
+  /// answered any reloads the ledger, which asks for what is left.
+  void _resolve(List<TrackAlbumWanted> wanted, Map<String, Future<TrackAlbumAccount?> Function()> accounts) {
+    if (_resolving || wanted.isEmpty) return;
+    _resolving = true;
+    unawaited(() async {
+      TrackAlbumPass? pass;
+      try {
+        pass = await _linker.resolve(wanted, accountFor: (id) async => await accounts[id]?.call());
+      } catch (e) {
+        debugPrint('YoinLedger: song lookups failed: ${e.runtimeType}');
+      } finally {
+        _resolving = false;
+      }
+      if (ref.mounted && pass != null && pass.answered > 0) _scheduleReload();
+    }());
   }
 
   Future<MemoryLedgerState> _load(MemoryStore? store) async {
@@ -236,43 +279,71 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
     // The account in use: its live ratings over the stored ones, its log, its detail cache.
     final ratings = {...await LocalRatingStore(kv).read(store.profileId), ...ref.read(localRatingsProvider)};
     final log = await ref.read(activityLogProvider.future);
-    final provider = (await ref.read(activeSourceProvider.future))?.provider;
+    final source = await ref.read(activeSourceProvider.future);
+    final provider = source?.provider;
     final cache = ref.read(detailCacheProvider);
-    final entries = [
-      ...await _accountEntries(
-        store,
-        ratings: ratings,
-        activity: provider == null ? const [] : await log?.recent() ?? const <ActivityEvent>[],
-        provider: provider ?? '',
-        detail: (id) async => cache.cachedAlbum(id) ?? await cache.album(id),
-        cover: (ref) => ref,
-      ),
-    ];
+    final own = await _accountEntries(
+      store,
+      ratings: ratings,
+      activity: provider == null ? const [] : await log?.recent() ?? const <ActivityEvent>[],
+      provider: provider ?? '',
+      detail: (id) async => cache.cachedAlbum(id) ?? await cache.album(id),
+      // An album only a song's link names: what this device already holds of it, never a read.
+      cachedDetail: (id) async => cache.cachedAlbum(id),
+      cover: (ref) => ref,
+    );
+    final entries = [...own.entries];
+    final wanted = [...own.wanted];
+    final linker = _linker;
+    final lookups = <String, Future<TrackAlbumAccount?> Function()>{
+      // The account in use as the linker sees it when asked: never this load's
+      // source against a store a switch has since replaced.
+      if (source != null)
+        store.profileId: () async {
+          final active = await linker.activeAccount();
+          return active?.profileId == store.profileId ? active : null;
+        },
+    };
     // The others: what this device kept of them, read only.
     final disk = ref.read(detailCacheStoreProvider);
     for (final other in accounts.others) {
       final id = other.profile.id;
       try {
-        entries.addAll(
-          await _accountEntries(
-            MemoryStore.shared(kv, id),
-            ratings: await LocalRatingStore(kv).read(id),
-            activity: await StoredActivityLog(kv, profileId: id).recent(),
-            provider: other.profile.provider,
-            detail: (albumId) => _otherDetails.putIfAbsent('$id|$albumId', () async {
-              if (disk == null) return null;
-              return (await disk.readAlbum(id, albumId.toString()))?.value();
-            }),
-            // A cover id needs that account's own server; none to ask: no cover.
-            cover: (ref) => ref is CoverUrl ? ref : other.source?.coverFor(ref),
-          ),
+        Future<Album?> detail(MediaId albumId) => _otherDetails.putIfAbsent('$id|$albumId', () async {
+          if (disk == null) return null;
+          return (await disk.readAlbum(id, albumId.toString()))?.value();
+        });
+        final read = await _accountEntries(
+          MemoryStore.shared(kv, id),
+          ratings: await LocalRatingStore(kv).read(id),
+          activity: await StoredActivityLog(kv, profileId: id).recent(),
+          provider: other.profile.provider,
+          detail: detail,
+          cachedDetail: detail,
+          // A cover id needs that account's own server; none to ask: no cover.
+          cover: (ref) => ref is CoverUrl ? ref : other.source?.coverFor(ref),
         );
+        entries.addAll(read.entries);
+        wanted.addAll(read.wanted);
+        // Its own server answers for its songs (a streaming service only for the account in use).
+        final lookup = other.source?.trackLookup;
+        if (lookup != null) {
+          lookups[id] = () async => TrackAlbumAccount(
+            profileId: id,
+            provider: other.profile.provider,
+            lookup: lookup,
+            memory: MemoryStore.shared(kv, id),
+            links: TrackAlbumLinkStore.shared(kv, id),
+            ratings: () => LocalRatingStore(kv).read(id),
+          );
+        }
       } catch (e) {
         // That account adds nothing this time; the rest still show.
         debugPrint('YoinLedger: another account unreadable: ${e.runtimeType}');
       }
     }
     entries.sort(compareLedgerNewestFirst);
+    _resolve(wanted, lookups);
     final withMemories = {for (final e in entries) e.profileId};
     final profiles = [
       if (withMemories.contains(store.profileId) && accounts.own != null) accounts.own!,
@@ -339,13 +410,18 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
   }
 
   /// One account's entries: its rows named against [detail] (an album's
-  /// cached detail) and its own plays and visits, with covers through [cover].
-  Future<List<MemoryLedgerEntry>> _accountEntries(
+  /// cached detail) and its own plays and visits, with covers through [cover],
+  /// and the songs of its entries nothing places yet ([TrackAlbumWanted]: no
+  /// album, never asked about). An album only a song's link names is read
+  /// through [cachedDetail] (what is on this device) and else named by the
+  /// link itself.
+  Future<({List<MemoryLedgerEntry> entries, List<TrackAlbumWanted> wanted})> _accountEntries(
     MemoryStore store, {
     required Map<MediaId, LocalRating> ratings,
     required List<ActivityEvent> activity,
     required String provider,
     required Future<Album?> Function(MediaId id) detail,
+    required Future<Album?> Function(MediaId id) cachedDetail,
     required CoverRef? Function(CoverRef ref) cover,
   }) async {
     final rows = MemoryLedgerRows(
@@ -355,6 +431,25 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
       trackRatings: ratings,
     );
     final plays = await store.albumPlays();
+    final links = await TrackAlbumLinkStore.shared(ref.read(keyValueStoreProvider), store.profileId).links();
+    final index = trackAlbumIndex(links: links, plays: await store.trackPlays());
+    // The albums of the noted and scored songs, as their links and plays name them.
+    final linked = <MediaId, TrackAlbumFacts>{};
+    void link(MediaId song) {
+      final facts = index[song];
+      if (facts == null) return;
+      final was = linked[facts.albumId];
+      if (was == null || (was.albumName.trim().isEmpty && facts.albumName.trim().isNotEmpty)) {
+        linked[facts.albumId] = facts;
+      }
+    }
+
+    for (final n in rows.songNotes) {
+      if (!n.isBlank) link(n.trackId);
+    }
+    for (final r in rows.trackRatings.values) {
+      if (r.rating != null) link(r.trackId);
+    }
     final albums = await _albums(
       rows,
       plays,
@@ -362,6 +457,8 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
       provider,
       profileId: store.profileId,
       detail: detail,
+      cachedDetail: cachedDetail,
+      linked: linked,
       cover: cover,
     );
     final tracks = <MediaId, LedgerKnownTrack>{};
@@ -370,17 +467,31 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
         tracks.putIfAbsent(t.id, () => (album: album, title: t.title));
       }
     }
-    return buildMemoryLedger(
-      rows,
-      album: (id) => albums[id]?.$1,
-      track: (id) => tracks[id],
-      profileId: store.profileId,
-    );
+    LedgerKnownTrack? track(MediaId id) {
+      final known = tracks[id];
+      if (known != null) return known;
+      final facts = index[id];
+      final named = facts == null ? null : albums[facts.albumId]?.$1;
+      if (named == null) return null;
+      return (album: named, title: facts!.title.trim().isEmpty ? null : facts.title);
+    }
+
+    final entries = buildMemoryLedger(rows, album: (id) => albums[id]?.$1, track: track, profileId: store.profileId);
+    final wanted = <TrackAlbumWanted>[
+      for (final e in entries)
+        if (e.album == null &&
+            (e.kind == MemoryLedgerKind.songNote || e.kind == MemoryLedgerKind.trackRating) &&
+            e.songId != null &&
+            !links.containsKey(e.songId))
+          TrackAlbumWanted(store.profileId, e.songId!),
+    ];
+    return (entries: entries, wanted: wanted);
   }
 
   /// Every album the rows name, and the most recently played ones, with their
   /// cached details: names, artists and covers from the detail first, then
-  /// from Yoin's own plays and visits.
+  /// from Yoin's own plays and visits, then from the songs' [linked] facts.
+  /// The albums only [linked] names are read through [cachedDetail].
   Future<Map<MediaId, (MemoryLedgerAlbum, Album?)>> _albums(
     MemoryLedgerRows rows,
     List<AlbumPlays> plays,
@@ -388,14 +499,21 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
     String provider, {
     required String profileId,
     required Future<Album?> Function(MediaId id) detail,
+    required Future<Album?> Function(MediaId id) cachedDetail,
+    Map<MediaId, TrackAlbumFacts> linked = const {},
     required CoverRef? Function(CoverRef ref) cover,
   }) async {
-    final ids = <MediaId>{
+    final scanned = <MediaId>{
       ...rows.albumRatings.keys,
       ...rows.titles.keys,
       for (final n in rows.songNotes) ?n.albumId,
       for (final p in plays.take(memoryLedgerPlayedScan)) p.albumId,
-    }.toList();
+    };
+    final ids = [
+      ...scanned,
+      for (final id in linked.keys)
+        if (!scanned.contains(id)) id,
+    ];
     final names = <MediaId, ({String name, String artist, String? cover})>{};
     for (final p in plays) {
       if (p.albumName.trim().isEmpty) continue;
@@ -406,13 +524,17 @@ class MemoryLedgerViewModel extends AsyncNotifier<MemoryLedgerState> {
       final id = MediaId(provider, e.entityId);
       names.putIfAbsent(id, () => (name: e.title, artist: e.subtitle, cover: e.coverArtKey));
     }
+    for (final MapEntry(key: id, value: f) in linked.entries) {
+      if (f.albumName.trim().isEmpty) continue;
+      names.putIfAbsent(id, () => (name: f.albumName, artist: f.artist, cover: f.coverArtKey));
+    }
     final details = List<Album?>.filled(ids.length, null);
     var next = 0;
     Future<void> worker() async {
       while (next < ids.length) {
         final i = next++;
         try {
-          details[i] = await detail(ids[i]);
+          details[i] = await (scanned.contains(ids[i]) ? detail : cachedDetail)(ids[i]);
         } catch (_) {
           details[i] = null;
         }
