@@ -341,6 +341,14 @@ abstract final class NowPlayingTokens {
   static const double expandedTabGap = 12;
   static const double tabGroupGap = 8;
 
+  /// The AI loading About over content already shown: an indicator opens between
+  /// the About and Note tabs — in the text tabs a [tabBusySlot] slot holding a
+  /// [tabBusyIndicator] one (CompactTabBusySlot / Size), in the tab group a
+  /// [tabGroupBusy] one (YoinTabGroup TabBusySize).
+  static const double tabBusySlot = 32;
+  static const double tabBusyIndicator = 20;
+  static const double tabGroupBusy = 36;
+
   /// StageTabs: the text tabs lift this far as they fade out, the group settles from this far below;
   /// a pressed text tab dips to [tabPressedStretch], an unselected one reads at [tabIdleAlpha].
   static const double tabCompactLift = 6;
@@ -512,6 +520,9 @@ abstract final class NowPlayingAboutTokens {
   static const Duration carouselDwell = Duration(seconds: 7);
   static const double statusIndicator = 32;
   static const double statusGap = 8;
+
+  /// The bottom fade of a compact About page taller than its window (CarouselOverflowFade).
+  static const double carouselOverflowFade = 40;
 
   /// Thinking dots: size, gap, the dim end of their blink, the period and step.
   static const double dot = 6;
@@ -1547,6 +1558,10 @@ abstract final class NowPlayingEffectTokens {
 
   /// How many lines after the current one print as [lyricDotsReadable].
   static const int lyricDotsReadableLines = 2;
+
+  /// How many lines before the current one print as [lyricDotsReadable]: the
+  /// line just sung stays readable; the lines above it rest as fine dots.
+  static const int lyricDotsReadableLinesAbove = 1;
 
   /// The current line develops dots → solid, a sung line breaks back (EaseOutCubic).
   static const int lyricDotsDevelopMs = 700;

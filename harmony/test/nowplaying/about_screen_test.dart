@@ -30,11 +30,21 @@ const _about = '''
 void main() {
   late InMemoryStore kv;
   late FakeAiClient client;
+  late NowPlayingFakeController playback;
+  final blue = Track(
+    id: MediaId.subsonic('t0'),
+    title: 'Blue',
+    artist: 'Joni',
+    album: 'Blue',
+    durationSec: 200,
+    genre: 'Folk',
+  );
 
   Future<NowPlayingOverlayController> pump(
     WidgetTester tester, {
     bool ready = true,
     Size size = const Size(412, 892),
+    List<Track>? queue,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -45,9 +55,8 @@ void main() {
       await AiSettingsStore(kv, secrets).write(const AiSettings(provider: AiProvider.qwen, qwenKey: 'q'));
     }
     client = FakeAiClient(reply: _about);
-    final tracks = [
-      Track(id: MediaId.subsonic('t0'), title: 'Blue', artist: 'Joni', album: 'Blue', durationSec: 200, genre: 'Folk'),
-    ];
+    final tracks = queue ?? [blue];
+    playback = NowPlayingFakeController(playingState(tracks));
     final controller = NowPlayingOverlayController(vsync: tester);
     addTearDown(controller.dispose);
     controller.window = YoinWindowInfo(size.width, size.height);
@@ -55,7 +64,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          ...nowPlayingOverrides(controller: NowPlayingFakeController(playingState(tracks))),
+          ...nowPlayingOverrides(controller: playback),
           upNextPrefetchDelayProvider.overrideWithValue(Duration.zero),
           keyValueStoreProvider.overrideWithValue(kv),
           secretStoreProvider.overrideWithValue(secrets),
@@ -109,6 +118,39 @@ void main() {
     expect(client.prompts, hasLength(1));
     final rows = await SongAboutStore.shared(kv).all();
     expect(rows.where((r) => r.isCanonical), hasLength(6));
+  });
+
+  testWidgets('should_loadTheNewSongsAbout_when_theSongChangesWhileOnAbout', (tester) async {
+    // Android 11-16 (5145074a9): staying on About across a song change loads the new song's About.
+    final river = Track(
+      id: MediaId.subsonic('t1'),
+      title: 'River',
+      artist: 'Joni',
+      album: 'Blue',
+      durationSec: 240,
+      genre: 'Folk',
+    );
+    final tracks = [blue, river];
+    await pump(tester, queue: tracks);
+    await tester.tap(find.text('About'));
+    await tester.pumpAndSettle();
+    expect(client.prompts, hasLength(1));
+
+    client.reply = _about.replaceAll('Henry Lewy', 'Joni Mitchell');
+    playback.emit(playingState(tracks, index: 1));
+    await tester.pumpAndSettle();
+    expect(client.prompts, hasLength(2));
+    expect(client.prompts.last, contains('River'));
+    expect(find.text('Load song info'), findsNothing);
+  });
+
+  testWidgets('should_notFetch_when_theSongChangesOnAnotherPage', (tester) async {
+    final river = Track(id: MediaId.subsonic('t1'), title: 'River', artist: 'Joni', album: 'Blue', durationSec: 240);
+    final tracks = [blue, river];
+    await pump(tester, queue: tracks);
+    playback.emit(playingState(tracks, index: 1));
+    await tester.pumpAndSettle();
+    expect(client.prompts, isEmpty);
   });
 
   testWidgets('should_showNoKeyAndSettings_when_noAiService', (tester) async {

@@ -876,6 +876,18 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     final expanded = widget.controller.stage == NowPlayingStage.expanded;
     final noteStage = expanded && _pageTarget == NowPlayingDetailPage.note;
     final about = ref.watch(nowPlayingAboutProvider);
+    // About stays lazy (asked for once the page is shown), but "shown" includes
+    // staying on it while the song changes: only a page select asked, so the
+    // next song sat on "Load song info" (Android 11-16). The previous song's
+    // fetch is dropped by the song change itself.
+    ref.listen(nowPlayingAboutProvider.select((a) => a.song), (previous, song) {
+      if (song == null || song == previous || _pageTarget != NowPlayingDetailPage.about) return;
+      scheduleMicrotask(() {
+        if (mounted && _pageTarget == NowPlayingDetailPage.about) {
+          ref.read(nowPlayingAboutProvider.notifier).onAboutOpened();
+        }
+      });
+    });
     _trackKeyHint(about.about);
     final askFocused = about.ask is AskFocused;
     // The Ask bar grows the Expanded About's accessory while focused.
@@ -1466,24 +1478,27 @@ class _Stage extends ConsumerWidget {
             child: ClipRect(
               child: _Retreat(
                 progress: retreat,
-                child: StageTabs(
-                  selected: pageTarget,
-                  detail: detail,
-                  onSelect: onSelectPage,
-                  textOnly: oneLine,
-                  // The enlarged phone at rest (44) and the 16:9 expanded page
-                  // (40, fading in with the stage) carry the lyric tools at the
-                  // row's end; they fade in place when idle.
-                  tools: !lyricsPage
-                      ? null
-                      : oneLine
-                      ? FadeTransition(
-                          opacity: detail,
-                          child: const LyricToolsBar(iconSize: LyricToolsMetrics.shortTabKey, inPlaceGuard: true),
-                        )
-                      : enlarged
-                      ? const LyricToolsBar(iconSize: LyricToolsMetrics.enlargedTabKey, inPlaceGuard: true)
-                      : null,
+                child: Consumer(
+                  builder: (context, ref, _) => StageTabs(
+                    selected: pageTarget,
+                    detail: detail,
+                    onSelect: onSelectPage,
+                    aboutBusy: ref.watch(_aboutBusyProvider),
+                    textOnly: oneLine,
+                    // The enlarged phone at rest (44) and the 16:9 expanded page
+                    // (40, fading in with the stage) carry the lyric tools at the
+                    // row's end; they fade in place when idle.
+                    tools: !lyricsPage
+                        ? null
+                        : oneLine
+                        ? FadeTransition(
+                            opacity: detail,
+                            child: const LyricToolsBar(iconSize: LyricToolsMetrics.shortTabKey, inPlaceGuard: true),
+                          )
+                        : enlarged
+                        ? const LyricToolsBar(iconSize: LyricToolsMetrics.enlargedTabKey, inPlaceGuard: true)
+                        : null,
+                  ),
                 ),
               ),
             ),
@@ -2283,6 +2298,14 @@ final _lyricCreditsProvider = Provider.autoDispose<LyricCredits?>(
   (ref) => ref.watch(nowPlayingViewModelProvider.select((s) => s is NowPlayingContent ? s.lyricCredits : null)),
 );
 
+/// The AI is loading About over the credits / server facts already shown: the
+/// tab row's small indicator between About and Note (Android aboutBusy).
+final _aboutBusyProvider = Provider.autoDispose<bool>((ref) {
+  if (ref.watch(nowPlayingAboutProvider.select((a) => a.about)) is! AboutLoading) return false;
+  final track = ref.watch(playbackControllerProvider.select((s) => s.current));
+  return aboutHasSourceRows(ref.watch(_lyricCreditsProvider), track == null ? null : AboutSourceFacts.of(track));
+});
+
 /// The playing song's About in the resting window (SongInfoDisplay): read-only;
 /// a tap falls through to the pager, which expands About.
 class _AboutCompactPage extends ConsumerWidget {
@@ -3018,10 +3041,13 @@ class _DualPane extends ConsumerWidget {
                           children: [
                             SizedBox(
                               height: NowPlayingTokens.tabRowNominal,
-                              child: StageTabs(
-                                selected: pageTarget,
-                                detail: const AlwaysStoppedAnimation(0),
-                                onSelect: onSelectPage,
+                              child: Consumer(
+                                builder: (context, ref, _) => StageTabs(
+                                  selected: pageTarget,
+                                  detail: const AlwaysStoppedAnimation(0),
+                                  onSelect: onSelectPage,
+                                  aboutBusy: ref.watch(_aboutBusyProvider),
+                                ),
                               ),
                             ),
                             const SizedBox(height: DualPaneTokens.rightGap),
@@ -3406,7 +3432,14 @@ class _LandscapePane extends ConsumerWidget {
         alignment: Alignment.centerLeft,
         child: SizedBox(
           height: NowPlayingTokens.tabRowNominal,
-          child: StageTabs(selected: pageTarget, detail: const AlwaysStoppedAnimation(0), onSelect: onSelectPage),
+          child: Consumer(
+            builder: (context, ref, _) => StageTabs(
+              selected: pageTarget,
+              detail: const AlwaysStoppedAnimation(0),
+              onSelect: onSelectPage,
+              aboutBusy: ref.watch(_aboutBusyProvider),
+            ),
+          ),
         ),
       ),
     );

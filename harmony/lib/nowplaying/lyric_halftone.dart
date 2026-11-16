@@ -23,12 +23,24 @@ double lyricDotRadius(double lineRadius, double focus) {
   return _T.lyricDotsSolid + (lineRadius - _T.lyricDotsSolid) * f;
 }
 
-/// The other lines' resting dot radius for [window] ([upcoming]: one of the
-/// next [NowPlayingEffectTokens.lyricDotsReadableLines] lines, full enough to
-/// read everywhere). Tablets and the fold's inner screen (medium width AND
-/// height) rest fuller, so the other lines still read across the longer column.
-double lyricDotsRestFor(YoinWindowInfo window, {bool upcoming = false}) {
-  if (upcoming) return _T.lyricDotsReadable;
+/// Whether the line at [index] prints as [NowPlayingEffectTokens.lyricDotsReadable]
+/// while [current] is the line being sung (LyricHalftone.kt isReadableLyricLine):
+/// one of the next [NowPlayingEffectTokens.lyricDotsReadableLines], or one of the
+/// [NowPlayingEffectTokens.lyricDotsReadableLinesAbove] just sung (Android
+/// 11-14). The current line itself is solid, and nothing is readable while no
+/// line is current ([current] < 0).
+bool isReadableLyricLine(int index, int current) {
+  if (current < 0 || index == current) return false;
+  final gap = index - current;
+  return gap > 0 ? gap <= _T.lyricDotsReadableLines : -gap <= _T.lyricDotsReadableLinesAbove;
+}
+
+/// The other lines' resting dot radius for [window] ([readable]: see
+/// [isReadableLyricLine]; full enough to read everywhere). Tablets and the
+/// fold's inner screen (medium width AND height) rest fuller, so the other
+/// lines still read across the longer column.
+double lyricDotsRestFor(YoinWindowInfo window, {bool readable = false}) {
+  if (readable) return _T.lyricDotsReadable;
   final large = window.width >= YoinWindowInfo.mediumWidth && window.height >= YoinWindowInfo.mediumHeight;
   return large ? _T.lyricDotsRestLarge : _T.lyricDotsRest;
 }

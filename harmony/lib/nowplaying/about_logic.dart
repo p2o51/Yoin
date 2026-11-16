@@ -391,6 +391,63 @@ List<ReceiptRow> aboutReceiptRows(
   return rows;
 }
 
+/// Whether About already has something to show before the AI answers: the
+/// lyrics' credits or the server's facts (rememberAboutHasSourceRows). While
+/// the AI loads over such a page, the wait shows as a small indicator in the
+/// tab row (between About and Note) instead of replacing or trailing the
+/// content (Android 11-16).
+bool aboutHasSourceRows(LyricCredits? credits, AboutSourceFacts? facts) =>
+    aboutReceiptRows(const [], credits, facts, const _BlankAboutLabels()).isNotEmpty;
+
+/// Labels for counting rows only: whether a row shows never depends on its label
+/// (values built from a label, like a disc/track pair, stay non-empty).
+final class _BlankAboutLabels implements AboutLabels {
+  const _BlankAboutLabels();
+
+  @override
+  String about(String entryKey) => '-';
+  @override
+  String get quality => '-';
+  @override
+  String get serverRating => '-';
+  @override
+  String get genre => '-';
+  @override
+  String get year => '-';
+  @override
+  String get track => '-';
+  @override
+  String discTrack(int disc, int track) => '-';
+  @override
+  String kbps(int value) => '-';
+  @override
+  String khz(String value) => '-';
+  @override
+  String bit(int value) => '-';
+  @override
+  String get arranger => '-';
+  @override
+  String get duration => '-';
+  @override
+  String get channels => '-';
+  @override
+  String channelCount(int count) => '-';
+  @override
+  String get size => '-';
+  @override
+  String megabytes(String value) => '-';
+  @override
+  String get bpm => '-';
+  @override
+  String get playCount => '-';
+  @override
+  String get added => '-';
+  @override
+  String get comment => '-';
+  @override
+  String get file => '-';
+}
+
 /// The "N more · …" line under the receipt (cmp_lyric_credits_more's second
 /// part): the first three of [others]' roles, a free-form line called
 /// [noteLabel], joined with "、" and trailed by "…".

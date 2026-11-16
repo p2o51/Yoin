@@ -8,6 +8,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/about/song_about_store.dart';
@@ -550,25 +551,109 @@ class _AboutCarouselState extends State<AboutCarousel> {
         ],
       ),
     };
-    // Centred on the window's height; a window shorter than the page (a landscape
-    // handset's few lines) cuts it at both edges rather than squeezing it.
+    // Centred on the window's height; a page taller than the window (a long
+    // credits line, a landscape handset's few lines) starts at the top and
+    // fades out downward instead of being cut at both ends (Android 11-16).
     return SpringCrossFade(
       childKey: '${widget.songKey}#$current',
-      child: ClipRect(
-        child: OverflowBox(
-          alignment: AlignmentDirectional.centerStart,
-          minHeight: 0,
-          maxHeight: double.infinity,
-          child: body,
-        ),
-      ),
+      child: AboutCarouselFrame(fade: NowPlayingAboutTokens.carouselOverflowFade, child: body),
     );
   }
 }
 
+/// A compact About page in its window (AboutCarousel): centred when it fits;
+/// taller than the window, it starts at the top, clipped, with its bottom
+/// [fade] dp fading out. The page is laid out at its own height, never squeezed.
+class AboutCarouselFrame extends SingleChildRenderObjectWidget {
+  const AboutCarouselFrame({super.key, required this.fade, required Widget super.child});
+
+  final double fade;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => RenderAboutCarouselFrame(fade);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderAboutCarouselFrame renderObject) => renderObject.fade = fade;
+}
+
+/// [AboutCarouselFrame]'s box: lays the page out unbounded, centres or tops it, clips and fades an overflow.
+class RenderAboutCarouselFrame extends RenderShiftedBox {
+  RenderAboutCarouselFrame(this._fade) : super(null);
+
+  double _fade;
+  set fade(double value) {
+    if (value == _fade) return;
+    _fade = value;
+    markNeedsPaint();
+  }
+
+  bool _overflows = false;
+
+  /// The page is taller than the window: it starts at the top and fades out downward.
+  bool get overflows => _overflows;
+
+  final LayerHandle<ClipRectLayer> _clip = LayerHandle<ClipRectLayer>();
+  final LayerHandle<ShaderMaskLayer> _mask = LayerHandle<ShaderMaskLayer>();
+
+  @override
+  bool get alwaysNeedsCompositing => child != null;
+
+  @override
+  void performLayout() {
+    final page = child;
+    if (page == null) {
+      size = constraints.smallest;
+      return;
+    }
+    page.layout(constraints.copyWith(minHeight: 0, maxHeight: double.infinity), parentUsesSize: true);
+    size = constraints.constrain(
+      Size(
+        constraints.hasBoundedWidth ? constraints.maxWidth : page.size.width,
+        constraints.hasBoundedHeight ? constraints.maxHeight : page.size.height,
+      ),
+    );
+    _overflows = page.size.height > size.height + 0.5;
+    // The page fills the width (its columns stretch), so only its y moves.
+    (page.parentData! as BoxParentData).offset = Offset(0, _overflows ? 0 : (size.height - page.size.height) / 2);
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (child == null) return;
+    if (!_overflows) {
+      _clip.layer = null;
+      _mask.layer = null;
+      super.paint(context, offset);
+      return;
+    }
+    _clip.layer = context.pushClipRect(needsCompositing, offset, Offset.zero & size, (context, offset) {
+      final layer = _mask.layer ??= ShaderMaskLayer();
+      final start = size.height <= 0 ? 1.0 : (1 - _fade / size.height).clamp(0.0, 1.0);
+      layer
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: const [Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+          stops: [0, start, 1],
+        ).createShader(Offset.zero & size)
+        ..maskRect = offset & size
+        ..blendMode = BlendMode.dstIn;
+      context.pushLayer(layer, super.paint, offset);
+    }, oldLayer: _clip.layer);
+  }
+
+  @override
+  void dispose() {
+    _clip.layer = null;
+    _mask.layer = null;
+    super.dispose();
+  }
+}
+
 /// The compact About inside the resting window (SongInfoDisplay): the
-/// carousel of the receipt and paragraphs; the AI's state (load, searching,
-/// no key, the error with Retry) under it, or alone with nothing to show yet.
+/// carousel of the receipt and paragraphs; no key or the error with Retry
+/// under it (a search over it shows in the tab row), or the AI's state (load,
+/// searching, no key, the error) alone with nothing to show yet.
 /// Read-only: editing and asking happen in the expanded pane.
 class SongInfoDisplay extends StatelessWidget {
   const SongInfoDisplay({
@@ -609,7 +694,8 @@ class SongInfoDisplay extends StatelessWidget {
         Expanded(
           child: AboutCarousel(pages: pages, songKey: songKey),
         ),
-        if (state is! AboutReady) status,
+        // Loading over content shows in the tab row (between About and Note), not under it.
+        if (state is AboutKeyMissing || state is AboutError) status,
       ],
     );
   }
@@ -685,7 +771,8 @@ final class AboutEntryActions {
 
 /// The expanded About (AboutFullscreenPane): searching, no key (the
 /// server's facts, the line and Settings), the error (the facts, the message
-/// and Retry), or the receipt and the paragraphs. The Ask bar is not here:
+/// and Retry), or the receipt and the paragraphs — the credits and facts
+/// alone while the AI is still to come or searching. The Ask bar is not here:
 /// it is the accessory row's, under the pane. [actions] null: rows take no
 /// long press.
 class AboutPane extends StatelessWidget {
@@ -728,7 +815,14 @@ class AboutPane extends StatelessWidget {
             );
     }
 
-    final Widget body = switch (state) {
+    // Credits / server facts already in hand: show them while the AI is still
+    // to come or loading (the tab row carries the wait), instead of a blank
+    // page or a lone spinner. Same key as Ready, so the AI's rows join in
+    // place rather than cross-fading the page (Android 11-16).
+    final AboutUiState shown = (state is AboutIdle || state is AboutLoading) && aboutHasSourceRows(credits, facts)
+        ? const AboutReady([])
+        : state;
+    final Widget body = switch (shown) {
       AboutIdle() => const SizedBox.expand(),
       AboutLoading() => Center(
         child: Column(
@@ -770,7 +864,7 @@ class AboutPane extends StatelessWidget {
         bottomPadding: bottomPadding,
       ),
     };
-    return SpringCrossFade(childKey: state.runtimeType, child: body);
+    return SpringCrossFade(childKey: shown.runtimeType, child: body);
   }
 }
 

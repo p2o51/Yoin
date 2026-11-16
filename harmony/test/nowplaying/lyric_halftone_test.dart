@@ -30,7 +30,7 @@ void main() {
     expect(lyricDotsRestFor(_window(800, 1280)), _T.lyricDotsRestLarge);
     // Width alone (a landscape phone) is not a large window.
     expect(lyricDotsRestFor(_window(900, 400)), _T.lyricDotsRest);
-    expect(lyricDotsRestFor(_window(400, 800), upcoming: true), _T.lyricDotsReadable);
+    expect(lyricDotsRestFor(_window(400, 800), readable: true), _T.lyricDotsReadable);
   });
 
   test('should_quantiseTheDots_when_belowSolid', () {
@@ -56,5 +56,32 @@ void main() {
     await _pump(tester, 0);
     expect(find.byType(ShaderMask), findsNothing);
     expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 0);
+  });
+
+  // The line just sung stays readable in focus (Android 52b72a9f9, LyricReadableLinesTest).
+  List<int> readable(int current, int count) => [
+    for (var i = 0; i < count; i++)
+      if (isReadableLyricLine(i, current)) i,
+  ];
+
+  test('should_keepTheLineJustSungAndTheNextTwoReadable_when_aLineIsCurrent', () {
+    expect(readable(5, 11), [4, 6, 7]);
+  });
+
+  test('should_notTreatTheCurrentLineAsReadable_when_itIsBeingSung', () {
+    expect(isReadableLyricLine(5, 5), isFalse);
+  });
+
+  test('should_keepOnlyTheNextTwoReadable_when_theFirstLineIsCurrent', () {
+    expect(readable(0, 11), [1, 2]);
+  });
+
+  test('should_keepNothingReadable_when_noLineIsCurrent', () {
+    expect(readable(-1, 11), isEmpty);
+  });
+
+  test('should_letLinesTwoOrMoreAboveRestAsFineDots_when_aLineIsCurrent', () {
+    expect(isReadableLyricLine(3, 5), isFalse);
+    expect(isReadableLyricLine(8, 5), isFalse);
   });
 }
