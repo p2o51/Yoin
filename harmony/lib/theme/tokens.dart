@@ -78,6 +78,129 @@ abstract final class BarTokens {
   static const double searchHintExitScale = 0.82;
 }
 
+/// The Button Group on a short window (ShellChromeForm.EdgeSplit, WindowAdaptiveRuntime.kt Edge-split geometry,
+/// YoinEdgeSplitGroup.kt, NowPlayingPill.kt NowPlayingPillVertical, PlaySplitButton.kt PlaySplitButtonVertical): two
+/// 64 dp capsules upright on the cutout's edge, navigation / Play above the cutout, the upright pill below it.
+abstract final class EdgeSplitTokens {
+  /// Inset of both capsules from their edge (the cutout's), inside the cutout band.
+  static const double groupInset = 8;
+
+  /// Capsule width: 6 padding + 52 button + 6 padding.
+  static const double groupWidth = 64;
+
+  /// Air between the capsules and the page content.
+  static const double contentGap = 12;
+
+  /// Content inset on the capsules' edge: 8 + 64 + 12 = 84.
+  static const double contentStart = groupInset + groupWidth + contentGap;
+
+  static const double topMargin = 14;
+  static const double bottomMargin = 16;
+
+  /// The upper capsule's top sits at least this far under the status inset.
+  static const double topInsetAir = 4;
+  static const double cutoutGap = 8;
+
+  /// Stand-in cutout (centred, 36 tall) when the edge has none: keeps the lower capsule put.
+  static const double nominalCutoutHeight = 36;
+
+  /// Below this a capsule can't hold its buttons; the cutout is treated as a corner.
+  static const double minCapsule = 128;
+
+  /// Inside a capsule: 6 padding around the 52 wide buttons; Play ⇄ ▾ 2 apart.
+  static const double capsulePadding = 6;
+  static const double buttonWidth = 52;
+  static const double splitGap = 2;
+
+  /// Home / Library: 4 apart, the unselected one 56 tall (the selected one takes the rest), 26 corners, 22 glyphs.
+  static const double navGap = 4;
+  static const double navRestingHeight = 56;
+  static const double navCorner = 26;
+  static const double navIconSize = 22;
+
+  /// Detail chrome: the nav column shrinks to 0.94 as it fades (navAlpha = 1 − m / 0.6), the upright
+  /// Play split grows from 0.94 as it comes (splitAlpha = (m − 0.4) / 0.6).
+  static const double morphScale = 0.06;
+  static const double morphFadeSpan = 0.6;
+  static const double morphSplitStart = 0.4;
+
+  /// Long-press Library's hint opens toward the content, 4 past the capsule, and leaves after 1.4 s.
+  static const double searchHintGap = 4;
+  static const int searchHintHoldMs = 1400;
+
+  /// Now Playing up, a bar-less page: the capsules slide over their edge by the content band × 1.15.
+  static const double exitTravelFactor = 1.15;
+
+  // ---- the upright pill (NowPlayingPillVertical) ----
+  static const double pillCorner = 26;
+
+  /// The text stops above the cover: 9 inset + 34 cover + 10 air; 10 under the capsule's top.
+  static const double pillTextBottom = 53;
+  static const double pillTextTop = 10;
+  static const double pillCoverBottom = 9;
+  static const double pillTitleSize = 13;
+  static const double pillTitleLine = 17;
+  static const double pillArtistSize = 11;
+  static const double pillArtistLine = 15;
+  static const double pillArtistAlpha = 0.8;
+
+  /// The progress wash rises from the bottom; its top edge is a 12-step sine.
+  static const int pillWaveSteps = 12;
+
+  // ---- the upright Play split (PlaySplitButtonVertical) ----
+  /// ▾ is 52 × 46 under Play; a roomy capsule adds a 40 tall Shuffle segment.
+  static const double splitMenuHeight = 46;
+  static const double splitShuffleHeight = 40;
+  static const double splitOuterCorner = 26;
+  static const double splitInnerCorner = 8;
+  static const double splitPlayIcon = 26;
+  static const double splitMenuIcon = 20;
+  static const double splitShuffleIcon = 20;
+}
+
+/// The kickstand (tabletop) Now Playing (NowPlayingScreen.kt TabletopPlayingContent): the display above the hinge,
+/// the control deck below it.
+abstract final class TabletopTokens {
+  /// The display half's padding (inside the system insets) and the deck's.
+  static const double displayPaddingH = 24;
+  static const double displayPaddingV = 12;
+  static const double deckPaddingH = 24;
+  static const double deckPaddingV = 16;
+
+  /// The cover: min(width × 0.42 − 32, display height − 104), at least 96, 16 of air on every side.
+  static const double coverWidthShare = 0.42;
+  static const double coverWidthInset = 32;
+  static const double coverHeightInset = 104;
+  static const double coverMin = 96;
+  static const double coverAir = 16;
+  static const double coverToText = 20;
+
+  /// Eyebrow → title 8, title → artist 2, artist → lyrics 12.
+  static const double eyebrowGap = 8;
+  static const double titleToArtist = 2;
+  static const double artistToLyrics = 12;
+
+  /// The lyrics emphasis: title 24 → 15, artist 16 → 12, lyric scale 0.95 → 1.70; the collapsed peek is 104 tall.
+  static const double titleSize = 24;
+  static const double titleShrink = 9;
+  static const double artistSize = 16;
+  static const double artistShrink = 4;
+  static const double lyricScale = 0.95;
+  static const double lyricScaleGrowth = 0.75;
+  static const double collapsedLyrics = 104;
+
+  /// The close chevron, 4 in from the display's top end.
+  static const double closeInset = 4;
+
+  /// The deck: 72 controls and pills, 20 between them.
+  static const double controlSize = 72;
+  static const double pillHeight = 72;
+  static const double controlsToPills = 20;
+
+  /// A posture swap into or out of the hinge layout scales the bodies from / to this.
+  static const double postureSwapScale = 0.88;
+}
+
 /// Now Playing: the phone column's component sizes and the height budget's slots (NowPlayingBudget.kt, NowPlayingMetrics.kt, NowPlayingScreen.kt; iOS NowPlayingView). `_NOMINAL` is a slot's resting height, `_MIN` what it compresses to.
 abstract final class NowPlayingTokens {
   /// The column's side padding.

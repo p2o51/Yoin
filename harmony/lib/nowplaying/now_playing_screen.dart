@@ -28,6 +28,8 @@ import '../theme/playback_theme.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/audio_format_tags.dart';
+import '../ui/component/expressive/expressive_shapes.dart';
+import '../ui/component/expressive/expressive_surface_button.dart';
 import 'about_logic.dart';
 import 'about_view_model.dart';
 import 'about_widgets.dart';
@@ -70,9 +72,12 @@ import 'queue_sheet.dart';
 import 'rating_and_heart.dart';
 import 'stage_budget.dart';
 import 'stage_tabs.dart';
+import 'tabletop_strings.dart';
 import 'transport.dart';
 import 'transport_pulse.dart';
 import 'transport_signal.dart';
+
+part 'now_playing_tabletop.dart';
 
 double _smooth(double edge0, double edge1, double x) {
   final t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
@@ -918,15 +923,50 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                 ),
                 // The AI thinking (a question, About's first fetch), or the key hint's glow.
                 GeminiWash(thinking: about.thinking, keyHint: _keyHint),
-                switch (state) {
-                  NowPlayingIdle() => Center(
-                    child: Text(
-                      strings.emptyNothingPlaying,
-                      style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurfaceVariant),
+                // Into / out of the hinge layout: the posture swap (fade + scale).
+                _PostureSwap(
+                  tabletop:
+                      state is NowPlayingContent &&
+                      widget.controller.frame.presentation == NowPlayingPresentation.tabletop,
+                  child: switch (state) {
+                    NowPlayingIdle() => Center(
+                      child: Text(
+                        strings.emptyNothingPlaying,
+                        style: Theme.of(context).textTheme.titleMedium!.copyWith(color: colors.onSurfaceVariant),
+                      ),
                     ),
-                  ),
-                  NowPlayingContent() when widget.controller.frame.presentation == NowPlayingPresentation.landscape =>
-                    _LandscapePane(
+                    NowPlayingContent() when widget.controller.frame.presentation == NowPlayingPresentation.tabletop =>
+                      _TabletopPane(
+                        state: state,
+                        controller: widget.controller,
+                        insets: padding,
+                        pressed: _pressed,
+                        autoFollow: _autoFollow,
+                        notes: _notes,
+                        onOfferFocus: _offerFocus,
+                      ),
+                    NowPlayingContent() when widget.controller.frame.presentation == NowPlayingPresentation.landscape =>
+                      _LandscapePane(
+                        state: state,
+                        controller: widget.controller,
+                        insets: insets,
+                        metrics: _metrics(context),
+                        pressed: _pressed,
+                        autoFollow: _autoFollow,
+                        notes: _notes,
+                        page: _page.animation,
+                        pageTarget: _pageTarget,
+                        onSelectPage: _selectPage,
+                        onPageDrag: _onPageDrag,
+                        onPageDragEnd: _onPageDragEnd,
+                        onWrite: _writeLandscape,
+                        onBarHeight: _onBarHeight,
+                        barHeight: _barHeight.animation,
+                        askSlot: _askSlot.animation,
+                        atEase: _atEaseShown,
+                        onOfferFocus: _offerFocus,
+                      ),
+                    NowPlayingContent() when (_lastDual = _dualBody()) => _DualPane(
                       state: state,
                       controller: widget.controller,
                       insets: insets,
@@ -939,83 +979,64 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                       onSelectPage: _selectPage,
                       onPageDrag: _onPageDrag,
                       onPageDragEnd: _onPageDragEnd,
-                      onWrite: _writeLandscape,
+                      onWrite: _write,
                       onBarHeight: _onBarHeight,
                       barHeight: _barHeight.animation,
                       askSlot: _askSlot.animation,
                       atEase: _atEaseShown,
                       onOfferFocus: _offerFocus,
                     ),
-                  NowPlayingContent() when (_lastDual = _dualBody()) => _DualPane(
-                    state: state,
-                    controller: widget.controller,
-                    insets: insets,
-                    metrics: _metrics(context),
-                    pressed: _pressed,
-                    autoFollow: _autoFollow,
-                    notes: _notes,
-                    page: _page.animation,
-                    pageTarget: _pageTarget,
-                    onSelectPage: _selectPage,
-                    onPageDrag: _onPageDrag,
-                    onPageDragEnd: _onPageDragEnd,
-                    onWrite: _write,
-                    onBarHeight: _onBarHeight,
-                    barHeight: _barHeight.animation,
-                    askSlot: _askSlot.animation,
-                    atEase: _atEaseShown,
-                    onOfferFocus: _offerFocus,
-                  ),
-                  NowPlayingContent() => Padding(
-                    padding: insets,
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final budget = resolveStageColumnBudget(
-                          width: constraints.maxWidth,
-                          height: constraints.maxHeight,
-                          metrics: _metrics(context),
-                          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                          previousFrame: _lastFrame,
-                          enlarged: _enlargedSpec(),
-                        );
-                        _lastFrame = budget.lyricFrame;
-                        final focus = resolveStageFocus(
-                          rest: budget,
-                          metrics: _metrics(context),
-                          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                          enlarged: _enlargedSpec(),
-                        );
-                        _offerFocus(focus != null);
-                        // The enlarged phone narrows to its cover row, centred (the
-                        // stage lays its column out in the middle of the width).
-                        return _Stage(
-                          budget: budget,
-                          focus: focus,
-                          atEase: _atEaseShown,
-                          state: state,
-                          controller: widget.controller,
-                          pressed: _pressed,
-                          autoFollow: _autoFollow,
-                          windowTop: insets.top,
-                          notes: _notes,
-                          page: _page.animation,
-                          pageTarget: _pageTarget,
-                          onSelectPage: _selectPage,
-                          onPageDrag: _onPageDrag,
-                          onPageDragEnd: _onPageDragEnd,
-                          onWrite: _write,
-                          heroYield: _heroYield.animation,
-                          barHeight: _barHeight.animation,
-                          askSlot: _askSlot.animation,
-                          onBarHeight: _onBarHeight,
-                          imeLift: imeLift,
-                          toolsAway: _toolsAway.animation,
-                          enlarged: _enlargedSpec() != null,
-                        );
-                      },
+                    NowPlayingContent() => Padding(
+                      padding: insets,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final budget = resolveStageColumnBudget(
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            metrics: _metrics(context),
+                            devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                            previousFrame: _lastFrame,
+                            enlarged: _enlargedSpec(),
+                          );
+                          _lastFrame = budget.lyricFrame;
+                          final focus = resolveStageFocus(
+                            rest: budget,
+                            metrics: _metrics(context),
+                            devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                            enlarged: _enlargedSpec(),
+                          );
+                          _offerFocus(focus != null);
+                          // The enlarged phone narrows to its cover row, centred (the
+                          // stage lays its column out in the middle of the width).
+                          return _Stage(
+                            budget: budget,
+                            focus: focus,
+                            atEase: _atEaseShown,
+                            state: state,
+                            controller: widget.controller,
+                            pressed: _pressed,
+                            autoFollow: _autoFollow,
+                            windowTop: insets.top,
+                            notes: _notes,
+                            page: _page.animation,
+                            pageTarget: _pageTarget,
+                            onSelectPage: _selectPage,
+                            onPageDrag: _onPageDrag,
+                            onPageDragEnd: _onPageDragEnd,
+                            onWrite: _write,
+                            heroYield: _heroYield.animation,
+                            barHeight: _barHeight.animation,
+                            askSlot: _askSlot.animation,
+                            onBarHeight: _onBarHeight,
+                            imeLift: imeLift,
+                            toolsAway: _toolsAway.animation,
+                            enlarged: _enlargedSpec() != null,
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                },
+                  },
+                ),
               ],
             ),
           ),
@@ -2523,10 +2544,13 @@ class NowPlayingWritePill extends StatelessWidget {
 /// pill is pressed in a labelled row it widens and the others fold their
 /// labels, so the row keeps its width.
 class _PillsRow extends ConsumerStatefulWidget {
-  const _PillsRow({required this.onSkip, required this.onWrite});
+  const _PillsRow({required this.onSkip, required this.onWrite, this.showWrite = true});
 
   final ValueChanged<int> onSkip;
   final VoidCallback onWrite;
+
+  /// The kickstand deck leaves Write out (BottomPills showWrite = false).
+  final bool showWrite;
 
   @override
   ConsumerState<_PillsRow> createState() => _PillsRowState();
@@ -2558,7 +2582,8 @@ class _PillsRowState extends ConsumerState<_PillsRow> {
           final layout = bottomPillsLayout(
             maxWidth: constraints.maxWidth,
             labelWidths: [
-              for (final label in [strings.pillQueue, devicesLabel, strings.pillWrite]) pillLabelWidth(context, label),
+              for (final label in [strings.pillQueue, devicesLabel, if (widget.showWrite) strings.pillWrite])
+                pillLabelWidth(context, label),
             ],
             castWidth: castName == null ? 0 : castChipWidth(context, castName),
           );
@@ -2599,17 +2624,19 @@ class _PillsRowState extends ConsumerState<_PillsRow> {
                   pressWiden: layout.labelled,
                   onPressedChanged: _pressOf(1),
                 ),
-                const SizedBox(width: NowPlayingTokens.pillGap),
-                NowPlayingWritePill(
-                  onTap: () {
-                    YoinHaptics.contextClick();
-                    onWrite();
-                  },
-                  showLabel: labelShown(2),
-                  labelOnPress: pressOpens(strings.pillWrite),
-                  pressWiden: layout.labelled,
-                  onPressedChanged: _pressOf(2),
-                ),
+                if (widget.showWrite) ...[
+                  const SizedBox(width: NowPlayingTokens.pillGap),
+                  NowPlayingWritePill(
+                    onTap: () {
+                      YoinHaptics.contextClick();
+                      onWrite();
+                    },
+                    showLabel: labelShown(2),
+                    labelOnPress: pressOpens(strings.pillWrite),
+                    pressWiden: layout.labelled,
+                    onPressedChanged: _pressOf(2),
+                  ),
+                ],
               ],
             ),
           );

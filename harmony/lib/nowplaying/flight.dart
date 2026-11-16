@@ -129,7 +129,7 @@ class FlightSlot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = NowPlayingOverlayScope.maybeOf(context);
-    if (controller == null) return child;
+    if (controller == null || FlightSlotsOff.of(context)) return child;
     final key = pill ? controller.flightKeys.pill[element]! : controller.flightKeys.player[element]!;
     final hidden = controller.flightActive && controller.flightCanFly(element);
     Widget slot = KeyedSubtree(key: key, child: child);
@@ -140,6 +140,20 @@ class FlightSlot extends StatelessWidget {
     if (element != FlightElement.cover) slot = TickerMode(enabled: !hidden, child: slot);
     return Opacity(opacity: hidden ? 0 : 1, child: slot);
   }
+}
+
+/// Whether the [FlightSlot]s below take part in the flight: off for the
+/// outgoing form of the bar while the chrome cross-fades between forms (the
+/// incoming form's pill owns the slot keys; two would collide).
+class FlightSlotsOff extends InheritedWidget {
+  const FlightSlotsOff({super.key, required this.off, required super.child});
+
+  final bool off;
+
+  static bool of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<FlightSlotsOff>()?.off ?? false;
+
+  @override
+  bool updateShouldNotify(FlightSlotsOff oldWidget) => oldWidget.off != off;
 }
 
 /// The flight layer, above everything: paints the proxies at the live

@@ -8,6 +8,7 @@ import '../memories/memories_reveal_scope.dart';
 import '../memories/memories_screen.dart';
 import '../nowplaying/overlay_controller.dart';
 import '../theme/motion.dart';
+import '../ui/adaptive/edge_split.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import 'chrome_back.dart';
@@ -48,6 +49,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
 
   /// The Wide window's detail column (adaptive-principles §3).
   late final DetailPaneController _pane = DetailPaneController(vsync: this);
+
   /// Arbitrated below Now Playing and Memories (principle 8): with the
   /// side panel or the player open, system back is theirs, whatever order
   /// the entries were registered in.
@@ -144,13 +146,23 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
             return Stack(
               fit: StackFit.expand,
               children: [
-                _Page(visibility: 1 - home, child: const LibraryScreen()),
+                // A landscape handset: the pages start past the edge capsules
+                // (84) and stop short of a cutout on the other edge, their wash
+                // running under the band to the screen edge. Memories is not
+                // shifted: the capsules hide there.
+                _Page(
+                  visibility: 1 - home,
+                  child: const ShellChromeBand(background: _ShellWash(), child: LibraryScreen()),
+                ),
                 _Page(
                   visibility: home,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      MemoriesHomeBehind(reveal: _memories, child: const HomeScreen()),
+                      MemoriesHomeBehind(
+                        reveal: _memories,
+                        child: const ShellChromeBand(background: _ShellWash(), child: HomeScreen()),
+                      ),
                       MemoriesLayer(reveal: _memories),
                     ],
                   ),
@@ -178,6 +190,27 @@ class _Page extends StatelessWidget {
         opacity: visibility,
         // Keep the subtree mounted (state, scroll) but skip painting when hidden.
         child: TickerMode(enabled: visibility > 0, child: child),
+      ),
+    );
+  }
+}
+
+/// The shell pages' wash (ExpressivePageBackground: surfaceContainer →
+/// surface → surfaceContainerLow, top to bottom), under the edge band so the
+/// page meets the screen edge without a seam.
+class _ShellWash extends StatelessWidget {
+  const _ShellWash();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [colors.surfaceContainer, colors.surface, colors.surfaceContainerLow],
+        ),
       ),
     );
   }

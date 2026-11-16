@@ -18,6 +18,7 @@ import 'i18n/name_transliterator.dart';
 import 'network/network_bearer.dart';
 import 'playback/channel_playback_engine.dart';
 import 'playback/playback_engine.dart';
+import 'posture/display_posture.dart';
 import 'sensors/motion_sensors.dart';
 import 'share/image_share.dart';
 import 'share/text_share.dart';
@@ -58,6 +59,7 @@ final class YoinPlatform {
     required this.backgroundTransfer,
     required this.castHost,
     required this.continueOnHost,
+    required this.displayPosture,
   });
 
   final YoinHost host;
@@ -135,6 +137,11 @@ final class YoinPlatform {
   /// hand-off from one (OHOS 应用接续, `yoin/continue_on`; Windows: none).
   final ContinueOnHost continueOnHost;
 
+  /// The window's fold status, crease and side cutouts: Tabletop and where the
+  /// landscape Button Group stands (OHOS `yoin/posture` → @ohos.display fold
+  /// status / crease region + the window's cutout avoid area; Windows: flat).
+  final DisplayPostureHost displayPosture;
+
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
@@ -159,6 +166,7 @@ final class YoinPlatform {
     backgroundTransfer: ChannelBackgroundTransferHost(),
     castHost: ChannelCastHost(),
     continueOnHost: ChannelContinueOnHost(),
+    displayPosture: ChannelDisplayPostureHost(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -187,6 +195,7 @@ final class YoinPlatform {
     backgroundTransfer: const NoBackgroundTransferHost(),
     castHost: const NoCastHost(),
     continueOnHost: const NoContinueOnHost(),
+    displayPosture: const NoDisplayPostureHost(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

@@ -10,6 +10,7 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/component/desktop_input.dart';
 import '../playback/playback_strings.dart';
+import '../shell/edge_split_strings.dart';
 import 'cover_swap.dart';
 import 'flight.dart';
 import 'haptics.dart';
@@ -268,6 +269,255 @@ class _NowPlayingPillState extends ConsumerState<NowPlayingPill> with TickerProv
   }
 }
 
+/// The upright now-playing pill for the edge-split capsule
+/// (NowPlayingPill.kt NowPlayingPillVertical, ShellChromeForm.EdgeSplit): 52
+/// wide, the cover at the bottom, title over artist turned to read bottom to
+/// top above it, and the primary@25 % wash rising from the bottom to the
+/// playback fraction under a travelling sine edge. A track change pushes the
+/// old song out upward (90 ms) and the new one in from below (Expressive
+/// default spatial). Tap opens Now Playing; long-press on a song opens its
+/// sheet. Only the cover flies to the player (the text is sideways).
+class NowPlayingPillVertical extends ConsumerStatefulWidget {
+  const NowPlayingPillVertical({super.key, this.onLongPress, this.enabled = true});
+
+  /// Long-press on a song: the song sheet for it.
+  final ValueChanged<Track>? onLongPress;
+
+  /// False while it steps out on the way into Home's edit pose: no press, tap or haptic.
+  final bool enabled;
+
+  @override
+  ConsumerState<NowPlayingPillVertical> createState() => _NowPlayingPillVerticalState();
+}
+
+class _NowPlayingPillVerticalState extends ConsumerState<NowPlayingPillVertical> with TickerProviderStateMixin {
+  late final SpringValue _presence;
+  late final SpringValue _amplitude;
+
+  /// Track-change push: −1 (entering from below) … 0 … 1 (out at the top).
+  late final AnimationController _push = AnimationController.unbounded(vsync: this, value: 0);
+
+  Track? _shown;
+  String? _pendingKey;
+
+  @override
+  void initState() {
+    super.initState();
+    final snapshot = ref.read(playerSnapshotProvider);
+    _presence = SpringValue(vsync: this, initial: snapshot.hasTrack ? 1 : 0, spring: YoinSprings.defaultEffects);
+    _amplitude = SpringValue(
+      vsync: this,
+      initial: snapshot.isPlaying ? 1 : 0,
+      spring: YoinSprings.standardDefaultSpatial,
+    );
+    _shown = snapshot.track;
+  }
+
+  @override
+  void dispose() {
+    _presence.dispose();
+    _amplitude.dispose();
+    _push.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onTrack(Track? next) async {
+    final shown = _shown;
+    if (shown == null || next == null || shown.id == next.id) {
+      setState(() => _shown = next);
+      return;
+    }
+    final key = next.id.toString();
+    _pendingKey = key;
+    if (_push.isAnimating) _push.value = 0;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      setState(() => _shown = next);
+      return;
+    }
+    await _push.animateTo(1, duration: PillMetrics.pushOut, curve: Curves.linear);
+    if (!mounted || _pendingKey != key) return;
+    setState(() => _shown = ref.read(playerSnapshotProvider).track ?? next);
+    _push.value = -1;
+    _push.animateWith(SpringSimulation(YoinSprings.defaultSpatial, -1, 0, 0));
+  }
+
+  void _open() {
+    if (!ref.read(playerSnapshotProvider).hasTrack) return;
+    YoinHaptics.contextClick();
+    NowPlayingOverlayScope.read(context)?.openPlayer();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(playerSnapshotProvider.select((s) => s.track), (_, next) => _onTrack(next));
+    ref.listen(playerSnapshotProvider.select((s) => s.hasTrack), (_, has) => _presence.animateTo(has ? 1 : 0));
+    ref.listen(
+      playerSnapshotProvider.select((s) => s.isPlaying),
+      (_, playing) => _amplitude.animateTo(playing ? 1 : 0),
+    );
+    final unavailable = ref.watch(playerSnapshotProvider.select(isPlaybackUnavailable));
+    final errorKind = ref.watch(playerSnapshotProvider.select((s) => s.errorKind));
+    final clock = ref.watch(playheadClockProvider);
+    final colors = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final strings = NowPlayingStrings.of(context);
+    final shown = _shown;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final edgeStrings = EdgeSplitStrings.of(context);
+    final title = shown?.title ?? (unavailable ? edgeStrings.pillPlaybackUnavailable : edgeStrings.pillNothingPlaying);
+    final artist =
+        shown?.artist ??
+        (shown == null && errorKind != null ? PlaybackStrings.of(context).errorMessage(errorKind) : '');
+    final VoidCallback? long = switch ((widget.enabled ? widget.onLongPress : null, shown)) {
+      (final long?, final track?) => () => long(track),
+      _ => null,
+    };
+
+    Widget pushed(Widget child) => AnimatedBuilder(
+      animation: _push,
+      builder: (context, child) {
+        final p = _push.value;
+        return Opacity(
+          opacity: (1 - 0.9 * p.abs()).clamp(0.0, 1.0),
+          child: Transform.translate(offset: Offset(0, -PillMetrics.pushTravel * p), child: child),
+        );
+      },
+      child: child,
+    );
+
+    return Semantics(
+      button: true,
+      enabled: widget.enabled,
+      label: shown?.title == null ? strings.pillTapOpen : '${shown!.title}, ${strings.pillTapOpen}',
+      excludeSemantics: true,
+      onLongPressHint: long == null ? null : edgeStrings.pillSongOptions,
+      child: IgnorePointer(
+        ignoring: !widget.enabled,
+        child: YoinHover(
+          onTap: _open,
+          onSecondaryTap: long,
+          focusRadius: BorderRadius.circular(EdgeSplitTokens.pillCorner),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _open,
+            onLongPress: long,
+            child: AnimatedBuilder(
+              animation: _presence.animation,
+              builder: (context, child) {
+                final p = _presence.value.clamp(0.0, 1.0);
+                return DecoratedBox(
+                  decoration: ShapeDecoration(
+                    color: Color.lerp(colors.surfaceContainerHighest, colors.primaryContainer, p),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(EdgeSplitTokens.pillCorner)),
+                  ),
+                  child: child,
+                );
+              },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (shown != null)
+                    RepaintBoundary(
+                      child: CustomPaint(
+                        painter: _WashPainter(
+                          clock: clock,
+                          amplitude: _amplitude,
+                          color: colors.primary.withValues(alpha: PillMetrics.washAlpha),
+                          upright: true,
+                        ),
+                      ),
+                    ),
+                  // Rectangular: the push may lift the row past the round ends for a frame or two.
+                  ClipRect(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(
+                            top: EdgeSplitTokens.pillTextTop,
+                            bottom: EdgeSplitTokens.pillTextBottom,
+                          ),
+                          child: pushed(
+                            Align(
+                              alignment: Alignment.bottomCenter,
+                              child: AnimatedBuilder(
+                                animation: _presence.animation,
+                                builder: (context, _) {
+                                  final content = Color.lerp(
+                                    colors.onSurfaceVariant,
+                                    colors.onPrimaryContainer,
+                                    _presence.value.clamp(0.0, 1.0),
+                                  )!;
+                                  // Reads bottom to top: the line's start sits on the cover.
+                                  return RotatedBox(
+                                    quarterTurns: 3,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          title,
+                                          maxLines: 1,
+                                          softWrap: false,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: text.labelLarge!.copyWith(
+                                            fontSize: EdgeSplitTokens.pillTitleSize,
+                                            height: EdgeSplitTokens.pillTitleLine / EdgeSplitTokens.pillTitleSize,
+                                            fontWeight: FontWeight.w600,
+                                            fontVariations: const [FontVariation.weight(600)],
+                                            color: content,
+                                          ),
+                                        ),
+                                        Text(
+                                          artist,
+                                          maxLines: 1,
+                                          softWrap: false,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: text.labelSmall!.copyWith(
+                                            fontSize: EdgeSplitTokens.pillArtistSize,
+                                            height: EdgeSplitTokens.pillArtistLine / EdgeSplitTokens.pillArtistSize,
+                                            color: content.withValues(alpha: EdgeSplitTokens.pillArtistAlpha),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: EdgeSplitTokens.pillCoverBottom,
+                          child: Center(
+                            child: pushed(
+                              FlightSlot(
+                                element: FlightElement.cover,
+                                pill: true,
+                                child: _PillCover(
+                                  cover: shown?.coverArt,
+                                  requestSize: (pillCoverRequestDp * dpr).round(),
+                                  label: shown?.title ?? strings.pillCurrentTrack,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PillCover extends StatelessWidget {
   const _PillCover({required this.cover, required this.requestSize, required this.label});
 
@@ -309,18 +559,24 @@ class _PillCover extends StatelessWidget {
 /// bottom; primary @ 25 %, clipped by the stadium, phase from the app-wide
 /// wave clock.
 class _WashPainter extends CustomPainter {
-  _WashPainter({required this.clock, required this.amplitude, required this.color})
+  _WashPainter({required this.clock, required this.amplitude, required this.color, this.upright = false})
     : super(repaint: Listenable.merge([clock, amplitude.animation]));
 
   final PlayheadClock clock;
   final SpringValue amplitude;
   final Color color;
 
+  /// The upright pill: the wash rises from the bottom under a 12-step sine
+  /// edge (x = f·w, y = h·(1 − front) + sin(phase + f·2π)·4 dp·amplitude),
+  /// kept inside the pill's round ends by geometry, not a clip.
+  final bool upright;
+
   @override
   void paint(Canvas canvas, Size size) {
     final now = clock.nowMs;
     final front = clock.progress(now);
     if (front <= 0) return;
+    if (upright) return _paintUpright(canvas, size, front, now);
     final x = size.width * front;
     final phase = clock.wavePhase(now);
     final amp = PillMetrics.waveAmplitude * amplitude.value.clamp(0.0, 1.5);
@@ -337,6 +593,24 @@ class _WashPainter extends CustomPainter {
     canvas.drawPath(path, Paint()..color = color);
   }
 
+  void _paintUpright(Canvas canvas, Size size, double front, int now) {
+    final y = size.height * (1 - front);
+    final phase = clock.wavePhase(now);
+    final amp = PillMetrics.waveAmplitude * amplitude.value.clamp(0.0, 1.5);
+    final wave = Path()..moveTo(0, size.height);
+    for (var i = 0; i <= EdgeSplitTokens.pillWaveSteps; i++) {
+      final f = i / EdgeSplitTokens.pillWaveSteps;
+      wave.lineTo(f * size.width, y + math.sin(phase + f * 2 * math.pi) * amp);
+    }
+    wave
+      ..lineTo(size.width, size.height)
+      ..close();
+    final pill = Path()
+      ..addRRect(RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(EdgeSplitTokens.pillCorner)));
+    canvas.drawPath(Path.combine(PathOperation.intersect, wave, pill), Paint()..color = color);
+  }
+
   @override
-  bool shouldRepaint(_WashPainter old) => old.color != color || old.clock != clock || old.amplitude != amplitude;
+  bool shouldRepaint(_WashPainter old) =>
+      old.color != color || old.clock != clock || old.amplitude != amplitude || old.upright != upright;
 }

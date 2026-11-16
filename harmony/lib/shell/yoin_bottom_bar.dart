@@ -50,7 +50,12 @@ class YoinBottomBar extends StatefulWidget {
     this.paneOpen = false,
     this.onLibraryLongPress,
     this.editPose,
+    this.form,
   });
+
+  /// The form to lay out in (portrait or centred); null: the window's. A form
+  /// cross-fade keeps the outgoing bar in the form it had.
+  final ShellChromeForm? form;
 
   /// Long-press on Library: its search (YoinNavHost onLibraryLongClick). A
   /// search hint rises over the button while it is held. Null: no long-press.
@@ -304,7 +309,7 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
     final strings = YoinStrings.of(context);
     final npStrings = NowPlayingStrings.of(context);
     final window = YoinWindowInfo.of(context);
-    final centered = window.chromeForm == ShellChromeForm.centeredBar;
+    final centered = (widget.form ?? window.chromeForm) == ShellChromeForm.centeredBar;
     final height = centered ? BarTokens.centeredHeight : BarTokens.height;
     final buttonHeight = centered ? BarTokens.centeredButtonHeight : BarTokens.buttonHeight;
     final rowPadding = (height - buttonHeight) / 2;
@@ -475,7 +480,7 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                             left: lerpDouble(navX, mergedX, merged.clamp(0.0, 1.0)),
                             top: BarTokens.searchHintLift - rowPadding,
                             child: IgnorePointer(
-                              child: _LibrarySearchHint(
+                              child: LibrarySearchHint(
                                 scale: _hintScale.value,
                                 alpha: _hintAlpha.value.clamp(0.0, 1.0),
                                 semantics: npStrings.barCdSearch,
@@ -793,8 +798,8 @@ class _BarButton extends StatelessWidget {
 /// round surfaceContainerHighest chip with the search glyph in primary,
 /// floating over the bar with a soft shadow. Drawn, not clipped (HarmonyOS
 /// paints black wedges at clipped corners over other content).
-class _LibrarySearchHint extends StatelessWidget {
-  const _LibrarySearchHint({required this.scale, required this.alpha, required this.semantics});
+class LibrarySearchHint extends StatelessWidget {
+  const LibrarySearchHint({super.key, required this.scale, required this.alpha, required this.semantics});
 
   final double scale;
   final double alpha;
