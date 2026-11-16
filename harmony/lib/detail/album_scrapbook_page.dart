@@ -23,6 +23,7 @@ import '../theme/tokens.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/seam/seam.dart';
+import 'album_page_flight.dart';
 import 'album_scrapbook.dart';
 import 'album_scrapbook_editor.dart';
 import 'album_scrapbook_sheet_model.dart';
@@ -726,6 +727,24 @@ class _CoverWithEmblem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
+    final strings = DetailStrings.of(context);
+    // Page 0's cover flies here with the pager (AlbumPageFlight): this cover is its target,
+    // hidden until the flight has landed, and the emblem rides over the flying one meanwhile.
+    final flight = AlbumPageFlightScope.maybeOf(context);
+    final emblemFace = AlbumScoreEmblem(albumId: album.id, palette: palette, onTap: onEmblemTap, size: emblem);
+    if (flight != null) {
+      flight
+        ..coverTilt = tilt
+        ..coverCorner = ShapeTokens.hero
+        ..emblem = SizedBox.square(dimension: emblem, child: emblemFace);
+    }
+    Widget hiddenWhileFlying(Widget child) => flight == null
+        ? child
+        : ValueListenableBuilder<double>(
+            valueListenable: flight.page,
+            child: child,
+            builder: (context, _, child) => Opacity(opacity: flight.pageCoverHidden() ? 0 : 1, child: child),
+          );
     // The box reserves the emblem's downward overhang; the sideways one rides into the gap.
     return SizedBox(
       width: side,
@@ -738,19 +757,25 @@ class _CoverWithEmblem extends StatelessWidget {
             top: 0,
             width: side,
             height: side,
-            child: _ScrapLayer(
-              tilt: tilt,
-              depth: 0.25,
-              child: Semantics(
-                image: true,
-                label: album.name,
-                // The cover and the emblem break up at the chrome seam, each its own print.
-                child: SeamDissolve(
-                  child: MediaArtwork(
-                    url: coverUrl,
-                    fallbackIcon: YoinSymbols.album,
-                    radius: ShapeTokens.hero,
-                    decodeWidth: math.min(640, (side * dpr).round()),
+            // The flight's target: this box at rest, before the tilt and the pager's parallax.
+            child: SizedBox.expand(
+              key: flight?.coverKey,
+              child: _ScrapLayer(
+                tilt: tilt,
+                depth: 0.25,
+                child: hiddenWhileFlying(
+                  Semantics(
+                    image: true,
+                    label: album.name,
+                    // The cover and the emblem break up at the chrome seam, each its own print.
+                    child: SeamDissolve(
+                      child: MediaArtwork(
+                        url: coverUrl,
+                        fallbackIcon: YoinSymbols.album,
+                        radius: ShapeTokens.hero,
+                        decodeWidth: math.min(640, (side * dpr).round()),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -766,11 +791,9 @@ class _CoverWithEmblem extends StatelessWidget {
               depth: 0.6,
               child: Semantics(
                 button: true,
-                label: DetailStrings.of(context).scrapCdRate,
-                child: SeamDissolve(
-                  round: true,
-                  child: AlbumScoreEmblem(albumId: album.id, palette: palette, onTap: onEmblemTap, size: emblem),
-                ),
+                label: strings.scrapCdRate,
+                // Where the flying cover's emblem copy is drawn (the parallax included).
+                child: _maybeEmblemTarget(flight, hiddenWhileFlying(SeamDissolve(round: true, child: emblemFace))),
               ),
             ),
           ),
@@ -778,6 +801,10 @@ class _CoverWithEmblem extends StatelessWidget {
       ),
     );
   }
+
+  // Only while the cover can fly (a leader layer is a composited layer of its own).
+  static Widget _maybeEmblemTarget(AlbumPageFlight? flight, Widget child) =>
+      flight == null || !flight.flies ? child : CompositedTransformTarget(link: flight.emblemLink, child: child);
 }
 
 /// The listener's review: told apart by its paper colour alone (no label, no rail).

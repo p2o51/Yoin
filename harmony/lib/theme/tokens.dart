@@ -419,6 +419,9 @@ abstract final class DetailTokens {
   /// The title gives up the stamp plus this gap when pulled up (AlbumDetailScreen.kt).
   static const double albumBarTitleGap = 12;
 
+  /// Page 0 → scrapbook cover flight (AlbumPageFlight.kt): the hero text fades out by pager t = 1 / this.
+  static const double albumFlightTextFade = 3.5;
+
   /// Playlist header: room the ⋮ takes at the end, and the stamp's extra gap before it (PlaylistDetailScreen.kt).
   static const double playlistMenuReserve = 40;
   static const double playlistMenuGap = 4;
