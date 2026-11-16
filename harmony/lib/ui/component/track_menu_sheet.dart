@@ -8,7 +8,10 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../../app/providers.dart';
 import '../../data/model/model.dart';
+import '../../data/offline/offline_model.dart';
 import '../../data/source/music_source.dart';
+import '../../offline/offline_providers.dart';
+import '../../offline/offline_toggle.dart';
 import '../../nowplaying/haptics.dart';
 import '../../nowplaying/nowplaying_strings.dart';
 import '../../playback/playback_controller.dart';
@@ -87,7 +90,8 @@ TrackMenuLayout trackMenuLayout({
 /// A song's long-press sheet, rising from the bottom (owner 2026-10-17: a
 /// bottom sheet, never a dropdown; TrackMenu.kt TrackMenuSheet): the song
 /// (cover, title, artist, format), a top row of one-tap actions, then Add to
-/// playlist, then Go to album / Go to artist. Rows the song or provider can't
+/// playlist and Download (an account that downloads), then Go to album / Go
+/// to artist. Rows the song or provider can't
 /// do are left out ([onGoToAlbum] / [onGoToArtist] null leaves those out: an
 /// album row has no Go to album — it is that album). [onAddToPlaylist] null
 /// leaves out Add to playlist. [onMessage] shows the queue confirmations and
@@ -237,10 +241,28 @@ class _TrackMenuSheetState extends ConsumerState<TrackMenuSheet> {
             ),
     );
 
+    // Download this song alone (TrackMenu.kt). A song kept as part of a
+    // downloaded album or playlist has no row: that page's own Download says
+    // it, and removes it.
+    final offline = source?.provider == _track.id.provider && _track.id.rawId.trim().isNotEmpty
+        ? watchOfflineToggle(
+            ref,
+            context,
+            collection: OfflineCollection.song(_track),
+            tracks: () async => [_track],
+            onMessage: widget.onMessage,
+          )
+        : null;
+    final keptByCollection =
+        offline != null &&
+        offline.status is OfflineNone &&
+        ref.watch(offlineLibraryProvider.select((library) => library.isDownloaded(_track.id.toString())));
+
     final playlistRows = [
       for (final a in layout.folded) TrackMenuRow(a.label, a.icon, a.onTap),
       if (widget.onAddToPlaylist case final add? when !widget.nowPlaying)
         TrackMenuRow(strings.addToPlaylist, YoinSymbols.playlist, () => add([_track])),
+      if (offline != null && !keptByCollection) TrackMenuRow(offline.label, offline.icon, offline.onTap),
     ];
     final goRows = [
       if ((widget.onGoToAlbum, _track.albumId) case (final go?, final id?))

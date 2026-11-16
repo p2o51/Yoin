@@ -4,7 +4,9 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../data/offline/offline_model.dart';
 import '../data/source/music_source.dart';
+import '../offline/offline_toggle.dart';
 import '../shell/detail_chrome.dart';
 import '../theme/tokens.dart';
 import '../ui/component/meta_line.dart';
@@ -201,8 +203,9 @@ class _AlbumChrome extends ConsumerWidget {
 
 /// The Album page's ▾ rows after Shuffle play that work on Subsonic in v1
 /// (AlbumDetailActivity rememberDetailMenu + promotable): Play next, Add to
-/// queue, then Go to artist when the album names one. Add to playlist,
-/// Download and Share wait for playlist writes, offline and share links.
+/// queue, Download (an account that downloads; OfflineToggle), then Go to
+/// artist when the album names one. Add to playlist and Share wait for
+/// playlist writes and share links.
 List<DetailMenuAction> albumMenuItems(BuildContext context, WidgetRef ref, AlbumDetailContent state) {
   final strings = DetailStrings.of(context);
   void queue({required bool next}) {
@@ -215,9 +218,19 @@ List<DetailMenuAction> albumMenuItems(BuildContext context, WidgetRef ref, Album
   }
 
   final artistId = state.album.artistId;
+  final offline = watchOfflineToggle(
+    ref,
+    context,
+    collection: OfflineCollection.album(state.album),
+    tracks: () async => state.tracks,
+    onMessage: (text) {
+      if (context.mounted) showDetailMessage(context, text);
+    },
+  );
   return [
     DetailMenuAction(icon: YoinSymbols.skipNext, label: strings.menuPlayNext, onTap: () => queue(next: true)),
     DetailMenuAction(icon: YoinSymbols.queue, label: strings.menuAddToQueue, onTap: () => queue(next: false)),
+    if (offline != null) DetailMenuAction(icon: offline.icon, label: offline.label, onTap: offline.onTap),
     if (artistId != null)
       DetailMenuAction(
         icon: YoinSymbols.artist,

@@ -152,6 +152,21 @@ void main() {
       expect(url.queryParameters.keys, containsAll(['u', 't', 's', 'v', 'c', 'f']));
     });
 
+    test('should_signADownload_when_offlineDownloadAsksForOne', () {
+      final source = _sourceFor({});
+      expect(source.capabilities, contains(Capability.offlineDownload));
+      final downloads = source.downloads!;
+      final original = downloads.downloadUri(MediaId.subsonic('s-1'))!;
+      expect(original.path, '/rest/stream.view');
+      expect(original.queryParameters['id'], 's-1');
+      expect(original.queryParameters.keys, isNot(contains('maxBitRate')));
+      final capped = downloads.downloadUri(MediaId.subsonic('s-1'), maxBitRateKbps: 192, format: 'mp3')!;
+      expect(capped.queryParameters, containsPair('maxBitRate', '192'));
+      expect(capped.queryParameters, containsPair('format', 'mp3'));
+      // A download takes what comes: no length estimate.
+      expect(capped.queryParameters.keys, isNot(contains('estimateContentLength')));
+    });
+
     test('should_throwArgumentError_when_mediaIdIsNotSubsonic', () async {
       final track = Track(id: MediaId(MediaId.providerSpotify, 'x'));
       await expectLater(_sourceFor({}).playback.handleFor(track), throwsArgumentError);

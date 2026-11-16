@@ -10,7 +10,7 @@ sealed class SettingsPane {
   /// page's own back button, and system back) returns there. Null for the
   /// pages the list opens directly.
   SettingsPane? get parent => switch (this) {
-    StreamQualityPane(:final profileId) => AccountPane(profileId),
+    StreamQualityPane(:final profileId) || DownloadsPane(:final profileId) => AccountPane(profileId),
     _ => null,
   };
 }
@@ -35,6 +35,18 @@ final class StreamQualityPane extends SettingsPane {
   bool operator ==(Object other) => other is StreamQualityPane && other.profileId == profileId;
   @override
   int get hashCode => Object.hash(3, profileId);
+}
+
+/// The account in use's Downloads page (DownloadsPage.kt), opened from that
+/// account's page.
+final class DownloadsPane extends SettingsPane {
+  const DownloadsPane(this.profileId);
+  final String profileId;
+
+  @override
+  bool operator ==(Object other) => other is DownloadsPane && other.profileId == profileId;
+  @override
+  int get hashCode => Object.hash(4, profileId);
 }
 
 final class TipsPane extends SettingsPane {

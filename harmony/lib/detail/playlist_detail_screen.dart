@@ -4,7 +4,9 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../data/offline/offline_model.dart';
 import '../library/playlist_writes.dart';
+import '../offline/offline_toggle.dart';
 import '../shell/detail_chrome.dart';
 import '../ui/component/add_to_playlist_sheet.dart';
 import '../ui/component/component_strings.dart';
@@ -231,14 +233,28 @@ class _PlaylistChrome extends ConsumerWidget {
   }
 }
 
-/// The Playlist page's ▾ rows (PlaylistDetailScreen overflow): Rename and
-/// Delete, for a playlist this account owns on a service that can change it.
+/// The Playlist page's ▾ rows (PlaylistDetailScreen overflow): Download
+/// (an account that downloads; OfflineToggle), then Rename and Delete, for a
+/// playlist this account owns on a service that can change it.
 List<DetailMenuAction> playlistMenuItems(BuildContext context, WidgetRef ref, PlaylistDetailContent state) {
+  final offline = watchOfflineToggle(
+    ref,
+    context,
+    collection: OfflineCollection.playlist(state.playlist, cover: state.contextCover),
+    tracks: () async => state.tracks,
+    onMessage: (text) {
+      if (context.mounted) showDetailMessage(context, text);
+    },
+  );
+  final download = [
+    if (offline != null) DetailMenuAction(icon: offline.icon, label: offline.label, onTap: offline.onTap),
+  ];
   final abilities = playlistAbilities(ref.watch(activeSourceProvider).value);
-  if (!abilities.canEdit || !state.playlist.canWrite) return const [];
+  if (!abilities.canEdit || !state.playlist.canWrite) return download;
   final strings = ComponentStrings.of(context);
   final vm = ref.read(playlistDetailProvider(state.playlist.id).notifier);
   return [
+    ...download,
     DetailMenuAction(
       icon: YoinSymbols.edit,
       label: strings.playlistRename,

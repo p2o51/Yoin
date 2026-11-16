@@ -6,6 +6,7 @@ import '../ui/component/corner_mask.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../offline/downloads_screen.dart';
 import '../playback/playback_controller.dart';
 import '../shell/bar_suppression.dart';
 import '../shell/chrome_back.dart';
@@ -137,6 +138,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         navigator.push(YoinPushRoute<void>(builder: (_) => const LicensesScreen()));
       case StreamQualityPane(:final profileId):
         navigator.push(YoinPushRoute<void>(builder: (_) => StreamQualityScreen(profileId: profileId)));
+      case DownloadsPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const DownloadsScreen()));
     }
   }
 
@@ -149,7 +152,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // An account that went away takes its page with it.
     var pane = wide ? _pane : null;
     final paneProfile = switch (pane) {
-      AccountPane(:final profileId) || StreamQualityPane(:final profileId) => profileId,
+      AccountPane(:final profileId) || StreamQualityPane(:final profileId) || DownloadsPane(:final profileId) =>
+        profileId,
       _ => null,
     };
     if (paneProfile != null && state is SettingsContent && !state.accounts.any((a) => a.id == paneProfile)) {
@@ -236,6 +240,7 @@ class _ListDetail extends StatelessWidget {
       TipsPane() => const TipsScreen(inPane: true),
       LicensesPane() => const LicensesScreen(inPane: true),
       StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
+      DownloadsPane(:final profileId) => DownloadsScreen(key: ValueKey(('downloads', profileId)), inPane: true),
     };
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
