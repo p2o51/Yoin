@@ -29,6 +29,7 @@ void main() {
       HomeSection.rediscover,
       HomeSection.recentlyPlayed,
       HomeSection.yourPlaylists,
+      HomeSection.otherProfiles,
       HomeSection.memoryGrid,
     ]);
   });

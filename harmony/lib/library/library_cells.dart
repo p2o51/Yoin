@@ -279,10 +279,13 @@ class LibraryMetaPill extends StatelessWidget {
 
 /// A song row bound to the playback projection (current / playing).
 class LibrarySongRow extends ConsumerWidget {
-  const LibrarySongRow({super.key, required this.track, required this.onTap, this.onLongPress});
+  const LibrarySongRow({super.key, required this.track, required this.onTap, this.onLongPress, this.trailing});
 
   final Track track;
   final VoidCallback onTap;
+
+  /// A row action after the duration (Add to library).
+  final Widget? trailing;
 
   /// Opens the song sheet; null = [openTrackMenu] with this window's navigation.
   final VoidCallback? onLongPress;
@@ -303,6 +306,7 @@ class LibrarySongRow extends ConsumerWidget {
       nowPlayingLabel: LibraryStrings.of(context).cdNowPlaying,
       onTap: onTap,
       onLongPress: onLongPress ?? () => openTrackMenu(context, track),
+      trailing: trailing,
     );
   }
 }

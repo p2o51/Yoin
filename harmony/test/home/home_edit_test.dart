@@ -28,7 +28,15 @@ void main() {
     test('should_permuteOnlyVisibleSlots_when_moving', () {
       final hidden = withSectionEnabled(layout, HomeSection.recentlyAdded, false);
       final visible = hidden.visibleV1Sections;
-      expect(visible, [HomeSection.activities, HomeSection.jumpBackIn, HomeSection.rediscover, HomeSection.recentlyPlayed, HomeSection.yourPlaylists, HomeSection.memoryGrid]);
+      expect(visible, [
+        HomeSection.activities,
+        HomeSection.jumpBackIn,
+        HomeSection.rediscover,
+        HomeSection.recentlyPlayed,
+        HomeSection.yourPlaylists,
+        HomeSection.otherProfiles,
+        HomeSection.memoryGrid,
+      ]);
       final moved = withSectionMoved(hidden, visible, HomeSection.yourPlaylists, 0);
       expect(moved.visibleV1Sections.first, HomeSection.yourPlaylists);
       // The hidden section keeps its own slot and flag.
@@ -176,6 +184,8 @@ void main() {
       await frames(tester, 30);
       expect(c.read(homeEditProvider).editing, isTrue);
       expect(find.text('Done'), findsOneWidget);
+      // The tray sits under every section's plate (On Your Other Accounts' placeholder among them).
+      await tester.dragUntilVisible(find.text('Hidden'), find.byType(HomeScreen), const Offset(0, -300));
       expect(find.text('Hidden'), findsOneWidget);
       expect(find.text('No hidden sections'), findsOneWidget);
       // Cards take no taps while editing — but Jump Back In's, which open their "not now" menu.

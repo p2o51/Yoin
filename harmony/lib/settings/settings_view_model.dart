@@ -43,8 +43,9 @@ final class AccountCard {
   /// secret store, or unreadable): its card says so and opens its page.
   final bool credentialsMissing;
 
-  /// Subsonic accounts have a page of their own (edit credentials, playback).
-  bool get canManage => provider == MediaId.providerSubsonic;
+  /// Subsonic and Apple Music accounts have a page of their own (Subsonic:
+  /// edit credentials, playback; Apple Music: reconnect, song names).
+  bool get canManage => provider == MediaId.providerSubsonic || provider == MediaId.providerAppleMusic;
 
   /// A tap opens the account's page instead of switching: the account in
   /// use, or one that needs attention (Android `opensPage`).

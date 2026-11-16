@@ -25,6 +25,7 @@ import 'memories_layout.dart';
 import 'memories_morph.dart';
 import 'memories_strings.dart';
 import 'memories_ui_state.dart';
+import 'memory_other_profile_line.dart';
 import 'memory_card_face.dart';
 import 'memory_title_editor.dart';
 import 'palette/memory_palette.dart';
@@ -210,7 +211,8 @@ class MemoryDiary extends StatelessWidget {
           type: type,
           today: today,
           strings: strings,
-          interactive: interactive,
+          // Another account's memory is read-only here: its blank page takes no review.
+          interactive: interactive && !memory.isFromOtherProfile,
           onSave: onSaveReview,
         ),
       if (hasEntry && hasTracks) _Separator(tones: tones, type: type),
@@ -1001,11 +1003,19 @@ class _DiaryFoot extends StatelessWidget {
             padding: EdgeInsets.only(top: heard ? MemoriesTokens.diaryGoTop : 0),
             child: IgnorePointer(
               ignoring: !interactive,
-              child: MemoryPillButton(
-                label: strings.diaryGoAlbum,
-                color: tones.button,
-                onColor: tones.onButton,
-                onTap: onOpenAlbum,
+              // Another account's memory: whose it is, beside Go to album (which switches there).
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                spacing: OtherProfileTokens.lineGoGap,
+                children: [
+                  MemoryPillButton(
+                    label: strings.diaryGoAlbum,
+                    color: tones.button,
+                    onColor: tones.onButton,
+                    onTap: onOpenAlbum,
+                  ),
+                  if (memory.otherProfile case final owner?) MemoryOtherProfileLine(owner: owner, tones: tones),
+                ],
               ),
             ),
           ),

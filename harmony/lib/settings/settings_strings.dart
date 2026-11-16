@@ -148,7 +148,14 @@ class SettingsStrings {
   String get serviceNameApple => 'Apple Music'; // settings_service_name_apple (translatable="false")
 
   // ── Add-account service picker ──────────────────────────────────────
-  String get addServiceTitle => _zh ? '选择服务' : 'Choose a service'; // (picker heading, no Android counterpart: v1 Android had one service)
+  String get addSheetTitle => _zh ? '添加账号' : 'Add an account'; // settings_add_sheet_title
+  String get providerSubsonicSummary =>
+      _zh ? 'Navidrome、Airsonic 等其他服务器' : 'Navidrome, Airsonic and other servers'; // settings_provider_subsonic_summary
+  String get providerAppleSummary =>
+      _zh ? '你的 Apple Music 资料库与目录' : 'Your Apple Music library and catalog'; // settings_provider_apple_summary
+  String get providerLocalSummary => _zh ? '即将推出' : 'Coming later'; // settings_provider_local_summary
+  String get providerBadgePreview => _zh ? '预览' : 'Preview'; // settings_provider_badge_preview
+  String get serviceNameLocal => _zh ? '本机文件' : 'Files on this device'; // settings_service_name_local
 
   // ── Apple Music setup page ──────────────────────────────────────────
   String get introAppleName => 'Apple Music'; // settings_intro_apple_name (translatable="false")
@@ -160,6 +167,28 @@ class SettingsStrings {
   String get appleEndpointPlaceholder => 'https://…/token'; // settings_apple_endpoint_placeholder (translatable="false")
   String get appleConnect => _zh ? '连接 Apple Music' : 'Connect Apple Music'; // settings_apple_connect
   String get appleWorking => _zh ? '正在处理…' : 'Working…'; // settings_apple_working
+  String get appleReconnect => _zh ? '重新连接 Apple Music' : 'Reconnect Apple Music'; // settings_apple_reconnect
+  String get sectionAccount => _zh ? '账号' : 'Account'; // settings_setup_section_account
+
+  // An Apple Music account's song names (AppleMusicNameRegionGroup).
+  String get appleNamesTitle => _zh ? '歌曲名' : 'Song names'; // settings_apple_names_title
+  String get appleNamesFoot => _zh
+      ? '适用于这个账号里的歌曲和专辑。那个商店没有的歌，会保留现在的名字。'
+      : "Songs and albums from this account. A song the other storefront doesn't carry keeps the name it has."; // settings_apple_names_foot
+  String get appleNamesOff => _zh ? '按 Apple Music 显示' : 'As Apple Music shows them'; // settings_apple_names_off
+  String get appleNamesOffSummary =>
+      _zh ? '用你所在地区商店的名字' : 'Names from your own storefront'; // settings_apple_names_off_summary
+  String get appleNamesOriginal => _zh ? '按歌曲原地区' : 'In their original language'; // settings_apple_names_original
+  String get appleNamesOriginalSummary => _zh
+      ? '日语歌显示日文原名，韩语歌显示韩文原名'
+      : 'A Japanese song keeps its Japanese name, a Korean one its Korean name'; // settings_apple_names_original_summary
+  String get appleNamesCn => _zh ? '按中国大陆' : 'As China mainland names them'; // settings_apple_names_cn
+  String get appleNamesCnSummary => _zh
+      ? '用 Apple Music 中国大陆商店的名字'
+      : "Names from Apple Music's China mainland storefront"; // settings_apple_names_cn_summary
+  String get appleNamesJp => _zh ? '按日本' : 'As Japan names them'; // settings_apple_names_jp
+  String get appleNamesJpSummary =>
+      _zh ? '用 Apple Music 日本商店的名字' : "Names from Apple Music's Japan storefront"; // settings_apple_names_jp_summary
   String get appleStatusNeedService =>
       _zh ? '将你的 Apple Music 账号连接至 Yoin。' : 'Connect your Apple Music account to Yoin.'; // settings_apple_status_need_service
   String get appleStatusAuthorize =>

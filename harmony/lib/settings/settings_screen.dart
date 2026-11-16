@@ -6,6 +6,7 @@ import '../ui/component/corner_mask.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../data/model/media_id.dart';
 import '../landing/landing_host.dart';
 import '../landing/landing_strings.dart';
 import '../offline/downloads_screen.dart';
@@ -22,6 +23,8 @@ import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
 import 'about_screen.dart';
+import 'add_account_sheet.dart';
+import 'apple_music_account_screen.dart';
 import 'ai_settings_screen.dart';
 import 'ai_sub_pages.dart';
 import 'apple_music_setup_screen.dart';
@@ -57,28 +60,15 @@ Future<void> openSettings(BuildContext context) => Navigator.of(context).push(
 /// Settings' route name (Ctrl+, doesn't stack a second Settings on the first).
 const settingsRouteName = 'settings';
 
-enum _Service { subsonic, appleMusic }
-
-/// Add an account: Android opens a service picker first. v1 shipped one
-/// service; with Apple Music there are two, so Add shows a short menu anchored
-/// to the tapped control, then opens that service's setup page. [anchorContext]
-/// is the control's own context (for the menu anchor).
+/// Add an account (Android AddAccountSheet): the service-choice sheet, then
+/// that service's setup page. [anchorContext] is the tapped control's context.
 Future<void> openAddAccount(BuildContext anchorContext) async {
-  final strings = SettingsStrings.of(anchorContext);
   final navigator = Navigator.of(anchorContext);
-  final choice = await showYoinDropdownMenu<_Service>(
-    context: anchorContext,
-    anchor: globalRectOf(anchorContext),
-    semanticLabel: strings.addServiceTitle,
-    items: [
-      YoinMenuItem(value: _Service.subsonic, label: strings.serviceNameSubsonic, icon: ServiceIdentity.subsonic.glyph),
-      YoinMenuItem(value: _Service.appleMusic, label: strings.serviceNameApple, icon: ServiceIdentity.appleMusic.glyph),
-    ],
-  );
+  final choice = await showAddAccountSheet(anchorContext);
   switch (choice) {
-    case _Service.subsonic:
+    case AddAccountService.subsonic:
       await navigator.push(YoinPushRoute<void>(builder: (_) => const SubsonicSetupScreen()));
-    case _Service.appleMusic:
+    case AddAccountService.appleMusic:
       await navigator.push(YoinPushRoute<void>(builder: (_) => const AppleMusicSetupScreen()));
     case null:
       break;
@@ -136,6 +126,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   bool get _wide => YoinWindowInfo.of(context).layoutMode == LayoutMode.wide;
 
+  /// The listed account's provider (its page follows it); null when not listed.
+  String? _providerOf(String profileId) => switch (ref.read(settingsViewModelProvider)) {
+    SettingsContent(:final accounts) => accounts.where((a) => a.id == profileId).firstOrNull?.provider,
+    _ => null,
+  };
+
   void _open(SettingsPane pane) {
     if (_wide) {
       setState(() => _pane = pane);
@@ -144,7 +140,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final navigator = Navigator.of(context);
     switch (pane) {
       case AccountPane(:final profileId):
-        openSubsonicManage(context, profileId);
+        if (_providerOf(profileId) == MediaId.providerAppleMusic) {
+          openAppleMusicManage(context, profileId);
+        } else {
+          openSubsonicManage(context, profileId);
+        }
       case AiPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const AiSettingsScreen()));
       case AiTiersPane():
@@ -242,6 +242,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ? _ListDetail(
                   list: SettingsSeam(controller: _scroll, child: list),
                   pane: pane,
+                  paneProvider: paneProfile == null ? null : _providerOf(paneProfile),
                   onOpen: _open,
                   onDone: () => setState(() => _pane = null),
                 )
@@ -256,10 +257,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 /// on the right on its own panel in the page colour, cross-fading as the
 /// pick changes.
 class _ListDetail extends StatelessWidget {
-  const _ListDetail({required this.list, required this.pane, required this.onOpen, required this.onDone});
+  const _ListDetail({
+    required this.list,
+    required this.pane,
+    required this.onOpen,
+    required this.onDone,
+    this.paneProvider,
+  });
 
   final Widget list;
   final SettingsPane? pane;
+
+  /// The pane account's provider: an account's page is its service's.
+  final String? paneProvider;
   final OpenSettingsPane onOpen;
   final VoidCallback onDone;
 
@@ -271,8 +281,17 @@ class _ListDetail extends StatelessWidget {
     final pane = this.pane;
     final page = switch (pane) {
       null => const _PanePlaceholder(),
-      AccountPane(:final profileId) =>
-        SubsonicSetupScreen(key: ValueKey(profileId), profileId: profileId, inPane: true, onDone: onDone),
+      AccountPane(:final profileId) when paneProvider == MediaId.providerAppleMusic => AppleMusicAccountScreen(
+        key: ValueKey(profileId),
+        profileId: profileId,
+        inPane: true,
+      ),
+      AccountPane(:final profileId) => SubsonicSetupScreen(
+        key: ValueKey(profileId),
+        profileId: profileId,
+        inPane: true,
+        onDone: onDone,
+      ),
       AiPane() => const AiSettingsScreen(inPane: true),
       AiTiersPane() => const AiTiersScreen(inPane: true),
       AiTryPane() => const AiTryScreen(inPane: true),

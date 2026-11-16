@@ -816,6 +816,16 @@ abstract final class LibraryTokens {
 
   /// SongListItem: padding (h / v), the Thumb cover, cover → text.
   static const double rowPaddingH = 16;
+
+  /// Add to library's spinner (TrackLibraryButton, 22).
+  static const double libraryAddProgress = 22;
+
+  /// The line under a song after Add to library starts under its title (Android 76).
+  static const double libraryAddFeedbackStart = 76;
+  static const double libraryAddFeedbackBottom = 10;
+
+  /// The hairline between the search scopes and the type chips (Android SearchFilterDividerHeight).
+  static const double searchScopeDividerHeight = 24;
   static const double rowPaddingV = 10;
   static const double rowThumb = 48;
   static const double rowGap = 12;
@@ -1376,6 +1386,9 @@ abstract final class TipTokens {
 /// The tip scenes' own layout on the demo phone's 360-wide screen (Android
 /// ui/tips scenes): where the made-up pages put their parts.
 abstract final class TipSceneTokens {
+  /// How far the all-accounts demo's swipe carries the deck before it lets go (Android SwipeTravel).
+  static const double swipeTravel = 0.6;
+
   /// A page's top air, its side padding, a large title's gap to what follows.
   static const double pageTop = 24;
   static const double pagePaddingH = 16;
@@ -1482,4 +1495,35 @@ abstract final class TipSceneTokens {
   /// The name page's notes: how long a ring lives and the echo between its three rings (ms).
   static const int noteLifeMs = 2400;
   static const int noteEchoMs = 220;
+}
+
+/// Another account's things (Android MemoryOtherProfileLine.kt,
+/// HomeOtherProfiles.kt AccountSwitchNoticeSheet, HomeEditorialContent
+/// OtherProfileCard).
+abstract final class OtherProfileTokens {
+  // The one-off "this switches accounts" sheet.
+  static const double noticeSide = 24;
+  static const double noticeTop = 8;
+  static const double noticeBottom = 20;
+  static const double noticeGap = 12;
+  static const double noticeButtonsTop = 8;
+  static const double noticeButtonGap = 8;
+
+  // A memory's "From …" line beside Go to album.
+  static const double lineHeight = 20;
+  static const double lineMaxWidth = 160;
+  static const double lineMark = 16;
+  static const double lineMarkGap = 6;
+  static const double lineTextSize = 13;
+  static const double lineAlpha = 0.72;
+
+  /// Between Go to album and the line beside it (the diary's foot, the spread).
+  static const double lineGoGap = 12;
+
+  /// Above the line when it sits under the card's buttons.
+  static const double lineCardGap = 8;
+
+  // Home's shelf card: the account's mark before its name.
+  static const double shelfMark = 14;
+  static const double shelfMarkGap = 4;
 }

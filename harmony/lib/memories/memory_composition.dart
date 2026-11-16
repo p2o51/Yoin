@@ -32,6 +32,8 @@ MemoryEntry composeAlbumMemory({
   String? aiTitle,
   String? userTitle,
   MemoryNarrationText? aiNarration,
+  MemoryOtherProfile? otherProfile,
+  CoverRef? Function(CoverRef? cover)? coverFor,
 }) => draftAlbumMemory(
   candidate: candidate,
   trackRatings: trackRatings,
@@ -42,6 +44,8 @@ MemoryEntry composeAlbumMemory({
   appLanguage: appLanguage,
   aiTitle: aiTitle,
   userTitle: userTitle,
+  otherProfile: otherProfile,
+  coverFor: coverFor,
 ).entry(aiNarration: aiNarration);
 
 /// The words an album's AI title is made from (the deck's titleOccupant):
@@ -78,6 +82,8 @@ AlbumMemoryDraft draftAlbumMemory({
   MemoryProseLanguage appLanguage = MemoryProseLanguage.en,
   String? aiTitle,
   String? userTitle,
+  MemoryOtherProfile? otherProfile,
+  CoverRef? Function(CoverRef? cover)? coverFor,
 }) {
   final album = candidate.album;
   final songs = album?.tracks ?? const <Track>[];
@@ -170,7 +176,10 @@ AlbumMemoryDraft draftAlbumMemory({
       albumName: album?.name ?? candidate.albumName,
       artistName: candidate.artistName,
       year: album?.year ?? candidate.year,
-      coverArt: album?.coverArt ?? candidate.coverArt,
+      // Another account's cover id means that account's server: [coverFor] makes it a URL.
+      coverArt: coverFor == null
+          ? (album?.coverArt ?? candidate.coverArt)
+          : coverFor(album?.coverArt ?? candidate.coverArt),
       scoreKind: scoreKind,
       score: albumScore ?? average,
       albumRating: albumScore,
@@ -204,6 +213,7 @@ AlbumMemoryDraft draftAlbumMemory({
       playsInYoin: listening?.plays,
       firstHeardAt: listening == null ? null : plays!.firstPlayedAt,
       lastHeardAt: listening == null ? null : plays!.lastPlayedAt,
+      otherProfile: otherProfile,
     ),
     MemoryVoice.narrationBrief(input, voice, today),
   );

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/platform_overrides.dart';
 import 'app/providers.dart';
 import 'cards/play_card.dart';
+import 'data/applemusic/apple_music_name_region.dart';
 import 'data/applemusic/apple_music_source.dart';
 import 'data/backup/playlist_backup_providers.dart';
 import 'data/sync/cloud_sync_providers.dart';
@@ -39,7 +40,15 @@ void main() {
           (ref) => (credentials) => switch (credentials) {
             // Settings › Streaming quality decides each song's stream.
             SubsonicCredentials() => SubsonicMusicSource(credentials, streamPlanner: subsonicStreamPlanner(ref)),
-            AppleMusicCredentials() => AppleMusicSource(credentials),
+            // Settings › the account's page › Song names decides its names.
+            AppleMusicCredentials() => AppleMusicSource(
+              credentials,
+              nameRegion: appleMusicNameRegionReader(
+                () => ref.read(profileRepositoryProvider),
+                () => ref.read(keyValueStoreProvider),
+                credentials,
+              ),
+            ),
           },
         ),
       ],

@@ -33,6 +33,19 @@ class LibraryStrings {
   String get emptyFavorites => zh ? '暂无收藏' : 'No favorites yet'; // library_empty_favorites
 
   String get searchPlaceholder => zh ? '搜索资料库' : 'Search library'; // library_search_placeholder_library
+  String get searchPlaceholderAppleMusic =>
+      zh ? '搜索 Apple Music' : 'Search Apple Music'; // library_search_placeholder_apple_music
+  String get searchScopeLibrary => zh ? '资料库' : 'Library'; // library_search_scope_library
+  String get searchScopeAppleMusic => 'Apple Music'; // library_search_scope_apple_music (translatable="false")
+
+  // Add to library on a catalogue song (TrackLibraryButton, SearchSongRow).
+  String get cdLibraryAdd => zh ? '添加到 Apple Music 资料库' : 'Add to Apple Music library'; // cmp_library_cd_add
+  String get cdLibraryAdded => zh ? '已在 Apple Music 资料库中' : 'In Apple Music library'; // cmp_library_cd_added
+  String get cdLibraryPending => zh ? '检查是否已加入资料库' : 'Check library addition'; // cmp_library_cd_pending
+  String get searchAdded => zh ? '已加入资料库' : 'Added to library'; // library_search_added
+  String get feedbackApplePending =>
+      zh ? '等待 Apple Music 确认' : 'Waiting for Apple Music'; // library_feedback_apple_music_pending
+  String get errorAddSong => zh ? '无法将此歌曲加入资料库。' : "Couldn't add this song to the library."; // library_error_add_song
   String get cdSettings => zh ? '设置' : 'Settings'; // library_cd_settings
 
   String get tabPlaylists => zh ? '播放列表' : 'Playlists'; // library_tab_playlists

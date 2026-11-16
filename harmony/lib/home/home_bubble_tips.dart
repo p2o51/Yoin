@@ -30,6 +30,7 @@ enum HomeBubbleTip {
   libraryRefresh(YoinSymbols.refresh, (2026, 11, 13)),
   memoryLedger(YoinSymbols.memory, (2026, 11, 12)),
   aiServices(YoinSymbols.sparkle, (2026, 11, 16)),
+  memoriesAllAccounts(YoinSymbols.memory, (2026, 11, 16)),
   accountQuickSwitch(YoinSymbols.person, (2026, 11, 6)),
   miniPlayerMenu(YoinSymbols.playCircle, (2026, 11, 16)),
   focusCover(YoinSymbols.openInFull, (2026, 11, 3)),
@@ -76,6 +77,7 @@ enum HomeBubbleTip {
     libraryRefresh => zh ? '刷新资料库' : 'Refresh Library', // home_tip_library_refresh_title
     memoryLedger => zh ? '全部回忆' : 'All Memories', // home_tip_memory_ledger_title
     aiServices => zh ? 'AI 功能' : 'AI features', // home_tip_ai_services_title
+    memoriesAllAccounts => zh ? '各账号的回忆' : 'Memories across accounts', // home_tip_memories_all_accounts_title
     accountQuickSwitch => zh ? '切换账号' : 'Switch accounts', // home_tip_account_quick_switch_title
     miniPlayerMenu => zh ? '迷你播放器菜单' : 'Mini player options', // home_tip_mini_player_menu_title
     focusCover => zh ? '轻点封面聚焦' : 'Tap cover to Focus', // home_tip_focus_cover_title
@@ -156,6 +158,11 @@ enum HomeBubbleTip {
           ? '在设置 > AI 功能中选择 Gemini、DeepSeek、千问或自定义服务，切换「好」与「最佳」档位，或点「拿一首歌试试」当场测试'
           : 'Choose Gemini, DeepSeek, Qwen, or a Custom service in Settings > AI features, switch between Good and '
                 'Best, or tap Try a song to test it out',
+    // home_tip_memories_all_accounts
+    memoriesAllAccounts =>
+      zh
+          ? 'Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号'
+          : 'Memories includes all your accounts, and switches to that account first when you play or go to the album',
     // home_tip_account_quick_switch
     accountQuickSwitch => zh ? '长按头像并滑动以切换账号' : 'Long-press the avatar and slide to switch accounts',
     // home_tip_mini_player_menu

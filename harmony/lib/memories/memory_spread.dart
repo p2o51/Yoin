@@ -27,6 +27,7 @@ import 'copy/memory_voice.dart';
 import 'memories_layout.dart';
 import 'memories_strings.dart';
 import 'memories_ui_state.dart';
+import 'memory_other_profile_line.dart';
 import 'memory_card_face.dart';
 import 'memory_title_editor.dart';
 import 'palette/memory_palette.dart';
@@ -368,11 +369,19 @@ class MemorySpreadExhibit extends StatelessWidget {
             ),
           ),
           SizedBox(height: s.goTop),
-          MemoryPillButton(
-            label: strings.cardGoAlbum, // mem_spread_go_album (same words)
-            color: tones.button,
-            onColor: tones.onButton,
-            onTap: onOpenAlbum,
+          // Another account's memory: whose it is, beside Go to album (which switches there).
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            spacing: OtherProfileTokens.lineGoGap,
+            children: [
+              MemoryPillButton(
+                label: strings.cardGoAlbum, // mem_spread_go_album (same words)
+                color: tones.button,
+                onColor: tones.onButton,
+                onTap: onOpenAlbum,
+              ),
+              if (memory.otherProfile case final owner?) MemoryOtherProfileLine(owner: owner, tones: tones),
+            ],
           ),
         ],
       ),

@@ -81,6 +81,7 @@ class SongListItem extends StatelessWidget {
     this.onLongPress,
     this.decodeWidth,
     this.nowPlayingLabel,
+    this.trailing,
   });
 
   final String title;
@@ -96,6 +97,9 @@ class SongListItem extends StatelessWidget {
   final VoidCallback? onLongPress;
   final int? decodeWidth;
   final String? nowPlayingLabel;
+
+  /// After the duration: a row action (Add to library on a catalogue song).
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -175,6 +179,7 @@ class SongListItem extends StatelessWidget {
                   ),
                 ),
               ],
+              ?trailing,
             ],
           ),
         ),

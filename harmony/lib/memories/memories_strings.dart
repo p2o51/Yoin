@@ -30,6 +30,21 @@ class MemoriesStrings {
   String get cdOpenDiary => zh ? '打开日记' : 'Open the diary'; // mem_cd_open_diary
   String get cardGoAlbum => zh ? '前往专辑' : 'Go to album'; // mem_card_go_album
   String get diaryGoAlbum => zh ? '前往专辑' : 'Go to album'; // mem_diary_go_album
+
+  // Another account's memory (MemoryOtherProfileLine, MemorySwitchNotice).
+  String otherProfileFrom(String name) => zh ? '来自 $name' : 'From $name'; // mem_other_profile_from
+  String cdOtherProfileFrom(String name) =>
+      zh ? '来自另一个账号：$name' : 'From another account, $name'; // mem_cd_other_profile_from
+  String switchTitle(String name) => zh ? '切换到「$name」？' : 'Switch to $name?'; // home_other_profiles_switch_title
+  String switchBodyPlay(String subject) => zh
+      ? '播放「$subject」要先切换到这个账号，正在播放的内容会停下。'
+      : "To play $subject, Yoin switches to that account first. What's playing now stops."; // home_other_profiles_switch_body
+  String switchBodyAlbum(String subject) => zh
+      ? '打开「$subject」要先切换到这个账号，正在播放的内容会停下。'
+      : "To open $subject, Yoin switches to that account first. What's playing now stops."; // mem_switch_body_album
+  String get switchConfirmPlay => zh ? '切换并播放' : 'Switch and play'; // home_other_profiles_switch_confirm
+  String get switchConfirmAlbum => zh ? '切换并打开' : 'Switch and open'; // mem_switch_confirm_album
+  String get switchCancel => zh ? '取消' : 'Cancel'; // home_other_profiles_switch_cancel
   String get albumFallback => zh ? '专辑' : 'Album'; // mem_album_fallback
   String excerptQuote(String text) => '“$text”'; // mem_card_excerpt_quote
   String get reviewToday => zh ? '今天' : 'Today'; // mem_review_today

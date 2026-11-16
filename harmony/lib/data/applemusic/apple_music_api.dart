@@ -216,6 +216,57 @@ final class AppleMusicApi {
     );
   }
 
+  /// Adds catalogue song [catalogId] to the user's library (`POST /v1/me/library?ids[songs]=…`, 202).
+  /// Apple takes it and shows it in the library a little later.
+  Future<void> addSongToLibrary(String catalogId) async {
+    if (!_catalogSongId.hasMatch(catalogId)) {
+      throw ArgumentError.value(catalogId, 'catalogId', 'A catalog song ID is required');
+    }
+    await _send(
+      'POST',
+      baseUrl.replace(path: '/v1/me/library', queryParameters: {'ids[songs]': catalogId}),
+      personal: true,
+      expectedStatus: 202,
+      bodyless: true,
+    );
+  }
+
+  /// The user's library song for catalogue song [catalogId] (`…/songs/{id}/library`), or null when it
+  /// isn't in the library. Apple answers an unsaved song's library relationship with 404 (Android saw it
+  /// on a subscribed account); that 404 reads as absence only after the catalogue confirms the song exists.
+  Future<String?> librarySongId(String storefront, String catalogId) async {
+    if (!_catalogSongId.hasMatch(catalogId)) {
+      throw ArgumentError.value(catalogId, 'catalogId', 'A catalog song ID is required');
+    }
+    AppleMusicJson response;
+    try {
+      response = await resourcePage(['v1', 'catalog', storefront, 'songs', catalogId, 'library'], personal: true);
+    } on AppleMusicApiException catch (e) {
+      if (e.failure != AppleMusicFailure.http || e.status != 404) rethrow;
+      final catalog = await resourcePage(['v1', 'catalog', storefront, 'songs', catalogId], personal: false);
+      final data = catalog['data'];
+      final exists =
+          data is List && data.any((item) => item is Map && item['type'] == 'songs' && item['id'] == catalogId);
+      if (!exists) {
+        throw const AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'No matching catalog song');
+      }
+      return null;
+    }
+    final data = response['data'];
+    if (data is! List) {
+      throw const AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'No library relationship');
+    }
+    if (data.isEmpty) return null;
+    final first = data.first;
+    final id = first is Map ? first['id'] : null;
+    if (id is! String || id.isEmpty || (first as Map)['type'] != 'library-songs') {
+      throw const AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'Invalid library relationship');
+    }
+    return id;
+  }
+
+  static final _catalogSongId = RegExp(r'^[0-9]+$');
+
   static List<Map<String, String>> _trackData(List<AppleMusicTrackRef> tracks) => [
     for (final t in tracks) {'id': t.id, 'type': t.type},
   ];
@@ -228,6 +279,7 @@ final class AppleMusicApi {
     required bool personal,
     Object? jsonBody,
     int expectedStatus = 200,
+    bool bodyless = false,
   }) async {
     String? userToken;
     if (personal) {
@@ -275,7 +327,7 @@ final class AppleMusicApi {
         appleCode: _appleErrorCode(response.bodyBytes),
       );
     }
-    if (response.statusCode == 204) return const {};
+    if (response.statusCode == 204 || bodyless) return const {};
     try {
       final decoded = jsonDecode(utf8.decode(response.bodyBytes, allowMalformed: true));
       if (decoded is Map) return decoded.cast<String, Object?>();

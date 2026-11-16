@@ -1,5 +1,6 @@
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
+import 'library_sort.dart';
 
 /// Songs for a server with no song list (Subsonic): the songs of albums,
 /// newest album first, each album in its page order (Android
@@ -12,7 +13,48 @@ import '../data/source/music_source.dart';
 /// hold it. A page with no new songs reads on, so an empty result means the
 /// end. A failed read leaves the pager where it was (a retry re-reads the
 /// same albums); an album that fails twice in a row is left out.
-final class NewestAlbumSongsPager {
+/// Library › Songs read a page at a time: [next] gives the next songs (empty
+/// at the end), [ended] says nothing more follows.
+abstract interface class LibrarySongsPager {
+  bool get ended;
+  Future<List<Track>> next();
+}
+
+/// Songs for a service whose library lists songs of its own (Android
+/// readLibrarySongs, Apple Music): its first [size], read at once, in title
+/// order (Android songsByTitle: Apple sends them in two A–Z runs). [latinNames]
+/// gives Han titles and artists their pinyin first, as Alphabetical does
+/// (null when none of them has Han).
+final class ServiceLibrarySongsPager implements LibrarySongsPager {
+  ServiceLibrarySongsPager(this._collection, {this.size = 500, this.latinNames});
+
+  final MusicLibraryCollection _collection;
+  final int size;
+  final Future<Map<String, String>>? Function(Iterable<String> names)? latinNames;
+  bool _ended = false;
+
+  @override
+  bool get ended => _ended;
+
+  @override
+  Future<List<Track>> next() async {
+    if (_ended) return const [];
+    final songs = await _collection.librarySongs(size: size);
+    var latin = const <String, String>{};
+    try {
+      final fetch = latinNames?.call({
+        for (final t in songs) ...[(t.title ?? '').trim(), (t.artist ?? '').trim()],
+      });
+      if (fetch != null) latin = await fetch;
+    } catch (_) {
+      // Sorted by the names as written.
+    }
+    _ended = true;
+    return librarySongsByTitle(songs, latinNames: latin);
+  }
+}
+
+final class NewestAlbumSongsPager implements LibrarySongsPager {
   NewestAlbumSongsPager(
     this._library, {
     Future<Album?> Function(MediaId id)? openAlbum,
@@ -35,8 +77,10 @@ final class NewestAlbumSongsPager {
   final _failures = <MediaId, int>{};
   bool _ended = false;
 
+  @override
   bool get ended => _ended;
 
+  @override
   Future<List<Track>> next() async {
     while (!_ended) {
       final from = _consumed - overlap < 0 ? 0 : _consumed - overlap;

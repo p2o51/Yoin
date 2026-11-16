@@ -51,6 +51,7 @@ import 'memories_motion.dart';
 import 'memories_reveal_scope.dart';
 import 'memories_strings.dart';
 import 'memories_ui_state.dart';
+import 'other_profiles.dart';
 import 'memories_view_model.dart';
 import 'memory_card_face.dart';
 import 'memory_diary.dart';
@@ -370,28 +371,71 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
 
   // ---------------------------------------------------------------- actions
 
-  void _openAlbum(MemoryEntry memory) => DetailRoutes.openAlbum(context, memory.albumId);
+  /// Go to album. Another account's memory: its album is that account's, so
+  /// Yoin switches there first (the deck keeps the card in view across the
+  /// switch) and opens the album once the account is in use; the first time,
+  /// the one-off notice asks before switching (Android rememberMemoryAlbumOpen).
+  void _openAlbum(MemoryEntry memory) {
+    final owner = memory.otherProfile;
+    if (owner == null) {
+      DetailRoutes.openAlbum(context, memory.albumId);
+      return;
+    }
+    final container = ProviderScope.containerOf(context, listen: false);
+    requestAccountSwitch(
+      context,
+      owner: owner,
+      // The album's own name, as Android's notice says it (not the memory's title).
+      subject: memory.albumName,
+      purpose: AccountSwitchPurpose.openAlbum,
+      proceed: () => switchAccountThen(
+        container,
+        owner.id,
+        provider: memory.albumId.provider,
+        onLanded: (_) {
+          if (mounted) DetailRoutes.openAlbum(context, memory.albumId);
+        },
+      ),
+    );
+  }
 
   AlbumPlaybackContext _context(MemoryEntry m) =>
       AlbumPlaybackContext(albumId: m.albumId, name: m.albumName, artist: m.artistName, cover: m.coverArt);
 
   void _playTrack(MemoryEntry m, MemoryTrack t) {
     YoinHaptics.click();
-    ref
-        .read(playbackControllerProvider.notifier)
-        .playTracks(m.playbackSongs, startIndex: t.playbackIndex, context: _context(m));
+    _play(m, t, startPositionMs: 0);
   }
 
   void _playNote(MemoryEntry m, MemoryTrack t, MemoryWriting note) {
     YoinHaptics.click();
-    ref
+    _play(m, t, startPositionMs: note.positionMs ?? 0);
+  }
+
+  /// Plays [t] in [m]'s queue. Another account's track: switch there (as
+  /// Home's other-accounts shelf does), then play once its source is up.
+  void _play(MemoryEntry m, MemoryTrack t, {required int startPositionMs}) {
+    final container = ProviderScope.containerOf(context, listen: false);
+    Future<void> play() => container
         .read(playbackControllerProvider.notifier)
         .playTracks(
           m.playbackSongs,
           startIndex: t.playbackIndex,
           context: _context(m),
-          startPositionMs: note.positionMs ?? 0,
+          startPositionMs: startPositionMs,
         );
+    final owner = m.otherProfile;
+    if (owner == null) {
+      play();
+      return;
+    }
+    requestAccountSwitch(
+      context,
+      owner: owner,
+      subject: t.title.isEmpty ? m.albumName : t.title,
+      purpose: AccountSwitchPurpose.play,
+      proceed: () => switchAccountThen(container, owner.id, provider: t.trackId.provider, onLanded: (_) => play()),
+    );
   }
 
   // ---------------------------------------------------------------- build
@@ -599,7 +643,8 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
             onPlayTrack: (t) => _playTrack(memory, t),
             onPlayNote: (t, n) => _playNote(memory, t, n),
             onSaveReview: (text) => ref.read(memoriesViewModelProvider.notifier).saveReview(memory, text),
-            titleEditing: _titleEditing,
+            // Another account's memory is read-only here: its title isn't edited.
+            titleEditing: memory.isFromOtherProfile ? null : _titleEditing,
             current: index == state.currentPage,
           );
         },
@@ -761,7 +806,11 @@ class _MemoryPage extends ConsumerWidget {
     final now = ref.watch(memoriesClockProvider)();
     final today = ref.watch(memoriesDayOfProvider)(now);
     final playingId = ref.watch(playerSnapshotProvider.select((s) => s.track?.id));
-    final playingHere = playingId != null && memory.diaryTracks.any((t) => t.track.trackId == playingId);
+    // The account in use plays: another account's notes never light (Android memoriesPlayhead).
+    final playingHere =
+        playingId != null &&
+        !memory.isFromOtherProfile &&
+        memory.diaryTracks.any((t) => t.track.trackId == playingId);
     final litNote = playingHere
         ? ref.watch(playheadProvider.select((h) => memoryLitNoteId(memory, playingId, h.positionMs)))
         : null;

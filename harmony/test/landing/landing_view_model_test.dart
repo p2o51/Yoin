@@ -167,7 +167,7 @@ void main() {
 
   test('should_listOnlySectionsThisBuildDraws_when_homeStepShown', () {
     final shown = landingShownSections(HomeLayout.defaultLayout);
-    expect(shown.map((p) => p.section), isNot(contains(HomeSection.otherProfiles)));
+    expect(shown.map((p) => p.section), contains(HomeSection.otherProfiles));
     expect(shown.map((p) => p.section), isNot(contains(HomeSection.lyricHighlight)));
     expect(shown.length, HomeSection.values.where((s) => s.availableInV1).length);
   });

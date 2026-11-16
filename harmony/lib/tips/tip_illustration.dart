@@ -54,6 +54,7 @@ Widget tipDemo(HomeBubbleTip tip, bool playing) => switch (tip) {
   HomeBubbleTip.libraryRefresh => LibraryRefreshDemo(playing: playing),
   HomeBubbleTip.memoryLedger => MemoryLedgerDemo(playing: playing),
   HomeBubbleTip.aiServices => AiServicesDemo(playing: playing),
+  HomeBubbleTip.memoriesAllAccounts => MemoriesAllAccountsDemo(playing: playing),
   HomeBubbleTip.accountQuickSwitch => AccountQuickSwitchDemo(playing: playing),
   HomeBubbleTip.miniPlayerMenu => MiniPlayerMenuDemo(playing: playing),
   HomeBubbleTip.focusCover => FocusCoverDemo(playing: playing),

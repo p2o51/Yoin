@@ -25,6 +25,7 @@ import 'home_memory_signals.dart';
 import 'home_metrics.dart';
 import 'home_rows_handle.dart';
 import 'home_rows_resize.dart';
+import 'home_other_profiles.dart';
 import 'home_section.dart';
 import 'home_selection.dart';
 import 'home_strings.dart';
@@ -444,6 +445,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final editingNow = e > 0.001;
     // All Memories (the memory ledger): shown once it has an entry.
     final ledger = ref.watch(memoryLedgerProvider).value;
+    // What the other accounts play most (a switch away); none with one account.
+    final otherProfileItems = ref.watch(otherProfileItemsProvider).value ?? const <OtherProfileItem>[];
     final visible = layout.visibleV1Sections;
     // The signals are the same account's, or none (a switch in flight).
     final mine = signals.scope == content.scopeKey;
@@ -513,7 +516,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                   )),
             2
           ),
-        HomeSection.otherProfiles || HomeSection.lyricHighlight => (null, 0),
+        HomeSection.otherProfiles => (
+          otherProfileItems.isEmpty ? null : OtherProfilesSection(items: otherProfileItems, frame: frame),
+          2,
+        ),
+        HomeSection.lyricHighlight => (null, 0),
       };
       // Editing, an empty section shows its placeholder on its plate.
       if (body == null && !editingNow) continue;
