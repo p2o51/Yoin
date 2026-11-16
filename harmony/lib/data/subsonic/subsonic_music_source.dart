@@ -2,6 +2,8 @@
 /// (Android data/source/subsonic/SubsonicMusicSource.kt).
 library;
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
@@ -35,13 +37,14 @@ final class SubsonicMusicSource implements MusicSource {
     SubsonicStreamPlanner? streamPlanner,
   }) : _api = SubsonicApi(credentials: credentials, client: client ?? http.Client(), salt: salt, timeout: timeout) {
     _library = _SubsonicLibrary(_api, _kinds);
-    _metadata = _SubsonicMetadata(_api, _library);
+    _metadata = _SubsonicMetadata(_api, _library, _extensions);
     _writeActions = _SubsonicWriteActions(_api, _kinds);
-    _playback = _SubsonicPlayback(_api, streamPlanner);
+    _playback = _SubsonicPlayback(_api, streamPlanner, _extensions);
   }
 
   final SubsonicApi _api;
   final _IdKinds _kinds = _IdKinds();
+  late final _ServerExtensions _extensions = _ServerExtensions(_api);
   late final _SubsonicLibrary _library;
   late final _SubsonicMetadata _metadata;
   late final _SubsonicWriteActions _writeActions;
@@ -300,35 +303,14 @@ String albumListTypeParam(AlbumListType type) => switch (type) {
 };
 
 final class _SubsonicMetadata implements MusicMetadata, MusicLinks {
-  _SubsonicMetadata(this._api, this._library);
+  _SubsonicMetadata(this._api, this._library, this._extensions);
   final SubsonicApi _api;
   final _SubsonicLibrary _library;
+  final _ServerExtensions _extensions;
 
   /// The server refused a share in a way asking again won't change (sharing
   /// turned off, no such endpoint): later Shares send the name alone at once.
   bool _sharesRefused = false;
-
-  /// The server's OpenSubsonic extension names, asked once. A server that
-  /// answers without them (plain Subsonic: an error or a 404) is remembered
-  /// as having none; no answer at all (offline, auth) is asked again next time.
-  Set<String>? _extensions;
-
-  Future<Set<String>> _serverExtensions() async {
-    if (_extensions case final known?) return known;
-    Set<String> names;
-    try {
-      final body = await _api.call('getOpenSubsonicExtensions');
-      final list = body['openSubsonicExtensions'];
-      names = {
-        if (list is List)
-          for (final e in list)
-            if (e is Map && e['name'] is String) e['name'] as String,
-      };
-    } on SourceServerException {
-      names = const {};
-    }
-    return _extensions = names;
-  }
 
   /// OpenSubsonic `getLyricsBySongId` when the server lists `songLyrics`
   /// (Android asks it, usually synced); when it doesn't, or has nothing for
@@ -338,7 +320,7 @@ final class _SubsonicMetadata implements MusicMetadata, MusicLinks {
   @override
   Future<Lyrics?> getLyrics(Track track) async {
     final rawId = _raw(track.id);
-    if ((await _serverExtensions()).contains('songLyrics')) {
+    if ((await _extensions.names()).contains(_ServerExtensions.songLyrics)) {
       final structured = await _nullIfNotFound(() async {
         final body = await _api.call('getLyricsBySongId', [('id', rawId)]);
         return lyricsFromStructured((body['lyricsList'] as Map?)?.cast());
@@ -531,30 +513,70 @@ final class _SubsonicWriteActions implements MusicWriteActions, MusicPlaylistWri
   }
 }
 
-final class _SubsonicPlayback implements MusicPlayback, MusicDownloads {
-  _SubsonicPlayback(this._api, this._planner);
+final class _SubsonicPlayback implements MusicPlayback, MusicDownloads, MusicPlaybackStateReports {
+  _SubsonicPlayback(this._api, this._planner, this._extensions);
   final SubsonicApi _api;
   final SubsonicStreamPlanner? _planner;
+  final _ServerExtensions _extensions;
+
+  /// The transcode format whose bytes map onto time: a constant-bit-rate mp3
+  /// (Android SubsonicServerTraits.FORMAT_MP3).
+  static const _constantBitRateFormat = 'mp3';
+
+  /// How long a seek waits to learn whether the server takes `timeOffset`
+  /// (Android SubsonicServerTraitsCache ASK_TIMEOUT_SECONDS).
+  static const _traitsTimeout = Duration(seconds: 4);
 
   /// A signed `stream.view` URL: the original file, or the transcode [_planner] asks for.
+  ///
+  /// A transcode has no byte ranges. When it is a constant-bit-rate mp3 (the
+  /// file is listed above the cap, so the server encodes at the cap), a byte
+  /// position is a time, and a read past the start asks the server to start
+  /// the transcode there (`timeOffset`, where it has `transcodeOffset`)
+  /// instead of transcoding from the start: [DirectStream.timeSeek].
   @override
   Future<PlaybackHandle> handleFor(Track track) async {
     final plan = await _planner?.call(track);
-    final uri = _api.restUri('stream', [
-      ('id', _raw(track.id)),
-      if (plan != null) ...[
-        ('maxBitRate', '${plan.maxBitRateKbps}'),
-        ('format', plan.format),
-        if (plan.estimateLength) ('estimateContentLength', 'true'),
-      ],
-    ]);
+    final rawId = _raw(track.id);
+    final uri = _streamUri(rawId, plan);
     if (uri == null) throw const SourceNetworkException('Invalid server URL');
+    StreamTimeSeek? timeSeek;
+    final sourceKbps = track.audioFormat?.bitRateKbps;
+    if (plan != null &&
+        plan.format == _constantBitRateFormat &&
+        sourceKbps != null &&
+        sourceKbps > plan.maxBitRateKbps) {
+      timeSeek = StreamTimeSeek(kbps: plan.maxBitRateKbps, uriAt: (seconds) => _streamFrom(rawId, plan, seconds));
+      // Known before the first far seek asks.
+      unawaited(_extensions.names().then((_) {}, onError: (Object _) {}));
+    }
     return DirectStream(
       uri.toString(),
       delivery: plan == null
           ? StreamDelivery.original
           : StreamDelivery(maxBitRateKbps: plan.maxBitRateKbps, format: plan.format),
+      timeSeek: timeSeek,
     );
+  }
+
+  /// `stream.view` for [rawId] under [plan], starting [timeOffsetSeconds] in
+  /// when above zero (Android SubsonicStreamUrls.withTranscode's order).
+  Uri? _streamUri(String rawId, SubsonicStreamPlan? plan, {int timeOffsetSeconds = 0}) => _api.restUri('stream', [
+    ('id', rawId),
+    if (plan != null) ...[
+      ('maxBitRate', '${plan.maxBitRateKbps}'),
+      ('format', plan.format),
+      if (timeOffsetSeconds > 0) ('timeOffset', '$timeOffsetSeconds'),
+      if (plan.estimateLength) ('estimateContentLength', 'true'),
+    ],
+  ]);
+
+  /// The transcode starting [seconds] in; null when the server lacks `transcodeOffset`.
+  Future<Uri?> _streamFrom(String rawId, SubsonicStreamPlan plan, int seconds) async {
+    if (seconds <= 0) return null;
+    final names = await _extensions.names().timeout(_traitsTimeout);
+    if (!names.contains(_ServerExtensions.transcodeOffset)) return null;
+    return _streamUri(rawId, plan, timeOffsetSeconds: seconds);
   }
 
   /// A signed `stream.view` URL for keeping the song (Android
@@ -578,6 +600,67 @@ final class _SubsonicPlayback implements MusicPlayback, MusicDownloads {
       ('time', '${playedAt.millisecondsSinceEpoch}'),
       ('submission', 'true'),
     ]);
+  }
+
+  /// The server lists OpenSubsonic `playbackReport`; asked once per source
+  /// ([_ServerExtensions]).
+  @override
+  Future<bool> supportsPlaybackStateReport() async =>
+      (await _extensions.names()).contains(_ServerExtensions.playbackReport);
+
+  /// `reportPlayback?mediaId=&mediaType=song&positionMs=&state=&ignoreScrobble=true`:
+  /// plays are counted through scrobble only, so online and offline plays count once.
+  @override
+  Future<void> reportPlaybackState(MediaId trackId, PlaybackReportState state, int positionMs) async {
+    await _api.call('reportPlayback', [
+      ('mediaId', _raw(trackId)),
+      ('mediaType', 'song'),
+      ('positionMs', '${positionMs < 0 ? 0 : positionMs}'),
+      ('state', state.wire),
+      ('ignoreScrobble', 'true'),
+    ]);
+  }
+}
+
+/// The server's OpenSubsonic extension names, asked once per source and
+/// shared by lyrics, playback reports and seeking in a transcode. A server
+/// that answers without them (plain Subsonic: an error or a 404) is
+/// remembered as having none; no answer at all (offline, auth) is asked again
+/// next time. One question at a time: callers meanwhile share its answer.
+final class _ServerExtensions {
+  _ServerExtensions(this._api);
+  final SubsonicApi _api;
+
+  static const songLyrics = 'songLyrics';
+  static const playbackReport = 'playbackReport';
+  static const transcodeOffset = 'transcodeOffset';
+
+  Set<String>? _known;
+  Future<Set<String>>? _asking;
+
+  Future<Set<String>> names() {
+    if (_known case final known?) return Future.value(known);
+    return _asking ??= _ask();
+  }
+
+  Future<Set<String>> _ask() async {
+    try {
+      Set<String> names;
+      try {
+        final body = await _api.call('getOpenSubsonicExtensions');
+        final list = body['openSubsonicExtensions'];
+        names = {
+          if (list is List)
+            for (final e in list)
+              if (e is Map && e['name'] is String) e['name'] as String,
+        };
+      } on SourceServerException {
+        names = const {};
+      }
+      return _known = names;
+    } finally {
+      _asking = null;
+    }
   }
 }
 

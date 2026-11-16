@@ -796,7 +796,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
       songId: track.id.rawId,
       playKey: '$entryId#${s.repeatPlays}',
       isPlaying: s.isPlaying,
-      positionMs: head.positionMs,
+      // Now, not when last sampled: the tracker tells a seek from playing on by the position.
+      positionMs: head.entryId == entryId ? head.positionAt(_clock.wallMs()) : s.positionAt(_clock.wallMs()),
       durationMs: s.effectiveDurationMs ?? 0,
     );
   }
@@ -912,7 +913,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
       delivery: handle.delivery,
       fileDelivery: download?.delivery,
       // Any other song streams through the stream cache (CacheDataSource).
-      cacheUri: await streamCacheAddress(ref, track, handle.uri, handle.headers),
+      cacheUri: await streamCacheAddress(ref, track, handle.uri, handle.headers, timeSeek: handle.timeSeek),
       title: track.title ?? '',
       artist: track.artist,
       album: track.album,

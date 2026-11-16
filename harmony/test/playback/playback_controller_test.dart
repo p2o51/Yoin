@@ -309,6 +309,33 @@ void main() {
         expect(source.nowPlaying, hasLength(2));
       });
 
+      test('should_reportLiveStatesAndStop_when_serverTakesPlaybackReport', () async {
+        final reporting = _StateReportingSource();
+        source = reporting;
+        c.invalidate(activeSourceProvider);
+        await c.read(activeSourceProvider.future);
+        await ctl().playTracks(playbackTracks(1));
+        await echo(0, sampledAt: clock.wall);
+        clock.mono += 5000;
+        clock.wall += 5000;
+        await echo(0, playing: false, position: 5000, sampledAt: clock.wall);
+        // Moved while paused: the server hears the new position.
+        clock.mono += 1000;
+        clock.wall += 1000;
+        await echo(0, playing: false, position: 120000, sampledAt: clock.wall);
+        await ctl().disconnect();
+        await pumpEventQueue();
+        final t0 = MediaId.subsonic('t0');
+        expect(reporting.nowPlaying, isEmpty);
+        expect(reporting.reports, [
+          (t0, PlaybackReportState.starting, 0),
+          (t0, PlaybackReportState.playing, 0),
+          (t0, PlaybackReportState.paused, 5000),
+          (t0, PlaybackReportState.paused, 120000),
+          (t0, PlaybackReportState.stopped, 120000),
+        ]);
+      });
+
       test('should_notScrobble_when_sourceLacksPlayReporting', () async {
         source = PlaybackFakeSource(capabilities: const {});
         c.invalidate(activeSourceProvider);
@@ -612,4 +639,16 @@ class _GatedSource extends PlaybackFakeSource {
     await gate.future;
     return super.handleFor(track);
   }
+}
+
+/// A server with OpenSubsonic `playbackReport`.
+class _StateReportingSource extends PlaybackFakeSource implements MusicPlaybackStateReports {
+  final List<(MediaId, PlaybackReportState, int)> reports = [];
+
+  @override
+  Future<bool> supportsPlaybackStateReport() async => true;
+
+  @override
+  Future<void> reportPlaybackState(MediaId trackId, PlaybackReportState state, int positionMs) async =>
+      reports.add((trackId, state, positionMs));
 }

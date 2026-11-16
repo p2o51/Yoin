@@ -473,3 +473,31 @@ abstract interface class MusicPlayback {
   /// Record a finished play (Subsonic scrobble submission=true).
   Future<void> submitPlay(MediaId trackId, DateTime playedAt);
 }
+
+/// OpenSubsonic `reportPlayback` states (Android PlaybackReportState).
+enum PlaybackReportState {
+  starting('starting'),
+  playing('playing'),
+  paused('paused'),
+  stopped('stopped');
+
+  const PlaybackReportState(this.wire);
+
+  /// What the server is sent.
+  final String wire;
+}
+
+/// Live player state for the service's now-playing view (Android
+/// MusicPlayback.supportsPlaybackStateReport / reportPlaybackState): a
+/// source's playback implements it when the service can take it, under
+/// [Capability.playReporting].
+abstract interface class MusicPlaybackStateReports {
+  /// Whether [reportPlaybackState] reaches the service (OpenSubsonic
+  /// `playbackReport`). Throws when the service couldn't be asked (offline):
+  /// it is asked again next time.
+  Future<bool> supportsPlaybackStateReport();
+
+  /// [state] of [trackId] at [positionMs]. Never counts a play: plays go
+  /// through [MusicPlayback.submitPlay] only.
+  Future<void> reportPlaybackState(MediaId trackId, PlaybackReportState state, int positionMs);
+}
