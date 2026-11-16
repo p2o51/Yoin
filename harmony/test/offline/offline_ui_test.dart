@@ -121,6 +121,12 @@ void main() {
       await openSheet(tester, source: NowPlayingFakeSource());
       expect(find.text('Download'), findsNothing);
     });
+
+    testWidgets('should_leaveTheRowOut_when_thisBuildKeepsNoFiles', (tester) async {
+      downloads.fake = OfflineState(activeProfileId: 'p1', ready: true, available: false);
+      await openSheet(tester);
+      expect(find.text('Download'), findsNothing);
+    });
   });
 
   group('page menus', () {

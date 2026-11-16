@@ -67,6 +67,7 @@ final class OfflineState {
     this.activeProfileId,
     this.settings = const DownloadSettings(),
     this.ready = false,
+    this.available = true,
   });
 
   final List<OfflineSong> songs;
@@ -75,6 +76,10 @@ final class OfflineState {
 
   /// The index has been read (until then the lists are empty, not "nothing downloaded").
   final bool ready;
+
+  /// This build keeps downloads (it has a files folder); known once [ready].
+  /// Without one the Download rows stay out rather than do nothing.
+  final bool available;
 
   /// The active account's downloads.
   late final OfflineLibrary library = OfflineLibrary([
@@ -141,6 +146,7 @@ class OfflineDownloads extends ChangeNotifier {
   Future<void>? _starting;
   bool _disposed = false;
   int _seq = 0;
+  int _jobSeq = 0;
   final _jobs = <String, _Job>{};
 
   /// Transient failures per song so far (a dropped connection, the app
@@ -178,9 +184,18 @@ class OfflineDownloads extends ChangeNotifier {
     }
     if (_disposed) return;
     _dir = dir;
+    if (dir != null) await _sweep(dir, (name) => name.endsWith(_partSuffix));
     final songs = dir == null ? <OfflineSong>[] : await _readIndex(dir);
     _seq = songs.fold(0, (m, s) => s.order >= m ? s.order + 1 : m);
-    _set(OfflineState(songs: songs, activeProfileId: _state.activeProfileId, settings: settings, ready: true));
+    _set(
+      OfflineState(
+        songs: songs,
+        activeProfileId: _state.activeProfileId,
+        settings: settings,
+        ready: true,
+        available: dir != null,
+      ),
+    );
     _pump();
   }
 
@@ -190,7 +205,16 @@ class OfflineDownloads extends ChangeNotifier {
   /// The account whose downloads [state.library] lists; another account's downloads wait.
   void setActiveProfile(String? profileId) {
     if (profileId == _state.activeProfileId) return;
+    // A running download of the account going away stops and waits for it
+    // (Android STOP_OTHER_PROFILE): it starts over when that account is back.
+    final stopped = <String, OfflineSong>{};
+    for (final s in _state.songs) {
+      if (s.profileId == profileId || s.state != OfflineSongState.downloading) continue;
+      _jobs.remove(s.key)?.cancel();
+      stopped[s.key] = s.copyWith(state: OfflineSongState.waiting, bytes: 0, clearTotal: true);
+    }
     _set(_copy(activeProfileId: profileId));
+    if (stopped.isNotEmpty) _replace(stopped);
     _pump();
   }
 
@@ -220,7 +244,7 @@ class OfflineDownloads extends ChangeNotifier {
   Future<int> download(List<Track> tracks, OfflineCollection collection) async {
     await start();
     if (_dir == null) return 0;
-    final account = await this.account();
+    final account = await _safeAccount();
     if (account == null) return 0;
     final quality = _state.settings.quality;
     final byKey = {for (final s in _state.songs) s.key: s};
@@ -300,6 +324,10 @@ class OfflineDownloads extends ChangeNotifier {
     for (final s in songs) {
       await _discard(s);
     }
+    // Anything else in the folder too (a file a removal raced with): the
+    // folder is the downloads', and every one of them is going.
+    final dir = _dir;
+    if (dir != null) await _sweep(dir, (name) => name != indexName && name != '$indexName.tmp');
     _save();
   }
 
@@ -331,9 +359,9 @@ class OfflineDownloads extends ChangeNotifier {
   /// A downloaded album as its page needs it with no network: the songs as
   /// they were downloaded, in disc and track order. Null when the active
   /// account didn't download [id].
-  Album? offlineAlbum(MediaId id) {
+  Album? offlineAlbum(MediaId id, {String? profileId}) {
     final key = OfflineCollection(kind: OfflineCollectionKind.album, id: id.toString(), title: '').key;
-    final library = _state.library;
+    final library = _libraryOf(profileId);
     final collection = library.collectionOf(key);
     if (collection == null) return null;
     final tracks = [for (final s in library.songsOf(key)) s.track]
@@ -355,10 +383,19 @@ class OfflineDownloads extends ChangeNotifier {
     );
   }
 
+  /// [profileId]'s downloads (the active account's when null): a page read
+  /// as the app starts may come before the active account is followed.
+  OfflineLibrary _libraryOf(String? profileId) => profileId == null || profileId == _state.activeProfileId
+      ? _state.library
+      : OfflineLibrary([
+          for (final s in _state.songs)
+            if (s.profileId == profileId) s,
+        ]);
+
   /// A downloaded playlist with no network, its songs in the order they came.
-  Playlist? offlinePlaylist(MediaId id) {
+  Playlist? offlinePlaylist(MediaId id, {String? profileId}) {
     final key = OfflineCollection(kind: OfflineCollectionKind.playlist, id: id.toString(), title: '').key;
-    final library = _state.library;
+    final library = _libraryOf(profileId);
     final collection = library.collectionOf(key);
     if (collection == null) return null;
     final tracks = [for (final s in library.songsOf(key)) s.track];
@@ -461,7 +498,7 @@ class OfflineDownloads extends ChangeNotifier {
       _save();
       return;
     }
-    final job = _Job();
+    final job = _Job(_jobSeq++);
     _jobs[song.key] = job;
     _replace({
       song.key: song.copyWith(state: OfflineSongState.downloading, bytes: 0, clearTotal: true, fileName: name),
@@ -470,14 +507,29 @@ class OfflineDownloads extends ChangeNotifier {
   }
 
   Future<void> _run(String key, Uri uri, File target, _Job job) async {
-    final part = File('${target.path}.part');
+    // Its own part file: a download removed and queued again never shares one
+    // with the run still winding down.
+    final part = File('${target.path}.${job.id}$_partSuffix');
     try {
       final response = await _client.send(http.Request('GET', uri)).timeout(connectTimeout);
-      if (job.cancelled) return;
-      if (response.statusCode != 200) throw _DownloadRefused('HTTP ${response.statusCode}');
+      if (job.cancelled) {
+        _drain(response);
+        return;
+      }
+      final status = response.statusCode;
+      if (status != 200) {
+        _drain(response);
+        // The server busy or failing tries again (Media3 retries any HTTP
+        // error); anything else it says is a refusal.
+        if (status >= 500 || status == 408 || status == 429) throw _DownloadDropped('HTTP $status');
+        throw _DownloadRefused('HTTP $status');
+      }
       // A Subsonic error comes back as a 200 with an XML or JSON body, never audio.
       final type = response.headers['content-type']?.toLowerCase() ?? '';
-      if (type.contains('xml') || type.contains('json')) throw const _DownloadRefused('server error');
+      if (type.contains('xml') || type.contains('json')) {
+        _drain(response);
+        throw const _DownloadRefused('server error');
+      }
       final total = response.contentLength;
       final sink = part.openWrite();
       job.sink = sink;
@@ -512,7 +564,10 @@ class OfflineDownloads extends ChangeNotifier {
       await part.rename(target.path);
       _attempts.remove(key);
       _notBefore.remove(key);
-      _finish(key, (s) => s.copyWith(state: OfflineSongState.done, bytes: bytes, totalBytes: bytes));
+      // Removed while the file moved into place: it goes with the song.
+      if (!_finish(key, (s) => s.copyWith(state: OfflineSongState.done, bytes: bytes, totalBytes: bytes))) {
+        await _delete(target);
+      }
     } catch (e) {
       await job.sink?.close().catchError((_) {});
       await _delete(part);
@@ -521,7 +576,8 @@ class OfflineDownloads extends ChangeNotifier {
       // it tries again, as Media3 retries a download, until it has failed
       // [maxRetries] times. The server saying no fails it at once.
       final transient =
-          e is! _DownloadRefused && (e is SocketException || e is TimeoutException || e is http.ClientException);
+          e is _DownloadDropped ||
+          (e is! _DownloadRefused && (e is SocketException || e is TimeoutException || e is http.ClientException));
       final offline = transient && await _safeBearer() == NetworkBearer.none;
       final tries = transient && !offline ? (_attempts[key] ?? 0) + 1 : 0;
       final retries = offline || (transient && tries <= maxRetries);
@@ -550,12 +606,19 @@ class OfflineDownloads extends ChangeNotifier {
     }
   }
 
-  void _finish(String key, OfflineSong Function(OfflineSong) change) {
-    if (_disposed) return;
+  /// Applies [change] to [key]'s song; false when it was removed meanwhile.
+  bool _finish(String key, OfflineSong Function(OfflineSong) change) {
+    if (_disposed) return true;
     final song = _state.songs.where((s) => s.key == key).firstOrNull;
-    if (song == null) return; // removed meanwhile
+    if (song == null) return false;
     _replace({key: change(song)});
     _save();
+    return true;
+  }
+
+  /// Lets go of a response it won't read, so its connection closes.
+  static void _drain(http.StreamedResponse response) {
+    unawaited(response.stream.listen(null, onError: (_) {}, cancelOnError: true).cancel());
   }
 
   // ── Files and the index ───────────────────────────────────────────
@@ -578,8 +641,22 @@ class OfflineDownloads extends ChangeNotifier {
     final name = song.fileName;
     if (dir == null || name == null) return;
     await _delete(File(_pathIn(dir, name)));
-    await _delete(File('${_pathIn(dir, name)}.part'));
   }
+
+  /// Deletes the files in [dir] whose names [matches] (part files left by a
+  /// run the app didn't outlive; everything, for Remove all).
+  static Future<void> _sweep(Directory dir, bool Function(String name) matches) async {
+    try {
+      await for (final entity in dir.list()) {
+        final name = entity.uri.pathSegments.lastWhere((s) => s.isNotEmpty, orElse: () => '');
+        if (entity is File && matches(name)) await _delete(entity);
+      }
+    } catch (e) {
+      debugPrint('YoinOffline: folder not swept: $e');
+    }
+  }
+
+  static const _partSuffix = '.part';
 
   static Future<void> _delete(File file) async {
     try {
@@ -647,6 +724,7 @@ class OfflineDownloads extends ChangeNotifier {
         activeProfileId: identical(activeProfileId, _keep) ? _state.activeProfileId : activeProfileId as String?,
         settings: settings ?? _state.settings,
         ready: _state.ready,
+        available: _state.available,
       );
 
   void _replace(Map<String, OfflineSong> changes) {
@@ -676,8 +754,12 @@ class OfflineDownloads extends ChangeNotifier {
   }
 }
 
-/// One running download: cancelled by a removal.
+/// One running download: cancelled by a removal or an account switch.
 final class _Job {
+  _Job(this.id);
+
+  /// Names its part file.
+  final int id;
   bool cancelled = false;
   IOSink? sink;
   StreamSubscription<List<int>>? subscription;
@@ -688,6 +770,14 @@ final class _Job {
     unawaited(subscription?.cancel());
     onCancel?.call();
   }
+}
+
+/// The server busy or failing (5xx, 408, 429): tried again like a dropped connection.
+final class _DownloadDropped implements Exception {
+  const _DownloadDropped(this.reason);
+  final String reason;
+  @override
+  String toString() => 'DownloadDropped($reason)';
 }
 
 final class _DownloadRefused implements Exception {

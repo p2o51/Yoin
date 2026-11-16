@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
+import '../data/offline/offline_downloads.dart';
 import '../offline/offline_providers.dart';
 
 /// How long a detail load waits for the active source on a cold start
@@ -38,10 +39,10 @@ final class DetailCache {
   int _generation = 0;
 
   Future<Album?> album(MediaId id) =>
-      _load('album:$id', (s) => s.library.getAlbum(id), offline: () => offline?.album(id));
+      _load('album:$id', (s) => s.library.getAlbum(id), offline: () async => offline?.album(id));
   Future<ArtistDetail?> artist(MediaId id) => _load('artist:$id', (s) => s.library.getArtist(id));
   Future<Playlist?> playlist(MediaId id) =>
-      _load('playlist:$id', (s) => s.library.getPlaylist(id), offline: () => offline?.playlist(id));
+      _load('playlist:$id', (s) => s.library.getPlaylist(id), offline: () async => offline?.playlist(id));
 
   /// The landed album, if cached (no read).
   Album? cachedAlbum(MediaId id) => _cache['album:$id'] as Album?;
@@ -54,7 +55,7 @@ final class DetailCache {
   /// Forgets [id] so the next read goes to the server (pull to refresh).
   void evict(String kind, MediaId id) => _cache.remove('$kind:$id');
 
-  Future<T?> _load<T>(String key, Future<T?> Function(MusicSource source) read, {T? Function()? offline}) {
+  Future<T?> _load<T>(String key, Future<T?> Function(MusicSource source) read, {Future<T?> Function()? offline}) {
     if (_cache.containsKey(key)) {
       final hit = _cache.remove(key);
       _cache[key] = hit; // most recent last
@@ -70,7 +71,7 @@ final class DetailCache {
       try {
         return await read(source);
       } on Exception {
-        final kept = _offline(offline);
+        final kept = await _offline(offline);
         if (kept == null) rethrow;
         fromOffline = true;
         return kept;
@@ -96,9 +97,9 @@ final class DetailCache {
     return future;
   }
 
-  static T? _offline<T>(T? Function()? read) {
+  static Future<T?> _offline<T>(Future<T?> Function()? read) async {
     try {
-      return read?.call();
+      return await read?.call();
     } catch (_) {
       return null;
     }
@@ -123,8 +124,8 @@ Future<MusicSource?> awaitActiveSource(Ref ref) async {
 
 /// The downloaded albums and playlists, as their pages read with no network.
 abstract interface class OfflineDetails {
-  Album? album(MediaId id);
-  Playlist? playlist(MediaId id);
+  Future<Album?> album(MediaId id);
+  Future<Playlist?> playlist(MediaId id);
 }
 
 final detailCacheProvider = Provider<DetailCache>((ref) {
@@ -144,8 +145,28 @@ final class _OfflineDetails implements OfflineDetails {
   final Ref _ref;
 
   @override
-  Album? album(MediaId id) => _ref.read(offlineDownloadsProvider).offlineAlbum(id);
+  Future<Album?> album(MediaId id) async {
+    final (downloads, profileId) = await _ready();
+    return downloads.offlineAlbum(id, profileId: profileId);
+  }
 
   @override
-  Playlist? playlist(MediaId id) => _ref.read(offlineDownloadsProvider).offlinePlaylist(id);
+  Future<Playlist?> playlist(MediaId id) async {
+    final (downloads, profileId) = await _ready();
+    return downloads.offlinePlaylist(id, profileId: profileId);
+  }
+
+  /// The downloads with their index read, and the account in use: a page
+  /// opened as the app starts offline may come before either.
+  Future<(OfflineDownloads, String?)> _ready() async {
+    final downloads = _ref.read(offlineDownloadsProvider);
+    await downloads.start();
+    String? profileId;
+    try {
+      profileId = (await _ref.read(profileRepositoryProvider).activeProfile())?.id;
+    } catch (_) {
+      profileId = null; // The followed account's, then.
+    }
+    return (downloads, profileId);
+  }
 }

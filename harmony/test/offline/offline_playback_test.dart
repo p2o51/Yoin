@@ -38,7 +38,7 @@ class _Kept extends FakeOfflineDownloads {
       songId == MediaId.subsonic('t1') ? 'file:///data/storage/files/offline_media/t1.mp3' : null;
 
   @override
-  Album? offlineAlbum(MediaId id) => id == MediaId.subsonic('al1')
+  Album? offlineAlbum(MediaId id, {String? profileId}) => id == MediaId.subsonic('al1')
       ? Album(
           id: id,
           name: 'Kept',
@@ -60,11 +60,15 @@ void main() {
     addTearDown(c.dispose);
     c.listen(playbackControllerProvider, (_, _) {});
     await c.read(playbackControllerProvider.notifier).playTracks(playbackTracks(3));
+    expect(engine.queue.map((i) => i.localUri), [null, 'file:///data/storage/files/offline_media/t1.mp3', null]);
+    // The stream stays beside the file: a download removed after the queue was built streams.
     expect(engine.queue.map((i) => i.uri), [
       'https://stream.test/t0',
-      'file:///data/storage/files/offline_media/t1.mp3',
+      'https://stream.test/t1',
       'https://stream.test/t2',
     ]);
+    expect(engine.queue[1].toMap(), containsPair('localUri', 'file:///data/storage/files/offline_media/t1.mp3'));
+    expect(engine.queue[0].toMap().containsKey('localUri'), isFalse);
   });
 
   test('should_streamEverything_when_theSourceCannotDownload', () async {
@@ -80,6 +84,7 @@ void main() {
     c.listen(playbackControllerProvider, (_, _) {});
     await c.read(playbackControllerProvider.notifier).playTracks(playbackTracks(2));
     expect(engine.queue.map((i) => i.uri).every((u) => u.startsWith('https://')), isTrue);
+    expect(engine.queue.every((i) => i.localUri == null), isTrue);
   });
 
   test('should_openTheDownloadedAlbum_when_theServerCannotBeReached', () async {

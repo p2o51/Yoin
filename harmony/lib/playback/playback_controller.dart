@@ -794,16 +794,17 @@ class PlaybackController extends Notifier<NowPlayingState> {
   }
 
   Future<EngineItem?> _itemFor(MusicSource source, Track track) async {
-    // A downloaded song plays from its file, offline and at the quality it
-    // was kept at, whatever the network would stream (OfflineFirstDataSource).
-    final local = offlinePlayableUri(ref, source, track.id);
-    final handle = local != null ? DirectStream(local) : await source.playback.handleFor(track);
+    final handle = await source.playback.handleFor(track);
     if (handle is! DirectStream) return null; // External controllers arrive with Spotify.
     final cover = track.coverArt;
     return EngineItem(
       id: track.id.toString(),
       uri: handle.uri,
       headers: handle.headers,
+      // A downloaded song plays from its file, offline and at the quality it
+      // was kept at, whatever the network would stream (OfflineFirstDataSource);
+      // the stream above is what plays if the download is removed meanwhile.
+      localUri: offlinePlayableUri(ref, source, track.id),
       title: track.title ?? '',
       artist: track.artist,
       album: track.album,
@@ -823,6 +824,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
         id: item.id,
         uri: item.uri,
         headers: item.headers,
+        localUri: item.localUri,
         title: item.title,
         artist: item.artist,
         album: item.album,

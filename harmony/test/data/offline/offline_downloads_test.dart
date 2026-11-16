@@ -318,12 +318,88 @@ void main() {
     expect(d.offlinePlaylist(MediaId.subsonic('pl1')), isNull);
   });
 
+  test('should_tryAgain_when_theServerIsBusy', () async {
+    var calls = 0;
+    respond = (request) async {
+      if (++calls == 1) return http.Response('busy', 503);
+      return http.Response.bytes([1, 2, 3], 200, headers: {'content-type': 'audio/mpeg'});
+    };
+    final d = make()..setActiveProfile('p1');
+    await d.start();
+    await d.download([_track('s1')], _album);
+    await until(() => allDone(d));
+    expect(calls, 2);
+  });
+
+  test('should_failAtOnce_when_theServerSaysNotFound', () async {
+    respond = (request) async => http.Response('gone', 404);
+    final d = make()..setActiveProfile('p1');
+    await d.start();
+    await d.download([_track('s1')], _album);
+    await until(() => d.state.songs.single.state == OfflineSongState.failed);
+    expect(requests, hasLength(1));
+  });
+
+  test('should_stopAndWait_when_theAccountSwitchesMidDownload', () async {
+    final gate = Completer<void>();
+    respond = (request) async {
+      await gate.future;
+      return http.Response.bytes([1, 2, 3], 200, headers: {'content-type': 'audio/mpeg'});
+    };
+    final d = make()..setActiveProfile('p1');
+    await d.start();
+    await d.download([_track('s1')], _album);
+    await until(() => d.state.songs.single.state == OfflineSongState.downloading);
+
+    account = OfflineAccount(profileId: 'p2', provider: MediaId.providerSubsonic, downloads: _Signer('bob'));
+    d.setActiveProfile('p2');
+    expect(d.state.songs.single.state, OfflineSongState.waiting);
+    gate.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    // The run that was cut off lands nowhere: it waits for p1.
+    expect(d.state.songs.single.state, OfflineSongState.waiting);
+    expect(d.playableUri(MediaId.subsonic('s1')), isNull);
+
+    account = OfflineAccount(profileId: 'p1', provider: MediaId.providerSubsonic, downloads: _Signer('alice'));
+    d.setActiveProfile('p1');
+    await until(() => allDone(d));
+    expect(requests.map((u) => u.queryParameters['u']), everyElement('alice'));
+  });
+
+  test('should_deleteLeftoverFiles_when_theAppStartsAndOnRemoveAll', () async {
+    final folder = Directory('${root.path}/${OfflineDownloads.folderName}')..createSync(recursive: true);
+    final leftover = File('${folder.path}/abc.mp3.3.part')..writeAsStringSync('half');
+    final d = make()..setActiveProfile('p1');
+    await d.start();
+    expect(leftover.existsSync(), isFalse, reason: 'a run the app did not outlive starts over');
+
+    await d.download([_track('s1')], _album);
+    await until(() => allDone(d));
+    final stray = File('${folder.path}/stray.mp3')..writeAsStringSync('x');
+    await d.removeAll();
+    await d.saved;
+    expect(stray.existsSync(), isFalse);
+    expect(folder.listSync().map((e) => e.uri.pathSegments.last), [OfflineDownloads.indexName]);
+  });
+
+  test('should_readAnAccountsAlbum_when_itIsNotFollowedYet', () async {
+    bearer = NetworkBearer.none;
+    final d = make()..setActiveProfile('p1');
+    await d.start();
+    await d.download([_track('a', no: 1)], _album);
+    d.setActiveProfile(null);
+    expect(d.offlineAlbum(MediaId.subsonic('al1')), isNull);
+    expect(d.offlineAlbum(MediaId.subsonic('al1'), profileId: 'p1')!.tracks, hasLength(1));
+    expect(d.offlineAlbum(MediaId.subsonic('al1'), profileId: 'p2'), isNull);
+  });
+
   test('should_keepNothing_when_thereIsNoFilesFolder', () async {
     final d = OfflineDownloads(files: const NoAppFilesHost(), account: () async => account, bearer: () async => bearer);
     made.add(d);
     d.setActiveProfile('p1');
     await d.start();
     expect(d.available, isFalse);
+    expect(d.state.available, isFalse, reason: 'the Download rows stay out');
     expect(await d.download([_track('s1')], _album), 0);
   });
 }

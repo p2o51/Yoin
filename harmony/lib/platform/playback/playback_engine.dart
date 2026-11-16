@@ -10,6 +10,7 @@ final class EngineItem {
     required this.id,
     required this.uri,
     this.headers = const {},
+    this.localUri,
     required this.title,
     this.artist,
     this.album,
@@ -23,6 +24,12 @@ final class EngineItem {
   final String id;
   final String uri;
   final Map<String, String> headers;
+
+  /// A downloaded copy (`file://`, offline downloads) the native player opens
+  /// in place of [uri] while the file is there; [uri] streams when it has
+  /// gone (removed after the queue was built), as Android's
+  /// OfflineFirstDataSource decides as the song opens.
+  final String? localUri;
   final String title;
   final String? artist;
   final String? album;
@@ -41,6 +48,7 @@ final class EngineItem {
         'id': id,
         'uri': uri,
         'headers': headers,
+        if (localUri != null) 'localUri': localUri,
         'title': title,
         'artist': artist,
         'album': album,

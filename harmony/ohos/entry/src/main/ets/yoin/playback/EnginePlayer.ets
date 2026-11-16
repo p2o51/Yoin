@@ -4,7 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { QueueItem } from './QueueItem';
 
-/** A downloaded song's address (Dart's offline downloads): `file://` + a path in the app's sandbox. */
+/** A downloaded song's address ([QueueItem.localUri], Dart's offline downloads): `file://` + a path in the app's sandbox. */
 const FILE_SCHEME = 'file://';
 
 /**
@@ -75,13 +75,22 @@ export class AvEnginePlayer implements EnginePlayer {
 
   async setSource(item: QueueItem): Promise<void> {
     this.closeFile();
-    if (item.uri.startsWith(FILE_SCHEME)) {
+    const local = item.localUri;
+    if (local !== undefined && local.startsWith(FILE_SCHEME)) {
       // A downloaded song plays from its file, with no network (AVPlayer takes a local file as a descriptor).
-      const file = fs.openSync(decodeURI(item.uri.substring(FILE_SCHEME.length)), fs.OpenMode.READ_ONLY);
-      this.file = file;
-      const src: media.AVFileDescriptor = { fd: file.fd };
-      this.p.fdSrc = src;
-      return;
+      // A file removed since the queue was built streams instead (Android OfflineFirstDataSource).
+      let file: fs.File | null = null;
+      try {
+        file = fs.openSync(decodeURI(local.substring(FILE_SCHEME.length)), fs.OpenMode.READ_ONLY);
+      } catch (e) {
+        file = null;
+      }
+      if (file !== null) {
+        this.file = file;
+        const src: media.AVFileDescriptor = { fd: file.fd };
+        this.p.fdSrc = src;
+        return;
+      }
     }
     if (item.headerCount > 0) {
       await this.p.setMediaSource(media.createMediaSourceWithUrl(item.uri, item.headers));

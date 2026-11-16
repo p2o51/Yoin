@@ -71,9 +71,13 @@ final offlineStateProvider = NotifierProvider<OfflineStateNotifier, OfflineState
 /// The active account's downloads.
 final offlineLibraryProvider = Provider<OfflineLibrary>((ref) => ref.watch(offlineStateProvider).library);
 
-/// Whether the active account downloads (Capability.offlineDownload); the
-/// Download rows show only then.
-final canDownloadProvider = Provider<bool>((ref) => ref.watch(activeSourceProvider).value?.downloads != null);
+/// Whether the active account downloads (Capability.offlineDownload) and
+/// this build keeps files; the Download rows show only then.
+final canDownloadProvider = Provider<bool>(
+  (ref) =>
+      ref.watch(activeSourceProvider).value?.downloads != null &&
+      ref.watch(offlineStateProvider.select((s) => !s.ready || s.available)),
+);
 
 /// The downloaded copy [songId] plays from, when the active account has it
 /// all; null otherwise (and wherever downloads aren't set up).
