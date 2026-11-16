@@ -9,6 +9,7 @@ import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../detail/detail_cache.dart';
 import '../platform/i18n/name_transliterator.dart';
+import '../settings/account_reconnect.dart';
 import '../ui/component/error_diagnostics.dart';
 import 'library_playlists_by_you.dart';
 import 'library_sort.dart';
@@ -186,11 +187,45 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     _generation++;
     _reset();
     return switch (source) {
-      AsyncData(value: null) => const LibraryNoAccount(),
+      AsyncData(value: null) => _sourceless(null),
       AsyncData(:final value?) => _coldStart(value),
-      AsyncError(:final error) => LibraryError(error),
+      AsyncError(:final error) => _sourceless(error),
+      // A failed read Riverpod is retrying: no source meanwhile either.
+      AsyncLoading(:final error?) when !source.hasValue => _sourceless(error),
       _ => const LibraryLoading(),
     };
+  }
+
+  /// No source came ([error]: why, when reading the account failed). An
+  /// account whose source isn't coming — its credentials couldn't be read —
+  /// is said as Home's dot says it ("Account needs reconnecting",
+  /// [activeNeedsReconnectProvider]), not as "no account". That answer is
+  /// worked out a beat after the source settled, so the page follows it
+  /// rather than reading it once.
+  LibraryUiState _sourceless(Object? error) {
+    final gen = _generation;
+    bool? shown;
+    LibraryUiState? answer(AsyncValue<bool> needs) {
+      if (needs.isLoading || !needs.hasValue) return null;
+      final value = needs.requireValue;
+      if (value == shown) return null;
+      shown = value;
+      return switch ((value, error)) {
+        (true, _) => LibraryError(
+          const AccountNeedsReconnectError(),
+          diagnostics: error == null ? null : diagnosticReport(error),
+        ),
+        (false, null) => const LibraryNoAccount(),
+        (false, final Object error) => LibraryError(error),
+      };
+    }
+
+    ref.listen<AsyncValue<bool>>(activeNeedsReconnectProvider, (_, next) {
+      if (!_alive(gen)) return;
+      final page = answer(next);
+      if (page != null) state = page;
+    });
+    return answer(ref.read(activeNeedsReconnectProvider)) ?? const LibraryLoading();
   }
 
   void _reset() {

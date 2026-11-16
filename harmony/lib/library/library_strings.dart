@@ -19,6 +19,10 @@ class LibraryStrings {
   String get errorLoadLibrary => zh ? '无法加载资料库' : 'Failed to load library'; // library_error_load_library
   String get errorRetry => zh ? '重试' : 'Retry'; // library_error_retry
   String get errorSettings => zh ? '设置' : 'Settings'; // library_error_settings
+
+  /// The account in use has no source and none is coming (its credentials
+  /// couldn't be read): said as Home's dot says it.
+  String get accountReconnectNeeded => zh ? '账号需要重新连接' : 'Account needs reconnecting'; // home_account_reconnect_needed
   String get errorLoadArtists => zh ? '无法加载艺术家' : 'Failed to load Artists'; // library_error_load_tab_artists
   String get errorLoadAlbums => zh ? '无法加载专辑' : 'Failed to load Albums'; // library_error_load_tab_albums
   String get errorLoadSongs => zh ? '无法加载歌曲' : 'Failed to load Songs'; // library_error_load_tab_songs

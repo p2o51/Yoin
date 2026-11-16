@@ -12,6 +12,13 @@
 /// the scrim and, late, the contents; closing runs the same p back into the
 /// avatar. System back closes the card through that p ([ChromeBackEntry]),
 /// so Home's own back-to-home is untouched while it is shut.
+///
+/// An account in use that needs its owner (its credentials couldn't be read:
+/// [activeNeedsReconnectProvider], owner 2026-10-11) wears a small
+/// error-coloured dot on the header avatar, and the card offers Reconnect
+/// beside Manage accounts. The card waits while a Reconnect runs and goes back
+/// into the avatar when it ends — then, if the retry couldn't fix it, the
+/// account's own page opens ([openAccountPage]).
 library;
 
 import 'dart:async';
@@ -23,16 +30,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
+import '../data/model/media_id.dart';
 import '../data/profile/profile.dart';
 import '../nowplaying/haptics.dart';
 import '../settings/account_identity.dart';
+import '../settings/account_reconnect.dart';
 import '../settings/account_switch.dart';
+import '../settings/apple_music_account_screen.dart';
 import '../settings/settings_screen.dart';
+import '../settings/subsonic_setup_screen.dart';
 import '../settings/settings_view_model.dart';
 import '../shell/bar_suppression.dart';
 import '../shell/chrome_back.dart';
 import '../theme/motion.dart';
 import '../ui/component/desktop_input.dart';
+import '../ui/component/yoin_loading_indicator.dart';
 import 'home_metrics.dart';
 import 'home_strings.dart';
 
@@ -77,7 +89,8 @@ Future<bool> switchHomeAccount(WidgetRef ref, String profileId) =>
 
 Future<bool> switchHomeAccountIn(ProviderContainer container, String profileId) async {
   final pending = container.read(homeSwitchTargetProvider.notifier);
-  if (container.read(homeSwitchTargetProvider) != null) return false;
+  // Not while a switch or a Reconnect begun here runs (Android switchTo's `retrying`).
+  if (container.read(homeSwitchTargetProvider) != null || container.read(accountReconnectorProvider)) return false;
   // Set before anything awaits: the tap's own frame shows the target.
   pending.set(profileId);
   try {
@@ -100,6 +113,19 @@ Future<bool> switchHomeAccountIn(ProviderContainer container, String profileId) 
 
 /// The other accounts' cards (the active one excluded), in Settings' order.
 List<AccountCard> otherAccounts(List<AccountCard> all) => [for (final a in all) if (!a.isActive) a];
+
+/// Opens [card]'s own page over Home (Android rememberAccountPageOpener): the
+/// Subsonic page, where its credentials are entered again, or the Apple Music
+/// one, where its sign-in runs again. Its back comes straight back here.
+Future<void> openAccountPage(BuildContext context, AccountCard card) => switch (card.provider) {
+  MediaId.providerAppleMusic => openAppleMusicManage(context, card.id),
+  MediaId.providerSubsonic => openSubsonicManage(context, card.id),
+  _ => openSettings(context),
+};
+
+/// Test keys: the reconnect dot on the header avatar, the card's Reconnect.
+const homeAccountReconnectDotKey = ValueKey('home_account_reconnect_dot');
+const homeAccountReconnectKey = ValueKey('home_account_reconnect');
 
 AccountAvatar _avatarOf(AccountCard card, {required double size, required Color ring}) => AccountAvatar(
       monogram: monogramOf(card.title, card.identity.name),
@@ -219,9 +245,18 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     final chosen = _hover.value >= 0 && _hover.value < _fanAccounts.length ? _fanAccounts[_hover.value] : null;
     _holding.value = false;
     _hover.value = -1;
-    if (chosen != null) {
-      YoinHaptics.confirm();
-      switchHomeAccount(ref, chosen.id);
+    if (chosen == null) return;
+    YoinHaptics.confirm();
+    _quickPick(chosen);
+  }
+
+  /// A pick from the hold or its accessibility actions (Android quickPick).
+  void _quickPick(AccountCard card) {
+    if (card.credentialsMissing) {
+      // As on the card: an account that can't be used now is recovered in Settings.
+      openSettings(context);
+    } else {
+      switchHomeAccount(ref, card.id);
     }
   }
 
@@ -233,8 +268,11 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     // A switch begun here shows its target from the tap on.
     final target = ref.watch(homeSwitchTargetProvider);
     final active = accounts.where((a) => a.id == target).firstOrNull ?? accounts.where((a) => a.isActive).firstOrNull;
-    // The hold offers nothing while a switch begun here runs (Android quickSwitch).
-    final others = target != null
+    final reconnecting = ref.watch(accountReconnectorProvider);
+    // Through a switch the header shows its target, not the account in use: no dot then.
+    final needsReconnect = target == null && (ref.watch(activeNeedsReconnectProvider).value ?? false);
+    // The hold offers nothing while a switch or a Reconnect begun here runs (Android quickSwitch).
+    final others = target != null || reconnecting
         ? const <AccountCard>[]
         : [
             for (final a in accounts)
@@ -246,9 +284,10 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     final ring = colors.surfaceContainer;
     return Semantics(
       button: true,
-      label: strings.accountCd(title),
+      // The dot is heard with the avatar (Android: its description merges into the button's).
+      label: needsReconnect ? '${strings.accountCd(title)}, ${strings.accountReconnectNeeded}' : strings.accountCd(title),
       customSemanticsActions: {
-        for (final o in others) CustomSemanticsAction(label: strings.accountQuickSwitch(o.title)): () => switchHomeAccount(ref, o.id),
+        for (final o in others) CustomSemanticsAction(label: strings.accountQuickSwitch(o.title)): () => _quickPick(o),
       },
       excludeSemantics: true,
       // Mouse / keyboard: hover layer, click cursor, focus ring, Enter.
@@ -268,7 +307,17 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
             child: Center(
               child: active == null
                   ? (widget.fallback ?? const SizedBox.shrink())
-                  : _avatarOf(active, size: HomeHeaderMetrics.avatar, ring: ring),
+                  : Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        _avatarOf(active, size: HomeHeaderMetrics.avatar, ring: ring),
+                        PositionedDirectional(
+                          top: 0,
+                          end: 0,
+                          child: HomeAccountReconnectDot(visible: needsReconnect, ringColor: ring),
+                        ),
+                      ],
+                    ),
             ),
           ),
         ),
@@ -427,7 +476,13 @@ class _FanRowState extends State<_FanRow> with TickerProviderStateMixin {
                   elevation: 3 + 5 * lift.clamp(0.0, 1.0),
                   child: SizedBox.square(
                     dimension: HomeAccountMetrics.fanItem,
-                    child: Center(child: _avatarOf(widget.card, size: HomeAccountMetrics.fanAvatar, ring: colors.surfaceContainerHigh)),
+                    // An account that can't be used now: there, but quieter (letting go on it opens Settings).
+                    child: Center(
+                      child: Opacity(
+                        opacity: widget.card.credentialsMissing ? HomeAccountMetrics.fanUnusableAlpha : 1,
+                        child: _avatarOf(widget.card, size: HomeAccountMetrics.fanAvatar, ring: colors.surfaceContainerHigh),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -528,6 +583,29 @@ class _AccountCardOverlayState extends State<_AccountCardOverlay> with TickerPro
     }
   }
 
+  /// Reconnect (AccountSwitcherViewModel.reconnect): one more try at the
+  /// account in use. Fixed: the card goes back into the avatar, and Home under
+  /// it shows the dot gone and the feed coming in. Not fixed: the account's
+  /// own page, once the card is back in the avatar. A card closed meanwhile
+  /// (back, a tap outside) leaves it at that: the dot, if still needed, is
+  /// there to come back by.
+  Future<void> _reconnect(AccountCard account) async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    // Not while a switch begun here runs.
+    if (container.read(homeSwitchTargetProvider) != null) return;
+    YoinHaptics.click();
+    final outcome = await container.read(accountReconnectorProvider.notifier).reconnect(account.id);
+    if (!mounted || _closing) return;
+    switch (outcome) {
+      case AccountReconnectOutcome.fixed:
+        close();
+      case AccountReconnectOutcome.openPage:
+        close(() => openAccountPage(widget.navigator.context, account));
+      case null:
+        break;
+    }
+  }
+
   @override
   void dispose() {
     final suppression = widget.barSuppression;
@@ -548,16 +626,36 @@ class _AccountCardOverlayState extends State<_AccountCardOverlay> with TickerPro
     final strings = HomeStrings.of(context);
     final active = widget.accounts.where((a) => a.isActive).firstOrNull;
     final others = otherAccounts(widget.accounts);
-    final content = _CardContent(
-      active: active,
-      others: others,
-      strings: strings,
-      onPick: (card) {
-        YoinHaptics.click();
-        close(() => widget.onPick(card));
+    // The account in use needing its owner, and a Reconnect under way, read live:
+    // the card answers them while it is up.
+    final content = Consumer(
+      builder: (context, ref, _) {
+        final reconnecting = ref.watch(accountReconnectorProvider);
+        final needsReconnect = ref.watch(activeNeedsReconnectProvider).value ?? false;
+        // While a Reconnect runs nothing on the card starts anything (Android takesInput /
+        // gated): no tap, and no key or accessibility action either, read when it fires.
+        VoidCallback gated(VoidCallback action) => () {
+          if (!ref.read(accountReconnectorProvider)) action();
+        };
+        return IgnorePointer(
+          ignoring: reconnecting,
+          child: _CardContent(
+            active: active,
+            others: others,
+            strings: strings,
+            needsReconnect: needsReconnect,
+            reconnecting: reconnecting,
+            onReconnect: active == null ? null : gated(() => _reconnect(active)),
+            onPick: (card) => gated(() {
+              YoinHaptics.click();
+              // An account that can't be used right now is recovered in Settings.
+              close(card.credentialsMissing ? () => openSettings(widget.navigator.context) : () => widget.onPick(card));
+            })(),
+            onSettings: gated(() => close(() => openSettings(widget.navigator.context))),
+            onEditHome: widget.onEditHome == null ? null : gated(() => close(widget.onEditHome)),
+          ),
+        );
       },
-      onSettings: () => close(() => openSettings(widget.navigator.context)),
-      onEditHome: widget.onEditHome == null ? null : () => close(widget.onEditHome),
     );
     return AnimatedBuilder(
       animation: _p.animation,
@@ -665,6 +763,9 @@ class _CardContent extends StatelessWidget {
     required this.onPick,
     required this.onSettings,
     this.onEditHome,
+    this.needsReconnect = false,
+    this.reconnecting = false,
+    this.onReconnect,
   });
 
   final AccountCard? active;
@@ -673,6 +774,11 @@ class _CardContent extends StatelessWidget {
   final void Function(AccountCard) onPick;
   final VoidCallback onSettings;
   final VoidCallback? onEditHome;
+
+  /// The account in use needs its owner: Reconnect beside Manage accounts.
+  final bool needsReconnect;
+  final bool reconnecting;
+  final VoidCallback? onReconnect;
 
   @override
   Widget build(BuildContext context) {
@@ -692,12 +798,43 @@ class _CardContent extends StatelessWidget {
             Text(a.title, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.titleLarge!.copyWith(color: colors.onSurface)),
             _ServiceLine(card: a, center: true),
             const SizedBox(height: HomeAccountMetrics.cardGap),
+            // Manage accounts, with Reconnect ahead of it while the account in
+            // use needs its owner: it opens and closes its width on the spatial
+            // spring and fades on the effects spring. A row that wraps under a
+            // large font rather than clip.
             Center(
-              child: OutlinedButton(onPressed: onSettings, child: Text(strings.accountManage)),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: HomeAccountMetrics.reconnectGap,
+                children: [
+                  _ReconnectReveal(
+                    visible: needsReconnect,
+                    child: Padding(
+                      padding: const EdgeInsetsDirectional.only(end: HomeAccountMetrics.reconnectGap),
+                      child: HomeAccountReconnectButton(reconnecting: reconnecting, onPressed: onReconnect ?? () {}),
+                    ),
+                  ),
+                  OutlinedButton(onPressed: onSettings, child: Text(strings.accountManage)),
+                ],
+              ),
             ),
             const SizedBox(height: HomeAccountMetrics.cardGapSmall),
           ],
-          for (final o in others) _Row(leading: _avatarOf(o, size: HomeAccountMetrics.rowAvatar, ring: ring), title: o.title, subtitle: _ServiceLine(card: o), onTap: () => onPick(o)),
+          for (final o in others)
+            _Row(
+              leading: _avatarOf(o, size: HomeAccountMetrics.rowAvatar, ring: ring),
+              title: o.title,
+              // Why it can't be used now, as Settings' pill says it; else its service.
+              subtitle: o.credentialsMissing
+                  ? Text(
+                      strings.accountCredentialsMissing,
+                      maxLines: 1,
+                      style: theme.textTheme.bodyMedium!.copyWith(color: colors.error),
+                    )
+                  : _ServiceLine(card: o),
+              onTap: () => onPick(o),
+            ),
           _Row(leading: const Icon(YoinSymbols.personAdd), title: strings.accountAdd, onTap: onSettings),
           Divider(height: HomeAccountMetrics.dividerHeight, color: colors.outlineVariant),
           _Row(leading: const Icon(YoinSymbols.settings), title: strings.accountSettings, onTap: onSettings),
@@ -762,6 +899,212 @@ class _Row extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The account needs its owner (owner 2026-10-11, Android
+/// HomeAccountReconnectDot): M3's small badge — 6 dp, in the error colour —
+/// on a ring of the header's colour, at the avatar's top-end corner. No text;
+/// the avatar's label says it. Comes and goes with scale on the spatial spring
+/// and alpha on the effects spring (reduced motion: alpha alone). It starts as
+/// [visible] says: no entrance when it comes back with the avatar.
+class HomeAccountReconnectDot extends StatefulWidget {
+  const HomeAccountReconnectDot({super.key, required this.visible, required this.ringColor});
+
+  final bool visible;
+  final Color ringColor;
+
+  @override
+  State<HomeAccountReconnectDot> createState() => _HomeAccountReconnectDotState();
+}
+
+class _HomeAccountReconnectDotState extends State<HomeAccountReconnectDot> with TickerProviderStateMixin {
+  late final SpringValue _scale = SpringValue(vsync: this, initial: widget.visible ? 1 : 0, spring: YoinSprings.defaultSpatial);
+  late final SpringValue _alpha = SpringValue(vsync: this, initial: widget.visible ? 1 : 0, spring: YoinSprings.defaultEffects);
+
+  @override
+  void didUpdateWidget(HomeAccountReconnectDot old) {
+    super.didUpdateWidget(old);
+    if (old.visible == widget.visible) return;
+    final target = widget.visible ? 1.0 : 0.0;
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _scale.snapTo(1);
+    } else {
+      _scale.animateTo(target);
+    }
+    _alpha.animateTo(target);
+  }
+
+  @override
+  void dispose() {
+    _scale.dispose();
+    _alpha.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    const size = HomeHeaderMetrics.reconnectDot + 2 * HomeHeaderMetrics.reconnectDotRing;
+    return AnimatedBuilder(
+      animation: Listenable.merge([_scale.animation, _alpha.animation]),
+      builder: (context, child) {
+        final alpha = _alpha.value.clamp(0.0, 1.0);
+        if (alpha <= 0.001) return const SizedBox.square(dimension: size);
+        return Opacity(
+          opacity: alpha,
+          child: Transform.scale(scale: math.max(0, _scale.value), child: child),
+        );
+      },
+      child: Container(
+        key: homeAccountReconnectDotKey,
+        width: size,
+        height: size,
+        padding: const EdgeInsets.all(HomeHeaderMetrics.reconnectDotRing),
+        decoration: BoxDecoration(color: widget.ringColor, shape: BoxShape.circle),
+        child: DecoratedBox(decoration: BoxDecoration(color: colors.error, shape: BoxShape.circle)),
+      ),
+    );
+  }
+}
+
+/// Opens [child]'s width on the spatial spring and fades it on the effects
+/// spring (Compose expandHorizontally + fadeIn); folds it away again, the last
+/// child staying on screen while it folds.
+class _ReconnectReveal extends StatefulWidget {
+  const _ReconnectReveal({required this.visible, required this.child});
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  State<_ReconnectReveal> createState() => _ReconnectRevealState();
+}
+
+class _ReconnectRevealState extends State<_ReconnectReveal> with TickerProviderStateMixin {
+  late final SpringValue _size = SpringValue(vsync: this, initial: widget.visible ? 1 : 0, spring: YoinSprings.defaultSpatial);
+  late final SpringValue _alpha = SpringValue(vsync: this, initial: widget.visible ? 1 : 0, spring: YoinSprings.defaultEffects);
+
+  @override
+  void didUpdateWidget(_ReconnectReveal old) {
+    super.didUpdateWidget(old);
+    final target = widget.visible ? 1.0 : 0.0;
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _size.snapTo(target);
+    } else {
+      _size.animateTo(target);
+    }
+    _alpha.animateTo(target);
+  }
+
+  @override
+  void dispose() {
+    _size.dispose();
+    _alpha.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: Listenable.merge([_size.animation, _alpha.animation]),
+    builder: (context, child) {
+      final size = _size.value.clamp(0.0, 1.0);
+      final alpha = _alpha.value.clamp(0.0, 1.0);
+      if (size <= 0.001 && alpha <= 0.001) return const SizedBox.shrink();
+      return IgnorePointer(
+        ignoring: !widget.visible,
+        child: ClipRect(
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            widthFactor: size,
+            child: Opacity(opacity: alpha, child: child),
+          ),
+        ),
+      );
+    },
+    child: widget.child,
+  );
+}
+
+/// Reconnect, tonal beside Manage accounts' outline (Android
+/// HomeAccountReconnectButton). While the account is tried again
+/// ([reconnecting]) its label gives way, on the effects spring, to T7's
+/// loading indicator (effects fade, spatial scale from 0.6); the button keeps
+/// its size and colours.
+class HomeAccountReconnectButton extends StatefulWidget {
+  const HomeAccountReconnectButton({super.key, required this.reconnecting, required this.onPressed});
+
+  final bool reconnecting;
+  final VoidCallback onPressed;
+
+  @override
+  State<HomeAccountReconnectButton> createState() => _HomeAccountReconnectButtonState();
+}
+
+class _HomeAccountReconnectButtonState extends State<HomeAccountReconnectButton> with TickerProviderStateMixin {
+  late final SpringValue _busy = SpringValue(vsync: this, initial: widget.reconnecting ? 1 : 0, spring: YoinSprings.defaultEffects);
+  late final SpringValue _scale = SpringValue(
+    vsync: this,
+    initial: widget.reconnecting ? 1 : homeLoadingIndicatorScaleFrom,
+    spring: YoinSprings.defaultSpatial,
+  );
+
+  @override
+  void didUpdateWidget(HomeAccountReconnectButton old) {
+    super.didUpdateWidget(old);
+    if (old.reconnecting == widget.reconnecting) return;
+    _busy.animateTo(widget.reconnecting ? 1 : 0);
+    final scale = widget.reconnecting ? 1.0 : homeLoadingIndicatorScaleFrom;
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _scale.snapTo(1);
+    } else {
+      _scale.animateTo(scale);
+    }
+  }
+
+  @override
+  void dispose() {
+    _busy.dispose();
+    _scale.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = Text(HomeStrings.of(context).accountReconnect);
+    return FilledButton.tonal(
+      key: homeAccountReconnectKey,
+      onPressed: widget.onPressed,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_busy.animation, _scale.animation]),
+        builder: (context, label) {
+          final busy = _busy.value.clamp(0.0, 1.0);
+          return Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              Opacity(opacity: 1 - busy, child: label),
+              // Laid over the label, not beside it: the button keeps its size.
+              if (busy > 0.001)
+                Positioned.fill(
+                  child: OverflowBox(
+                    maxWidth: HomeAccountMetrics.reconnectIndicator,
+                    maxHeight: HomeAccountMetrics.reconnectIndicator,
+                    child: Opacity(
+                      opacity: busy,
+                      child: Transform.scale(
+                        scale: _scale.value,
+                        child: const YoinLoadingIndicator(size: HomeAccountMetrics.reconnectIndicator),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+        child: label,
       ),
     );
   }

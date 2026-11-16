@@ -5,6 +5,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../app/providers.dart';
 import '../l10n/strings.dart';
 import '../playback/playback_controller.dart';
+import '../settings/account_reconnect.dart';
 import '../settings/settings_screen.dart';
 import '../shell/desktop_shortcuts.dart';
 import '../shell/shell_state.dart';
@@ -328,7 +329,9 @@ class _ErrorPrompt extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = LibraryStrings.of(context);
     final colors = Theme.of(context).colorScheme;
-    final message = userMessageText(context, error, strings.errorLoadLibrary);
+    final message = error is AccountNeedsReconnectError
+        ? strings.accountReconnectNeeded
+        : userMessageText(context, error, strings.errorLoadLibrary);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
