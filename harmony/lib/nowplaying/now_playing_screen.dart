@@ -2086,27 +2086,39 @@ class _Accessory extends StatelessWidget {
   }
 }
 
-/// The Write pill beside Devices (Android BottomPills' Write): tonal, the
-/// note glyph; opens the Note page expanded with the keyboard. Folds to its
-/// icon with the rest of the row ([showLabel]).
+/// The Write pill beside Devices (Android BottomPills' Write): primary like
+/// its neighbours (PillButton), the note glyph; opens the Note page expanded
+/// with the keyboard. Folds to its icon with the rest of the row ([showLabel]).
 class NowPlayingWritePill extends StatelessWidget {
-  const NowPlayingWritePill({super.key, required this.onTap, this.showLabel = true, this.labelOnPress = false});
+  const NowPlayingWritePill({
+    super.key,
+    required this.onTap,
+    this.showLabel = true,
+    this.labelOnPress = false,
+    this.pressWiden = true,
+    this.onPressedChanged,
+  });
 
   final VoidCallback onTap;
   final bool showLabel;
   final bool labelOnPress;
+  final bool pressWiden;
+  final ValueChanged<bool>? onPressedChanged;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return NowPlayingPillButton(
+      key: const ValueKey('np-pill-write'),
       icon: YoinSymbols.note,
       label: NowPlayingStrings.of(context).pillWrite,
       onTap: onTap,
-      background: colors.secondaryContainer,
-      foreground: colors.onSecondaryContainer,
+      background: colors.primary,
+      foreground: colors.onPrimary,
       showLabel: showLabel,
       labelOnPress: labelOnPress,
+      pressWiden: pressWiden,
+      onPressedChanged: onPressedChanged,
     );
   }
 }
@@ -2114,15 +2126,32 @@ class NowPlayingWritePill extends StatelessWidget {
 /// Queue, Devices and Write (Android BottomPills), after the cast chip while
 /// the system session plays on a cast device. Measure first, never drop: the
 /// row folds to icon-only pills when the labels don't fit its width, and a
-/// pressed pill still opens its label when there is room for it.
-class _PillsRow extends ConsumerWidget {
+/// pressed pill still opens its label when there is room for it. While one
+/// pill is pressed in a labelled row it widens and the others fold their
+/// labels, so the row keeps its width.
+class _PillsRow extends ConsumerStatefulWidget {
   const _PillsRow({required this.onSkip, required this.onWrite});
 
   final ValueChanged<int> onSkip;
   final VoidCallback onWrite;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_PillsRow> createState() => _PillsRowState();
+}
+
+class _PillsRowState extends ConsumerState<_PillsRow> {
+  /// The pill under the finger (0 Queue, 1 Devices, 2 Write), or null.
+  int? _pressed;
+
+  ValueChanged<bool> _pressOf(int pill) => (down) {
+    final next = down ? pill : (_pressed == pill ? null : _pressed);
+    if (next != _pressed && mounted) setState(() => _pressed = next);
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final onSkip = widget.onSkip;
+    final onWrite = widget.onWrite;
     final colors = Theme.of(context).colorScheme;
     final strings = NowPlayingStrings.of(context);
     final devicesLabel = DevicesStrings.of(context).pillDevices;
@@ -2141,6 +2170,8 @@ class _PillsRow extends ConsumerWidget {
             castWidth: castName == null ? 0 : castChipWidth(context, castName),
           );
           bool pressOpens(String label) => !layout.labelled && layout.fitsPressedLabel(pillLabelWidth(context, label));
+          // Android labelVisible: a labelled row shows every label until one pill is pressed.
+          bool labelShown(int pill) => layout.labelled && (_pressed == null || _pressed == pill);
           // While the column's width animates (a panel going full) the labels fold a few frames
           // behind it: let the row run past the edge then instead of failing the layout.
           return OverflowBox(
@@ -2161,15 +2192,19 @@ class _PillsRow extends ConsumerWidget {
                   },
                   background: colors.primary,
                   foreground: colors.onPrimary,
-                  showLabel: layout.labelled,
+                  showLabel: labelShown(0),
                   labelOnPress: pressOpens(strings.pillQueue),
+                  pressWiden: layout.labelled,
+                  onPressedChanged: _pressOf(0),
                 ),
                 const SizedBox(width: NowPlayingTokens.pillGap),
                 NowPlayingDevicesPill(
                   label: devicesLabel,
                   onTap: openDevices,
-                  showLabel: layout.labelled,
+                  showLabel: labelShown(1),
                   labelOnPress: pressOpens(devicesLabel),
+                  pressWiden: layout.labelled,
+                  onPressedChanged: _pressOf(1),
                 ),
                 const SizedBox(width: NowPlayingTokens.pillGap),
                 NowPlayingWritePill(
@@ -2177,8 +2212,10 @@ class _PillsRow extends ConsumerWidget {
                     YoinHaptics.contextClick();
                     onWrite();
                   },
-                  showLabel: layout.labelled,
+                  showLabel: labelShown(2),
                   labelOnPress: pressOpens(strings.pillWrite),
+                  pressWiden: layout.labelled,
+                  onPressedChanged: _pressOf(2),
                 ),
               ],
             ),

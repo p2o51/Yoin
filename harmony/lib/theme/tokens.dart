@@ -200,13 +200,13 @@ abstract final class NowPlayingTokens {
   static const double tabPressedStretch = 0.92;
   static const double tabIdleAlpha = 0.5;
 
-  /// BottomPills: the gap between Queue, Devices and Write.
-  static const double pillGap = 8;
+  /// BottomPills: the gap between Queue, Devices and Write (ButtonGroup spacedBy(2.dp)).
+  static const double pillGap = 2;
 
-  /// BottomPills' pill: side padding (0.3 × height), icon (0.36 × height), icon → label.
+  /// BottomPills' pill: side padding (0.3 × height), icon (0.36 × height), icon → label (PillLabelGap).
   static const double pillPaddingH = pillHeight * 0.3;
   static const double pillIcon = pillHeight * 0.36;
-  static const double pillLabelGap = 8;
+  static const double pillLabelGap = 4;
 
   /// A pressed pill's label widens by this fraction (BottomPills labelWidthMultiplier 1.8).
   static const double pillPressWiden = 0.8;

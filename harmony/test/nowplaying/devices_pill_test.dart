@@ -69,6 +69,24 @@ void main() {
     expect(queueX < devicesX && devicesX < writeX, isTrue);
   });
 
+  testWidgets('should_foldTheOtherLabels_when_onePillIsPressed', (tester) async {
+    await _pump(tester, const Size(440, 900));
+    final queue = find.byKey(const ValueKey('np-pill-queue'));
+    final rowWidth = tester.getTopRight(find.byType(NowPlayingWritePill)).dx - tester.getTopLeft(queue).dx;
+    final gesture = await tester.startGesture(tester.getCenter(queue));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.widget<NowPlayingPillButton>(queue).showLabel, isTrue);
+    expect(tester.widget<NowPlayingPillButton>(_devicesPill).showLabel, isFalse);
+    expect(tester.widget<NowPlayingWritePill>(find.byType(NowPlayingWritePill)).showLabel, isFalse);
+    await tester.pumpAndSettle();
+    // The pressed label widens while the others fold: the row never outgrows its labelled width.
+    final pressedWidth = tester.getTopRight(find.byType(NowPlayingWritePill)).dx - tester.getTopLeft(queue).dx;
+    expect(pressedWidth, lessThanOrEqualTo(rowWidth));
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+    expect(tester.widget<NowPlayingPillButton>(_devicesPill).showLabel, isTrue);
+  });
+
   testWidgets('should_openTheDevicesSheet_when_theDevicesPillIsTapped', (tester) async {
     await _pump(tester, const Size(412, 892));
     await tester.tap(_devicesPill);

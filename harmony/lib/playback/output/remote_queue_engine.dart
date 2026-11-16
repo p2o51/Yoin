@@ -98,6 +98,7 @@ class RemoteQueueEngine {
   int _revision = 0;
   int _repeatPlays = 0;
   Timer? _poll;
+  bool _polling = false;
   Future<void> _lock = Future.value();
 
   // ---- reading ----
@@ -528,7 +529,14 @@ class RemoteQueueEngine {
   void _startPolling() {
     final interval = pollInterval;
     if (_poll != null || interval == null || _released) return;
-    _poll = Timer.periodic(interval, (_) => pollOnce());
+    // One read at a time, like Android's delay-then-read loop: a speaker that
+    // takes seconds to answer must not pile up a backlog of reads (and hold
+    // every command behind it).
+    _poll = Timer.periodic(interval, (_) {
+      if (_polling) return;
+      _polling = true;
+      pollOnce().whenComplete(() => _polling = false).ignore();
+    });
   }
 
   /// Serialises renderer commands and polls (Android commandsMutex).

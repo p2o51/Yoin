@@ -81,6 +81,7 @@ double castChipWidth(BuildContext context, String name) {
 /// widens by 80 % while pressed (labelled rows) and folds away on the
 /// effects spring when the row is too narrow ([showLabel] false). In a
 /// folded row the pressed pill may still open its label ([labelOnPress]).
+/// [onPressedChanged] lets the row fold the other pills' labels meanwhile.
 class NowPlayingPillButton extends StatefulWidget {
   const NowPlayingPillButton({
     super.key,
@@ -92,6 +93,8 @@ class NowPlayingPillButton extends StatefulWidget {
     this.corner,
     this.showLabel = true,
     this.labelOnPress = false,
+    this.pressWiden = true,
+    this.onPressedChanged,
   });
 
   final IconData icon;
@@ -104,6 +107,10 @@ class NowPlayingPillButton extends StatefulWidget {
   final double? corner;
   final bool showLabel;
   final bool labelOnPress;
+
+  /// Whether a pressed label widens (labelled rows only; Android pressWiden).
+  final bool pressWiden;
+  final ValueChanged<bool>? onPressedChanged;
 
   @override
   State<NowPlayingPillButton> createState() => _NowPlayingPillButtonState();
@@ -127,10 +134,12 @@ class _NowPlayingPillButtonState extends State<NowPlayingPillButton> with Ticker
   void _syncLabel() => _label.animateTo(widget.showLabel || (_pressed && widget.labelOnPress) ? 1 : 0);
 
   void _setPressed(bool pressed) {
+    if (_pressed == pressed) return;
     _pressed = pressed;
     // Icon-only rows don't widen a pressed label past its natural width.
-    _press.animateTo(pressed && widget.showLabel ? 1 : 0);
+    _press.animateTo(pressed && widget.pressWiden && widget.showLabel ? 1 : 0);
     _syncLabel();
+    widget.onPressedChanged?.call(pressed);
   }
 
   @override
@@ -152,6 +161,7 @@ class _NowPlayingPillButtonState extends State<NowPlayingPillButton> with Ticker
     return Semantics(
       button: true,
       label: widget.label,
+      onTap: widget.onTap,
       excludeSemantics: true,
       child: GestureDetector(
         onTapDown: (_) => _setPressed(true),
@@ -206,12 +216,16 @@ class NowPlayingDevicesPill extends StatelessWidget {
     required this.onTap,
     this.showLabel = true,
     this.labelOnPress = false,
+    this.pressWiden = true,
+    this.onPressedChanged,
   });
 
   final String label;
   final VoidCallback onTap;
   final bool showLabel;
   final bool labelOnPress;
+  final bool pressWiden;
+  final ValueChanged<bool>? onPressedChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -229,6 +243,8 @@ class NowPlayingDevicesPill extends StatelessWidget {
       corner: NowPlayingTokens.devicesPillCorner,
       showLabel: showLabel,
       labelOnPress: labelOnPress,
+      pressWiden: pressWiden,
+      onPressedChanged: onPressedChanged,
     );
   }
 }

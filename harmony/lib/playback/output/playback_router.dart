@@ -128,6 +128,10 @@ class PlaybackRouter implements QueuePlaybackEngine {
   bool _listening = false;
   Future<void> _handoff = Future.value();
 
+  /// Bumped by every new queue and by [stop] (Android playbackGeneration): a
+  /// hand-over that finishes after one of those let go of what it moved.
+  int _generation = 0;
+
   RemoteQueueEngine? get _remote => switch (route.value) {
     DlnaOutput() => dlna.player,
     SystemCastOutput() => castPlayer,
@@ -149,6 +153,10 @@ class PlaybackRouter implements QueuePlaybackEngine {
       ..add(castPlayer.states.listen((s) => _onRemoteState(castPlayer, s)))
       ..add(castHost.outputs.listen(_onSystemOutput, onError: (Object _) {}));
     dlna.connectedDevice.addListener(_onDlnaDevice);
+    // A new router plays here. The system session may still mirror a renderer
+    // an earlier isolate drove (the UI was re-created while the process lived
+    // on): hand it back to the phone's player, or its keys would go nowhere.
+    _clearMirror();
   }
 
   @override
@@ -323,6 +331,7 @@ class PlaybackRouter implements QueuePlaybackEngine {
     }
     if (items.isEmpty) throw const OutputTransferException(OutputTransferFailure.playFirst);
     if (!items.every(isRemotePlayable)) throw const OutputTransferException(OutputTransferFailure.notRemotePlayable);
+    final generation = _generation;
     if (!fromSpeaker) await _pauseNative();
     try {
       await dlna.connect(
@@ -343,6 +352,8 @@ class PlaybackRouter implements QueuePlaybackEngine {
       }
       throw const OutputTransferException(OutputTransferFailure.renderer);
     }
+    // A new queue or a stop came in meanwhile: the speaker must not play the old one.
+    if (generation != _generation) await dlna.disconnect().catchError((Object _) {});
   });
 
   /// Stops the speaker, then restores the same queue and position on this
@@ -395,6 +406,7 @@ class PlaybackRouter implements QueuePlaybackEngine {
     if (!_items.every(isRemotePlayable)) return;
     final playWhenReady = state.playWhenReady ?? state.isPlaying;
     final position = _positionOf(state);
+    final generation = _generation;
     await _pauseNative();
     try {
       await castPlayer.connect(
@@ -408,6 +420,12 @@ class PlaybackRouter implements QueuePlaybackEngine {
         revision: _revision,
         order: state.order,
       );
+      if (generation != _generation) {
+        // Cleared or replaced meanwhile (that went to the phone): the cast device lets go of the old queue.
+        await castPlayer.disconnect(stopRemote: true).catchError((Object _) {});
+        await castPlayer.disconnect(stopRemote: false).catchError((Object _) {});
+        return;
+      }
       _setRoute(SystemCastOutput(name));
     } catch (_) {
       await castPlayer.disconnect(stopRemote: false).catchError((Object _) {});
@@ -492,6 +510,7 @@ class PlaybackRouter implements QueuePlaybackEngine {
     _revision = revision;
     _repeat = repeat;
     _shuffle = shuffle;
+    _generation++;
     final remote = _remote;
     if (remote != null) {
       if (items.isNotEmpty && items.every(isRemotePlayable)) {
@@ -586,8 +605,19 @@ class PlaybackRouter implements QueuePlaybackEngine {
     return _remote == null ? native.setGains(gainsByEntryId) : Future.value();
   }
 
+  /// The phone's queue, which the router adopts too: after the UI was
+  /// re-created the controller rebuilds from this instead of starting a queue.
   @override
-  Future<EngineSnapshot?> snapshot() => native.snapshot();
+  Future<EngineSnapshot?> snapshot() async {
+    final snapshot = await native.snapshot();
+    if (snapshot != null && _items.isEmpty && snapshot.items.isNotEmpty) {
+      _items = [...snapshot.items];
+      _revision = snapshot.state.revision ?? _revision;
+      _repeat = snapshot.state.repeat ?? _repeat;
+      _shuffle = snapshot.state.shuffle ?? _shuffle;
+    }
+    return snapshot;
+  }
 
   @override
   Future<void> play() => _remote?.play() ?? native.play();
@@ -612,6 +642,7 @@ class PlaybackRouter implements QueuePlaybackEngine {
   @override
   Future<void> stop() async {
     _items = const [];
+    _generation++;
     if (_remote != null) {
       try {
         await _leaveRemote();

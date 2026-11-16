@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io' show SocketException;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/platform/cast/cast_host.dart';
 import 'package:yoin/platform/playback/playback_engine.dart';
 import 'package:yoin/playback/output/dlna_manager.dart';
+import 'package:yoin/playback/output/dlna_protocol.dart';
 import 'package:yoin/playback/output/playback_router.dart';
+import 'package:yoin/playback/output/renderer_transport.dart';
 
 import 'output_fakes.dart';
 
@@ -247,11 +250,94 @@ void main() {
     expect(native.hearts['subsonic:t1'], isTrue);
   });
 
-  test('should_followTheSpeakerList_when_discoveryRuns', () async {
-    final done = Completer<void>();
-    unawaited(router.dlna.discover().then((_) => done.complete()));
-    await done.future;
-    expect(router.dlna.devices.value, isEmpty);
-    expect(router.dlna.error.value, isNull);
+  test('should_handTheSessionBackToThePhone_when_aNewRouterStarts', () async {
+    // An earlier isolate may have left the system session mirroring a speaker.
+    expect(native.mirrored, [null]);
   });
+
+  test('should_stopTheSpeaker_when_theQueueIsClearedDuringTheHandOver', () async {
+    await playLocally();
+    final gate = Completer<void>();
+    speakers['uuid:a'] = _GatedRenderer(gate.future);
+    final transfer = router.transferToDlna(fakeSpeaker('uuid:a'));
+    await pumpEventQueue();
+    await router.stop();
+    gate.complete();
+    await transfer;
+    expect(speakers['uuid:a']!.calls.last, 'stop');
+    expect(router.route.value, const LocalOutput());
+    expect(router.dlna.connectedDevice.value, isNull);
+  });
+
+  test('should_stopTheCastDevice_when_aNewQueueStartsDuringTheHandOver', () async {
+    await playLocally();
+    final gate = Completer<void>();
+    final gated = _GatedRenderer(gate.future);
+    final host = _GatedCastHost(gated);
+    final other = testRouter(clock: clock, native: native, speakers: speakers, cast: host);
+    addTearDown(other.dispose);
+    other.states.listen((_) {});
+    await other.startQueue([for (var i = 0; i < 3; i++) streamItem(i)], revision: 4, startIndex: 1);
+    native.echo(index: 1, isPlaying: true, positionMs: 30000, sampledAtMs: clock.now);
+    await pumpEventQueue();
+    host.emit(const CastOutput(connection: CastConnection.connected, category: CastCategory.remote, name: 'Vision'));
+    await pumpEventQueue();
+    await other.startQueue([streamItem(7)], revision: 5);
+    gate.complete();
+    await pumpEventQueue();
+    expect(other.route.value, const LocalOutput());
+    expect(gated.calls.last, 'stop');
+    expect(native.queue.single.id, 'subsonic:t7');
+  });
+
+  test('should_adoptThePhonesQueue_when_theControllerRebuildsFromASnapshot', () async {
+    final items = [for (var i = 0; i < 3; i++) streamItem(i)];
+    native
+      ..queue = items
+      ..snapshotToReturn = EngineSnapshot(
+        items: items,
+        state: const EngineState(phase: PlaybackPhase.ready, isPlaying: true, index: 2, revision: 9),
+      );
+    await router.snapshot();
+    native.index = 2;
+    native.echo(index: 2, isPlaying: true, positionMs: 1000, sampledAtMs: clock.now);
+    await pumpEventQueue();
+    await router.transferToDlna(fakeSpeaker('uuid:a'));
+    expect(speakers['uuid:a']!.calls.first, 'load:subsonic:t2');
+    expect(router.dlna.player.revision, 9);
+  });
+
+  test('should_sayTheSearchFailed_when_theLanCantBeSearched', () async {
+    final offline = testRouter(
+      clock: clock,
+      native: native,
+      speakers: speakers,
+      search: () async => throw const SocketException('no multicast'),
+    );
+    addTearDown(offline.dispose);
+    await offline.dlna.discover();
+    expect(offline.dlna.devices.value, isEmpty);
+    expect(offline.dlna.error.value, DlnaError.discovery);
+    expect(offline.dlna.isDiscovering.value, isFalse);
+  });
+}
+
+/// A renderer whose first load waits for [gate] (a hand-over still in flight).
+class _GatedRenderer extends FakeRenderer {
+  _GatedRenderer(this.gate);
+  final Future<void> gate;
+
+  @override
+  Future<void> load(RendererMedia media) async {
+    await gate;
+    await super.load(media);
+  }
+}
+
+class _GatedCastHost extends FakeCastHost {
+  _GatedCastHost(this.gated);
+  final FakeRenderer gated;
+
+  @override
+  RendererTransport castTransport() => gated;
 }

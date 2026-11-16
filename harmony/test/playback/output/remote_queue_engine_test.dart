@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -277,6 +278,41 @@ void main() {
     expect(engine.latest!.phase, PlaybackPhase.error);
   });
 
+  test('should_readTheRendererOnceAtATime_when_itAnswersSlowerThanThePoll', () async {
+    final slow = _SlowRenderer();
+    final polled = RemoteQueueEngine(
+      nowMs: clock.call,
+      pollInterval: const Duration(milliseconds: 1),
+      random: Random(1),
+      sleep: clock.sleep,
+    );
+    addTearDown(polled.release);
+    await polled.connect(
+      slow,
+      [streamItem(0)],
+      startIndex: 0,
+      startPositionMs: 0,
+      playWhenReady: true,
+      repeat: EngineRepeat.all,
+      shuffle: false,
+      revision: 1,
+    );
+    slow
+      ..hold = Completer<void>()
+      ..reads = 0;
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(slow.reads, 1);
+    final pause = polled.pause();
+    final hung = slow.hold!;
+    slow.hold = null;
+    hung.complete();
+    await pause;
+    // Dozens of ticks went by while that read hung; none of them queued up
+    // in front of the user's Pause.
+    expect(slow.reads, lessThanOrEqualTo(3));
+    expect(slow.calls.last, 'pause');
+  });
+
   test('should_judgeTheQueueEndConservatively_when_comparingStates', () {
     expect(
       remoteQueueEndReached(
@@ -312,4 +348,18 @@ void main() {
       isFalse,
     );
   });
+}
+
+/// A renderer whose transport reads hang on [hold] while it is set.
+class _SlowRenderer extends FakeRenderer {
+  Completer<void>? hold;
+  int reads = 0;
+
+  @override
+  Future<RendererTransportInfo> transportInfo() async {
+    reads++;
+    final gate = hold;
+    if (gate != null) await gate.future;
+    return super.transportInfo();
+  }
 }

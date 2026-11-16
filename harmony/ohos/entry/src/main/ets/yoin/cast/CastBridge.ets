@@ -315,8 +315,14 @@ function connectionName(state: avSession.ConnectionState): string {
   }
 }
 
-/** AVSession's states as UPnP transport states (what Dart's DLNA engine reads). */
+/**
+ * AVSession's states as UPnP transport states (what Dart's DLNA engine reads). An 'endOfStream' since the last start
+ * reads as STOPPED whatever state the controller still reports, so the queue engine sees the song end and moves on.
+ */
 function upnpState(state: avSession.AVPlaybackState | null, ended: boolean): string {
+  if (ended) {
+    return 'STOPPED';
+  }
   switch (state?.state) {
     case avSession.PlaybackState.PLAYBACK_STATE_PLAY:
       return 'PLAYING';
@@ -325,7 +331,7 @@ function upnpState(state: avSession.AVPlaybackState | null, ended: boolean): str
     case avSession.PlaybackState.PLAYBACK_STATE_BUFFERING:
     case avSession.PlaybackState.PLAYBACK_STATE_PREPARE:
     case avSession.PlaybackState.PLAYBACK_STATE_INITIAL:
-      return ended ? 'STOPPED' : 'TRANSITIONING';
+      return 'TRANSITIONING';
     default:
       return 'STOPPED';
   }
