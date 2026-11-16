@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../nowplaying/haptics.dart';
 import '../playback/replay_gain.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'settings_metrics.dart';
@@ -63,7 +64,10 @@ class VolumeLevelingScreen extends ConsumerWidget {
     final settings = ref.watch(replayGainProvider);
     final selected = settings?.mode;
     void select(ReplayGainMode mode) {
-      if (mode != selected) ref.read(replayGainProvider.notifier).setMode(mode);
+      if (mode == selected) return;
+      // A context click on a new choice, like Android's page.
+      YoinHaptics.contextClick();
+      ref.read(replayGainProvider.notifier).setMode(mode);
     }
 
     return SettingsSubPage(

@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../theme/tokens.dart';
-import '../../ui/component/meta_line.dart' show VersionTitleRow;
+import '../../ui/component/meta_line.dart' show VersionTitleRow, albumTitleWithoutVersion;
 import '../home_metrics.dart';
 import 'seam.dart';
 
@@ -190,11 +190,9 @@ class MetaLine extends StatelessWidget {
 }
 
 /// Strips a trailing " (version)" from an album name when the version is shown as a tag.
-String albumNameWithoutVersion(String name, String? version) {
-  if (version == null || version.isEmpty) return name;
-  final suffix = ' ($version)';
-  return name.toLowerCase().endsWith(suffix.toLowerCase()) ? name.substring(0, name.length - suffix.length) : name;
-}
+/// The same rule as everywhere else (albumNameWithoutVersion): only an exact
+/// suffix, the version trimmed, never an empty name.
+String albumNameWithoutVersion(String name, String? version) => albumTitleWithoutVersion(name, version);
 
 /// AlbumVersionTag: secondaryContainer, 6 corner, 6 × 1 padding, labelMedium.
 class AlbumVersionTag extends StatelessWidget {
@@ -209,7 +207,11 @@ class AlbumVersionTag extends StatelessWidget {
       decoration: BoxDecoration(color: colors.secondaryContainer, borderRadius: BorderRadius.circular(HomeVersionTagMetrics.radius)),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: HomeVersionTagMetrics.paddingH, vertical: HomeVersionTagMetrics.paddingV),
-        child: SeamFade(fontSize: style.fontSize ?? 12, child: Text(version, style: style, maxLines: 1)),
+        // A long version given less than it needs (VersionTitleRow) is cut short itself.
+        child: SeamFade(
+          fontSize: style.fontSize ?? 12,
+          child: Text(version, style: style, maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis),
+        ),
       ),
     );
   }
@@ -227,7 +229,7 @@ class VersionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final v = version;
+    final v = version?.trim();
     final name = albumNameWithoutVersion(title, v);
     final text = SeamFade(
       fontSize: style.fontSize ?? 14,

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/home/widgets/home_text.dart' as home;
 import 'package:yoin/ui/component/meta_line.dart';
 
 void main() {
@@ -33,6 +35,8 @@ void main() {
     expect(tester.takeException(), isNull, reason: 'no overflow');
   });
 
+  homeTests();
+
   testWidgets('should_drawOnlyTheName_when_noVersion', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
@@ -41,6 +45,45 @@ void main() {
     );
     expect(find.text('Blue'), findsOneWidget);
     expect(find.byType(AlbumVersionTag), findsNothing);
+  });
+}
+
+void homeTests() {
+  testWidgets('should_cutTheHomeTagShortOnOneLine_when_versionIsLong', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Material(
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 160,
+              child: home.VersionTitle(
+                title: 'Midnights (3am Deluxe Edition)',
+                version: '3am Deluxe Edition',
+                style: TextStyle(fontSize: 14),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Midnights'), findsOneWidget, reason: 'the name drops the suffix it shows as a tag');
+    final tag = tester.widget<Text>(
+      find.descendant(of: find.byType(home.AlbumVersionTag), matching: find.byType(Text)),
+    );
+    expect(tag.softWrap, isFalse, reason: 'one line, not the first word of a wrapped one');
+    expect(tag.overflow, TextOverflow.ellipsis);
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(of: find.byType(home.AlbumVersionTag), matching: find.byType(RichText)),
+    );
+    expect(paragraph.didExceedMaxLines, isTrue, reason: 'the tag is narrower than its text');
+    expect(tester.takeException(), isNull);
+  });
+
+  test('should_stripOnlyAnExactSuffix_when_homeShowsAVersion', () {
+    expect(home.albumNameWithoutVersion('Blue (Deluxe)', ' Deluxe '), 'Blue');
+    expect(home.albumNameWithoutVersion('Blue (deluxe)', 'Deluxe'), 'Blue (deluxe)');
+    expect(home.albumNameWithoutVersion(' (Deluxe)', 'Deluxe'), ' (Deluxe)');
   });
 }
 

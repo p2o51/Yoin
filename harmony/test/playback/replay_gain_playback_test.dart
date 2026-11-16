@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
+import 'package:yoin/platform/playback/playback_engine.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/playback/playback_controller.dart';
 import 'package:yoin/playback/replay_gain.dart';
+import 'package:yoin/playback/track_codec.dart';
 
 import '../support/playback_fakes.dart';
 
@@ -36,13 +40,13 @@ void main() {
 
   PlaybackController ctl() => c.read(playbackControllerProvider.notifier);
 
-  Future<void> start({String? storedMode}) async {
-    engine = PlaybackFakeQueueEngine();
+  Future<void> start({String? storedMode, PlaybackFakeSource? using, PlaybackFakeQueueEngine? host}) async {
+    engine = host ?? PlaybackFakeQueueEngine();
     values = InMemoryStore();
     if (storedMode != null) await values.write(ReplayGainStore.key, storedMode);
     final repo = ProfileRepository(values, InMemoryStore());
     await repo.add(provider: MediaId.providerSubsonic, displayName: 'Home', credentials: _creds);
-    final source = PlaybackFakeSource();
+    final source = using ?? PlaybackFakeSource();
     c = ProviderContainer(
       overrides: [
         playbackEngineProvider.overrideWithValue(engine),
@@ -120,4 +124,70 @@ void main() {
     await pumpEventQueue();
     expect(engine.calls, isEmpty);
   });
+
+  test('should_relevelTheNewQueue_when_choiceChangesWhileItBuilds', () async {
+    final gate = Completer<void>();
+    await start(using: _GatedSource(gate));
+    await c.read(replayGainProvider.notifier).ready();
+    final playing = ctl().playTracks(tracks);
+    await pumpEventQueue();
+    // The queue's items are being built with "by album" when the choice changes.
+    await c.read(replayGainProvider.notifier).setMode(ReplayGainMode.off);
+    gate.complete();
+    await playing;
+    await pumpEventQueue();
+
+    expect(engine.queue.first.gain, closeTo(dbToLinear(-4), 1e-9), reason: 'built before the change');
+    expect(engine.calls.last, 'setGains:3', reason: 'the new queue is leveled again');
+    expect(engine.gains.values, everyElement(1.0));
+  });
+
+  EngineItem held(Track t, String entryId, double gain) => EngineItem(
+    id: t.id.toString(),
+    uri: '',
+    title: t.title ?? '',
+    entryId: entryId,
+    extra: TrackCodec.encode(t),
+    gain: gain,
+  );
+
+  Future<void> rehydrate({required String storedMode, required double heldGain}) async {
+    final host = PlaybackFakeQueueEngine()..queue = [held(tracks[0], 'e0', heldGain), held(tracks[2], 'e1', 1)];
+    host.snapshotToReturn = EngineSnapshot(
+      items: host.queue,
+      state: const EngineState(
+        phase: PlaybackPhase.ready,
+        isPlaying: true,
+        index: 0,
+        currentEntryId: 'e0',
+        order: [0, 1],
+      ),
+    );
+    await start(storedMode: storedMode, host: host);
+    await pumpEventQueue();
+  }
+
+  test('should_relevelTheRehydratedQueue_when_itsGainsAreStale', () async {
+    // The host still holds "by album" gains, but the stored choice is off.
+    await rehydrate(storedMode: 'off', heldGain: dbToLinear(-4));
+    expect(c.read(playbackControllerProvider).entryIds, ['e0', 'e1']);
+    expect(engine.calls, contains('setGains:2'));
+    expect(engine.gains, {'e0': 1.0, 'e1': 1.0});
+  });
+
+  test('should_leaveTheRehydratedQueueAlone_when_itsGainsMatch', () async {
+    await rehydrate(storedMode: 'album', heldGain: dbToLinear(-4));
+    expect(c.read(playbackControllerProvider).entryIds, ['e0', 'e1']);
+    expect(engine.calls.where((call) => call.startsWith('setGains')), isEmpty);
+  });
+}
+
+class _GatedSource extends PlaybackFakeSource {
+  _GatedSource(this.gate);
+  final Completer<void> gate;
+  @override
+  Future<PlaybackHandle> handleFor(Track track) async {
+    await gate.future;
+    return super.handleFor(track);
+  }
 }

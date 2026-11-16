@@ -200,7 +200,9 @@ class PlaybackController extends Notifier<NowPlayingState> {
       if (!_current(generation) || source == null) return;
       final profileId = await _readProfileId();
       if (!_current(generation)) return;
-      final built = await _build(source, tracks);
+      final leveling = await _replayGainSettings();
+      if (!_current(generation)) return;
+      final built = await _build(source, tracks, leveling);
       if (!_current(generation) || await _readProfileId() != profileId || !_current(generation)) return;
       if (built.isEmpty) return;
       // The tapped entry, by position (the same song may be queued twice).
@@ -254,6 +256,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
         await _engine.setQueue(items,
             startIndex: playableStart, startPositionMs: startPositionMs, playWhenReady: !startPaused);
       }
+      _relevelIfChanged(leveling);
       if (shuffled) _log('started a pre-shuffled queue of ${items.length}');
     } catch (e, st) {
       _log('play failed: ${e.runtimeType}', st);
@@ -373,7 +376,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
     if (tracks.isEmpty) return;
     final source = await ref.read(activeSourceProvider.future);
     if (source == null) return;
-    final built = await _build(source, tracks);
+    final leveling = await _replayGainSettings();
+    final built = await _build(source, tracks, leveling);
     if (built.isEmpty) return;
     if (_entries.isEmpty || state.index < 0) {
       await playTracks([for (final b in built) b.$2], startPaused: true);
@@ -401,6 +405,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
     final revision = ++_revision;
     _publish(_derive(base: state.copyWith(index: current >= at ? current + added.length : current)));
     await rich.insert(at, items, revision: revision);
+    _relevelIfChanged(leveling);
   }
 
   /// Removes queue entry [index]; the current entry can't be removed.
@@ -634,6 +639,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
         context: PlaybackContextCodec.read(current.extra),
       );
       _onEngineState(snapshot.state);
+      unawaited(_relevelStale(snapshot.items));
     } catch (e) {
       _log('rehydrate failed: ${e.runtimeType}');
     } finally {
@@ -789,9 +795,13 @@ class PlaybackController extends Notifier<NowPlayingState> {
 
   bool _current(int generation) => ref.mounted && generation == _generation;
 
-  /// (original index, track, item) for every track the engine can play.
-  Future<List<(int, Track, EngineItem)>> _build(MusicSource source, List<Track> tracks) async {
-    final leveling = await _replayGainSettings();
+  /// (original index, track, item) for every track the engine can play,
+  /// leveled by [leveling].
+  Future<List<(int, Track, EngineItem)>> _build(
+    MusicSource source,
+    List<Track> tracks,
+    ReplayGainSettings leveling,
+  ) async {
     final items = await Future.wait([for (final t in tracks) _itemFor(source, t, leveling)]);
     return [
       for (var i = 0; i < tracks.length; i++)
@@ -825,6 +835,28 @@ class PlaybackController extends Notifier<NowPlayingState> {
     } catch (_) {
       return const ReplayGainSettings();
     }
+  }
+
+  /// The choice changed while a queue was built with [used]: the change
+  /// re-leveled the queue before the new items reached the engine, so level
+  /// them again.
+  void _relevelIfChanged(ReplayGainSettings used) {
+    final now = ref.read(replayGainProvider);
+    if (now != null && now != used) unawaited(_applyReplayGain(now));
+  }
+
+  /// A rehydrated queue keeps the gains the native host holds; re-levels it
+  /// when they are not what the current choice gives (a choice that could not
+  /// be stored, a change while the UI was re-created).
+  Future<void> _relevelStale(List<EngineItem> items) async {
+    final settings = await _replayGainSettings();
+    if (!ref.mounted || _entries.isEmpty) return;
+    final held = {for (final i in items) ?i.entryId: i.gain};
+    final stale = _entries.any((e) {
+      final gain = held[e.entryId];
+      return gain != null && (gain - engineGain(e.track.replayGain, settings)).abs() > 1e-6;
+    });
+    if (stale) await _applyReplayGain(settings);
   }
 
   /// Tells the engine every entry's gain under [settings].
