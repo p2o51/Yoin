@@ -217,6 +217,19 @@ internal fun HomeEditBlock(
     val moreRowsLabel = stringResource(R.string.home_edit_more_rows)
     val fewerRowsLabel = stringResource(R.string.home_edit_fewer_rows)
     val hideLabel = stringResource(R.string.home_edit_hide)
+    // Two columns: pairing is reachable without a drag (beside the block before, or back to a full row).
+    val besideLabel = stringResource(R.string.home_edit_place_beside_previous)
+    val fullLabel = stringResource(R.string.home_edit_make_full_width)
+    // Derived by value: an edit elsewhere that leaves this block's span as it is recomposes nothing here.
+    val isHalf by remember(controller, section) {
+        derivedStateOf { controller.twoColumn && controller.draft?.partnerOf(section) != null }
+    }
+    val canBeside by remember(controller, section) {
+        derivedStateOf {
+            val draft = controller.draft
+            controller.twoColumn && draft != null && draft.withBesidePrevious(section) !== draft
+        }
+    }
     // Remembered: a new semantics block on every recomposition would be a semantics change each time.
     val talkBack = remember(
         editing,
@@ -233,6 +246,10 @@ internal fun HomeEditBlock(
         moreRowsLabel,
         fewerRowsLabel,
         hideLabel,
+        besideLabel,
+        fullLabel,
+        isHalf,
+        canBeside,
     ) {
         if (editing) {
             Modifier.semantics(mergeDescendants = true) {
@@ -247,6 +264,10 @@ internal fun HomeEditBlock(
                     if (canFewerRows) {
                         add(CustomAccessibilityAction(fewerRowsLabel) { rowsEngine?.step(section, -1) == true })
                     }
+                    if (canBeside) {
+                        add(CustomAccessibilityAction(besideLabel) { controller.placeBesidePrevious(section) })
+                    }
+                    if (isHalf) add(CustomAccessibilityAction(fullLabel) { controller.setFull(section) })
                     add(CustomAccessibilityAction(hideLabel) { controller.hide(section) })
                 }
             }

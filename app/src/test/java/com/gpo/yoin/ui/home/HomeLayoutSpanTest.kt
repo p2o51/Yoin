@@ -175,4 +175,51 @@ class HomeLayoutSpanTest {
         assertTrue(wide.isDefaultFor(true))
         assertFalse(wide.isDefaultFor(false))
     }
+
+    @Test
+    fun should_writeOrderAndPairsTogether_when_carryDropsBeside() {
+        // Made For You put beside All Memories; Activities | JBI split by lifting JBI to after Made For You.
+        val order = listOf(a, m, f, j, l, ra, rp, yp, rd, op)
+        val next = wide.withArrangement(order, mapOf(m to f, l to ra, yp to rd))
+        assertEquals(order, next.enabledSections)
+        assertEquals(setOf(m, f, l, ra, yp, rd), next.halves())
+        assertEquals(
+            listOf(
+                HomeFeedRow.Full(a),
+                HomeFeedRow.Halves(m, f),
+                HomeFeedRow.Full(j),
+                HomeFeedRow.Halves(l, ra),
+                HomeFeedRow.Full(rp),
+                HomeFeedRow.Halves(yp, rd),
+                HomeFeedRow.Full(op),
+            ),
+            next.rows(),
+        )
+    }
+
+    @Test
+    fun should_returnSame_when_arrangementUnchanged() {
+        assertSame(wide, wide.withArrangement(wide.enabledSections, wide.pairs))
+    }
+
+    @Test
+    fun should_keepUnseenPair_when_arrangementOmitsIt() {
+        // Without Gemini Nano the feed never shows Lyric Cards: its pair with Recently Added stays stored.
+        val shown = wide.enabledSections - l
+        val next = wide.withArrangement(shown, mapOf(a to j, yp to rd), unseen = setOf(l))
+        assertSame(wide, next)
+    }
+
+    @Test
+    fun should_pairWithPrevious_when_bothFull() {
+        val next = wide.withBesidePrevious(f)
+        assertEquals(mapOf(a to j, m to f, l to ra, yp to rd), next.pairs)
+        // Beside a half: no.
+        assertSame(wide, wide.withBesidePrevious(m))
+        assertSame(wide, wide.withBesidePrevious(rp))
+        // First, or already a half: no.
+        assertSame(wide, wide.withBesidePrevious(a))
+        assertSame(wide, wide.withBesidePrevious(j))
+    }
+
 }

@@ -387,6 +387,47 @@ data class HomeLayout(
     fun toPrefs(): List<HomeSectionPref> =
         sections.map { HomeSectionPref(id = it.section.id, enabled = it.enabled, config = it.config()) } + retained
 
+    /**
+     * [section] (full width) becomes the right half beside the enabled section
+     * before it, which must be full width too (TalkBack's "Place beside
+     * previous"). `this` when either is already half, or [section] is first or hidden.
+     */
+    fun withBesidePrevious(section: HomeSection): HomeLayout {
+        val enabled = enabledSections
+        val index = enabled.indexOf(section)
+        if (index < 1 || partnerOf(section) != null) return this
+        val previous = enabled[index - 1]
+        if (partnerOf(previous) != null) return this
+        return copy(
+            sections = sections.map { state ->
+                if (state.section == section || state.section == previous) state.copy(half = true) else state
+            },
+        ).normalizedSpans()
+    }
+
+    /**
+     * A two-column carry's drop: the enabled order [order] (as
+     * [withEnabledOrder] takes it) with exactly [pairs] (left → right, each
+     * pair adjacent in [order]) as halves, every other section full. Sections
+     * in [unseen], and their stored partners, keep their flags. `this` when
+     * nothing changes.
+     */
+    fun withArrangement(
+        order: List<HomeSection>,
+        pairs: Map<HomeSection, HomeSection>,
+        unseen: Set<HomeSection> = emptySet(),
+    ): HomeLayout {
+        val halves = pairs.keys + pairs.values
+        val keep = unseen + unseen.mapNotNull(::partnerOf)
+        val spanned = copy(
+            sections = sections.map { state ->
+                if (!state.enabled || state.section in keep) state else state.copy(half = state.section in halves)
+            },
+        )
+        val result = spanned.withEnabledOrder(order, unseen).normalizedSpans()
+        return if (result.sameSectionsAs(this)) this else result
+    }
+
     /** Same order, visibility and rows (and settings bags). */
     fun sameSectionsAs(other: HomeLayout): Boolean = sections == other.sections
 

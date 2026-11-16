@@ -80,6 +80,8 @@
     <string name="home_shelf_next_page">下一页</string>
     <string name="home_edit_half_width">半宽</string>
     <string name="home_edit_full_width">全宽</string>
+    <string name="home_edit_place_beside_previous">放到上一个旁边</string>
+    <string name="home_edit_make_full_width">改为整行</string>
     <string name="home_edit_fewer_rows">减少行数</string>
     <string name="home_edit_hide">隐藏</string>
     <string name="home_cd_section_index">第 %1$d 个分区，共 %2$d 个</string>

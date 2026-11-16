@@ -1,14 +1,28 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.AnimationVector2D
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -30,7 +44,10 @@ import com.gpo.yoin.ui.home.edit.HomeSpan
 import com.gpo.yoin.ui.home.edit.HomeSpanDrag
 import com.gpo.yoin.ui.home.edit.HomeSpanInfo
 import com.gpo.yoin.ui.home.edit.HomeSpanTokens
+import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 // Large-screen Home, stage 1 (owner 2026-11-16): the feed in rows of one full
 // or two half sections. Below the two-column width every section stacks in
@@ -144,6 +161,7 @@ internal fun HomeFeedRowLayout(
     span: HomeSpanDrag?,
     gap: Dp,
     modifier: Modifier = Modifier,
+    flips: HomeCellFlips? = null,
     cell: @Composable (HomeSection) -> Unit,
 ) {
     val sections = when (row) {
@@ -184,7 +202,8 @@ internal fun HomeFeedRowLayout(
         content = {
             sections.forEach { section ->
                 key(section) {
-                    BoxWithConstraints {
+                    flips?.compose(section, row.first)
+                    BoxWithConstraints(flips?.let { Modifier.homeCellFlip(it, section, row.first) } ?: Modifier) {
                         val half = row is HomeFeedRow.Halves || span?.section == section
                         val info = remember(windowInfo, maxWidth, half) {
                             if (half) windowInfo.forHomeColumn(maxWidth) else windowInfo
@@ -218,3 +237,124 @@ internal fun HomeFeedRowLayout(
         }
     }
 }
+
+/**
+ * A section's cell moving to another row (two columns: a pair forming or
+ * splitting on the handle's release, an Undo) moves there from where it
+ * was and springs its width, instead of the old row fading out while the
+ * new one fades in. The old row, fading out, no longer draws the cell.
+ * On only while [enabled] (edit mode at rest: a carry's strips do their own).
+ */
+@Stable
+internal class HomeCellFlips(
+    private val scope: CoroutineScope,
+    private val spec: () -> FiniteAnimationSpec<Float>,
+    private val offsetSpec: () -> FiniteAnimationSpec<androidx.compose.ui.geometry.Offset>,
+) {
+    /** The page Box: every bound is in its px. */
+    var box: () -> LayoutCoordinates? = { null }
+    var enabled: () -> Boolean = { false }
+
+    /** A span drag sizes its row's cells itself, frame by frame: no spring while one runs. */
+    var spanDragging: () -> Boolean = { false }
+
+    /** The row (keyed by its first section) each displayed section is in now. Published after each composition. */
+    var rowOf: Map<HomeSection, HomeSection> by mutableStateOf(emptyMap())
+
+    private val lastRow = HashMap<HomeSection, HomeSection>()
+    private val lastBounds = HashMap<HomeSection, Rect>()
+    private val pending = HashMap<HomeSection, Rect>()
+    private val offsets = HashMap<HomeSection, Animatable<androidx.compose.ui.geometry.Offset, AnimationVector2D>>()
+    private val widths = HashMap<HomeSection, Animatable<Float, AnimationVector1D>>()
+    private val lastTarget = HashMap<HomeSection, Int>()
+
+    /** The feed composed [section] in the row [rowKey]: a change of row arms a move from its last place. */
+    fun compose(section: HomeSection, rowKey: HomeSection) {
+        val was = lastRow[section] ?: return
+        val from = lastBounds[section] ?: return
+        // Read without observing: the gate (edit mode, a carry's fold) must not recompose the cells.
+        if (was == rowKey || !androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { enabled() }) return
+        pending[section] = from
+        widths[section] = Animatable(from.width)
+    }
+
+    /** [section] moved into [rowKey] from another row this composition: it appears without a fade. */
+    fun moved(section: HomeSection, rowKey: HomeSection): Boolean = lastRow[section]?.let { it != rowKey } == true
+
+    /** Sections no longer displayed lose their place: shown again later, they don't fly in from it. */
+    fun retain(displayed: Collection<HomeSection>) {
+        val keep = displayed.toSet()
+        lastRow.keys.retainAll(keep)
+        lastBounds.keys.retainAll(keep)
+        lastTarget.keys.retainAll(keep)
+    }
+
+    internal fun shows(section: HomeSection, rowKey: HomeSection): Boolean =
+        rowOf[section]?.let { it == rowKey } ?: true
+
+    /**
+     * The width to measure [section]'s content at for a cell [target] px wide:
+     * a cell staying in its row whose width changes (a pair splitting leaves
+     * the left half's row full width) springs from the width it had.
+     */
+    internal fun measureWidth(section: HomeSection, target: Int): Int {
+        val last = lastTarget.put(section, target)
+        if (last != null && last != target && widths[section] == null && !spanDragging() &&
+            androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { enabled() }
+        ) {
+            val w = Animatable(last.toFloat())
+            widths[section] = w
+            scope.launch {
+                w.animateTo(target.toFloat(), spec())
+                if (widths[section] === w) widths.remove(section)
+            }
+        }
+        return widths[section]?.value?.roundToInt()?.coerceAtLeast(1) ?: target
+    }
+
+    internal fun offsetOf(section: HomeSection) = offsets[section]?.value
+
+    internal fun placed(section: HomeSection, rowKey: HomeSection, coordinates: LayoutCoordinates, targetWidth: Float) {
+        // A row fading out still places its old cell: it keeps no record.
+        if (!shows(section, rowKey)) return
+        val box = box()?.takeIf { it.isAttached } ?: return
+        val topLeft = box.localPositionOf(coordinates, androidx.compose.ui.geometry.Offset.Zero)
+        val width = widths[section]?.value ?: coordinates.size.width.toFloat()
+        val from = pending.remove(section)
+        if (from != null) {
+            val delta = from.topLeft - topLeft
+            val offset = Animatable(delta, androidx.compose.ui.geometry.Offset.VectorConverter)
+            offsets[section] = offset
+            scope.launch {
+                offset.animateTo(androidx.compose.ui.geometry.Offset.Zero, offsetSpec())
+                if (offsets[section] === offset) offsets.remove(section)
+            }
+            val w = widths[section]
+            if (w != null && abs(w.value - targetWidth) >= 1f) {
+                scope.launch {
+                    w.animateTo(targetWidth, spec())
+                    if (widths[section] === w) widths.remove(section)
+                }
+            } else {
+                widths.remove(section)
+            }
+        }
+        lastRow[section] = rowKey
+        lastBounds[section] = Rect(topLeft, androidx.compose.ui.geometry.Size(width, coordinates.size.height.toFloat()))
+    }
+}
+
+/** A cell under [flips]: measured at its springing width, drawn from where it came, hidden while its old row fades. */
+private fun Modifier.homeCellFlip(flips: HomeCellFlips, section: HomeSection, rowKey: HomeSection): Modifier =
+    onPlaced { coordinates -> flips.placed(section, rowKey, coordinates, coordinates.size.width.toFloat()) }
+        .layout { measurable, constraints ->
+            val target = constraints.maxWidth
+            val w = flips.measureWidth(section, target)
+            val placeable = measurable.measure(constraints.copy(minWidth = w, maxWidth = w))
+            layout(target, placeable.height) { placeable.place(0, 0) }
+        }
+        .drawWithContent {
+            if (!flips.shows(section, rowKey)) return@drawWithContent
+            val offset = flips.offsetOf(section)
+            if (offset == null) drawContent() else translate(offset.x, offset.y) { this@drawWithContent.drawContent() }
+        }

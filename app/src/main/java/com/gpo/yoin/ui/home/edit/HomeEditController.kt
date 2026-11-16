@@ -250,6 +250,10 @@ class HomeEditController(
     fun setFull(section: HomeSection): Boolean =
         change(HomeEditChangeKind.Span, section, haptic = feedback::confirm) { it.withFull(section) }
 
+    /** Two columns: [section] becomes the right half beside the section before it (TalkBack). */
+    fun placeBesidePrevious(section: HomeSection): Boolean =
+        change(HomeEditChangeKind.Span, section, haptic = feedback::confirm) { it.withBesidePrevious(section) }
+
     fun undo(): Boolean {
         val current = draft ?: return false
         if (layer?.isCarrying == true || undoStack.isEmpty()) return false
@@ -294,6 +298,15 @@ class HomeEditController(
     fun commitOrder(enabledOrder: List<HomeSection>): Boolean =
         change(HomeEditChangeKind.Order, haptic = feedback::confirm, duringCarry = true) {
             it.withEnabledOrder(enabledOrder, unseen = feedUnseen)
+        }
+
+    /**
+     * A two-column carry dropped: [enabledOrder] with exactly [pairs] (left →
+     * right) side by side. One Undo step; confirms only when something changed.
+     */
+    fun commitArrangement(enabledOrder: List<HomeSection>, pairs: Map<HomeSection, HomeSection>): Boolean =
+        change(HomeEditChangeKind.Order, haptic = feedback::confirm, duringCarry = true) {
+            it.withArrangement(enabledOrder, pairs, unseen = feedUnseen)
         }
 
     /** Undo, Add (scroll to the tray) or nothing for the dimmed Undo. Haptics are the controller's, not the bar's. */

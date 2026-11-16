@@ -319,6 +319,8 @@ internal fun stripMetrics(
     contentLeft: Float,
     contentWidth: Float,
     density: Density,
+    /** Two columns: the strips span the whole content, so their halves sit over the feed's. */
+    fullWidth: Boolean = false,
 ): StripMetrics = with(density) {
     val n = count.coerceAtLeast(1)
     val gap = HomeEditTokens.StripGap.toPx()
@@ -335,7 +337,7 @@ internal fun stripMetrics(
         pitch = pitch,
         stackHeight = stackHeight,
         left = contentLeft,
-        width = min(contentWidth, HomeEditTokens.StripMaxW.toPx()),
+        width = if (fullWidth) contentWidth else min(contentWidth, HomeEditTokens.StripMaxW.toPx()),
         top = top,
         coverSize = (height - HomeEditTokens.StripCoverInset.toPx())
             .coerceIn(HomeEditTokens.StripCoverMin.toPx(), HomeEditTokens.StripCoverMax.toPx()),
@@ -399,8 +401,11 @@ internal fun stripFrame(
     carried: Boolean,
     lift: Float,
     density: Density,
+    /** The slot's lane across the column (two columns: a half beside another strip). */
+    slotLeft: Float = metrics.left,
+    slotWidth: Float = metrics.width,
 ): StripFrame {
-    var slot = Rect(metrics.left, slotTop, metrics.left + metrics.width, slotTop + metrics.height)
+    var slot = Rect(slotLeft, slotTop, slotLeft + slotWidth, slotTop + metrics.height)
     if (carried) {
         val grow = LiftScale * lift / 2f
         slot = Rect(
@@ -425,8 +430,12 @@ internal fun stripFrame(
 }
 
 /** The drop hole at [holeY]: slot-sized, under every strip. */
-internal fun holeRect(metrics: StripMetrics, holeY: Float): Rect =
-    Rect(metrics.left, holeY, metrics.left + metrics.width, holeY + metrics.height)
+internal fun holeRect(
+    metrics: StripMetrics,
+    holeY: Float,
+    left: Float = metrics.left,
+    width: Float = metrics.width,
+): Rect = Rect(left, holeY, left + width, holeY + metrics.height)
 
 /** Feed sections fade out as the strips fold in: the exact complement of the strip plates. */
 internal fun feedFoldAlpha(fold: Float): Float = 1f - smoothstep(0f, FoldPlateEnd, fold)

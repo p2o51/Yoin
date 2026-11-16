@@ -200,6 +200,7 @@ import com.gpo.yoin.ui.home.edit.TrayFooterKey
 import com.gpo.yoin.ui.home.edit.TrayTitleKey
 import com.gpo.yoin.ui.home.edit.asHomeEditFeedback
 import com.gpo.yoin.ui.home.edit.carryItemKey
+import com.gpo.yoin.ui.home.edit.sections
 import com.gpo.yoin.ui.home.edit.feedFoldWash
 import com.gpo.yoin.ui.home.edit.homeAllHiddenItem
 import com.gpo.yoin.ui.home.edit.homeEditCard
@@ -400,6 +401,7 @@ internal fun HomeEditorialContent(
             density = density,
             commitOrder = controller::commitOrder,
             finishDeferredExit = controller::finishDeferredExit,
+            commitArrangement = controller::commitArrangement,
         )
     }
     // The row resize (D1 ②): one driver per Activities / Jump Back In block,
@@ -606,6 +608,12 @@ internal fun HomeEditorialContent(
             tick = editFeedback::segmentTick,
         )
     }
+    // A cell changing rows outside a carry (the handle's release, Undo) moves and widens into place.
+    val flipOffsetSpec = YoinMotion.spatialSpring<Offset>()
+    val currentFlipOffsetSpec by rememberUpdatedState(flipOffsetSpec)
+    val cellFlips = remember { HomeCellFlips(scope, { currentSpanSpec }, { currentFlipOffsetSpec }) }
+    cellFlips.enabled = { controller.isEditing && engine.fold.value == 0f && engine.session == null }
+    cellFlips.spanDragging = { spanDrag.section != null }
     val editDeps = remember(controller, motion, press, engine, targets, specs, plateLook, rowsEngine, spanDrag) {
         HomeEditDeps(controller, motion, press, engine, targets, specs, plateLook, rowsEngine, spanDrag)
     }
@@ -700,6 +708,9 @@ internal fun HomeEditorialContent(
         emittedKeys = { feedRefs.keys },
         safeArea = safeArea,
         plateOutsetPx = plateOutsetPx,
+        // Two columns: the strips keep the feed's pairs, and a carry can pair blocks.
+        pairs = { if (controller.twoColumn) feedRefs.pairs else null },
+        columnGapPx = with(density) { HomeSpanTokens.ColumnGap.toPx() },
     )
     val isFlingInProgress: () -> Boolean = remember(listState) { { listState.isScrollInProgress } }
     // P on the move, a carry, or a charge: vote the panel's high rate for exactly as long.
@@ -815,6 +826,10 @@ internal fun HomeEditorialContent(
         if (motion.displayed != displayed) motion.displayed = displayed
         feedRefs.keys = feedKeys
         feedRefs.pairs = feedRows.filterIsInstance<HomeFeedRow.Halves>().associate { it.left to it.right }
+        cellFlips.box = { feedRefs.box }
+        val rowOf = feedRows.flatMap { row -> row.sections().map { it to row.first } }.toMap()
+        if (cellFlips.rowOf != rowOf) cellFlips.rowOf = rowOf
+        cellFlips.retain(displayed)
         spanDrag.info = if (!twoColumn) {
             { null }
         } else {
@@ -1412,9 +1427,15 @@ internal fun HomeEditorialContent(
                             row = row,
                             span = spanDrag,
                             gap = HomeSpanTokens.ColumnGap,
+                            flips = if (twoColumn) cellFlips else null,
                             modifier = Modifier.animateItem(
-                                // A section edit mode shows fades in by its own alpha (critique 10).
-                                fadeInSpec = if (row.first in motion.showing) null else specs.effectsIn,
+                                // A section edit mode shows fades in by its own alpha (critique 10);
+                                // one moving here from another row moves instead (HomeCellFlips).
+                                fadeInSpec = if (row.first in motion.showing || cellFlips.moved(row.first, row.first)) {
+                                    null
+                                } else {
+                                    specs.effectsIn
+                                },
                                 placementSpec = sectionPlacement(),
                                 fadeOutSpec = specs.effectsOut,
                             ),

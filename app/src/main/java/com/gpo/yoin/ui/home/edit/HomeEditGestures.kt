@@ -743,6 +743,8 @@ private class HomeEditGesturesNode(var deps: HomeEditGesturesElement) : Delegati
             executor.run(actions, machine)
         }
 
+        // The carry reads the finger's x for side drops (two columns).
+        deps.engine.fingerX = down.position.x
         step(
             HomeEditGestureEvent.Down(
                 hit = deps.hitTester.hitTest(down.position),
@@ -786,7 +788,10 @@ private class HomeEditGesturesNode(var deps: HomeEditGesturesElement) : Delegati
                         // Consumed before the Initial pass reached us: a system cancel, or an ancestor took it.
                         change.isConsumed -> step(HomeEditGestureEvent.Cancel(t))
                         !change.pressed -> step(HomeEditGestureEvent.Up(t))
-                        change.positionChanged() -> step(HomeEditGestureEvent.Move(change.position, t))
+                        change.positionChanged() -> {
+                            deps.engine.fingerX = change.position.x
+                            step(HomeEditGestureEvent.Move(change.position, t))
+                        }
                     }
                     if (consuming) change.consume()
                 }
