@@ -17,6 +17,7 @@ import 'share/image_share.dart';
 import 'storage/app_files.dart';
 import 'storage/channel_stores.dart';
 import 'storage/stores.dart';
+import 'sync/cloud_sync_host.dart';
 import 'window/window_caption.dart';
 import 'window/window_controls.dart';
 import 'windows/windows_platform.dart';
@@ -39,6 +40,7 @@ final class YoinPlatform {
     required this.windowCaption,
     required this.imageShare,
     required this.appFiles,
+    required this.cloudSyncHost,
   });
 
   final YoinHost host;
@@ -76,6 +78,10 @@ final class YoinPlatform {
   /// The folder for files the app keeps (offline downloads): OHOS filesDir.
   final AppFilesHost appFiles;
 
+  /// Cloud sync's browser sign-in, device name and files folder (OHOS
+  /// `yoin/cloud_sync`: Want + transient task; Windows: the shell and app data).
+  final CloudSyncHost cloudSyncHost;
+
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
@@ -90,6 +96,7 @@ final class YoinPlatform {
     windowCaption: const ChannelWindowCaptionHost(),
     imageShare: const ChannelImageShare(),
     appFiles: const ChannelAppFilesHost(),
+    cloudSyncHost: const ChannelCloudSyncHost(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -108,6 +115,7 @@ final class YoinPlatform {
     windowCaption: const SystemTitleBarHost(),
     imageShare: const NoImageShare(),
     appFiles: DirectoryAppFilesHost(folder),
+    cloudSyncHost: DesktopCloudSyncHost(folder),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

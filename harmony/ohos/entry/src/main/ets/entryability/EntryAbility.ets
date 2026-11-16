@@ -14,6 +14,7 @@ import YoinCardsPlugin, { CardsHost } from '../yoin/cards/CardsPlugin';
 import YoinWindowPlugin, { YoinWindowHost } from '../yoin/window/WindowPlugin';
 import YoinNetworkPlugin from '../yoin/network/NetworkPlugin';
 import YoinSharePlugin from '../yoin/share/SharePlugin';
+import YoinCloudSyncPlugin from '../yoin/sync/CloudSyncPlugin';
 import { window } from '@kit.ArkUI';
 
 export default class EntryAbility extends FlutterAbility {
@@ -30,6 +31,7 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinWindowPlugin())
     flutterEngine.getPlugins()?.add(new YoinNetworkPlugin())
     flutterEngine.getPlugins()?.add(new YoinSharePlugin(this.context))
+    flutterEngine.getPlugins()?.add(new YoinCloudSyncPlugin(this.context))
   }
 
   /**

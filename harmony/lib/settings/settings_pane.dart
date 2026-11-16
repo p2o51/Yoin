@@ -64,6 +64,15 @@ final class VolumeLevelingPane extends SettingsPane {
   int get hashCode => Object.hash(5, profileId);
 }
 
+/// Settings › Cloud sync (CloudSyncScreen).
+final class CloudSyncPane extends SettingsPane {
+  const CloudSyncPane();
+  @override
+  bool operator ==(Object other) => other is CloudSyncPane;
+  @override
+  int get hashCode => 6;
+}
+
 final class TipsPane extends SettingsPane {
   const TipsPane();
   @override

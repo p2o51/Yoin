@@ -7,6 +7,7 @@ import 'app/platform_overrides.dart';
 import 'app/providers.dart';
 import 'cards/play_card.dart';
 import 'data/applemusic/apple_music_source.dart';
+import 'data/sync/cloud_sync_providers.dart';
 import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
 import 'offline/offline_providers.dart';
@@ -62,6 +63,8 @@ class YoinApp extends ConsumerWidget {
     ref.listen(playCardPublisherProvider, (_, _) {});
     // Downloads left queued carry on as the app starts (Android ensureStarted).
     ref.listen(offlineDownloadsProvider, (_, _) {});
+    // Cloud sync runs with the app (a cycle on coming to the front, an upload on leaving).
+    ref.listen(cloudSyncLifecycleProvider, (_, _) {});
     // The playing cover themes the whole app, in ONE cut (no theme tween:
     // owner 2026-11-04); equal schemes keep the same ThemeData instance.
     final seed = ref.watch(playbackThemeProvider.select((t) => t.seed));

@@ -117,10 +117,8 @@ class LocalRatingStore {
     return out;
   }
 
-  Future<void> write(String profileId, Map<MediaId, LocalRating> rows) => _store.write(
-    keyFor(profileId),
-    jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()}),
-  );
+  Future<void> write(String profileId, Map<MediaId, LocalRating> rows) =>
+      _store.write(keyFor(profileId), jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()}));
 }
 
 /// After this many sends in a row fail, a pending-ratings sync gives up
@@ -186,6 +184,8 @@ class LocalRatings extends Notifier<Map<MediaId, LocalRating>> {
     ref.onDispose(() {
       _lifecycle?.dispose();
       _lifecycle = null;
+      // Nothing loads any more: a write or a cloud sync step waiting for the rows stops waiting.
+      if (!_ready.isCompleted) _ready.complete(null);
     });
     return const {};
   }
@@ -241,11 +241,16 @@ class LocalRatings extends Notifier<Map<MediaId, LocalRating>> {
   Future<bool> _persist(String profileId) {
     final kv = _kv;
     if (kv == null) return Future.value(true);
-    final snapshot = Map<MediaId, LocalRating>.of(state);
+    final queued = Map<MediaId, LocalRating>.of(state);
     final done = Completer<bool>();
     _storeChain = _storeChain.then((_) async {
       try {
-        await LocalRatingStore(kv).write(profileId, snapshot);
+        // The rows as they are when the write runs: a cloud sync edit queued
+        // before this one changed them, and writing the older copy would undo
+        // it on disk while the sync replica believes it landed. Another
+        // account by then: the copy taken for this one.
+        final rows = ref.mounted && _profileId == profileId ? Map<MediaId, LocalRating>.of(state) : queued;
+        await LocalRatingStore(kv).write(profileId, rows);
         done.complete(true);
       } catch (e) {
         _log('store failed: ${e.runtimeType}');
@@ -345,6 +350,39 @@ class LocalRatings extends Notifier<Map<MediaId, LocalRating>> {
     } finally {
       _syncing = false;
     }
+  }
+
+  /// Cloud sync's step over [profileId]'s rows: [edit] changes them in place
+  /// (or not) and its answer comes back. Runs behind this notifier's own
+  /// writes, so a rating made meanwhile never overwrites a synced one; for the
+  /// active account the screen state follows at once. Rows written here keep
+  /// their own needsSync (sync sets it), and no push starts: another device
+  /// already sent its rating to the provider.
+  Future<R> syncEdit<R>(String profileId, R Function(Map<MediaId, LocalRating> rows) edit) async {
+    // Until the active account's rows are loaded (again, when it changes meanwhile).
+    while (!_ready.isCompleted) {
+      await _ready.future;
+    }
+    final kv = _kv;
+    if (kv == null) throw StateError('No store');
+    final done = Completer<R>();
+    _storeChain = _storeChain.then((_) async {
+      try {
+        final active = ref.mounted && _profileId == profileId;
+        final rows = active ? Map<MediaId, LocalRating>.of(state) : await LocalRatingStore(kv).read(profileId);
+        final before = jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()});
+        final result = edit(rows);
+        final after = jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()});
+        if (after != before) {
+          await LocalRatingStore(kv).write(profileId, rows);
+          if (active && ref.mounted && _profileId == profileId) state = rows;
+        }
+        done.complete(result);
+      } catch (e, st) {
+        done.completeError(e, st);
+      }
+    });
+    return done.future;
   }
 
   String _key(LocalRating r) => '${r.profileId}|${r.provider}:${r.songId}';

@@ -19,9 +19,13 @@ class SettingsSubPage extends StatefulWidget {
     required this.children,
     this.inPane = false,
     this.paneBack = false,
+    this.lead,
   });
 
   final String title;
+
+  /// A line under the large title ([SettingsHeadline.lead]).
+  final Widget? lead;
   final List<Widget> children;
   final bool inPane;
   final bool paneBack;
@@ -62,7 +66,7 @@ class _SettingsSubPageState extends State<SettingsSubPage> {
               child: DetailBackButton(container: colors.surfaceContainerHighest, content: colors.onSurface),
             ),
           ),
-        SettingsHeadline(title: widget.title),
+        SettingsHeadline(title: widget.title, lead: widget.lead),
         ...widget.children,
       ],
     );

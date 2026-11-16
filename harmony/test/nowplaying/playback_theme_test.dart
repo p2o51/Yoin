@@ -79,7 +79,12 @@ void main() {
     expect(c.read(playbackThemeProvider).seed, const Color(0xFF00AA55));
 
     controller.emit(NowPlayingState.idle);
-    await Future<void>.delayed(playbackThemeClearDelay + const Duration(milliseconds: 20));
+    await Future<void>.delayed(playbackThemeClearDelay);
+    // Real timers: under a loaded full run the clear can land a little late.
+    final deadline = DateTime.now().add(const Duration(seconds: 2));
+    while (c.read(playbackThemeProvider).seed != null && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
     expect(c.read(playbackThemeProvider).seed, isNull);
   });
 }

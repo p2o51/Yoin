@@ -359,11 +359,33 @@ final class MemoryTitleRow {
 /// Which of an account's Memory rows changed.
 enum MemoryStoreChange { albumRatings, songNotes, plays, titles }
 
+/// The rows cloud sync reads and edits in one step ([MemoryStore.syncEdit]):
+/// album rows including empty ones (a cleared score with no review is still a
+/// row, as on Android), every note and every user title. Edits happen in
+/// place on these collections.
+final class MemorySyncRows {
+  MemorySyncRows._(this.albumRatings, this.songNotes, this.titles);
+
+  final Map<MediaId, AlbumRatingRow> albumRatings;
+  final List<SongNote> songNotes;
+  final Map<MediaId, MemoryTitleRow> titles;
+}
+
 /// One account's Memory rows on a [KeyValueStore]. Writes are serialised in
 /// call order; reads after a write see it. [changes] fires after every
 /// write, so the Memories deck can refresh in place.
 final class MemoryStore {
   MemoryStore(this._store, {required this.profileId});
+
+  /// One store per (key-value store, account), shared by the screens
+  /// ([memoryStoreProvider]) and cloud sync, so a sync writes through the same
+  /// queue and cache the screens read instead of under them. Never disposed:
+  /// it is only a cache and a queue, and a sync may reach it at any time.
+  static final _shared = Expando<Map<String, MemoryStore>>('MemoryStore.shared');
+
+  /// [profileId]'s rows on [store], the same instance every time.
+  static MemoryStore shared(KeyValueStore store, String profileId) =>
+      (_shared[store] ??= {})[profileId] ??= MemoryStore(store, profileId: profileId);
 
   final KeyValueStore _store;
   final String profileId;
@@ -386,9 +408,13 @@ final class MemoryStore {
 
   // ---- reads ----
 
+  /// Rows with a score or a review (an emptied row is kept for sync, never shown).
   Future<Map<MediaId, AlbumRatingRow>> albumRatings() async {
     await _tail;
-    return Map.unmodifiable(await _loadRatings());
+    return Map.unmodifiable({
+      for (final e in (await _loadRatings()).entries)
+        if (!e.value.isEmpty) e.key: e.value,
+    });
   }
 
   Future<AlbumRatingRow?> albumRating(MediaId albumId) async => (await albumRatings())[albumId];
@@ -548,6 +574,61 @@ final class MemoryStore {
     );
   });
 
+  /// Cloud sync's view of the rows, copied (nothing here is edited).
+  Future<MemorySyncRows> syncRead() async {
+    await _tail;
+    return MemorySyncRows._(Map.of(await _loadRatings()), List.of(await _loadNotes()), Map.of(await _loadTitles()));
+  }
+
+  /// Runs [edit] on the rows in the write queue (no other write in between),
+  /// then saves what it changed and tells the screens. Cloud sync's
+  /// check-then-write (the expected-hash guard) happens inside [edit].
+  Future<R> syncEdit<R>(R Function(MemorySyncRows rows) edit) {
+    final done = Completer<R>();
+    _tail = _tail.then((_) async {
+      try {
+        final ratings = await _loadRatings();
+        final notes = await _loadNotes();
+        final titles = await _loadTitles();
+        final before = (_ratingsJson(ratings), _notesJson(notes), _titlesJson(titles));
+        final result = edit(MemorySyncRows._(ratings, notes, titles));
+        final after = (_ratingsJson(ratings), _notesJson(notes), _titlesJson(titles));
+        if (after.$1 != before.$1) {
+          await _store.write(albumRatingsKey(profileId), after.$1);
+          _emit(MemoryStoreChange.albumRatings);
+        }
+        if (after.$2 != before.$2) {
+          await _store.write(songNotesKey(profileId), after.$2);
+          _emit(MemoryStoreChange.songNotes);
+        }
+        if (after.$3 != before.$3) {
+          await _store.write(titlesKey(profileId), after.$3);
+          _emit(MemoryStoreChange.titles);
+        }
+        done.complete(result);
+      } catch (e, st) {
+        // A failed edit leaves the rows as they are stored: drop the cache.
+        _ratings = null;
+        _notes = null;
+        _titles = null;
+        done.completeError(e, st);
+      }
+    });
+    return done.future;
+  }
+
+  void _emit(MemoryStoreChange change) {
+    if (!_changes.isClosed) _changes.add(change);
+  }
+
+  static String _ratingsJson(Map<MediaId, AlbumRatingRow> rows) =>
+      jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()});
+
+  static String _notesJson(List<SongNote> notes) => jsonEncode([for (final n in notes) n.toJson()]);
+
+  static String _titlesJson(Map<MediaId, MemoryTitleRow> rows) =>
+      jsonEncode({for (final e in rows.entries) e.key.toString(): e.value.toJson()});
+
   void dispose() => _changes.close();
 
   // ---- internals ----
@@ -562,12 +643,12 @@ final class MemoryStore {
     return done;
   }
 
+  /// An emptied row stays (score 0, no review), as Android's album_ratings
+  /// row does: cloud sync reads a vanished row as "the store was reset" and
+  /// would bring the old score back. Public reads leave empty rows out.
   void _putRating(Map<MediaId, AlbumRatingRow> rows, AlbumRatingRow next) {
-    if (next.isEmpty) {
-      rows.remove(next.albumId);
-    } else {
-      rows[next.albumId] = next;
-    }
+    if (next.isEmpty && !rows.containsKey(next.albumId)) return;
+    rows[next.albumId] = next;
   }
 
   Future<Object?> _decode(String key) async {

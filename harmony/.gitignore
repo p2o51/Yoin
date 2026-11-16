@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Cloud sync's Google OAuth client for local builds (docs/cloud-sync.md): never committed.
+google_oauth.local.json

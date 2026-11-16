@@ -21,6 +21,10 @@ import 'settings_strings.dart';
 /// writes that into the HAP; a test checks the two agree).
 const yoinVersionName = '0.1.0';
 
+/// The build number after the `+` in pubspec.yaml's `version`. Cloud sync
+/// writes it into every file it uploads (Android's versionCode field).
+const yoinVersionCode = 1;
+
 /// One acknowledged component: its name, a line to know it by (its
 /// copyright, when the text starts with one) and its license text.
 @immutable
