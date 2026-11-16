@@ -18,6 +18,7 @@ import YoinCloudSyncPlugin from '../yoin/sync/CloudSyncPlugin';
 import YoinHapticsPlugin from '../yoin/haptics/HapticsPlugin';
 import YoinSensorsPlugin from '../yoin/sensors/SensorsPlugin';
 import YoinTransferPlugin from '../yoin/background/TransferPlugin';
+import YoinCastPlugin from '../yoin/cast/CastPlugin';
 import { window } from '@kit.ArkUI';
 
 export default class EntryAbility extends FlutterAbility {
@@ -39,6 +40,7 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinSensorsPlugin())
     // Downloads keep running behind other apps (a data-transfer continuous task with their progress).
     flutterEngine.getPlugins()?.add(new YoinTransferPlugin(this.context))
+    flutterEngine.getPlugins()?.add(new YoinCastPlugin(this.context))
   }
 
   /**

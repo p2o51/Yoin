@@ -217,8 +217,35 @@ abstract final class NowPlayingTokens {
   static const double tabPressedStretch = 0.92;
   static const double tabIdleAlpha = 0.5;
 
-  /// BottomPills: the gap between Queue and Write.
-  static const double pillGap = 8;
+  /// BottomPills: the gap between Queue, Devices and Write (ButtonGroup spacedBy(2.dp)).
+  static const double pillGap = 2;
+
+  /// BottomPills' pill: side padding (0.3 × height), icon (0.36 × height), icon → label (PillLabelGap).
+  static const double pillPaddingH = pillHeight * 0.3;
+  static const double pillIcon = pillHeight * 0.36;
+  static const double pillLabelGap = 4;
+
+  /// A pressed pill's label widens by this fraction (BottomPills labelWidthMultiplier 1.8).
+  static const double pillPressWiden = 0.8;
+
+  /// An icon-only pill never measures narrower than M3's ButtonDefaults.MinWidth.
+  static const double pillIconOnlyMin = 58;
+
+  /// Headroom for the press bulge and rounding before the pills fold to icons (PillsSafetyMargin).
+  static const double pillsSafetyMargin = 12;
+
+  /// The Devices pill's corner (RoundedCornerShape(20.dp); the others are capsules).
+  static const double devicesPillCorner = 20;
+
+  /// CastButton connected: a 40 tall tonal button, 24 side padding, 18 icon, 6 gap; 6 to the pills.
+  static const double castChipHeight = 40;
+  static const double castChipPaddingH = 24;
+  static const double castChipIcon = 18;
+  static const double castChipIconGap = 6;
+  static const double castChipRowGap = 6;
+
+  /// TopBarDeviceNameMax: the cast name in the top bar's chip.
+  static const double topBarDeviceNameMax = 96;
 }
 
 /// Now Playing's notes (NoteContent.kt NoteLine / NoteSortToggle / NoteWriteBarDefaults,
@@ -1011,6 +1038,29 @@ abstract final class SheetTokens {
   static const double playlistRowPaddingH = 24;
   static const double playlistRowPaddingV = 8;
   static const double playlistRowGap = 12;
+
+  /// Devices sheet (DevicesSheet.kt): header padding (start / top / end / bottom), list
+  /// padding (h / top / bottom), row gap; a row's padding (h / v), icon, icon → text,
+  /// trailing box, spinner and its stroke; a disabled row's alpha; a message's padding.
+  static const double devicesHeaderStart = 24;
+  static const double devicesHeaderTop = 8;
+  static const double devicesHeaderEnd = 12;
+  static const double devicesHeaderBottom = 4;
+  static const double devicesListPaddingH = 16;
+  static const double devicesListTop = 8;
+  static const double devicesListBottom = 16;
+  static const double devicesRowGap = 6;
+  static const double deviceRowPaddingH = 16;
+  static const double deviceRowPaddingV = 14;
+  static const double deviceIcon = 22;
+  static const double deviceIconGap = 12;
+  static const double deviceTrailing = 24;
+  static const double deviceSpinner = 18;
+  static const double deviceSpinnerStroke = 2;
+  static const double deviceDisabledAlpha = 0.6;
+  static const double devicesMessagePaddingH = 8;
+  static const double devicesMessagePaddingV = 2;
+  static const double devicesEmptyPaddingV = 12;
 }
 
 /// Library's New playlist button (M3 ExtendedFloatingActionButton, LibraryScreen.kt PlaylistsTabContent).

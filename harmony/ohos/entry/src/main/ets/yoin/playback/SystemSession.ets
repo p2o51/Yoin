@@ -4,8 +4,11 @@ import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { image } from '@kit.ImageKit';
+import { Any } from '@ohos/flutter_ohos';
+import { CastBridge } from '../cast/CastBridge';
 import { ArtworkLoader } from './ArtworkLoader';
-import { describe, EngineListener, EngineRepeat, EngineSnapshot, PlaybackEngine } from './PlaybackEngine';
+import { describe, EnginePhase, EngineListener, EngineRepeat, EngineSnapshot, PlaybackEngine } from './PlaybackEngine';
+import { QueueItem, readBool, readNumber, readString } from './QueueItem';
 import { ContinuousTasks, HeldTask } from '../background/ContinuousTasks';
 
 const DOMAIN = 0x5901;
@@ -20,6 +23,15 @@ export const YOIN_ACTION_OPEN_NOW_PLAYING = 'openNowPlaying';
 
 /** Session commands only Dart can answer (the favourite write goes through the music source). */
 export type SessionCommandListener = (name: string, id: string) => void;
+
+/**
+ * Another renderer plays (a DLNA speaker, the system's cast device): the session shows its song and progress, and
+ * its keys go to Dart, which drives that renderer. The engine's own player stays paused meanwhile.
+ */
+class RemoteView {
+  item: QueueItem = new QueueItem();
+  snapshot: EngineSnapshot = new EngineSnapshot();
+}
 
 /**
  * Everything the system sees of playback: one AVSession (播控中心, lock screen, headset keys) and the AUDIO_PLAYBACK
@@ -51,13 +63,81 @@ export class SystemSession {
   private launchAgent: WantAgent | null = null;
   private pending: EngineSnapshot | null = null;
   private pumping: boolean = false;
+  private remote: RemoteView | null = null;
+  /** The continuous task's mode while it runs: AUDIO_PLAYBACK here, MULTI_DEVICE_CONNECTION while casting. */
+  private backgroundMode: backgroundTaskManager.BackgroundMode = backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK;
 
   constructor(context: common.UIAbilityContext, engine: PlaybackEngine, onCommand: SessionCommandListener) {
     this.context = context;
     this.engine = engine;
     this.onCommand = onCommand;
-    this.listener = (s: EngineSnapshot) => this.offer(s);
+    // While a remote renderer plays, the engine's own changes only move the session heart.
+    this.listener = (s: EngineSnapshot) => this.offer(this.remote !== null ? this.remoteSnapshot() : s);
     engine.addListener(this.listener);
+  }
+
+  /**
+   * `setRemote`: [state] (Dart's `RemoteSessionState.toMap`) mirrors a remote renderer; null hands the session back
+   * to the engine's player.
+   */
+  setRemote(state: Any): void {
+    if (!(state instanceof Map)) {
+      if (this.remote !== null) {
+        this.remote = null;
+        this.offer(this.engine.snapshot());
+      }
+      return;
+    }
+    const map: Map<Any, Any> = state as Map<Any, Any>;
+    const view = new RemoteView();
+    view.item.id = readString(map, 'id') ?? '';
+    view.item.entryId = readString(map, 'entryId');
+    view.item.title = readString(map, 'title') ?? '';
+    view.item.artist = readString(map, 'artist');
+    view.item.album = readString(map, 'album');
+    view.item.artworkUri = readString(map, 'artworkUri');
+    view.item.durationMs = readNumber(map, 'durationMs');
+    const s = view.snapshot;
+    s.phase = phaseOf(readString(map, 'phase'));
+    s.isPlaying = readBool(map, 'isPlaying') ?? false;
+    s.playWhenReady = readBool(map, 'playWhenReady') ?? s.isPlaying;
+    s.index = 0;
+    s.currentId = view.item.id;
+    s.currentEntryId = view.item.entryId ?? null;
+    s.positionMs = Math.max(0, readNumber(map, 'positionMs') ?? 0);
+    s.sampledAtMs = readNumber(map, 'sampledAtMs') ?? Date.now();
+    s.durationMs = view.item.durationMs ?? null;
+    const repeat = readString(map, 'repeat');
+    s.repeat = repeat === 'off' || repeat === 'one' ? repeat as EngineRepeat : 'all';
+    s.shuffle = readBool(map, 'shuffle') ?? false;
+    this.remote = view;
+    this.offer(this.remoteSnapshot());
+  }
+
+  /** The remote view with the engine's session heart (Dart sets it on the engine whoever plays). */
+  private remoteSnapshot(): EngineSnapshot {
+    const view = this.remote;
+    if (view === null) {
+      return this.engine.snapshot();
+    }
+    const own = this.engine.snapshot();
+    view.snapshot.favoriteId = own.favoriteId;
+    view.snapshot.favorite = own.favorite;
+    return view.snapshot;
+  }
+
+  /** The item the session shows: the remote renderer's song, else the engine's. */
+  private currentItem(): QueueItem | null {
+    return this.remote !== null ? this.remote.item : this.engine.currentItem();
+  }
+
+  /** A system key: to the engine, or to Dart while a remote renderer plays. */
+  private key(name: string, local: () => void, value?: string): void {
+    if (this.remote !== null) {
+      this.onCommand(name, value ?? '');
+    } else {
+      local();
+    }
   }
 
   /**
@@ -72,12 +152,13 @@ export class SystemSession {
     this.context = context;
     this.launchAgent = null;
     this.retire(old);
-    this.offer(this.engine.snapshot());
+    this.offer(this.remote !== null ? this.remoteSnapshot() : this.engine.snapshot());
   }
 
   /** Detaches from the engine and tears down the session and background task. */
   release(): void {
     this.engine.removeListener(this.listener);
+    this.remote = null;
     this.offer(new EngineSnapshot());
   }
 
@@ -90,6 +171,7 @@ export class SystemSession {
     this.audioTask = null;
     this.resetSessionState();
     if (session !== null) {
+      CastBridge.shared().detachSession(session);
       session.destroy().catch((e: BusinessError) => {
         hilog.warn(DOMAIN, TAG, 'old session destroy failed: %{public}s', describe(e));
       });
@@ -142,15 +224,18 @@ export class SystemSession {
     }
     const session = await avSession.createAVSession(this.context, 'Yoin', 'audio');
     try {
-      session.on('play', () => this.engine.play());
-      session.on('pause', () => this.engine.pause());
-      session.on('stop', () => this.engine.stop());
-      session.on('playNext', () => this.engine.next());
-      session.on('playPrevious', () => this.engine.previous());
-      session.on('seek', (time: number) => this.engine.seekTo(time));
+      session.on('play', () => this.key('play', () => this.engine.play()));
+      session.on('pause', () => this.key('pause', () => this.engine.pause()));
+      session.on('stop', () => this.key('stop', () => this.engine.stop()));
+      session.on('playNext', () => this.key('next', () => this.engine.next()));
+      session.on('playPrevious', () => this.key('previous', () => this.engine.previous()));
+      session.on('seek', (time: number) => this.key('seek', () => this.engine.seekTo(time), `${Math.floor(time)}`));
       // setLoopMode hands over the mode the card shows now; the app picks the next one (setTargetLoopMode,
       // API 18, is the one that carries a target).
-      session.on('setLoopMode', (mode: avSession.LoopMode) => this.applyLoopMode(nextLoopMode(mode)));
+      session.on('setLoopMode', (mode: avSession.LoopMode) => {
+        const next = nextLoopMode(mode);
+        this.key('playMode', () => this.applyLoopMode(next), loopModeValue(next));
+      });
     } catch (e) {
       // A half-wired session would ignore the user's keys: drop it and retry on the next snapshot.
       session.destroy().catch((err: BusinessError) => {
@@ -175,6 +260,8 @@ export class SystemSession {
       hilog.warn(DOMAIN, TAG, 'setLaunchAbility failed: %{public}s', describe(e as BusinessError));
     }
     await session.activate();
+    // Where the session plays (speaker, Bluetooth, a cast device) and the cast controller behind a remote one.
+    CastBridge.shared().attachSession(session);
     return session;
   }
 
@@ -203,7 +290,7 @@ export class SystemSession {
   }
 
   private async syncMetadata(session: avSession.AVSession, s: EngineSnapshot): Promise<void> {
-    const item = this.engine.currentItem();
+    const item = this.currentItem();
     if (item === null) {
       return;
     }
@@ -243,14 +330,14 @@ export class SystemSession {
 
   private fetchArtwork(id: string, url: string): void {
     this.artwork.load(url).then((pixelMap: image.PixelMap | null) => {
-      const current = this.engine.currentItem();
+      const current = this.currentItem();
       if (current === null || current.id !== id || this.metadataId !== id) {
         return;
       }
       if (pixelMap !== null) {
         this.artworkForId = id;
         this.artworkPixelMap = pixelMap;
-        this.offer(this.engine.snapshot());
+        this.offer(this.remote !== null ? this.remoteSnapshot() : this.engine.snapshot());
       } else {
         this.setUrlArtwork(id, url);
       }
@@ -260,7 +347,7 @@ export class SystemSession {
   /** The fetch failed: hand the system the URL string as a last resort. */
   private setUrlArtwork(id: string, url: string): void {
     const session = this.session;
-    const item = this.engine.currentItem();
+    const item = this.currentItem();
     if (session === null || item === null || item.id !== id) {
       return;
     }
@@ -321,14 +408,17 @@ export class SystemSession {
     const wantsSound = s.playWhenReady && (s.phase === 'loading' || s.phase === 'ready');
     if (wantsSound || s.isPlaying) {
       this.cancelPausedTimer();
-      await this.startBackground();
+      // Casting keeps the process for the renderer it drives (multi-device connection), not for local audio.
+      await this.startBackground(this.remote !== null ?
+        backgroundTaskManager.BackgroundMode.MULTI_DEVICE_CONNECTION :
+        backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK);
     } else if (s.phase === 'ended' || s.phase === 'error' || s.phase === 'idle') {
       this.cancelPausedTimer();
       await this.stopBackground();
     } else if (this.backgroundRunning && this.pausedTimer === -1) {
       this.pausedTimer = setTimeout(() => {
         this.pausedTimer = -1;
-        const now = this.engine.snapshot();
+        const now = this.remote !== null ? this.remoteSnapshot() : this.engine.snapshot();
         if (!now.isPlaying && !now.playWhenReady) {
           this.stopBackground();
         }
@@ -362,37 +452,49 @@ export class SystemSession {
     this.resetSessionState();
     this.artwork.clear();
     if (session !== null) {
+      CastBridge.shared().detachSession(session);
       await session.deactivate();
       await session.destroy();
     }
   }
 
-  private async startBackground(): Promise<void> {
-    if (this.backgroundRunning) {
+  private async startBackground(mode: backgroundTaskManager.BackgroundMode): Promise<void> {
+    if (this.backgroundRunning && this.backgroundMode === mode) {
       return;
+    }
+    if (this.backgroundRunning) {
+      // The other mode runs (the queue moved to or from a renderer): swap playback's task.
+      await this.stopBackground();
     }
     const agent = await this.getLaunchAgent();
     if (ContinuousTasks.multipleSupported()) {
       // API 21+: a task of its own, so the downloads can hold theirs beside it.
       try {
-        this.audioTask = await ContinuousTasks.start(this.context,
-          backgroundTaskManager.BackgroundTaskMode.MODE_AUDIO_PLAYBACK,
+        this.audioTask = await ContinuousTasks.start(this.context, SystemSession.taskModeOf(mode),
           backgroundTaskManager.BackgroundTaskSubmode.SUBMODE_NORMAL_NOTIFICATION, agent);
         this.backgroundRunning = true;
+        this.backgroundMode = mode;
         return;
       } catch (e) {
-        hilog.warn(DOMAIN, TAG, 'audio task request failed, using the single-task call: %{public}s',
+        hilog.warn(DOMAIN, TAG, 'playback task request failed, using the single-task call: %{public}s',
           describe(e as BusinessError));
       }
     }
     try {
-      await backgroundTaskManager.startBackgroundRunning(this.context,
-        backgroundTaskManager.BackgroundMode.AUDIO_PLAYBACK, agent);
+      await backgroundTaskManager.startBackgroundRunning(this.context, mode, agent);
       this.audioTask = new HeldTask(-1, -1);
       this.backgroundRunning = true;
+      this.backgroundMode = mode;
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'startBackgroundRunning failed: %{public}s', describe(e as BusinessError));
     }
+  }
+
+  /** The API 21 task mode for playback's [mode]: casting holds MULTI_DEVICE_CONNECTION, else AUDIO_PLAYBACK. */
+  private static taskModeOf(mode: backgroundTaskManager.BackgroundMode): backgroundTaskManager.BackgroundTaskMode {
+    return mode === backgroundTaskManager.BackgroundMode.MULTI_DEVICE_CONNECTION ?
+      backgroundTaskManager.BackgroundTaskMode.MODE_MULTI_DEVICE_CONNECTION :
+      backgroundTaskManager.BackgroundTaskMode.MODE_AUDIO_PLAYBACK;
   }
 
   private async stopBackground(): Promise<void> {
@@ -463,6 +565,32 @@ function nextLoopMode(current: avSession.LoopMode): avSession.LoopMode {
       return avSession.LoopMode.LOOP_MODE_SINGLE;
     default:
       return avSession.LoopMode.LOOP_MODE_LIST;
+  }
+}
+
+/** A loop mode as Dart's `playMode` command value (`repeat|shuffle`), like applyLoopMode reads it. */
+function loopModeValue(mode: avSession.LoopMode): string {
+  switch (mode) {
+    case avSession.LoopMode.LOOP_MODE_SHUFFLE:
+      return 'all|true';
+    case avSession.LoopMode.LOOP_MODE_SINGLE:
+      return 'one|false';
+    case avSession.LoopMode.LOOP_MODE_SEQUENCE:
+      return 'off|false';
+    default:
+      return 'all|false';
+  }
+}
+
+function phaseOf(value: string | undefined): EnginePhase {
+  switch (value) {
+    case 'loading':
+    case 'ready':
+    case 'ended':
+    case 'error':
+      return value as EnginePhase;
+    default:
+      return 'idle';
   }
 }
 

@@ -12,6 +12,7 @@ import 'browser/url_opener.dart';
 import 'background/background_transfer.dart';
 import 'cards/cards_channel.dart';
 import 'haptics/haptics_host.dart';
+import 'cast/cast_host.dart';
 import 'i18n/name_transliterator.dart';
 import 'network/network_bearer.dart';
 import 'playback/channel_playback_engine.dart';
@@ -54,6 +55,7 @@ final class YoinPlatform {
     required this.haptics,
     required this.motionSensors,
     required this.backgroundTransfer,
+    required this.castHost,
   });
 
   final YoinHost host;
@@ -123,6 +125,10 @@ final class YoinPlatform {
   /// Windows: nothing to hold).
   final BackgroundTransferHost backgroundTransfer;
 
+  /// The system's output / cast panel and cast session (OHOS AVCastPicker +
+  /// AVCastController; Windows: none, DLNA only).
+  final CastHost castHost;
+
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
@@ -145,6 +151,7 @@ final class YoinPlatform {
     haptics: ChannelHapticsHost(),
     motionSensors: ChannelMotionSensors(),
     backgroundTransfer: ChannelBackgroundTransferHost(),
+    castHost: ChannelCastHost(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -171,6 +178,7 @@ final class YoinPlatform {
     haptics: const NoHapticsHost(),
     motionSensors: const NoMotionSensors(),
     backgroundTransfer: const NoBackgroundTransferHost(),
+    castHost: const NoCastHost(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

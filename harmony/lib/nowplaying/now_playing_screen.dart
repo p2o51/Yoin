@@ -4,6 +4,7 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
@@ -14,6 +15,8 @@ import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
 import '../detail/scrapbook_focus.dart';
 import '../playback/keep_screen_on.dart';
+import '../playback/output/output_providers.dart';
+import '../playback/output/playback_router.dart';
 import '../playback/playback_context.dart';
 import '../playback/playback_controller.dart';
 import '../playback/playhead.dart';
@@ -31,6 +34,9 @@ import 'about_widgets.dart';
 import 'ask_bar.dart';
 import 'action_glow.dart';
 import 'cover_swap.dart';
+import 'devices/devices_pill.dart';
+import 'devices/devices_sheet.dart';
+import 'devices/devices_strings.dart';
 import 'flight.dart';
 import 'focus_field.dart';
 import 'focus_budget.dart';
@@ -2416,24 +2422,7 @@ class _Accessory extends StatelessWidget {
                         offset: Offset(0, NowPlayingFocusTokens.pillRetreatDrop * retreat.value.clamp(0.0, 1.0)),
                         child: child,
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _QueuePill(
-                            onTap: () {
-                              YoinHaptics.contextClick();
-                              showQueueSheet(context, onSkip: onSkip);
-                            },
-                          ),
-                          const SizedBox(width: NowPlayingTokens.pillGap),
-                          NowPlayingWritePill(
-                            onTap: () {
-                              YoinHaptics.contextClick();
-                              onWrite();
-                            },
-                          ),
-                        ],
-                      ),
+                      child: _PillsRow(onSkip: onSkip, onWrite: onWrite),
                     ),
                   ),
                 ),
@@ -2487,48 +2476,39 @@ class _Accessory extends StatelessWidget {
   }
 }
 
-/// The Write pill beside Queue (Android BottomPills' Write): tonal, the note
-/// glyph; opens the Note page expanded with the keyboard.
+/// The Write pill beside Devices (Android BottomPills' Write): primary like
+/// its neighbours (PillButton), the note glyph; opens the Note page expanded
+/// with the keyboard. Folds to its icon with the rest of the row ([showLabel]).
 class NowPlayingWritePill extends StatelessWidget {
-  const NowPlayingWritePill({super.key, required this.onTap});
+  const NowPlayingWritePill({
+    super.key,
+    required this.onTap,
+    this.showLabel = true,
+    this.labelOnPress = false,
+    this.pressWiden = true,
+    this.onPressedChanged,
+  });
 
   final VoidCallback onTap;
+  final bool showLabel;
+  final bool labelOnPress;
+  final bool pressWiden;
+  final ValueChanged<bool>? onPressedChanged;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final strings = NowPlayingStrings.of(context);
-    const icon = NowPlayingTokens.pillHeight * 0.36;
-    final pill = Semantics(
-      button: true,
-      label: strings.pillWrite,
-      excludeSemantics: true,
-      child: Material(
-        color: colors.secondaryContainer,
-        shape: const StadiumBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            height: NowPlayingTokens.pillHeight,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 13.2),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(YoinSymbols.note, size: icon, color: colors.onSecondaryContainer),
-                  const SizedBox(width: 8),
-                  Text(
-                    strings.pillWrite,
-                    style: Theme.of(context).textTheme.labelMedium!.copyWith(color: colors.onSecondaryContainer),
-                    maxLines: 1,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    final pill = NowPlayingPillButton(
+      key: const ValueKey('np-pill-write'),
+      icon: YoinSymbols.note,
+      label: NowPlayingStrings.of(context).pillWrite,
+      onTap: onTap,
+      background: colors.primary,
+      foreground: colors.onPrimary,
+      showLabel: showLabel,
+      labelOnPress: labelOnPress,
+      pressWiden: pressWiden,
+      onPressedChanged: onPressedChanged,
     );
     // A saved note's ink rises from here (ActionGlow.kt GlowAnchor.Write).
     final signal = NowPlayingSignalScope.maybeOf(context);
@@ -2536,66 +2516,157 @@ class NowPlayingWritePill extends StatelessWidget {
   }
 }
 
-class _QueuePill extends StatefulWidget {
-  const _QueuePill({required this.onTap});
+/// Queue, Devices and Write (Android BottomPills), after the cast chip while
+/// the system session plays on a cast device. Measure first, never drop: the
+/// row folds to icon-only pills when the labels don't fit its width, and a
+/// pressed pill still opens its label when there is room for it. While one
+/// pill is pressed in a labelled row it widens and the others fold their
+/// labels, so the row keeps its width.
+class _PillsRow extends ConsumerStatefulWidget {
+  const _PillsRow({required this.onSkip, required this.onWrite});
 
-  final VoidCallback onTap;
+  final ValueChanged<int> onSkip;
+  final VoidCallback onWrite;
 
   @override
-  State<_QueuePill> createState() => _QueuePillState();
+  ConsumerState<_PillsRow> createState() => _PillsRowState();
 }
 
-class _QueuePillState extends State<_QueuePill> with TickerProviderStateMixin {
-  late final SpringValue _press = SpringValue(vsync: this, initial: 0, spring: YoinSprings.standardFastSpatial);
+class _PillsRowState extends ConsumerState<_PillsRow> {
+  /// The pill under the finger (0 Queue, 1 Devices, 2 Write), or null.
+  int? _pressed;
 
-  @override
-  void dispose() {
-    _press.dispose();
-    super.dispose();
-  }
+  ValueChanged<bool> _pressOf(int pill) => (down) {
+    final next = down ? pill : (_pressed == pill ? null : _pressed);
+    if (next != _pressed && mounted) setState(() => _pressed = next);
+  };
 
   @override
   Widget build(BuildContext context) {
+    final onSkip = widget.onSkip;
+    final onWrite = widget.onWrite;
     final colors = Theme.of(context).colorScheme;
     final strings = NowPlayingStrings.of(context);
-    final style = Theme.of(context).textTheme.labelMedium!.copyWith(color: colors.onPrimary);
-    final labelWidth = (TextPainter(
-      text: TextSpan(text: strings.pillQueue, style: style),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-      maxLines: 1,
-    )..layout()).width;
-    const icon = NowPlayingTokens.pillHeight * 0.36;
-    const pad = 13.2;
-    return Semantics(
-      button: true,
-      label: strings.pillQueue,
-      excludeSemantics: true,
-      child: GestureDetector(
-        onTapDown: (_) => _press.animateTo(1),
-        onTapUp: (_) => _press.animateTo(0),
-        onTapCancel: () => _press.animateTo(0),
-        onTap: widget.onTap,
-        child: AnimatedBuilder(
-          animation: _press.animation,
-          builder: (context, _) => Container(
-            height: NowPlayingTokens.pillHeight,
-            width: pad * 2 + icon + 8 + labelWidth * (1 + 0.8 * _press.value),
-            decoration: ShapeDecoration(color: colors.primary, shape: const StadiumBorder()),
-            alignment: Alignment.center,
+    final devicesLabel = DevicesStrings.of(context).pillDevices;
+    final router = ref.watch(playbackRouterProvider);
+    void openDevices() => showDevicesSheet(context);
+    return LayoutBuilder(
+      builder: (context, constraints) => _OnRoute(
+        router: router,
+        builder: (context, route) {
+          final castName = route is SystemCastOutput ? route.name : null;
+          final layout = bottomPillsLayout(
+            maxWidth: constraints.maxWidth,
+            labelWidths: [
+              for (final label in [strings.pillQueue, devicesLabel, strings.pillWrite]) pillLabelWidth(context, label),
+            ],
+            castWidth: castName == null ? 0 : castChipWidth(context, castName),
+          );
+          bool pressOpens(String label) => !layout.labelled && layout.fitsPressedLabel(pillLabelWidth(context, label));
+          // Android labelVisible: a labelled row shows every label until one pill is pressed.
+          bool labelShown(int pill) => layout.labelled && (_pressed == null || _pressed == pill);
+          // While the column's width animates (a panel going full) the labels fold a few frames
+          // behind it: let the row run past the edge then instead of failing the layout.
+          return OverflowBox(
+            alignment: AlignmentDirectional.bottomStart,
+            maxWidth: double.infinity,
+            fit: OverflowBoxFit.deferToChild,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(YoinSymbols.queue, size: icon, color: colors.onPrimary),
-                const SizedBox(width: 8),
-                Text(strings.pillQueue, style: style, maxLines: 1),
+                SystemCastChip(name: castName, onTap: openDevices),
+                NowPlayingPillButton(
+                  key: const ValueKey('np-pill-queue'),
+                  icon: YoinSymbols.queue,
+                  label: strings.pillQueue,
+                  onTap: () {
+                    YoinHaptics.contextClick();
+                    showQueueSheet(context, onSkip: onSkip);
+                  },
+                  background: colors.primary,
+                  foreground: colors.onPrimary,
+                  showLabel: labelShown(0),
+                  labelOnPress: pressOpens(strings.pillQueue),
+                  pressWiden: layout.labelled,
+                  onPressedChanged: _pressOf(0),
+                ),
+                const SizedBox(width: NowPlayingTokens.pillGap),
+                NowPlayingDevicesPill(
+                  label: devicesLabel,
+                  onTap: openDevices,
+                  showLabel: labelShown(1),
+                  labelOnPress: pressOpens(devicesLabel),
+                  pressWiden: layout.labelled,
+                  onPressedChanged: _pressOf(1),
+                ),
+                const SizedBox(width: NowPlayingTokens.pillGap),
+                NowPlayingWritePill(
+                  onTap: () {
+                    YoinHaptics.contextClick();
+                    onWrite();
+                  },
+                  showLabel: labelShown(2),
+                  labelOnPress: pressOpens(strings.pillWrite),
+                  pressWiden: layout.labelled,
+                  onPressedChanged: _pressOf(2),
+                ),
               ],
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
+}
+
+/// Rebuilds with the output route (this device until a router exists).
+class _OnRoute extends StatelessWidget {
+  const _OnRoute({required this.router, required this.builder});
+
+  final PlaybackRouter? router;
+  final Widget Function(BuildContext context, OutputRoute route) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final router = this.router;
+    if (router == null) return builder(context, const LocalOutput());
+    return ValueListenableBuilder<OutputRoute>(
+      valueListenable: router.route,
+      builder: (context, route, _) => builder(context, route),
+    );
+  }
+}
+
+/// The top bar's cast chip (TopBarActionIcons' CastButton): shown while the
+/// system session plays on a cast device; opens the Devices sheet.
+class _TopBarCastChip extends ConsumerWidget {
+  const _TopBarCastChip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => _OnRoute(
+    router: ref.watch(playbackRouterProvider),
+    builder: (context, route) => SystemCastChip(
+      name: route is SystemCastOutput ? route.name : null,
+      onTap: () => showDevicesSheet(context),
+      maxNameWidth: NowPlayingTokens.topBarDeviceNameMax,
+    ),
+  );
+}
+
+/// The top bar's Devices button (TopBarActionIcons' Devices).
+class _TopBarDevices extends StatelessWidget {
+  const _TopBarDevices();
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    key: const ValueKey('np-topbar-devices'),
+    tooltip: DevicesStrings.of(context).pillDevices,
+    onPressed: () {
+      YoinHaptics.contextClick();
+      showDevicesSheet(context);
+    },
+    icon: Icon(YoinSymbols.devices, color: Theme.of(context).colorScheme.onSurfaceVariant),
+  );
 }
 
 /// Wide Full: the two-column player (TabletNP / WidePlayingContent, rest
@@ -2704,6 +2775,7 @@ class _DualPane extends ConsumerWidget {
                           onClose: controller.close,
                           subline: titleInBar ? '${track.title ?? ''} - ${track.artist ?? ''}' : null,
                           trailing: [
+                            const _TopBarCastChip(),
                             IconButton(
                               tooltip: strings.queueTitle,
                               onPressed: () {
@@ -2712,6 +2784,7 @@ class _DualPane extends ConsumerWidget {
                               },
                               icon: Icon(YoinSymbols.queue, color: colors.onSurfaceVariant),
                             ),
+                            const _TopBarDevices(),
                             IconButton(
                               tooltip: strings.pillWrite,
                               onPressed: () {
@@ -3261,6 +3334,7 @@ class _LandscapePane extends ConsumerWidget {
           onContextTap: _contextTarget(state.context, controller),
           onClose: controller.close,
           trailing: [
+            const _TopBarCastChip(),
             IconButton(
               tooltip: strings.queueTitle,
               onPressed: () {
@@ -3269,6 +3343,7 @@ class _LandscapePane extends ConsumerWidget {
               },
               icon: Icon(YoinSymbols.queue, color: colors.onSurfaceVariant),
             ),
+            const _TopBarDevices(),
             IconButton(
               tooltip: strings.pillWrite,
               onPressed: () {
