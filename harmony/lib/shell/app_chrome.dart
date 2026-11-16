@@ -121,11 +121,15 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     ref.read(nowPlayingKeepScreenOnProvider.notifier).setKeepScreenOn(ask);
   }
 
+  /// The field fades as Now Playing starts to rise and grows back once it has
+  /// collapsed (OverlayChromeVisibility), and leaves with the bar when a
+  /// bar-less page sends it away (its bounds stop following it while it travels).
+  void _syncSeamBar() => _seamBar.shown = !_controller.expanded && !ref.read(barSuppressedProvider);
+
   /// Back belongs to the overlay exactly while it is open.
   void _syncBack() {
     _syncKeepAwake();
-    // The field fades as Now Playing starts to rise and grows back once it has collapsed (OverlayChromeVisibility).
-    _seamBar.shown = !_controller.expanded;
+    _syncSeamBar();
     final navigator = appNavigatorKey.currentState;
     if (_controller.expanded && navigator != null) {
       _back.attach(navigator);
@@ -217,6 +221,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     ref.listen(nowPlayingOpenRequestsProvider, (_, _) => _open());
     ref.listen(playerSnapshotProvider.select((s) => s.hasTrack), (_, has) => _onHasTrack(has));
     ref.listen(barSuppressedProvider, (_, away) {
+      _syncSeamBar();
       if (MediaQuery.disableAnimationsOf(context)) {
         _barAway.snapTo(away ? 1 : 0);
       } else {

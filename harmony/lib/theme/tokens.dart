@@ -371,8 +371,6 @@ abstract final class NowPlayingTokens {
   static const double topBarDeviceNameMax = 96;
 }
 
-/// Now Playing's notes (NoteContent.kt NoteLine / NoteSortToggle / NoteWriteBarDefaults,
-/// NoteFullscreenPane.kt, compact/NoteCompactPane.kt).
 /// The 16:9 one-line lyric row's once-a-day unfold hint (NowPlayingScreen.kt
 /// OneLineLyricRow / UnfoldHintSymbol, NowPlayingPresentation.kt).
 abstract final class LyricIdleHintTokens {
@@ -390,6 +388,8 @@ abstract final class LyricIdleHintTokens {
   static const double bounce = 2.6;
 }
 
+/// Now Playing's notes (NoteContent.kt NoteLine / NoteSortToggle / NoteWriteBarDefaults,
+/// NoteFullscreenPane.kt, compact/NoteCompactPane.kt).
 abstract final class NowPlayingNoteTokens {
   /// NoteLine: the fixed time-stamp column; rows' vertical padding; the un-lit scale.
   static const double stampColumn = 40;

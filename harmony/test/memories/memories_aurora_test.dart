@@ -46,9 +46,11 @@ void main() {
       ))
         b.center,
     ];
-    // The field is a function of the position alone: still at rest, moving with the finger.
-    expect(centres(1), centres(1));
-    expect(centres(1.2), isNot(centres(1)));
+    // Moving with the finger: a fifth of a page moves every bloom.
+    final rest = centres(1), moved = centres(1.2);
+    for (var i = 0; i < 3; i++) {
+      expect((moved[i] - rest[i]).distance, greaterThan(1));
+    }
     // Each bloom on its own orbit: the third turns faster than the first (parallax).
     final first = (centres(0.1)[0] - centres(0)[0]).distance;
     final third = (centres(0.1)[2] - centres(0)[2]).distance;

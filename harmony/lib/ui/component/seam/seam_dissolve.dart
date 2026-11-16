@@ -16,6 +16,7 @@
 /// layers rasterised black wedges on HarmonyOS.
 library;
 
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -392,6 +393,12 @@ class RenderSeamDissolve extends RenderProxyBox {
   bool _probing = false;
   int _probedAt = -SeamTokens.yieldProbeIntervalMs;
 
+  /// The paint a landed probe asked for: it must not ask for another.
+  bool _probeLanded = false;
+
+  /// A repaint inside the interval (a cover landing) looks again once the interval is up.
+  Timer? _probeAgain;
+
   set seam(ChromeSeamController? value) {
     if (identical(value, _seam)) return;
     if (attached) _seam?.removeListener(_onSeam);
@@ -437,6 +444,8 @@ class RenderSeamDissolve extends RenderProxyBox {
   void detach() {
     _seam?.removeListener(_onSeam);
     _field?.removeListener(_onSeam);
+    _probeAgain?.cancel();
+    _probeAgain = null;
     super.detach();
   }
 
@@ -554,6 +563,8 @@ class RenderSeamDissolve extends RenderProxyBox {
   @override
   void paint(PaintingContext context, Offset offset) {
     final child = this.child;
+    final probeLanded = _probeLanded;
+    _probeLanded = false;
     if (child == null) return;
     _paintedStyle = _seam?.style;
     final shape = _shape();
@@ -598,7 +609,7 @@ class RenderSeamDissolve extends RenderProxyBox {
       if (veil != null) _paintVeil(context.canvas, offset, veil);
       if (tail != null) paintSeamFieldFade(context.canvas, offset, size, origin, tail);
     }, offset);
-    if (probe) _scheduleProbe(origin);
+    if (probe && !probeLanded) _scheduleProbe(origin);
   }
 
   /// Reads this element's pixels at its print's lattice sites, after the frame,
@@ -608,7 +619,15 @@ class RenderSeamDissolve extends RenderProxyBox {
     final now = DateTime.now().millisecondsSinceEpoch;
     final current = _probe;
     final stale = current == null || current.size != size || current.origin != origin;
-    if (!stale && now - _probedAt < SeamTokens.yieldProbeIntervalMs) return;
+    final wait = SeamTokens.yieldProbeIntervalMs - (now - _probedAt);
+    if (!stale && wait > 0) {
+      // Repainted within the interval (its content may have changed): look again once it is up.
+      _probeAgain ??= Timer(Duration(milliseconds: wait), () {
+        _probeAgain = null;
+        if (attached) markNeedsPaint();
+      });
+      return;
+    }
     _probing = true;
     _probedAt = now;
     final probeSize = size;
@@ -624,6 +643,7 @@ class RenderSeamDissolve extends RenderProxyBox {
         image.dispose();
         if (bytes == null || !attached || width == 0 || height == 0) return;
         _probe = _LightnessProbe(probeSize, origin, lattice, bytes, width, height, ratio);
+        _probeLanded = true;
         markNeedsPaint();
       } catch (_) {
         // No read-back here (a test harness): the field simply doesn't yield.

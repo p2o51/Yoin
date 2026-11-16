@@ -42,6 +42,16 @@ void main() {
       expect(await claims.claim(DateTime(2026, 11, 18, 0, 5)), isTrue);
     });
 
+    test('should_honourAnotherWindowsClaim_when_bothWindowsAreOpen', () async {
+      final store = InMemoryStore();
+      final first = LyricIdleHintClaims(store);
+      final second = LyricIdleHintClaims(store);
+      expect(await second.claim(DateTime(2026, 11, 16, 20)), isTrue);
+      // The next day the first window claims it; the second, already open, must not show it again.
+      expect(await first.claim(DateTime(2026, 11, 17, 9)), isTrue);
+      expect(await second.claim(DateTime(2026, 11, 17, 10)), isFalse);
+    });
+
     test('should_rememberForTheSession_when_noStore', () async {
       final claims = LyricIdleHintClaims(null);
       expect(await claims.claim(DateTime(2026, 11, 17)), isTrue);
@@ -165,6 +175,22 @@ void main() {
       await tester.pump(const Duration(milliseconds: LyricIdleHintTokens.delayMs * 2));
       expect(find.byType(UnfoldHintSymbol), findsNothing);
       expect(store.values, isEmpty);
+    });
+
+    testWidgets('should_startTheWait_when_enabledLater', (tester) async {
+      play(5000);
+      await pump(tester, enabled: false);
+      await tester.pump(const Duration(milliseconds: LyricIdleHintTokens.delayMs * 2));
+      expect(store.values, isEmpty);
+      // The row turns into the one-line lyric row: the wait starts from now.
+      await pump(tester);
+      await tester.pump(const Duration(milliseconds: LyricIdleHintTokens.delayMs - 500));
+      expect(find.byType(UnfoldHintSymbol), findsNothing);
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.byType(UnfoldHintSymbol), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: LyricIdleHintTokens.showMs));
+      await settle(tester);
     });
 
     testWidgets('should_takeHintBack_when_playbackPauses', (tester) async {

@@ -56,15 +56,18 @@ class LyricIdleHintClaims {
 
   final KeyValueStore? _store;
   int? _lastShown;
-  Future<void>? _loading;
 
-  Future<void> _load() => _loading ??= () async {
+  /// Re-read on every claim (Android reads the prefs each time): another window's claim counts too.
+  Future<void> _load() async {
+    final store = _store;
+    if (store == null) return;
     try {
-      _lastShown = int.tryParse(await _store?.read(key) ?? '');
+      final stored = int.tryParse(await store.read(key) ?? '');
+      if (stored != null) _lastShown = stored;
     } catch (_) {
-      // No store (a harness without one): only this session remembers.
+      // No readable store: only this session remembers.
     }
-  }();
+  }
 
   /// True exactly once per local day.
   Future<bool> claim([DateTime? now]) async {
@@ -131,26 +134,34 @@ class _LyricIdleHintState extends ConsumerState<LyricIdleHint> with SingleTicker
   /// Bumped per showing: the symbol plays once each time.
   int _play = 0;
 
+  /// The clock this state listens to: only while [LyricIdleHint.enabled], so
+  /// a row that can't show the hint never reads the ~30 Hz playhead.
+  PlayheadClock? _listening;
+
+  void _listen() {
+    final clock = widget.enabled ? widget.clock : null;
+    if (identical(clock, _listening)) return;
+    _listening?.removeListener(_onClock);
+    _listening = clock?..addListener(_onClock);
+  }
+
   @override
   void initState() {
     super.initState();
-    widget.clock.addListener(_onClock);
+    _listen();
     _onClock();
   }
 
   @override
   void didUpdateWidget(LyricIdleHint oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.clock, widget.clock)) {
-      oldWidget.clock.removeListener(_onClock);
-      widget.clock.addListener(_onClock);
-    }
+    _listen();
     _onClock();
   }
 
   @override
   void dispose() {
-    widget.clock.removeListener(_onClock);
+    _listening?.removeListener(_onClock);
     _wait?.cancel();
     _hold?.cancel();
     _alpha.dispose();
@@ -161,6 +172,7 @@ class _LyricIdleHintState extends ConsumerState<LyricIdleHint> with SingleTicker
 
   /// What the wait is keyed on (Android's LaunchedEffect keys): the line, playing, the song, synced lyrics.
   Object? _key() {
+    if (!widget.enabled) return (false, '', -1, false, false);
     final lyrics = widget.lyrics;
     final sheet = lyrics is LyricsReady ? lyrics.sheet : null;
     final synced = sheet?.isSynced ?? false;
