@@ -8,6 +8,8 @@ import 'package:flutter/widgets.dart';
 /// order). Now Playing sits above everything; Memories (over the shell
 /// column) above the detail column.
 abstract final class ChromeBackPriority {
+  /// The first-run landing covers the whole window, bar and player included.
+  static const int landing = 40;
   static const int nowPlaying = 30;
   static const int memories = 20;
   static const int detailColumn = 10;
