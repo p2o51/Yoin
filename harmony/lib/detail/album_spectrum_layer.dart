@@ -107,7 +107,7 @@ class _AlbumSpectrumLayerState extends State<AlbumSpectrumLayer> with TickerProv
     if (now != _landed) {
       final at = _clock.elapsedMilliseconds;
       if (at - _lastTickMs >= _tickGapMs) {
-        YoinHaptics.lightTick();
+        YoinHaptics.frequentTick();
         _lastTickMs = at;
       }
       _landed = now;

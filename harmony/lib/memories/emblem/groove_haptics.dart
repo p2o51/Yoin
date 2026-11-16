@@ -5,17 +5,19 @@
 /// the tier's strongest beat at half strength; reduced motion keeps only the
 /// strongest beat, on the reveal's last frame.
 ///
-/// HarmonyOS: there is no composed-primitive vibrator path yet
-/// (lib/nowplaying/haptics.dart is Flutter's HapticFeedback), so beats play
-/// through [YoinHaptics] at their times — Android's View fallback route.
-/// Beats without a stand-in (QUICK_RISE, tier 4's later ring ticks) are
-/// skipped there; the full plan stays available as data for a future
-/// `yoin/haptics` channel ([GrooveBeatSink]).
+/// Playing it follows Android's two routes. Where the motor plays custom
+/// patterns ([HapticsHost.supportsPatterns]: HarmonyOS HD haptics), the whole
+/// plan is ONE `VibratorPattern` started on the award's first frame
+/// ([grooveHapticPulses], Android's `VibrationEffect.Composition`). Otherwise
+/// each beat plays its named stand-in through [YoinHaptics] at its time
+/// (Android's View fallback); QUICK_RISE and tier 4's later ring ticks have no
+/// stand-in and are skipped there.
 library;
 
 import 'dart:math' as math;
 
 import '../../nowplaying/haptics.dart';
+import '../../platform/haptics/haptics_host.dart';
 import '../palette/memory_palette.dart' show jsRound;
 import 'groove_script.dart';
 
@@ -153,9 +155,8 @@ List<GrooveBeat> grooveAwardBeats(
   return plan;
 }
 
-/// Receives each beat when it is due. The default plays the beat's named
-/// fallback ([playGrooveBeatFallback]); a future vibrator channel can play the
-/// [GrooveBeat.primitive] at [GrooveBeat.scale] instead.
+/// Receives each beat when it is due on the fallback route. The default plays
+/// the beat's named stand-in ([playGrooveBeatFallback]).
 typedef GrooveBeatSink = void Function(GrooveBeat beat);
 
 /// Plays [beat] through [YoinHaptics] (silent for beats with no stand-in).
@@ -172,4 +173,57 @@ void playGrooveBeatFallback(GrooveBeat beat) {
     case null:
       break;
   }
+}
+
+/// The beats the named-haptic fallback actually plays (QUICK_RISE and tier 4's later ring ticks are skipped).
+List<GrooveBeat> fallbackBeats(List<GrooveBeat> beats) => [
+  for (final b in beats)
+    if (b.fallback != null) b,
+];
+
+/// How each primitive feels as a pattern event: its sharpness (0 soft … 1
+/// crisp), how long it lasts on the motor, and whether it swells. Transients
+/// last HarmonyOS's default 48ms.
+abstract final class GroovePulseShapes {
+  static const int transientMs = 48;
+  static const int spinMs = 70;
+  static const int quickRiseMs = 90;
+
+  static ({double frequency, int durationMs, bool rise}) of(GroovePrimitive p) => switch (p) {
+    GroovePrimitive.tick => (frequency: 0.85, durationMs: 0, rise: false),
+    GroovePrimitive.lowTick => (frequency: 0.3, durationMs: 0, rise: false),
+    GroovePrimitive.click => (frequency: 0.6, durationMs: 0, rise: false),
+    GroovePrimitive.thud => (frequency: 0.1, durationMs: 0, rise: false),
+    GroovePrimitive.spin => (frequency: 0.5, durationMs: spinMs, rise: false),
+    GroovePrimitive.quickRise => (frequency: 0.7, durationMs: quickRiseMs, rise: true),
+  };
+
+  /// How long [p] keeps the motor busy.
+  static int busyMs(GroovePrimitive p) {
+    final d = of(p).durationMs;
+    return d == 0 ? transientMs : d;
+  }
+}
+
+/// [beats] (times relative to now) as one pattern: each primitive at its
+/// strength, and a beat whose predecessor is still playing starts right after
+/// it (Android `composeSchedule`).
+List<HapticPulse> grooveHapticPulses(List<GrooveBeat> beats) {
+  var cursor = 0;
+  final out = <HapticPulse>[];
+  for (final b in beats) {
+    final at = math.max(math.max(0, b.atMs), cursor);
+    final shape = GroovePulseShapes.of(b.primitive);
+    out.add(
+      HapticPulse(
+        atMs: at,
+        intensity: b.scale.clamp(0.0, 1.0),
+        frequency: shape.frequency,
+        durationMs: shape.durationMs,
+        rise: shape.rise,
+      ),
+    );
+    cursor = at + GroovePulseShapes.busyMs(b.primitive);
+  }
+  return out;
 }

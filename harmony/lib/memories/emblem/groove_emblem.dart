@@ -6,10 +6,9 @@
 /// on a paler disc, unrated = a dashed Cookie12Sided "empty mould" in neutral
 /// tokens. It is an exhibit: not clickable.
 ///
-/// Left out on HarmonyOS: the tilt colour shift (no rotation-vector sensor
-/// channel yet; the tint layers draw nothing at rest, so the resting picture
-/// is identical). The unrated mould is static — Android dropped its ripple
-/// loop (owner, 2026-10-05).
+/// Tilt is read as a flat colour shift of the outer ring lines ([tilt], from
+/// [GrooveTiltController]); at rest nothing shows. The unrated mould is
+/// static — Android dropped its ripple loop (owner, 2026-10-05).
 library;
 
 import 'dart:math' as math;
@@ -23,6 +22,7 @@ import '../palette/memory_palette.dart';
 import 'groove_award.dart';
 import 'groove_colors.dart';
 import 'groove_geometry.dart';
+import 'groove_tilt.dart';
 
 /// The groove emblem of one memory, drawn natively at [size] (dp).
 ///
@@ -30,7 +30,8 @@ import 'groove_geometry.dart';
 /// one-decimal score as every Memories surface shows it (`MemoryScores.text`);
 /// the award tier follows it. [award] drives the award (null: the resting,
 /// finished emblem). [captionAlpha] fades the "Avg." caption on its own (the
-/// card ⇄ diary morph); it is read in paint only.
+/// card ⇄ diary morph); it is read in paint only. [tilt] is the device tilt
+/// in −1…1 screen axes, also read in paint only.
 class GrooveEmblem extends StatefulWidget {
   const GrooveEmblem({
     super.key,
@@ -42,6 +43,7 @@ class GrooveEmblem extends StatefulWidget {
     this.surface = GrooveSurface.cover,
     this.award,
     this.captionAlpha,
+    this.tilt,
   });
 
   final double size;
@@ -52,6 +54,7 @@ class GrooveEmblem extends StatefulWidget {
   final GrooveSurface surface;
   final GrooveAwardController? award;
   final ValueListenable<double>? captionAlpha;
+  final ValueListenable<Offset>? tilt;
 
   /// The award tier of what this emblem shows (0–4).
   int get tier => grooveTierOf(kind, scoreText);
@@ -124,13 +127,16 @@ class _GrooveEmblemState extends State<GrooveEmblem> with TickerProviderStateMix
     }
     final award = widget.award;
     final caption = widget.captionAlpha;
-    final repaint = award == null && caption == null ? null : Listenable.merge([award?.repaint, caption]);
+    final tilt = widget.tilt;
+    final repaint = award == null && caption == null && tilt == null
+        ? null
+        : Listenable.merge([award?.repaint, caption, tilt]);
     return Semantics(
       image: true,
       label: strings.description(widget.kind, widget.scoreText),
       child: SizedBox.square(
         dimension: widget.size,
-        child: CustomPaint(painter: _GroovePainter(_art!, award, caption, repaint)),
+        child: CustomPaint(painter: _GroovePainter(_art!, award, caption, tilt, repaint)),
       ),
     );
   }
@@ -233,6 +239,10 @@ final class _GrooveArt {
 
   final GrooveGeometry geometry;
   final GrooveColors colors;
+
+  /// The tilt tones of the cut grooves (none when unrated) and of the rim / hairline.
+  late final GrooveTint? cutTint = geometry.kind == GrooveScoreKind.none ? null : colors.tint(colors.cut);
+  late final GrooveTint rimTint = colors.tint(geometry.kind == GrooveScoreKind.none ? colors.hairlineStroke : colors.rim);
   late final Offset center;
   late final List<List<Offset>> dots;
   late final Path? labelPath;
@@ -339,11 +349,22 @@ Path _cookie(Offset center, double radius) {
 // ---------------------------------------------------------------------------
 
 class _GroovePainter extends CustomPainter {
-  _GroovePainter(this.art, this.award, this.captionAlpha, Listenable? repaint) : super(repaint: repaint);
+  _GroovePainter(this.art, this.award, this.captionAlpha, this.tilt, Listenable? repaint) : super(repaint: repaint);
 
   final _GrooveArt art;
   final GrooveAwardController? award;
   final ValueListenable<double>? captionAlpha;
+  final ValueListenable<Offset>? tilt;
+
+  /// Tilt colour: the outer ring lines are split into 15° flat segments.
+  static const int _tintSegments = 24;
+  static const double _tintStep = 360 / _tintSegments;
+
+  /// Weights of the tilt colour: the rim answers most, then the two outer cut rings.
+  static const double _rimTintWeight = 1;
+  static const double _hairlineTintWeight = 0.6;
+  static const List<double> _ringTintWeights = [0.85, 0.55];
+  static const List<double> _shifts = [-360, 0, 360];
 
   static double _deg(double d) => d * math.pi / 180;
 
@@ -408,6 +429,10 @@ class _GroovePainter extends CustomPainter {
     final center = art.center;
     final disc = a?.discDegrees ?? 0;
     final unrated = g.kind == GrooveScoreKind.none;
+    final t = tilt?.value ?? Offset.zero;
+    final tv = grooveTiltVars(t.dx, t.dy);
+    final tm = tv.tm * (a?.tintAlpha ?? 1);
+    final ta = tv.ta;
 
     // 1 · ground: opaque on a cover so the silhouette separates from any artwork (flat, no shadow)
     canvas.drawCircle(center, g.rimRadius, _fill(c.ground));
@@ -436,6 +461,13 @@ class _GroovePainter extends CustomPainter {
         for (final run in ring.runs) {
           _arc(canvas, c.cut, ring.radius, run.startDegrees, run.sweepDegrees * progress, g.cutWidth, alpha);
         }
+        final cutTint = art.cutTint;
+        if (ring.index < _ringTintWeights.length && tm > 0.001 && cutTint != null) {
+          final revealed = [
+            for (final run in ring.runs) (run.startDegrees, run.startDegrees + run.sweepDegrees * progress),
+          ];
+          _tintRing(canvas, ring.radius, g.cutWidth, cutTint, _ringTintWeights[ring.index] * alpha, ta, tm, revealed);
+        }
       }
       if (g.hasLitLayers && a != null) {
         for (final ring in g.rings) {
@@ -460,11 +492,17 @@ class _GroovePainter extends CustomPainter {
       case GrooveScoreKind.album || GrooveScoreKind.average:
         final w = g.rimWidth;
         canvas.drawCircle(center, rimR - w / 2, _stroke(c.rim, w));
+        if (tm > 0.001) _tintRing(canvas, rimR - w / 2, w, art.rimTint, _rimTintWeight, ta, tm, null);
         if (g.kind == GrooveScoreKind.album && !g.tiny) {
           canvas.drawCircle(center, rimR - g.rim2At, _stroke(c.rim2, g.rim2Width));
         }
       case GrooveScoreKind.none:
-        if (g.surface == GrooveSurface.cover) canvas.drawCircle(center, rimR - 0.4, _stroke(c.hairline, 0.8));
+        if (g.surface == GrooveSurface.cover) {
+          canvas.drawCircle(center, rimR - 0.4, _stroke(c.hairline, 0.8));
+          if (!g.tiny && tm > 0.001) {
+            _tintRing(canvas, rimR - 0.4, 0.8, art.rimTint, _hairlineTintWeight, ta, tm, null);
+          }
+        }
     }
 
     // 3b · the 10.0 moment: the rim pulses in flat accent and lets one thin ring go
@@ -562,7 +600,55 @@ class _GroovePainter extends CustomPainter {
     }
   }
 
+  /// Prototype `tintRing`: 24 flat 15° segments; the high tone's opacity
+  /// follows max(0, cos θ), the low tone's max(0, −cos θ), turned to the tilt
+  /// direction [ta] and faded by its size [tm]. [clip] limits a groove ring's
+  /// tint to its cut (and revealed) angles — angle intersections, no mask.
+  void _tintRing(
+    Canvas canvas,
+    double radius,
+    double width,
+    GrooveTint tint,
+    double weight,
+    double ta,
+    double tm,
+    List<(double, double)>? clip,
+  ) {
+    for (var n = 0; n < _tintSegments; n++) {
+      final a = -90 + n * _tintStep;
+      final kk = math.cos((a + _tintStep / 2) * math.pi / 180);
+      final Color color;
+      final double amount;
+      if (kk > 0.02) {
+        color = tint.high;
+        amount = kk * weight;
+      } else if (kk < -0.02) {
+        color = tint.low;
+        amount = -kk * weight;
+      } else {
+        continue;
+      }
+      final alpha = amount * tm;
+      final s0 = a + ta;
+      final s1 = s0 + _tintStep;
+      if (clip == null) {
+        _arc(canvas, color, radius, s0, _tintStep, width, alpha);
+      } else {
+        for (final (r0, r1) in clip) {
+          for (final shift in _shifts) {
+            final lo = math.max(s0 + shift, r0);
+            final hi = math.min(s1 + shift, r1);
+            if (hi > lo) _arc(canvas, color, radius, lo, hi - lo, width, alpha);
+          }
+        }
+      }
+    }
+  }
+
   @override
   bool shouldRepaint(_GroovePainter old) =>
-      !identical(old.art, art) || !identical(old.award, award) || !identical(old.captionAlpha, captionAlpha);
+      !identical(old.art, art) ||
+      !identical(old.award, award) ||
+      !identical(old.captionAlpha, captionAlpha) ||
+      !identical(old.tilt, tilt);
 }

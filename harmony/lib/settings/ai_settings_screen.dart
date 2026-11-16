@@ -108,7 +108,7 @@ class _AiSettingsScreenState extends ConsumerState<AiSettingsScreen> {
                   label: strings.aiTier(tier),
                   selected: settings.tier == tier,
                   onTap: () {
-                    YoinHaptics.tick();
+                    YoinHaptics.segmentTick();
                     vm.setTier(tier);
                   },
                 ),

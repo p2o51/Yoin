@@ -24,6 +24,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../../nowplaying/haptics.dart';
+import '../../platform/haptics/haptics_host.dart';
 import 'groove_geometry.dart';
 import 'groove_haptics.dart';
 import 'groove_script.dart';
@@ -91,10 +93,19 @@ enum _Pose { rest, pending, uncut }
 ///
 /// Notifies listeners when [isAnimating] or [isAwarded] change (not per frame).
 class GrooveAwardController extends ChangeNotifier {
-  GrooveAwardController({this.onBeat = playGrooveBeatFallback});
+  GrooveAwardController({this.onBeat = playGrooveBeatFallback, HapticsHost? haptics}) : _haptics = haptics;
 
-  /// Where due beats go (default: [YoinHaptics] stand-ins). Null = silent.
+  /// Where due beats go on the fallback route (default: [YoinHaptics]
+  /// stand-ins). Null = silent, on both routes.
   final GrooveBeatSink? onBeat;
+
+  /// The vibrator for the pattern route; null reads [YoinHaptics.host].
+  final HapticsHost? _haptics;
+
+  HapticsHost get _host => _haptics ?? YoinHaptics.host;
+
+  /// The plan is playing as one pattern (no per-beat stand-ins).
+  bool _composing = false;
 
   // ---------------------------------------------------------------- binding
 
@@ -404,7 +415,10 @@ class GrooveAwardController extends ChangeNotifier {
 
   /// A drag that may still come back: beats due while paused are dropped, the
   /// picture keeps playing.
-  void pause() => _beatsPaused = true;
+  void pause() {
+    _beatsPaused = true;
+    _cancelPattern();
+  }
 
   /// The drag let go on the same card: later beats land on time.
   void resume() {
@@ -412,6 +426,25 @@ class GrooveAwardController extends ChangeNotifier {
     _beatsPaused = false;
     final from = _elapsedMs + _resumeLeadMs;
     _run?.beats.removeWhere((b) => b.atMs < from);
+    final run = _run;
+    if (run != null && !run.settling) _compose(run.beats);
+  }
+
+  /// The pattern route: [beats] still due go to the motor as ONE pattern
+  /// (times from now); when the motor can't, the beats stay on the fallback route.
+  void _compose(List<GrooveBeat> beats) {
+    _composing = false;
+    if (onBeat == null || beats.isEmpty) return;
+    final host = _host;
+    if (!host.supportsPatterns) return;
+    host.playPattern(grooveHapticPulses([for (final b in beats) b.copyWith(atMs: b.atMs - _elapsedMs)]));
+    _composing = true;
+  }
+
+  void _cancelPattern() {
+    if (!_composing) return;
+    _composing = false;
+    _host.cancelPattern();
   }
 
   // ---------------------------------------------------------------- frame loop
@@ -439,6 +472,7 @@ class GrooveAwardController extends ChangeNotifier {
     _beatsPaused = false;
     _elapsedMs = 0;
     _climaxMs = run.beats.isEmpty ? null : strongestBeat(run.beats).atMs;
+    _compose(run.beats);
     for (final c in run.chans) {
       _values[c.index] = c.fn(0);
     }
@@ -450,6 +484,7 @@ class GrooveAwardController extends ChangeNotifier {
   }
 
   void _startSettle(List<_Chan> chans) {
+    _cancelPattern();
     final spec = _reducedMotion ? GrooveSprings.effects : GrooveSprings.settle;
     final snap = [for (final c in chans) c.angular ? _nearestRest(_values[c.index]) : _values[c.index]];
     _run = _Run(
@@ -522,11 +557,12 @@ class GrooveAwardController extends ChangeNotifier {
   void _fireBeats(_Run run) {
     while (run.beats.isNotEmpty && run.beats.first.atMs <= _elapsedMs) {
       final beat = run.beats.removeAt(0);
-      if (!_beatsPaused) onBeat?.call(beat);
+      if (!_beatsPaused && !_composing) onBeat?.call(beat);
     }
   }
 
   void _finish(List<_Chan> chans) {
+    _composing = false; // played out
     for (final c in chans) {
       _values[c.index] = c.rest;
     }
@@ -539,6 +575,7 @@ class GrooveAwardController extends ChangeNotifier {
   }
 
   void _stopAll({bool notify = true}) {
+    _cancelPattern();
     _run = null;
     _climaxMs = null;
     _beatsPaused = false;

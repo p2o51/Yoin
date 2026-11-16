@@ -11,6 +11,7 @@ import 'data/sync/cloud_sync_providers.dart';
 import 'data/profile/profile.dart';
 import 'data/subsonic/subsonic_music_source.dart';
 import 'landing/landing_host.dart';
+import 'nowplaying/haptics.dart';
 import 'offline/offline_providers.dart';
 import 'platform/window/window_caption.dart';
 import 'platform/yoin_platform.dart';
@@ -30,6 +31,8 @@ void main() {
   // The ONE place the platform is chosen: HarmonyOS channels, or the
   // Windows / desktop stand-ins (docs/windows.md).
   final platform = YoinPlatform.forHost();
+  // Named haptics are static calls (YoinHaptics); they play on the platform's vibrator.
+  YoinHaptics.install(platform.haptics);
   runApp(
     ProviderScope(
       overrides: [

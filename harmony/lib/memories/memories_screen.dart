@@ -54,6 +54,7 @@ import 'memories_ui_state.dart';
 import 'memories_view_model.dart';
 import 'memory_card_face.dart';
 import 'memory_diary.dart';
+import 'emblem/groove_tilt.dart';
 import 'memory_emblem_slot.dart';
 import 'memory_palettes.dart';
 import 'memory_spread.dart';
@@ -61,6 +62,7 @@ import 'memory_title_editor.dart';
 import 'palette/memory_palette.dart';
 import '../app/providers.dart';
 import '../theme/playback_theme.dart';
+import '../platform/sensors/motion_sensors.dart';
 
 /// The host's pose for Memories: the page rides q up and out
 /// (translationY = −q·H, its only displacement), or under reduced motion
@@ -141,6 +143,9 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   PageController? _pages;
   final Map<int, ScrollController> _scrolls = {};
   final MemoryAwards _awards = MemoryAwards();
+
+  /// The deck's tilt sensor (Android rememberGrooveTilt), read by the resting card's emblem only.
+  late final GrooveTiltController _tilt = GrooveTiltController(sensors: ref.read(motionSensorsProvider), vsync: this);
   late final MemoryPalettes _palettes = MemoryPalettes(vsync: this);
   late final MemoriesRevealHandle _handle = ref.read(memoriesRevealHandleProvider);
   final MemoryTitleEditor _titles = MemoryTitleEditor();
@@ -171,6 +176,7 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
   void initState() {
     super.initState();
     _handle.deckBack = _back;
+    _awards.tilt = _tilt;
     _p.addListener(_onDiary);
     _titles.addListener(_onTitles);
     widget.reveal.addListener(_onReveal);
@@ -195,7 +201,9 @@ class _MemoriesSurfaceState extends ConsumerState<MemoriesSurface> with TickerPr
     for (final s in _scrolls.values) {
       s.dispose();
     }
+    _awards.tilt = null;
     _awards.dispose();
+    _tilt.dispose();
     _palettes.dispose();
     super.dispose();
   }

@@ -15,7 +15,8 @@ const Color _white = Color(0xFFFFFFFF);
 const Color _none = Color(0x00000000);
 
 /// The neutral theme tokens an unrated emblem is drawn with ("the album's
-/// colour is earned, not given").
+/// colour is earned, not given"). [tiltHigh] / [tiltLow] are the neutral tilt
+/// tones of the hairline.
 @immutable
 final class GrooveNeutrals {
   const GrooveNeutrals({
@@ -23,19 +24,28 @@ final class GrooveNeutrals {
     required this.surface,
     required this.onSurfaceVariant,
     required this.dark,
+    this.tiltHigh = _white,
+    this.tiltLow = _none,
   });
 
-  factory GrooveNeutrals.from(ColorScheme scheme) => GrooveNeutrals(
-    outline: scheme.outline,
-    surface: scheme.surface,
-    onSurfaceVariant: scheme.onSurfaceVariant,
-    dark: scheme.surface.computeLuminance() < 0.5,
-  );
+  factory GrooveNeutrals.from(ColorScheme scheme) {
+    final dark = scheme.surface.computeLuminance() < 0.5;
+    return GrooveNeutrals(
+      outline: scheme.outline,
+      surface: scheme.surface,
+      onSurfaceVariant: scheme.onSurfaceVariant,
+      dark: dark,
+      tiltHigh: dark ? scheme.onSurface : _white,
+      tiltLow: dark ? scheme.outlineVariant : scheme.onSurface,
+    );
+  }
 
   final Color outline;
   final Color surface;
   final Color onSurfaceVariant;
   final bool dark;
+  final Color tiltHigh;
+  final Color tiltLow;
 
   @override
   bool operator ==(Object other) =>
@@ -43,9 +53,20 @@ final class GrooveNeutrals {
       other.outline == outline &&
       other.surface == surface &&
       other.onSurfaceVariant == onSurfaceVariant &&
-      other.dark == dark;
+      other.dark == dark &&
+      other.tiltHigh == tiltHigh &&
+      other.tiltLow == tiltLow;
   @override
-  int get hashCode => Object.hash(outline, surface, onSurfaceVariant, dark);
+  int get hashCode => Object.hash(outline, surface, onSurfaceVariant, dark, tiltHigh, tiltLow);
+}
+
+/// The two tones a ring line takes under tilt: lighter (accent-ward) on the
+/// side the tilt points to, deeper on the far side.
+@immutable
+final class GrooveTint {
+  const GrooveTint({required this.high, required this.low});
+  final Color high;
+  final Color low;
 }
 
 /// Every colour one emblem uses; fields a kind does not draw are transparent.
@@ -77,6 +98,9 @@ final class GrooveColors {
     this.slot = _none,
     this.slotFill = _none,
     this.hairline = _none,
+    this.hairlineStroke = _none,
+    this.tiltHigh = _none,
+    this.tiltLow = _none,
   });
 
   final Color ground;
@@ -97,12 +121,21 @@ final class GrooveColors {
   final Color slot;
   final Color slotFill;
   final Color hairline;
+
+  /// The unrated hairline's opaque base (its tilt tones mix from it).
+  final Color hairlineStroke;
+
+  /// The tilt's targets: the lighter tone and the deeper one.
+  final Color tiltHigh;
+  final Color tiltLow;
+
+  /// Prototype `c.tint(base)`: half way to the accent-ward / deep-ward target, flat.
+  GrooveTint tint(Color base) => GrooveTint(high: mixSrgb(base, tiltHigh, 0.55), low: mixSrgb(base, tiltLow, 0.5));
 }
 
 Color _a(Color c, double alpha) => c.withValues(alpha: alpha);
 
-/// Prototype `colours(m, kind, dark, on)`. The tilt tones (tiltHigh / tiltLow)
-/// are left out with the tilt itself.
+/// Prototype `colours(m, kind, dark, on)`.
 GrooveColors grooveColors(
   MemoryPalette palette,
   GrooveScoreKind kind, {
@@ -126,6 +159,8 @@ GrooveColors grooveColors(
               labelRing: mix(p.deep, p.base, 0.3),
               ink: p.deep,
               caption: mix(p.deep, p.base, 0.35),
+              tiltHigh: mix(p.accent, _white, 0.45),
+              tiltLow: mix(p.base, _backgroundDark, 0.25),
               lit: mix(p.accent, _white, 0.3),
               flare: mix(p.accent, _white, 0.15),
             )
@@ -140,6 +175,8 @@ GrooveColors grooveColors(
               labelRing: p.accent,
               ink: mix(p.soft, _white, 0.72),
               caption: mix(p.soft, _white, 0.35),
+              tiltHigh: p.accent,
+              tiltLow: p.deep,
               lit: p.accent,
               flare: mix(p.accent, p.base, 0.1),
             );
@@ -155,6 +192,8 @@ GrooveColors grooveColors(
               labelStroke: mix(p.base, p.soft, 0.6),
               ink: mix(p.soft, _white, 0.5),
               caption: _a(p.soft, 0.82),
+              tiltHigh: mix(p.accent, _white, 0.45),
+              tiltLow: mix(p.deep, _surfaceDark, 0.2),
               lit: mix(p.accent, _white, 0.3),
               flare: mix(p.accent, _white, 0.15),
             )
@@ -168,6 +207,8 @@ GrooveColors grooveColors(
               labelStroke: p.base,
               ink: p.deep,
               caption: _a(p.deep, 0.74),
+              tiltHigh: p.accent,
+              tiltLow: p.deep,
               lit: p.accent,
               flare: mix(p.accent, p.base, 0.1),
             );
@@ -182,6 +223,9 @@ GrooveColors grooveColors(
         slotFill: _a(n, dark ? 0.14 : 0.08),
         ink: neutrals.onSurfaceVariant,
         hairline: _a(n, dark ? 0.7 : 0.45),
+        hairlineStroke: n,
+        tiltHigh: neutrals.tiltHigh,
+        tiltLow: neutrals.tiltLow,
       );
   }
 }

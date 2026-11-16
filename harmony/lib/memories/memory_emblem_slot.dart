@@ -9,6 +9,11 @@
 ///  · the diary never awards: its 48 dp emblem only nods, the full award
 ///    waits for the card.
 /// Memories unmounts when closed, so every opening awards again.
+///
+/// The tilt (Android MemoriesShowcase `tiltActive`): one sensor for the deck,
+/// read only by the current card's emblem, and only at rest in the card state
+/// — the reveal fully open, the diary closed (a spread has none), the pager
+/// still and no finger down. Every other emblem draws at rest.
 library;
 
 import 'dart:async';
@@ -21,6 +26,7 @@ import 'copy/memory_copy.dart';
 import 'emblem/groove_award.dart';
 import 'emblem/groove_emblem.dart';
 import 'emblem/groove_geometry.dart';
+import 'emblem/groove_tilt.dart';
 import 'memories_ui_state.dart';
 import 'memory_palettes.dart';
 
@@ -60,6 +66,7 @@ class MemoryEmblemSlot extends StatelessWidget {
       surface: diary ? GrooveSurface.bar : GrooveSurface.cover,
       award: controller,
       captionAlpha: captionAlpha,
+      tilt: diary ? null : awards.tiltFor(memory),
     );
   }
 }
@@ -82,7 +89,44 @@ class MemoryAwards {
   Timer? _lift;
   bool _liftHeld = false;
 
-  bool reducedMotion = false;
+  bool _reducedMotion = false;
+  bool get reducedMotion => _reducedMotion;
+  set reducedMotion(bool value) {
+    if (value == _reducedMotion) return;
+    _reducedMotion = value;
+    _updateTilt();
+  }
+
+  /// The deck's one tilt sensor (the surface owns and disposes it).
+  GrooveTiltController? _tilt;
+  final Map<int, _CardTilt> _tilts = {};
+
+  set tilt(GrooveTiltController? controller) {
+    _tilt = controller;
+    _updateTilt();
+  }
+
+  /// What the card emblem of [m] reads: the deck's tilt while [m] is the
+  /// resting card, else rest.
+  ValueListenable<Offset>? tiltFor(MemoryEntry m) {
+    final t = _tilt;
+    if (t == null) return null;
+    return _tilts.putIfAbsent(m.sessionId, () => _CardTilt(t, () => _restingId == m.sessionId));
+  }
+
+  /// The tilt runs only on the resting card at rest in the card state.
+  @visibleForTesting
+  bool get tiltActive {
+    final page = _page;
+    return _restingId != null &&
+        (page - page.round()).abs() < 0.001 &&
+        _q <= 0.001 &&
+        !_qSettling &&
+        _p <= 0.001 &&
+        !_dragging;
+  }
+
+  void _updateTilt() => _tilt?.update(active: tiltActive, reducedMotion: reducedMotion);
 
   GrooveAwardController cardController(MemoryEntry m) => _cards.putIfAbsent(m.sessionId, () {
     final c = GrooveAwardController();
@@ -168,6 +212,7 @@ class MemoryAwards {
   }
 
   void _evaluate() {
+    _updateTilt();
     final resting = _restingId;
     // Left a card mid-award: revoke (before the climax it plays again in full).
     final active = _active;
@@ -204,8 +249,30 @@ class MemoryAwards {
 
   void dispose() {
     _lift?.cancel();
+    for (final t in _tilts.values) {
+      t.dispose();
+    }
     for (final c in [..._cards.values, ..._diaries.values]) {
       c.dispose();
     }
+  }
+}
+
+/// One card's view of the deck tilt: the tilt while the card is current, else rest.
+final class _CardTilt extends ChangeNotifier implements ValueListenable<Offset> {
+  _CardTilt(this._tilt, this._current) {
+    _tilt.addListener(notifyListeners);
+  }
+
+  final GrooveTiltController _tilt;
+  final bool Function() _current;
+
+  @override
+  Offset get value => _current() ? _tilt.value : Offset.zero;
+
+  @override
+  void dispose() {
+    _tilt.removeListener(notifyListeners);
+    super.dispose();
   }
 }

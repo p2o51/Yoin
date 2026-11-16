@@ -9,10 +9,12 @@ import 'dart:io' show Directory, Platform;
 
 import 'applemusic/apple_music_auth.dart';
 import 'cards/cards_channel.dart';
+import 'haptics/haptics_host.dart';
 import 'i18n/name_transliterator.dart';
 import 'network/network_bearer.dart';
 import 'playback/channel_playback_engine.dart';
 import 'playback/playback_engine.dart';
+import 'sensors/motion_sensors.dart';
 import 'share/image_share.dart';
 import 'storage/app_files.dart';
 import 'storage/channel_stores.dart';
@@ -42,6 +44,8 @@ final class YoinPlatform {
     required this.imageShare,
     required this.appFiles,
     required this.cloudSyncHost,
+    required this.haptics,
+    required this.motionSensors,
   });
 
   final YoinHost host;
@@ -88,6 +92,14 @@ final class YoinPlatform {
   /// `yoin/cloud_sync`: Want + transient task; Windows: the shell and app data).
   final CloudSyncHost cloudSyncHost;
 
+  /// The vibrator: Yoin's named haptics and composed beat plans (OHOS
+  /// `yoin/haptics` → @ohos.vibrator presets and patterns; Windows: none).
+  final HapticsHost haptics;
+
+  /// The rotation-vector sensor for the groove emblem's tilt (OHOS
+  /// `yoin/sensors` → @ohos.sensor; Windows: none).
+  final MotionSensors motionSensors;
+
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
@@ -104,6 +116,8 @@ final class YoinPlatform {
     imageShare: const ChannelImageShare(),
     appFiles: const ChannelAppFilesHost(),
     cloudSyncHost: const ChannelCloudSyncHost(),
+    haptics: ChannelHapticsHost(),
+    motionSensors: ChannelMotionSensors(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -124,6 +138,8 @@ final class YoinPlatform {
     imageShare: const NoImageShare(),
     appFiles: DirectoryAppFilesHost(folder),
     cloudSyncHost: DesktopCloudSyncHost(folder),
+    haptics: const NoHapticsHost(),
+    motionSensors: const NoMotionSensors(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

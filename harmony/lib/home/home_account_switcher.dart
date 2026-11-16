@@ -173,7 +173,7 @@ class _HomeAccountButtonState extends ConsumerState<HomeAccountButton> {
     }
     if (hit != _hover.value) {
       _hover.value = hit;
-      if (hit >= 0) YoinHaptics.tick();
+      if (hit >= 0) YoinHaptics.segmentTick();
     }
   }
 

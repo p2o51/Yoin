@@ -9,6 +9,7 @@ import '../data/sync/cloud_sync_providers.dart';
 import '../offline/offline_providers.dart';
 import '../platform/cards/cards_channel.dart';
 import '../platform/i18n/name_transliterator.dart';
+import '../platform/sensors/motion_sensors.dart';
 import '../platform/share/image_share.dart';
 import '../platform/storage/observed_store.dart';
 import '../platform/window/window_controls.dart';
@@ -30,4 +31,5 @@ List<Override> platformOverrides(YoinPlatform platform) => [
   imageShareProvider.overrideWithValue(platform.imageShare),
   appFilesHostProvider.overrideWithValue(platform.appFiles),
   cloudSyncHostProvider.overrideWithValue(platform.cloudSyncHost),
+  motionSensorsProvider.overrideWithValue(platform.motionSensors),
 ];

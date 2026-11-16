@@ -249,7 +249,7 @@ class _ServiceTileState extends State<ServiceTile> with TickerProviderStateMixin
             child: InkWell(
               customBorder: shape,
               onTap: () {
-                YoinHaptics.click();
+                YoinHaptics.toggle(on: !widget.selected);
                 widget.onTap();
               },
               child: Padding(
