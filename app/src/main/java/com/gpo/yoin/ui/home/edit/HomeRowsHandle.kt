@@ -105,9 +105,13 @@ private fun BoxScope.HomeRowsHandle(
     itemSpacing: Dp,
 ) {
     val spanDrag = deps.span?.takeIf { deps.controller.twoColumn }
+    // Two columns: the vertical axis is the row's grid unit count (HomeGridUnits.kt), not the phone's row presets.
+    val unitDrag = deps.units?.takeIf { deps.controller.twoColumn }
+    val rowsEngine = engine.takeIf { unitDrag == null }
     val hot = track?.hot ?: remember { androidx.compose.animation.core.Animatable(0f) }
     val pulse = track?.pulse ?: remember { androidx.compose.animation.core.Animatable(1f) }
-    val spanHeld = spanDrag != null && spanDrag.section == section && spanDrag.dragging
+    val spanHeld = (spanDrag != null && spanDrag.section == section && spanDrag.dragging) ||
+        (unitDrag != null && unitDrag.section == section && unitDrag.dragging)
     LaunchedEffect(spanHeld) {
         if (track == null || !track.dragging) hot.animateTo(if (spanHeld) 1f else 0f, deps.specs.liftTint)
     }
@@ -150,18 +154,20 @@ private fun BoxScope.HomeRowsHandle(
                 .seamDissolve()
                 .hoverable(hoverSource)
                 .then(if (controller.isEditing) Modifier.pointerHoverIcon(VerticalResizePointer) else Modifier)
-                .pointerInput(section, engine, spanDrag) {
+                .pointerInput(section, rowsEngine, spanDrag, unitDrag) {
                     val slop = viewConfiguration.touchSlop
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         if (!motion.inputEditing) return@awaitEachGesture
                         val start = coordinates.root(down.position) ?: return@awaitEachGesture
-                        val vertical = engine != null
+                        val vertical = rowsEngine != null || unitDrag != null
                         val place = spanDrag?.info?.invoke(section)
                         if (!vertical && place == null) return@awaitEachGesture
+                        fun grabVertical(y: Float, uptime: Long): Boolean =
+                            unitDrag?.grab(section, y) ?: (rowsEngine?.grab(section, y, uptime) == true)
                         // One column (or a section that can't pair): today's vertical drag, grabbed at once.
                         var axis: HomeHandleAxis? = if (place == null) HomeHandleAxis.Vertical else null
-                        if (axis == HomeHandleAxis.Vertical && engine?.grab(section, start.y, down.uptimeMillis) != true) {
+                        if (axis == HomeHandleAxis.Vertical && !grabVertical(start.y, down.uptimeMillis)) {
                             return@awaitEachGesture
                         }
                         down.consume()
@@ -177,7 +183,9 @@ private fun BoxScope.HomeRowsHandle(
                                     change.consume()
                                     released = true
                                     when (axis) {
-                                        HomeHandleAxis.Vertical -> engine?.release(cancelled = false, uptime = change.uptimeMillis)
+                                        HomeHandleAxis.Vertical ->
+                                            unitDrag?.release(cancelled = false)
+                                                ?: rowsEngine?.release(cancelled = false, uptime = change.uptimeMillis)
                                         HomeHandleAxis.Horizontal -> spanDrag?.release(cancelled = false)
                                         null -> Unit
                                     }
@@ -200,7 +208,7 @@ private fun BoxScope.HomeRowsHandle(
                                             hasNext = place.hasNext,
                                         )
                                         HomeHandleAxis.Vertical ->
-                                            if (engine?.grab(section, start.y, change.uptimeMillis) != true) {
+                                            if (!grabVertical(start.y, change.uptimeMillis)) {
                                                 // No rows here: a vertical drag on this handle does nothing.
                                                 axis = HomeHandleAxis.Vertical
                                                 released = true
@@ -210,7 +218,8 @@ private fun BoxScope.HomeRowsHandle(
                                     }
                                 }
                                 when (axis) {
-                                    HomeHandleAxis.Vertical -> engine?.dragTo(at.y, change.uptimeMillis)
+                                    HomeHandleAxis.Vertical ->
+                                        unitDrag?.dragTo(at.y) ?: rowsEngine?.dragTo(at.y, change.uptimeMillis)
                                     HomeHandleAxis.Horizontal -> spanDrag?.dragTo(at.x)
                                     null -> Unit
                                 }
@@ -218,7 +227,8 @@ private fun BoxScope.HomeRowsHandle(
                         } finally {
                             if (!released) {
                                 when (axis) {
-                                    HomeHandleAxis.Vertical -> engine?.release(cancelled = true)
+                                    HomeHandleAxis.Vertical ->
+                                        unitDrag?.release(cancelled = true) ?: rowsEngine?.release(cancelled = true)
                                     HomeHandleAxis.Horizontal -> spanDrag?.release(cancelled = true)
                                     null -> Unit
                                 }
@@ -231,8 +241,8 @@ private fun BoxScope.HomeRowsHandle(
                 .onKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                     when (event.key) {
-                        Key.DirectionUp -> engine?.step(section, -1) == true
-                        Key.DirectionDown -> engine?.step(section, 1) == true
+                        Key.DirectionUp -> unitDrag?.step(section, -1) ?: (rowsEngine?.step(section, -1) == true)
+                        Key.DirectionDown -> unitDrag?.step(section, 1) ?: (rowsEngine?.step(section, 1) == true)
                         Key.DirectionLeft -> spanDrag?.key(section, left = true) == true
                         Key.DirectionRight -> spanDrag?.key(section, left = false) == true
                         else -> false

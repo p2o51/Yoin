@@ -250,6 +250,13 @@ class HomeEditController(
     fun setFull(section: HomeSection): Boolean =
         change(HomeEditChangeKind.Span, section, haptic = feedback::confirm) { it.withFull(section) }
 
+    /**
+     * Two columns: [section]'s row at [units] grid units, its partner too
+     * ([HomeLayout.withUnits]). One Undo step; confirms when it changed.
+     */
+    fun setUnits(section: HomeSection, units: Int): Boolean =
+        change(HomeEditChangeKind.Rows, section, haptic = feedback::confirm) { it.withUnits(section, units) }
+
     /** Two columns: [section] becomes the right half beside the section before it (TalkBack). */
     fun placeBesidePrevious(section: HomeSection): Boolean =
         change(HomeEditChangeKind.Span, section, haptic = feedback::confirm) { it.withBesidePrevious(section) }

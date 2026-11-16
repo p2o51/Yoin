@@ -614,8 +614,18 @@ internal fun HomeEditorialContent(
     val cellFlips = remember { HomeCellFlips(scope, { currentSpanSpec }, { currentFlipOffsetSpec }) }
     cellFlips.enabled = { controller.isEditing && engine.fold.value == 0f && engine.session == null }
     cellFlips.spanDragging = { spanDrag.section != null }
-    val editDeps = remember(controller, motion, press, engine, targets, specs, plateLook, rowsEngine, spanDrag) {
-        HomeEditDeps(controller, motion, press, engine, targets, specs, plateLook, rowsEngine, spanDrag)
+    // Two columns: the handle's vertical axis sets the row's grid unit count (HomeGridUnits.kt).
+    val unitDrag = remember(controller, editFeedback, density) {
+        HomeUnitDrag(
+            scope = scope,
+            density = density,
+            spec = { currentSpanSpec },
+            commit = controller::setUnits,
+            tick = editFeedback::segmentTick,
+        )
+    }
+    val editDeps = remember(controller, motion, press, engine, targets, specs, plateLook, rowsEngine, spanDrag, unitDrag) {
+        HomeEditDeps(controller, motion, press, engine, targets, specs, plateLook, rowsEngine, spanDrag, unitDrag)
     }
     // V1 grows the feed's spacing with P: a block the entering long-press lifted
     // stays under the finger while it does (HomePlateSpacingAnchor), from the
@@ -830,6 +840,21 @@ internal fun HomeEditorialContent(
         val rowOf = feedRows.flatMap { row -> row.sections().map { it to row.first } }.toMap()
         if (cellFlips.rowOf != rowOf) cellFlips.rowOf = rowOf
         cellFlips.retain(displayed)
+        unitDrag.info = if (!twoColumn) {
+            { null }
+        } else {
+            val rowsNow = feedRows
+            val layoutNow = layout
+            ({ section ->
+                rowsNow.firstOrNull { section in it.sections() }?.let { row ->
+                    HomeUnitInfo(
+                        row = row.sections().toSet(),
+                        units = layoutNow.unitsOf(row),
+                        range = homeRowUnitRange(row.first, (row as? HomeFeedRow.Halves)?.right),
+                    )
+                }
+            })
+        }
         spanDrag.info = if (!twoColumn) {
             { null }
         } else {
@@ -845,7 +870,7 @@ internal fun HomeEditorialContent(
     // The Home layer the controller drives (plan C4); a layer that arrives
     // while editing (an Activity recreation, a new motion) starts its session.
     val currentSafeArea by rememberUpdatedState(safeArea)
-    DisposableEffect(controller, motion, engine, press, rowsEngine, spanDrag) {
+    DisposableEffect(controller, motion, engine, press, rowsEngine, spanDrag, unitDrag) {
         val layer = object : HomeEditLayer {
             override val isCarrying: Boolean get() = engine.isCarrying
 
@@ -853,12 +878,14 @@ internal fun HomeEditorialContent(
 
             override fun onExit(reason: HomeEditExitReason) {
                 spanDrag.snap()
+                unitDrag.snap()
                 rowsEngine.onExit()
                 engine.onExit(reason, press)
             }
 
             override fun onSnapExit() {
                 spanDrag.snap()
+                unitDrag.snap()
                 rowsEngine.snapAll()
                 engine.onSnapExit(press)
             }
@@ -933,11 +960,12 @@ internal fun HomeEditorialContent(
         snapshotFlow { engine.fold.value > 0f || spacingAnchor.holding }.collect { seamFlow.held = it }
     }
     // A carry folds every block into a strip: any row resize lands at rest first.
-    LaunchedEffect(engine, rowsEngine, spanDrag) {
+    LaunchedEffect(engine, rowsEngine, spanDrag, unitDrag) {
         snapshotFlow { engine.session != null || engine.liftSection != null }.collect { carrying ->
             if (carrying) {
                 rowsEngine.snapAll()
                 spanDrag.snap()
+                unitDrag.snap()
             }
         }
     }
@@ -1423,11 +1451,25 @@ internal fun HomeEditorialContent(
                 // (one item, keyed by its left half).
                 for (row in feedRows) {
                     item(key = sectionItemKey(row.first)) {
+                        // Two columns: the row is exactly its unit count tall, or the drag's live height.
+                        val rowUnits = layout.unitsOf(row)
+                        val grid = if (twoColumn) {
+                            remember(row, rowUnits, unitDrag, density) {
+                                val sections = row.sections()
+                                HomeGridHeight {
+                                    unitDrag.liveHeightPx(sections)
+                                        ?: density.homeGridHeightPx(rowUnits).roundToInt()
+                                }
+                            }
+                        } else {
+                            null
+                        }
                         HomeFeedRowLayout(
                             row = row,
                             span = spanDrag,
                             gap = HomeSpanTokens.ColumnGap,
                             flips = if (twoColumn) cellFlips else null,
+                            grid = grid,
                             modifier = Modifier.animateItem(
                                 // A section edit mode shows fades in by its own alpha (critique 10);
                                 // one moving here from another row moves instead (HomeCellFlips).

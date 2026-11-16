@@ -92,6 +92,8 @@ import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.smoothstep
 import com.gpo.yoin.ui.home.HomeSection
+import com.gpo.yoin.ui.home.LocalHomeGridHeight
+import com.gpo.yoin.ui.home.homeGridBox
 import com.gpo.yoin.ui.home.HomeSectionTitle
 import com.gpo.yoin.ui.home.RediscoverPlaceholderText
 import com.gpo.yoin.ui.home.placeholderRes
@@ -115,6 +117,8 @@ internal class HomeEditDeps(
     val rows: HomeRowsEngine? = null,
     /** Two columns' span drag (HomeSpanResize.kt); null in previews, tests and one column. */
     val span: HomeSpanDrag? = null,
+    /** Two columns' unit drag (HomeGridUnits.kt): the handle's vertical axis there. */
+    val units: com.gpo.yoin.ui.home.HomeUnitDrag? = null,
 )
 
 /**
@@ -199,8 +203,14 @@ internal fun HomeEditBlock(
     // Rows (D1): the preset's row count on this screen, and the steps it has.
     val resizable = rowsTrack != null && !placeholder && !wholeBlockWiggle && rowsTrack.stopCount > 1
     val rowCount = if (resizable) rowsTrack?.rowCounts?.getOrNull(rowsTrack.restStop) else null
-    val canMoreRows = resizable && rowsEngine?.canStep(section, 1) == true
-    val canFewerRows = resizable && rowsEngine?.canStep(section, -1) == true
+    // Two columns: the unit count instead (HomeGridUnits.kt), for every section with content.
+    val unitDrag = deps.units?.takeIf { controller.twoColumn && !placeholder }
+    val canMoreRows = if (unitDrag != null) unitDrag.canStep(section, 1) else resizable && rowsEngine?.canStep(section, 1) == true
+    val canFewerRows = if (unitDrag != null) {
+        unitDrag.canStep(section, -1)
+    } else {
+        resizable && rowsEngine?.canStep(section, -1) == true
+    }
     val resources = LocalContext.current.resources
     val sectionState = if (rowCount != null) {
         resources.getString(
@@ -260,9 +270,19 @@ internal fun HomeEditBlock(
                     if (displayIndex < displayCount - 1) {
                         add(CustomAccessibilityAction(moveDownLabel) { controller.move(section, 1) })
                     }
-                    if (canMoreRows) add(CustomAccessibilityAction(moreRowsLabel) { rowsEngine?.step(section, 1) == true })
+                    if (canMoreRows) {
+                        add(
+                            CustomAccessibilityAction(moreRowsLabel) {
+                                unitDrag?.step(section, 1) ?: (rowsEngine?.step(section, 1) == true)
+                            },
+                        )
+                    }
                     if (canFewerRows) {
-                        add(CustomAccessibilityAction(fewerRowsLabel) { rowsEngine?.step(section, -1) == true })
+                        add(
+                            CustomAccessibilityAction(fewerRowsLabel) {
+                                unitDrag?.step(section, -1) ?: (rowsEngine?.step(section, -1) == true)
+                            },
+                        )
                     }
                     if (canBeside) {
                         add(CustomAccessibilityAction(besideLabel) { controller.placeBesidePrevious(section) })
@@ -326,6 +346,8 @@ internal fun HomeEditBlock(
         Box(
             Modifier
                 .fillMaxWidth()
+                // Two columns: exactly the row's grid height, the content cut off below it.
+                .homeGridBox(LocalHomeGridHeight.current)
                 .homeEditContentInset(cardScope)
                 .onPlaced { blockContent.coordinates = it },
         ) {

@@ -235,11 +235,16 @@ data class HomeSectionState(
      * Below the two-column width it stacks like any section, the flag kept.
      */
     val half: Boolean = false,
+    /**
+     * [rows] was chosen, not defaulted: stored even at [HomeRowPreset.Default]. Two columns read
+     * an unchosen preset as the section's own default unit count ([homeSectionUnits]).
+     */
+    val rowsSet: Boolean = false,
 ) {
-    /** The settings bag to persist: [extras] plus `rows` unless it is the default, `span` when half; null when empty. */
+    /** The settings bag to persist: [extras] plus `rows` when chosen (or not the default), `span` when half; null when empty. */
     fun config(): JsonObject? {
         val bag = LinkedHashMap(extras.orEmpty())
-        if (rows != HomeRowPreset.Default) bag[RowsKey] = JsonPrimitive(rows.key)
+        if (rowsSet || rows != HomeRowPreset.Default) bag[RowsKey] = JsonPrimitive(rows.key)
         if (half) bag[SpanKey] = JsonPrimitive(SpanHalf)
         return bag.takeIf { it.isNotEmpty() }?.let(::JsonObject)
     }
@@ -266,6 +271,7 @@ data class HomeSectionState(
                 rows = rows ?: HomeRowPreset.Default,
                 extras = extras?.takeIf { it.isNotEmpty() }?.let(::JsonObject),
                 half = half,
+                rowsSet = rows != null,
             )
         }
     }
@@ -428,6 +434,41 @@ data class HomeLayout(
         return if (result.sameSectionsAs(this)) this else result
     }
 
+    /** [section]'s own unit count in two columns ([homeSectionUnits]); its default when it is not in this layout. */
+    fun unitsOf(section: HomeSection): Int =
+        sections.firstOrNull { it.section == section }?.let(::homeSectionUnits) ?: section.defaultUnits
+
+    /** The unit count [row] shows in two columns: a pair takes its left half's, held in both ranges. */
+    internal fun unitsOf(row: HomeFeedRow): Int {
+        val byId = sections.associateBy { it.section }
+        return when (row) {
+            is HomeFeedRow.Full -> byId[row.section]?.let(::homeSectionUnits) ?: row.section.defaultUnits
+            is HomeFeedRow.Halves -> {
+                val left = byId[row.left] ?: return row.left.defaultUnits
+                homeRowUnits(left, byId[row.right])
+            }
+        }
+    }
+
+    /**
+     * [section]'s row at [units] in two columns: the section and, when it is one
+     * of a pair ([pairs]), its partner, held in the overlap of both ranges. Any
+     * section takes it, not only those with phone presets; stored as the row
+     * preset (S–XL = 1–4). `this` when nothing changes.
+     */
+    fun withUnits(section: HomeSection, units: Int, pairs: Map<HomeSection, HomeSection> = this.pairs): HomeLayout {
+        val partner = pairs[section] ?: pairs.entries.firstOrNull { it.value == section }?.key
+        val range = homeRowUnitRange(section, partner)
+        val preset = homeUnitsPreset(units.coerceIn(range))
+        val row = setOfNotNull(section, partner)
+        if (sections.none { it.section in row && (it.rows != preset || !it.rowsSet) }) return this
+        return copy(
+            sections = sections.map { state ->
+                if (state.section in row) state.copy(rows = preset, rowsSet = true) else state
+            },
+        )
+    }
+
     /** Same order, visibility and rows (and settings bags). */
     fun sameSectionsAs(other: HomeLayout): Boolean = sections == other.sections
 
@@ -450,7 +491,8 @@ data class HomeLayout(
         if (!section.takesPresets || sections.none { it.section == section && it.rows != rows }) return this
         return copy(
             sections = sections.map { state ->
-                if (state.section == section) state.copy(rows = rows) else state
+                // The phone's resize back to L clears it, as before; two columns choose through [withUnits].
+                if (state.section == section) state.copy(rows = rows, rowsSet = rows != HomeRowPreset.Default) else state
             },
         )
     }

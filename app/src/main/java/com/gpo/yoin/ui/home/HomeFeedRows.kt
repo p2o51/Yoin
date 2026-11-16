@@ -162,6 +162,8 @@ internal fun HomeFeedRowLayout(
     gap: Dp,
     modifier: Modifier = Modifier,
     flips: HomeCellFlips? = null,
+    /** Two columns: every cell's exact height (HomeGridUnits.kt); null in one column. */
+    grid: HomeGridHeight? = null,
     cell: @Composable (HomeSection) -> Unit,
 ) {
     val sections = when (row) {
@@ -211,6 +213,7 @@ internal fun HomeFeedRowLayout(
                         CompositionLocalProvider(
                             LocalYoinWindowInfo provides info,
                             LocalHomeColumn provides HomeColumn(half = half),
+                            LocalHomeGridHeight provides grid,
                         ) { cell(section) }
                     }
                 }
