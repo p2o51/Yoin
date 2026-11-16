@@ -6,7 +6,9 @@
 /// back to the default. Activities and Jump Back In take a row preset
 /// (S / M / L / XL): the ⌟ at their plate's bottom-end corner resizes them
 /// (home_rows_resize.dart, home_rows_handle.dart), and the reader's / the
-/// keyboard's "More rows" / "Fewer rows" step one preset. Every step saves at
+/// keyboard's "More rows" / "Fewer rows" step one preset. A tap on a Jump
+/// Back In card hides it for three days or a week (home_jbi_hidden.dart).
+/// Every step saves at
 /// once (per account) and can be undone (20 steps; leaving clears them).
 /// Done, system back or a tap on the page's blank space leaves. The edit
 /// controller is the only writer.
@@ -161,7 +163,11 @@ class HomeEditPlate extends StatelessWidget {
     this.onMoreRows,
     this.onFewerRows,
     this.resizeHandle,
+    this.childTaps = false,
   });
+
+  /// While editing, [child] still takes taps (Jump Back In's cards open their "not now" menu).
+  final bool childTaps;
 
   /// TalkBack's Move up / Move down (null at the ends).
   final VoidCallback? onMoveUp;
@@ -249,7 +255,7 @@ class HomeEditPlate extends StatelessWidget {
                     )
                   : const SizedBox.shrink(),
             ),
-            IgnorePointer(ignoring: e > 0.5, child: child),
+            IgnorePointer(ignoring: e > 0.5 && !childTaps, child: child),
             PositionedDirectional(
               top: -vertical,
               end: end - homeEditPlateOutset(end),

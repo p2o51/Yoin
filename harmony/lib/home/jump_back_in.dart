@@ -8,6 +8,7 @@ import '../memories/memory_title_editor.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
 import 'home_header.dart';
+import 'home_jbi_hidden.dart';
 import 'home_jbi_template.dart';
 import 'home_metrics.dart';
 import 'home_row_presets.dart';
@@ -84,9 +85,13 @@ class JumpBackInSection extends StatelessWidget {
       children: [
         HomeSectionTitle(HomeStrings.of(context).sectionJumpBackIn),
         const SizedBox(height: HomeSectionMetrics.jbiSpacing),
-        // A new grid (the width class moving, a re-seat) swaps in place — a
-        // crossfade ghosted the page (2026-11-12) — and the height springs.
-        SpringHeight(heightKey: (geometry.columns, geometry.rows, layout?.template.rows, cards.where((c) => c.expanded).length), child: grid),
+        // A new grid (the width class moving, a re-seat, a card put away for
+        // a while) swaps in place — a crossfade ghosted the page (2026-11-12)
+        // — and the height springs.
+        SpringHeight(
+          heightKey: (geometry.columns, geometry.rows, layout?.template.rows, cards.where((c) => c.expanded).length, cards.length),
+          child: grid,
+        ),
       ],
     );
   }
@@ -236,6 +241,16 @@ class _RenderJbiLaneGrid extends RenderBox
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) => defaultHitTestChildren(result, position: position);
 }
 
+/// A card's tap: its "not now" menu while Home is being edited, else what it opens.
+void _tapCard(BuildContext context, WidgetRef ref, HomeWidgetCard card) {
+  final hide = JbiHideScope.maybeOf(context);
+  if (hide != null) {
+    hide.onTap(context, card);
+    return;
+  }
+  openHomeTarget(context, ref, card.target);
+}
+
 /// WidgetCoverBlock: the backdrop cover (left-aligned), 5 below it the title
 /// (16 / 22 SemiBold, version tag) and the subtitle (hidden when blank). The
 /// whole cell is the tap target.
@@ -247,7 +262,7 @@ class JbiCoverCell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => ElasticPress(
-        onTap: () => openHomeTarget(context, ref, card.target),
+        onTap: () => _tapCard(context, ref, card),
         child: _CoverBlock(card: card, coverSide: coverSide),
       );
 }
@@ -298,7 +313,7 @@ class JbiSignalCard extends ConsumerWidget {
     final block = SizedBox(width: coverSide, child: _CoverBlock(card: card, coverSide: coverSide));
     final copy = _SignalCopy(card: card, coverSide: coverSide, commentMaxLines: HomeJbiMetrics.signalCommentMaxLines);
     return ElasticPress(
-      onTap: () => openHomeTarget(context, ref, card.target),
+      onTap: () => _tapCard(context, ref, card),
       child: tall
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,

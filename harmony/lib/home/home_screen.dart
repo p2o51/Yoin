@@ -15,9 +15,11 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/expressive/loading_indicator.dart';
+import '../ui/component/yoin_dropdown_menu.dart';
 import 'activity_bento.dart';
 import 'home_edit.dart';
 import 'home_feed_density.dart';
+import 'home_jbi_hidden.dart';
 import 'home_header.dart';
 import 'home_memory_signals.dart';
 import 'home_metrics.dart';
@@ -427,7 +429,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final visible = layout.visibleV1Sections;
     // The signals are the same account's, or none (a switch in flight).
     final mine = signals.scope == content.scopeKey;
-    final jbi = mine ? withJbiSignals(content.grid, signals.wideCards) : content.grid;
+    // Cards the user put away for a while ("not now") stay off the shelf.
+    final hidden = ref.watch(jbiHiddenProvider).keysAt(content.scopeKey, ref.read(homeClockProvider)().millisecondsSinceEpoch);
+    final jbi = withoutHiddenJbi(mine ? withJbiSignals(content.grid, signals.wideCards) : content.grid, hidden);
     final added = {for (final a in content.recentlyAddedAlbums) a.id};
     final rediscover = mine
         ? [
@@ -446,7 +450,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           0,
         ),
         HomeSection.jumpBackIn => (
-          jbi.isEmpty ? null : padded(JumpBackInSection(cards: jbi, frame: frame, preset: layout.rowsOf(HomeSection.jumpBackIn))),
+          jbi.isEmpty
+              ? null
+              : padded(_jbiHideScope(
+                  content.scopeKey,
+                  editingNow,
+                  JumpBackInSection(cards: jbi, frame: frame, preset: layout.rowsOf(HomeSection.jumpBackIn)),
+                )),
           1,
         ),
         HomeSection.recentlyAdded => (
@@ -513,6 +523,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         visible,
         SectionAppear(animate: animate, child: revealed),
         resizable: resizable,
+        childTaps: section == HomeSection.jumpBackIn,
       ));
     }
     if (!_sectionsSeeded) {
@@ -532,6 +543,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     List<HomeSection> visible,
     Widget child, {
     required bool resizable,
+    bool childTaps = false,
   }) {
     final edit = ref.read(homeEditProvider.notifier);
     final shift = _shiftOf(section);
@@ -549,6 +561,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         child: child,
         builder: (context, child) => HomeEditPlate(
           progress: e,
+          childTaps: childTaps,
           rowCount: track != null && track.stopCount > 1 && track.restStop < track.rowCounts.length
               ? track.rowCounts[track.restStop]
               : null,
@@ -599,6 +612,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               ),
       ),
     );
+  }
+
+  /// Jump Back In under edit mode's "not now": a tap on a card opens a menu
+  /// over it — hide it for three days or a week (owner 2026-10-13).
+  Widget _jbiHideScope(String scope, bool editing, Widget child) {
+    if (!editing) return child;
+    return JbiHideScope(
+      onTap: (cardContext, card) => _openJbiHideMenu(scope, cardContext, card),
+      child: child,
+    );
+  }
+
+  Future<void> _openJbiHideMenu(String scope, BuildContext cardContext, HomeWidgetCard card) async {
+    if (_dragging != null || _rows.dragging || jbiHideKey(card) == null) return;
+    YoinHaptics.click();
+    final strings = HomeStrings.of(context);
+    final span = await showYoinDropdownMenu<JbiHideSpan>(
+      context: context,
+      anchor: globalRectOf(cardContext),
+      items: [
+        YoinMenuItem(value: JbiHideSpan.threeDays, label: strings.jbiHideThreeDays),
+        YoinMenuItem(value: JbiHideSpan.oneWeek, label: strings.jbiHideWeek),
+      ],
+    );
+    if (span == null || !mounted || !ref.read(homeEditProvider).editing) return;
+    final now = ref.read(homeClockProvider)().millisecondsSinceEpoch;
+    if (ref.read(jbiHiddenProvider.notifier).hide(scope, card, span, nowMs: now)) YoinHaptics.confirm();
   }
 
   /// The lifted section over the page: on its slot, offset by the finger (or

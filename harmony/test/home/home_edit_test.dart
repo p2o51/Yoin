@@ -162,9 +162,11 @@ void main() {
       expect(find.text('Done'), findsOneWidget);
       expect(find.text('Hidden'), findsOneWidget);
       expect(find.text('No hidden sections'), findsOneWidget);
-      // Cards take no taps while editing.
+      // Cards take no taps while editing — but Jump Back In's, which open their "not now" menu.
+      final shelf = tester.widget<IgnorePointer>(find.ancestor(of: find.byType(RecentlyPlayedSection), matching: find.byType(IgnorePointer)).first);
+      expect(shelf.ignoring, isTrue);
       final jbi = tester.widget<IgnorePointer>(find.ancestor(of: find.byType(JumpBackInSection), matching: find.byType(IgnorePointer)).first);
-      expect(jbi.ignoring, isTrue);
+      expect(jbi.ignoring, isFalse);
       await done(tester, c);
     });
 
