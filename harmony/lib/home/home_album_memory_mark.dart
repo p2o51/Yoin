@@ -23,9 +23,9 @@ import '../data/memory/album_memory_candidate.dart';
 import '../data/model/model.dart';
 import '../memories/copy/memory_copy.dart';
 import '../memories/memories_ui_state.dart';
-import '../settings/material_shapes.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/shapes/cookie_unit.dart';
 import 'home_memory_signals.dart';
 import 'home_strings.dart';
 import 'home_ui_state.dart';
@@ -337,7 +337,7 @@ class AlbumMemoryMarkPainter extends CustomPainter {
       ..[12] = origin.dx
       ..[13] = origin.dy
       ..[15] = 1;
-    return cookie12Sided.transform(m);
+    return CookieUnit.path.transform(m);
   }
 
   @override

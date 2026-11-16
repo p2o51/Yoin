@@ -18,7 +18,6 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../detail/detail_page.dart' show DetailBackButton;
 import '../home/home_bubble_tips.dart';
 import '../nowplaying/haptics.dart';
-import '../settings/material_shapes.dart';
 import '../settings/settings_metrics.dart';
 import '../settings/sync/cloud_sync_texts.dart' show fixedSyncDate;
 import '../settings/tips.dart';
@@ -26,6 +25,7 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/component/expressive/expressive_shapes.dart';
 import '../ui/component/expressive/expressive_surface_button.dart';
+import '../ui/shapes/shape_path.dart';
 import 'tip_illustration.dart';
 
 /// The tip pages' own strings (strings_home.xml, key in the comment).
@@ -278,14 +278,19 @@ class _TipPage extends StatelessWidget {
 }
 
 /// A different silhouette per tip, so paging reads as moving on (Android tipPolygon).
-Path tipShape(int index) => switch (index % 6) {
-  0 => cookie9Sided,
-  1 => avatarShapes[1], // Clover4Leaf
-  2 => avatarShapes[6], // Sunny
-  3 => avatarShapes[0], // Cookie6Sided
-  4 => avatarShapes[2], // Gem
-  _ => pentagon,
+RoundedPolygon tipShape(int index) => switch (index % 6) {
+  0 => MaterialShapes.cookie9Sided,
+  1 => MaterialShapes.clover4Leaf,
+  2 => MaterialShapes.sunny,
+  3 => MaterialShapes.cookie6Sided,
+  4 => MaterialShapes.gem,
+  _ => MaterialShapes.pentagon,
 };
+
+final Map<int, Morph> _tipMorphs = {};
+
+/// The growing tile's morph: the previous tip's shape into this one's.
+Morph _tipMorph(int index) => _tipMorphs[index % 6] ??= Morph(tipShape(index - 1), tipShape(index));
 
 /// The tip's symbol on its shape. Swiping drives it straight from the pager:
 /// it turns and shrinks a little as its page slides away; arriving, the
@@ -330,7 +335,7 @@ class _TipTileState extends State<_TipTile> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final own = tipShape(widget.page);
-    final from = tipShape(widget.page - 1 < 0 ? 5 : widget.page - 1);
+    final morph = _tipMorph(widget.page);
     return AnimatedBuilder(
       animation: Listenable.merge([widget.pager, _grown.animation]),
       builder: (context, child) {
@@ -340,13 +345,15 @@ class _TipTileState extends State<_TipTile> with TickerProviderStateMixin {
         final offset = (page - widget.page).clamp(-1.0, 1.0);
         final shrink = 1 - offset.abs() * TipTokens.tileShrink;
         final grown = _grown.value;
-        final path = grown >= 1 ? own : lerpShapePath(from, own, grown.clamp(0.0, 1.0));
+        // Settled: the shape itself (toShape); growing: the morph from the
+        // previous tip's shape (MorphProgressShape).
+        final ShapeBorder shape = grown >= 1 ? PolygonBorder(own) : MorphBorder(morph, grown);
         return Transform.rotate(
           angle: offset * TipTokens.tileTurnDegrees * math.pi / 180,
           child: Transform.scale(
             scale: shrink,
             child: DecoratedBox(
-              decoration: ShapeDecoration(color: colors.primaryContainer, shape: PolygonBorder(path)),
+              decoration: ShapeDecoration(color: colors.primaryContainer, shape: shape),
               child: child,
             ),
           ),

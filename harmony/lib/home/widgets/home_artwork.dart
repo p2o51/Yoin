@@ -211,25 +211,27 @@ class _MorphingShapeState extends State<_MorphingShape> with SingleTickerProvide
 
   @override
   Widget build(BuildContext context) => CustomPaint(
-        painter: _ShapePainter(BackdropShapes.forKind(widget.kind), widget.color, _morph.animation),
+        painter: BackdropShapePainter(widget.kind, widget.color, _morph.animation),
       );
 }
 
-class _ShapePainter extends CustomPainter {
-  _ShapePainter(this.shape, this.color, this.morph) : super(repaint: morph);
+/// Paints [kind]'s backdrop in [color], pressed [morph] of the way to the
+/// Triangle (the outline is re-resolved per frame; nothing rebuilds).
+class BackdropShapePainter extends CustomPainter {
+  BackdropShapePainter(this.kind, this.color, this.morph) : super(repaint: morph);
 
-  final Path shape;
+  final HomeCardKind kind;
   final Color color;
   final Animation<double> morph;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = BackdropShapes.morphPath(shape, BackdropShapes.triangle, morph.value, size);
+    final path = BackdropShapes.pressedPath(kind, morph.value, size);
     canvas.drawPath(path, Paint()..color = color..isAntiAlias = true);
   }
 
   @override
-  bool shouldRepaint(_ShapePainter old) => old.shape != shape || old.color != color || old.morph != morph;
+  bool shouldRepaint(BackdropShapePainter old) => old.kind != kind || old.color != color || old.morph != morph;
 }
 
 /// The inner cover's own press (0.97 inside the card's 0.97).

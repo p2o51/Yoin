@@ -13,7 +13,7 @@ import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import 'account_identity.dart';
 import 'apple_music_setup_view_model.dart';
-import 'material_shapes.dart';
+import '../ui/shapes/shape_path.dart';
 import 'service_intro.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
@@ -189,7 +189,7 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
             },
             child: ExcludeSemantics(
               child: DecoratedBox(
-                decoration: ShapeDecoration(color: tone.iconContainer, shape: PolygonBorder(cookie9Sided)),
+                decoration: ShapeDecoration(color: tone.iconContainer, shape: PolygonBorder(MaterialShapes.cookie9Sided)),
                 child: SizedBox.square(
                   dimension: SettingsMetrics.heroMark,
                   child: ServiceGlyphIcon(identity.glyph, size: SettingsMetrics.heroGlyph, color: tone.iconContent),
