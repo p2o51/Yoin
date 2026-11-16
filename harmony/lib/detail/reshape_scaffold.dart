@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/foundation.dart';
@@ -14,6 +15,7 @@ import '../ui/adaptive/edge_split.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/seam/seam.dart';
+import 'album_page_flight.dart';
 import 'album_scrapbook_page.dart' show AlbumPageDots, AlbumPageDotsTokens;
 import 'album_spectrum_layer.dart';
 import 'detail_page.dart';
@@ -101,6 +103,9 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
   /// The pager position, 0 = overview, 1 = page 2.
   final _page = ValueNotifier<double>(0);
 
+  /// Page 2's cover flight (AlbumPageFlight): the hero cover travels to the scrapbook's with the pager.
+  late final AlbumPageFlight _flight = AlbumPageFlight(page: _page);
+
   /// A dot tap's (or Last Play's) page change, on the spatial spring.
   late final AnimationController _pageSpring = AnimationController.unbounded(vsync: this)
     ..addListener(() {
@@ -186,11 +191,17 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                 reveal: _reveal,
                 physics: _physics,
                 content: content,
+                flight: paged ? _flight : null,
                 slotHeight: side + PullUpTokens.heroBand,
                 coverInSlot: Rect.fromLTWH((w - side) / 2, DetailTokens.albumCoverTopGap, side, side),
               );
         // Page 0's flying pieces (the spectrum, the cover) go with page 0 as the pager drags.
         double shift() => paged ? -_page.value * w : 0;
+        // The cover flies to page 2's cover instead (not under reduced motion: it slides away there).
+        final flight = paged ? _flight : null;
+        _flight
+          ..flies = paged && !reduce
+          ..pageOrigin = Offset(0, headerBottom);
         return _BarStatusIcons(
           reveal: _reveal,
           page: _page,
@@ -222,15 +233,21 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                     ? body
                     : ReshapePager(
                         openPage: _openPage,
-                        child: Listener(
-                          // A finger on the pager takes over from a dot's spring.
-                          onPointerDown: (_) => _pageSpring.stop(),
-                          child: PageView(
-                            controller: _pager,
-                            children: [
-                              body,
-                              Builder(builder: (context) => content!.secondPage!(context, _page)),
-                            ],
+                        child: AlbumPageFlightScope(
+                          flight: flight,
+                          child: Listener(
+                            // A finger on the pager takes over from a dot's spring.
+                            onPointerDown: (_) => _pageSpring.stop(),
+                            child: PageView(
+                              controller: _pager,
+                              children: [
+                                body,
+                                SizedBox.expand(
+                                  key: _flight.pageKey,
+                                  child: Builder(builder: (context) => content!.secondPage!(context, _page)),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -297,35 +314,80 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                   animation: Listenable.merge([_reveal, _page]),
                   builder: (context, _) {
                     final expand = _reveal.expand;
-                    final rect = (reduce ? restCover : PullUpMath.coverRect(restCover, stamp, expand)).shift(
-                      Offset(shift(), 0),
+                    final t = flight?.t ?? 0;
+                    // From wherever the pull-up holds it (the hero's middle or the stamp) to the
+                    // scrapbook's cover, with the pager; back the same way. No target: it slides with page 0.
+                    final target = flight != null && flight.flies && t > 0 ? flight.coverTarget() : null;
+                    final pose = AlbumFlightPose.of(
+                      from: reduce ? restCover : PullUpMath.coverRect(restCover, stamp, expand),
+                      target: target,
+                      t: t,
+                      shift: shift(),
+                      targetTilt: _flight.coverTilt,
                     );
-                    final alpha = reduce ? PullUpMath.heroAlpha(expand) : 1.0;
+                    final toPage = target == null ? 0.0 : t;
+                    // Landed: the page's own cover (tilted, under its emblem) takes over.
+                    final alpha = pose.landed ? 0.0 : (reduce ? PullUpMath.heroAlpha(expand) : 1.0);
                     final docked = expand >= 0.5;
                     return Positioned.fromRect(
-                      rect: rect,
-                      child: Opacity(
-                        opacity: alpha,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: docked ? () => _reveal.setExpanded(false) : null,
-                          onVerticalDragUpdate: docked ? null : (d) => _reveal.dragBy(d.delta.dy),
-                          onVerticalDragEnd: docked ? null : (d) => _reveal.release(d.velocity.pixelsPerSecond.dy),
-                          // The cover sits over the pager: a sideways drag on it still turns the page.
-                          onHorizontalDragStart: paged ? _pageDragStart : null,
-                          onHorizontalDragUpdate: paged ? (d) => _pageDrag?.update(d) : null,
-                          onHorizontalDragEnd: paged ? (d) => _pageDrag?.end(d) : null,
-                          onHorizontalDragCancel: paged ? () => _pageDrag?.cancel() : null,
-                          child: Material(
-                            type: MaterialType.transparency,
-                            elevation: 0,
-                            child: MediaArtwork(
-                              url: content.coverUrl,
-                              fallbackIcon: content.fallbackIcon,
-                              radius: PullUpMath.coverCorner(expand),
-                              decodeWidth: 640,
-                              fallbackIconSize: lerpDouble(48, 24, expand)!,
+                      rect: pose.rect,
+                      child: IgnorePointer(
+                        ignoring: pose.landed,
+                        child: Transform.rotate(
+                          angle: pose.tiltDegrees * math.pi / 180,
+                          child: Opacity(
+                            opacity: alpha,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: docked ? () => _reveal.setExpanded(false) : null,
+                              onVerticalDragUpdate: docked ? null : (d) => _reveal.dragBy(d.delta.dy),
+                              onVerticalDragEnd: docked ? null : (d) => _reveal.release(d.velocity.pixelsPerSecond.dy),
+                              // The cover sits over the pager: a sideways drag on it still turns the page.
+                              onHorizontalDragStart: paged ? _pageDragStart : null,
+                              onHorizontalDragUpdate: paged ? (d) => _pageDrag?.update(d) : null,
+                              onHorizontalDragEnd: paged ? (d) => _pageDrag?.end(d) : null,
+                              onHorizontalDragCancel: paged ? () => _pageDrag?.cancel() : null,
+                              child: Material(
+                                type: MaterialType.transparency,
+                                elevation: 0,
+                                // The image's own corner, no shadow: nothing behind it is clipped.
+                                child: MediaArtwork(
+                                  url: content.coverUrl,
+                                  fallbackIcon: content.fallbackIcon,
+                                  radius: lerpDouble(PullUpMath.coverCorner(expand), _flight.coverCorner, toPage)!,
+                                  decodeWidth: 640,
+                                  fallbackIconSize: lerpDouble(lerpDouble(48, 24, expand)!, 24, toPage)!,
+                                ),
+                              ),
                             ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              // The scrapbook's emblem sits over its cover: while the cover flies, a copy of it rides
+              // over the flying one, where the page holds it (the page's own waits until landed).
+              if (content != null && flight != null)
+                AnimatedBuilder(
+                  animation: _page,
+                  builder: (context, _) {
+                    final emblem = flight.emblem;
+                    final t = flight.t;
+                    // Positioned either way: a plain child would size the stack.
+                    if (emblem == null || t <= 0 || !flight.pageCoverHidden()) {
+                      return const Positioned(left: 0, top: 0, child: SizedBox.shrink());
+                    }
+                    return Positioned(
+                      left: 0,
+                      top: 0,
+                      // A stand-in: the page's own emblem keeps the taps and the reader.
+                      child: IgnorePointer(
+                        child: ExcludeSemantics(
+                          child: CompositedTransformFollower(
+                            link: flight.emblemLink,
+                            showWhenUnlinked: false,
+                            child: emblem,
                           ),
                         ),
                       ),
@@ -411,6 +473,7 @@ class _Body extends StatelessWidget {
     required this.reveal,
     required this.physics,
     required this.content,
+    required this.flight,
     required this.slotHeight,
     required this.coverInSlot,
   });
@@ -418,6 +481,9 @@ class _Body extends StatelessWidget {
   final RevealController reveal;
   final RevealScrollPhysics physics;
   final ReshapeContent content;
+
+  /// Page 2's cover flight: while the cover flies, the hero text fades out early.
+  final AlbumPageFlight? flight;
   final double slotHeight;
   final Rect coverInSlot;
 
@@ -480,7 +546,10 @@ class _Body extends StatelessWidget {
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: _HeroBelow(reveal: reveal, builder: content.heroBelow),
+                    child: _FlightTextFade(
+                      flight: flight,
+                      child: _HeroBelow(reveal: reveal, builder: content.heroBelow),
+                    ),
                   ),
                 ],
               ),
@@ -509,6 +578,30 @@ class _Body extends StatelessWidget {
           },
         ),
       ],
+    );
+  }
+}
+
+/// Page 0's hero text while the cover flies to page 2 (albumHeroPageFade):
+/// gone a third of the way in, so it never slides across the flying cover.
+class _FlightTextFade extends StatelessWidget {
+  const _FlightTextFade({required this.flight, required this.child});
+
+  final AlbumPageFlight? flight;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final flight = this.flight;
+    if (flight == null) return child;
+    return ValueListenableBuilder<double>(
+      valueListenable: flight.page,
+      child: child,
+      builder: (context, _, child) {
+        final t = flight.t;
+        final alpha = t <= 0 ? 1.0 : albumHeroPageFade(t, flying: flight.coverFlying());
+        return Opacity(opacity: alpha, child: child);
+      },
     );
   }
 }

@@ -144,9 +144,14 @@ bool _jsonEquals(Object? a, Object? b) {
 
 /// The user's Home layout (HomeLayout), edited in place (home_edit.dart).
 final class HomeLayout {
-  const HomeLayout(this.sections);
+  const HomeLayout(this.sections, {this.newSections = const {}});
 
   final List<HomeSectionPref> sections;
+
+  /// The sections appended hidden to a saved layout on this read
+  /// ([HomeSection.appendEnabled] false): they wait in the tray as "New"
+  /// (home_edit_hints.dart). Not part of the user's arrangement; edits keep it.
+  final Set<HomeSection> newSections;
 
   static final HomeLayout defaultLayout = HomeLayout([
     for (final s in HomeSection.values) HomeSectionPref(id: s.id, enabled: s.defaultEnabled),
@@ -167,10 +172,13 @@ final class HomeLayout {
       if (retiredIds.contains(pref.id) || !seen.add(pref.id)) continue;
       out.add(pref);
     }
+    final appendedHidden = <HomeSection>{};
     for (final s in HomeSection.values) {
-      if (!seen.contains(s.id)) out.add(HomeSectionPref(id: s.id, enabled: s.appendEnabled));
+      if (seen.contains(s.id)) continue;
+      out.add(HomeSectionPref(id: s.id, enabled: s.appendEnabled));
+      if (!s.appendEnabled) appendedHidden.add(s);
     }
-    return HomeLayout(out);
+    return HomeLayout(out, newSections: appendedHidden);
   }
 
   /// [section]'s row preset ([HomeRowPreset.defaultPreset] when it is not in this layout).
@@ -213,7 +221,7 @@ HomeLayout withSectionEnabled(HomeLayout layout, HomeSection section, bool enabl
   return HomeLayout([
     for (final p in layout.sections)
       p.id == section.id ? HomeSectionPref(id: p.id, enabled: enabled, config: p.config) : p,
-  ]);
+  ], newSections: layout.newSections);
 }
 
 /// [layout] with [section] at row preset [rows] (HomeLayout.withRows): [layout]
@@ -222,7 +230,7 @@ HomeLayout withSectionRows(HomeLayout layout, HomeSection section, HomeRowPreset
   if (!section.takesPresets || !layout.sections.any((p) => p.id == section.id && p.rows != rows)) return layout;
   return HomeLayout([
     for (final p in layout.sections) p.id == section.id ? p.withRows(rows) : p,
-  ]);
+  ], newSections: layout.newSections);
 }
 
 /// The catalogue arrangement — rows back to their defaults too — keeping the
@@ -249,7 +257,7 @@ HomeLayout withSectionMoved(HomeLayout layout, List<HomeSection> visible, HomeSe
   var next = 0;
   return HomeLayout([
     for (final p in layout.sections) ids.contains(p.id) ? prefById[order[next++].id]! : p,
-  ]);
+  ], newSections: layout.newSections);
 }
 
 /// Home's layout per account (Android home_layout, one row per profile):

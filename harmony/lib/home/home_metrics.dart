@@ -120,6 +120,23 @@ abstract final class HomeEditMetrics {
   static const double placeholderGap = 4;
   static const double trayGap = 12;
   static const double trayRowGap = 8;
+
+  /// A tray row (HomeEditTray.kt): its height, side padding, the gap before its + and the +'s size.
+  static const double trayRowHeight = 64;
+  static const double trayRowPadding = 16;
+  static const double trayRowContentGap = 12;
+  static const double showButtonSize = 40;
+
+  /// The "New" chip: its gap after the title and its padding.
+  static const double newChipGap = 8;
+  static const double newChipPaddingH = 6;
+  static const double newChipPaddingV = 2;
+
+  /// The footer's "Edit Home" (and "Reset Home"): height, side padding, icon and the gap after it.
+  static const double footerButtonHeight = 48;
+  static const double footerButtonPadding = 16;
+  static const double footerIconSize = 18;
+  static const double footerIconGap = 8;
   static const double actionGap = 4;
   static const double dragLiftScale = 1.02;
 
