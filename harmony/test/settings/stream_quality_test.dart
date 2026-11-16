@@ -355,4 +355,8 @@ class _FixedBearer implements NetworkBearerSource {
   final NetworkBearer Function() bearer;
   @override
   Future<NetworkBearer> current() async => bearer();
+  @override
+  Future<int?> defaultNetwork() async => null;
+  @override
+  Stream<DefaultNetworkEvent<int>> get defaultNetworkEvents => const Stream.empty();
 }

@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../ui/component/artwork_image.dart';
 import 'marquee.dart';
 import 'overlay_controller.dart';
 
@@ -202,7 +203,7 @@ class _FlightLayerState extends State<FlightLayer> {
     if (url == null) return;
     final dpr = MediaQuery.devicePixelRatioOf(context);
     // The pill's decode (same url + cache width): already in memory.
-    final provider = ResizeImage(NetworkImage(url), width: (pillCoverRequestDp * dpr).round());
+    final provider = artworkImageProvider(url, cacheWidth: (pillCoverRequestDp * dpr).round());
     final stream = provider.resolve(createLocalImageConfiguration(context));
     final listener = ImageStreamListener((info, _) {
       if (mounted) setState(() => _image = info.image);

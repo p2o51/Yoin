@@ -9,6 +9,7 @@ import 'package:material_color_utilities/material_color_utilities.dart' show Qua
 
 import '../app/providers.dart';
 import '../nowplaying/player_snapshot.dart';
+import '../ui/component/artwork_image.dart';
 import 'theme.dart';
 
 /// The cover's colour field for Now Playing's room (FocusField.kt
@@ -102,7 +103,7 @@ class NetworkCoverColorLoader implements CoverColorLoader {
 
   @override
   Future<CoverColors?> load(String url) async {
-    final provider = ResizeImage(NetworkImage(url), width: decodeSize, height: decodeSize);
+    final provider = artworkImageProvider(url, cacheWidth: decodeSize, cacheHeight: decodeSize);
     final completer = Completer<ui.Image?>();
     final stream = provider.resolve(ImageConfiguration.empty);
     late final ImageStreamListener listener;

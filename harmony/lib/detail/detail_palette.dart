@@ -7,6 +7,8 @@ import 'package:material_color_utilities/material_color_utilities.dart';
 
 import '../theme/color_scheme.dart';
 import '../theme/motion.dart';
+import '../ui/component/artwork_image.dart';
+import '../ui/component/artwork_retry.dart';
 
 /// Pixels the seed is read from (decoded small, off the UI isolate).
 const _seedDecodeSize = 96;
@@ -16,17 +18,25 @@ final _seedInFlight = <String, Future<Color?>>{};
 
 /// The SPEC_2025 seed for a cover (Android CoverSeedExtractor): decode the
 /// image small, Celebi-quantize, Score; cached by URL. null when the image
-/// can't be read.
-Future<Color?> coverSeedColor(String url) {
+/// can't be read. A cover that failed to load is not remembered:
+/// [onLoadFailed] hears why, and the next call reads it again.
+Future<Color?> coverSeedColor(String url, {ValueChanged<Object>? onLoadFailed}) {
   if (_seedCache.containsKey(url)) return Future.value(_seedCache[url]);
-  return _seedInFlight[url] ??= _readSeed(url).then(
+  final read = _seedInFlight[url] ??= _readSeed(url).then(
     (seed) {
       _seedCache[url] = seed;
       _seedInFlight.remove(url);
       return seed;
     },
-    onError: (Object _) {
+    onError: (Object error) {
       _seedInFlight.remove(url);
+      throw error;
+    },
+  );
+  return read.then<Color?>(
+    (seed) => seed,
+    onError: (Object error) {
+      onLoadFailed?.call(error);
       return null;
     },
   );
@@ -37,7 +47,7 @@ Future<Color?> coverSeedColor(String url) {
 Color? cachedCoverSeed(String url) => _seedCache[url];
 
 Future<Color?> _readSeed(String url) async {
-  final provider = ResizeImage(NetworkImage(url), width: _seedDecodeSize, height: _seedDecodeSize);
+  final provider = artworkImageProvider(url, cacheWidth: _seedDecodeSize, cacheHeight: _seedDecodeSize);
   final completer = Completer<ui.Image?>();
   final stream = provider.resolve(ImageConfiguration.empty);
   late final ImageStreamListener listener;
@@ -47,8 +57,8 @@ Future<Color?> _readSeed(String url) async {
       info.dispose();
       stream.removeListener(listener);
     },
-    onError: (_, _) {
-      if (!completer.isCompleted) completer.complete(null);
+    onError: (error, _) {
+      if (!completer.isCompleted) completer.completeError(error);
       stream.removeListener(listener);
     },
   );
@@ -156,8 +166,14 @@ class _DetailPaletteState extends State<DetailPalette> with TickerProviderStateM
   @override
   void didUpdateWidget(DetailPalette old) {
     super.didUpdateWidget(old);
-    if (old.coverUrl != widget.coverUrl) _resolve();
+    if (old.coverUrl != widget.coverUrl) {
+      _retry.reset();
+      _resolve();
+    }
   }
+
+  /// A cover that failed to load is read again when failed artwork is.
+  final _retry = ArtworkReadRetry();
 
   @override
   void didChangeDependencies() {
@@ -168,7 +184,15 @@ class _DetailPaletteState extends State<DetailPalette> with TickerProviderStateM
   void _resolve() {
     final url = widget.coverUrl;
     if (url == null) return;
-    coverSeedColor(url).then((seed) {
+    _retry.requested();
+    void failed(Object error) {
+      if (!mounted || widget.coverUrl != url) return;
+      _retry.failed(error, () {
+        if (mounted && widget.coverUrl == url) _resolve();
+      });
+    }
+
+    coverSeedColor(url, onLoadFailed: failed).then((seed) {
       if (!mounted || seed == null || widget.coverUrl != url) return;
       setState(() {
         _seed = seed;
@@ -204,6 +228,7 @@ class _DetailPaletteState extends State<DetailPalette> with TickerProviderStateM
 
   @override
   void dispose() {
+    _retry.reset();
     _t.dispose();
     _colors.dispose();
     super.dispose();

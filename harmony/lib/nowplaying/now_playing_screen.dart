@@ -27,6 +27,7 @@ import '../theme/motion.dart';
 import '../theme/playback_theme.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/component/artwork_swap.dart';
 import '../ui/component/expressive/expressive_shapes.dart';
 import '../ui/component/expressive/expressive_surface_button.dart';
 import 'about_logic.dart';
@@ -35,6 +36,7 @@ import 'about_widgets.dart';
 import 'ask_bar.dart';
 import 'action_glow.dart';
 import 'cover_swap.dart';
+import 'skip_direction.dart';
 import 'devices/devices_pill.dart';
 import 'devices/devices_sheet.dart';
 import 'devices/devices_strings.dart';
@@ -1742,9 +1744,9 @@ VoidCallback? _contextTarget(PlaybackContext context, NowPlayingOverlayControlle
 
 /// The resting cover (16 dp continuous corners, no stroke), flying to the
 /// 44 dp docked thumb as the stage expands (radius 16 → 8). Decoded once at
-/// the resting size so the flight never reloads it. Song changes cross-fade
-/// in CoverSwap on the slow artworkDissolve spring (the DotDissolve sweep is
-/// deferred).
+/// the resting size so the flight never reloads it. Song changes print in
+/// through CoverSwap's screen-print halftone on the slow artworkDissolve
+/// spring, from the side the song came from (ArtworkReveal.DotDissolve).
 class _StageCover extends StatelessWidget {
   const _StageCover({
     required this.state,
@@ -1781,25 +1783,28 @@ class _StageCover extends StatelessWidget {
             builder: (context, _) {
               final radius = lerpDouble(ShapeTokens.nowPlayingCover, 8, _smooth(0, 1, detail.value.clamp(0.0, 1.0)))!;
               final cover = state.track.coverArt;
+              final glyph = Center(
+                child: Icon(YoinSymbols.playArrow, size: edge * 0.3, color: colors.onSurfaceVariant),
+              );
               if (cover == null) {
                 return ClipRSuperellipse(
                   borderRadius: BorderRadius.circular(radius),
-                  child: ColoredBox(
-                    color: colors.surfaceContainerHighest,
-                    child: Center(
-                      child: Icon(YoinSymbols.playArrow, size: edge * 0.3, color: colors.onSurfaceVariant),
-                    ),
-                  ),
+                  child: ColoredBox(color: colors.surfaceContainerHighest, child: glyph),
                 );
               }
-              return CoverSwap(
-                cover: cover,
-                size: edge,
-                radius: radius,
-                requestSize: px,
-                // The pill's decode (in memory): under a cold first load.
-                fallbackRequestSize: (pillCoverRequestDp * MediaQuery.devicePixelRatioOf(context)).round(),
-                spring: CoverSwap.artworkDissolve,
+              return Consumer(
+                builder: (context, ref, _) => CoverSwap(
+                  cover: cover,
+                  size: edge,
+                  radius: radius,
+                  requestSize: px,
+                  // The pill's decode (in memory): under a cold first load.
+                  fallbackRequestSize: (pillCoverRequestDp * MediaQuery.devicePixelRatioOf(context)).round(),
+                  spring: CoverSwap.artworkDissolve,
+                  reveal: ArtworkReveal.dotDissolve,
+                  direction: ref.watch(coverSkipDirectionProvider),
+                  fallback: ColoredBox(color: colors.surfaceContainerHighest, child: glyph),
+                ),
               );
             },
           );

@@ -1,19 +1,131 @@
-/// Where a cover url's pixels come from. Every cover is a network image,
-/// except the tip pages' made-up covers ([DemoArtwork], Android's
-/// tip_demo_cover_* drawables): those are painted here, so the demo phone's
-/// real components have something to show without a server.
+/// Where a cover url's pixels come from. Every cover is a network image read
+/// through the app's one cover disk cache ([ArtworkImages.cache], Android's
+/// Coil loader with its disk cache), except the tip pages' made-up covers
+/// ([DemoArtwork], Android's tip_demo_cover_* drawables): those are painted
+/// here, so the demo phone's real components have something to show without a
+/// server.
 library;
 
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
-/// The image behind [url], decoded [cacheWidth] pixels wide when given.
-ImageProvider artworkImageProvider(String url, {int? cacheWidth}) {
+import '../../data/cache/cover_cache.dart';
+import 'artwork_retry.dart';
+
+/// The image behind [url], decoded [cacheWidth] × [cacheHeight] pixels when
+/// given (one of them keeps the aspect ratio), never upscaled.
+ImageProvider artworkImageProvider(String url, {int? cacheWidth, int? cacheHeight}) {
   final demo = DemoArtwork.parse(url);
-  final ImageProvider base = demo ?? NetworkImage(url);
-  return ResizeImage.resizeIfNeeded(cacheWidth, null, base);
+  if (demo != null) return ResizeImage.resizeIfNeeded(cacheWidth, cacheHeight, demo);
+  return CachedArtworkImage(url, width: cacheWidth, height: cacheHeight);
+}
+
+/// The app's cover disk cache, chosen once in main.dart ([install]); until
+/// then (tests, previews) covers come straight off the network.
+abstract final class ArtworkImages {
+  static CoverDiskCache _cache = CoverDiskCache();
+
+  static CoverDiskCache get cache => _cache;
+
+  /// Makes [cache] the one every cover reads through, and opens it.
+  static void install(CoverDiskCache cache) {
+    _cache = cache;
+    unawaited(cache.start());
+  }
+
+  @visibleForTesting
+  static void debugReset() => _cache = CoverDiskCache();
+}
+
+/// [url]'s encoded cover bytes through [ArtworkImages.cache] (the service
+/// cards, Android WidgetArt through the app's Coil loader): stored covers come
+/// back offline. Null when it can't be had within [timeout] or is over [maxBytes].
+Future<Uint8List?> loadArtworkBytes(
+  String url, {
+  Duration timeout = const Duration(seconds: 15),
+  int maxBytes = 4 * 1024 * 1024,
+}) async {
+  try {
+    final bytes = await ArtworkImages.cache.load(url).timeout(timeout);
+    return bytes.length > maxBytes ? null : bytes;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// A network cover read through [ArtworkImages.cache] and decoded at [width] ×
+/// [height] (ResizeImage's exact policy without upscaling).
+///
+/// Its in-memory key is the cover's [coverCacheKey] and decode size, so the
+/// same cover signed with another salt is the same image. A failed load leaves
+/// Flutter's image cache at once (like NetworkImage), so the next request, a
+/// retry's or another screen's, loads it again; bytes that made no image also
+/// leave the disk cache (Android ImageDiskCacheInterceptor).
+@immutable
+final class CachedArtworkImage extends ImageProvider<CachedArtworkImage> {
+  CachedArtworkImage(this.url, {this.width, this.height}) : cacheKey = coverCacheKey(url);
+
+  final String url;
+  final String cacheKey;
+  final int? width;
+  final int? height;
+
+  @override
+  Future<CachedArtworkImage> obtainKey(ImageConfiguration configuration) => SynchronousFuture(this);
+
+  @override
+  ImageStreamCompleter loadImage(CachedArtworkImage key, ImageDecoderCallback decode) {
+    final completer = MultiFrameImageStreamCompleter(
+      codec: _load(key, decode),
+      scale: 1,
+      debugLabel: cacheKey,
+      informationCollector: () => [DiagnosticsProperty<ImageProvider>('Image provider', this)],
+    );
+    // Any failure, the codec's or a frame's (bytes whose header parsed but
+    // whose pixels don't decode fail only at the first frame): the image
+    // leaves the image cache, or every later request would replay this error
+    // without asking again; bytes that made no image leave the disk cache too.
+    completer.addEphemeralErrorListener((error, _) {
+      scheduleMicrotask(() => PaintingBinding.instance.imageCache.evict(key));
+      if (ArtworkRetryPolicy.classify(error) == ArtworkFailureKind.undecodable) {
+        unawaited(ArtworkImages.cache.remove(url));
+      }
+    });
+    return completer;
+  }
+
+  Future<ui.Codec> _load(CachedArtworkImage key, ImageDecoderCallback decode) async {
+    final bytes = await ArtworkImages.cache.load(url);
+    try {
+      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      return await decode(buffer, getTargetSize: width == null && height == null ? null : _targetSize);
+    } catch (error) {
+      // Stored, these bytes would fail to decode on every retry.
+      await ArtworkImages.cache.remove(url);
+      throw ArtworkUndecodableException(error);
+    }
+  }
+
+  ui.TargetImageSize _targetSize(int intrinsicWidth, int intrinsicHeight) {
+    var w = width;
+    var h = height;
+    if (w != null && w > intrinsicWidth) w = intrinsicWidth;
+    if (h != null && h > intrinsicHeight) h = intrinsicHeight;
+    return ui.TargetImageSize(width: w, height: h);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is CachedArtworkImage && other.cacheKey == cacheKey && other.width == width && other.height == height;
+
+  @override
+  int get hashCode => Object.hash(cacheKey, width, height);
+
+  @override
+  String toString() => 'CachedArtworkImage($cacheKey, $width × $height)';
 }
 
 /// A made-up cover: `yoin-demo:cover/N` (N 0–5), painted the way Android's

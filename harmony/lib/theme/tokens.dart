@@ -2132,3 +2132,12 @@ abstract final class NeoDbTokens {
   static const double settingsTokenGap = 12;
   static const double settingsButtonGap = 8;
 }
+
+/// Cover artwork (ExpressiveComponents.kt ExpressiveMediaArtwork, ArtworkHalftone.kt).
+abstract final class ArtworkTokens {
+  /// The screen-print reveal's dot grid spacing (ArtworkHalftone: 6.dp).
+  static const double halftonePitch = 6;
+
+  /// The type icon a missing or failed cover shows.
+  static const double fallbackIcon = 24;
+}

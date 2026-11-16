@@ -12,7 +12,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 
 import '../app/providers.dart';
 import '../data/memory/album_memory_candidate.dart';
@@ -21,6 +20,8 @@ import '../data/source/music_source.dart';
 import '../memories/copy/memory_copy.dart';
 import '../memories/home_memory_pill.dart';
 import '../platform/cards/cards_channel.dart';
+import '../ui/component/artwork_image.dart';
+import '../ui/component/artwork_retry.dart';
 
 /// Memories the card holds (Android memoryItems: the timeline shows up to a dozen; the card's widest row fits 4).
 const memoryCardLimit = 8;
@@ -71,30 +72,50 @@ String? lastHeardText(int? lastHeardAtMs, int nowMs, {required bool zh}) {
 /// Keeps the Memory card in step with the active account's memories (the
 /// same pool the Home bubble reads).
 final class MemoryCardPublisher {
-  MemoryCardPublisher(this._ref, this._host, {http.Client? client, int Function()? nowMs})
-      : _client = client ?? http.Client(),
-        _nowMs = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch);
+  MemoryCardPublisher(
+    this._ref,
+    this._host, {
+    Future<Uint8List?> Function(String url)? coverBytes,
+    int Function()? nowMs,
+  }) : _coverBytes = coverBytes ?? loadArtworkBytes,
+       _nowMs = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch);
 
   final Ref _ref;
   final CardsHost _host;
-  final http.Client _client;
+
+  /// A cover's bytes through the app's cover cache, so the card keeps them offline.
+  final Future<Uint8List?> Function(String url) _coverBytes;
   final int Function() _nowMs;
 
   Timer? _debounce;
   String? _lastSignature;
   int _generation = 0;
 
+  /// The state last scheduled, and whether a cover was missing from the last
+  /// publish: a failed cover asks again when failed artwork does.
+  HomeMemoryPillState? _lastState;
+  bool _coversMissing = false;
+
+  void _retryCovers() {
+    final state = _lastState;
+    if (!_coversMissing || state == null) return;
+    _lastSignature = null;
+    _schedule(state);
+  }
+
   void start() {
+    ArtworkRetrySignal.generation.addListener(_retryCovers);
     _ref.listen<HomeMemoryPillState>(homeMemoryPillProvider, (_, next) => _schedule(next), fireImmediately: true);
   }
 
   void dispose() {
+    ArtworkRetrySignal.generation.removeListener(_retryCovers);
     _debounce?.cancel();
-    _client.close();
   }
 
   void _schedule(HomeMemoryPillState state) {
     if (!state.resolved) return;
+    _lastState = state;
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 800), () => _publish(state));
   }
@@ -140,6 +161,9 @@ final class MemoryCardPublisher {
           cover: covers[i],
         ),
     ];
+    _coversMissing = [
+      for (var i = 0; i < worded.length; i++) worded[i].candidate.coverArt != null && covers[i] == null,
+    ].any((m) => m);
     try {
       await _host.publishMemory(items);
       _lastSignature = signature;
@@ -154,14 +178,7 @@ final class MemoryCardPublisher {
     if (cover == null) return null;
     final url = source.resolveCoverUrl(cover, size: memoryCardCoverPx);
     if (url == null) return null;
-    try {
-      final res = await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
-      final type = res.headers['content-type'] ?? '';
-      if (res.statusCode != 200 || !type.startsWith('image/') || res.bodyBytes.length > 4 * 1024 * 1024) return null;
-      return res.bodyBytes;
-    } catch (_) {
-      return null;
-    }
+    return _coverBytes(url);
   }
 }
 

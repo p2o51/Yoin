@@ -218,6 +218,14 @@ final class FixedNetworkBearer implements NetworkBearerSource {
 
   @override
   Future<NetworkBearer> current() async => bearer;
+
+  /// No default-network events yet (NetworkListManager later): failed covers
+  /// retry on their backoff and when the window comes back.
+  @override
+  Future<int?> defaultNetwork() async => null;
+
+  @override
+  Stream<DefaultNetworkEvent<int>> get defaultNetworkEvents => const Stream.empty();
 }
 
 /// Keep-awake and the system toast: nothing yet (Windows:

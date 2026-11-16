@@ -14,6 +14,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import '../theme/tokens.dart';
+import '../ui/component/artwork_image.dart';
 
 /// Spectrum numbers (AlbumSpectrum.kt). Detail-local: the strip count is
 /// [DetailTokens.spectrumStrips].
@@ -131,9 +132,9 @@ Future<ui.Image?> _decode(ImageProvider provider) {
 Future<AlbumSpectrumSource?> _load(String url) async {
   const n = DetailTokens.spectrumStrips;
   const big = AlbumSpectrumTokens.requestSize;
-  final image = await _decode(ResizeImage(NetworkImage(url), width: big, height: big));
+  final image = await _decode(artworkImageProvider(url, cacheWidth: big, cacheHeight: big));
   if (image == null) return null;
-  final small = await _decode(ResizeImage(NetworkImage(url), width: n, height: n));
+  final small = await _decode(artworkImageProvider(url, cacheWidth: n, cacheHeight: n));
   if (small == null) return AlbumSpectrumSource(AlbumSpectrum.fallback(const []), image);
   final data = await small.toByteData(format: ui.ImageByteFormat.rawRgba);
   small.dispose();
