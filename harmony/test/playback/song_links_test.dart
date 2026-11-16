@@ -5,7 +5,9 @@ import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/nowplaying/now_playing_view_model.dart';
+import 'package:yoin/playback/playback_controller.dart';
 import 'package:yoin/playback/song_links.dart';
+import 'package:yoin/theme/playback_theme.dart';
 import 'package:yoin/ui/component/track_menu_sheet.dart';
 
 import '../support/nowplaying_fakes.dart';
@@ -13,9 +15,12 @@ import '../support/nowplaying_fakes.dart';
 /// A source that knows each song's album and artist (Subsonic getSong, Apple Music's songs with
 /// albums,artists), counting the reads.
 class _LinkedSource extends NowPlayingFakeSource implements MusicTrackLookup {
-  _LinkedSource({this.fail = false});
+  _LinkedSource({this.fail = false, this.tag = ''});
 
   final bool fail;
+
+  /// Told apart in the ids it answers with (another server of the same kind).
+  final String tag;
   final List<String> reads = [];
 
   @override
@@ -25,14 +30,28 @@ class _LinkedSource extends NowPlayingFakeSource implements MusicTrackLookup {
     return Track(
       id: id,
       title: 'Full ${id.rawId}',
-      albumId: MediaId.subsonic('album-${id.rawId}'),
-      artistId: MediaId.subsonic('artist-${id.rawId}'),
+      albumId: MediaId.subsonic('album-$tag${id.rawId}'),
+      artistId: MediaId.subsonic('artist-$tag${id.rawId}'),
     );
   }
 }
 
 /// A song rebuilt from local history (a noted song, a Lyric Card): no artist id, no album id.
 Track _slim(String raw) => Track(id: MediaId.subsonic(raw), title: 'Slim $raw', artist: 'Someone');
+
+/// The account in use, switchable mid-test.
+class _Account extends Notifier<MusicSource> {
+  _Account(this._first);
+
+  final MusicSource _first;
+
+  @override
+  MusicSource build() => _first;
+
+  void use(MusicSource source) => state = source;
+}
+
+final _accountProvider = NotifierProvider<_Account, MusicSource>(() => throw UnimplementedError());
 
 Future<void> _settle() async {
   for (var i = 0; i < 6; i++) {
@@ -112,6 +131,36 @@ void main() {
       final after = c.read(nowPlayingViewModelProvider) as NowPlayingContent;
       expect(identical(after.track, before), isTrue);
       expect(source.reads, ['n1'], reason: 'asked once per song');
+    });
+
+    test('should_askTheNewAccount_when_accountChangesUnderTheSameSongId', () async {
+      final a = _LinkedSource(tag: 'a-');
+      final b = _LinkedSource(tag: 'b-');
+      final controller = NowPlayingFakeController(playingState([_slim('n2')]));
+      final c = ProviderContainer(
+        overrides: [
+          playbackControllerProvider.overrideWith(() => controller),
+          coverColorLoaderProvider.overrideWithValue(NowPlayingFakeColorLoader()),
+          _accountProvider.overrideWith(() => _Account(a)),
+          activeSourceProvider.overrideWith((ref) async => ref.watch(_accountProvider)),
+        ],
+      );
+      addTearDown(c.dispose);
+      c.listen(nowPlayingViewModelProvider, (_, _) {});
+      await c.read(activeSourceProvider.future);
+      await _settle();
+      expect((c.read(nowPlayingViewModelProvider) as NowPlayingContent).track.artistId, MediaId.subsonic('artist-a-n2'));
+
+      // Another server of the same kind, where raw id n2 is another song.
+      c.read(_accountProvider.notifier).use(b);
+      await c.read(activeSourceProvider.future);
+      await _settle();
+      expect(
+        (c.read(nowPlayingViewModelProvider) as NowPlayingContent).track.artistId,
+        MediaId.subsonic('artist-b-n2'),
+        reason: "the first account's answer doesn't carry over",
+      );
+      expect(b.reads, ['n2']);
     });
 
     test('should_leaveSongAlone_when_itCameWithBoth', () async {

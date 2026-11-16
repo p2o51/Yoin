@@ -103,9 +103,12 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
     DetailPaneController.columnOpen.addListener(_syncPanelFloor);
     _syncPanelFloor();
     _scrollHide.attach(this);
-    // Nothing of the window on screen: the bar comes back unseen; on return it
-    // is where it rests (YoinNavHost ON_STOP showUnseen / ON_RESUME show).
-    _lifecycle = AppLifecycleListener(onHide: _scrollHide.showUnseen, onResume: _scrollHide.show);
+    // Nothing of the window on screen: the bar comes back unseen (YoinNavHost
+    // ON_STOP showUnseen). Android's ON_RESUME show is for a detail Activity
+    // that left before the shell stopped; here a page over the shell brings
+    // the bar back itself, and a window that only lost focus (the control
+    // panel pulled down, another window on a PC) keeps it where it was.
+    _lifecycle = AppLifecycleListener(onHide: _scrollHide.showUnseen);
   }
 
   @override
@@ -118,7 +121,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   void dispose() {
     _backOrder.unbindNowPlaying();
     _lifecycle?.dispose();
-    _scrollHide.detach();
+    _scrollHide.detach(this);
     _controller.removeListener(_syncBack);
     DetailPaneController.columnOpen.removeListener(_syncPanelFloor);
     _back.dispose();
@@ -369,7 +372,9 @@ class _ChromeBar extends ConsumerWidget {
             if (memories >= 0.999) return const SizedBox.shrink();
             // The Home feed's scroll-hide rides the same pose (YoinNavHost): the
             // two combine; the edge capsules never scroll away.
-            final scrolled = columnOpen || edge ? 0.0 : scrollHide.value;
+            // The column opening stops the scroll-hide, which settles the bar back on
+            // its spring (Android: hide × (1 − the column's open fraction), no cut).
+            final scrolled = edge ? 0.0 : scrollHide.value;
             final hide = 1 - (1 - memories) * (1 - scrolled);
             final hideAlpha = (1 - hide * MemoriesTokens.barHideAlphaGain).clamp(0.0, 1.0);
             // Down below the navigation inset for the bar forms; over their

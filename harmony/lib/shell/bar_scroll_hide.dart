@@ -45,6 +45,7 @@ class ShellBarScrollHide {
   ValueListenable<double> get fraction => _fraction;
 
   AnimationController? _settle;
+  TickerProvider? _vsync;
 
   /// Reduced motion: a settle lands at once.
   bool reduced = false;
@@ -52,6 +53,7 @@ class ShellBarScrollHide {
   /// Gives the settle its ticker (the chrome owns one); without it settles snap.
   void attach(TickerProvider vsync) {
     _settle?.dispose();
+    _vsync = vsync;
     _settle = AnimationController.unbounded(vsync: vsync, value: _fraction.value)
       ..addListener(() {
         final c = _settle;
@@ -59,9 +61,13 @@ class ShellBarScrollHide {
       });
   }
 
-  void detach() {
+  /// Takes the settle's ticker back; [vsync] only lets go of its own (a chrome
+  /// leaving after its successor attached keeps the successor's).
+  void detach([TickerProvider? vsync]) {
+    if (vsync != null && !identical(vsync, _vsync)) return;
     _settle?.dispose();
     _settle = null;
+    _vsync = null;
   }
 
   bool _shellAllows = true;

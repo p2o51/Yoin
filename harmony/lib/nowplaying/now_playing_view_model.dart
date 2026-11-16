@@ -312,8 +312,23 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
   Track? _linkedFrom;
   Track? _linked;
 
+  /// The account the links were asked of: another account's answers don't
+  /// carry over (two servers of one kind can share a raw id for different songs).
+  MusicSource? _linksSource;
+  int _linksGeneration = 0;
+
   Track _withLinks(Track track, MusicSource? source) {
     if (track.albumId != null && track.artistId != null) return track;
+    if (source != null && !identical(source, _linksSource)) {
+      if (_linksSource != null) {
+        _resolvedLinks.clear();
+        _linksAsked.clear();
+        _linkedFrom = null;
+        _linked = null;
+        _linksGeneration++;
+      }
+      _linksSource = source;
+    }
     final key = track.id.toString();
     final links = _resolvedLinks[key];
     if (links == null) {
@@ -332,6 +347,7 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
         ..add(key);
       _resolvedLinks.clear();
     }
+    final generation = _linksGeneration;
     () async {
       final SongLinks links;
       try {
@@ -340,7 +356,8 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
         debugPrint('song links not resolved: ${e.runtimeType}');
         return;
       }
-      if (!ref.mounted) return;
+      // Gone, or the account changed while it was asked: the answer is the old account's.
+      if (!ref.mounted || generation != _linksGeneration) return;
       _resolvedLinks[key] = links;
       final current = state;
       if (current is NowPlayingContent && current.songKey == key) {

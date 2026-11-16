@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker, TickerCallback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,7 @@ import 'package:yoin/shell/shell_state.dart';
 import 'package:yoin/shell/yoin_edge_split_group.dart';
 import 'package:yoin/theme/tokens.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
+import 'package:yoin/ui/navigation/pane/detail_pane.dart';
 
 import '../support/nowplaying_fakes.dart';
 
@@ -75,6 +77,20 @@ void main() {
       expect(hide.fraction.value, 1);
       hide.chromeAllows = false;
       expect(hide.fraction.value, 0);
+    });
+
+    test('should_keepSuccessorsTicker_when_previousChromeDetachesLate', () {
+      final first = _Vsync();
+      final second = _Vsync();
+      hide.attach(first);
+      hide.attach(second);
+      hide.detach(first);
+      hide.scrolled(60); // 0.625
+      hide.released(0);
+      expect(hide.fraction.value, closeTo(0.625, 1e-9), reason: 'still on a spring, not snapped: the ticker stayed');
+      hide.detach(second);
+      hide.released(0);
+      expect(hide.fraction.value, 1, reason: 'its own chrome let go: a settle lands at once');
     });
 
     test('should_returnUnseen_when_windowGoesAway', () {
@@ -188,6 +204,31 @@ void main() {
       expect(hide.fraction.value, 0);
     });
 
+    testWidgets('should_riseOnSpring_when_detailColumnOpensOverScrolledFeed', (tester) async {
+      phone(tester);
+      addTearDown(() => DetailPaneController.columnOpen.value = false);
+      final controller = NowPlayingFakeController(NowPlayingState.idle);
+      await tester.pumpWidget(app(nowPlayingOverrides(controller: controller)));
+      await tester.pumpAndSettle();
+      final rest = libraryTop(tester);
+      final container = ProviderScope.containerOf(tester.element(find.byType(ListView)));
+      final hide = container.read(shellBarScrollHideProvider);
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(hide.fraction.value, 1);
+
+      // The column opens (ShellScreen: its pane has entries, so the shell stops allowing it).
+      DetailPaneController.columnOpen.value = true;
+      hide.shellAllows = false;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      final midway = libraryTop(tester);
+      expect(midway, greaterThan(rest + 1), reason: 'the bar rises with the column, not in one frame');
+      expect(midway, lessThan(rest + MemoriesTokens.barHideTravel));
+      await tester.pumpAndSettle();
+      expect(libraryTop(tester), closeTo(rest, 0.5));
+    });
+
     testWidgets('should_keepEdgeCapsules_when_feedScrollsInShortWindow', (tester) async {
       tester.view.physicalSize = const Size(844, 390) * 2;
       tester.view.devicePixelRatio = 2;
@@ -221,6 +262,12 @@ void main() {
       expect(hide.fraction.value, 0, reason: 'the player keeps the bar (YoinNavHost !showNowPlaying)');
     });
   });
+}
+
+/// A ticker source of its own (two chromes are two of these).
+class _Vsync implements TickerProvider {
+  @override
+  Ticker createTicker(TickerCallback onTick) => Ticker(onTick);
 }
 
 /// The Home feed's wiring: its own scroll notifications feed the window's scroll-hide.
