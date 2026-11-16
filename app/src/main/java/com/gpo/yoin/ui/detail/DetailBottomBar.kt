@@ -113,8 +113,16 @@ fun DetailBottomBar(
     // The window's Now Playing takes the pill → cover morph here (the shell's,
     // gated the same way): its cover, title and artist grow out of this pill.
     val nowPlayingMorph = LocalDetailNowPlayingMorph.current
+    // Launched while the Home feed had the shell bar scrolled away: start
+    // hidden and rise on the first frame, through the bar's own enter.
+    val context = LocalContext.current
+    var risen by rememberSaveable {
+        mutableStateOf(context.findActivityOrNull()?.intent?.getBooleanExtra(DETAIL_EXTRA_BAR_RISES, false) != true)
+    }
+    LaunchedEffect(Unit) { risen = true }
     OverlayChromeVisibility(
         expanded = nowPlayingOpen,
+        enabled = risen,
 
         enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) + if (edge) {
             YoinMotion.slideInHorizontally(role = YoinMotionRole.Standard) { edgeOut * it }
@@ -368,6 +376,9 @@ fun launchDetailFromShell(
 ) {
     val store = (context.applicationContext as YoinApplication).container.experienceSessionStore
     val session = store.state.value
+    if (store.shellBarScrolledAway && !session.hasOverlayHidingBottomBar) {
+        intent.putExtra(DETAIL_EXTRA_BAR_RISES, true)
+    }
     when (mode) {
         DetailLaunchMode.PlainPush -> {
             intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
@@ -469,6 +480,13 @@ const val DETAIL_EXTRA_FROM_MEMORIES = "fromMemories"
  * on return. Unlike [DETAIL_EXTRA_FROM_SHELL] nothing is bridged to the shell.
  */
 const val DETAIL_EXTRA_BAR_MORPH = "barMorph"
+
+/**
+ * Set by [launchDetailFromShell] when the Home feed had scrolled the shell bar
+ * away: no bar stood where this window's bar rests, so it rises into place
+ * (the same enter as after Now Playing closes) instead of appearing there.
+ */
+const val DETAIL_EXTRA_BAR_RISES = "barRises"
 
 internal fun Intent.detailBarExitsOnBack(): Boolean =
     getBooleanExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, false) ||

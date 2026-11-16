@@ -676,6 +676,10 @@ private fun YoinShell(
     // and its predictive back hands the bar back to this one, so the bar has
     // to be there under the page when the page leaves.
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { barScrollHide.show() }
+    LaunchedEffect(barScrollHide) {
+        snapshotFlow { barScrollHide.fraction >= 0.5f }
+            .collect { experienceSessionStore.shellBarScrolledAway = it }
+    }
     val barScrollHideEnabled = selectedSection == YoinSection.HOME &&
         homeSurface == HomeSurface.Feed &&
         !showNowPlaying &&
