@@ -28,6 +28,8 @@ abstract final class TrackCodec {
         if (t.isStarred) 'starred': true,
         if (t.starredAt != null) 'starredAt': t.starredAt,
         if (t.addedAt != null) 'added': t.addedAt,
+        if (t.audioFormat != null) 'fmt': _formatToJson(t.audioFormat!),
+        if (t.replayGain != null) 'rg': t.replayGain!.toJson(),
       });
 
   /// null when [raw] isn't a track this codec wrote.
@@ -55,10 +57,33 @@ abstract final class TrackCodec {
         isStarred: m['starred'] == true,
         starredAt: m['starredAt'] as String?,
         addedAt: m['added'] as String?,
+        audioFormat: _formatFromJson(m['fmt']),
+        replayGain: ReplayGain.fromJson(m['rg']),
       );
     } on Object {
       return null;
     }
+  }
+
+  static Map<String, Object> _formatToJson(AudioFormat f) => {
+        'sfx': ?f.suffix,
+        'ct': ?f.contentType,
+        'kbps': ?f.bitRateKbps,
+        'hz': ?f.sampleRateHz,
+        'depth': ?f.bitDepth,
+        'ch': ?f.channels,
+      };
+
+  static AudioFormat? _formatFromJson(Object? json) {
+    if (json is! Map) return null;
+    return AudioFormat(
+      suffix: json['sfx'] as String?,
+      contentType: json['ct'] as String?,
+      bitRateKbps: json['kbps'] as int?,
+      sampleRateHz: json['hz'] as int?,
+      bitDepth: json['depth'] as int?,
+      channels: json['ch'] as int?,
+    );
   }
 
   /// The best Track for a native item: its extra, else a slim one from the

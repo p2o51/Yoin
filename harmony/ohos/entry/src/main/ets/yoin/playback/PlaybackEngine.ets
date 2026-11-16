@@ -1,7 +1,7 @@
 import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { QueueItem } from './QueueItem';
+import { clampGain, QueueItem } from './QueueItem';
 import { AvEnginePlayer, EnginePlayer, EnginePlayerEvents, EnginePlayers } from './EnginePlayer';
 
 const DOMAIN = 0x5901;
@@ -126,16 +126,28 @@ export class PlaybackEngine {
   private preloadToken: number = 0;
   private listeners: EngineListener[] = [];
   private released: boolean = false;
+  /** Another app asked us to duck (shared focus); every volume set meanwhile is ducked too. */
+  private ducked: boolean = false;
 
   constructor() {
     qaSilentListeners.push(() => this.reapplyVolume());
   }
 
-  /** The QA flag changed: the current source plays at the volume that now applies. */
+  /**
+   * The volume [item] plays at: its volume-leveling gain (ReplayGain, from Dart), ducked while another app asks,
+   * 0 in QA silent mode. Each AVPlayer holds one item, so setting this before it plays (load, gapless swap) changes
+   * the level on the song's first sample (Android switches it in the audio sink at the period boundary).
+   */
+  private volumeFor(item: QueueItem | null): number {
+    const gain = item !== null ? clampGain(item.gain) : 1;
+    return outVolume(gain * (this.ducked ? DUCK_VOLUME : 1.0));
+  }
+
+  /** The QA flag, the duck or the item's gain changed: the current source plays at the volume that now applies. */
   private reapplyVolume(): void {
     const p = this.player;
     if (p !== null && this.isSourceCurrent() && this.phase === 'ready') {
-      p.setVolume(outVolume(1.0));
+      p.setVolume(this.volumeFor(this.currentItem()));
     }
   }
 
@@ -296,6 +308,29 @@ export class PlaybackEngine {
     this.emit();
   }
 
+  /**
+   * Volume leveling changed: new gains by entry id. The entry playing takes its new volume at once; the others
+   * (a prepared spare included: the swap sets its volume) when they start.
+   */
+  setGains(gains: Map<string, number>): void {
+    let changed = 0;
+    this.items.forEach((item: QueueItem) => {
+      const id = item.entryId;
+      const value = id !== undefined ? gains.get(id) : undefined;
+      if (value !== undefined) {
+        const gain = clampGain(value);
+        if (gain !== item.gain) {
+          item.gain = gain;
+          changed++;
+        }
+      }
+    });
+    if (changed > 0) {
+      hilog.info(DOMAIN, TAG, 'volume leveling: %{public}d gain(s) changed', changed);
+      this.reapplyVolume();
+    }
+  }
+
   /** The session heart for item [id]; [favorite] null hides it. */
   setFavorite(id: string, favorite: boolean | null): void {
     this.favoriteId = id;
@@ -428,6 +463,7 @@ export class PlaybackEngine {
     this.errorCode = null;
     this.favoriteId = null;
     this.favorite = null;
+    this.ducked = false;
     this.stopTicker();
     this.discardPreload();
     this.enqueue(async (): Promise<void> => {
@@ -617,7 +653,8 @@ export class PlaybackEngine {
     this.player = spare;
     this.players.set('', Promise.resolve(spare));
     this.sourceGeneration = gen;
-    spare.setVolume(outVolume(1.0));
+    spare.setVolume(this.volumeFor(item));
+    logGain(item);
     if (this.playWhenReady) {
       spare.play().catch((e: BusinessError) => this.onCommandFailed('play', e));
     }
@@ -810,7 +847,9 @@ export class PlaybackEngine {
       }
       case 'prepared': {
         this.phase = 'ready';
-        p.setVolume(outVolume(1.0));
+        const item = this.currentItem();
+        p.setVolume(this.volumeFor(item));
+        logGain(item);
         if (p.duration() > 0) {
           this.durationMs = p.duration();
         }
@@ -901,13 +940,15 @@ export class PlaybackEngine {
         this.pause();
         break;
       case audio.InterruptHint.INTERRUPT_HINT_DUCK:
+        this.ducked = true;
         if (p !== null) {
-          p.setVolume(outVolume(DUCK_VOLUME));
+          p.setVolume(this.volumeFor(this.currentItem()));
         }
         break;
       case audio.InterruptHint.INTERRUPT_HINT_UNDUCK:
+        this.ducked = false;
         if (p !== null) {
-          p.setVolume(outVolume(1.0));
+          p.setVolume(this.volumeFor(this.currentItem()));
         }
         break;
       default:
@@ -988,6 +1029,13 @@ export class PlaybackEngine {
         hilog.error(DOMAIN, TAG, 'listener threw: %{public}s', describe(e as BusinessError));
       }
     });
+  }
+}
+
+/** The volume-leveling gain an item starts at (debug log, like Android's YoinReplayGain). */
+function logGain(item: QueueItem | null): void {
+  if (item !== null && item.gain !== 1) {
+    hilog.info(DOMAIN, TAG, 'volume leveling: x%{public}s', item.gain.toFixed(4));
   }
 }
 

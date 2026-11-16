@@ -95,6 +95,9 @@ export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHand
           }
           break;
         }
+        case 'setGains':
+          engine.setGains(gainsArg(call));
+          break;
         case 'getSnapshot':
           result.success(host.snapshotMap());
           return;
@@ -166,6 +169,20 @@ function optionalBool(call: MethodCall, key: string): boolean | null {
 function optionalNumber(call: MethodCall, key: string): number | null {
   const v: Any = call.argument(key);
   return typeof v === 'number' ? v as number : null;
+}
+
+/** `gains`: entry id → 0–1 volume; malformed pairs are skipped. */
+function gainsArg(call: MethodCall): Map<string, number> {
+  const out: Map<string, number> = new Map();
+  const v: Any = call.argument('gains');
+  if (v instanceof Map) {
+    (v as Map<Any, Any>).forEach((gain: Any, id: Any) => {
+      if (typeof id === 'string' && typeof gain === 'number') {
+        out.set(id as string, gain as number);
+      }
+    });
+  }
+  return out;
 }
 
 function repeatArg(call: MethodCall): EngineRepeat | null {

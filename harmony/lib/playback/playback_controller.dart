@@ -19,6 +19,7 @@ import 'playback_context.dart';
 import 'playback_strings.dart';
 import 'playhead.dart';
 import 'queue_order.dart';
+import 'replay_gain.dart';
 import 'scrobble.dart';
 import 'system_requests.dart';
 import 'track_codec.dart';
@@ -153,6 +154,11 @@ class PlaybackController extends Notifier<NowPlayingState> {
     // The heart has one owner (favoriteOverridesProvider): a toggle on an
     // album row, the artist page, Now Playing or the system heart lands here.
     ref.listen(favoriteOverridesProvider, (_, next) => _applyFavoriteOverrides(next));
+    // Volume leveling applies at once, to the song playing too (Android reads
+    // the setting for every buffer).
+    ref.listen(replayGainProvider, (previous, next) {
+      if (previous != null && next != null && previous != next) unawaited(_applyReplayGain(next));
+    });
     try {
       final now = WidgetsBinding.instance.lifecycleState;
       _foreground = now == null || now == AppLifecycleState.resumed || now == AppLifecycleState.inactive;
@@ -785,14 +791,15 @@ class PlaybackController extends Notifier<NowPlayingState> {
 
   /// (original index, track, item) for every track the engine can play.
   Future<List<(int, Track, EngineItem)>> _build(MusicSource source, List<Track> tracks) async {
-    final items = await Future.wait([for (final t in tracks) _itemFor(source, t)]);
+    final leveling = await _replayGainSettings();
+    final items = await Future.wait([for (final t in tracks) _itemFor(source, t, leveling)]);
     return [
       for (var i = 0; i < tracks.length; i++)
         if (items[i] case final item?) (i, tracks[i], item),
     ];
   }
 
-  Future<EngineItem?> _itemFor(MusicSource source, Track track) async {
+  Future<EngineItem?> _itemFor(MusicSource source, Track track, ReplayGainSettings leveling) async {
     final handle = await source.playback.handleFor(track);
     if (handle is! DirectStream) return null; // External controllers arrive with Spotify.
     final cover = track.coverArt;
@@ -807,7 +814,30 @@ class PlaybackController extends Notifier<NowPlayingState> {
       artworkUri: cover == null ? null : source.resolveCoverUrl(cover, size: lockScreenArtworkPx),
       durationMs: _durationHint(track),
       extra: TrackCodec.encode(track),
+      gain: engineGain(track.replayGain, leveling),
     );
+  }
+
+  /// The volume-leveling choice; the default when it can't be read.
+  Future<ReplayGainSettings> _replayGainSettings() async {
+    try {
+      return await ref.read(replayGainProvider.notifier).ready();
+    } catch (_) {
+      return const ReplayGainSettings();
+    }
+  }
+
+  /// Tells the engine every entry's gain under [settings].
+  Future<void> _applyReplayGain(ReplayGainSettings settings) async {
+    final rich = _queueEngine;
+    if (rich == null || _entries.isEmpty) return;
+    final gains = {for (final e in _entries) e.entryId: engineGain(e.track.replayGain, settings)};
+    _log('volume leveling ${settings.mode.key}: ${gains.length} entries');
+    try {
+      await rich.setGains(gains);
+    } catch (e) {
+      _log('gains not applied: ${e.runtimeType}');
+    }
   }
 
   /// The cover size handed to the system (AVSession / lock screen).
@@ -826,6 +856,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
         durationMs: item.durationMs,
         entryId: entryId,
         extra: PlaybackContextCodec.attach(item.extra, context),
+        gain: item.gain,
       );
 
   String _newEntryId() => '$_entryPrefix-${_entrySeq++}';

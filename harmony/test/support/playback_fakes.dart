@@ -128,6 +128,15 @@ class PlaybackFakeQueueEngine implements QueuePlaybackEngine {
     calls.add('setFavorite:$id:$favorite');
   }
 
+  /// The last volume-leveling update, by entry id.
+  Map<String, double> gains = {};
+
+  @override
+  Future<void> setGains(Map<String, double> gainsByEntryId) async {
+    gains = {...gainsByEntryId};
+    calls.add('setGains:${gainsByEntryId.length}');
+  }
+
   @override
   Future<EngineSnapshot?> snapshot() async => snapshotToReturn;
 

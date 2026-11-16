@@ -17,6 +17,7 @@ final class EngineItem {
     this.durationMs,
     this.entryId,
     this.extra,
+    this.gain = 1.0,
   });
 
   /// [MediaId] string, echoed back in [EngineState.currentId].
@@ -37,6 +38,11 @@ final class EngineItem {
   /// [QueuePlaybackEngine.snapshot] so a re-created UI can rebuild its queue.
   final String? extra;
 
+  /// Volume leveling: the player's volume for this entry, 0–1 (1 = the file
+  /// as it is). Applied by the native side when the entry starts, so a
+  /// gapless hand-over changes it with the song.
+  final double gain;
+
   Map<String, Object?> toMap() => {
         'id': id,
         'uri': uri,
@@ -48,6 +54,7 @@ final class EngineItem {
         'durationMs': durationMs,
         'entryId': entryId,
         'extra': extra,
+        'gain': gain,
       };
 
   factory EngineItem.fromMap(Map<Object?, Object?> map) => EngineItem(
@@ -60,6 +67,10 @@ final class EngineItem {
         durationMs: _int(map['durationMs']),
         entryId: map['entryId'] as String?,
         extra: map['extra'] as String?,
+        gain: switch (map['gain']) {
+          final num n => n.toDouble(),
+          _ => 1.0,
+        },
       );
 }
 
@@ -256,6 +267,10 @@ abstract interface class QueuePlaybackEngine implements PlaybackEngine {
 
   /// The session heart for the item [id]; [favorite] null hides it.
   Future<void> setFavorite(String id, bool? favorite);
+
+  /// New [EngineItem.gain]s by entry id (volume leveling changed): the entry
+  /// playing takes its new volume at once, the rest when they start.
+  Future<void> setGains(Map<String, double> gainsByEntryId);
 
   /// What the native host holds now; null when it can't answer.
   Future<EngineSnapshot?> snapshot();

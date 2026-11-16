@@ -63,6 +63,7 @@ final class SubsonicMusicSource implements MusicSource {
     Capability.playReporting,
     Capability.playlistAdd,
     Capability.playlistsWrite,
+    Capability.replayGain,
   };
 
   @override
