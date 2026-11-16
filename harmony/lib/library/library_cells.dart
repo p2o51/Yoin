@@ -34,6 +34,67 @@ int libraryGridColumns(double width) {
   return ((width - 64 + LibraryTokens.gridGutterH) / (96 + LibraryTokens.gridGutterH)).floor().clamp(3, 16);
 }
 
+/// A short Library on a wide window (owner 2026-11-12, 「内容少的资料库用更大的格子」;
+/// Android LibrarySparseGrid.kt): at the usual cells a handful of albums sit
+/// in one row with the page empty below. While [itemCount] cells can't fill
+/// the page, they grow — fewer columns than [baseColumns], never fewer than
+/// half of them (cells at most about twice the usual size) nor
+/// [LibraryTokens.sparseMinColumns] — until the rows just fill [height]. A
+/// shelf that fills the page at the usual cells keeps them.
+///
+/// [width] is the grid's own width inside its padding, [cellExtra] a cell's
+/// height past its square cover (the title lines and their gap), [leading]
+/// what sits above the first row (the sort row), [rowGap] / [columnGap] the
+/// grid's spacing.
+int librarySparseColumns({
+  required int itemCount,
+  required int baseColumns,
+  required double width,
+  required double height,
+  required double cellExtra,
+  double leading = 0,
+  double rowGap = LibraryTokens.gridGutterV,
+  double columnGap = LibraryTokens.gridGutterH,
+}) {
+  if (baseColumns <= LibraryTokens.sparseMinColumns || itemCount <= 0) return baseColumns;
+  final half = (baseColumns + 1) ~/ 2;
+  final fewest = half < LibraryTokens.sparseMinColumns ? LibraryTokens.sparseMinColumns : half;
+  for (var columns = fewest; columns < baseColumns; columns++) {
+    final cell = (width - columnGap * (columns - 1)) / columns;
+    final rows = (itemCount + columns - 1) ~/ columns;
+    final content = leading + (cell + cellExtra) * rows + rowGap * (rows - 1);
+    if (content <= height) return columns;
+  }
+  return baseColumns;
+}
+
+/// The columns of a Library view's grid (All, Artists, Albums) [width] wide
+/// and [height] tall: [libraryGridColumns], grown by [librarySparseColumns]
+/// for a short shelf of [itemCount] — past Compact and not on a landscape
+/// handset ([compactHeight]), where the usual cells stay. [bottom] is the
+/// room kept over the floating bar, [sortRow] whether the sort row leads.
+/// Search results keep [libraryGridColumns].
+int libraryViewGridColumns({
+  required double width,
+  required double height,
+  required int itemCount,
+  required double bottom,
+  required bool sortRow,
+  required bool compactHeight,
+  TextScaler scaler = TextScaler.noScaling,
+}) {
+  final base = libraryGridColumns(width);
+  if (compactHeight || !height.isFinite) return base;
+  return librarySparseColumns(
+    itemCount: itemCount,
+    baseColumns: base,
+    width: width - 32,
+    height: height - LibraryTokens.gridTopPadding - bottom,
+    cellExtra: libraryCellExtent(0, scaler),
+    leading: sortRow ? LibraryTokens.sparseSortRow : 0,
+  );
+}
+
 /// Album / playlist / artist grid cell height for a cell [cellWidth] wide.
 double libraryCellExtent(double cellWidth, TextScaler scaler) =>
     cellWidth + LibraryTokens.coverToTitle + scaler.scale(20) + scaler.scale(16) + 2;

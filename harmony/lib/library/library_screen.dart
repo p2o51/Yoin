@@ -17,6 +17,7 @@ import '../ui/component/user_message.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/component/yoin_pull_to_refresh.dart';
 import 'library_filter_row.dart';
+import 'library_grid_anchor.dart';
 import 'library_search.dart';
 import 'library_search_view.dart';
 import 'library_strings.dart';
@@ -37,8 +38,15 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   /// One scroll controller per view, above the switcher, so returning to a
-  /// view lands where the user left it.
-  final _scrolls = {for (final tab in LibraryTab.values) tab: ScrollController()};
+  /// view lands where the user left it. The grids' keep their anchor with
+  /// them: a view that comes back at another width finds its place.
+  final _scrolls = {
+    for (final tab in LibraryTab.values)
+      tab: switch (tab) {
+        LibraryTab.all || LibraryTab.artists || LibraryTab.albums => LibraryGridScrollController(),
+        LibraryTab.songs || LibraryTab.playlists || LibraryTab.favorites => ScrollController(),
+      },
+  };
 
   @override
   void initState() {
@@ -240,7 +248,7 @@ class _Content extends ConsumerWidget {
                     tab: tab,
                     view: state.sorted.all,
                     sort: state.sortOf(tab),
-                    controller: scrolls[tab]!,
+                    controller: scrolls[tab]! as LibraryGridScrollController,
                     emptyText: strings.emptyAll,
                     loading: !state.allSettled,
                   ),
@@ -248,7 +256,7 @@ class _Content extends ConsumerWidget {
                     tab: tab,
                     view: state.sorted.of(tab),
                     sort: state.sortOf(tab),
-                    controller: scrolls[tab]!,
+                    controller: scrolls[tab]! as LibraryGridScrollController,
                     emptyText: tab == LibraryTab.artists ? strings.emptyArtists : strings.emptyAlbums,
                   ),
                   LibraryTab.playlists => Stack(

@@ -22,6 +22,7 @@ import '../ui/component/user_message.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import 'library_cells.dart';
+import 'library_grid_anchor.dart';
 import 'library_search.dart';
 import 'library_sort.dart';
 import 'library_strings.dart';
@@ -132,6 +133,36 @@ class _SearchRoute extends PageRoute<void> with DetailPaneYieldingRoute<void> {
   }
 }
 
+/// Where the search's Artists and Albums grids were left, one exact anchor
+/// per scope and type (Android LibrarySearchScrollMemory.gridAnchor). Kept
+/// beside the query, not in the surface: a result opened in the detail
+/// column collapses the surface with its query kept, and the grid comes back
+/// where it was left. Another query (a blank one ends the search) forgets
+/// them all.
+final class LibrarySearchGridAnchors {
+  final _anchors = <(LibrarySearchScope, LibrarySearchFilter), LibraryGridAnchor>{};
+
+  /// The anchor of [scope]'s [filter] grid.
+  LibraryGridAnchor of(LibrarySearchScope scope, LibrarySearchFilter filter) =>
+      _anchors.putIfAbsent((scope, filter), () => LibraryGridAnchor(exact: true));
+
+  /// Every grid starts at the top again.
+  void forget() {
+    for (final anchor in _anchors.values) {
+      anchor.reset();
+    }
+  }
+}
+
+/// The search grids' anchors, forgotten when the query changes.
+final librarySearchGridAnchorsProvider = Provider<LibrarySearchGridAnchors>((ref) {
+  final anchors = LibrarySearchGridAnchors();
+  ref.listen(librarySearchProvider.select((s) => s.query), (previous, query) {
+    if (previous != query) anchors.forget();
+  });
+  return anchors;
+});
+
 /// The expanded search: field, type chips, results.
 class LibrarySearchSurface extends ConsumerStatefulWidget {
   const LibrarySearchSurface({super.key});
@@ -143,7 +174,7 @@ class LibrarySearchSurface extends ConsumerStatefulWidget {
 class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
   final _field = TextEditingController();
   late final LibrarySearchNotifier _search = ref.read(librarySearchProvider.notifier);
-  final _scrolls = <LibrarySearchFilter, ScrollController>{};
+  final _scrolls = <(LibrarySearchScope, LibrarySearchFilter), ScrollController>{};
 
   /// The route this surface lives on (read while mounted; dispose can't).
   DetailPaneYieldingRoute<dynamic>? _route;
@@ -185,7 +216,21 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
     super.dispose();
   }
 
-  ScrollController _scrollFor(LibrarySearchFilter f) => _scrolls.putIfAbsent(f, ScrollController.new);
+  /// One scroll per scope and type. The Artists and Albums grids keep an
+  /// exact anchor ([LibrarySearchGridAnchors]): after a rotation or a resize,
+  /// back at the width they were left at, they land exactly there; a type or
+  /// scope switched away from and back, or the surface come back from the
+  /// detail column, finds its place too.
+  ScrollController _scrollFor(LibrarySearchScope scope, LibrarySearchFilter f) => _scrolls.putIfAbsent(
+    (scope, f),
+    () => switch (f) {
+      LibrarySearchFilter.artists || LibrarySearchFilter.albums => LibraryGridScrollController(
+        exact: true,
+        anchor: ref.read(librarySearchGridAnchorsProvider).of(scope, f),
+      ),
+      LibrarySearchFilter.all || LibrarySearchFilter.songs || LibrarySearchFilter.playlists => ScrollController(),
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -194,6 +239,7 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
     final colors = Theme.of(context).colorScheme;
     ref.listen(librarySearchProvider.select((s) => s.query), (previous, query) {
       // A new query starts every filter's list at the top.
+      // (The grids' anchors forget their places with it: librarySearchGridAnchorsProvider.)
       if (previous != query) {
         for (final c in _scrolls.values) {
           if (c.hasClients) c.jumpTo(0);
@@ -342,12 +388,22 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
     };
     if (empty) return EmptyStatePanel(message: strings.emptySearch);
     final bottom = SearchTokens.resultsBottomReserve + MediaQuery.paddingOf(context).bottom;
-    final controller = _scrollFor(state.filter);
+    final controller = _scrollFor(state.scope, state.filter);
     switch (state.filter) {
       case LibrarySearchFilter.artists:
-        return _grid(context, [for (final a in r.artists) LibraryArtistItem(a)], controller, bottom);
+        return _grid(
+          context,
+          [for (final a in r.artists) LibraryArtistItem(a)],
+          controller as LibraryGridScrollController,
+          bottom,
+        );
       case LibrarySearchFilter.albums:
-        return _grid(context, [for (final a in r.albums) LibraryAlbumItem(a)], controller, bottom);
+        return _grid(
+          context,
+          [for (final a in r.albums) LibraryAlbumItem(a)],
+          controller as LibraryGridScrollController,
+          bottom,
+        );
       case LibrarySearchFilter.songs:
         return ListView.builder(
           controller: controller,
@@ -414,20 +470,31 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
   void _playSong(List<Track> tracks, int index) =>
       ref.read(playbackControllerProvider.notifier).playTracks(tracks, startIndex: index);
 
-  Widget _grid(BuildContext context, List<LibraryItem> items, ScrollController controller, double bottom) {
+  /// A result grid: the usual cells, however few the results.
+  Widget _grid(BuildContext context, List<LibraryItem> items, LibraryGridScrollController controller, double bottom) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final columns = libraryGridColumns(width);
         final cell = (width - 32 - LibraryTokens.gridGutterH * (columns - 1)) / columns;
+        final extent = libraryCellExtent(cell, MediaQuery.textScalerOf(context));
+        controller.anchor.layOut(
+          LibraryGridLayout(
+            width: width,
+            columns: columns,
+            stride: extent + LibraryTokens.gridGutterV,
+            top: LibraryTokens.gridTopPadding,
+          ),
+          items.length,
+        );
         return GridView.builder(
           controller: controller,
-          padding: EdgeInsets.fromLTRB(16, 8, 16, bottom),
+          padding: EdgeInsets.fromLTRB(16, LibraryTokens.gridTopPadding, 16, bottom),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
             crossAxisSpacing: LibraryTokens.gridGutterH,
             mainAxisSpacing: LibraryTokens.gridGutterV,
-            mainAxisExtent: libraryCellExtent(cell, MediaQuery.textScalerOf(context)),
+            mainAxisExtent: extent,
           ),
           itemCount: items.length,
           itemBuilder: (context, i) => _cell(context, items[i]),

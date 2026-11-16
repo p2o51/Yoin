@@ -80,6 +80,7 @@ class YoinFastScroller extends StatefulWidget {
     this.marks = const [],
     this.topInset = LibraryTokens.scrollerTopInset,
     this.bottomInset = 0,
+    this.onJumped,
   });
 
   final ScrollController controller;
@@ -89,6 +90,10 @@ class YoinFastScroller extends StatefulWidget {
   final double topInset;
   final double bottomInset;
   final Widget child;
+
+  /// After each jump, the list already moved: a grid moves its column-change
+  /// anchor along with it (a jump is no scroll; Android onJumped).
+  final VoidCallback? onJumped;
 
   @override
   State<YoinFastScroller> createState() => _YoinFastScrollerState();
@@ -172,6 +177,7 @@ class _YoinFastScrollerState extends State<YoinFastScroller> with TickerProvider
     final p = widget.controller.position;
     // A jump, not a scroll: the chrome seam above stays still.
     ChromeSeam.jump(context, () => widget.controller.jumpTo(f * p.maxScrollExtent));
+    widget.onJumped?.call();
     final lines = (widget.itemCount / math.max(1, widget.columns)).ceil();
     final line = FastScrollerGeometry.lineAt(f, lines);
     final mark = FastScrollerGeometry.markAt(widget.marks, line * widget.columns);
@@ -202,7 +208,17 @@ class _YoinFastScrollerState extends State<YoinFastScroller> with TickerProvider
         return Stack(
           clipBehavior: Clip.none,
           children: [
-            widget.child,
+            // A layout-time move (a grid keeping its place as its columns
+            // change) is no scroll: the handle follows it here.
+            NotificationListener<ScrollMetricsNotification>(
+              onNotification: (n) {
+                if (n.depth == 0 && !_holding && n.metrics.maxScrollExtent > 0) {
+                  _fraction.value = (n.metrics.pixels / n.metrics.maxScrollExtent).clamp(0.0, 1.0);
+                }
+                return false;
+              },
+              child: widget.child,
+            ),
             Positioned(
               top: widget.topInset,
               bottom: widget.bottomInset,

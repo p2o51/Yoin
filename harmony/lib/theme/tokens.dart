@@ -1091,6 +1091,11 @@ abstract final class LibraryTokens {
   static const double gridTopPadding = 8;
   static const double coverToTitle = 5;
 
+  /// A short shelf's grown cells (LibrarySparseGrid.kt): never fewer columns
+  /// than this, and the sort row it counts above the first row.
+  static const int sparseMinColumns = 3;
+  static const double sparseSortRow = 48;
+
   /// floatingBottomGroupContentPadding: room the list keeps over the bottom bar.
   static const double bottomGroupPadding = 108;
 
