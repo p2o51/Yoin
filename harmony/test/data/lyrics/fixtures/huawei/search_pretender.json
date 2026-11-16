@@ -1,0 +1,43 @@
+{
+ "result": {
+  "resultCode": "000000",
+  "resultMessage": "Success!"
+ },
+ "sortedContentTypes": [
+  "1"
+ ],
+ "hasNextPage": "1",
+ "totalNum": "146",
+ "songSimpleInfos": [
+  {
+   "contentID": "51044549",
+   "contentName": "Pretender(假装者)",
+   "contentType": "1",
+   "artistName": "Official髭男dism",
+   "albumName": "Pretender",
+   "subTitle": "Official髭男dism - Pretender",
+   "lyricAddress": "https://music-pics-drcn.dbankcdn.cn/e50fd65a63213cbad8c2dc415cc4b988/fccc85b2037b9d71f82f28a3a433384d/51cb7c0c-992b-4678-ab5f-d4de26e7868f.lrc",
+   "contentExInfo": "{\"artistNames\":\"Official髭男dism\",\"lyricAddres\":\"https://music-pics-drcn.dbankcdn.cn/e50fd65a63213cbad8c2dc415cc4b988/fccc85b2037b9d71f82f28a3a433384d/51cb7c0c-992b-4678-ab5f-d4de26e7868f.lrc\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/e50fd65a63213cbad8c2dc415cc4b988/fccc85b2037b9d71f82f28a3a433384d/51cb7c0c-992b-4678-ab5f-d4de26e7868f.lrc\\\",\\\"lineByLineLyric_subType\\\":\\\"translate|scrolling\\\",\\\"wordByWordLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/67020b6e711556843ab8b4d733087b70/e50fd65a63213cbad8c2dc415cc4b988/51044549_59d707aa-d286-4102-90ed-a0904863cae2.hmrc\\\"}\",\"fileInfos\":[{\"duration\":\"326\"}]}"
+  },
+  {
+   "contentID": "62812123",
+   "contentName": "Pretender(假扮者)",
+   "contentType": "1",
+   "artistName": "Official髭男dism",
+   "albumName": "one-man tour 2021-2022 -Editorial-@さいたまスーパーアリーナ",
+   "subTitle": "Official髭男dism - one-man tour 2021-2022 -Editorial-@さいたまスーパーアリーナ",
+   "lyricAddress": "https://lyric.tingmall.com/lyric/62/812/62812123-LRC-LRC.lrc?t=1686304614000",
+   "contentExInfo": "{\"artistNames\":\"Official髭男dism\",\"lyricAddres\":\"https://lyric.tingmall.com/lyric/62/812/62812123-LRC-LRC.lrc?t=1686304614000\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://lyric.tingmall.com/lyric/62/812/62812123-LRC-LRC.lrc?t=1686304614000\\\",\\\"lineByLineLyric_subType\\\":\\\"translate|scrolling\\\"}\",\"fileInfos\":[{\"duration\":\"344\"}]}"
+  },
+  {
+   "contentID": "51045017",
+   "contentName": "Pretender",
+   "contentType": "1",
+   "artistName": "Official髭男dism",
+   "albumName": "Traveler",
+   "subTitle": "Official髭男dism - Traveler",
+   "lyricAddress": "https://music-pics-drcn.dbankcdn.cn/6bb61e3b7bce0931da574d19d1d82c88/1a82ddd79717f32c96c6686fc8ad0978/79c5ec6f-d69a-408d-ae44-3bf2f586bd57_lyric.txt",
+   "contentExInfo": "{\"artistNames\":\"Official髭男dism\",\"lyricAddres\":\"https://music-pics-drcn.dbankcdn.cn/6bb61e3b7bce0931da574d19d1d82c88/1a82ddd79717f32c96c6686fc8ad0978/79c5ec6f-d69a-408d-ae44-3bf2f586bd57_lyric.txt\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/6bb61e3b7bce0931da574d19d1d82c88/1a82ddd79717f32c96c6686fc8ad0978/79c5ec6f-d69a-408d-ae44-3bf2f586bd57_lyric.txt\\\",\\\"lineByLineLyric_subType\\\":\\\"scrolling\\\"}\",\"fileInfos\":[{\"duration\":\"326\"}]}"
+  }
+ ]
+}

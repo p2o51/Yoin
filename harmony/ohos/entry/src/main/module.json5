@@ -22,6 +22,7 @@
         "startWindowIcon": "$media:icon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
+        "continuable": true,
         "backgroundModes": [
           "audioPlayback",
           "dataTransfer",

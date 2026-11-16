@@ -1,6 +1,7 @@
 /// A music account's id as every device knows it (Android identity/AccountKeys.kt):
 /// what a global record (a playlist backup) keeps to say which account it came
-/// from, since local profile ids differ per device.
+/// from, since local profile ids differ per device; Continue On matches a
+/// handed-off song's account by it.
 ///
 /// The sync id of the profile's active binding when it has one (any provider,
 /// Apple Music linked by hand included); otherwise, for Subsonic, the id a

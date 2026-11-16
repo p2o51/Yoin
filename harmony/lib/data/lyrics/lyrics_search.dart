@@ -27,7 +27,7 @@ final class LyricsSearchHit {
 
 /// The Search key's search (YoinRepository.searchLyricsProviderSections /
 /// applyLyricsSearchResult) over the registry's providers, in its order:
-/// QQ Music → NetEase → LRCLIB.
+/// QQ Music → NetEase → Huawei Music → LRCLIB.
 class LyricsSearch {
   LyricsSearch({LyricsProviderRegistry? registry, List<LyricProvider>? providers})
     : registry = registry ?? LyricsProviderRegistry(providers: providers);

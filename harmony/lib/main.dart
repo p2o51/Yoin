@@ -7,6 +7,8 @@ import 'app/platform_overrides.dart';
 import 'app/providers.dart';
 import 'cards/play_card.dart';
 import 'data/applemusic/apple_music_name_region.dart';
+import 'continueon/continue_on_card.dart';
+import 'continueon/continue_on_controller.dart';
 import 'data/applemusic/apple_music_source.dart';
 import 'data/backup/playlist_backup_providers.dart';
 import 'data/sync/cloud_sync_providers.dart';
@@ -81,6 +83,9 @@ class YoinApp extends ConsumerWidget {
     ref.listen(cloudSyncLifecycleProvider, (_, _) {});
     // Playlist backups follow their playlists each time the app comes to the front (never in the background).
     ref.listen(playlistBackupFollowerProvider, (_, _) {});
+    // Continue On lives with the app: it offers the hand-off while a song is
+    // loaded and takes one this device is started or brought back with.
+    ref.listen(continueOnProvider, (_, _) {});
     // The playing cover themes the whole app, in ONE cut (no theme tween:
     // owner 2026-11-04); equal schemes keep the same ThemeData instance.
     final seed = ref.watch(playbackThemeProvider.select((t) => t.seed));
@@ -101,7 +106,17 @@ class YoinApp extends ConsumerWidget {
           host: windowCaption,
           child: YoinSystemBars(
             // The first-run landing covers the whole chrome (bar and player included).
-            child: YoinWindowScope.measured(child: LandingHost(child: AppChrome(child: child!))),
+            child: YoinWindowScope.measured(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  LandingHost(child: AppChrome(child: child!)),
+                  // A Continue On hand-off's card, over everything, the first-run landing included (Android
+                  // MainActivity draws it above LandingHost): a device without the account still says so.
+                  const ContinueOnCardHost(),
+                ],
+              ),
+            ),
           ),
         ),
       ),

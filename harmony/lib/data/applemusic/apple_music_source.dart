@@ -357,6 +357,8 @@ const _libraryArtistsQuery = {'limit': '100', 'include': 'catalog'};
 const _libraryArtistQuery = {'include': 'catalog'};
 const _libraryAlbumQuery = {'include': 'artists,catalog'};
 const _libraryTracksQuery = {'include': 'catalog'};
+const _librarySongQuery = {'include': 'catalog,albums,artists'};
+const _catalogSongQuery = {'include': 'albums,artists'};
 const _songRelationships = 'albums,artists';
 const _catalogAlbumWithSongsQuery = {'include': 'artists', 'include[songs]': _songRelationships};
 const _catalogAlbumQuery = {'include': 'artists'};
@@ -391,7 +393,7 @@ Track _inAlbum(Track t, MediaId albumId, MediaId? artistId) => Track(
   genre: t.genre,
 );
 
-final class _AppleMusicLibrary implements MusicLibrary, MusicTrackCodes, MusicLibraryCollection {
+final class _AppleMusicLibrary implements MusicLibrary, MusicTrackCodes, MusicLibraryCollection, MusicTrackLookup {
   _AppleMusicLibrary(this._s);
   final AppleMusicSource _s;
 
@@ -669,6 +671,17 @@ final class _AppleMusicLibrary implements MusicLibrary, MusicTrackCodes, MusicLi
     final tracks = _s._remember(songsFrom(await _s._all([...path, 'tracks'], query: query)));
     return playlistWithTracks(playlist, await _s._regionalTracks(tracks));
   }
+
+  /// One song (Android getTrack): a library song with its catalogue song,
+  /// albums and artists, a catalogue song with its albums and artists.
+  @override
+  Future<Track?> getTrack(MediaId id) => _s._nullIfNotFound(() async {
+    _s._checkProvider(id);
+    final path = await _s._path('songs', id);
+    final query = isLibraryId(id) ? _librarySongQuery : _catalogSongQuery;
+    final songs = songsFrom(resources(await _s._page(path, query: query)), dedupe: true);
+    return _s._remember(songs).firstOrNull;
+  });
 
   /// Apple has no favourites through this API.
   @override

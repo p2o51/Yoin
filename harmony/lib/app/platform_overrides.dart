@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter_riverpod/misc.dart' show Override;
 
+import '../continueon/continue_on_controller.dart';
 import '../data/sync/cloud_sync_providers.dart';
 import '../offline/offline_providers.dart';
 import '../platform/browser/url_opener.dart';
@@ -48,5 +49,6 @@ List<Override> platformOverrides(YoinPlatform platform) {
     urlOpenerProvider.overrideWithValue(platform.urlOpener),
     displayCornersProvider.overrideWithValue(platform.displayCorners),
     motionSensorsProvider.overrideWithValue(platform.motionSensors),
+    continueOnHostProvider.overrideWithValue(platform.continueOnHost),
   ];
 }

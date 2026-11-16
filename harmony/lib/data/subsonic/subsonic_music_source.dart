@@ -150,7 +150,7 @@ final class _IdKinds {
   }
 }
 
-final class _SubsonicLibrary implements MusicLibrary {
+final class _SubsonicLibrary implements MusicLibrary, MusicTrackLookup {
   _SubsonicLibrary(this._api, this._kinds);
   final SubsonicApi _api;
   final _IdKinds _kinds;
@@ -182,6 +182,17 @@ final class _SubsonicLibrary implements MusicLibrary {
     };
     if (album != null) _kinds.album(album);
     return album;
+  });
+
+  @override
+  Future<Track?> getTrack(MediaId id) => _nullIfNotFound(() async {
+    final body = await _api.call('getSong', [('id', _raw(id))]);
+    final track = switch (body['song']) {
+      final Map<Object?, Object?> m => trackFromJson(m.cast()),
+      _ => null,
+    };
+    if (track != null) _kinds.track(track);
+    return track;
   });
 
   @override

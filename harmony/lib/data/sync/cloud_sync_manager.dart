@@ -132,6 +132,14 @@ class CloudSyncManager implements CloudSyncController {
 
   // ---- lifecycle hooks
 
+  /// [localProfileId]'s binding as this device keeps it (the sync store is
+  /// read first if it isn't yet), or null: what an account's cross-device id
+  /// is read from (AccountKeys).
+  Future<SyncBindingEntity?> bindingFor(String localProfileId) async {
+    await _db.open();
+    return _db.bindingFor(localProfileId);
+  }
+
   /// The app came to the front: sync if on, at most once a minute.
   void onAppForeground() => _launch(() async {
     // Never turned on: don't even create the sync store.
@@ -178,13 +186,6 @@ class CloudSyncManager implements CloudSyncController {
     if (_isEnabled()) _startObservers();
     await _refreshState();
     if (_db.meta(SyncMetaKeys.pendingReset) != null) _launch(_resumePendingReset);
-  }
-
-  /// [localProfileId]'s binding as the sync store holds it (null without one):
-  /// what [AccountKeys] names an account by. Reads the store, never the network.
-  Future<SyncBindingEntity?> bindingFor(String localProfileId) async {
-    await _db.open();
-    return _db.bindingFor(localProfileId);
   }
 
   // ---- CloudSyncController

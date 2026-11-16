@@ -118,7 +118,8 @@ class MetaLine extends StatelessWidget {
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
-        TextSpan(text: unit, style: muted),
+        // A bare value (a position) has no unit, and no gap for one.
+        if (unit.isNotEmpty) TextSpan(text: unit, style: muted),
       ],
     };
   }

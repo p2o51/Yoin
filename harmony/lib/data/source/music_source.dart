@@ -280,6 +280,23 @@ extension MusicSourceTrackCodes on MusicSource {
   };
 }
 
+/// One song by id (Android MusicLibrary.getTrack): what Continue On reads a
+/// handed-off queue back with when it didn't come from an album, a playlist
+/// or Liked songs. Not a UI affordance, so no [Capability]: a source without
+/// it just can't rebuild such a queue.
+abstract interface class MusicTrackLookup {
+  /// The song, or null when the id doesn't exist.
+  Future<Track?> getTrack(MediaId id);
+}
+
+/// A source's single-song lookup: null when it has none (test fakes).
+extension MusicSourceTrackLookup on MusicSource {
+  MusicTrackLookup? get trackLookup => switch (library) {
+    final MusicTrackLookup l => l,
+    _ => null,
+  };
+}
+
 /// The user's library apart from the service's catalogue (Android
 /// MusicLibrary.searchLibrary / getLibrarySongs), for a service that has both:
 /// gated by [Capability.catalogSearch] and [Capability.librarySongs].
