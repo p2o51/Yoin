@@ -19,10 +19,14 @@ void main() {
       expect(FoldStatus.fromCode(3), FoldStatus.halfFolded);
     });
 
-    test('should_readFirstAxis_when_triFoldReportsTwoAxes', () {
+    test('should_readHalfFoldOnEitherAxis_when_triFoldReportsTwoAxes', () {
+      // display.FoldStatus: units = first axis (1 / 2 / 3), tens = second axis (1 expanded, 2 half folded).
       expect(FoldStatus.fromCode(11), FoldStatus.expanded);
+      expect(FoldStatus.fromCode(12), FoldStatus.folded);
+      expect(FoldStatus.fromCode(13), FoldStatus.halfFolded);
       expect(FoldStatus.fromCode(21), FoldStatus.halfFolded);
-      expect(FoldStatus.fromCode(22), FoldStatus.folded);
+      expect(FoldStatus.fromCode(22), FoldStatus.halfFolded);
+      expect(FoldStatus.fromCode(23), FoldStatus.halfFolded);
       expect(FoldStatus.fromCode(99), FoldStatus.unknown);
       expect(FoldDisplayMode.fromCode(1), FoldDisplayMode.full);
       expect(FoldDisplayMode.fromCode(42), FoldDisplayMode.unknown);

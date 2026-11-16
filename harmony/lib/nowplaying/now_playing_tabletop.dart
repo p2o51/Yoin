@@ -102,6 +102,14 @@ class _TabletopPaneState extends ConsumerState<_TabletopPane> with TickerProvide
         final split = tabletopSplit(constraints.maxHeight, hinge);
         final displayWidth = constraints.maxWidth;
         final cover = tabletopCoverSize(displayWidth, split.display);
+        // The deck's keys: 72 where the row fits them, the compact 48 on a narrow
+        // (flip phone) kickstand, so the transport never overflows.
+        final controlSize = fitTransportControlSize(
+          rowWidth: displayWidth - insets.left - insets.right - 2 * _TT.deckPaddingH,
+          controlSize: _TT.controlSize,
+          playKeyWidth: transportPlayKeyMaxWidth(context),
+          hasExtraKey: true,
+        );
 
         Widget display() => Stack(
           children: [
@@ -269,10 +277,10 @@ class _TabletopPaneState extends ConsumerState<_TabletopPane> with TickerProvide
                 durationMs: state.durationMs,
                 labelsUnder: false,
                 waveVisible: true,
-                controlSize: _TT.controlSize,
+                controlSize: controlSize,
                 beforePlayMode: _ExpandLyricsKey(
                   expanded: _lyricsExpanded,
-                  size: _TT.controlSize,
+                  size: controlSize,
                   label: _lyricsExpanded ? tabletopStrings.cdCollapseLyrics : tabletopStrings.cdExpandLyrics,
                   onTap: () {
                     YoinHaptics.tick();

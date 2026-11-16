@@ -64,6 +64,23 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('should_fitDeckWithoutOverflow_when_flipPhoneIsHalfFolded', (tester) async {
+    // A flip phone on its kickstand: 400 × 880, the crease across the middle.
+    tester.view.physicalSize = const Size(400, 880) * 2;
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+    controller = NowPlayingFakeController(playingState(nowPlayingTracks(2), context: _album));
+    const flip = DisplayPosture(foldStatus: FoldStatus.halfFolded, creaseRects: [Rect.fromLTWH(0, 436, 400, 8)]);
+    await tester.pumpWidget(_app(nowPlayingOverrides(controller: controller), flip));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.bySemanticsLabel(RegExp('Open player')));
+    await _settle(tester);
+    expect(_close, findsOneWidget);
+    expect(tester.getSize(_expand).width, lessThan(TabletopTokens.controlSize));
+    expect(tester.getRect(_expand).right, lessThanOrEqualTo(400));
+    expect(tester.takeException(), isNull, reason: 'the transport row never overflows');
+  });
+
   testWidgets('should_shiftEmphasisToLyrics_when_expandToggled', (tester) async {
     await openOnKickstand(tester);
     double titleSize() => tester.widget<Text>(find.text('Song 0')).style!.fontSize!;

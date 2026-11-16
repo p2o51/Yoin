@@ -68,6 +68,11 @@ export class YoinPostureHost {
     YoinPostureHost.listeners.push(listener);
   }
 
+  /** A detached engine stops listening (a re-attached one adds its own). */
+  static offChange(listener: () => void): void {
+    YoinPostureHost.listeners = YoinPostureHost.listeners.filter((l) => l !== listener);
+  }
+
   private static notify(): void {
     YoinPostureHost.listeners.forEach((l) => l());
   }
@@ -150,6 +155,7 @@ export class YoinPostureHost {
 
 export default class YoinPosturePlugin implements FlutterPlugin, MethodCallHandler {
   private channel: MethodChannel | null = null;
+  private readonly push: () => void = () => this.channel?.invokeMethod('posture', YoinPostureHost.read());
 
   getUniqueClassName(): string {
     return 'YoinPosturePlugin';
@@ -158,10 +164,11 @@ export default class YoinPosturePlugin implements FlutterPlugin, MethodCallHandl
   onAttachedToEngine(binding: FlutterPluginBinding): void {
     this.channel = new MethodChannel(binding.getBinaryMessenger(), CHANNEL);
     this.channel.setMethodCallHandler(this);
-    YoinPostureHost.onChange(() => this.channel?.invokeMethod('posture', YoinPostureHost.read()));
+    YoinPostureHost.onChange(this.push);
   }
 
   onDetachedFromEngine(binding: FlutterPluginBinding): void {
+    YoinPostureHost.offChange(this.push);
     this.channel?.setMethodCallHandler(null);
     this.channel = null;
   }

@@ -924,10 +924,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                 // The AI thinking (a question, About's first fetch), or the key hint's glow.
                 GeminiWash(thinking: about.thinking, keyHint: _keyHint),
                 // Into / out of the hinge layout: the posture swap (fade + scale).
+                // Keyed on the posture alone: a song arriving is not a posture swap.
                 _PostureSwap(
-                  tabletop:
-                      state is NowPlayingContent &&
-                      widget.controller.frame.presentation == NowPlayingPresentation.tabletop,
+                  tabletop: widget.controller.frame.presentation == NowPlayingPresentation.tabletop,
                   child: switch (state) {
                     NowPlayingIdle() => Center(
                       child: Text(

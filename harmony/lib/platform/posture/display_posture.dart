@@ -29,12 +29,16 @@ enum FoldStatus {
   folded,
   halfFolded;
 
-  /// From `display.FoldStatus`: 1 expanded, 2 folded, 3 half folded; a tri-fold's
-  /// two-axis values (1x / 2x) read by their first axis's state.
+  /// From `display.FoldStatus`: 1 expanded, 2 folded, 3 half folded. A tri-fold
+  /// reports two axes as tens·second + first (second axis: 1 expanded, 2 half
+  /// folded; first axis: 1 / 2 / 3 as above), e.g. 13 = HALF_FOLDED_WITH_SECOND_EXPANDED,
+  /// 21 = EXPANDED_WITH_SECOND_HALF_FOLDED. Either axis half folded makes the
+  /// shown display half folded (the crease region then says which crease);
+  /// otherwise the first axis decides.
   static FoldStatus fromCode(int code) => switch (code) {
-    1 || 11 || 12 || 13 => FoldStatus.expanded,
-    2 || 22 => FoldStatus.folded,
-    3 || 21 || 23 => FoldStatus.halfFolded,
+    1 || 11 => FoldStatus.expanded,
+    2 || 12 => FoldStatus.folded,
+    3 || 13 || 21 || 22 || 23 => FoldStatus.halfFolded,
     _ => FoldStatus.unknown,
   };
 }

@@ -4,6 +4,7 @@ import 'package:yoin/nowplaying/flight.dart';
 import 'package:yoin/nowplaying/now_playing_presentation.dart';
 import 'package:yoin/nowplaying/now_playing_screen.dart' show tabletopCoverSize, tabletopSplit;
 import 'package:yoin/nowplaying/overlay_controller.dart';
+import 'package:yoin/nowplaying/transport.dart' show fitTransportControlSize, playModeNaturalWidth;
 import 'package:yoin/theme/tokens.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
 
@@ -60,6 +61,21 @@ void main() {
       expect(tabletopCoverSize(1280, 396), 292);
       // Never below 96.
       expect(tabletopCoverSize(300, 150), TabletopTokens.coverMin);
+    });
+
+    test('should_keep72Keys_when_deckRowFitsThem', () {
+      // PLAY|PAUSE 130 + 8 + Next 72 + 8 + expand 72 + 8 + play mode 117.2 = 415.2.
+      expect(fitTransportControlSize(rowWidth: 1180, controlSize: 72, playKeyWidth: 130, hasExtraKey: true), 72);
+      expect(130 + 8 + 72 + 8 + 72 + 8 + playModeNaturalWidth(72), closeTo(415.2, 0.01));
+      expect(fitTransportControlSize(rowWidth: 415.2, controlSize: 72, playKeyWidth: 130, hasExtraKey: true), 72);
+    });
+
+    test('should_fallBackTo48Keys_when_flipPhoneDeckIsTooNarrow', () {
+      // A ~400 wide flip phone on its kickstand: 400 − 2 × 24 = 352 for the row.
+      expect(fitTransportControlSize(rowWidth: 352, controlSize: 72, playKeyWidth: 130, hasExtraKey: true), 48);
+      // Without the expand key a 340 row still takes 72 (335.2); with it, it doesn't.
+      expect(fitTransportControlSize(rowWidth: 340, controlSize: 72, playKeyWidth: 130), 72);
+      expect(fitTransportControlSize(rowWidth: 340, controlSize: 72, playKeyWidth: 130, hasExtraKey: true), 48);
     });
   });
 

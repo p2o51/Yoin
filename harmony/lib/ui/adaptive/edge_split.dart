@@ -229,13 +229,19 @@ class ShellChromeBand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final edge = YoinWindowInfo.of(context).chromeForm == ShellChromeForm.edgeSplit;
+    final window = YoinWindowInfo.of(context);
+    final edge = window.chromeForm == ShellChromeForm.edgeSplit;
     final insets = edge ? shellChromeInsetsOf(context) : EdgeInsets.zero;
     // Always the same tree, so the page keeps its state across a rotation.
-    // The band already holds the side insets: the page inside doesn't add them again.
+    // The band already holds the side insets: the page inside doesn't add them
+    // again, and it reads the width it is given (a column gives away width:
+    // forPaneWidth), not the window's — Home's feed density and the grids.
     final padded = Padding(
       padding: EdgeInsets.only(left: insets.left, right: insets.right),
-      child: _WithoutSideInsets(active: edge, child: child),
+      child: YoinWindowScope(
+        info: edge ? window.forPaneWidth(math.max(0.0, window.width - insets.horizontal)) : window,
+        child: _WithoutSideInsets(active: edge, child: child),
+      ),
     );
     final background = this.background;
     if (background == null) return padded;

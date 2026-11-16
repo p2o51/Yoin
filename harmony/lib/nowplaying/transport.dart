@@ -588,6 +588,53 @@ const double _playModeSplitShownFrom = 0.02;
 /// The play-mode pill when split: two segments of 0.8 × the control size (playModeNaturalWidth).
 double playModeNaturalWidth(double controlSize) => controlSize * 1.6 + _playModeSegmentGap;
 
+/// The widest PLAY|PAUSE key: the PAUSE word (every locale measures the
+/// English word) at its held 1.10 stretch plus the playing 24 padding on both
+/// sides, never under the button's minimum (fitPlaybackControls' play).
+double transportPlayKeyMaxWidth(BuildContext context) {
+  final base = Theme.of(context).textTheme.titleLarge!;
+  final word = (TextPainter(
+    text: TextSpan(
+      text: NowPlayingStrings.of(context).pauseWord,
+      style: base.copyWith(
+        fontSize: base.fontSize! * 0.9,
+        fontWeight: FontWeight.w700,
+        fontVariations: const [FontVariation.weight(700)],
+        letterSpacing: 0.5,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+    textScaler: MediaQuery.textScalerOf(context),
+    maxLines: 1,
+  )..layout()).width;
+  return math.max(M3eButtonTokens.minWidth, word * _playStretchMax + 2 * _playRestPadding);
+}
+
+/// The control size a transport row [rowWidth] wide can take
+/// (PlaybackControls.kt fitPlaybackControls): [PLAY|PAUSE][Next] … [extra?][play mode]
+/// at [controlSize] when it fits, else the compact 48 controls, so the row
+/// never overflows (the kickstand deck asks for 72 on a ~400 wide flip phone).
+double fitTransportControlSize({
+  required double rowWidth,
+  required double controlSize,
+  required double playKeyWidth,
+  bool hasExtraKey = false,
+}) {
+  double natural(double size) {
+    const gap = NowPlayingTokens.transportGap;
+    final extra = hasExtraKey ? size + gap : 0.0;
+    return playKeyWidth + gap + size + gap + extra + playModeNaturalWidth(size);
+  }
+
+  if (natural(controlSize) <= rowWidth) return controlSize;
+  return math.min(controlSize, _compactControlSize);
+}
+
+/// fitPlaybackControls' last step (CompactControlSize) and its play key terms.
+const double _compactControlSize = 48;
+const double _playStretchMax = 1.10;
+const double _playRestPadding = 24;
+
 final Stopwatch _uptime = Stopwatch()..start();
 
 /// The play-mode button (owner 2026-10-17, PlaybackControls.kt PlayModeButton):
