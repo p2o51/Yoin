@@ -1384,3 +1384,32 @@ abstract final class TipSceneTokens {
   static const int noteLifeMs = 2400;
   static const int noteEchoMs = 220;
 }
+
+/// Home's cold-start intro (Android HomeGreetingTitle.kt): the Yoin mark
+/// blooms where the title sits, spins away, and the two lines rise in.
+abstract final class HomeIntroTokens {
+  /// The mark's box, and its nudge left of the title's start.
+  static const double markSize = 56;
+  static const double markOffsetX = -2;
+
+  /// Each arm opens this long after the last; the mark leaves at [exitAtMs].
+  static const int armStaggerMs = 70;
+  static const int exitAtMs = 950;
+
+  /// The greeting rises this long after the exit starts, the title after the greeting.
+  static const int greetingAfterExitMs = 100;
+  static const int titleAfterGreetingMs = 80;
+
+  /// An arm's bloom: from this turn (degrees) and zero scale, on [bloom].
+  static const double armStartTurn = -80;
+  static const SpringToken bloom = SpringToken(0.55, 260);
+
+  /// The exit: a shift left, a turn (degrees) and a shrink.
+  static const double exitShift = 6;
+  static const double exitTurn = 70;
+  static const double exitShrink = 0.6;
+
+  /// How far the greeting and the title rise in.
+  static const double greetingRise = 12;
+  static const double titleRise = 16;
+}

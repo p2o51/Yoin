@@ -9,6 +9,7 @@ import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import 'home_account_switcher.dart';
 import 'home_edit.dart';
+import 'home_greeting_intro.dart';
 import 'home_memory_bubble.dart';
 import 'home_metrics.dart';
 import 'home_selection.dart';
@@ -95,24 +96,21 @@ class HomeHeader extends ConsumerWidget {
               child: MemoryBubbleTitle(
                 child: Padding(
                   padding: const EdgeInsetsDirectional.only(end: HomeTokens.headerTitleBreathing),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SeamFade(
-                        fontSize: greetingStyle.fontSize!,
-                        child: Text(strings.greeting(part), style: greetingStyle, maxLines: 1, softWrap: false),
+                  // On a cold start the Yoin mark blooms here first (HomeGreetingTitle.kt).
+                  child: HomeIntroTitle(
+                    greeting: SeamFade(
+                      fontSize: greetingStyle.fontSize!,
+                      child: Text(strings.greeting(part), style: greetingStyle, maxLines: 1, softWrap: false),
+                    ),
+                    title: SeamFade(
+                      fontSize: titleStyle.fontSize!,
+                      child: _EditCrossfade(
+                        progress: editProgress,
+                        normal: Text(strings.title, style: titleStyle, maxLines: 1, softWrap: false),
+                        editing: Text(strings.editTitle, style: titleStyle, maxLines: 1, softWrap: false),
+                        alignment: AlignmentDirectional.centerStart,
                       ),
-                      SeamFade(
-                        fontSize: titleStyle.fontSize!,
-                        child: _EditCrossfade(
-                          progress: editProgress,
-                          normal: Text(strings.title, style: titleStyle, maxLines: 1, softWrap: false),
-                          editing: Text(strings.editTitle, style: titleStyle, maxLines: 1, softWrap: false),
-                          alignment: AlignmentDirectional.centerStart,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
