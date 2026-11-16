@@ -13,6 +13,7 @@ sealed class SettingsPane {
     StreamQualityPane(:final profileId) ||
     DownloadsPane(:final profileId) ||
     VolumeLevelingPane(:final profileId) => AccountPane(profileId),
+    PlaylistBackupPane() => const PlaylistBackupsPane(),
     _ => null,
   };
 }
@@ -71,6 +72,27 @@ final class CloudSyncPane extends SettingsPane {
   bool operator ==(Object other) => other is CloudSyncPane;
   @override
   int get hashCode => 6;
+}
+
+/// Settings › Playlist cloud backup (PlaylistBackupsPage): every backup.
+final class PlaylistBackupsPane extends SettingsPane {
+  const PlaylistBackupsPane();
+  @override
+  bool operator ==(Object other) => other is PlaylistBackupsPane;
+  @override
+  int get hashCode => 8;
+}
+
+/// One backup's page (PlaylistBackupActivity), opened from the backups list:
+/// on a wide window it opens over the list in the right pane, back returns to it.
+final class PlaylistBackupPane extends SettingsPane {
+  const PlaylistBackupPane(this.backupId);
+  final String backupId;
+
+  @override
+  bool operator ==(Object other) => other is PlaylistBackupPane && other.backupId == backupId;
+  @override
+  int get hashCode => Object.hash(9, backupId);
 }
 
 /// Settings › AI features (the Gemini key, tier and answer language).

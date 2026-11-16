@@ -277,6 +277,7 @@ final class Playlist {
     this.tracks = const [],
     this.canWrite = false,
     this.comment,
+    this.libraryAddedAt,
   });
   final MediaId id;
   final String name;
@@ -287,6 +288,11 @@ final class Playlist {
   final List<Track> tracks;
   final bool canWrite;
   final String? comment;
+
+  /// The service's own date for the playlist, ISO-8601 (Subsonic `created`,
+  /// Apple Music `dateAdded`; Android Playlist.libraryAddedAt): a playlist
+  /// backup shows it as "Playlist created".
+  final String? libraryAddedAt;
 }
 
 enum SearchResultType { tracks, albums, artists, playlists }

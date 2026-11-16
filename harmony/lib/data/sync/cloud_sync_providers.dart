@@ -2,11 +2,18 @@
 /// YoinApplication's foreground hooks). One [CloudSyncManager] for the app.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../../app/providers.dart';
+import '../ai/ai_settings.dart';
+import '../backup/playlist_backup_providers.dart';
+import '../backup/playlist_backup_store.dart';
+import '../lyrics/lyrics_cache.dart';
+import '../lyrics/lyrics_repository.dart' show lyricsCacheStoreProvider;
 import '../../home/home_section.dart' show homeLayoutProvider;
 import '../../playback/local_ratings.dart';
 import '../../platform/storage/observed_store.dart';
@@ -18,7 +25,10 @@ import '../model/media_id.dart';
 import '../profile/profile_repository.dart';
 import 'adapters/account_descriptor_sync_adapter.dart';
 import 'adapters/home_layout_sync_adapter.dart';
+import 'adapters/lyrics_translation_sync_adapter.dart';
 import 'adapters/memory_sync_adapters.dart';
+import 'adapters/playlist_backup_sync_adapter.dart';
+import 'adapters/settings_sync_adapter.dart';
 import 'adapters/track_rating_sync_adapter.dart';
 import 'auth/google_oauth.dart';
 import 'cloud_sync_manager.dart';
@@ -44,25 +54,38 @@ bool isSyncedKey(String key) =>
     key.startsWith('album_ratings.v1.') ||
     key.startsWith('memory_titles.v1.') ||
     key.startsWith('home_layout.v1.') ||
+    key == AiSettingsStore.prefsKey ||
+    key == KeyValueSeamStyleGateway.storeKey ||
     key == ProfileRepository.profilesKey;
 
 /// The v1 allowlist as HarmonyOS holds it: one adapter per kind this app
-/// keeps (Android YoinSyncAdapters). Kinds HarmonyOS doesn't have (settings,
-/// AI translations, About/Ask, AI Memory copy and titles, playlist backups)
-/// are carried in the replica untouched and published again, never dropped.
+/// keeps (Android YoinSyncAdapters). Kinds HarmonyOS doesn't have (About/Ask,
+/// AI Memory copy and titles) are carried in the replica untouched and
+/// published again, never dropped; so is the Spotify Client ID setting.
 List<SyncAdapter> yoinSyncAdapters({
   required SyncDatabase db,
   required MemoryStoreFor memory,
   required TrackRatingAccess ratings,
   required ProfileRepository profiles,
   required KeyValueStore store,
+  PlaylistBackupStore? backups,
+  LyricsCacheStore? lyricsCache,
+  SeamStyleGateway? seam,
+  Future<void> Function(String songKey)? onLyricsSeeded,
 }) => [
   SongNoteSyncAdapter(memory),
   TrackRatingSyncAdapter(ratings),
   AlbumRatingSyncAdapter(memory),
   AlbumReviewSyncAdapter(memory),
   HomeLayoutSyncAdapter(store: store, profiles: profiles.profiles),
+  SettingsSyncAdapter(
+    language: KeyValueTranslationLanguageGateway(store),
+    seam: seam ?? KeyValueSeamStyleGateway(store),
+    tracked: (key) async => db.getLocalState(SyncKinds.setting, SyncFormat.globalScope, key)?.localHash != null,
+  ),
+  if (lyricsCache != null) LyricsTranslationSyncAdapter(lyricsCache, onLyricsSeeded: onLyricsSeeded),
   AlbumTitleSyncAdapter(memory),
+  if (backups != null) PlaylistBackupSyncAdapter(backups),
   AccountDescriptorSyncAdapter(db: db, profiles: profiles.profiles, credentials: (p) => profiles.credentials(p.id)),
 ];
 
@@ -74,6 +97,9 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
   final client = http.Client();
   final auth = GoogleOAuth(config: ref.watch(googleOAuthConfigProvider), host: host, http: client, secrets: secrets);
   final ratings = _NotifierTrackRatingAccess(ref);
+  final backups = ref.watch(playlistBackupStoreProvider);
+  final lyricsCache = ref.watch(lyricsCacheStoreProvider);
+  final lyricsBudget = lyricsCache == null ? null : LyricsCacheBudget(lyricsCache);
   final manager = CloudSyncManager(
     db: SyncDatabase(IoSyncDbFile(host.filesDirectory)),
     auth: auth,
@@ -85,6 +111,9 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
       ratings: ratings,
       profiles: profiles,
       store: store,
+      backups: backups,
+      lyricsCache: lyricsCache,
+      onLyricsSeeded: lyricsBudget?.onWrite,
     ),
     binder: (db) => AccountBinder(db: db, profiles: profiles.profiles, credentials: (p) => profiles.credentials(p.id)),
     deviceName: host.deviceName,
@@ -94,8 +123,10 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
       // Notes, album rows and titles refresh through MemoryStore.changes and
       // ratings through their notifier; the Home layout is read again.
       if (kinds.contains(SyncKinds.homeLayout)) ref.invalidate(homeLayoutProvider);
+      // The translation language (and the scroll edge style's own reader, once it exists) read again.
+      if (kinds.contains(SyncKinds.setting)) ref.invalidate(aiSettingsProvider);
     },
-    localChanges: store is ObservedKeyValueStore ? store.writes.where(isSyncedKey) : null,
+    localChanges: _localChanges(store is ObservedKeyValueStore ? store.writes.where(isSyncedKey) : null, backups),
   );
   ref.onDispose(() {
     manager.dispose();
@@ -103,6 +134,23 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
   });
   return manager;
 });
+
+/// A synced key written, or a playlist backup changed (its own store, not the key-value one).
+Stream<void> _localChanges(Stream<String>? keys, PlaylistBackupStore backups) {
+  final merged = StreamController<void>.broadcast();
+  final subscriptions = <StreamSubscription<void>>[];
+  merged.onListen = () {
+    if (keys != null) subscriptions.add(keys.listen((_) => merged.add(null)));
+    subscriptions.add(backups.changes.listen((_) => merged.add(null)));
+  };
+  merged.onCancel = () async {
+    for (final s in subscriptions) {
+      await s.cancel();
+    }
+    subscriptions.clear();
+  };
+  return merged.stream;
+}
 
 /// Runs cloud sync with the app: a cycle when it comes to the front (at most
 /// once a minute), an upload when it leaves with changes waiting. main()

@@ -180,6 +180,13 @@ class CloudSyncManager implements CloudSyncController {
     if (_db.meta(SyncMetaKeys.pendingReset) != null) _launch(_resumePendingReset);
   }
 
+  /// [localProfileId]'s binding as the sync store holds it (null without one):
+  /// what [AccountKeys] names an account by. Reads the store, never the network.
+  Future<SyncBindingEntity?> bindingFor(String localProfileId) async {
+    await _db.open();
+    return _db.bindingFor(localProfileId);
+  }
+
   // ---- CloudSyncController
 
   @override

@@ -26,6 +26,7 @@ class CloudSyncStrings {
       : 'Cloud sync was turned off and its Drive data deleted on another device. Turn it on again to start fresh from this device.'; // settings_sync_reset_other_device
   String get sectionWhatYouGet => _zh ? '同步内容' : 'What you get'; // settings_sync_section_what_you_get
   String get benefitNotes => _zh ? '笔记、评分与评论' : 'Notes, ratings and reviews'; // settings_sync_benefit_notes
+  String get benefitTranslations => _zh ? '歌词翻译' : 'Lyric translations'; // settings_sync_benefit_translations
   String get benefitSettings => _zh ? '首页布局与设置' : 'Home layout and settings'; // settings_sync_benefit_settings
   String get benefitOffline => _zh ? '支持离线记录' : 'Works offline'; // settings_sync_benefit_offline
   String get sectionGoodToKnow => _zh ? '说明' : 'Good to know'; // settings_sync_section_good_to_know
@@ -93,6 +94,9 @@ class CloudSyncStrings {
   String get whatRatings =>
       _zh ? '歌曲与专辑评分、专辑评论' : 'Song and album ratings, album reviews'; // settings_sync_what_ratings
   String get whatHome => _zh ? '首页布局' : 'Home layout'; // settings_sync_what_home
+  String get whatTranslations => _zh ? 'AI 歌词翻译' : 'AI lyric translations'; // settings_sync_what_translations
+  String get whatPlaylistBackups =>
+      _zh ? '歌单云备份' : 'Playlist cloud backup'; // settings_sync_what_playlist_backups
   String get whatAccounts => _zh ? '账号名称、服务器地址' : 'Account names, server addresses'; // settings_sync_what_accounts
   String get whatStays => _zh ? '仅保存在本地' : 'Stays on this device'; // settings_sync_what_stays
   String get whatHistory => _zh ? '播放记录' : 'Listening history'; // settings_sync_what_history

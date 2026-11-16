@@ -303,7 +303,7 @@ Track _inAlbum(Track t, MediaId albumId, MediaId? artistId) => Track(
   genre: t.genre,
 );
 
-final class _AppleMusicLibrary implements MusicLibrary {
+final class _AppleMusicLibrary implements MusicLibrary, MusicTrackCodes {
   _AppleMusicLibrary(this._s);
   final AppleMusicSource _s;
 
@@ -561,6 +561,7 @@ final class _AppleMusicLibrary implements MusicLibrary {
           owner: listed.owner,
           coverArt: listed.coverArt ?? read.coverArt,
           comment: listed.comment ?? read.comment,
+          libraryAddedAt: listed.libraryAddedAt,
         ),
         read.tracks,
       );
@@ -586,6 +587,35 @@ final class _AppleMusicLibrary implements MusicLibrary {
 
   /// Catalogue search: songs (with their albums and artists), albums, artists
   /// and playlists, at most [_searchLimit] of each.
+  @override
+  String? isrcOf(MediaId trackId) => _s._facts[trackId]?.isrc;
+
+  /// The catalogue's songs by ISRC (Android AppleMusicApiClient.catalogSongsByIsrc): 25 codes a request,
+  /// malformed codes left out, each song filed under the code Apple gives it.
+  @override
+  Future<Map<String, List<Track>>> tracksByIsrc(List<String> isrcs) => _s._guard(() async {
+    final codes = {
+      for (final raw in isrcs)
+        if (_isrcPattern.hasMatch(raw.trim().toUpperCase())) raw.trim().toUpperCase(),
+    }.toList();
+    final found = <String, List<Track>>{};
+    if (codes.isEmpty) return found;
+    final storefront = await _s._storefrontId();
+    for (var i = 0; i < codes.length; i += _isrcBatch) {
+      final batch = codes.skip(i).take(_isrcBatch).toList();
+      final response = await _s._page(['v1', 'catalog', storefront, 'songs'], query: {'filter[isrc]': batch.join(',')});
+      for (final song in songsFrom(resources(response))) {
+        final isrc = song.facts.isrc;
+        if (isrc == null || !batch.contains(isrc)) continue;
+        (found[isrc] ??= []).add(_s._rememberOne(song));
+      }
+    }
+    return found;
+  });
+
+  static final _isrcPattern = RegExp(r'^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$');
+  static const _isrcBatch = 25;
+
   @override
   Future<SearchResults> search(String query, {int trackCount = 20, int albumCount = 20, int artistCount = 20}) =>
       _s._guard(() async {
@@ -686,7 +716,12 @@ final class _AppleMusicWriteActions implements MusicWriteActions, MusicPlaylistW
       throw const AppleMusicApiException(AppleMusicFailure.invalidResponse, detail: 'Apple Music returned no playlist');
     }
     for (var i = _batch; i < refs.length; i += _batch) {
-      await _api.addTracksToLibraryPlaylist(appleId(created.id), refs.skip(i).take(_batch).toList());
+      try {
+        await _api.addTracksToLibraryPlaylist(appleId(created.id), refs.skip(i).take(_batch).toList());
+      } catch (e) {
+        // The playlist is there with the songs so far: say so rather than lose it (a restore records it).
+        throw PartialPlaylistCreate(created, i, e);
+      }
     }
     return created;
   }

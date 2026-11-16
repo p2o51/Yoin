@@ -252,6 +252,7 @@ Playlist? playlistFrom(AppleMusicJson resource) {
     owner: text(a, 'curatorName'),
     coverArt: coverOf(a),
     comment: text(obj(a['description']), 'standard'),
+    libraryAddedAt: text(a, 'dateAdded'),
   );
 }
 
@@ -266,6 +267,7 @@ Playlist playlistWithTracks(Playlist playlist, List<Track> tracks) => Playlist(
   tracks: tracks,
   canWrite: playlist.canWrite,
   comment: playlist.comment,
+  libraryAddedAt: playlist.libraryAddedAt,
 );
 
 /// A library playlist's catalog playlist (`playParams.globalId`, `pl.…`), if any.

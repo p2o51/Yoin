@@ -178,6 +178,39 @@ extension MusicSourcePlaylists on MusicSource {
   }
 }
 
+/// A new playlist made, but not every song went in (Android
+/// PartialPlaylistImportException): [playlist] exists on the service and
+/// holds the first [added] songs; [cause] stopped the rest.
+final class PartialPlaylistCreate implements Exception {
+  const PartialPlaylistCreate(this.playlist, this.added, this.cause);
+  final Playlist playlist;
+  final int added;
+  final Object cause;
+
+  @override
+  String toString() => 'PartialPlaylistCreate(${playlist.id}, $added added: $cause)';
+}
+
+/// A song's ISRC, and the catalogue's songs for ISRCs (Android
+/// Track.EXTRA_ISRC and MusicLibrary.tracksByIsrc): what a playlist backup
+/// keeps and what a restore matches first. Only where the service knows ISRCs
+/// (Apple Music); a source without it is matched by title search alone.
+abstract interface class MusicTrackCodes {
+  /// [trackId]'s ISRC (upper case), for a row this source handed out; null when unknown.
+  String? isrcOf(MediaId trackId);
+
+  /// The catalogue's songs for each of [isrcs] that it has, by ISRC.
+  Future<Map<String, List<Track>>> tracksByIsrc(List<String> isrcs);
+}
+
+/// A source's ISRCs: null when it has none.
+extension MusicSourceTrackCodes on MusicSource {
+  MusicTrackCodes? get trackCodes => switch (library) {
+    final MusicTrackCodes c => c,
+    _ => null,
+  };
+}
+
 /// Where a song is fetched from to keep it on the device (Android
 /// OfflineDownloads.resolveDownload), gated by [Capability.offlineDownload].
 /// The address is signed for the account now, so it is made as the download
