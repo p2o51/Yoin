@@ -126,4 +126,16 @@ void main() {
       expect(playlist!.ownedByMe, isNull);
     });
   });
+
+  group('song composer', () {
+    test('should_readTheComposer_when_theCatalogNamesOne', () {
+      final json = fx.catalogSong('21');
+      (json['attributes']! as Map<String, Object?>)['composerName'] = ' Max Martin ';
+      expect(songFrom(json)!.track.composer, 'Max Martin');
+    });
+
+    test('should_haveNoComposer_when_theCatalogNamesNone', () {
+      expect(songFrom(fx.catalogSong('22'))!.track.composer, isNull);
+    });
+  });
 }

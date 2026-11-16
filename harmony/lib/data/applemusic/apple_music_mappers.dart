@@ -147,6 +147,8 @@ AppleMusicSong? songFrom(AppleMusicJson resource) {
     trackNumber: _int(attributes?['trackNumber']),
     discNumber: _int(attributes?['discNumber']),
     genre: genres is List ? genres.whereType<String>().where((g) => g.trim().isNotEmpty).firstOrNull : null,
+    // The catalogue's composer credit (About's composer when the lyrics name none).
+    composer: (text(attributes, 'composerName') ?? text(catalogAttributes, 'composerName'))?.trim(),
     // Library membership is deliberately not a favourite (Android).
   );
   return (

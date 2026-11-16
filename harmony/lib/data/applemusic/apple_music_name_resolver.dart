@@ -304,6 +304,12 @@ Track renamedTrack(Track t, {String? title, String? artist, String? album}) => T
   addedAt: t.addedAt,
   audioFormat: t.audioFormat,
   replayGain: t.replayGain,
+  sizeBytes: t.sizeBytes,
+  playCount: t.playCount,
+  bpm: t.bpm,
+  composer: t.composer,
+  comment: t.comment,
+  path: t.path,
 );
 
 /// [a] under other names (and, with [tracks], another tracklist); everything else kept.

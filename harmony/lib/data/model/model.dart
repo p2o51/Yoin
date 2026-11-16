@@ -2,6 +2,8 @@
 /// provider maps into these; never let provider DTOs past the source layer.
 library;
 
+import 'package:flutter/foundation.dart';
+
 import 'media_id.dart';
 import 'replay_gain.dart';
 
@@ -155,6 +157,12 @@ final class Track {
     this.audioFormat,
     this.replayGain,
     this.artists = const [],
+    this.sizeBytes,
+    this.playCount,
+    this.bpm,
+    this.composer,
+    this.comment,
+    this.path,
   });
 
   final MediaId id;
@@ -190,6 +198,29 @@ final class Track {
   /// EXTRA_ARTIST_IDS); empty otherwise. Read [artistCredits].
   final List<ArtistCredit> artists;
 
+  // What the server says about the file itself, for About's receipt (Android
+  // Track.extras EXTRA_SIZE / EXTRA_PLAY_COUNT / EXTRA_BPM / EXTRA_COMPOSER /
+  // EXTRA_COMMENT / EXTRA_PATH). Null when the service doesn't say.
+
+  /// The file's size in bytes (Subsonic `size`).
+  final int? sizeBytes;
+
+  /// The server's own play count, positive only (Subsonic `playCount`).
+  final int? playCount;
+
+  /// Beats per minute, positive only (OpenSubsonic `bpm`).
+  final int? bpm;
+
+  /// The composer the service names (OpenSubsonic `displayComposer`, Apple
+  /// Music `composerName`): About's composer when the lyrics name none.
+  final String? composer;
+
+  /// The file's comment tag (Subsonic `comment`), trimmed.
+  final String? comment;
+
+  /// The file's path on the server (Subsonic `path`).
+  final String? path;
+
   /// Every credited artist with the page each one opens: [artists] where the
   /// service named several, else the one [artist] with [artistId] (Android
   /// Track.artistCredits). An artist the service gives no id has a null id.
@@ -224,6 +255,12 @@ final class Track {
         audioFormat: audioFormat,
         replayGain: replayGain,
         artists: artists,
+        sizeBytes: sizeBytes,
+        playCount: playCount,
+        bpm: bpm,
+        composer: composer,
+        comment: comment,
+        path: path,
       );
 }
 
@@ -363,7 +400,9 @@ final class Starred {
   final List<Artist> artists;
 }
 
-/// Lyrics: plain text, or timed lines (data/model/Lyrics.kt, credits dropped for v1).
+/// Lyrics: plain text, or timed lines (data/model/Lyrics.kt). The credits the
+/// source wrote into them are taken out where every lyric enters Now Playing
+/// (`lyricSheetOf`) and travel with the sheet as [LyricCredits].
 sealed class Lyrics {
   const Lyrics({this.language});
   final String? language;
@@ -384,6 +423,72 @@ final class LyricLine {
   final int startMs;
   final String text;
 }
+
+/// Credits found at the start and end of a song's lyrics, in file order
+/// (data/model/Lyrics.kt LyricCredits). [roles] are "role : names" lines (plus
+/// a few free-form English lines such as "Recorded at …", whose
+/// [LyricCredit.role] is empty); [notices] are copyright and licensing lines,
+/// shown small at the foot of About.
+@immutable
+final class LyricCredits {
+  const LyricCredits(this.roles, {this.notices = const []});
+
+  final List<LyricCredit> roles;
+  final List<String> notices;
+
+  /// Names for one of the four headline roles, merged across lines; null when absent.
+  String? namesFor(LyricCreditRole role) {
+    final names = <String>[];
+    for (final r in roles) {
+      if (r.headline == role && r.names.trim().isNotEmpty && !names.contains(r.names)) names.add(r.names);
+    }
+    return names.isEmpty ? null : names.join(' / ');
+  }
+
+  /// Every credit that isn't one of the four headline roles.
+  List<LyricCredit> get others => [
+    for (final r in roles)
+      if (r.headline == null) r,
+  ];
+
+  bool get isEmpty => roles.isEmpty && notices.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LyricCredits && listEquals(other.roles, roles) && listEquals(other.notices, notices);
+
+  @override
+  int get hashCode => Object.hash(Object.hashAll(roles), Object.hashAll(notices));
+
+  @override
+  String toString() => 'LyricCredits($roles, notices: $notices)';
+}
+
+/// One credit line (LyricCredit).
+@immutable
+final class LyricCredit {
+  const LyricCredit(this.role, this.names, {this.headline});
+
+  /// The role as the source wrote it ("混音", "Bass Guitar"); empty for a free-form line.
+  final String role;
+  final String names;
+  final LyricCreditRole? headline;
+
+  LyricCredit withNames(String names) => LyricCredit(role, names, headline: headline);
+
+  @override
+  bool operator ==(Object other) =>
+      other is LyricCredit && other.role == role && other.names == names && other.headline == headline;
+
+  @override
+  int get hashCode => Object.hash(role, names, headline);
+
+  @override
+  String toString() => 'LyricCredit($role: $names${headline == null ? '' : ', $headline'})';
+}
+
+/// The roles About shows up front, in this order (LyricCreditRole).
+enum LyricCreditRole { lyricist, composer, arranger, producer }
 
 /// How a track plays (data/model/PlaybackHandle.kt).
 sealed class PlaybackHandle {

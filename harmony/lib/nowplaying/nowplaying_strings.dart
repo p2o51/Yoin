@@ -227,6 +227,19 @@ class NowPlayingStrings {
     _ => _zh ? '$n 声道' : '$n channels', // np_about_channel_count
   };
   String get aboutAdded => _zh ? '加入资料库' : 'Added'; // np_about_added
+  String get aboutArranger => _zh ? '编曲' : 'Arranger'; // np_about_arranger
+  String get aboutSize => _zh ? '文件大小' : 'File size'; // np_about_size
+  String aboutMegabytes(String v) => '$v MB'; // np_about_megabytes
+  String get aboutBpm => 'BPM'; // np_about_bpm
+  String get aboutPlayCount => _zh ? '播放次数' : 'Plays'; // np_about_play_count
+  String get aboutComment => _zh ? '备注' : 'Comment'; // np_about_comment
+  String get aboutFile => _zh ? '文件' : 'File'; // np_about_file
+
+  // The lyrics' other credits under the receipt (strings_component cmp_lyric_credits_*).
+  String lyricCreditsMore(int n, String roles) =>
+      _zh ? '更多 $n 项 · $roles' : '$n more · $roles'; // cmp_lyric_credits_more
+  String get lyricCreditsLess => _zh ? '收起' : 'Show less'; // cmp_lyric_credits_less
+  String get lyricCreditsNote => _zh ? '备注' : 'Note'; // cmp_lyric_credits_note
   String get spineQuality => _zh ? '音质' : 'Quality'; // np_spine_quality
   String get spineServerRating => _zh ? '服务器评分' : 'Server rating'; // np_spine_server_rating
   String get spineGenre => _zh ? '流派' : 'Genre'; // np_spine_genre

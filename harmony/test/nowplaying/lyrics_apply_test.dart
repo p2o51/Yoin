@@ -61,6 +61,7 @@ void main() {
   ProviderContainer make({
     NetEaseTranslator? withTranslator,
     String serverLine = 'server line',
+    List<LyricLine>? serverLines,
     List<LyricProvider> providers = const [],
   }) {
     store = InMemoryStore();
@@ -72,7 +73,7 @@ void main() {
           controller: NowPlayingFakeController(playingState(tracks)),
           source: NowPlayingFakeSource(
             lyrics: {
-              't0': SyncedLyrics([LyricLine(0, serverLine)]),
+              't0': SyncedLyrics(serverLines ?? [LyricLine(0, serverLine)]),
             },
           ),
         ),
@@ -149,6 +150,25 @@ void main() {
       expect(shown().showTranslation, isTrue);
       expect((shown().lyrics as LyricsReady).sheet.rows.single.translation, '服务器那一行');
       expect(store.values.keys.any((k) => k.contains('netease-aligned')), isTrue, reason: 'kept for the song');
+    });
+
+    test('should_keepTheLyricsCredits_when_theTranslationLands', () async {
+      c = make(
+        serverLines: [
+          LyricLine(0, 'server line'),
+          LyricLine(1000, 'second line'),
+          LyricLine(5000, '作词：A'),
+          LyricLine(6000, '作曲：B'),
+        ],
+      );
+      await c.read(activeSourceProvider.future);
+      await settle();
+      expect(shown().lyricCredits?.namesFor(LyricCreditRole.lyricist), 'A');
+      expect(await c.read(nowPlayingViewModelProvider.notifier).translateLyrics(), isA<LyricsTranslateDone>());
+      expect((shown().lyrics as LyricsReady).sheet.rows.first.translation, '服务器那一行');
+      // About and the spine still read the credits off the translated sheet.
+      expect(shown().lyricCredits?.namesFor(LyricCreditRole.lyricist), 'A');
+      expect(shown().lyricCredits?.namesFor(LyricCreditRole.composer), 'B');
     });
 
     test('should_toggleWithoutAsking_when_translationThere', () async {

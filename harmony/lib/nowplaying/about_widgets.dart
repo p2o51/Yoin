@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/about/song_about_store.dart';
+import '../data/model/model.dart';
+import '../home/widgets/spring_height.dart';
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -91,6 +93,20 @@ final class NowPlayingAboutLabels implements AboutLabels {
   String channelCount(int count) => s.aboutChannelCount(count);
   @override
   String get added => s.aboutAdded;
+  @override
+  String get arranger => s.aboutArranger;
+  @override
+  String get size => s.aboutSize;
+  @override
+  String megabytes(String value) => s.aboutMegabytes(value);
+  @override
+  String get bpm => s.aboutBpm;
+  @override
+  String get playCount => s.aboutPlayCount;
+  @override
+  String get comment => s.aboutComment;
+  @override
+  String get file => s.aboutFile;
 }
 
 /// Three dots blinking in turn while the AI writes (held still under reduced motion).
@@ -270,20 +286,44 @@ class _ReceiptLine extends StatelessWidget {
   }
 }
 
-/// The receipt card ([rows] with a dashed rule between). [thinking] marks a
-/// row the AI is writing again; [onLongPress] opens an AI row's sheet (null:
-/// rows don't respond).
-class AboutReceipt extends StatelessWidget {
-  const AboutReceipt({super.key, required this.rows, this.thinking, this.onLongPress});
+/// The receipt card ([rows] with a dashed rule between). [credits] give the
+/// lyrics' other roles, behind an "N more · …" line that unrolls them on a
+/// spatial spring ("Show less" rolls them up), and the copyright notices,
+/// small at the foot. [thinking] marks a row the AI is writing again;
+/// [onLongPress] opens an AI row's sheet (null: rows don't respond).
+class AboutReceipt extends StatefulWidget {
+  const AboutReceipt({super.key, required this.rows, this.credits, this.thinking, this.onLongPress});
 
   final List<ReceiptRow> rows;
+  final LyricCredits? credits;
   final bool Function(SongAboutEntry entry)? thinking;
   final void Function(ReceiptRow row)? onLongPress;
 
   @override
+  State<AboutReceipt> createState() => _AboutReceiptState();
+}
+
+class _AboutReceiptState extends State<AboutReceipt> {
+  /// The other credits are shown; folds again when the credits change (a new song).
+  bool _expanded = false;
+
+  @override
+  void didUpdateWidget(AboutReceipt old) {
+    super.didUpdateWidget(old);
+    if (old.credits != widget.credits) _expanded = false;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (rows.isEmpty) return const SizedBox.shrink();
-    final colors = Theme.of(context).colorScheme;
+    final rows = widget.rows;
+    final others = widget.credits?.others ?? const <LyricCredit>[];
+    final notices = widget.credits?.notices ?? const <String>[];
+    if (rows.isEmpty && others.isEmpty && notices.isEmpty) return const SizedBox.shrink();
+    final strings = NowPlayingStrings.of(context);
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final thinking = widget.thinking;
+    final onLongPress = widget.onLongPress;
     return DecoratedBox(
       decoration: ShapeDecoration(
         color: colors.surfaceContainerLow,
@@ -294,21 +334,92 @@ class AboutReceipt extends StatelessWidget {
           horizontal: NowPlayingAboutTokens.receiptPadH,
           vertical: NowPlayingAboutTokens.receiptPadV,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final (i, row) in rows.indexed) ...[
-              if (i > 0) const DashedRule(),
-              _ReceiptLine(
-                label: row.label,
-                value: row.value,
-                thinking: row.entry != null && (thinking?.call(row.entry!) ?? false),
-                onLongPress: row.entry != null && onLongPress != null ? () => onLongPress!(row) : null,
-              ),
+        // The card follows its content on the spatial spring (animateContentSize).
+        child: SpringHeight(
+          // Any change of what the card holds (an AI row landing or rewritten, the credits unrolling, a new
+          // song's credits) springs; the thinking dots swap in place.
+          heightKey: (_expanded, Object.hashAll(rows), widget.credits),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final (i, row) in rows.indexed) ...[
+                if (i > 0) const DashedRule(),
+                _ReceiptLine(
+                  label: row.label,
+                  value: row.value,
+                  thinking: row.entry != null && (thinking?.call(row.entry!) ?? false),
+                  onLongPress: row.entry != null && onLongPress != null ? () => onLongPress(row) : null,
+                ),
+              ],
+              if (others.isNotEmpty) ...[
+                if (rows.isNotEmpty) const DashedRule(),
+                if (_expanded)
+                  for (final credit in others) ...[_OtherCreditLine(credit), const DashedRule()],
+                // clickable(role = Button): a plain rectangular ripple inside the card's padding, so no
+                // rounded clip (CornerMask) is needed.
+                Semantics(
+                  button: true,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: InkWell(
+                      onTap: () => setState(() => _expanded = !_expanded),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: NowPlayingAboutTokens.creditsTogglePadV),
+                        child: Text(
+                          _expanded
+                              ? strings.lyricCreditsLess
+                              : strings.lyricCreditsMore(
+                                  others.length,
+                                  lyricCreditsMorePreview(others, strings.lyricCreditsNote),
+                                ),
+                          style: theme.textTheme.labelMedium?.copyWith(color: colors.primary),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              if (notices.isNotEmpty) ...[
+                const DashedRule(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: NowPlayingAboutTokens.noticesPadV),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (i, notice) in notices.indexed)
+                        Padding(
+                          padding: EdgeInsets.only(top: i == 0 ? 0 : NowPlayingAboutTokens.noticeGap),
+                          child: Text(
+                            notice,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.labelSmall?.copyWith(color: colors.onSurfaceVariant),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// One of the lyrics' other credits: a receipt line, or a free-form line on its own.
+class _OtherCreditLine extends StatelessWidget {
+  const _OtherCreditLine(this.credit);
+
+  final LyricCredit credit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (credit.role.isNotEmpty) return _ReceiptLine(label: credit.role, value: credit.names);
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: NowPlayingAboutTokens.receiptLinePadV),
+      child: Text(credit.names, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurface)),
     );
   }
 }
@@ -465,6 +576,7 @@ class SongInfoDisplay extends StatelessWidget {
     required this.state,
     required this.onRetry,
     required this.onOpenSettings,
+    this.credits,
     this.facts,
     this.songKey = '',
   });
@@ -472,6 +584,9 @@ class SongInfoDisplay extends StatelessWidget {
   final AboutUiState state;
   final VoidCallback onRetry;
   final VoidCallback onOpenSettings;
+
+  /// The credits the lyrics source wrote into the lyrics; shown with or without the AI.
+  final LyricCredits? credits;
   final AboutSourceFacts? facts;
   final String songKey;
 
@@ -483,7 +598,7 @@ class SongInfoDisplay extends StatelessWidget {
       _ => const <SongAboutEntry>[],
     };
     final pages = aboutCarouselPages(
-      aboutReceiptRows(entries, facts, NowPlayingAboutLabels(strings)),
+      aboutReceiptRows(entries, credits, facts, NowPlayingAboutLabels(strings)),
       aboutParagraphs(entries, strings.aboutReview),
     );
     final status = _AboutStatus(state: state, onRetry: onRetry, onOpenSettings: onOpenSettings);
@@ -579,6 +694,7 @@ class AboutPane extends StatelessWidget {
     required this.state,
     required this.onRetry,
     required this.onOpenSettings,
+    this.credits,
     this.facts,
     this.actions,
     this.bottomPadding = NowPlayingAboutTokens.paneBottom,
@@ -587,6 +703,9 @@ class AboutPane extends StatelessWidget {
   final AboutUiState state;
   final VoidCallback onRetry;
   final VoidCallback onOpenSettings;
+
+  /// The credits the lyrics source wrote into the lyrics; shown first, with or without the AI.
+  final LyricCredits? credits;
   final AboutSourceFacts? facts;
   final AboutEntryActions? actions;
   final double bottomPadding;
@@ -596,13 +715,16 @@ class AboutPane extends StatelessWidget {
     final strings = NowPlayingStrings.of(context);
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    // The receipt without the AI (no key, or it failed): the lyrics' credits and the server's facts.
     Widget sourceReceipt() {
-      final rows = aboutReceiptRows(const [], facts, NowPlayingAboutLabels(strings));
-      return rows.isEmpty
+      final rows = aboutReceiptRows(const [], credits, facts, NowPlayingAboutLabels(strings));
+      final c = credits;
+      final empty = rows.isEmpty && (c == null || (c.others.isEmpty && c.notices.isEmpty));
+      return empty
           ? const SizedBox.shrink()
           : Padding(
               padding: const EdgeInsets.only(bottom: NowPlayingAboutTokens.receiptStatusGap),
-              child: AboutReceipt(rows: rows),
+              child: AboutReceipt(rows: rows, credits: credits),
             );
     }
 
@@ -642,6 +764,7 @@ class AboutPane extends StatelessWidget {
       ),
       AboutReady(:final entries) => _ReadyAbout(
         entries: entries,
+        credits: credits,
         facts: facts,
         actions: actions,
         bottomPadding: bottomPadding,
@@ -652,9 +775,16 @@ class AboutPane extends StatelessWidget {
 }
 
 class _ReadyAbout extends StatefulWidget {
-  const _ReadyAbout({required this.entries, required this.facts, required this.actions, required this.bottomPadding});
+  const _ReadyAbout({
+    required this.entries,
+    required this.credits,
+    required this.facts,
+    required this.actions,
+    required this.bottomPadding,
+  });
 
   final List<SongAboutEntry> entries;
+  final LyricCredits? credits;
   final AboutSourceFacts? facts;
   final AboutEntryActions? actions;
   final double bottomPadding;
@@ -712,7 +842,7 @@ class _ReadyAboutState extends State<_ReadyAbout> with TickerProviderStateMixin 
     final strings = NowPlayingStrings.of(context);
     final actions = widget.actions;
     final regenerating = actions?.regenerating ?? const <AboutRef>{};
-    final rows = aboutReceiptRows(widget.entries, widget.facts, NowPlayingAboutLabels(strings));
+    final rows = aboutReceiptRows(widget.entries, widget.credits, widget.facts, NowPlayingAboutLabels(strings));
     final paragraphs = aboutParagraphs(widget.entries, strings.aboutReview);
     return AnimatedBuilder(
       animation: _fade.animation,
@@ -752,6 +882,7 @@ class _ReadyAboutState extends State<_ReadyAbout> with TickerProviderStateMixin 
             children: [
               AboutReceipt(
                 rows: rows,
+                credits: widget.credits,
                 thinking: (entry) => regenerating.contains(entry.ref),
                 onLongPress: actions == null ? null : (row) => _open(row.entry!, row.label),
               ),
