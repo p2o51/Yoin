@@ -215,14 +215,26 @@ enum NeoDbPushOutcome { pushed, nothingToPush, notConfigured, failed, busy }
 /// with the app, not with the sheet that asked: closing the sheet starts a
 /// push that may land after it is gone.
 class NeoDbPushController extends Notifier<NeoDbPushState> {
+  /// Albums with a push under way, claimed before the first await: the sheet's
+  /// close and the Memories save can ask at once, and only one may send.
+  final _inFlight = <MediaId>{};
+
+  /// Asked again while busy: the push that runs reads the row before the
+  /// newer change landed, so one more follows it (a no-op when nothing waits).
+  final _again = <MediaId>{};
+
   @override
   NeoDbPushState build() => const NeoDbPushState();
 
   /// Pushes [albumId] of the account in use. A failure shows
   /// [failureMessage] once and leaves the album failed until a push lands.
   Future<NeoDbPushOutcome> push(MediaId albumId, {required String failureMessage, Album? album}) async {
-    if (state.syncing.contains(albumId)) return NeoDbPushOutcome.busy;
+    if (!_inFlight.add(albumId)) {
+      _again.add(albumId);
+      return NeoDbPushOutcome.busy;
+    }
     var registered = false;
+    var failed = false;
     try {
       final account = await ref.read(neoDbAccountProvider.future);
       if (!account.configured) return NeoDbPushOutcome.notConfigured;
@@ -244,13 +256,19 @@ class NeoDbPushController extends Notifier<NeoDbPushState> {
     } catch (e) {
       // Offline with no cached detail, the album read throws too: a failed sync, never a crash.
       debugPrint('NeoDb: push failed for $albumId: ${e.runtimeType}');
+      failed = true;
       if (!ref.mounted) return NeoDbPushOutcome.failed;
       _setFailed(albumId, true);
       ref.read(neoDbMessengerProvider)(failureMessage);
       return NeoDbPushOutcome.failed;
     } finally {
+      _inFlight.remove(albumId);
       if (registered && ref.mounted) {
         state = state.copyWith(syncing: {...state.syncing}..remove(albumId));
+      }
+      // A failure already said so and waits for Retry; a landed push takes the newer change too.
+      if (_again.remove(albumId) && !failed && ref.mounted) {
+        unawaited(push(albumId, failureMessage: failureMessage, album: album));
       }
     }
   }

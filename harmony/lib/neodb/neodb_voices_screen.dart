@@ -184,15 +184,22 @@ class _CoverTheme extends StatefulWidget {
 class _CoverThemeState extends State<_CoverTheme> {
   Color? _seed;
 
+  /// One scheme per seed and brightness: a new ColorScheme instance rebuilds
+  /// every Theme reader, and the page rebuilds on each state change.
+  ColorScheme? _scheme;
+  Brightness? _schemeBrightness;
+
   @override
   void initState() {
     super.initState();
     final url = widget.coverUrl;
-    if (url != null) {
-      coverSeedColor(url).then((seed) {
-        if (mounted && seed != null) setState(() => _seed = seed);
-      });
-    }
+    if (url == null) return;
+    // The album page read it already: the page opens in its colours.
+    _seed = cachedCoverSeed(url);
+    if (_seed != null) return;
+    coverSeedColor(url).then((seed) {
+      if (mounted && seed != null) setState(() => _seed = seed);
+    });
   }
 
   @override
@@ -200,8 +207,12 @@ class _CoverThemeState extends State<_CoverTheme> {
     final seed = _seed;
     if (seed == null) return widget.child;
     final theme = Theme.of(context);
+    if (_scheme == null || _schemeBrightness != theme.brightness) {
+      _scheme = yoinExpressiveScheme(seed, theme.brightness);
+      _schemeBrightness = theme.brightness;
+    }
     return Theme(
-      data: theme.copyWith(colorScheme: yoinExpressiveScheme(seed, theme.brightness)),
+      data: theme.copyWith(colorScheme: _scheme),
       child: widget.child,
     );
   }
@@ -435,7 +446,8 @@ class _VoicesListState extends State<_VoicesList> {
         if (url != null) widget.onOpenUrl(url);
       },
     );
-    return _initial.contains(voice.id) ? card : _FadeIn(child: card);
+    // Keyed like the card: a lane's children keep their state as later pages append.
+    return _initial.contains(voice.id) ? card : _FadeIn(key: ValueKey('fade:${voice.id}'), child: card);
   }
 
   Widget _tail(BuildContext context) {
@@ -467,7 +479,7 @@ class _VoicesListState extends State<_VoicesList> {
 
 /// Fades a card in once on the effects spring (a later page's cards arriving).
 class _FadeIn extends StatefulWidget {
-  const _FadeIn({required this.child});
+  const _FadeIn({super.key, required this.child});
 
   final Widget child;
 

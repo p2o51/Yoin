@@ -19,6 +19,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:http/http.dart' as http;
+
 import '../../platform/sync/cloud_sync_host.dart';
 import 'neodb_api.dart';
 import 'neodb_config.dart';
@@ -60,6 +62,9 @@ class NeoDbOAuth {
   static const callbackPath = '/neodb/callback';
   static const scope = 'read write';
 
+  /// Android's words when the sign-in fails with nothing better to say.
+  static const signInFailed = 'NeoDB sign-in failed';
+
   final NeoDbApi _api;
   final CloudSyncHost _host;
   final Random _random;
@@ -85,7 +90,7 @@ class NeoDbOAuth {
     try {
       server = await _bindLoopback();
     } on SocketException catch (e) {
-      return NeoDbOAuthFailure(e.message.isEmpty ? 'NeoDB sign-in failed' : e.message);
+      return NeoDbOAuthFailure(e.message.isEmpty ? signInFailed : e.message);
     }
     final redirectUri = 'http://${server.address.address}:${server.port}$callbackPath';
     final state = _randomState();
@@ -106,7 +111,7 @@ class NeoDbOAuth {
         clientId = registration.clientId;
         clientSecret = registration.clientSecret;
       } catch (e) {
-        return NeoDbOAuthFailure(_message(e, 'NeoDB sign-in failed'));
+        return NeoDbOAuthFailure(_message(e, signInFailed));
       }
       final authorize = Uri.parse('$instance/oauth/authorize').replace(
         queryParameters: {
@@ -117,8 +122,13 @@ class NeoDbOAuth {
           'state': state,
         },
       );
-      await _host.holdWhileAway();
-      if (!await _host.openBrowser(authorize)) return const NeoDbOAuthFailure('NeoDB sign-in failed');
+      try {
+        await _host.holdWhileAway();
+        if (!await _host.openBrowser(authorize)) return const NeoDbOAuthFailure(signInFailed);
+      } catch (_) {
+        // The platform couldn't open the page (or hold the app): nothing to wait for.
+        return const NeoDbOAuthFailure(signInFailed);
+      }
       redirect = await waiting.future;
       if (redirect == null) return const NeoDbOAuthCancelled();
       final error = redirect.queryParameters['error'];
@@ -175,7 +185,13 @@ class NeoDbOAuth {
       'height:90vh;margin:0"><h1 style="font-weight:500">Yoin ✓</h1></body></html>';
 
   static String _message(Object e, String fallback) {
-    final text = e is SocketException ? e.message : (e is TimeoutException ? '' : e.toString());
+    // The exception's own words, as Android shows Throwable.message (never "FormatException: …").
+    final text = switch (e) {
+      SocketException(:final message) || HttpException(:final message) || FormatException(:final message) => message,
+      http.ClientException(:final message) => message,
+      TimeoutException() => '',
+      _ => e.toString(),
+    };
     return text.trim().isEmpty ? fallback : text;
   }
 

@@ -17,10 +17,12 @@ class _FakeBrowser implements CloudSyncHost {
   Uri? opened;
   int holds = 0;
   int releases = 0;
+  bool throws = false;
 
   @override
   Future<bool> openBrowser(Uri url) async {
     opened = url;
+    if (throws) throw StateError('no browser');
     final query = answer(url);
     if (query != null) {
       final redirect = Uri.parse(url.queryParameters['redirect_uri']!).replace(queryParameters: query);
@@ -137,5 +139,19 @@ void main() {
     final result = await NeoDbOAuth(api: NeoDbApi(rejecting), host: browser).signIn('neodb.social');
     expect((result as NeoDbOAuthFailure).message, 'Validation failed: redirect_uris is required');
     expect(browser.opened, isNull);
+  });
+
+  test('should_failAndLetGo_when_browserCannotOpen', () async {
+    final browser = _FakeBrowser((_) => null)..throws = true;
+    final result = await NeoDbOAuth(api: NeoDbApi(client), host: browser).signIn('neodb.social');
+    expect((result as NeoDbOAuthFailure).message, NeoDbOAuth.signInFailed);
+    // The hold taken for the browser is given back.
+    expect(browser.releases, 1);
+  });
+
+  test('should_showBareMessage_when_registrationAnswersNoJson', () async {
+    final garbled = MockClient((_) async => http.Response('<html>oops</html>', 200));
+    final result = await NeoDbOAuth(api: NeoDbApi(garbled), host: _FakeBrowser((_) => null)).signIn('neodb.social');
+    expect((result as NeoDbOAuthFailure).message, isNot(startsWith('FormatException')));
   });
 }

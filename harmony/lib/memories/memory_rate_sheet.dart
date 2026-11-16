@@ -296,21 +296,18 @@ class _AlbumRateSheetState extends ConsumerState<AlbumRateSheet> with TickerProv
               ),
             ),
             // The line stays for "What others say" even with no state to say (owner, 2026-11-09).
-            Padding(
-              padding: const EdgeInsets.only(top: 20),
-              child: AlbumNeoDbLine(
-                albumId: widget.albumId,
-                unsaved: _edited && _text.text.trim() != _initialReview.trim(),
-                onVoices: () {
-                  final album = ref.read(detailCacheProvider).cachedAlbum(widget.albumId);
-                  openNeoDbVoices(
-                    context,
-                    albumName: album?.name ?? widget.albumName,
-                    artistName: album?.artist,
-                    coverUrl: widget.coverUrl,
-                  );
-                },
-              ),
+            AlbumNeoDbLine(
+              albumId: widget.albumId,
+              unsaved: _edited && _text.text.trim() != _initialReview.trim(),
+              onVoices: () {
+                final album = ref.read(detailCacheProvider).cachedAlbum(widget.albumId);
+                openNeoDbVoices(
+                  context,
+                  albumName: album?.name ?? widget.albumName,
+                  artistName: album?.artist,
+                  coverUrl: widget.coverUrl,
+                );
+              },
             ),
           ],
         ),

@@ -128,7 +128,14 @@ class AlbumNeoDbLine extends ConsumerWidget {
         ),
       ),
     );
-    return SpringReveal(visible: shown != AlbumNeoDbSync.unknown, child: line);
+    // The gap above folds with the line, so the sheet's end doesn't hold empty room while it reads.
+    return SpringReveal(
+      visible: shown != AlbumNeoDbSync.unknown,
+      child: Padding(
+        padding: const EdgeInsets.only(top: NeoDbTokens.sheetLineTop),
+        child: line,
+      ),
+    );
   }
 }
 

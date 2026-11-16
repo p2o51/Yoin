@@ -22,6 +22,7 @@ void main() {
   late MemoryStore memory;
   late List<String> messages;
   late bool neoDbDown;
+  late List<Object?> markGrades;
 
   ProviderContainer container() {
     final c = ProviderContainer(
@@ -33,6 +34,9 @@ void main() {
         neoDbHttpClientProvider.overrideWithValue(
           MockClient((request) async {
             if (neoDbDown) return http.Response('{"detail":"down"}', 503);
+            if (request.method == 'POST' && request.url.path.startsWith('/api/me/shelf/item/')) {
+              markGrades.add((jsonDecode(request.body) as Map)['rating_grade']);
+            }
             if (request.url.path == '/api/catalog/search') {
               return http.Response(
                 jsonEncode({
@@ -78,6 +82,41 @@ void main() {
     memory = MemoryStore.shared(kv, 'p1');
     messages = [];
     neoDbDown = false;
+    markGrades = [];
+  });
+
+  test('should_sendOnce_when_pushAskedTwiceAtOnce', () async {
+    await signIn();
+    final c = container();
+    await memory.setAlbumRating(_album.id, 8, nowMs: 1);
+    final push = c.read(neoDbPushProvider.notifier);
+
+    final first = push.push(_album.id, failureMessage: 'x', album: _album);
+    final second = await push.push(_album.id, failureMessage: 'x', album: _album);
+
+    expect(second, NeoDbPushOutcome.busy);
+    expect(await first, NeoDbPushOutcome.pushed);
+    expect(await settle(c), AlbumNeoDbSync.synced);
+    // The follow-up found nothing waiting: one Mark went, not two.
+    expect(markGrades, [8]);
+  });
+
+  test('should_sendNewerChange_when_itLandsWhilePushing', () async {
+    await signIn();
+    final c = container();
+    await memory.setAlbumRating(_album.id, 8, nowMs: 1);
+    final push = c.read(neoDbPushProvider.notifier);
+
+    final first = push.push(_album.id, failureMessage: 'x', album: _album);
+    // The sheet closes on a new score while the first push is on its way.
+    await memory.setAlbumRating(_album.id, 9, nowMs: 2);
+    expect(await push.push(_album.id, failureMessage: 'x', album: _album), NeoDbPushOutcome.busy);
+    await first;
+
+    expect(await settle(c), AlbumNeoDbSync.synced);
+    expect(markGrades.last, 9);
+    expect((await memory.albumRatingRow(_album.id))!.ratingNeedsSync, isFalse);
+    expect(messages, isEmpty);
   });
 
   test('should_readSignedOut_when_noToken', () async {

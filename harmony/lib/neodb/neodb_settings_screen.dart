@@ -18,7 +18,6 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../data/neodb/neodb_oauth.dart';
 import '../nowplaying/haptics.dart';
 import '../settings/settings_page.dart';
-import '../settings/settings_pane.dart';
 import '../settings/settings_rows.dart';
 import '../settings/sync/cloud_sync_view_model.dart' show browserReturnGrace;
 import '../theme/tokens.dart';
@@ -71,9 +70,15 @@ class _NeoDbSettingsScreenState extends ConsumerState<NeoDbSettingsScreen> {
   AppLifecycleListener? _lifecycle;
   Timer? _returnTimer;
 
+  /// Read once: sign-in and its messages finish after the page may be gone.
+  late final NeoDbAccountNotifier _account = ref.read(neoDbAccountProvider.notifier);
+  late final NeoDbMessenger _messenger = ref.read(neoDbMessengerProvider);
+
   @override
   void initState() {
     super.initState();
+    _account;
+    _messenger;
     _token.addListener(() => setState(() {}));
     try {
       _lifecycle = AppLifecycleListener(onResume: _onResume);
@@ -85,6 +90,9 @@ class _NeoDbSettingsScreenState extends ConsumerState<NeoDbSettingsScreen> {
   @override
   void dispose() {
     _lifecycle?.dispose();
+    // Left within the grace after coming back from the browser: the wait ends
+    // now, or the loopback and the system hold would stay until NeoDB answers.
+    if (_returnTimer?.isActive ?? false) _account.cancelSignIn();
     _returnTimer?.cancel();
     _instance.dispose();
     _token.dispose();
@@ -95,7 +103,7 @@ class _NeoDbSettingsScreenState extends ConsumerState<NeoDbSettingsScreen> {
   /// (the redirect usually lands first).
   void _onResume() {
     if (!_signingIn) return;
-    final account = ref.read(neoDbAccountProvider.notifier);
+    final account = _account;
     if (!account.waitingForBrowser) return;
     _returnTimer?.cancel();
     _returnTimer = Timer(browserReturnGrace, () {
@@ -103,15 +111,18 @@ class _NeoDbSettingsScreenState extends ConsumerState<NeoDbSettingsScreen> {
     });
   }
 
-  void _message(String text) => ref.read(neoDbMessengerProvider)(text);
+  void _message(String text) => _messenger(text);
 
   Future<void> _signIn(NeoDbStrings strings) async {
     if (_signingIn) return;
     YoinHaptics.click();
     setState(() => _signingIn = true);
-    final NeoDbOAuthResult? result;
+    NeoDbOAuthResult? result;
     try {
-      result = await ref.read(neoDbAccountProvider.notifier).signIn(_instance.text);
+      result = await _account.signIn(_instance.text);
+    } catch (_) {
+      // A platform failure (the browser or the hold), never its raw text.
+      result = const NeoDbOAuthFailure(NeoDbOAuth.signInFailed);
     } finally {
       _returnTimer?.cancel();
       if (mounted) setState(() => _signingIn = false);
@@ -129,12 +140,12 @@ class _NeoDbSettingsScreenState extends ConsumerState<NeoDbSettingsScreen> {
   Future<void> _signOut() async {
     YoinHaptics.click();
     _token.text = '';
-    await ref.read(neoDbAccountProvider.notifier).clearToken();
+    await _account.clearToken();
   }
 
   Future<void> _saveToken(NeoDbStrings strings) async {
     YoinHaptics.click();
-    final ok = await ref.read(neoDbAccountProvider.notifier).saveConfig(_instance.text, _token.text);
+    final ok = await _account.saveConfig(_instance.text, _token.text);
     if (!ok) _message(strings.invalidUrl);
   }
 
@@ -237,15 +248,5 @@ class _NeoDbSettingsScreenState extends ConsumerState<NeoDbSettingsScreen> {
         ),
       ],
     );
-  }
-}
-
-/// Opens the NeoDB page: in the wide window's right pane, else pushed.
-void openNeoDbSettingsPage(BuildContext context) {
-  final openInPane = SettingsPaneScope.maybeOf(context);
-  if (openInPane != null) {
-    openInPane(const NeoDbPane());
-  } else {
-    Navigator.of(context).push(YoinPushRoute<void>(builder: (_) => const NeoDbSettingsScreen()));
   }
 }

@@ -32,6 +32,10 @@ Future<Color?> coverSeedColor(String url) {
   );
 }
 
+/// The seed for [url] when it has been read already (no wait, no frame with
+/// the app's colours first); null otherwise.
+Color? cachedCoverSeed(String url) => _seedCache[url];
+
 Future<Color?> _readSeed(String url) async {
   final provider = ResizeImage(NetworkImage(url), width: _seedDecodeSize, height: _seedDecodeSize);
   final completer = Completer<ui.Image?>();

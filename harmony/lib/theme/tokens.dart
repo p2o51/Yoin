@@ -1445,6 +1445,8 @@ abstract final class NeoDbTokens {
   static const double otherWayOutHeight = 40;
 
   // ---- the rate sheet's line ----
+  /// Between the review field and the line (the sheet's column spacing).
+  static const double sheetLineTop = 20;
   static const double sheetLineCorner = 12;
   static const double sheetLinePaddingH = 4;
   static const double sheetLinePaddingV = 6;
