@@ -1,19 +1,25 @@
 /// One backup's page and its restore (Android PlaylistBackupViewModel). The
 /// restore lives here, not in the sheet: matching carries on while the sheet
 /// is closed, the review waits for the user to come back to it, and a write
-/// once started finishes (and is recorded) even if the page closes.
+/// once started finishes (and is recorded) even if the page closes. While a
+/// restore is under way (matching, reviewing, writing) this state outlives the
+/// page too: leaving it and coming back finds the restore where it is, live.
+/// Matching and writing show their progress outside the app and keep it
+/// running in the background ([RestoreProgressSink], restore_live_update.dart).
 library;
 
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 
 import '../../data/backup/playlist_backup_models.dart';
 import '../../data/backup/playlist_backup_providers.dart';
 import '../../data/backup/playlist_backup_service.dart';
 import '../../data/model/model.dart';
 import '../../data/transfer/restore_review.dart';
+import 'restore_live_update.dart';
 
 /// The backup itself. [PlaylistBackupMissing]: deleted here or on another device.
 sealed class PlaylistBackupUiState {
@@ -175,6 +181,11 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
   Timer? _searchDebounce;
   int _searchGeneration = 0;
 
+  /// Keeps this state while a restore is under way, with the page closed.
+  KeepAliveLink? _keepAlive;
+
+  late RestoreProgressSink _progress;
+
   static const searchDebounce = Duration(milliseconds: 350);
 
   PlaylistBackupService get _service => ref.read(playlistBackupServiceProvider);
@@ -188,9 +199,11 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
         backup: record == null ? const PlaylistBackupMissing() : PlaylistBackupContentState(record),
       );
     });
+    _progress = ref.read(restoreProgressFactoryProvider)(backupId);
     ref.onDispose(() {
       subscription.cancel();
       _searchDebounce?.cancel();
+      _progress.dispose();
     });
     _loadTargets();
     return const PlaylistBackupPageState();
@@ -208,7 +221,8 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
   void openRestore([int? versionSince]) {
     switch (state.restore) {
       case RestoreIdle() || RestoreDone() || RestoreFailed():
-        state = state.copyWith(restoreVersion: versionSince, restore: const RestoreChoosingTarget());
+        state = state.copyWith(restoreVersion: versionSince);
+        _setRestore(const RestoreChoosingTarget());
         _loadTargets();
       default:
         break;
@@ -219,7 +233,7 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
   void dismissSheet() {
     switch (state.restore) {
       case RestoreChoosingTarget() || RestoreDone() || RestoreFailed():
-        state = state.copyWith(restore: const RestoreIdle(), search: null);
+        _setRestore(const RestoreIdle(), clearSearch: true);
       default:
         break;
     }
@@ -228,9 +242,12 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
   Future<void> restoreTo(RestoreTarget target) async {
     final backup = state.restoreBackup;
     if (backup == null || _matching) return;
+    // The progress notification needs the permission: asked as the user starts a restore, never waited on.
+    unawaited(_progress.askToNotify());
     final generation = ++_generation;
     _matching = true;
-    state = state.copyWith(restore: RestoreMatching(target, 0, backup.trackCount));
+    _setRestore(RestoreMatching(target, 0, backup.trackCount));
+    _progress.matching(backup, target, 0, backup.trackCount);
     RestoreUiState next;
     try {
       final resolutions = await _service.match(
@@ -238,17 +255,21 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
         target,
         onProgress: (done, total) {
           if (!ref.mounted || generation != _generation || state.restore is! RestoreMatching) return;
-          state = state.copyWith(restore: RestoreMatching(target, done, total));
+          _setRestore(RestoreMatching(target, done, total));
+          _progress.matching(backup, target, done, total);
         },
       );
       next = RestoreReviewing(target, RestoreReview.rows(resolutions));
     } catch (_) {
       next = RestoreFailed(target);
     } finally {
-      _matching = false;
+      if (generation == _generation) _matching = false;
     }
+    // Dropped meanwhile (cancelled, deleted): that already took the progress away.
     if (!ref.mounted || generation != _generation) return;
-    state = state.copyWith(restore: next);
+    // Matching done: the review waits in the app, not in the notification.
+    _progress.clear();
+    _setRestore(next);
   }
 
   void setChecked(int position, bool checked) =>
@@ -261,12 +282,25 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
     final backup = state.restoreBackup;
     final review = state.restore;
     if (backup == null || review is! RestoreReviewing) return;
-    if (RestoreReview.trackIdsToWrite(review.rows).isEmpty) return;
-    state = state.copyWith(restore: RestoreWriting(review.target, review));
+    final count = RestoreReview.trackIdsToWrite(review.rows).length;
+    if (count == 0) return;
+    _setRestore(RestoreWriting(review.target, review));
+    _progress.writing(backup, review.target, count);
     // Once started, the write and its history entry finish even if the page closes.
-    final outcome = await _service.create(backup, review.target, review.rows);
+    final RestoreOutcome outcome;
+    try {
+      outcome = await _service.create(backup, review.target, review.rows);
+    } catch (e) {
+      // Never expected (the write's own failure is an outcome, a history that can't be saved is let go):
+      // back to the review rather than writing forever.
+      debugPrint('PlaylistBackup: restore failed (${e.runtimeType})');
+      _progress.clear();
+      if (ref.mounted) _setRestore(review);
+      return;
+    }
+    _progress.finished(backup, review.target, outcome.record);
     if (!ref.mounted) return;
-    state = state.copyWith(restore: RestoreDone(review.target, outcome.record));
+    _setRestore(RestoreDone(review.target, outcome.record));
   }
 
   /// Drops the restore under way (a review nothing was written from).
@@ -275,7 +309,8 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
     _generation++;
     _matching = false;
     _searchDebounce?.cancel();
-    state = state.copyWith(restore: const RestoreIdle(), search: null);
+    _progress.clear();
+    _setRestore(const RestoreIdle(), clearSearch: true);
   }
 
   /// Opens the search for the song at [position] on the restore's target, starting from its title and artist.
@@ -350,14 +385,34 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
 
   Future<void> delete() async {
     _generation++;
+    _matching = false;
+    // A match under way goes with the backup; another backup's result stays in the notifications.
+    if (state.restore is RestoreMatching || state.restore is RestoreReviewing) _progress.clear();
     await ref.read(playlistBackupStoreProvider).delete(backupId);
-    if (ref.mounted) state = state.copyWith(deleted: true);
+    if (!ref.mounted) return;
+    state = state.copyWith(deleted: true);
+    if (state.restore is! RestoreWriting) _setRestore(const RestoreIdle(), clearSearch: true);
   }
 
   void _updateReview(List<ReviewRow> Function(List<ReviewRow> rows) change) {
     final review = state.restore;
     if (review is! RestoreReviewing) return;
-    state = state.copyWith(restore: RestoreReviewing(review.target, change(review.rows)));
+    _setRestore(RestoreReviewing(review.target, change(review.rows)));
+  }
+
+  /// Moves the restore to [next]. Under way (matching, reviewing, writing), the state is kept with the page
+  /// closed, so coming back finds it live; so is a match that failed meanwhile (nothing outside the app says
+  /// so), until its sheet is put away. Settled (idle, choosing, done: its result is in the notifications and
+  /// the history), it goes with the page.
+  void _setRestore(RestoreUiState next, {bool clearSearch = false}) {
+    state = clearSearch ? state.copyWith(restore: next, search: null) : state.copyWith(restore: next);
+    switch (next) {
+      case RestoreMatching() || RestoreReviewing() || RestoreWriting() || RestoreFailed():
+        _keepAlive ??= ref.keepAlive();
+      case RestoreIdle() || RestoreChoosingTarget() || RestoreDone():
+        _keepAlive?.close();
+        _keepAlive = null;
+    }
   }
 }
 

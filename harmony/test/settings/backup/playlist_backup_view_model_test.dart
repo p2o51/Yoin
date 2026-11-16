@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/backup/playlist_backup_models.dart';
@@ -8,15 +10,56 @@ import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/transfer/restore_review.dart';
 import 'package:yoin/settings/backup/playlist_backup_view_model.dart';
+import 'package:yoin/settings/backup/restore_live_update.dart';
 
 import '../../support/backup_fakes.dart';
+
+/// What the restore showed outside the app, in order.
+class _RecordingSink implements RestoreProgressSink {
+  final calls = <String>[];
+
+  @override
+  Future<void> askToNotify() async => calls.add('ask');
+
+  @override
+  void matching(PlaylistBackupRecord backup, RestoreTarget target, int done, int total) =>
+      calls.add('matching $done/$total');
+
+  @override
+  void writing(PlaylistBackupRecord backup, RestoreTarget target, int count) => calls.add('writing $count');
+
+  @override
+  void finished(PlaylistBackupRecord backup, RestoreTarget target, PlaylistRestoreRecord record) =>
+      calls.add('finished ${record.added}');
+
+  @override
+  void clear() => calls.add('clear');
+
+  @override
+  void dispose() => calls.add('dispose');
+}
+
+/// A target whose searches wait for [gate] (a slow network), so a match can be caught midway.
+class _GatedSource extends FakeTransferSource {
+  _GatedSource({super.provider, super.catalogue});
+
+  Completer<void>? gate;
+
+  @override
+  Future<SearchResults> search(String query, {int trackCount = 20, int albumCount = 20, int artistCount = 20}) async {
+    final waiting = gate;
+    if (waiting != null) await waiting.future;
+    return super.search(query, trackCount: trackCount, albumCount: albumCount, artistCount: artistCount);
+  }
+}
 
 void main() {
   late PlaylistBackupStore store;
   late FakeBackupProfiles profiles;
   late ProviderContainer container;
   late FakeTransferSource home;
-  late FakeTransferSource am;
+  late _GatedSource am;
+  late _RecordingSink sink;
   final t1 = song('t1', 'Entropy', 'Beach Bunny', durationSec: 221);
   final t2 = song('t2', 'Lemon', 'Kenshi Yonezu', durationSec: 255);
   final onAm = song('am1', 'Entropy', 'Beach Bunny', durationSec: 221, provider: MediaId.providerAppleMusic);
@@ -35,7 +78,8 @@ void main() {
         MediaId.subsonic('p1'): Playlist(id: MediaId.subsonic('p1'), name: 'Night drive', tracks: [t1, t2]),
       },
     );
-    am = FakeTransferSource(provider: MediaId.providerAppleMusic, catalogue: [onAm]);
+    am = _GatedSource(provider: MediaId.providerAppleMusic, catalogue: [onAm]);
+    sink = _RecordingSink();
     profiles = FakeBackupProfiles(
       all: const [
         Profile(id: 'home', provider: MediaId.providerSubsonic, displayName: 'Home'),
@@ -49,6 +93,7 @@ void main() {
       overrides: [
         playlistBackupStoreProvider.overrideWithValue(store),
         playlistBackupServiceProvider.overrideWithValue(service),
+        restoreProgressFactoryProvider.overrideWithValue((_) => sink),
       ],
     );
     addTearDown(container.dispose);
@@ -184,6 +229,147 @@ void main() {
     await settle();
     expect(state().deleted, isTrue);
     expect(state().backup, isA<PlaylistBackupMissing>());
+  });
+
+  group('in the background', () {
+    test('should_askToNotifyAndShowEachStepOutside_when_aRestoreRuns', () async {
+      await open();
+      notifier().openRestore();
+      await notifier().restoreTo(target);
+      // Matching shows outside the app, then goes: the review waits in the app.
+      expect(sink.calls.first, 'ask');
+      expect(sink.calls[1], 'matching 0/2');
+      expect(sink.calls.where((c) => c.startsWith('matching')).last, 'matching 2/2');
+      expect(sink.calls.last, 'clear');
+      sink.calls.clear();
+      await notifier().createPlaylist();
+      expect(sink.calls, ['writing 1', 'finished 1']);
+    });
+
+    test('should_takeTheProgressAway_when_theRestoreIsCancelledMidMatch', () async {
+      await open();
+      notifier().openRestore();
+      am.gate = Completer<void>();
+      final matching = notifier().restoreTo(target);
+      await settle();
+      notifier().cancelRestore();
+      expect(sink.calls.last, 'clear');
+      am.gate!.complete();
+      await matching;
+      // The dropped match reports to no one: no second clear, no review.
+      expect(sink.calls.where((c) => c == 'clear'), hasLength(1));
+      expect(state().restore, isA<RestoreIdle>());
+    });
+
+    test('should_takeTheProgressAway_when_matchingFails', () async {
+      await open();
+      notifier().openRestore();
+      await notifier().restoreTo(const RestoreTarget(profileId: 'gone', displayName: 'Gone', provider: 'subsonic'));
+      expect(state().restore, isA<RestoreFailed>());
+      expect(sink.calls.last, 'clear');
+    });
+
+    test('should_keepMatchingAndShowItLive_when_thePageClosesAndOpensAgain', () async {
+      final page = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      await settle();
+      notifier().openRestore();
+      am.gate = Completer<void>();
+      final matching = notifier().restoreTo(target);
+      await settle();
+      // The page (and its sheet) goes while the songs are matched.
+      notifier().dismissSheet();
+      page.close();
+      await settle();
+      expect(sink.calls, isNot(contains('dispose')));
+      // Back on the page: the same restore, still matching.
+      final again = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      addTearDown(again.close);
+      expect(state().restore, isA<RestoreMatching>());
+      notifier().openRestore();
+      expect(state().restore, isA<RestoreMatching>());
+      am.gate!.complete();
+      await matching;
+      expect(state().restore, isA<RestoreReviewing>());
+    });
+
+    test('should_keepTheReviewWaiting_when_matchingEndsWithThePageClosed', () async {
+      final page = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      await settle();
+      notifier().openRestore();
+      final matching = notifier().restoreTo(target);
+      page.close();
+      await matching;
+      await settle();
+      final again = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      addTearDown(again.close);
+      expect(state().restore, isA<RestoreReviewing>());
+    });
+
+    test('should_finishAndRecordTheWrite_when_thePageClosesWhileWriting', () async {
+      final page = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      await settle();
+      notifier().openRestore();
+      await notifier().restoreTo(target);
+      final writing = notifier().createPlaylist();
+      page.close();
+      await writing;
+      await settle();
+      expect(sink.calls, contains('finished 1'));
+      expect(am.created, hasLength(1));
+      expect((await store.get('b1'))!.restores, hasLength(1));
+      // Settled with no page open: the state goes, and the task's lease with it.
+      expect(sink.calls.last, 'dispose');
+    });
+
+    test('should_keepTheFailure_when_matchingFailsWithThePageClosed', () async {
+      final page = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      await settle();
+      notifier().openRestore();
+      final matching = notifier().restoreTo(
+        const RestoreTarget(profileId: 'gone', displayName: 'Gone', provider: 'subsonic'),
+      );
+      page.close();
+      await matching;
+      await settle();
+      // Nothing outside the app says it failed: coming back does.
+      expect(sink.calls, isNot(contains('dispose')));
+      final again = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      expect(state().restore, isA<RestoreFailed>());
+      notifier().openRestore();
+      expect(state().restore, isA<RestoreChoosingTarget>());
+      notifier().dismissSheet();
+      again.close();
+      await settle();
+      expect(sink.calls.last, 'dispose');
+    });
+
+    test('should_leaveOtherResultsAlone_when_aBackupWithNoRestoreIsDeleted', () async {
+      await open();
+      await notifier().delete();
+      expect(sink.calls, isNot(contains('clear')));
+    });
+
+    test('should_takeTheProgressAway_when_deletedMidMatch', () async {
+      await open();
+      notifier().openRestore();
+      am.gate = Completer<void>();
+      final matching = notifier().restoreTo(target);
+      await settle();
+      await notifier().delete();
+      expect(sink.calls.last, 'clear');
+      am.gate!.complete();
+      await matching;
+      expect(sink.calls.where((c) => c == 'clear'), hasLength(1));
+    });
+
+    test('should_letTheStateGo_when_noRestoreIsUnderWay', () async {
+      final page = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      await settle();
+      notifier().openRestore();
+      page.close();
+      await settle();
+      expect(sink.calls, ['dispose']);
+    });
   });
 
   test('should_restoreSnapshotTheCurrentContents_when_noVersionIsChosen', () {

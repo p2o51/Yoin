@@ -44,6 +44,18 @@ class _Host implements BackgroundTransferHost {
 
   @override
   Stream<bool> get ended => _ended.stream;
+
+  @override
+  Future<bool> notificationsAllowed({bool ask = false}) async => true;
+
+  @override
+  Future<void> notify(int id, TransferNotice notice) async {}
+
+  @override
+  Future<void> cancelNotice(int id) async {}
+
+  @override
+  Stream<String> get taps => const Stream.empty();
 }
 
 OfflineState _state(List<OfflineSong> songs) => OfflineState(songs: songs, activeProfileId: 'p1', ready: true);

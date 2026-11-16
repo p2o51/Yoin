@@ -17,7 +17,7 @@ import YoinSharePlugin from '../yoin/share/SharePlugin';
 import YoinCloudSyncPlugin from '../yoin/sync/CloudSyncPlugin';
 import YoinHapticsPlugin from '../yoin/haptics/HapticsPlugin';
 import YoinSensorsPlugin from '../yoin/sensors/SensorsPlugin';
-import YoinTransferPlugin from '../yoin/background/TransferPlugin';
+import YoinTransferPlugin, { TransferTaps } from '../yoin/background/TransferPlugin';
 import YoinCastPlugin from '../yoin/cast/CastPlugin';
 import YoinAudioPlugin from '../yoin/audio/AudioPlugin';
 import YoinContinueOnPlugin, { ContinueOnHost } from '../yoin/continueon/ContinueOnPlugin';
@@ -107,6 +107,8 @@ export default class EntryAbility extends FlutterAbility {
     ContinueOnHost.deliverFrom(want, launchParam)
     applyQaFlags(want)
     CardsHost.deliverFrom(want)
+    // A playlist restore's notification: its backup's page.
+    TransferTaps.deliverFrom(want)
     if (wantsNowPlaying(want)) {
       YoinPlaybackHost.bind(this.context).requestOpenNowPlaying()
     }
@@ -118,6 +120,7 @@ export default class EntryAbility extends FlutterAbility {
     ContinueOnHost.deliverFrom(want, launchParams)
     applyQaFlags(want)
     CardsHost.deliverFrom(want)
+    TransferTaps.deliverFrom(want)
     if (wantsNowPlaying(want)) {
       YoinPlaybackHost.bind(this.context).requestOpenNowPlaying()
     }

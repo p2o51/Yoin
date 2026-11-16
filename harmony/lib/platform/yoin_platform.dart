@@ -127,9 +127,10 @@ final class YoinPlatform {
   /// `yoin/sensors` → @ohos.sensor; Windows: none).
   final MotionSensors motionSensors;
 
-  /// Keeping the app running while songs download, with their progress
-  /// notification (OHOS `yoin/transfer`: a data-transfer continuous task;
-  /// Windows: nothing to hold).
+  /// Keeping the app running while songs download or a playlist restores,
+  /// with their progress notification (OHOS `yoin/transfer`: a data-transfer
+  /// continuous task, shared through SharedBackgroundTransfer; Windows:
+  /// nothing to hold).
   final BackgroundTransferHost backgroundTransfer;
 
   /// The system's output / cast panel and cast session (OHOS AVCastPicker +

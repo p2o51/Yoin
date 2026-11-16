@@ -13,6 +13,7 @@ import '../data/offline/offline_downloads.dart';
 import '../data/offline/offline_model.dart';
 import '../data/source/music_source.dart';
 import '../platform/background/background_transfer.dart';
+import '../platform/background/shared_background_transfer.dart';
 import '../platform/storage/app_files.dart';
 import '../settings/stream_quality.dart' show networkBearerProvider;
 import 'offline_background.dart';
@@ -25,6 +26,14 @@ final appFilesHostProvider = Provider<AppFilesHost>((ref) => const NoAppFilesHos
 /// continuous task). Nothing to hold by default (tests, desktop); main() wires
 /// the platform's (`platformOverrides`).
 final backgroundTransferHostProvider = Provider<BackgroundTransferHost>((ref) => const NoBackgroundTransferHost());
+
+/// The one continuous task, shared: downloads and a playlist restore each hold
+/// it through a lease, so one finishing never ends it for the other.
+final sharedBackgroundTransferProvider = Provider<SharedBackgroundTransfer>((ref) {
+  final shared = SharedBackgroundTransfer(ref.watch(backgroundTransferHostProvider));
+  ref.onDispose(shared.dispose);
+  return shared;
+});
 
 /// The app's downloads, every account's. Started as it is first read (the
 /// app reads it as it starts, so queued downloads carry on).
@@ -48,7 +57,10 @@ final offlineDownloadsProvider = Provider<OfflineDownloads>((ref) {
 
   ref.listen(activeSourceProvider, (_, _) => unawaited(follow()), fireImmediately: true);
   // Downloads go on with the app behind, with their progress notification (YoinDownloadService).
-  final keeper = OfflineTransferKeeper(downloads: downloads, host: ref.watch(backgroundTransferHostProvider))..start();
+  final keeper = OfflineTransferKeeper(
+    downloads: downloads,
+    host: ref.watch(sharedBackgroundTransferProvider).lease('downloads'),
+  )..start();
   ref.onDispose(keeper.dispose);
   unawaited(downloads.start());
   return downloads;
