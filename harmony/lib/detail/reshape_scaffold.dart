@@ -10,6 +10,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../theme/motion.dart';
 import '../theme/system_bars.dart';
 import '../theme/tokens.dart';
+import '../ui/adaptive/edge_split.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/seam/seam.dart';
@@ -144,6 +145,14 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
 
   @override
   Widget build(BuildContext context) {
+    // A landscape handset: the page starts past the edge capsules, its wash under the band (detailChromeBand).
+    return ShellChromeBand(
+      background: const DetailPageBackground(),
+      child: Builder(builder: _buildPage),
+    );
+  }
+
+  Widget _buildPage(BuildContext context) {
     final media = MediaQuery.of(context);
     final reduce = media.disableAnimations;
     return LayoutBuilder(

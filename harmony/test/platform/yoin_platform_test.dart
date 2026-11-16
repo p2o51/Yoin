@@ -8,6 +8,7 @@ import 'package:yoin/platform/browser/url_opener.dart';
 import 'package:yoin/platform/cards/cards_channel.dart';
 import 'package:yoin/platform/playback/channel_playback_engine.dart';
 import 'package:yoin/platform/playback/playback_engine.dart';
+import 'package:yoin/platform/posture/display_posture.dart';
 import 'package:yoin/platform/share/text_share.dart';
 import 'package:yoin/platform/storage/channel_stores.dart';
 import 'package:yoin/platform/sync/cloud_sync_host.dart';
@@ -27,6 +28,7 @@ void main() {
       expect(p.windowCaption, isA<ChannelWindowCaptionHost>());
       expect(p.textShare, isA<ChannelTextShare>());
       expect(p.urlOpener, isA<BrowserUrlOpener>());
+      expect(p.displayPosture, isA<ChannelDisplayPostureHost>());
     });
 
     test('should_usePureDartStandIns_when_hostIsWindows', () {
@@ -39,6 +41,7 @@ void main() {
       expect(p.windowCaption, isA<SystemTitleBarHost>());
       expect(p.textShare, isA<NoTextShare>());
       expect(p.urlOpener, isA<BrowserUrlOpener>());
+      expect(p.displayPosture, isA<NoDisplayPostureHost>());
     });
   });
 

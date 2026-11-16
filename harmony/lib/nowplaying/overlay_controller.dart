@@ -121,10 +121,13 @@ class NowPlayingOverlayController extends ChangeNotifier {
   /// Whether the cover has artwork to fly (no URL: it fades with the overlay).
   bool coverCanFly = true;
 
-  /// The flight only moves elements it can draw.
+  /// The flight only moves elements it can draw. The edge capsule's upright
+  /// pill turns its text sideways: there only the cover travels.
   bool flightCanFly(FlightElement element) => switch (_shown.presentation.pillMorph) {
     PillMorph.none => false,
     PillMorph.cover => element == FlightElement.cover && coverCanFly,
+    PillMorph.coverAndText when _window.chromeForm == ShellChromeForm.edgeSplit =>
+      element == FlightElement.cover && coverCanFly,
     PillMorph.coverAndText => element != FlightElement.cover || coverCanFly,
   };
 
@@ -251,7 +254,10 @@ class NowPlayingOverlayController extends ChangeNotifier {
     }
     inset.animateTo(panel ? 1 : 0, spring);
     bar.animateTo(panel ? 0 : 1, spring);
-    if (_shown.presentation == NowPlayingPresentation.dualPane && _stage == NowPlayingStage.expanded) {
+    final noExpanded =
+        _shown.presentation == NowPlayingPresentation.dualPane ||
+        _shown.presentation == NowPlayingPresentation.tabletop;
+    if (noExpanded && _stage == NowPlayingStage.expanded) {
       _stage = NowPlayingStage.compact;
       detail.snapTo(0);
     }
@@ -467,7 +473,11 @@ class NowPlayingOverlayController extends ChangeNotifier {
 
   void expandStage() {
     if (_stage == NowPlayingStage.expanded || !_expanded) return;
-    if (_shown.presentation == NowPlayingPresentation.dualPane) return;
+    // The two columns and the hinge layout have no Expanded substate.
+    if (_shown.presentation == NowPlayingPresentation.dualPane ||
+        _shown.presentation == NowPlayingPresentation.tabletop) {
+      return;
+    }
     _stage = NowPlayingStage.expanded;
     _reconcileStage();
   }
@@ -514,7 +524,12 @@ class NowPlayingOverlayController extends ChangeNotifier {
   // Drag-to-dismiss (disabled in Expanded: the lyric list scrolls; focus keeps it). Down on
   // the full-window player; toward the end on the side panel; none on the
   // panel's Full states (top bar and back close them).
-  bool get canDrag => _expanded && _stage != NowPlayingStage.expanded && !_shown.panelFamily;
+  // The hinge layout has none either (TabletopPlayingContent): the chevron and back close it.
+  bool get canDrag =>
+      _expanded &&
+      _stage != NowPlayingStage.expanded &&
+      !_shown.panelFamily &&
+      _shown.presentation != NowPlayingPresentation.tabletop;
 
   bool get canDragPanel =>
       _expanded && _stage != NowPlayingStage.expanded && _shown.presentation == NowPlayingPresentation.panel;

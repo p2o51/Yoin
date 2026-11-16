@@ -20,6 +20,7 @@ import YoinSensorsPlugin from '../yoin/sensors/SensorsPlugin';
 import YoinTransferPlugin from '../yoin/background/TransferPlugin';
 import YoinCastPlugin from '../yoin/cast/CastPlugin';
 import YoinContinueOnPlugin, { ContinueOnHost } from '../yoin/continueon/ContinueOnPlugin';
+import YoinPosturePlugin, { YoinPostureHost } from '../yoin/posture/PosturePlugin';
 import { window } from '@kit.ArkUI';
 
 export default class EntryAbility extends FlutterAbility {
@@ -43,6 +44,8 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinTransferPlugin(this.context))
     flutterEngine.getPlugins()?.add(new YoinCastPlugin(this.context))
     flutterEngine.getPlugins()?.add(new YoinContinueOnPlugin())
+    // Fold status, crease and side cutouts: Tabletop and the landscape Button Group (yoin/posture).
+    flutterEngine.getPlugins()?.add(new YoinPosturePlugin())
   }
 
   /** Whether this ability's window already has Flutter's page (a hot continuation must not load it twice). */
@@ -62,6 +65,7 @@ export default class EntryAbility extends FlutterAbility {
       }
       attached = true
       YoinWindowHost.attach(windowStage.getMainWindowSync())
+      YoinPostureHost.attach(windowStage.getMainWindowSync())
     })
   }
 

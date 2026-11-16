@@ -54,7 +54,17 @@ class TransportControls extends StatefulWidget {
     this.noteAnchorsMs = const [],
     this.onShowedPlayModeSplit,
     this.atEase,
+    this.controlSize = NowPlayingTokens.controlSize,
+    this.beforePlayMode,
   });
+
+  /// The keys' height (and round keys' edge); the glyphs are half of it.
+  /// The kickstand deck plays at 72 (TabletopTokens.controlSize).
+  final double controlSize;
+
+  /// A key in the right group before the play-mode button (the kickstand's
+  /// expand-lyrics toggle), with its 8 gap; null: none.
+  final Widget? beforePlayMode;
 
   /// Focus at ease (0 → 1): the buttons and times step away, the progress
   /// bar stays; the first tap on the hidden buttons only wakes them.
@@ -180,7 +190,7 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
 
   @override
   Widget build(BuildContext context) {
-    const size = NowPlayingTokens.controlSize;
+    final size = widget.controlSize;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
       child: Column(
@@ -195,6 +205,7 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
                   AnimatedBuilder(
                     animation: Listenable.merge([_playPress.animation, _nextPress.animation]),
                     builder: (context, _) => _PlayNextGroup(
+                      controlSize: size,
                       isPlaying: widget.isPlaying,
                       playPress: _playPress.value,
                       nextPress: _nextPress.value,
@@ -204,9 +215,16 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
                     ),
                   ),
                   const Spacer(),
+                  if (widget.beforePlayMode case final extra?) ...[
+                    extra,
+                    const SizedBox(width: NowPlayingTokens.transportGap),
+                  ],
                   ReportBounds(
                     probe: _playModeKey,
                     child: PlayModeButton(
+                      height: size,
+                      splitWidth: playModeNaturalWidth(size),
+                      iconSize: size * 0.5,
                       mode: widget.playMode,
                       onSetPlayMode: widget.onSetPlayMode,
                       showSplitOnFullCycle: widget.showPlayModeSplitOnFullCycle,
@@ -227,6 +245,7 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
                   ReportBounds(
                     probe: _previousKey,
                     child: _RoundKey(
+                      size: size,
                       icon: YoinSymbols.skipPreviousFilled,
                       semantics: NowPlayingStrings.of(context).cdSkipPrevious,
                       onTap: _onPrevious,
@@ -262,7 +281,7 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
           if (widget.labelsUnder)
             _away(
               Padding(
-                padding: const EdgeInsets.only(left: size + NowPlayingTokens.transportGap),
+                padding: EdgeInsets.only(left: size + NowPlayingTokens.transportGap),
                 child: Row(
                   children: [
                     _TimeLabel(clock: widget.clock, durationMs: widget.durationMs, remaining: false),
@@ -284,6 +303,7 @@ class _TransportControlsState extends State<TransportControls> with TickerProvid
 /// show the glyph in the same box.
 class _PlayNextGroup extends StatefulWidget {
   const _PlayNextGroup({
+    this.controlSize = NowPlayingTokens.controlSize,
     required this.isPlaying,
     required this.playPress,
     required this.nextPress,
@@ -292,6 +312,7 @@ class _PlayNextGroup extends StatefulWidget {
     required this.onPressed,
   });
 
+  final double controlSize;
   final bool isPlaying;
   final double playPress;
   final double nextPress;
@@ -384,7 +405,7 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
         final playNatural = math.max(M3eButtonTokens.minWidth, _box.value + 2 * _pad.value);
         final (playW, nextW) = transportKeyWidths(
           playNatural,
-          NowPlayingTokens.controlSize,
+          widget.controlSize,
           playPress: widget.playPress,
           nextPress: widget.nextPress,
         );
@@ -392,6 +413,7 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
           mainAxisSize: MainAxisSize.min,
           children: [
             _PressKey(
+              height: widget.controlSize,
               width: math.max(0.0, playW),
               color: colors.primary,
               semantics: playing ? strings.cdPause : strings.cdPlay,
@@ -432,11 +454,19 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
                           children: [
                             Opacity(
                               opacity: (1 - _glyph.value).clamp(0.0, 1.0),
-                              child: Icon(YoinSymbols.playFilled, size: _iconSize, color: colors.onPrimary),
+                              child: Icon(
+                                YoinSymbols.playFilled,
+                                size: widget.controlSize * 0.5,
+                                color: colors.onPrimary,
+                              ),
                             ),
                             Opacity(
                               opacity: _glyph.value.clamp(0.0, 1.0),
-                              child: Icon(YoinSymbols.pauseFilled, size: _iconSize, color: colors.onPrimary),
+                              child: Icon(
+                                YoinSymbols.pauseFilled,
+                                size: widget.controlSize * 0.5,
+                                color: colors.onPrimary,
+                              ),
                             ),
                           ],
                         ),
@@ -445,6 +475,7 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
             ),
             const SizedBox(width: NowPlayingTokens.transportGap),
             _PressKey(
+              height: widget.controlSize,
               width: math.max(0.0, nextW),
               color: colors.primary,
               semantics: strings.cdSkipNext,
@@ -457,7 +488,7 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
                 YoinHaptics.tick();
                 widget.onNext();
               },
-              child: Icon(YoinSymbols.skipNextFilled, size: _iconSize, color: colors.onPrimary),
+              child: Icon(YoinSymbols.skipNextFilled, size: widget.controlSize * 0.5, color: colors.onPrimary),
             ),
           ],
         );
@@ -471,6 +502,7 @@ class _PlayNextGroupState extends State<_PlayNextGroup> with TickerProviderState
 /// morphs on press; the group's width exchange is the press response).
 class _PressKey extends StatelessWidget {
   const _PressKey({
+    this.height = NowPlayingTokens.controlSize,
     required this.width,
     required this.color,
     required this.semantics,
@@ -480,6 +512,7 @@ class _PressKey extends StatelessWidget {
     required this.child,
   });
 
+  final double height;
   final double width;
   final Color color;
   final String semantics;
@@ -497,7 +530,7 @@ class _PressKey extends StatelessWidget {
       probe: probe,
       child: ExpressiveSurfaceButton(
         shapes: const InteractionShapes.fixed(CornerRadii.full),
-        height: NowPlayingTokens.controlSize,
+        height: height,
         color: color,
         contentColor: Theme.of(context).colorScheme.onPrimary,
         semanticLabel: semantics,
@@ -511,8 +544,14 @@ class _PressKey extends StatelessWidget {
 
 /// PREVIOUS: FilledIconButton (round, no press morph) in secondary / onSecondary.
 class _RoundKey extends StatelessWidget {
-  const _RoundKey({required this.icon, required this.semantics, required this.onTap});
+  const _RoundKey({
+    this.size = NowPlayingTokens.controlSize,
+    required this.icon,
+    required this.semantics,
+    required this.onTap,
+  });
 
+  final double size;
   final IconData icon;
   final String semantics;
   final VoidCallback onTap;
@@ -521,15 +560,15 @@ class _RoundKey extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return SizedBox.square(
-      dimension: NowPlayingTokens.controlSize,
+      dimension: size,
       child: ExpressiveSurfaceButton(
         shapes: const InteractionShapes.fixed(CornerRadii.full),
-        height: NowPlayingTokens.controlSize,
+        height: size,
         color: colors.secondary,
         contentColor: colors.onSecondary,
         semanticLabel: semantics,
         onTap: onTap,
-        child: Icon(icon, size: _iconSize, color: colors.onSecondary),
+        child: Icon(icon, size: size * 0.5, color: colors.onSecondary),
       ),
     );
   }
@@ -548,6 +587,53 @@ const double _playModeSplitShownFrom = 0.02;
 
 /// The play-mode pill when split: two segments of 0.8 × the control size (playModeNaturalWidth).
 double playModeNaturalWidth(double controlSize) => controlSize * 1.6 + _playModeSegmentGap;
+
+/// The widest PLAY|PAUSE key: the PAUSE word (every locale measures the
+/// English word) at its held 1.10 stretch plus the playing 24 padding on both
+/// sides, never under the button's minimum (fitPlaybackControls' play).
+double transportPlayKeyMaxWidth(BuildContext context) {
+  final base = Theme.of(context).textTheme.titleLarge!;
+  final word = (TextPainter(
+    text: TextSpan(
+      text: NowPlayingStrings.of(context).pauseWord,
+      style: base.copyWith(
+        fontSize: base.fontSize! * 0.9,
+        fontWeight: FontWeight.w700,
+        fontVariations: const [FontVariation.weight(700)],
+        letterSpacing: 0.5,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+    textScaler: MediaQuery.textScalerOf(context),
+    maxLines: 1,
+  )..layout()).width;
+  return math.max(M3eButtonTokens.minWidth, word * _playStretchMax + 2 * _playRestPadding);
+}
+
+/// The control size a transport row [rowWidth] wide can take
+/// (PlaybackControls.kt fitPlaybackControls): [PLAY|PAUSE][Next] … [extra?][play mode]
+/// at [controlSize] when it fits, else the compact 48 controls, so the row
+/// never overflows (the kickstand deck asks for 72 on a ~400 wide flip phone).
+double fitTransportControlSize({
+  required double rowWidth,
+  required double controlSize,
+  required double playKeyWidth,
+  bool hasExtraKey = false,
+}) {
+  double natural(double size) {
+    const gap = NowPlayingTokens.transportGap;
+    final extra = hasExtraKey ? size + gap : 0.0;
+    return playKeyWidth + gap + size + gap + extra + playModeNaturalWidth(size);
+  }
+
+  if (natural(controlSize) <= rowWidth) return controlSize;
+  return math.min(controlSize, _compactControlSize);
+}
+
+/// fitPlaybackControls' last step (CompactControlSize) and its play key terms.
+const double _compactControlSize = 48;
+const double _playStretchMax = 1.10;
+const double _playRestPadding = 24;
 
 final Stopwatch _uptime = Stopwatch()..start();
 

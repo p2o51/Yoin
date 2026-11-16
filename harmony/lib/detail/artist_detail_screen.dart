@@ -11,6 +11,7 @@ import '../platform/share/text_share.dart';
 import '../shell/detail_chrome.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/adaptive/edge_split.dart';
 import '../ui/component/expressive_segment_chip.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
@@ -69,28 +70,31 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
           child: Stack(
             children: [
               const Positioned.fill(child: DetailPageBackground()),
-              Column(
-                children: [
-                  SafeArea(bottom: false, child: _ArtistHeader(content: content)),
-                  Expanded(
-                    child: SpringCrossFade(
-                      childKey: state.runtimeType,
-                      child: switch (state) {
-                        ArtistDetailLoading() => const DetailLoadingView(),
-                        ArtistDetailError(:final notFound) => DetailErrorView(
-                          message: notFound ? strings.artistNotFound : strings.artistLoadError,
-                          onRetry: () => ref.read(artistDetailProvider(widget.artistId).notifier).retry(),
-                        ),
-                        ArtistDetailContent() => _ArtistBody(
-                          content: state,
-                          heroUrl: heroUrl,
-                          scroll: _scroll,
-                          artistId: widget.artistId,
-                        ),
-                      },
+              // A landscape handset: the page starts past the edge capsules (detailChromeBand).
+              ShellChromeBand(
+                child: Column(
+                  children: [
+                    SafeArea(bottom: false, child: _ArtistHeader(content: content)),
+                    Expanded(
+                      child: SpringCrossFade(
+                        childKey: state.runtimeType,
+                        child: switch (state) {
+                          ArtistDetailLoading() => const DetailLoadingView(),
+                          ArtistDetailError(:final notFound) => DetailErrorView(
+                            message: notFound ? strings.artistNotFound : strings.artistLoadError,
+                            onRetry: () => ref.read(artistDetailProvider(widget.artistId).notifier).retry(),
+                          ),
+                          ArtistDetailContent() => _ArtistBody(
+                            content: state,
+                            heroUrl: heroUrl,
+                            scroll: _scroll,
+                            artistId: widget.artistId,
+                          ),
+                        },
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),

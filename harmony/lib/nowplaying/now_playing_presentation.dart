@@ -25,6 +25,10 @@ enum NowPlayingPresentation {
 
   /// A short, wide window (a landscape handset).
   landscape,
+
+  /// Half folded on a horizontal hinge (kickstand): the display (cover, title,
+  /// lyrics) above the hinge, the control deck below it.
+  tabletop,
 }
 
 /// What of the pill grows into the player as it opens.
@@ -32,11 +36,12 @@ enum PillMorph { none, cover, coverAndText }
 
 extension NowPlayingPresentationMorph on NowPlayingPresentation {
   // Landscape and the two columns fly the cover only: their titles sit
-  // where no pill text can travel to.
+  // where no pill text can travel to. The hinge layout keeps no shared cover
+  // (a posture swap resizes the window mid-flight).
   PillMorph get pillMorph => switch (this) {
     NowPlayingPresentation.phone || NowPlayingPresentation.enlarged => PillMorph.coverAndText,
     NowPlayingPresentation.dualPane || NowPlayingPresentation.landscape => PillMorph.cover,
-    NowPlayingPresentation.panel => PillMorph.none,
+    NowPlayingPresentation.panel || NowPlayingPresentation.tabletop => PillMorph.none,
   };
 
   /// Only the side panel leaves the host usable beside it.
@@ -74,10 +79,11 @@ typedef _P = NowPlayingPanelTokens;
 /// Half the window, clamped to phone widths (fold 690 → 360, tablet 800 → 400).
 double nowPlayingPanelWidth(double windowWidth) => (windowWidth * 0.5).clamp(_P.minWidth, _P.maxWidth);
 
-/// A tall Medium or Wide window keeping [minContentWidth] beside the panel.
+/// A tall Medium or Wide window keeping [minContentWidth] beside the panel
+/// (never Tabletop: the hinge layout is the whole window).
 bool canOpenNowPlayingPanel(YoinWindowInfo window, {double minContentWidth = _P.minContentWidth}) =>
     !window.isCompactHeight &&
-    window.layoutMode != LayoutMode.compact &&
+    (window.layoutMode == LayoutMode.medium || window.layoutMode == LayoutMode.wide) &&
     window.width - nowPlayingPanelWidth(window.width) >= math.max(minContentWidth, _P.minContentWidth);
 
 NowPlayingPresentation resolveNowPlayingPresentation(
@@ -85,6 +91,7 @@ NowPlayingPresentation resolveNowPlayingPresentation(
   required bool fullscreen,
   double minContentWidth = _P.minContentWidth,
 }) {
+  if (window.layoutMode == LayoutMode.tabletop) return NowPlayingPresentation.tabletop;
   if (window.isCompactHeight) {
     return window.width >= _P.landscapeMinWidth ? NowPlayingPresentation.landscape : NowPlayingPresentation.phone;
   }
@@ -93,6 +100,7 @@ NowPlayingPresentation resolveNowPlayingPresentation(
     LayoutMode.compact => NowPlayingPresentation.phone,
     LayoutMode.medium => panel && !fullscreen ? NowPlayingPresentation.panel : NowPlayingPresentation.enlarged,
     LayoutMode.wide => panel && !fullscreen ? NowPlayingPresentation.panel : NowPlayingPresentation.dualPane,
+    LayoutMode.tabletop => NowPlayingPresentation.tabletop,
   };
 }
 

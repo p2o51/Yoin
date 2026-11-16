@@ -13,6 +13,7 @@ import '../platform/cards/cards_channel.dart';
 import '../platform/i18n/name_transliterator.dart';
 import '../platform/sensors/motion_sensors.dart';
 import '../platform/playback/playback_engine.dart';
+import '../platform/posture/display_posture.dart';
 import '../platform/share/image_share.dart';
 import '../platform/share/text_share.dart';
 import '../platform/storage/observed_store.dart';
@@ -50,5 +51,6 @@ List<Override> platformOverrides(YoinPlatform platform) {
     displayCornersProvider.overrideWithValue(platform.displayCorners),
     motionSensorsProvider.overrideWithValue(platform.motionSensors),
     continueOnHostProvider.overrideWithValue(platform.continueOnHost),
+    displayPostureHostProvider.overrideWithValue(platform.displayPosture),
   ];
 }

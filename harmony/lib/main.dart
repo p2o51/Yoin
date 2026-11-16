@@ -17,6 +17,7 @@ import 'data/subsonic/subsonic_music_source.dart';
 import 'landing/landing_host.dart';
 import 'nowplaying/haptics.dart';
 import 'offline/offline_providers.dart';
+import 'platform/posture/display_posture.dart';
 import 'platform/window/window_caption.dart';
 import 'platform/yoin_platform.dart';
 import 'playback/playback_controller.dart';
@@ -26,6 +27,7 @@ import 'shell/shell_screen.dart';
 import 'shell/shell_state.dart';
 import 'theme/playback_theme.dart';
 import 'theme/system_bars.dart';
+import 'ui/adaptive/edge_split.dart';
 import 'ui/adaptive/yoin_window_info.dart';
 
 void main() {
@@ -106,7 +108,7 @@ class YoinApp extends ConsumerWidget {
           host: windowCaption,
           child: YoinSystemBars(
             // The first-run landing covers the whole chrome (bar and player included).
-            child: YoinWindowScope.measured(
+            child: _PostureWindowScope(
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -121,6 +123,24 @@ class YoinApp extends ConsumerWidget {
         ),
       ),
       home: const ShellScreen(),
+    );
+  }
+}
+
+/// The window, measured, with the display's posture (yoin/posture): Tabletop
+/// on a half fold with a horizontal crease, and the side cutouts the
+/// landscape Button Group stands beside.
+class _PostureWindowScope extends ConsumerWidget {
+  const _PostureWindowScope({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final posture = ref.watch(displayPostureProvider).value ?? DisplayPosture.flat;
+    return DisplayPostureScope(
+      posture: posture,
+      child: YoinWindowScope.measured(posture: posture, child: child),
     );
   }
 }

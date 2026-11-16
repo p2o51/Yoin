@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/model/model.dart';
 import '../home/home_edit.dart';
 import '../home/home_section.dart';
 import '../memories/memories_reveal_scope.dart';
@@ -14,6 +15,7 @@ import '../nowplaying/now_playing_overlay.dart';
 import '../nowplaying/now_playing_pill.dart';
 import '../nowplaying/now_playing_presentation.dart' show NowPlayingPanelTokens;
 import '../nowplaying/now_playing_screen.dart' show heroRestScale, showNowPlayingTrackMenu;
+import '../nowplaying/now_playing_view_model.dart' show isPlaybackUnavailable;
 import '../nowplaying/overlay_controller.dart';
 import '../nowplaying/player_snapshot.dart';
 import '../playback/keep_screen_on.dart';
@@ -23,6 +25,7 @@ import '../playback/playback_strings.dart';
 import '../playback/system_requests.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/adaptive/edge_split.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import '../ui/navigation/pane/pane_split.dart';
@@ -35,6 +38,7 @@ import 'detail_chrome.dart';
 import 'shell_state.dart';
 import 'yoin_section.dart';
 import 'yoin_bottom_bar.dart';
+import 'yoin_edge_split_group.dart';
 
 /// The window's chrome, above the Navigator (adaptive-principles §2: one
 /// window, one bar, one Now Playing chain): every route — shell or detail —
@@ -167,10 +171,7 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
           BesideNowPlayingPanel(
             controller: _controller,
             providesWindow: false,
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: _ChromeBar(controller: _controller, away: _barAway),
-            ),
+            child: _ChromeBar(controller: _controller, away: _barAway),
           ),
           // The player's own Navigator blocks the semantics painted before
           // it (its route's barrier). Full, that is right: nothing under it
@@ -227,6 +228,7 @@ class _ChromeBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hasTrack = ref.watch(playerSnapshotProvider.select((s) => s.hasTrack));
+    final unavailable = ref.watch(playerSnapshotProvider.select(isPlaybackUnavailable));
     final actions = ref.watch(topDetailActionsProvider);
     final navBottom = MediaQuery.paddingOf(context).bottom;
     final memoriesHide = ref.watch(memoriesRevealHandleProvider).barHide;
@@ -244,70 +246,196 @@ class _ChromeBar extends ConsumerWidget {
             onDone: editController.done,
           )
         : null;
-    return AnimatedBuilder(
-      // The controller too: the flight landing releases the bar (barComposed).
-      animation: Listenable.merge([
-        controller,
-        controller.bar.animation,
-        away.animation,
-        memoriesHide,
-        DetailPaneController.columnOpen,
-      ]),
-      builder: (context, child) {
-        // Not composed while the player is fully up (its wave stops ticking)
-        // or while a bar-less page has sent it away.
-        if (!controller.barComposed || (away.value >= 0.999 && !away.isAnimating)) return const SizedBox.shrink();
-        final b = math.max(controller.bar.value, away.value).clamp(0.0, 1.0);
-        final travel = BarTokens.height + 2 * BarTokens.portraitVerticalMargin + navBottom;
-        // Memories takes the bar with its reveal: it slides and fades with q (YoinNavHost).
-        // With the detail column open the bar carries the column page's
-        // Play: Memories (over the shell column only) doesn't take it.
-        final hide = DetailPaneController.columnOpen.value ? 0.0 : memoriesHide.value;
-        if (hide >= 0.999) return const SizedBox.shrink();
-        final hideAlpha = (1 - hide * MemoriesTokens.barHideAlphaGain).clamp(0.0, 1.0);
-        return IgnorePointer(
-          ignoring: b > 0.01 || hide > 0.01,
-          child: Opacity(
-            opacity: (1 - b) * hideAlpha,
-            child: Transform.translate(
-              offset: Offset(0, travel * b + hide * MemoriesTokens.barHideTravel),
-              child: child,
-            ),
-          ),
+    // Long-press Library: its search, as Ctrl+K opens it (YoinNavHost onLibraryLongClick).
+    void librarySearch() => openLibrarySearchShortcut(ProviderScope.containerOf(context, listen: false));
+    void songMenu(Track track) {
+      final nav = appNavigatorKey.currentContext;
+      if (nav != null) showNowPlayingTrackMenu(nav, controller, track);
+    }
+
+    // One Button Group, three forms (ShellChromeForm); a form change (rotate,
+    // fold) cross-fades on the effects spring, each form keeping its own pose.
+    return _ChromeFormCrossfade(
+      form: YoinWindowInfo.of(context).chromeForm,
+      builder: (context, form) {
+        final edge = form == ShellChromeForm.edgeSplit;
+        // Edge capsules leave over their own edge — the cutout's.
+        final edgeOut = DisplayPostureScope.cutoutsOf(context).side == EdgeSplitSide.right ? 1.0 : -1.0;
+        return AnimatedBuilder(
+          // The controller too: the flight landing releases the bar (barComposed).
+          animation: Listenable.merge([
+            controller,
+            controller.bar.animation,
+            away.animation,
+            memoriesHide,
+            DetailPaneController.columnOpen,
+          ]),
+          builder: (context, child) {
+            // Not composed while the player is fully up (its wave stops ticking)
+            // or while a bar-less page has sent it away.
+            if (!controller.barComposed || (away.value >= 0.999 && !away.isAnimating)) return const SizedBox.shrink();
+            final b = math.max(controller.bar.value, away.value).clamp(0.0, 1.0);
+            // Memories takes the bar with its reveal: it slides and fades with q (YoinNavHost).
+            // With the detail column open the bar carries the column page's
+            // Play: Memories (over the shell column only) doesn't take it.
+            final hide = DetailPaneController.columnOpen.value ? 0.0 : memoriesHide.value;
+            if (hide >= 0.999) return const SizedBox.shrink();
+            final hideAlpha = (1 - hide * MemoriesTokens.barHideAlphaGain).clamp(0.0, 1.0);
+            // Down below the navigation inset for the bar forms; over their
+            // edge for the capsules (the content band × 1.15).
+            final offset = edge
+                ? Offset(
+                    edgeOut *
+                        (EdgeSplitTokens.contentStart * EdgeSplitTokens.exitTravelFactor * b +
+                            hide * MemoriesTokens.barHideTravel),
+                    0,
+                  )
+                : Offset(
+                    0,
+                    (BarTokens.height + 2 * BarTokens.portraitVerticalMargin + navBottom) * b +
+                        hide * MemoriesTokens.barHideTravel,
+                  );
+            return IgnorePointer(
+              ignoring: b > 0.01 || hide > 0.01,
+              child: Opacity(
+                opacity: (1 - b) * hideAlpha,
+                child: Transform.translate(offset: offset, child: child),
+              ),
+            );
+          },
+          // Each capsule is its own Material: nothing here may take the page's taps.
+          child: edge
+              ? YoinEdgeSplitGroup(
+                  selected: selected,
+                  onSelect: onSelect,
+                  idle: !hasTrack && !unavailable,
+                  detailActions: actions,
+                  onLibraryLongPress: librarySearch,
+                  onPillLongPress: songMenu,
+                  editPose: editPose,
+                )
+              : Align(
+                  alignment: Alignment.bottomCenter,
+                  child: SafeArea(
+                    top: false,
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: ListenableBuilder(
+                        // The side panel folds the pill; the detail column merges the pose.
+                        listenable: Listenable.merge([controller, DetailPaneController.columnOpen]),
+                        builder: (context, _) => LayoutBuilder(
+                          builder: (context, constraints) => YoinBottomBar(
+                            form: form,
+                            availableWidth: constraints.maxWidth,
+                            selected: selected,
+                            onSelect: onSelect,
+                            hasTrack: hasTrack,
+                            detailActions: actions,
+                            // The pill became the side panel: only the two destinations stay.
+                            navOnly: controller.panelOpen,
+                            paneOpen: DetailPaneController.columnOpen.value,
+                            onLibraryLongPress: librarySearch,
+                            editPose: editPose,
+                            pillBuilder: (context, onPress) =>
+                                NowPlayingPill(onPressChanged: onPress, onLongPress: songMenu),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
         );
       },
-      child: SafeArea(
-        top: false,
-        child: Material(
-          type: MaterialType.transparency,
-          child: ListenableBuilder(
-            // The side panel folds the pill; the detail column merges the pose.
-            listenable: Listenable.merge([controller, DetailPaneController.columnOpen]),
-            builder: (context, _) => LayoutBuilder(
-              builder: (context, constraints) => YoinBottomBar(
-                availableWidth: constraints.maxWidth,
-                selected: selected,
-                onSelect: onSelect,
-                hasTrack: hasTrack,
-                detailActions: actions,
-                // The pill became the side panel: only the two destinations stay.
-                navOnly: controller.panelOpen,
-                paneOpen: DetailPaneController.columnOpen.value,
-                // Long-press Library: its search, as Ctrl+K opens it (YoinNavHost onLibraryLongClick).
-                onLibraryLongPress: () => openLibrarySearchShortcut(ProviderScope.containerOf(context, listen: false)),
-                editPose: editPose,
-                pillBuilder: (context, onPress) => NowPlayingPill(
-                  onPressChanged: onPress,
-                  onLongPress: (track) {
-                    final nav = appNavigatorKey.currentContext;
-                    if (nav != null) showNowPlayingTrackMenu(nav, controller, track);
-                  },
+    );
+  }
+}
+
+/// Cross-fades the Button Group between its forms on the effects spring
+/// (YoinNavHost Crossfade(chromeForm, effectsSpring)): the outgoing form
+/// keeps laying itself out in its own form while it fades.
+class _ChromeFormCrossfade extends StatefulWidget {
+  const _ChromeFormCrossfade({required this.form, required this.builder});
+
+  final ShellChromeForm form;
+  final Widget Function(BuildContext context, ShellChromeForm form) builder;
+
+  @override
+  State<_ChromeFormCrossfade> createState() => _ChromeFormCrossfadeState();
+}
+
+class _ChromeFormCrossfadeState extends State<_ChromeFormCrossfade> with TickerProviderStateMixin {
+  /// 0 = the previous form, 1 = the current one.
+  late final SpringValue _fade = SpringValue(vsync: this, initial: 1, spring: YoinSprings.defaultEffects);
+  ShellChromeForm? _previous;
+
+  @override
+  void initState() {
+    super.initState();
+    _fade.animation.addStatusListener(_onStatus);
+  }
+
+  @override
+  void didUpdateWidget(_ChromeFormCrossfade oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.form == widget.form) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _previous = null;
+      _fade.snapTo(1);
+      return;
+    }
+    _previous = oldWidget.form;
+    _fade.snapTo(0);
+    _fade.animateTo(1);
+  }
+
+  void _onStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && _previous != null && _fade.value >= 0.999) {
+      setState(() => _previous = null);
+    }
+  }
+
+  @override
+  void dispose() {
+    _fade.animation.removeStatusListener(_onStatus);
+    _fade.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final previous = _previous;
+    return AnimatedBuilder(
+      animation: _fade.animation,
+      builder: (context, _) {
+        final t = _fade.value.clamp(0.0, 1.0);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // Keyed by form, the same wrapper either way: a form keeps its state from current to outgoing.
+            if (previous != null && previous != widget.form && t < 0.999)
+              KeyedSubtree(
+                key: ValueKey(previous),
+                child: IgnorePointer(
+                  // The incoming pill owns the flight's slot keys.
+                  child: FlightSlotsOff(
+                    off: true,
+                    child: Opacity(opacity: 1 - t, child: widget.builder(context, previous)),
+                  ),
+                ),
+              ),
+            KeyedSubtree(
+              key: ValueKey(widget.form),
+              child: IgnorePointer(
+                ignoring: false,
+                child: FlightSlotsOff(
+                  off: false,
+                  child: Opacity(opacity: t, child: widget.builder(context, widget.form)),
                 ),
               ),
             ),
-          ),
-        ),
-      ),
+          ],
+        );
+      },
     );
   }
 }
@@ -485,7 +613,8 @@ const Duration snackbarLongDuration = Duration(milliseconds: 10000);
 /// How far above the navigation inset the snackbar sits: the bar's reserve
 /// for [window]'s chrome form (Android rememberShellChromeInsets' bottom) —
 /// the portrait bar's band, the centred bar with its margin and the content
-/// gap, nothing beside the edge-split capsules.
+/// gap, nothing beside the edge-split capsules (the snackbar keeps out of
+/// their side band instead, [shellChromeInsetsOf]).
 double snackbarBottomReserve(YoinWindowInfo window) => switch (window.chromeForm) {
   ShellChromeForm.edgeSplit => 0,
   ShellChromeForm.centeredBar =>
@@ -568,15 +697,18 @@ class _PlaybackSnackbarHostState extends ConsumerState<PlaybackSnackbarHost> {
   Widget build(BuildContext context) {
     if (_shown.isEmpty) return const Positioned(left: 0, bottom: 0, child: SizedBox.shrink());
     final navBottom = MediaQuery.paddingOf(context).bottom;
-    final reserve = snackbarBottomReserve(YoinWindowInfo.of(context));
+    final window = YoinWindowInfo.of(context);
+    final reserve = snackbarBottomReserve(window);
+    // Beside the edge capsules the snackbar keeps out of their band (and a cutout on the other edge).
+    final side = window.chromeForm == ShellChromeForm.edgeSplit ? shellChromeInsetsOf(context) : EdgeInsets.zero;
     return AnimatedBuilder(
       animation: widget.barAway,
       builder: (context, child) {
         final playerUp = widget.playerUpValue().clamp(0.0, 1.0);
         final away = widget.barAwayValue().clamp(0.0, 1.0) * (1 - playerUp);
         return Positioned(
-          left: SnackbarTokens.hostSideInset,
-          right: SnackbarTokens.hostSideInset,
+          left: SnackbarTokens.hostSideInset + side.left,
+          right: SnackbarTokens.hostSideInset + side.right,
           bottom: navBottom + reserve * (1 - away),
           child: child!,
         );
