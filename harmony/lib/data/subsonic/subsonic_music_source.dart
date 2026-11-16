@@ -34,7 +34,7 @@ final class SubsonicMusicSource implements MusicSource {
     SubsonicStreamPlanner? streamPlanner,
   }) : _api = SubsonicApi(credentials: credentials, client: client ?? http.Client(), salt: salt, timeout: timeout) {
     _library = _SubsonicLibrary(_api, _kinds);
-    _metadata = _SubsonicMetadata(_api);
+    _metadata = _SubsonicMetadata(_api, _library);
     _writeActions = _SubsonicWriteActions(_api, _kinds);
     _playback = _SubsonicPlayback(_api, streamPlanner);
   }
@@ -65,6 +65,7 @@ final class SubsonicMusicSource implements MusicSource {
     Capability.playlistsWrite,
     Capability.offlineDownload,
     Capability.replayGain,
+    Capability.shareLinks,
   };
 
   @override
@@ -283,9 +284,14 @@ String albumListTypeParam(AlbumListType type) => switch (type) {
   AlbumListType.starred => 'starred',
 };
 
-final class _SubsonicMetadata implements MusicMetadata {
-  _SubsonicMetadata(this._api);
+final class _SubsonicMetadata implements MusicMetadata, MusicLinks {
+  _SubsonicMetadata(this._api, this._library);
   final SubsonicApi _api;
+  final _SubsonicLibrary _library;
+
+  /// The server refused a share in a way asking again won't change (sharing
+  /// turned off, no such endpoint): later Shares send the name alone at once.
+  bool _sharesRefused = false;
 
   /// The server's OpenSubsonic extension names, asked once. A server that
   /// answers without them (plain Subsonic: an error or a 404) is remembered
@@ -339,6 +345,54 @@ final class _SubsonicMetadata implements MusicMetadata {
   /// Subsonic shows the names the files carry: there are no others.
   @override
   Future<TrackNames?> alternateNames(Track track) async => null;
+
+  /// A self-hosted server has no public pages of its own; Share makes one
+  /// ([createShareLink]).
+  @override
+  Future<String?> webUrl(WebLinkKind kind, MediaId id) async => null;
+
+  /// `createShare?id=…&description=` (Android SubsonicMusicSource
+  /// createShareLink): the share's public URL. No `expires`: the server's own
+  /// default applies (Navidrome: a year). An artist has no share. A server
+  /// that won't share a playlist by its id (spec servers share songs, albums
+  /// and folders) is asked again with the playlist's songs. A permanent
+  /// refusal ([_isPermanentRefusal]) is remembered: later calls return null.
+  @override
+  Future<String?> createShareLink(WebLinkKind kind, MediaId id, {String? description}) async {
+    if (_sharesRefused || kind == WebLinkKind.artist || id.provider != MediaId.providerSubsonic) return null;
+    final note = description?.trim();
+    Future<SubsonicJson> share(List<String> ids) => _api.call('createShare', [
+      for (final i in ids) ('id', i),
+      if (note != null && note.isNotEmpty) ('description', note),
+    ]);
+    try {
+      SubsonicJson body;
+      try {
+        body = await share([id.rawId]);
+      } on SourceServerException catch (refused) {
+        // The server's own refusal (a Subsonic error), not a transport failure: Android's SubsonicException.
+        if (kind != WebLinkKind.playlist || refused.code == null) rethrow;
+        final songIds = [for (final t in (await _library.getPlaylist(id))?.tracks ?? const <Track>[]) t.id.rawId];
+        if (songIds.isEmpty) rethrow;
+        body = await share(songIds);
+      }
+      final url = shareUrlFromJson(body);
+      if (url == null) throw const SourceServerException('createShare returned no share', code: -1);
+      return url;
+    } on SourceException catch (error) {
+      if (_isPermanentRefusal(error)) _sharesRefused = true;
+      rethrow;
+    }
+  }
+
+  /// A refusal that won't change by asking again: a Subsonic error, or an
+  /// HTTP answer that says the endpoint isn't there (400, 404, 405, 501).
+  static bool _isPermanentRefusal(SourceException error) => switch (error) {
+    SourceAuthException() => true,
+    SourceServerException(:final code) when code != null => true,
+    SourceServerException(:final message) => RegExp(r'^HTTP (400|404|405|501)$').hasMatch(message),
+    SourceNetworkException() => false,
+  };
 }
 
 final class _SubsonicWriteActions implements MusicWriteActions, MusicPlaylistWrites {

@@ -30,6 +30,10 @@ abstract final class TrackCodec {
         if (t.addedAt != null) 'added': t.addedAt,
         if (t.audioFormat != null) 'fmt': _formatToJson(t.audioFormat!),
         if (t.replayGain != null) 'rg': t.replayGain!.toJson(),
+        if (t.artists.isNotEmpty)
+          'artists': [
+            for (final a in t.artists) {'n': a.name, 'id': ?a.id?.toString()},
+          ],
       });
 
   /// null when [raw] isn't a track this codec wrote.
@@ -59,11 +63,18 @@ abstract final class TrackCodec {
         addedAt: m['added'] as String?,
         audioFormat: _formatFromJson(m['fmt']),
         replayGain: ReplayGain.fromJson(m['rg']),
+        artists: _artistsFromJson(m['artists']),
       );
     } on Object {
       return null;
     }
   }
+
+  static List<ArtistCredit> _artistsFromJson(Object? json) => [
+    if (json is List)
+      for (final a in json)
+        if (a is Map && a['n'] is String) ArtistCredit(a['n'] as String, MediaId.tryParse(a['id'] as String?)),
+  ];
 
   static Map<String, Object> _formatToJson(AudioFormat f) => {
         'sfx': ?f.suffix,

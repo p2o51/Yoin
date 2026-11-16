@@ -67,6 +67,19 @@ class DetailStrings {
   String get menuPlayNext => zh ? '下一首播放' : 'Play next'; // detail_menu_play_next
   String get menuAddToQueue => zh ? '加入队列' : 'Add to queue'; // detail_menu_add_to_queue
   String get albumGoToArtist => zh ? '前往艺术家' : 'Go to artist'; // detail_album_go_to_artist
+  String get menuAddToPlaylist => zh ? '添加到播放列表' : 'Add to playlist'; // detail_menu_add_to_playlist
+  String get menuOpenSpotify => zh ? '在 Spotify 中打开' : 'Open in Spotify'; // detail_menu_open_spotify
+  String get menuOpenAppleMusic => zh ? '在 Apple Music 中打开' : 'Open in Apple Music'; // detail_menu_open_apple_music
+  String get share => zh ? '分享' : 'Share'; // detail_album_share / detail_artist_share / detail_playlist_share
+
+  // What Share sends without the page's own name (strings_detail.xml).
+  String shareAlbumTitle(String album, String artist) => '$album – $artist'; // detail_share_album_title
+  String get shareAlbum => zh ? '分享这张专辑' : 'Share album'; // detail_share_album
+  String get shareArtist => zh ? '分享这位艺术家' : 'Share artist'; // detail_share_artist
+  String get sharePlaylist => zh ? '分享这个播放列表' : 'Share playlist'; // detail_share_playlist
+  String get shareLinkFailed => zh
+      ? '服务器没能生成分享链接，只分享了名字'
+      : "Couldn't make a share link on your server, so only the name was shared"; // detail_share_link_failed
 
   /// detail_menu_queued (plurals).
   String menuQueued(int n) =>

@@ -96,7 +96,18 @@ Track? trackFromJson(SubsonicJson j) {
     addedAt: _text(j['created']),
     audioFormat: audioFormatFromJson(j),
     replayGain: replayGainFromJson(_obj(j['replayGain'])),
+    artists: artistCreditsFromJson(j['artists']),
   );
+}
+
+/// OpenSubsonic `artists` (each with its id) → the song's credits, carried
+/// only when there is more than the one in `artist` (Android SubsonicMappers).
+List<ArtistCredit> artistCreditsFromJson(Object? artists) {
+  final credited = [
+    for (final a in _objs(artists))
+      if (_text(a['name']) case final name?) ArtistCredit(name.trim(), _id(a['id'])),
+  ];
+  return credited.length > 1 ? credited : const [];
 }
 
 /// OpenSubsonic `replayGain` (gains in dB, peaks linear, every field
@@ -256,7 +267,18 @@ Playlist? playlistFromJson(SubsonicJson j, {String? currentUsername}) {
     tracks: [for (final s in _objs(j['entry'])) ?trackFromJson(s)],
     canWrite: _bool(j['readonly']) != true && (owner == null || owner == currentUsername),
     comment: _text(j['comment']),
+    ownedByMe: owner == null || currentUsername == null ? null : owner.toLowerCase() == currentUsername.toLowerCase(),
   );
+}
+
+/// `createShare`'s answer → the new share's URL; null when it holds none.
+String? shareUrlFromJson(SubsonicJson body) {
+  final shares = _obj(body['shares']);
+  for (final share in _objs(shares?['share'])) {
+    final url = _text(share['url']);
+    if (url != null) return url;
+  }
+  return null;
 }
 
 // ------------------------------------------------------- search and starred

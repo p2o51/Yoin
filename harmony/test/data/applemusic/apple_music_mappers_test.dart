@@ -104,4 +104,26 @@ void main() {
       expect(embeddedTracks(album), isNull);
     });
   });
+
+  group('playlist ownership', () {
+    test('should_readCanEdit_when_playlistIsInTheLibrary', () {
+      Playlist? listed(bool? canEdit) => playlistFrom({
+        'id': 'p.1',
+        'type': 'library-playlists',
+        'attributes': {'name': 'Mine', 'canEdit': ?canEdit},
+      });
+      expect(listed(true)!.ownedByMe, isTrue);
+      expect(listed(false)!.ownedByMe, isFalse);
+      expect(listed(null)!.ownedByMe, isNull);
+    });
+
+    test('should_sayNothing_when_playlistIsFromTheCatalog', () {
+      final playlist = playlistFrom({
+        'id': 'pl.1',
+        'type': 'playlists',
+        'attributes': {'name': 'Theirs', 'canEdit': false},
+      });
+      expect(playlist!.ownedByMe, isNull);
+    });
+  });
 }

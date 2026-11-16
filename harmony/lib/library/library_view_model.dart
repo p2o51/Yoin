@@ -9,6 +9,7 @@ import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../detail/detail_cache.dart';
 import '../platform/i18n/name_transliterator.dart';
+import 'library_playlists_by_you.dart';
 import 'library_sort.dart';
 import 'library_stores.dart';
 import 'newest_album_songs_pager.dart';
@@ -62,6 +63,7 @@ final class LibraryContent extends LibraryUiState {
     this.isRefreshing = false,
     this.allSettled = false,
     this.notice,
+    this.byYouSelected = false,
   });
 
   final LibraryTab selected;
@@ -82,6 +84,16 @@ final class LibraryContent extends LibraryUiState {
   final bool allSettled;
   final LibraryNotice? notice;
 
+  /// The user turned Playlists' By You on (kept through chips and refreshes).
+  final bool byYouSelected;
+
+  /// Playlists' By You: offered while the loaded playlists are mixed.
+  PlaylistsByYou get playlistsByYou =>
+      PlaylistsByYou(available: sorted.playlistsByYou != null, selected: byYouSelected);
+
+  /// What the Playlists view lists: under By You only the user's own.
+  SortedView? get shownPlaylists => playlistsByYou.filtering ? sorted.playlistsByYou : sorted.playlists;
+
   LibrarySort sortOf(LibraryTab tab) => sorts[tab] ?? librarySortOptions(tab).first;
 
   LibraryContent copyWith({
@@ -99,6 +111,7 @@ final class LibraryContent extends LibraryUiState {
     bool? isRefreshing,
     bool? allSettled,
     LibraryNotice? notice,
+    bool? byYouSelected,
   }) => LibraryContent(
     selected: selected ?? this.selected,
     availableTabs: availableTabs ?? this.availableTabs,
@@ -113,6 +126,7 @@ final class LibraryContent extends LibraryUiState {
     isRefreshing: isRefreshing ?? this.isRefreshing,
     allSettled: allSettled ?? this.allSettled,
     notice: notice ?? this.notice,
+    byYouSelected: byYouSelected ?? this.byYouSelected,
   );
 }
 
@@ -310,6 +324,15 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
   }
 
   // ------------------------------------------------------------- selection
+
+  /// Playlists' By You on or off (Android selectPlaylistsByYou); it can only
+  /// turn on while the playlists are mixed.
+  void selectPlaylistsByYou(bool selected) {
+    final content = _content;
+    if (content == null) return;
+    if (selected && !content.playlistsByYou.available) return;
+    state = content.copyWith(byYouSelected: selected);
+  }
 
   /// Turns [tab] on (or, for the tab already on, back to All); a fetch that
   /// fails steps back to the previous view and names it in a snackbar.

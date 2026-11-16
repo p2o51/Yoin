@@ -21,6 +21,7 @@ import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
+import 'about_screen.dart';
 import 'ai_settings_screen.dart';
 import 'ai_sub_pages.dart';
 import 'apple_music_setup_screen.dart';
@@ -40,6 +41,7 @@ import 'sync/cloud_sync_screen.dart';
 import 'sync/cloud_sync_strings.dart';
 import 'tips.dart';
 import 'volume_leveling_screen.dart';
+import 'yoin_links.dart';
 
 export 'settings_pane.dart';
 
@@ -150,6 +152,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         navigator.push(YoinPushRoute<void>(builder: (_) => const TipsScreen()));
       case LicensesPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const LicensesScreen()));
+      case AboutPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const AboutScreen()));
       case CloudSyncPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const CloudSyncScreen()));
       case StreamQualityPane(:final profileId):
@@ -267,6 +271,7 @@ class _ListDetail extends StatelessWidget {
       AiTryPane() => const AiTryScreen(inPane: true),
       TipsPane() => const TipsScreen(inPane: true),
       LicensesPane() => const LicensesScreen(inPane: true),
+      AboutPane() => const AboutScreen(inPane: true),
       CloudSyncPane() => const CloudSyncScreen(inPane: true),
       StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
       DownloadsPane(:final profileId) => DownloadsScreen(key: ValueKey(('downloads', profileId)), inPane: true),
@@ -405,9 +410,11 @@ class _SyncStorageGroup extends StatelessWidget {
   );
 }
 
-/// Help and about: Tips (how many are read), the Welcome guide, Yoin and its version, and the
-/// open source licenses. On a wide window the rows that open a page show a
-/// chevron and the open one is marked.
+/// Help and about (Android owner 2026-11-09): Tips (how many are read), the
+/// Welcome guide, Docs and Send feedback (in the browser), Yoin (its version;
+/// the website and privacy policy inside), and the open source licenses. On a
+/// wide window the rows that open a page show a chevron and the open one is
+/// marked.
 class _HelpAboutGroup extends ConsumerWidget {
   const _HelpAboutGroup({required this.open, required this.listDetail, required this.onOpen});
 
@@ -419,15 +426,13 @@ class _HelpAboutGroup extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = SettingsStrings.of(context);
     final read = ref.watch(tipReadProvider);
+    final language = Localizations.maybeLocaleOf(context)?.languageCode ?? 'en';
     final chevron = listDetail
         ? Icon(YoinSymbols.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant)
         : null;
     return SettingsGroup(
       title: strings.sectionHelpAbout,
-      selected: {
-        if (open is TipsPane) 0,
-        if (open is LicensesPane) 3,
-      },
+      selected: {if (open is TipsPane) 0, if (open is AboutPane) 4, if (open is LicensesPane) 5},
       children: [
         SettingsItem(
           icon: YoinSymbols.sparkle,
@@ -444,8 +449,25 @@ class _HelpAboutGroup extends ConsumerWidget {
           title: LandingStrings.of(context).welcomeGuide,
           onTap: () => openWelcomeGuide(context, ref),
         ),
-        // No website or privacy links on Harmony yet (nothing opens a browser): just the version.
-        SettingsItem(icon: YoinSymbols.info, title: strings.aboutName, summary: strings.aboutVersion(yoinVersionName)),
+        ExternalPageItem(
+          icon: YoinSymbols.note,
+          title: strings.aboutDocs,
+          url: YoinLinks.docsFor(language),
+          openFailed: strings.aboutDocsOpenFailed,
+        ),
+        ExternalPageItem(
+          icon: YoinSymbols.send,
+          title: strings.aboutFeedback,
+          url: YoinLinks.feedbackForm,
+          openFailed: strings.aboutFeedbackOpenFailed,
+        ),
+        SettingsItem(
+          icon: YoinSymbols.info,
+          title: strings.aboutName,
+          summary: strings.aboutVersion(yoinVersionName),
+          trailing: chevron,
+          onTap: () => onOpen(const AboutPane()),
+        ),
         SettingsItem(
           icon: YoinSymbols.code,
           title: strings.aboutLicenses,

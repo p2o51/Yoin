@@ -31,15 +31,16 @@ enum HomeBubbleTip {
   memoryLedger(YoinSymbols.memory, (2026, 11, 12)),
   aiServices(YoinSymbols.sparkle, (2026, 11, 16)),
   accountQuickSwitch(YoinSymbols.person, (2026, 11, 6)),
-  miniPlayerMenu(YoinSymbols.playCircle, (2026, 11, 4)),
+  miniPlayerMenu(YoinSymbols.playCircle, (2026, 11, 16)),
   focusCover(YoinSymbols.openInFull, (2026, 11, 3)),
   downloads(YoinSymbols.download, (2026, 11, 4)),
   editHome(YoinSymbols.dragHandle, (2026, 10, 17)),
   pullForMemories(YoinSymbols.memory, (2026, 10, 17)),
-  coverMenu(YoinSymbols.album, (2026, 11, 4)),
-  songMenu(YoinSymbols.queue, (2026, 11, 7)),
+  coverMenu(YoinSymbols.album, (2026, 11, 16)),
+  songMenu(YoinSymbols.queue, (2026, 11, 16)),
   playModes(YoinSymbols.shuffle, (2026, 10, 21)),
   noteMoments(YoinSymbols.editNote, (2026, 10, 17)),
+  librarySearch(YoinSymbols.search, (2026, 11, 16)),
   keepScreenOn(YoinSymbols.lightMode, (2026, 10, 17)),
   name(YoinSymbols.sparkle, (2026, 10, 17));
 
@@ -85,6 +86,7 @@ enum HomeBubbleTip {
     songMenu => zh ? '长按歌曲操作' : 'Song quick actions', // home_tip_song_menu_title
     playModes => zh ? '随机与循环' : 'Shuffle and repeat', // home_tip_play_modes_title
     noteMoments => zh ? '笔记记住那一秒' : 'Notes pin the second', // home_tip_note_moments_title
+    librarySearch => zh ? '快速搜索' : 'Quick search', // home_tip_library_search_title
     keepScreenOn => zh ? '屏幕常亮' : 'Keep screen on', // home_tip_keep_screen_on_title
     name => zh ? '名字的由来' : 'Behind the name', // home_tip_name_title
   };
@@ -174,12 +176,11 @@ enum HomeBubbleTip {
     // home_tip_cover_menu
     coverMenu =>
       zh ? '正在播放里长按封面，打开歌曲菜单与快捷操作' : 'Long-press the cover in Now Playing for Song options and quick actions',
-    // Carbon 2026-11-16 (no Share in the HarmonyOS song menu; Android: home_tip_song_menu).
+    // home_tip_song_menu (the song menu has Share now, as on Android).
     songMenu =>
       zh
-          ? '长按（电脑上右键）专辑、歌单或资料库里的歌，下一首播放、加入队列、加入歌单或收藏'
-          : 'Long-press (or right-click) a song in an album, playlist, or Library to play next, queue, add to a '
-                'playlist, or favorite',
+          ? '长按专辑、歌单或资料库里的歌，下一首播放、加入队列、收藏或分享'
+          : 'Long-press a song in an album, playlist, or Library to play next, queue, favorite, or share',
     // home_tip_play_modes
     playModes =>
       zh
@@ -187,6 +188,8 @@ enum HomeBubbleTip {
           : 'Tap to switch shuffle and repeat; long-press to split them and toggle repeat off',
     // home_tip_note_moments
     noteMoments => zh ? '在正在播放写的笔记，会钉在那一秒' : 'Notes written in Now Playing stay pinned to that exact second',
+    // home_tip_library_search
+    librarySearch => zh ? '长按底栏的资料库，直接搜索' : 'Long-press Library in the bar to search right away',
     // home_tip_keep_screen_on
     keepScreenOn => zh ? '屏幕常亮在封面的长按菜单里' : "Keep screen on is in the cover's long-press menu",
     // home_tip_name

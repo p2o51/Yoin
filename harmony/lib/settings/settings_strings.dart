@@ -229,6 +229,17 @@ class SettingsStrings {
   String aboutVersion(String version) => _zh ? '版本 $version' : 'Version $version'; // settings_about_version
   String get aboutTips => _zh ? '小技巧' : 'Tips'; // settings_about_tips
   String get aboutLicenses => _zh ? '开源许可' : 'Open source licenses'; // settings_about_licenses
+  String get aboutWebsite => _zh ? '官网' : 'Website'; // settings_about_website
+  String get aboutWebsiteOpenFailed =>
+      _zh ? '无法打开官网' : "Couldn't open the website"; // settings_about_website_open_failed
+  String get aboutDocs => _zh ? '使用文档' : 'Docs'; // settings_about_docs
+  String get aboutDocsOpenFailed => _zh ? '无法打开使用文档' : "Couldn't open the docs"; // settings_about_docs_open_failed
+  String get aboutPrivacyPolicy => _zh ? '隐私政策' : 'Privacy policy'; // settings_about_privacy_policy
+  String get aboutPrivacyOpenFailed =>
+      _zh ? '无法打开隐私政策' : "Couldn't open the privacy policy"; // settings_about_privacy_open_failed
+  String get aboutFeedback => _zh ? '发送反馈' : 'Send feedback'; // settings_about_feedback
+  String get aboutFeedbackOpenFailed =>
+      _zh ? '无法打开反馈表单' : "Couldn't open the feedback form"; // settings_about_feedback_open_failed
   String get licensesIntro => _zh
       ? 'Yoin 用到了下面这些字体和开源库，感谢它们的作者。点一项可以查看完整许可。'
       : 'Yoin is built with these fonts and open source libraries. Thanks to everyone who made them. Tap one to read its license.'; // settings_licenses_intro

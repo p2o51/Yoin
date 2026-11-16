@@ -11,7 +11,7 @@ import '../app/providers.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
-import '../detail/scrapbook_focus_request.dart';
+import '../detail/scrapbook_focus.dart';
 import '../playback/playback_context.dart';
 import '../playback/playback_controller.dart';
 import '../playback/playhead.dart';
@@ -2082,7 +2082,7 @@ class _AboutFullPage extends ConsumerWidget {
             // Only the playing song's own row: one picked just before the song moved on stays put.
             final albumId = track.albumId;
             if (albumId == null || !(about.song?.owns(entry) ?? false)) return;
-            ScrapbookFocusRequest.request(track.id, edit: entry.ref);
+            ref.read(scrapbookFocusRequestProvider.notifier).request(track.id, edit: entry.ref);
             _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, albumId));
           },
           onRegenerate: (entry) async {

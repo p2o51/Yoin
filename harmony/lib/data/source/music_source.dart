@@ -34,6 +34,12 @@ enum Capability {
   /// their ReplayGain (OpenSubsonic `replayGain`), so the account's page
   /// offers Volume leveling. Apple Music levels the volume itself.
   replayGain,
+
+  /// Share makes a public link on request ([MusicLinks.createShareLink]):
+  /// a Subsonic server's `createShare`, which anyone can open without an
+  /// account. Services with public pages of their own (Apple Music) share
+  /// those ([MusicLinks.webUrl]) and don't have this.
+  shareLinks,
 }
 
 /// Thrown by a source when a call isn't supported by this provider.
@@ -131,6 +137,50 @@ final class TrackNames {
 
   @override
   int get hashCode => Object.hash(title, artist);
+}
+
+/// What a [MusicLinks.webUrl] points at; [path] is the URL segment Apple
+/// Music uses (Android WebLinkKind).
+enum WebLinkKind {
+  album('album'),
+  artist('artist'),
+  playlist('playlist'),
+  track('song');
+
+  const WebLinkKind(this.path);
+  final String path;
+}
+
+/// Public links to a page or a song, for Share and "Open in …" (Android
+/// MusicMetadata.webUrl / createShareLink). A source's metadata implements it
+/// when it has any; [MusicSourceLinks.links] finds it.
+abstract interface class MusicLinks {
+  /// A public web link to [id] (an album, artist, playlist or song); the
+  /// provider's own app opens it where one is installed. Null where there is
+  /// none: a self-hosted server, or an item only in the user's library.
+  Future<String?> webUrl(WebLinkKind kind, MediaId id);
+
+  /// A share link made on request, for Share where [webUrl] has none: a
+  /// Subsonic server's `createShare` ([Capability.shareLinks]). Called only
+  /// when the user taps Share, since each call makes a new link on the
+  /// server. [description] shows on the share's page. Null where the service
+  /// makes none; throws when the server refused.
+  Future<String?> createShareLink(WebLinkKind kind, MediaId id, {String? description});
+}
+
+/// A source's links: null when its metadata has none (test fakes, a source
+/// without metadata).
+extension MusicSourceLinks on MusicSource {
+  MusicLinks? get links {
+    try {
+      return switch (metadata) {
+        final MusicLinks l => l,
+        _ => null,
+      };
+    } on UnsupportedSourceOperation {
+      return null;
+    }
+  }
 }
 
 abstract interface class MusicWriteActions {

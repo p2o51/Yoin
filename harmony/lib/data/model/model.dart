@@ -116,6 +116,24 @@ final class AudioFormat {
   };
 }
 
+/// One credited artist of a [Track] and, when the service names it, that
+/// artist's page (Android ArtistCredit).
+final class ArtistCredit {
+  const ArtistCredit(this.name, this.id);
+
+  final String name;
+  final MediaId? id;
+
+  @override
+  bool operator ==(Object other) => other is ArtistCredit && other.name == name && other.id == id;
+
+  @override
+  int get hashCode => Object.hash(name, id);
+
+  @override
+  String toString() => 'ArtistCredit($name, $id)';
+}
+
 final class Track {
   const Track({
     required this.id,
@@ -136,6 +154,7 @@ final class Track {
     this.addedAt,
     this.audioFormat,
     this.replayGain,
+    this.artists = const [],
   });
 
   final MediaId id;
@@ -166,6 +185,20 @@ final class Track {
   /// The song's ReplayGain (Subsonic only); null when the server says nothing.
   final ReplayGain? replayGain;
 
+  /// Every credited artist one by one, where the service names more than the
+  /// one in [artist] (OpenSubsonic `artists`; Android EXTRA_ARTISTS /
+  /// EXTRA_ARTIST_IDS); empty otherwise. Read [artistCredits].
+  final List<ArtistCredit> artists;
+
+  /// Every credited artist with the page each one opens: [artists] where the
+  /// service named several, else the one [artist] with [artistId] (Android
+  /// Track.artistCredits). An artist the service gives no id has a null id.
+  List<ArtistCredit> get artistCredits {
+    if (artists.length > 1) return artists;
+    final name = artist?.trim();
+    return name == null || name.isEmpty ? const [] : [ArtistCredit(name, artistId)];
+  }
+
   /// [clearUserRating] drops the rating (a null [userRating] keeps it).
   Track copyWith({bool? isStarred, int? userRating, bool clearUserRating = false}) => Track(
         id: id,
@@ -186,6 +219,7 @@ final class Track {
         addedAt: addedAt,
         audioFormat: audioFormat,
         replayGain: replayGain,
+        artists: artists,
       );
 }
 
@@ -277,6 +311,7 @@ final class Playlist {
     this.tracks = const [],
     this.canWrite = false,
     this.comment,
+    this.ownedByMe,
   });
   final MediaId id;
   final String name;
@@ -287,6 +322,13 @@ final class Playlist {
   final List<Track> tracks;
   final bool canWrite;
   final String? comment;
+
+  /// Whether the account's user made this playlist, for Library's By You
+  /// (Android Playlist.ownedByMe); null when the service doesn't say. Kept
+  /// apart from [canWrite], which gates edits. Subsonic: `owner` against the
+  /// login name, ignoring case; no owner is null. Apple Music: a library
+  /// playlist's `canEdit`; catalogue playlists stay null.
+  final bool? ownedByMe;
 }
 
 enum SearchResultType { tracks, albums, artists, playlists }

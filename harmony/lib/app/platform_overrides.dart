@@ -7,9 +7,11 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 
 import '../data/sync/cloud_sync_providers.dart';
 import '../offline/offline_providers.dart';
+import '../platform/browser/url_opener.dart';
 import '../platform/cards/cards_channel.dart';
 import '../platform/i18n/name_transliterator.dart';
 import '../platform/share/image_share.dart';
+import '../platform/share/text_share.dart';
 import '../platform/storage/observed_store.dart';
 import '../platform/window/window_controls.dart';
 import '../platform/yoin_platform.dart';
@@ -28,6 +30,8 @@ List<Override> platformOverrides(YoinPlatform platform) => [
   nameTransliteratorProvider.overrideWithValue(platform.nameTransliterator),
   windowControlsProvider.overrideWithValue(platform.windowControls),
   imageShareProvider.overrideWithValue(platform.imageShare),
+  textShareProvider.overrideWithValue(platform.textShare),
   appFilesHostProvider.overrideWithValue(platform.appFiles),
   cloudSyncHostProvider.overrideWithValue(platform.cloudSyncHost),
+  urlOpenerProvider.overrideWithValue(platform.urlOpener),
 ];

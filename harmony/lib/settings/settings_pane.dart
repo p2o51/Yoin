@@ -109,6 +109,15 @@ final class TipsPane extends SettingsPane {
   int get hashCode => 1;
 }
 
+/// Settings › Help and about › Yoin: the version, the website and the privacy policy.
+final class AboutPane extends SettingsPane {
+  const AboutPane();
+  @override
+  bool operator ==(Object other) => other is AboutPane;
+  @override
+  int get hashCode => 8;
+}
+
 final class LicensesPane extends SettingsPane {
   const LicensesPane();
   @override

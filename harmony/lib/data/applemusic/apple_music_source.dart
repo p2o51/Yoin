@@ -611,7 +611,7 @@ final class _AppleMusicLibrary implements MusicLibrary {
       });
 }
 
-final class _AppleMusicMetadata implements MusicMetadata {
+final class _AppleMusicMetadata implements MusicMetadata, MusicLinks {
   _AppleMusicMetadata(this._s);
   final AppleMusicSource _s;
 
@@ -657,6 +657,27 @@ final class _AppleMusicMetadata implements MusicMetadata {
     }
     return names;
   }
+
+  /// `https://music.apple.com/<storefront>/<kind>/<id>` for a catalogue item
+  /// (Android AppleMusicSource.webUrl): digits, or a `pl.` catalogue
+  /// playlist. Library-only items have no public page. Null when the
+  /// storefront can't be read.
+  @override
+  Future<String?> webUrl(WebLinkKind kind, MediaId id) async {
+    if (id.provider != MediaId.providerAppleMusic) return null;
+    final rawId = id.rawId;
+    final catalog = RegExp(r'^[0-9]+$').hasMatch(rawId) || (kind == WebLinkKind.playlist && rawId.startsWith('pl.'));
+    if (rawId.trim().isEmpty || !catalog) return null;
+    try {
+      return 'https://music.apple.com/${await _s._storefrontId()}/${kind.path}/$rawId';
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Apple Music's own pages are the links: it makes no others.
+  @override
+  Future<String?> createShareLink(WebLinkKind kind, MediaId id, {String? description}) async => null;
 }
 
 final class _AppleMusicWriteActions implements MusicWriteActions, MusicPlaylistWrites {

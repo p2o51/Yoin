@@ -77,4 +77,15 @@ void main() {
     expect(PlaybackContextCodec.read(extra), isA<NoPlaybackContext>());
     expect(PlaybackContextCodec.attach(extra, const NoPlaybackContext()), extra);
   });
+
+  test('should_keepEveryCreditedArtist_when_songNamesSeveral', () {
+    final track = Track(
+      id: MediaId.subsonic('s1'),
+      artist: 'A & B',
+      artists: [ArtistCredit('A', MediaId.subsonic('a')), const ArtistCredit('B', null)],
+    );
+    final back = TrackCodec.decode(TrackCodec.encode(track))!;
+    expect(back.artists, track.artists);
+    expect(TrackCodec.decode(TrackCodec.encode(Track(id: MediaId.subsonic('s2'))))!.artists, isEmpty);
+  });
 }

@@ -8,12 +8,14 @@ library;
 import 'dart:io' show Directory, Platform;
 
 import 'applemusic/apple_music_auth.dart';
+import 'browser/url_opener.dart';
 import 'cards/cards_channel.dart';
 import 'i18n/name_transliterator.dart';
 import 'network/network_bearer.dart';
 import 'playback/channel_playback_engine.dart';
 import 'playback/playback_engine.dart';
 import 'share/image_share.dart';
+import 'share/text_share.dart';
 import 'storage/app_files.dart';
 import 'storage/channel_stores.dart';
 import 'storage/stores.dart';
@@ -40,8 +42,10 @@ final class YoinPlatform {
     required this.windowControls,
     required this.windowCaption,
     required this.imageShare,
+    required this.textShare,
     required this.appFiles,
     required this.cloudSyncHost,
+    required this.urlOpener,
   });
 
   final YoinHost host;
@@ -81,12 +85,19 @@ final class YoinPlatform {
   /// The share sheet and saving an image into the gallery (OHOS Share Kit + photoAccessHelper).
   final ImageShare imageShare;
 
+  /// The share sheet for a name and its link (OHOS Share Kit).
+  final TextShare textShare;
+
   /// The folder for files the app keeps (offline downloads): OHOS filesDir.
   final AppFilesHost appFiles;
 
   /// Cloud sync's browser sign-in, device name and files folder (OHOS
   /// `yoin/cloud_sync`: Want + transient task; Windows: the shell and app data).
   final CloudSyncHost cloudSyncHost;
+
+  /// A web page in the system browser, through [cloudSyncHost]'s browser
+  /// hand-off (the one seam both use).
+  final UrlOpener urlOpener;
 
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
@@ -102,8 +113,10 @@ final class YoinPlatform {
     windowControls: const ChannelWindowControls(),
     windowCaption: const ChannelWindowCaptionHost(),
     imageShare: const ChannelImageShare(),
+    textShare: const ChannelTextShare(),
     appFiles: const ChannelAppFilesHost(),
     cloudSyncHost: const ChannelCloudSyncHost(),
+    urlOpener: const BrowserUrlOpener(ChannelCloudSyncHost()),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -122,8 +135,10 @@ final class YoinPlatform {
     windowControls: const NoWindowControls(),
     windowCaption: const SystemTitleBarHost(),
     imageShare: const NoImageShare(),
+    textShare: const NoTextShare(),
     appFiles: DirectoryAppFilesHost(folder),
     cloudSyncHost: DesktopCloudSyncHost(folder),
+    urlOpener: BrowserUrlOpener(DesktopCloudSyncHost(folder)),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

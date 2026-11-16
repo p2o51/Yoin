@@ -130,6 +130,16 @@ void main() {
     expect(container.read(librarySearchRequestsProvider), before + 1);
   });
 
+  testWidgets('should_switchToLibraryAndAskForSearch_when_libraryLongPressedInTheBar', (tester) async {
+    await pump(tester, playingState(nowPlayingTracks(2), context: _album));
+    final container = ProviderScope.containerOf(tester.element(find.byType(AppChrome)));
+    final before = container.read(librarySearchRequestsProvider);
+    await tester.longPress(find.bySemanticsLabel('Library'));
+    await tester.pumpAndSettle();
+    expect(container.read(shellSectionProvider), YoinSection.library);
+    expect(container.read(librarySearchRequestsProvider), before + 1);
+  });
+
   testWidgets('should_leaveFieldButKeepPage_when_escapePressedWhileTyping', (tester) async {
     await pump(tester, playingState(nowPlayingTracks(2), context: _album));
     appNavigatorKey.currentState!.push(

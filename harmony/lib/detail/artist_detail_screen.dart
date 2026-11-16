@@ -6,6 +6,8 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../data/source/music_source.dart';
+import '../platform/share/text_share.dart';
 import '../shell/detail_chrome.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -21,6 +23,7 @@ import 'dot_dissolve.dart';
 import 'detail_palette.dart';
 import 'detail_play.dart';
 import 'detail_routes.dart';
+import 'detail_share.dart';
 import 'detail_strings.dart';
 import 'detail_track_rows.dart';
 import 'pull_up_reveal.dart';
@@ -608,8 +611,9 @@ class _ArtistChrome extends ConsumerWidget {
       );
     }
 
-    // ▾ after Shuffle play (ArtistDetailActivity rememberDetailMenu): Play next and Add to queue, read
-    // the whole discography like Play. Share waits for Subsonic share links.
+    // ▾ after Shuffle play (ArtistDetailActivity rememberDetailMenu + promotable): Play next and Add to
+    // queue read the whole discography like Play; Open in Apple Music once the artist's page is known;
+    // Share sends the name with that page (a server makes no share link for an artist).
     final strings = DetailStrings.of(context);
     void queue({required bool next}) {
       if (content == null || content.releases.isEmpty) return;
@@ -621,22 +625,45 @@ class _ArtistChrome extends ConsumerWidget {
       });
     }
 
+    final link = content == null
+        ? null
+        : ref.watch(detailWebLinkProvider((WebLinkKind.artist, content.artist.id))).value;
+    final openIn = openInLabel(link, strings);
+    final container = ProviderScope.containerOf(context, listen: false);
+
     return DetailChromeRegistration(
       actions: DetailPlayActions(
         onPlay: () => play(shuffle: false),
         onShuffle: () => play(shuffle: true),
-        menuItems: content == null || content.releases.isEmpty
+        menuItems: content == null
             ? const []
             : [
+                if (content.releases.isNotEmpty) ...[
+                  DetailMenuAction(
+                    icon: YoinSymbols.skipNext,
+                    label: strings.menuPlayNext,
+                    onTap: () => queue(next: true),
+                  ),
+                  DetailMenuAction(
+                    icon: YoinSymbols.queue,
+                    label: strings.menuAddToQueue,
+                    onTap: () => queue(next: false),
+                  ),
+                ],
+                if ((link, openIn) case (final url?, final label?))
+                  DetailMenuAction(icon: YoinSymbols.launch, label: label, onTap: () => openDetailLink(container, url)),
                 DetailMenuAction(
-                  icon: YoinSymbols.skipNext,
-                  label: strings.menuPlayNext,
-                  onTap: () => queue(next: true),
-                ),
-                DetailMenuAction(
-                  icon: YoinSymbols.queue,
-                  label: strings.menuAddToQueue,
-                  onTap: () => queue(next: false),
+                  icon: YoinSymbols.share,
+                  label: strings.share,
+                  onTap: () {
+                    final name = content.artist.name.trim();
+                    container
+                        .read(textShareProvider)
+                        .shareText(
+                          detailShareText(name.isEmpty ? strings.shareArtist : name, link),
+                          title: name.isEmpty ? strings.shareArtist : name,
+                        );
+                  },
                 ),
               ],
         playContainer: palette?.accent,

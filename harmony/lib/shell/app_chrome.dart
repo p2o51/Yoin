@@ -276,6 +276,8 @@ class _ChromeBar extends ConsumerWidget {
                 // The pill became the side panel: only the two destinations stay.
                 navOnly: controller.panelOpen,
                 paneOpen: DetailPaneController.columnOpen.value,
+                // Long-press Library: its search, as Ctrl+K opens it (YoinNavHost onLibraryLongClick).
+                onLibraryLongPress: () => openLibrarySearchShortcut(ProviderScope.containerOf(context, listen: false)),
                 pillBuilder: (context, onPress) => NowPlayingPill(
                   onPressChanged: onPress,
                   onLongPress: (track) {

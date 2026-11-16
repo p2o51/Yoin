@@ -3,9 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/source/music_source.dart';
+import 'package:yoin/detail/detail_share.dart';
+import 'package:yoin/detail/scrapbook_focus.dart';
+import 'package:yoin/platform/share/text_share.dart';
 import 'package:yoin/ui/component/track_menu_sheet.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../support/link_fakes.dart';
 import '../support/nowplaying_fakes.dart';
 
 class _QueueingController extends NowPlayingFakeController {
@@ -75,6 +79,36 @@ void main() {
       expect([for (final a in layout.quick) a.id], [TrackMenuActionId.favorite, TrackMenuActionId.addToPlaylist]);
     });
 
+    test('should_putShareLastOnTop_when_songHasIt', () {
+      final layout = trackMenuLayout(
+        nowPlaying: false,
+        playNext: _action(TrackMenuActionId.playNext),
+        addToQueue: _action(TrackMenuActionId.addToQueue),
+        favorite: _action(TrackMenuActionId.favorite),
+        share: _action(TrackMenuActionId.share),
+      );
+      expect(
+        [for (final a in layout.quick) a.id],
+        [TrackMenuActionId.playNext, TrackMenuActionId.addToQueue, TrackMenuActionId.favorite, TrackMenuActionId.share],
+      );
+      final playing = trackMenuLayout(
+        nowPlaying: true,
+        favorite: _action(TrackMenuActionId.favorite),
+        addToPlaylist: _action(TrackMenuActionId.addToPlaylist),
+        share: _action(TrackMenuActionId.share),
+      );
+      expect(
+        [for (final a in playing.quick) a.id],
+        [TrackMenuActionId.favorite, TrackMenuActionId.addToPlaylist, TrackMenuActionId.share],
+      );
+    });
+
+    test('should_foldShareIntoList_when_itIsTheOnlyAction', () {
+      final layout = trackMenuLayout(nowPlaying: true, share: _action(TrackMenuActionId.share));
+      expect(layout.quick, isEmpty);
+      expect([for (final a in layout.folded) a.id], [TrackMenuActionId.share]);
+    });
+
     test('should_foldLoneActionIntoList_when_rowWouldHoldOne', () {
       final layout = trackMenuLayout(nowPlaying: true, addToPlaylist: _action(TrackMenuActionId.addToPlaylist));
       expect(layout.quick, isEmpty);
@@ -92,20 +126,28 @@ void main() {
     late List<String> visits;
 
     late List<String> filed;
+    late RecordingTextShare shared;
 
     Future<void> pump(
       WidgetTester tester, {
       bool nowPlaying = false,
       _FavoriteSource? source,
       bool canFile = false,
+      Track? track,
+      ValueChanged<MediaId>? onViewInScrapbook,
     }) async {
       filed = [];
+      shared = RecordingTextShare();
+      DetailShare.resetForTest();
       controller = _QueueingController(playingState(nowPlayingTracks(2)).copyWith(entryIds: ['e0', 'e1']));
       messages = [];
       visits = [];
       await tester.pumpWidget(
         ProviderScope(
-          overrides: nowPlayingOverrides(controller: controller, source: source ?? _FavoriteSource()),
+          overrides: [
+            ...nowPlayingOverrides(controller: controller, source: source ?? _FavoriteSource()),
+            textShareProvider.overrideWithValue(shared),
+          ],
           child: MaterialApp(
             home: Builder(
               builder: (context) => Scaffold(
@@ -113,10 +155,11 @@ void main() {
                   child: TextButton(
                     onPressed: () => showTrackMenuSheet(
                       context,
-                      track: _song,
+                      track: track ?? _song,
                       nowPlaying: nowPlaying,
                       onGoToAlbum: (id) => visits.add('album:${id.rawId}'),
                       onGoToArtist: (id) => visits.add('artist:${id.rawId}'),
+                      onViewInScrapbook: onViewInScrapbook,
                       onAddToPlaylist: canFile ? (tracks) => filed.add(tracks.single.id.rawId) : null,
                       onMessage: messages.add,
                     ),
@@ -195,6 +238,53 @@ void main() {
       await pump(tester, nowPlaying: true, canFile: true);
       expect(find.text('Favorite'), findsOneWidget);
       expect(find.text('Add to playlist'), findsOneWidget);
+    });
+
+    testWidgets('should_shareTitleAndArtistAndClose_when_shareTapped', (tester) async {
+      await pump(tester);
+      expect(find.text('Share'), findsOneWidget);
+      await tester.tap(find.text('Share'));
+      await tester.pumpAndSettle();
+      expect(shared.shared.single.$1, 'Lantern — Mono');
+      expect(find.text('Lantern'), findsNothing);
+    });
+
+    testWidgets('should_moveToScrapbookInPlace_when_sheetIsOnTheAlbumPage', (tester) async {
+      final viewed = <MediaId>[];
+      await pump(tester, onViewInScrapbook: viewed.add);
+      await tester.tap(find.text('View in Scrapbook'));
+      await tester.pumpAndSettle();
+      expect(viewed, [MediaId.subsonic('s1')]);
+      expect(visits, isEmpty);
+    });
+
+    testWidgets('should_openAlbumAtScrapbook_when_viewInScrapbookTappedElsewhere', (tester) async {
+      await pump(tester, nowPlaying: true);
+      final container = ProviderScope.containerOf(tester.element(find.byType(Scaffold).first));
+      await tester.tap(find.text('View in Scrapbook'));
+      await tester.pumpAndSettle();
+      expect(visits, ['album:al1']);
+      expect(container.read(scrapbookFocusRequestProvider)?.songId, MediaId.subsonic('s1'));
+    });
+
+    testWidgets('should_offerEachArtist_when_songNamesSeveral', (tester) async {
+      await pump(
+        tester,
+        track: Track(
+          id: MediaId.subsonic('s2'),
+          title: 'Duet',
+          artist: 'Ann & Bo',
+          artistId: MediaId.subsonic('a'),
+          albumId: MediaId.subsonic('al1'),
+          artists: [ArtistCredit('Ann', MediaId.subsonic('a')), ArtistCredit('Bo', MediaId.subsonic('b'))],
+        ),
+      );
+      expect(find.text('Go to artist'), findsNothing);
+      expect(find.text('Go to Ann'), findsOneWidget);
+      await tester.ensureVisible(find.text('Go to Bo'));
+      await tester.tap(find.text('Go to Bo'));
+      await tester.pumpAndSettle();
+      expect(visits, ['artist:b']);
     });
   });
 }

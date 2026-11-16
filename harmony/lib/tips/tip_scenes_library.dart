@@ -8,9 +8,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../library/library_search.dart';
+import '../library/library_search_view.dart' show librarySearchFilterLabel;
 import '../library/library_strings.dart';
 import '../nowplaying/now_playing_pill.dart';
 import '../theme/tokens.dart';
+import '../ui/component/expressive_segment_chip.dart';
 import '../ui/component/yoin_pull_to_refresh.dart';
 import 'demo_data.dart';
 import 'demo_phone.dart';
@@ -71,6 +74,131 @@ class _SongMenuDemoState extends State<SongMenuDemo> with DemoSceneState {
           DemoSongSheet(open: _open, onDismiss: () => put(() => _open = false), track: demoTrack(_row, album)),
         ],
       ),
+    );
+  }
+}
+
+/// Long-press Library in the bar → its search.
+class LibrarySearchDemo extends StatefulWidget {
+  const LibrarySearchDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<LibrarySearchDemo> createState() => _LibrarySearchDemoState();
+}
+
+class _LibrarySearchDemoState extends State<LibrarySearchDemo> with DemoSceneState {
+  bool _searching = false;
+
+  Future<void> _script(DemoFinger f) async {
+    put(() => _searching = false);
+    await f.wait(300);
+    // Library is the bar's right half (nothing playing: the two labelled halves).
+    await f.moveTo('bar', fx: 0.75);
+    await f.hold(() => put(() => _searching = true));
+    await f.lift();
+    await f.wait(1800);
+    await f.moveTo('searchBack');
+    await f.tap(() => put(() => _searching = false));
+    await f.wait(500);
+  }
+
+  @override
+  Widget build(BuildContext context) => DemoPhone(
+    playing: widget.playing,
+    script: _script,
+    child: Stack(
+      children: [
+        DemoLibraryPage(onLibraryLongPress: () => put(() => _searching = true)),
+        Positioned.fill(
+          child: _DemoLibrarySearch(visible: _searching, onClose: () => put(() => _searching = false)),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Library's full-screen search as it opens (its own route in the app, so
+/// the phone draws its look): the back arrow and the placeholder, then the
+/// real type chips.
+class _DemoLibrarySearch extends StatefulWidget {
+  const _DemoLibrarySearch({required this.visible, required this.onClose});
+
+  final bool visible;
+  final VoidCallback onClose;
+
+  @override
+  State<_DemoLibrarySearch> createState() => _DemoLibrarySearchState();
+}
+
+class _DemoLibrarySearchState extends State<_DemoLibrarySearch> {
+  LibrarySearchFilter _filter = LibrarySearchFilter.all;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final strings = LibraryStrings.of(context);
+    return DemoSpring(
+      target: widget.visible ? 1 : 0,
+      builder: (context, p) {
+        if (p <= 0.001 && !widget.visible) return const SizedBox.shrink();
+        return IgnorePointer(
+          ignoring: !widget.visible,
+          child: Opacity(
+            opacity: p.clamp(0.0, 1.0),
+            child: Transform.scale(
+              scale: TipSceneTokens.searchEnterScale + (1 - TipSceneTokens.searchEnterScale) * p,
+              child: ColoredBox(
+                color: colors.surfaceContainerHigh,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      height: TipSceneTokens.searchField + TipSceneTokens.searchRowPadding,
+                      child: Row(
+                        children: [
+                          const SizedBox(width: TipSceneTokens.searchRowInset),
+                          DemoTarget(
+                            'searchBack',
+                            child: IconButton(icon: const Icon(YoinSymbols.back), onPressed: widget.onClose),
+                          ),
+                          Expanded(
+                            child: Text(
+                              strings.searchPlaceholder,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodyLarge!.copyWith(color: colors.onSurfaceVariant),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: SearchTokens.filterRowPaddingV),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: TipSceneTokens.pagePaddingH),
+                        child: Row(
+                          children: [
+                            for (final (i, f) in LibrarySearchFilter.values.indexed) ...[
+                              if (i > 0) const SizedBox(width: LibraryTokens.chipGap),
+                              ExpressiveSegmentChip(
+                                label: librarySearchFilterLabel(strings, f),
+                                selected: _filter == f,
+                                onTap: () => setState(() => _filter = f),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
