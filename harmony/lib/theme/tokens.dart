@@ -640,6 +640,53 @@ abstract final class MemoriesTokens {
   static const double pillLabelFadeTo = 0.4;
   static const double reducedSwap = 0.5;
 
+  /// Fallback A: the album-name title flies to the bar's album name and is gone by here.
+  static const double albumTitleFadeFrom = 0.36;
+  static const double albumTitleFadeTo = 0.72;
+
+  /// The 96's "Avg." caption leaves first (by this much of its travel).
+  static const double captionFadeTo = 0.4;
+
+  /// The flying cover hands over to the bar's 40 dp cover inside
+  /// [coverFloorFrom]…1 / [coverSwapFrom]…[coverSwapTo] of its flight.
+  static const double coverSwapFrom = 0.62;
+  static const double coverSwapTo = 0.9;
+  static const double coverFloorFrom = 0.75;
+
+  /// The page's own cover belongs to the bar once it flies: its alpha meets the bar's parallax this fast.
+  static const double coverParallaxLead = 5;
+
+  /// Diary blocks past this index share its timing.
+  static const int blockMaxIndex = 6;
+
+  /// Frozen collapse (a diary closed with its title under the bar): the cover
+  /// waits in the bar until the sinking text is gone (fp = p / [frozenCoverSpan]),
+  /// the text fades over [frozenTextFadeFrom] + k·step … [frozenTextFadeTo], the
+  /// card's title and emblem come back over [frozenCardFadeFrom]…[frozenCardFadeTo].
+  static const double frozenCoverSpan = 0.55;
+  static const double frozenTextFadeFrom = 0.55;
+  static const double frozenTextFadeStep = 0.02;
+  static const double frozenTextFadeTo = 0.95;
+  static const double frozenCardFadeFrom = 0.3;
+  static const double frozenCardFadeTo = 0.55;
+
+  /// Frozen: the diary's scroll returns to its top, unseen, below this p.
+  static const double frozenResetBelow = 0.05;
+
+  /// The diary is composed (and drawn) above this p.
+  static const double diaryHiddenBelow = 0.0005;
+
+  /// The card's title and buttons take taps only below this p.
+  static const double cardInputBelow = 0.05;
+
+  /// Slot B's album line (15 × 1.3) and artist line (13 × 1.3): fallback A's flight lands on the first.
+  static const double barAlbumLine = 19.5;
+  static const double barArtistLine = 16.9;
+
+  /// Slot B: the album column, then this gap and the 18 dp ⌄.
+  static const double slotBChevronGap = 6;
+  static const double slotBChevron = 18;
+
   /// The award starts once the reveal is this open (q ≤ this).
   static const double awardRevealGate = 0.15;
 }
@@ -701,7 +748,6 @@ abstract final class SearchTokens {
   static const double sectionHeaderBottom = 6;
 }
 
-
 /// Settings' account list (HarmonyOS v1; the Kotlin side has no Settings
 /// tokens yet — add these there when it follows).
 abstract final class SettingsTokens {
@@ -712,7 +758,6 @@ abstract final class SettingsTokens {
   static const double rowPadding = 16;
   static const double rowGap = 2;
 }
-
 
 /// Corner radii (Shape.kt YoinArtworkShapes / YoinContainerShapes).
 abstract final class ShapeTokens {
@@ -812,7 +857,6 @@ abstract final class MotionTokens {
   static const int fastScrollerHideDelayMs = 1600;
   static const double fastScrollerHideSlide = 32;
 }
-
 
 /// The shared sheets: the queue sheet's editing (QueueSheet.kt), the song
 /// sheet (TrackMenu.kt) and Add to playlist (AddToPlaylistSheet.kt).

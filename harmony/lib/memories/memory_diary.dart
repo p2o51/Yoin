@@ -4,6 +4,10 @@
 /// entry (the review, or today's blank page with Cancel / Save) → • • • →
 /// track rows (only rated or noted songs, notes hung under them like lyrics)
 /// → the end: the run-out rings, two numerals, Go to album.
+///
+/// With a [MemoryPageMorph] the head's title and 48 are the card's title and
+/// 96 landing (their own [MorphLayer]s), and every block after them rises,
+/// staggered, behind the title (Android MemoryDiary `diaryBlock(k)`).
 library;
 
 import 'package:flutter/material.dart';
@@ -18,7 +22,7 @@ import '../theme/tokens.dart';
 import 'copy/memory_copy.dart';
 import 'copy/memory_voice.dart';
 import 'memories_layout.dart';
-import 'memories_motion.dart';
+import 'memories_morph.dart';
 import 'memories_strings.dart';
 import 'memories_ui_state.dart';
 import 'memory_card_face.dart';
@@ -41,7 +45,7 @@ class MemoryDiary extends StatelessWidget {
     required this.memory,
     required this.tones,
     required this.layout,
-    required this.diary,
+    this.morph,
     required this.scroll,
     required this.topInset,
     required this.emblem,
@@ -69,7 +73,9 @@ class MemoryDiary extends StatelessWidget {
   final MemoryEntry memory;
   final MemoryPaletteTones tones;
   final MemoriesLayout layout;
-  final Animation<double> diary;
+
+  /// The page's morph (the two states); null in the spread, where nothing morphs.
+  final MemoryPageMorph? morph;
   final ScrollController scroll;
 
   /// The status bar plus the top bar: the text starts under them.
@@ -93,78 +99,108 @@ class MemoryDiary extends StatelessWidget {
     final hasEntry = true; // the review, or today's blank page
     final hasTracks = memory.diaryTracks.isNotEmpty;
     final spread = this.spread;
+    final m = morph;
+    final emblemLayer = _layer(
+      m?.demKey,
+      m?.diaryEmblem,
+      SizedBox.square(dimension: MemoriesTokens.diaryEmblem, child: emblem),
+    );
+    // Yoin's paragraph is the head's block 0; the blocks after it count on from there.
+    final paragraphBlock = paragraph != null ? 0 : -1;
+    final Widget? head = spread != null
+        ? null
+        // Head with a written title (the user's own, or Yoin's AI title): the title beside the 48, its edit row
+        // under the whole row, then Yoin's paragraph. The title and the 48 are the card's, landed.
+        : memory.memoryTitleKind != MemoryTitleKind.album
+        ? Padding(
+            key: m?.headKey,
+            padding: EdgeInsets.only(
+              bottom: paragraph != null ? MemoriesTokens.diaryHeadGapWithAsk : MemoriesTokens.diaryHeadGap,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: MemoriesTokens.diaryRowBleed),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Loose: the title's box is its words, so its flight lands on them.
+                      Flexible(
+                        child: Padding(
+                          padding: const EdgeInsetsDirectional.only(end: MemoriesTokens.diaryEmblemGap),
+                          child: _layer(
+                            m?.diaryTitleKey,
+                            m?.diaryTitle,
+                            MemoryTitleSlot(
+                              memory: memory,
+                              surface: MemoryTitleSurface.diary,
+                              editing: titleEditing,
+                              tones: tones,
+                              style: (k) => memoryDiaryTitleStyle(k, type, Theme.of(context).colorScheme.onSurface),
+                              enabled: interactive,
+                              centred: false,
+                            ),
+                          ),
+                        ),
+                      ),
+                      emblemLayer,
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: MemoriesTokens.diaryRowBleed),
+                  child: MemoryTitleEditRow(
+                    memory: memory,
+                    surface: MemoryTitleSurface.diary,
+                    editing: titleEditing,
+                    tones: tones,
+                    centred: false,
+                  ),
+                ),
+                if (paragraph != null)
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      top: MemoriesTokens.diaryParagraphTop,
+                      left: MemoriesTokens.diaryRowBleed,
+                      right: MemoriesTokens.diaryRowBleed,
+                    ),
+                    child: _block(_YoinParagraph(memory: memory, size: type.paragraph), paragraphBlock),
+                  ),
+              ],
+            ),
+          )
+        // Head: Yoin's paragraph beside the 48 (the album name already flew to the bar).
+        : Padding(
+            key: m?.headKey,
+            padding: EdgeInsets.only(
+              bottom: paragraph != null ? MemoriesTokens.diaryHeadGapWithAsk : MemoriesTokens.diaryHeadGap,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: MemoriesTokens.diaryRowBleed),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: paragraph == null
+                        ? const SizedBox.shrink()
+                        : Padding(
+                            padding: const EdgeInsetsDirectional.only(end: MemoriesTokens.diaryEmblemGap),
+                            child: _block(_YoinParagraph(memory: memory, size: type.paragraph), paragraphBlock),
+                          ),
+                  ),
+                  emblemLayer,
+                ],
+              ),
+            ),
+          );
     final blocks = <Widget>[
       // Landscape spread: Yoin's paragraph opens the right page.
       if (spread != null && spread.leadingParagraph && paragraph != null)
         Padding(
           padding: const EdgeInsets.only(bottom: MemoriesTokens.spreadLandscapeParagraphGap),
           child: _YoinParagraph(memory: memory, size: type.paragraph),
-        ),
-      // Head with a written title (the user's own, or Yoin's AI title): the title beside the 48, its edit row
-      // under the whole row, then Yoin's paragraph.
-      if (spread == null && memory.memoryTitleKind != MemoryTitleKind.album)
-        Padding(
-          padding: EdgeInsets.only(
-            bottom: paragraph != null ? MemoriesTokens.diaryHeadGapWithAsk : MemoriesTokens.diaryHeadGap,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsetsDirectional.only(end: MemoriesTokens.diaryEmblemGap),
-                      child: MemoryTitleSlot(
-                        memory: memory,
-                        surface: MemoryTitleSurface.diary,
-                        editing: titleEditing,
-                        tones: tones,
-                        style: (k) => memoryDiaryTitleStyle(k, type, Theme.of(context).colorScheme.onSurface),
-                        enabled: interactive,
-                        centred: false,
-                      ),
-                    ),
-                  ),
-                  SizedBox.square(dimension: MemoriesTokens.diaryEmblem, child: emblem),
-                ],
-              ),
-              MemoryTitleEditRow(
-                memory: memory,
-                surface: MemoryTitleSurface.diary,
-                editing: titleEditing,
-                tones: tones,
-                centred: false,
-              ),
-              if (paragraph != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: MemoriesTokens.diaryParagraphTop),
-                  child: _YoinParagraph(memory: memory, size: type.paragraph),
-                ),
-            ],
-          ),
-        ),
-      // Head: Yoin's paragraph beside the 48 (the album name already flew to the bar).
-      if (spread == null && memory.memoryTitleKind == MemoryTitleKind.album)
-        Padding(
-          padding: EdgeInsets.only(
-            bottom: paragraph != null ? MemoriesTokens.diaryHeadGapWithAsk : MemoriesTokens.diaryHeadGap,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: paragraph == null
-                    ? const SizedBox.shrink()
-                    : Padding(
-                        padding: const EdgeInsetsDirectional.only(end: MemoriesTokens.diaryEmblemGap),
-                        child: _YoinParagraph(memory: memory, size: type.paragraph),
-                      ),
-              ),
-              SizedBox.square(dimension: MemoriesTokens.diaryEmblem, child: emblem),
-            ],
-          ),
         ),
       if (hasEntry)
         _DiaryEntry(
@@ -178,17 +214,23 @@ class MemoryDiary extends StatelessWidget {
           onSave: onSaveReview,
         ),
       if (hasEntry && hasTracks) _Separator(tones: tones, type: type),
-      for (final group in memory.diaryTracks)
-        _TrackGroup(
-          group: group,
-          tones: tones,
-          type: type,
-          strings: strings,
-          interactive: interactive,
-          playing: group.track.trackId == playingTrackId,
-          litNoteId: litNoteId,
-          onTrack: () => onPlayTrack(group.track),
-          onNote: (note) => onPlayNote(group.track, note),
+      // The liner (every track row) is one block: it rises as one, like Android's DiaryLiner.
+      if (hasTracks)
+        _Liner(
+          children: [
+            for (final group in memory.diaryTracks)
+              _TrackGroup(
+                group: group,
+                tones: tones,
+                type: type,
+                strings: strings,
+                interactive: interactive,
+                playing: group.track.trackId == playingTrackId,
+                litNoteId: litNoteId,
+                onTrack: () => onPlayTrack(group.track),
+                onNote: (note) => onPlayNote(group.track, note),
+              ),
+          ],
         ),
       Padding(
         padding: const EdgeInsets.only(top: MemoriesTokens.diaryEndGap),
@@ -206,6 +248,7 @@ class MemoryDiary extends StatelessWidget {
     ];
     if (spread != null) return _spreadPage(context, blocks, spread);
 
+    final firstBlock = paragraphBlock + 1;
     return LayoutBuilder(
       builder: (context, constraints) {
         final column = layout.diaryColumn(constraints.maxWidth);
@@ -239,32 +282,31 @@ class MemoryDiary extends StatelessWidget {
               top: topInset + MemoriesTokens.diaryTopInset,
               bottom: MemoriesTokens.diaryBottomInset + MediaQuery.paddingOf(context).bottom,
             ),
-            child: Center(
-              child: SizedBox(
-                width: column,
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: side),
-                  child: AnimatedBuilder(
-                    animation: diary,
-                    builder: (context, _) {
-                      final p = diary.value.clamp(0.0, 1.0);
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (var k = 0; k < blocks.length; k++)
-                            _block(
-                              blocks[k] is _TrackGroup
-                                  ? blocks[k]
-                                  : Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: MemoriesTokens.diaryRowBleed),
-                                      child: blocks[k],
-                                    ),
-                              k,
-                              p,
-                            ),
-                        ],
-                      );
-                    },
+            // The text as one: the frozen sink and the open spring's overshoot.
+            child: _layer(
+              null,
+              m?.diaryBody,
+              Center(
+                child: SizedBox(
+                  width: column,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: side),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ?head,
+                        for (var k = 0; k < blocks.length; k++)
+                          _block(
+                            blocks[k] is _Liner
+                                ? blocks[k]
+                                : Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: MemoriesTokens.diaryRowBleed),
+                                    child: blocks[k],
+                                  ),
+                            firstBlock + k,
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -273,6 +315,20 @@ class MemoryDiary extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// [child] painted with [pose] of the morph (keyed so the morph can measure it), or as is without one.
+  Widget _layer(GlobalKey? key, MorphPose Function()? pose, Widget child) {
+    final m = morph;
+    if (m == null || pose == null) return child;
+    return MorphLayer(key: key, listenable: m, pose: pose, child: child);
+  }
+
+  /// Block k rises staggered behind the title ([MemoryPageMorph.diaryBlock]).
+  Widget _block(Widget child, int k) {
+    final m = morph;
+    if (m == null) return child;
+    return MorphLayer(listenable: m, pose: () => m.diaryBlock(k), child: child);
   }
 
   Widget _spreadPage(BuildContext context, List<Widget> blocks, MemorySpreadRight spread) {
@@ -305,7 +361,7 @@ class MemoryDiary extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     for (final b in blocks)
-                      b is _TrackGroup
+                      b is _Liner
                           ? b
                           : Padding(
                               padding: const EdgeInsets.symmetric(horizontal: MemoriesTokens.diaryRowBleed),
@@ -318,25 +374,6 @@ class MemoryDiary extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-
-  /// Block k rises staggered behind the title: alpha over
-  /// [blockFadeFrom + k·step … blockFadeTo], travel 28·k + 36 below.
-  Widget _block(Widget child, int k, double p) {
-    final i = k > 6 ? 6 : k;
-    if (reducedMotion) {
-      return Opacity(opacity: smoothstep(MemoriesTokens.reducedSwap, 1, p), child: child);
-    }
-    final a = smoothstep(
-      MemoriesTokens.blockFadeFrom + MemoriesTokens.blockFadeStep * i,
-      MemoriesTokens.blockFadeTo,
-      p,
-    );
-    final dy = (1 - a) * (MemoriesTokens.blockStagger * i + MemoriesTokens.blockLagExtra);
-    return Opacity(
-      opacity: a,
-      child: Transform.translate(offset: Offset(0, dy), child: child),
     );
   }
 }
@@ -654,6 +691,17 @@ class _Separator extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// The track rows as one block (they keep their own full-bleed rows).
+class _Liner extends StatelessWidget {
+  const _Liner({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: children);
 }
 
 class _TrackGroup extends StatelessWidget {
