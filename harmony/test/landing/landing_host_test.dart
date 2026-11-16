@@ -195,7 +195,8 @@ void main() {
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
     expect(find.text("How round are your screen's corners?"), findsOneWidget);
-    expect(find.text('Match screen · 28 dp'), findsOneWidget);
+    expect(find.text('Match screen'), findsWidgets);
+    expect(find.text('28 dp'), findsOneWidget);
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
     expect(find.text('No account yet.'), findsOneWidget);

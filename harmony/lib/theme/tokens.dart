@@ -487,6 +487,9 @@ abstract final class NowPlayingAboutTokens {
 
   /// The lyrics' other credits: the "N more" line's padding; the notices' padding and line gap.
   static const double creditsTogglePadV = 10;
+
+  /// "N more" and the first roles beside it: space between, no glyph (AboutReceipt.kt).
+  static const double creditsToggleGap = 8;
   static const double noticesPadV = 10;
   static const double noticeGap = 2;
 
@@ -2291,6 +2294,9 @@ abstract final class NeoDbTokens {
   static const double cardGap = 10;
   static const double avatar = 20;
   static const double bylineGap = 8;
+
+  /// The writer's name and, apart from it by space and tone, their instance.
+  static const double bylineInstanceGap = 6;
   static const double grade = 10;
   static const double gradeGap = 2;
 

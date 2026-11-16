@@ -63,8 +63,6 @@ class AppearanceStrings {
   String get screenCorners => _zh ? '屏幕圆角' : 'Screen corners'; // settings_motion_screen_corners
   String get screenCornersFollow => _zh ? '跟随屏幕' : 'Match screen'; // screen_corners_follow
   String screenCornersValue(int dp) => '$dp dp'; // screen_corners_value
-  String screenCornersSummaryFollow(int dp) =>
-      _zh ? '跟随屏幕 · $dp dp' : 'Match screen · $dp dp'; // screen_corners_summary_follow
   String get screenCornersHint => _zh
       ? '拖动这条，让屏幕边缘那圈线贴住屏幕的圆角。Now Playing、回忆和返回手势都会用这个圆角。'
       : "Slide the bar until the line around the edge sits on your screen's corners. Now Playing, Memories and back gestures take this corner."; // screen_corners_hint

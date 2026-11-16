@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../../ui/component/meta_line.dart';
 import '../../ui/component/seam/seam_style.dart';
 import '../settings_pane.dart';
 import '../settings_rows.dart';
@@ -55,7 +56,8 @@ class ScrollEdgeRow extends ConsumerWidget {
   }
 }
 
-/// The screen's corner: "Match screen · N dp" while following the screen, else "N dp".
+/// The screen's corner: "Match screen" with "N dp" beside it as a MetaLine
+/// group (no dot) while following the screen, else "N dp".
 class ScreenCornersRow extends ConsumerWidget {
   const ScreenCornersRow({super.key, required this.onOpen, this.trailing});
 
@@ -67,10 +69,18 @@ class ScreenCornersRow extends ConsumerWidget {
     final strings = AppearanceStrings.of(context);
     final corners = ref.watch(screenCornersProvider);
     final radius = corners.radius.round();
+    final value = strings.screenCornersValue(radius);
     return SettingsItem(
       icon: YoinSymbols.smartphone,
       title: strings.screenCorners,
-      summary: corners.following ? strings.screenCornersSummaryFollow(radius) : strings.screenCornersValue(radius),
+      summary: corners.following ? null : value,
+      summaryContent: corners.following
+          ? MetaLine(
+              groups: [MetaPlain(strings.screenCornersFollow), MetaStat(value, '')],
+              style: Theme.of(context).textTheme.bodyMedium,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            )
+          : null,
       trailing: trailing,
       onTap: onOpen,
     );

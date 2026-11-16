@@ -69,7 +69,8 @@ void main() {
 
   testWidgets('should_traceTheWindowEdge_when_cornerBarDragged', (tester) async {
     final container = await pump(tester, const ScreenCornersScene());
-    expect(find.text('Match screen · 28 dp'), findsOneWidget);
+    expect(find.text('Match screen'), findsWidgets);
+    expect(find.text('28 dp'), findsOneWidget);
     final trace = find.byType(ScreenCornerTrace);
     expect(trace, findsOneWidget, reason: 'on the overlay, above the page');
     final bar = find.byType(ScreenCornerBar);

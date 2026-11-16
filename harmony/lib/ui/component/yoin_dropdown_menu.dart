@@ -9,11 +9,15 @@ import '../../theme/motion.dart';
 /// One row of a [showYoinDropdownMenu].
 @immutable
 final class YoinMenuItem<T> {
-  const YoinMenuItem({required this.value, required this.label, this.icon, this.checked = false});
+  const YoinMenuItem({required this.value, required this.label, this.icon, this.checked = false, this.trailingText});
 
   final T value;
   final String label;
   final IconData? icon;
+
+  /// A value quieter at the item's end (a note's realign shows the moment it
+  /// would move to), set apart by space, not a dot.
+  final String? trailingText;
 
   /// Shows a trailing check (the active choice).
   final bool checked;
@@ -161,6 +165,16 @@ class _MenuSurface<T> extends StatelessWidget {
                           Expanded(
                             child: Text(item.label, style: text.titleMedium?.copyWith(color: colors.onSurface)),
                           ),
+                          if (item.trailingText != null) ...[
+                            const SizedBox(width: 12),
+                            Text(
+                              item.trailingText!,
+                              style: text.labelLarge?.copyWith(
+                                color: colors.onSurfaceVariant,
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ],
                           if (item.checked) ...[
                             const SizedBox(width: 12),
                             Icon(YoinSymbols.check, size: 22, color: colors.primary),

@@ -179,7 +179,23 @@ void main() {
       expect(find.text('Cast Device'), findsOneWidget);
       expect(find.text('Not casting'), findsOneWidget);
       expect(find.text('Kitchen'), findsOneWidget);
-      expect(find.text('DLNA · UPnP'), findsOneWidget);
+      expect(find.text('DLNA'), findsOneWidget);
+      expect(find.text('UPnP'), findsOneWidget);
+      expect(
+        find.textContaining('·'),
+        findsNothing,
+        reason: 'protocols and the subtitle are set apart by space and a line',
+      );
+    });
+
+    testWidgets('should_putSameWifiOnItsOwnLine_when_theAccountIsSubsonic', (tester) async {
+      await pumpSheet(tester);
+      expect(find.text('This device, Cast and DLNA'), findsOneWidget);
+      expect(find.text('Same Wi-Fi'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Same Wi-Fi')).dy,
+        greaterThan(tester.getBottomLeft(find.text('This device, Cast and DLNA')).dy - 1),
+      );
     });
 
     testWidgets('should_openTheSystemPanel_when_theCastRowIsTapped', (tester) async {
@@ -233,6 +249,7 @@ void main() {
       await pumpSheet(tester, source: _AppleSource());
       expect(find.text('Playback devices'), findsOneWidget);
       expect(find.text('Kitchen'), findsNothing);
+      expect(find.text('Same Wi-Fi'), findsNothing);
     });
 
     testWidgets('should_speakChinese_when_theLocaleIsChinese', (tester) async {
@@ -240,6 +257,8 @@ void main() {
       expect(find.text('此设备'), findsOneWidget);
       expect(find.text('投播设备'), findsOneWidget);
       expect(find.text('未投播'), findsOneWidget);
+      expect(find.text('此设备、投播与 DLNA'), findsOneWidget);
+      expect(find.text('同一 Wi-Fi'), findsOneWidget);
     });
 
     testWidgets('should_closeTheSheet_when_theSongChanges', (tester) async {

@@ -66,7 +66,8 @@ Set<int> lyricPassageStarts(List<LyricRow> lyrics, Set<int> selected) {
   };
 }
 
-/// "Title · Artist" (or just the title); null without a title (lyricsCredit).
+/// The title, then the artist on a line of its own (or just the title); null
+/// without a title (lyricsCredit).
 String? lyricsCredit(String? songTitle, String? artist, NowPlayingStrings strings) {
   final title = songTitle?.trim() ?? '';
   if (title.isEmpty) return null;
@@ -76,7 +77,8 @@ String? lyricsCredit(String? songTitle, String? artist, NowPlayingStrings string
 
 /// The clipboard's text (lyricsClipboardText): one lyric per line, each
 /// followed by its translation when the translation shows, a blank line
-/// before each of [passageStarts], then — after a blank line — "— Title · Artist".
+/// before each of [passageStarts], then — after a blank line — the credit
+/// "— Title", the artist on the next line.
 String lyricsClipboardText(
   List<LyricRow> lines, {
   required bool includeTranslation,

@@ -782,12 +782,38 @@ class _VoiceCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: NeoDbTokens.bylineGap),
+                    // The name and, apart from it by space and tone, the instance: no glyph between them.
                     Expanded(
-                      child: Text(
-                        voice.byline,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: text.labelSmall?.copyWith(color: colors.onSurfaceVariant),
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              voice.author,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.labelSmall?.copyWith(
+                                color: colors.onSurface,
+                                fontWeight: FontWeight.w500,
+                                fontVariations: [
+                                  for (final v in text.labelSmall?.fontVariations ?? const <FontVariation>[])
+                                    if (v.axis != 'wght') v,
+                                  const FontVariation.weight(500),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (voice.otherInstance case final host?) ...[
+                            const SizedBox(width: NeoDbTokens.bylineInstanceGap),
+                            Flexible(
+                              child: Text(
+                                host,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.labelSmall?.copyWith(color: colors.onSurfaceVariant),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     if (voice.reviewTitle != null) ...[

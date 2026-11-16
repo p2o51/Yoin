@@ -149,6 +149,31 @@ void main() {
     store.dispose();
   });
 
+  testWidgets('should_showTheMomentAtTheItemsEnd_when_realignIsOffered', (tester) async {
+    setUpNotes();
+    await store.putSongNote(
+      SongNote(id: 'n1', trackId: _track.trackId, content: 'Clap', createdAt: _now, updatedAt: _now, positionMs: 1000),
+    );
+    await pumpPage(tester);
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Clap'));
+    await tester.pumpAndSettle();
+    // "Align to now", then the moment it would move to quieter beside it: no dot.
+    final item = find.ancestor(of: find.text('Align to now'), matching: find.byType(Row)).first;
+    final stamp = find.descendant(of: item, matching: find.text('1:23'));
+    expect(stamp, findsOneWidget);
+    expect(find.textContaining('·'), findsNothing);
+    final colors = Theme.of(tester.element(stamp)).colorScheme;
+    expect(tester.widget<Text>(stamp).style?.color, colors.onSurfaceVariant);
+
+    await tester.tap(find.text('Align to now'));
+    await tester.pumpAndSettle();
+    expect((await store.notesForTracks([_track.trackId])).single.positionMs, 83000);
+    notes.dispose();
+    store.dispose();
+  });
+
   testWidgets('should_deleteFromStore_when_undoWindowCloses', (tester) async {
     setUpNotes();
     await store.putSongNote(

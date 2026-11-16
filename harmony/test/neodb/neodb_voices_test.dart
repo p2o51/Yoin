@@ -223,6 +223,25 @@ void main() {
       expect(opened, isEmpty);
     });
 
+    testWidgets('should_setTheInstanceApartByTone_when_theWriterIsElsewhere', (tester) async {
+      const away = NeoDbVoice(
+        id: 'm',
+        author: 'Bob',
+        handle: 'bob@mastodon.social',
+        text: 'Elsewhere.',
+        url: 'https://mastodon.social/p/m',
+      );
+      await pump(tester, NeoDbVoicesContent(album: _album, voices: [_voice('1'), away], count: 2, endReached: true));
+      final colors = Theme.of(tester.element(find.text('Bob'))).colorScheme;
+      // The name stronger, the instance quieter beside it: no dot between them.
+      expect(tester.widget<Text>(find.text('Bob')).style?.color, colors.onSurface);
+      expect(tester.widget<Text>(find.text('mastodon.social')).style?.color, colors.onSurfaceVariant);
+      expect(find.textContaining('·'), findsNothing);
+      // The page's own instance isn't named.
+      expect(find.text('Listener 1'), findsOneWidget);
+      expect(find.text('neodb.social'), findsNothing);
+    });
+
     testWidgets('should_showEmptyLine_when_noOneWrote', (tester) async {
       await pump(tester, const NeoDbVoicesContent(album: _album, voices: [], count: 0, endReached: true));
       expect(find.text('No one on NeoDB has written about this album yet.'), findsOneWidget);

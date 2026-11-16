@@ -80,13 +80,22 @@ void main() {
         songTitle: 'Song',
         artist: 'Artist',
       );
-      expect(text, 'line 1\nline 2\n\n— Song · Artist');
+      expect(text, 'line 1\nline 2\n\n— Song\nArtist');
     });
 
     testWidgets('should_creditTitleOnly_when_noArtist', (tester) async {
       final en = await _stringsFor(tester, 'en');
       final text = lyricsClipboardText([_rows[0]], includeTranslation: false, strings: en, songTitle: 'Song');
       expect(text, 'line 0\n\n— Song');
+    });
+
+    testWidgets('should_setTheArtistOnItsOwnLine_when_creditingInEitherLanguage', (tester) async {
+      final en = await _stringsFor(tester, 'en');
+      final zh = await _stringsFor(tester, 'zh');
+      expect(lyricsCredit(' Song ', ' Artist ', en), 'Song\nArtist');
+      expect(lyricsCredit('歌', '歌手', zh), '歌\n歌手');
+      expect(lyricsCredit('Song', '  ', en), 'Song');
+      expect(lyricsCredit('  ', 'Artist', en), isNull);
     });
 
     testWidgets('should_leaveBlankLineBetweenPassages_when_pickSkips', (tester) async {

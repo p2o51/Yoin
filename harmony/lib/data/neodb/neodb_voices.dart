@@ -77,11 +77,13 @@ final class NeoDbVoice {
   /// Long words, a review, or folded words take the whole width; short ones sit two by two.
   bool get isLong => reviewTitle != null || text.length > NeoDbVoicesParsing.longVoiceChars;
 
-  /// The writer's name; their instance only when it isn't neodb.social.
-  String get byline {
+  /// The writer's instance, only when it isn't the one the page reads
+  /// (neodb.social; NeoDB is federated). The byline sets it apart from
+  /// [author] by space and tone, not a dot (NeoDbVoicesScreen.kt otherInstance).
+  String? get otherInstance {
     final at = handle.indexOf('@');
     final host = at < 0 ? '' : handle.substring(at + 1);
-    return host.isEmpty || host == 'neodb.social' ? author : '$author · $host';
+    return host.isEmpty || host == 'neodb.social' ? null : host;
   }
 }
 

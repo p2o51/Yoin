@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../nowplaying/haptics.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
+import '../../ui/component/meta_line.dart';
 import '../settings_rows.dart' show SpringFade;
 import 'appearance_strings.dart';
 import 'screen_corners.dart';
@@ -160,9 +161,9 @@ class ScreenCornerSlider extends StatelessWidget {
   }
 }
 
-/// "Match screen · N dp" or "Screen corners", and the reset while the user's
-/// own value is in use. Fixed height: "Match screen" (a 48dp target)
-/// appearing mid-drag must not move the bar.
+/// "Match screen" with "N dp" quieter beside it, or "Screen corners", and the
+/// reset while the user's own value is in use. Fixed height: "Match screen"
+/// (a 48dp target) appearing mid-drag must not move the bar.
 class ScreenCornerValueRow extends StatelessWidget {
   const ScreenCornerValueRow({super.key, required this.value, required this.following, required this.onFollow});
 
@@ -174,6 +175,10 @@ class ScreenCornerValueRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final strings = AppearanceStrings.of(context);
+    final valueStyle = theme.textTheme.titleMedium!.copyWith(
+      color: theme.colorScheme.onSurface,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
     return SizedBox(
       height: ScreenCornerTokens.valueRowHeight,
       child: Row(
@@ -181,15 +186,17 @@ class ScreenCornerValueRow extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsetsDirectional.only(start: ScreenCornerTokens.valueRowStart),
-              child: Text(
-                following ? strings.screenCornersSummaryFollow(value.round()) : strings.screenCorners,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium!.copyWith(
-                  color: theme.colorScheme.onSurface,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
+              child: following
+                  // The label, then the value quieter beside it (MetaLine): no glyph between.
+                  ? MetaLine(
+                      groups: [
+                        MetaPlain(strings.screenCornersFollow),
+                        MetaMuted(strings.screenCornersValue(value.round())),
+                      ],
+                      style: valueStyle,
+                      color: theme.colorScheme.onSurface,
+                    )
+                  : Text(strings.screenCorners, maxLines: 1, overflow: TextOverflow.ellipsis, style: valueStyle),
             ),
           ),
           IgnorePointer(
