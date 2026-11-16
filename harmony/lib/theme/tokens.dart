@@ -277,6 +277,85 @@ abstract final class NowPlayingNoteTokens {
 }
 
 /// Album / playlist / artist detail pages (AlbumDetailScreen.kt, AlbumSpectrum.kt; iOS AlbumDetailView, AlbumScrapbookView, ArtistDetailView).
+/// Now Playing's About and its Ask bar (AboutReceipt.kt, AboutFullscreenPane.kt,
+/// AskGeminiBar.kt, GeminiPrompts.kt, AboutEntrySheet.kt).
+abstract final class NowPlayingAboutTokens {
+  /// The receipt card: corner, padding, line padding, the label column.
+  static const double receiptCorner = 16;
+  static const double receiptPadH = 16;
+  static const double receiptPadV = 6;
+  static const double receiptLinePadV = 8;
+  static const double receiptLabelWidth = 96;
+  static const double receiptLabelGap = 12;
+  static const double receiptLabelTop = 2;
+
+  /// The dashed rule: dash length (the gap is 3/4 of it), stroke.
+  static const double dash = 4;
+  static const double dashStroke = 1;
+
+  /// A paragraph section's vertical padding, heading gap and side inset.
+  static const double paragraphPadV = 14;
+  static const double paragraphGap = 6;
+  static const double paragraphInset = 4;
+
+  /// The expanded pane: top padding, bottom room under the Ask bar, the scroll's bottom fade.
+  static const double paneTop = 8;
+  static const double paneBottom = 96;
+  static const double paneFadeBottom = 64;
+  static const double paneStatusPadV = 12;
+  static const double receiptStatusGap = 12;
+  static const double loadingGap = 8;
+
+  /// The compact carousel: a paragraph page's line cap; the status row's indicator.
+  static const int carouselParagraphLines = 6;
+  static const Duration carouselDwell = Duration(seconds: 7);
+  static const double statusIndicator = 32;
+  static const double statusGap = 8;
+
+  /// Thinking dots: size, gap, the dim end of their blink, the period and step.
+  static const double dot = 6;
+  static const double dotGap = 5;
+  static const double dotDim = 0.25;
+  static const double dotReduced = 0.6;
+  static const Duration dotBlink = Duration(milliseconds: 500);
+  static const Duration dotStep = Duration(milliseconds: 150);
+
+  /// The Ask bar: idle (a pill) and focused heights, the pinned corner, its insets.
+  static const double askIdleHeight = 56;
+  static const double askFocusedHeight = 252;
+  static const double askCorner = 28;
+  static const double askPadH = 20;
+  static const double askPadV = 16;
+  static const double askIndicator = 28;
+  static const double askIndicatorGap = 16;
+  static const double askFieldGap = 12;
+  static const double askLoadingIndicator = 28;
+
+  /// The Expanded page's accessory slot while the Ask bar is focused (Android 276 dp).
+  static const double askFocusedSlot = 276;
+
+  /// While the AI thinks, the bar lightens this far toward the page.
+  static const double askThinkingLighten = 0.45;
+
+  /// Quick prompts: pill padding and gap, the row's top gap.
+  static const double promptPadH = 14;
+  static const double promptPadV = 9;
+  static const double promptGap = 8;
+  static const double promptTop = 8;
+  static const double promptFadeEdge = 20;
+
+  /// The long-pressed row's sheet: side padding, heading inset, row height.
+  static const double sheetPadH = 16;
+  static const double sheetHeadingInset = 8;
+  static const double sheetGap = 12;
+
+  /// The AI wash over Now Playing (drawGeminiWash) and the key hint's pink.
+  static const double washBlueHue = 217;
+  static const double washRainbowMix = 0.8;
+  static const double keyHintHue = 345;
+  static const double keyHintStrength = 0.55;
+}
+
 abstract final class DetailTokens {
   /// The hero cover: min(width × fraction, max), this far below the header.
   static const double albumCoverWidthFraction = 0.74;

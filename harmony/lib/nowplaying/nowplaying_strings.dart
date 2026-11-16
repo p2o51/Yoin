@@ -188,9 +188,77 @@ class NowPlayingStrings {
   String get queueCdPlaying => _zh ? '正在播放' : 'Playing'; // cmp_queue_cd_playing
   String get queueCdPaused => _zh ? '已暂停' : 'Paused'; // cmp_queue_cd_paused
 
-  // Detail tabs (Android also has About, which needs Gemini: not on HarmonyOS).
+  // Detail tabs.
   String get tabLyrics => _zh ? '歌词' : 'Lyrics'; // np_tab_lyrics / np_text_tab_lyrics
+  String get tabAbout => _zh ? '关于' : 'About'; // np_tab_about / np_text_tab_about
   String get tabNote => _zh ? '笔记' : 'Note'; // np_tab_note / np_text_tab_note
+
+  // About (strings_nowplaying np_about_*, np_spine_*; strings_component cmp_song_info_*).
+  String get aboutSearching => _zh ? '正在查找歌曲信息…' : 'Searching for song info…'; // np_about_searching
+  String get aboutKeyMissing => _zh ? '未设置 Gemini API 密钥' : 'No Gemini API key'; // np_about_api_key
+  String get aboutOpenSettings => _zh ? '设置' : 'Settings'; // np_about_open_settings
+  String get aboutRetry => _zh ? '重试' : 'Retry'; // np_about_retry
+  String get songInfoTapLoad => _zh ? '加载歌曲信息' : 'Load song info'; // cmp_song_info_tap_load
+  String get songInfoSearching => _zh ? '正在查找歌曲信息…' : 'Searching for song info…'; // cmp_song_info_searching
+  String get songInfoNoKey => _zh ? '未设置 Gemini API 密钥' : 'No Gemini API key'; // cmp_song_info_no_key
+  String get songInfoSettings => _zh ? '设置' : 'Settings'; // cmp_song_info_settings
+  String get songInfoRetry => _zh ? '重试' : 'Retry'; // cmp_song_info_retry
+
+  /// An About field's label (np_about_creation_time … np_about_review).
+  String aboutField(String key) => switch (key) {
+    'creation_time' => _zh ? '创作时间' : 'Creation Time',
+    'creation_location' => _zh ? '创作地点' : 'Creation Location',
+    'lyricist' => _zh ? '作词' : 'Lyricist',
+    'composer' => _zh ? '作曲' : 'Composer',
+    'producer' => _zh ? '制作人' : 'Producer',
+    'review' => _zh ? '关于' : 'About',
+    _ => key,
+  };
+  String get aboutReview => _zh ? '关于' : 'About'; // np_about_review
+  String get aboutDuration => _zh ? '时长' : 'Length'; // np_about_duration
+  String get aboutChannels => _zh ? '声道' : 'Channels'; // np_about_channels
+  String aboutChannelCount(int n) => switch (n) {
+    1 => _zh ? '单声道' : 'Mono', // np_about_mono
+    2 => _zh ? '立体声' : 'Stereo', // np_about_stereo
+    _ => _zh ? '$n 声道' : '$n channels', // np_about_channel_count
+  };
+  String get aboutAdded => _zh ? '加入资料库' : 'Added'; // np_about_added
+  String get spineQuality => _zh ? '音质' : 'Quality'; // np_spine_quality
+  String get spineServerRating => _zh ? '服务器评分' : 'Server rating'; // np_spine_server_rating
+  String get spineGenre => _zh ? '流派' : 'Genre'; // np_spine_genre
+  String get spineYear => _zh ? '年份' : 'Year'; // np_spine_year
+  String get spineTrack => _zh ? '曲目' : 'Track'; // np_spine_track
+  String spineDiscTrack(int disc, int track) =>
+      _zh ? '第 $disc 碟 第 $track 首' : 'Disc $disc, track $track'; // np_spine_disc_track
+  String spineKbps(int v) => '$v kbps'; // np_spine_kbps
+  String spineKhz(String v) => '$v kHz'; // np_spine_khz
+  String spineBit(int v) => '$v-bit'; // np_spine_bit
+  String get aboutCdEntryMenu => _zh ? '这一条的选项' : 'Options for this entry'; // np_about_cd_entry_menu
+  String get aboutManage => _zh ? '在剪贴簿里管理' : 'Manage in Scrapbook'; // np_about_manage
+  String get aboutRegenerate => _zh ? '用 Gemini 重新生成' : 'Regenerate with Gemini'; // np_about_regenerate
+  String get aboutRegenerated => _zh ? '已重新生成' : 'Regenerated'; // np_about_regenerated
+  String get aboutRegenerateNothing => _zh ? 'Gemini 没有新的内容' : 'Gemini had nothing new'; // np_about_regenerate_nothing
+  String get aboutRegenerateFailed =>
+      _zh ? 'Gemini 没能回答，再试一次' : "Gemini couldn't answer. Try again."; // np_about_regenerate_failed
+  String get aboutUndo => _zh ? '撤销' : 'Undo'; // np_about_undo
+
+  // Ask Gemini (np_ask_*; cmp_quick_prompts, cmp_cd_gemini_thinking).
+  String get askGemini => _zh ? '问 Gemini' : 'Ask Gemini'; // np_ask_gemini
+  String get askPlaceholder => _zh ? '问 Gemini' : 'Ask Gemini'; // np_ask_placeholder
+  String get quickPromptsLabel => _zh ? '快捷提问' : 'Quick questions'; // cmp_quick_prompts_label
+  String get cdGeminiThinking => _zh ? 'Gemini 正在写' : 'Gemini is writing'; // cmp_cd_gemini_thinking
+
+  /// cmp_quick_prompts (string-array).
+  List<String> get quickPrompts => _zh
+      ? const ['这首歌采样了谁？', '谁采样了这首歌？', '歌词在讲什么？', '是怎么写出来的？', '有哪些翻唱？', '当时反响如何？']
+      : const [
+          'What does this song sample?',
+          'Who sampled this song?',
+          'What are the lyrics about?',
+          'How was it written?',
+          'What covers are there?',
+          'How was it received?',
+        ];
 
   // Notes.
   String get noteTapToWrite => _zh ? '写笔记' : 'Write'; // np_note_tap_to_write

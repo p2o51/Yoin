@@ -11,19 +11,27 @@ import '../app/providers.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
+import '../detail/scrapbook_focus_request.dart';
 import '../playback/playback_context.dart';
 import '../playback/playback_controller.dart';
 import '../playback/playhead.dart';
+import '../platform/storage/stores.dart';
+import '../settings/settings_screen.dart' show openSettings;
 import '../shell/shell_state.dart';
 import '../theme/motion.dart';
 import '../theme/playback_theme.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/audio_format_tags.dart';
+import 'about_logic.dart';
+import 'about_view_model.dart';
+import 'about_widgets.dart';
+import 'ask_bar.dart';
 import 'cover_swap.dart';
 import 'flight.dart';
 import 'focus_budget.dart';
 import 'focus_idle.dart';
+import 'gemini_wash.dart';
 import 'haptics.dart';
 import 'lyric_tools.dart';
 import 'lyrics_logic.dart';
@@ -56,6 +64,20 @@ double _smooth(double edge0, double edge1, double x) {
   final t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
   return t * t * (3 - 2 * t);
 }
+
+/// The last page's index: the pager runs 0 (Lyrics) → 1 (About) → 2 (Note).
+final double _lastPage = (NowPlayingDetailPage.values.length - 1).toDouble();
+
+/// How much of [page] is on screen at pager position [p] (1 = settled on it).
+double _share(double p, NowPlayingDetailPage page) => (1 - (p - page.index).abs()).clamp(0.0, 1.0);
+
+/// [children] (one per [NowPlayingDetailPage], in order) side by side at pager
+/// position [p]: each translated by its distance from [p]; off-screen pages
+/// are offstage and only the nearest page takes input.
+List<Widget> _pagedChildren(double p, double width, List<Widget> children) => [
+  for (final (i, child) in children.indexed)
+    _PagerPage(offset: (i - p) * width, shown: (i - p).abs() < 0.999, active: p.round() == i, child: child),
+];
 
 /// An [Animation] whose value is [map] of several parents' values (derived
 /// reads for layout / paint; no status of its own).
@@ -159,6 +181,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     spring: YoinSprings.defaultSpatial,
   );
   bool _barOpen = false;
+
+  /// The Expanded About's accessory while the Ask bar is focused: 0 → [NowPlayingAboutTokens.askFocusedSlot].
+  late final SpringValue _askSlot = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
+
+  /// The key hint's pink glow is up (GeminiKeyHint): at most every three days, for a few seconds.
+  bool _keyHint = false;
+  Timer? _keyHintTimer;
   MediaId? _scheduledTrack;
   MemoryStore? _lastStore;
 
@@ -489,6 +518,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     _notes.removeListener(_onNotes);
     _notes.dispose();
     _page.dispose();
+    _askSlot.dispose();
+    _keyHintTimer?.cancel();
     _heroYield.dispose();
     _barHeight.dispose();
     _focusIdle
@@ -523,7 +554,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     if (!_notes.pendingFocus) return;
     if (widget.controller.detail.value >= noteWriteFocusStageProgress &&
         _pageTarget == NowPlayingDetailPage.note &&
-        (_page.value - 1).abs() < 0.02) {
+        (_page.value - NowPlayingDetailPage.note.index).abs() < 0.02) {
       _notes.takePendingFocus();
     }
   }
@@ -534,10 +565,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
 
   void _selectPage(NowPlayingDetailPage page, {double velocity = 0}) {
     if (page != _pageTarget) {
-      // Leaving the Note page puts the pen down.
+      // Leaving the Note page puts the pen down; leaving About folds the Ask bar.
       if (page != NowPlayingDetailPage.note && _notes.focused) _notes.focus.unfocus();
+      if (page != NowPlayingDetailPage.about) ref.read(nowPlayingAboutProvider.notifier).onAskCollapse();
       setState(() => _pageTarget = page);
     }
+    // Landing on About asks for the song's About once (nothing when it is cached).
+    if (page == NowPlayingDetailPage.about) ref.read(nowPlayingAboutProvider.notifier).onAboutOpened();
     final target = page.index.toDouble();
     if (_reduced) {
       _page.snapTo(target);
@@ -548,13 +582,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
 
   void _onPageDrag(double dx, double width) {
     if (width <= 0) return;
-    _page.snapTo((_page.value - dx / width).clamp(0.0, 1.0));
+    _page.snapTo((_page.value - dx / width).clamp(0.0, _lastPage));
   }
 
   void _onPageDragEnd(double velocityPx, double width) {
     final v = width <= 0 ? 0.0 : -velocityPx / width;
-    final settled = v.abs() > 0.4 ? (v > 0 ? 1 : 0) : _page.value.round();
-    _selectPage(NowPlayingDetailPage.values[settled.clamp(0, 1)], velocity: v);
+    final p = _page.value;
+    // A fling moves one page from where the finger left it; a slow release settles on the nearest.
+    final settled = v.abs() > 0.4 ? (v > 0 ? p.floor() + 1 : p.ceil() - 1) : p.round();
+    _selectPage(NowPlayingDetailPage.values[settled.clamp(0, _lastPage.toInt())], velocity: v);
   }
 
   /// The Write pill: the Note page, expanded, the keyboard once it has landed.
@@ -589,6 +625,34 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _notes.setCurrent(track == null ? null : NoteTarget.of(track));
     });
+  }
+
+  AboutUiState? _lastAbout;
+
+  /// About says the AI key is missing: the soft pink glow, at most every three
+  /// days, held a few seconds then let fade (GeminiKeyHint).
+  void _trackKeyHint(AboutUiState about) {
+    final missing = about is AboutKeyMissing;
+    final was = _lastAbout is AboutKeyMissing;
+    _lastAbout = about;
+    if (!missing || was) return;
+    final KeyValueStore store;
+    try {
+      store = ref.read(keyValueStoreProvider);
+    } catch (_) {
+      return;
+    }
+    final now = ref.read(playbackClockProvider).wallMs();
+    unawaited(
+      AiKeyHint.claim(store, now).then((claimed) {
+        if (!claimed || !mounted) return;
+        setState(() => _keyHint = true);
+        _keyHintTimer?.cancel();
+        _keyHintTimer = Timer(AiKeyHint.hold, () {
+          if (mounted) setState(() => _keyHint = false);
+        });
+      }, onError: (Object _) {}),
+    );
   }
 
   StageMetrics _metrics(BuildContext context) {
@@ -680,10 +744,22 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     NowPlayingOverlayScope.maybeOf(context);
     final expanded = widget.controller.stage == NowPlayingStage.expanded;
     final noteStage = expanded && _pageTarget == NowPlayingDetailPage.note;
-    // The keyboard over the Expanded Note page: the column ends on it (the
-    // nav bar's share already cleared by [insets]).
-    final imeLift = noteStage ? math.max(0.0, MediaQuery.viewInsetsOf(context).bottom - insets.bottom) : 0.0;
-    final yieldHero = noteStage && _barOpen && imeLift > 0;
+    final about = ref.watch(nowPlayingAboutProvider);
+    _trackKeyHint(about.about);
+    final askFocused = about.ask is AskFocused;
+    // The Ask bar grows the Expanded About's accessory while focused.
+    if (_reduced) {
+      _askSlot.snapTo(askFocused ? NowPlayingAboutTokens.askFocusedSlot : 0);
+    } else {
+      _askSlot.animateTo(askFocused ? NowPlayingAboutTokens.askFocusedSlot : 0);
+    }
+    final askStage = expanded && _pageTarget == NowPlayingDetailPage.about && askFocused;
+    // The keyboard over the Expanded Note page (or the focused Ask bar): the
+    // column ends on it (the nav bar's share already cleared by [insets]).
+    final imeLift = noteStage || askStage
+        ? math.max(0.0, MediaQuery.viewInsetsOf(context).bottom - insets.bottom)
+        : 0.0;
+    final yieldHero = ((noteStage && _barOpen) || askStage) && imeLift > 0;
     if (_reduced) {
       _heroYield.snapTo(yieldHero ? 1 : 0);
     } else {
@@ -703,6 +779,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
               fit: StackFit.expand,
               children: [
                 NowPlayingBackground(field: field, focus: widget.controller.focus.animation),
+                // The AI thinking (a question, About's first fetch), or the key hint's glow.
+                GeminiWash(thinking: about.thinking, keyHint: _keyHint),
                 switch (state) {
                   NowPlayingIdle() => Center(
                     child: Text(
@@ -727,6 +805,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                       onWrite: _writeLandscape,
                       onBarHeight: _onBarHeight,
                       barHeight: _barHeight.animation,
+                      askSlot: _askSlot.animation,
                       atEase: _atEaseShown,
                       onOfferFocus: _offerFocus,
                     ),
@@ -746,6 +825,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                     onWrite: _write,
                     onBarHeight: _onBarHeight,
                     barHeight: _barHeight.animation,
+                    askSlot: _askSlot.animation,
                     atEase: _atEaseShown,
                     onOfferFocus: _offerFocus,
                   ),
@@ -789,6 +869,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                           onWrite: _write,
                           heroYield: _heroYield.animation,
                           barHeight: _barHeight.animation,
+                          askSlot: _askSlot.animation,
                           onBarHeight: _onBarHeight,
                           imeLift: imeLift,
                           toolsAway: _toolsAway.animation,
@@ -819,9 +900,10 @@ class _StageDelegate extends MultiChildLayoutDelegate {
     required this.page,
     required this.heroYield,
     required this.barHeight,
+    required this.askSlot,
     required this.imeLift,
     required this.toolsCollapse,
-  }) : super(relayout: Listenable.merge([detail, focus, atEase, page, heroYield, barHeight, toolsCollapse]));
+  }) : super(relayout: Listenable.merge([detail, focus, atEase, page, heroYield, barHeight, askSlot, toolsCollapse]));
 
   final StageColumnBudget budget;
 
@@ -834,14 +916,18 @@ class _StageDelegate extends MultiChildLayoutDelegate {
   /// focus lyrics run on into its place.
   final Animation<double> atEase;
 
-  /// The pager (0 Lyrics → 1 Note): the write bar's extra height is the Note page's.
+  /// The pager (0 Lyrics → 1 About → 2 Note): the write bar's extra height is
+  /// the Note page's, the focused Ask bar's the About page's.
   final Animation<double> page;
 
   /// The hero stepping aside for the keyboard (0 → 1).
   final Animation<double> heroYield;
   final Animation<double> barHeight;
 
-  /// The keyboard's height over the column's bottom inset (Expanded Note only).
+  /// The focused Ask bar's accessory (0 at rest).
+  final Animation<double> askSlot;
+
+  /// The keyboard's height over the column's bottom inset (Expanded Note / a focused Ask bar only).
   final double imeLift;
 
   /// The Expanded Lyrics page's tools slot closing (0 → 1): idle tools, or
@@ -854,7 +940,10 @@ class _StageDelegate extends MultiChildLayoutDelegate {
     final d = detail.value.clamp(0.0, 1.0);
     final fp = focusPose;
     final f = fp == null ? 0.0 : focus.value.clamp(0.0, 1.0);
-    final p = page.value.clamp(0.0, 1.0);
+    final p = page.value.clamp(0.0, _lastPage);
+    final lyricsShare = _share(p, NowPlayingDetailPage.lyrics);
+    final aboutShare = _share(p, NowPlayingDetailPage.about);
+    final noteShare = _share(p, NowPlayingDetailPage.note);
     final y = heroYield.value.clamp(0.0, 1.0);
     final s = stageSlotsAt(budget, fp, f: f, d: d);
     final full = StageSlots.lerp(budget, 1);
@@ -865,10 +954,12 @@ class _StageDelegate extends MultiChildLayoutDelegate {
     final w = live;
     // The open write bar grows the accessory slot (Expanded, Note page).
     final bar = barHeight.value + NowPlayingNoteTokens.barTopGap;
-    final barExtra = d * p * math.max(0.0, bar - s.accessory);
-    final fullBarExtra = p * math.max(0.0, bar - full.accessory);
+    final ask = askSlot.value;
+    final barExtra = d * (noteShare * math.max(0.0, bar - s.accessory) + aboutShare * math.max(0.0, ask - s.accessory));
+    final fullBarExtra =
+        noteShare * math.max(0.0, bar - full.accessory) + aboutShare * math.max(0.0, ask - full.accessory);
     final heroH = s.hero * (1 - y);
-    final collapse = toolsCollapse.value.clamp(0.0, 1.0) * (1 - p);
+    final collapse = toolsCollapse.value.clamp(0.0, 1.0) * lyricsShare;
     final accessoryH = math.max(0.0, s.accessory + barExtra - d * collapse * LyricToolsMetrics.expandedAccessory);
 
     // The top bar keeps its 48 row; as it retreats over a shorter slot it
@@ -950,6 +1041,7 @@ class _StageDelegate extends MultiChildLayoutDelegate {
       old.page != page ||
       old.heroYield != heroYield ||
       old.barHeight != barHeight ||
+      old.askSlot != askSlot ||
       old.imeLift != imeLift ||
       old.toolsCollapse != toolsCollapse;
 }
@@ -1001,6 +1093,7 @@ class _Stage extends ConsumerWidget {
     required this.onWrite,
     required this.heroYield,
     required this.barHeight,
+    required this.askSlot,
     required this.onBarHeight,
     required this.imeLift,
     required this.toolsAway,
@@ -1032,6 +1125,7 @@ class _Stage extends ConsumerWidget {
   final VoidCallback onWrite;
   final Animation<double> heroYield;
   final Animation<double> barHeight;
+  final Animation<double> askSlot;
   final ValueChanged<double> onBarHeight;
   final double imeLift;
 
@@ -1088,6 +1182,7 @@ class _Stage extends ConsumerWidget {
           page: page,
           heroYield: heroYield,
           barHeight: barHeight,
+          askSlot: askSlot,
           imeLift: imeLift,
           // 16:9: the tools ride the tab row, so the Expanded page has no tools slot.
           toolsCollapse: oneLine ? const AlwaysStoppedAnimation(1.0) : toolsAway,
@@ -1199,6 +1294,7 @@ class _Stage extends ConsumerWidget {
                     clock: clock,
                     onSeek: vm.seekTo,
                   ),
+                  about: _AboutCompactPage(controller: controller, track: track),
                   note: ListenableBuilder(
                     listenable: notes,
                     builder: (context, _) => NoteCompactPane(notes: notes.notes, clock: clock),
@@ -1268,6 +1364,7 @@ class _Stage extends ConsumerWidget {
                         NowPlayingTokens.expandedTabRow +
                         NowPlayingTokens.expandedTabGap,
                   ),
+                  about: _AboutFullPage(controller: controller, track: track),
                   note: NotePage(notes: notes, clock: clock),
                 ),
               ),
@@ -1881,10 +1978,10 @@ class _HeroYield extends StatelessWidget {
   );
 }
 
-/// The detail pager's two pages side by side (Android HorizontalPager over
-/// Lyrics | Note), translated by the shared [page] progress; a horizontal
-/// swipe drags it 1:1 and settles with its velocity. The off-screen page
-/// takes no input.
+/// The detail pager's three pages side by side (Android HorizontalPager over
+/// Lyrics | About | Note), translated by the shared [page] progress; a
+/// horizontal swipe drags it 1:1 and settles with its velocity. The
+/// off-screen pages take no input.
 class _PagerSurface extends StatelessWidget {
   const _PagerSurface({
     required this.page,
@@ -1892,6 +1989,7 @@ class _PagerSurface extends StatelessWidget {
     required this.onDrag,
     required this.onDragEnd,
     required this.lyrics,
+    required this.about,
     required this.note,
     this.onTap,
   });
@@ -1901,6 +1999,7 @@ class _PagerSurface extends StatelessWidget {
   final void Function(double dx, double width) onDrag;
   final void Function(double velocity, double width) onDragEnd;
   final Widget lyrics;
+  final Widget about;
   final Widget note;
   final VoidCallback? onTap;
 
@@ -1918,20 +2017,115 @@ class _PagerSurface extends StatelessWidget {
           child: ClipRect(
             child: AnimatedBuilder(
               animation: page,
-              builder: (context, _) {
-                final p = page.value.clamp(0.0, 1.0);
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _PagerPage(offset: -p * width, shown: p < 0.999, active: p < 0.5, child: lyrics),
-                    _PagerPage(offset: (1 - p) * width, shown: p > 0.001, active: p >= 0.5, child: note),
-                  ],
-                );
-              },
+              builder: (context, _) => Stack(
+                fit: StackFit.expand,
+                children: _pagedChildren(page.value.clamp(0.0, _lastPage), width, [lyrics, about, note]),
+              ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// The playing song's About in the resting window (SongInfoDisplay): read-only;
+/// a tap falls through to the pager, which expands About.
+class _AboutCompactPage extends ConsumerWidget {
+  const _AboutCompactPage({required this.controller, required this.track});
+
+  final NowPlayingOverlayController controller;
+  final Track track;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final about = ref.watch(nowPlayingAboutProvider.select((a) => a.about));
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+      child: SongInfoDisplay(
+        state: about,
+        onRetry: ref.read(nowPlayingAboutProvider.notifier).retry,
+        onOpenSettings: () => _leaveTo(controller, openSettings),
+        facts: AboutSourceFacts.of(track),
+        songKey: '${track.title ?? ''}\u0000${track.artist ?? ''}\u0000${track.album ?? ''}',
+      ),
+    );
+  }
+}
+
+/// The playing song's About, expanded (AboutFullscreenPane), with the rows'
+/// long-press sheet: Manage in Scrapbook (the album's page 2, on that row's
+/// editor) and Regenerate (with Undo on the snackbar).
+class _AboutFullPage extends ConsumerWidget {
+  const _AboutFullPage({required this.controller, required this.track});
+
+  final NowPlayingOverlayController controller;
+  final Track track;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final about = ref.watch(nowPlayingAboutProvider);
+    final vm = ref.read(nowPlayingAboutProvider.notifier);
+    final strings = NowPlayingStrings.of(context);
+    final say = ref.read(playbackControllerProvider.notifier).showMessage;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+      child: AboutPane(
+        state: about.about,
+        onRetry: vm.retry,
+        onOpenSettings: () => _leaveTo(controller, openSettings),
+        facts: AboutSourceFacts.of(track),
+        actions: AboutEntryActions(
+          regenerating: about.regenerating,
+          canManage: () => track.albumId != null,
+          onManage: (entry) {
+            // Only the playing song's own row: one picked just before the song moved on stays put.
+            final albumId = track.albumId;
+            if (albumId == null || !(about.song?.owns(entry) ?? false)) return;
+            ScrapbookFocusRequest.request(track.id, edit: entry.ref);
+            _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, albumId));
+          },
+          onRegenerate: (entry) async {
+            final outcome = await vm.regenerate(entry);
+            switch (outcome) {
+              case AboutRegenerated():
+                say(
+                  strings.aboutRegenerated,
+                  actionLabel: strings.aboutUndo,
+                  long: true,
+                  onAction: () => unawaited(vm.undoRegenerate(outcome)),
+                );
+              case AboutRegenerateNothing():
+                say(strings.aboutRegenerateNothing);
+              case AboutRegenerateKeyMissing():
+                say(strings.msgApiKeyMissing);
+              case AboutRegenerateFailed():
+                say(strings.aboutRegenerateFailed);
+              case null:
+                break;
+            }
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// The Ask bar bound to the playing song's About.
+class _AskAccessory extends ConsumerWidget {
+  const _AskAccessory();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final about = ref.watch(nowPlayingAboutProvider);
+    final vm = ref.read(nowPlayingAboutProvider.notifier);
+    return AskGeminiBar(
+      state: about.ask,
+      onSubmit: vm.ask,
+      onFocus: vm.onAskFocused,
+      onCollapse: vm.onAskCollapse,
+      onDismissError: vm.dismissAskError,
+      asked: askedQuestions(about.about),
     );
   }
 }
@@ -1959,7 +2153,7 @@ class _PagerPage extends StatelessWidget {
 
 /// The accessory row: Queue and Write at rest; in Expanded the page's tools,
 /// paged with the detail pager — the lyric tools under Lyrics (unless they
-/// ride the tab row), the write bar under Note.
+/// ride the tab row), the Ask bar under About, the write bar under Note.
 class _Accessory extends StatelessWidget {
   const _Accessory({
     required this.controller,
@@ -2050,43 +2244,33 @@ class _Accessory extends StatelessWidget {
                 child: LayoutBuilder(
                   builder: (context, constraints) => AnimatedBuilder(
                     animation: page,
-                    builder: (context, _) {
-                      final p = page.value.clamp(0.0, 1.0);
-                      final width = constraints.maxWidth;
-                      return ClipRect(
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            _PagerPage(
-                              offset: -p * width,
-                              shown: p < 0.999,
-                              active: p < 0.5,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-                                child: Align(
-                                  alignment: AlignmentDirectional.bottomStart,
-                                  child: toolsInTabs ? const SizedBox.shrink() : const LyricToolsBar(),
-                                ),
-                              ),
+                    builder: (context, _) => ClipRect(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: _pagedChildren(page.value.clamp(0.0, _lastPage), constraints.maxWidth, [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                            child: Align(
+                              alignment: AlignmentDirectional.bottomStart,
+                              child: toolsInTabs ? const SizedBox.shrink() : const LyricToolsBar(),
                             ),
-                            _PagerPage(
-                              offset: (1 - p) * width,
-                              shown: p > 0.001,
-                              active: p >= 0.5,
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  NowPlayingTokens.columnPadding,
-                                  NowPlayingNoteTokens.barTopGap,
-                                  NowPlayingTokens.columnPadding,
-                                  0,
-                                ),
-                                child: NoteWriteBar(notes: notes, clock: clock, onNaturalHeight: onBarHeight),
-                              ),
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                            child: Align(alignment: AlignmentDirectional.bottomStart, child: _AskAccessory()),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              NowPlayingTokens.columnPadding,
+                              NowPlayingNoteTokens.barTopGap,
+                              NowPlayingTokens.columnPadding,
+                              0,
                             ),
-                          ],
-                        ),
-                      );
-                    },
+                            child: NoteWriteBar(notes: notes, clock: clock, onNaturalHeight: onBarHeight),
+                          ),
+                        ]),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -2231,9 +2415,13 @@ class _DualPane extends ConsumerWidget {
     required this.onWrite,
     required this.onBarHeight,
     required this.barHeight,
+    required this.askSlot,
   });
 
   final Animation<double> barHeight;
+
+  /// The focused Ask bar's slot (0 at rest).
+  final Animation<double> askSlot;
 
   /// Focus at ease as shown (the transport's buttons step away).
   final Animation<double> atEase;
@@ -2540,6 +2728,7 @@ class _DualPane extends ConsumerWidget {
                                         DualPaneTokens.rightGap,
                                   ),
                                 ),
+                                about: _AboutFullPage(controller: controller, track: track),
                                 note: NotePage(notes: notes, clock: clock),
                               ),
                             ),
@@ -2550,6 +2739,7 @@ class _DualPane extends ConsumerWidget {
                               clock: clock,
                               onBarHeight: onBarHeight,
                               barHeight: barHeight,
+                              askSlot: askSlot,
                               bottom: insets.bottom,
                             ),
                           ],
@@ -2569,7 +2759,8 @@ class _DualPane extends ConsumerWidget {
 
 /// The right column's foot, paged with the pager: the lyric tools under
 /// Lyrics (idle, they step away and their slot closes — the lyrics grow
-/// into it), the write bar under Note.
+/// into it), the Ask bar under About (focused, it grows the slot), the
+/// write bar under Note.
 class _DualTools extends StatelessWidget {
   const _DualTools({
     required this.page,
@@ -2577,10 +2768,12 @@ class _DualTools extends StatelessWidget {
     required this.clock,
     required this.onBarHeight,
     required this.barHeight,
+    required this.askSlot,
     required this.bottom,
   });
 
   final Animation<double> barHeight;
+  final Animation<double> askSlot;
   final Animation<double> page;
   final NowPlayingNotes notes;
   final PlayheadClock clock;
@@ -2593,44 +2786,40 @@ class _DualTools extends StatelessWidget {
     child: LayoutBuilder(
       builder: (context, constraints) => LyricToolsAwayBuilder(
         builder: (context, away) => AnimatedBuilder(
-          animation: Listenable.merge([page, barHeight]),
+          animation: Listenable.merge([page, barHeight, askSlot]),
           builder: (context, _) {
-            final p = page.value.clamp(0.0, 1.0);
+            final p = page.value.clamp(0.0, _lastPage);
             final width = constraints.maxWidth;
-            // The open write bar grows the slot on the Note page.
+            // The open write bar grows the slot on the Note page, the focused Ask bar on About.
             final bar = barHeight.value + NowPlayingNoteTokens.barTopGap;
+            const slot = DualPaneTokens.accessoryHeight;
             final height =
-                DualPaneTokens.accessoryHeight * (1 - away * (1 - p)) +
-                p * math.max(0.0, bar - DualPaneTokens.accessoryHeight);
+                slot * (1 - away * _share(p, NowPlayingDetailPage.lyrics)) +
+                _share(p, NowPlayingDetailPage.note) * math.max(0.0, bar - slot) +
+                _share(p, NowPlayingDetailPage.about) * math.max(0.0, askSlot.value - slot);
             return SizedBox(
               height: height,
               child: ClipRect(
                 child: Stack(
                   fit: StackFit.expand,
                   alignment: AlignmentDirectional.bottomStart,
-                  children: [
-                    _PagerPage(
-                      offset: -p * width,
-                      shown: p < 0.999,
-                      active: p < 0.5,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-                        child: Align(alignment: AlignmentDirectional.bottomStart, child: const LyricToolsBar()),
+                  children: _pagedChildren(p, width, [
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                      child: Align(alignment: AlignmentDirectional.bottomStart, child: LyricToolsBar()),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                      child: Align(alignment: AlignmentDirectional.bottomStart, child: _AskAccessory()),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                      child: Align(
+                        alignment: AlignmentDirectional.bottomStart,
+                        child: NoteWriteBar(notes: notes, clock: clock, onNaturalHeight: onBarHeight),
                       ),
                     ),
-                    _PagerPage(
-                      offset: (1 - p) * width,
-                      shown: p > 0.001,
-                      active: p >= 0.5,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-                        child: Align(
-                          alignment: AlignmentDirectional.bottomStart,
-                          child: NoteWriteBar(notes: notes, clock: clock, onNaturalHeight: onBarHeight),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ]),
                 ),
               ),
             );
@@ -2665,6 +2854,7 @@ class _LandscapePane extends ConsumerWidget {
     required this.onWrite,
     required this.onBarHeight,
     required this.barHeight,
+    required this.askSlot,
   });
 
   final NowPlayingContent state;
@@ -2682,6 +2872,7 @@ class _LandscapePane extends ConsumerWidget {
   final VoidCallback onWrite;
   final ValueChanged<double> onBarHeight;
   final Animation<double> barHeight;
+  final Animation<double> askSlot;
 
   /// Focus at ease as shown (the transport's buttons step away).
   final Animation<double> atEase;
@@ -2908,12 +3099,22 @@ class _LandscapePane extends ConsumerWidget {
               clock: clock,
               onSeek: vm.seekTo,
             ),
+      about: full
+          ? _AboutFullPage(controller: controller, track: track)
+          : _AboutCompactPage(controller: controller, track: track),
       note: NotePage(notes: notes, clock: clock),
     );
 
-    // The write bar under the Note page (the Lyrics page keeps its Recenter key).
-    Widget tools() =>
-        _DualTools(page: page, notes: notes, clock: clock, onBarHeight: onBarHeight, barHeight: barHeight, bottom: 0);
+    // The Ask bar under About, the write bar under Note (the Lyrics page keeps its Recenter key).
+    Widget tools() => _DualTools(
+      page: page,
+      notes: notes,
+      clock: clock,
+      onBarHeight: onBarHeight,
+      barHeight: barHeight,
+      askSlot: askSlot,
+      bottom: 0,
+    );
 
     // Focus: the focus lyrics (current line on the third row, two above it
     // fading) take the pager's place; the resting pager fades out under it.
@@ -3001,13 +3202,13 @@ class _LandscapePane extends ConsumerWidget {
                     child: pagerOrFocus(full: l.stacked, f: f),
                   ),
                   if (!l.stacked) ...[
-                    // The write bar opens under the Note page only.
+                    // The Ask bar and the write bar open under About and Note only.
                     AnimatedBuilder(
                       animation: page,
                       builder: (context, child) => ClipRect(
                         child: Align(
                           alignment: Alignment.topCenter,
-                          heightFactor: (page.value * (1 - f)).clamp(0.0, 1.0),
+                          heightFactor: (math.min(1.0, page.value) * (1 - f)).clamp(0.0, 1.0),
                           child: child,
                         ),
                       ),

@@ -11,9 +11,8 @@ import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import 'playhead_clock.dart';
 
-/// Which of the two detail pages the stage shows. Android has Lyrics | About |
-/// Note; About needs Gemini, which HarmonyOS lacks, so it is left out.
-enum NowPlayingDetailPage { lyrics, note }
+/// Which of the three detail pages the stage shows (Lyrics | About | Note, Android's order).
+enum NowPlayingDetailPage { lyrics, about, note }
 
 /// How a track's notes are ordered on the Note page.
 /// - [timeline]: by the song-position anchor, un-anchored notes last.
