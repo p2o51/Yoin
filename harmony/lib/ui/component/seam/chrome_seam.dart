@@ -106,6 +106,9 @@ class ChromeSeamController extends ChangeNotifier {
   /// Reduced motion: no afterglow, stretch, disorder or roll.
   bool reduced = false;
 
+  /// Set while [ChromeSeam.jump] moves the scrollable: no scroll, so no flow.
+  bool _jumping = false;
+
   /// A preview: the seam is fully in, whatever the scroll.
   bool fullReveal = false;
 
@@ -189,6 +192,21 @@ class ChromeSeam extends ConsumerStatefulWidget {
   final SeamFlow? flow;
   final bool fullReveal;
 
+  /// Moves the scrollable under the nearest chrome seam without it counting
+  /// as a scroll (LibraryFastScroller.kt: "a jump is no scroll, so the seam
+  /// stays still"): [move] jumps the controller, the seam takes the new
+  /// offset as its reference.
+  static void jump(BuildContext context, VoidCallback move) {
+    final seam = context.getInheritedWidgetOfExactType<ChromeSeamScope>()?.controller;
+    if (seam == null) return move();
+    seam._jumping = true;
+    try {
+      move();
+    } finally {
+      seam._jumping = false;
+    }
+  }
+
   @override
   ConsumerState<ChromeSeam> createState() => _ChromeSeamState();
 }
@@ -227,7 +245,9 @@ class _ChromeSeamState extends ConsumerState<ChromeSeam> with SingleTickerProvid
   // A push transition can briefly attach the page twice: read the last.
   void _onController() {
     final controller = widget.controller!;
-    if (_follows && controller.hasClients) _ownFlow.onScroll(controller.positions.last.pixels);
+    if (!_follows || !controller.hasClients) return;
+    final pixels = controller.positions.last.pixels;
+    _seam._jumping ? _ownFlow.jumpTo(pixels) : _ownFlow.onScroll(pixels);
   }
 
   bool _onNotification(Notification notification) {
@@ -243,7 +263,7 @@ class _ChromeSeamState extends ConsumerState<ChromeSeam> with SingleTickerProvid
     if (!identical(context, _source)) {
       _source = context;
       _ownFlow.jumpTo(metrics.pixels);
-    } else if (notification is ScrollMetricsNotification) {
+    } else if (notification is ScrollMetricsNotification || _seam._jumping) {
       _ownFlow.jumpTo(metrics.pixels);
     } else {
       _ownFlow.onScroll(metrics.pixels);

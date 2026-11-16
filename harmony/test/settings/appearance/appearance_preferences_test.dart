@@ -84,6 +84,16 @@ void main() {
       expect(c.read(seamTopStyleProvider), SeamTopStyle.cookie);
     });
 
+    test('should_storeDefaultPick_when_pickedBeforeStoredValueLoaded', () async {
+      store.values['seam_top_style'] = 'dots';
+      final c = container();
+      // The tide shows (the default) while 'dots' is still loading: picking it is a choice.
+      await c.read(seamTopStyleProvider.notifier).select(SeamTopStyle.tide);
+      await _settle();
+      expect(c.read(seamTopStyleProvider), SeamTopStyle.tide);
+      expect(store.values['seam_top_style'], 'tide');
+    });
+
     test('should_ignoreUnknownSyncedValue_when_applied', () async {
       final c = container();
       expect(await c.read(seamTopStyleProvider.notifier).applyKey('sparkles'), isFalse);

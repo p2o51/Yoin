@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
+import 'seam/chrome_seam.dart';
 
 /// One labelled run of a [YoinFastScroller]'s list.
 @immutable
@@ -169,7 +170,8 @@ class _YoinFastScrollerState extends State<YoinFastScroller> with TickerProvider
     final f = FastScrollerGeometry.fractionAt(y, track);
     _fraction.value = f;
     final p = widget.controller.position;
-    widget.controller.jumpTo(f * p.maxScrollExtent);
+    // A jump, not a scroll: the chrome seam above stays still.
+    ChromeSeam.jump(context, () => widget.controller.jumpTo(f * p.maxScrollExtent));
     final lines = (widget.itemCount / math.max(1, widget.columns)).ceil();
     final line = FastScrollerGeometry.lineAt(f, lines);
     final mark = FastScrollerGeometry.markAt(widget.marks, line * widget.columns);

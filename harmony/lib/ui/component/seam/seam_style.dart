@@ -63,9 +63,10 @@ class SeamTopStylePreference extends Notifier<SeamTopStyle> {
 
   /// The user's choice: shown at once everywhere, and stored.
   Future<void> select(SeamTopStyle style) async {
+    // Stored even when it is what shows: before the stored value has loaded,
+    // the default on screen is no choice, and the pick must not lose to it.
     _touched = true;
-    if (state == style) return;
-    state = style;
+    if (state != style) state = style;
     try {
       await ref.read(keyValueStoreProvider).write(key, style.key);
     } catch (_) {

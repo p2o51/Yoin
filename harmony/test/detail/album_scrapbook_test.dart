@@ -12,6 +12,7 @@ import 'package:yoin/detail/detail_routes.dart';
 import 'package:yoin/playback/playback_controller.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/theme/theme.dart';
+import 'package:yoin/ui/component/seam/seam.dart';
 
 import '../support/fake_playback_engine.dart';
 import '../support/library_fake_source.dart';
@@ -192,6 +193,18 @@ void main() {
       // No Memory title (HarmonyOS has no AI title): Last Play follows the blank pen instead.
       expect(find.text('Never'), findsOneWidget);
       semantics.dispose();
+      await close(tester);
+    });
+
+    testWidgets('should_scrollUnderTheHeaderThroughTheSeam_when_scrapbookShown', (tester) async {
+      await open(tester);
+      await tester.tap(find.bySemanticsLabel('Scrapbook'));
+      await settle(tester);
+      final scroll = find.descendant(of: find.byType(AlbumScrapbookPage), matching: find.byType(SingleChildScrollView));
+      // AlbumScrapbookPage.kt: seamDissolveViewport at the page's top edge, the pieces faded or dissolved into it.
+      expect(find.ancestor(of: scroll.first, matching: find.byType(ChromeSeam)), findsOneWidget);
+      expect(find.descendant(of: scroll.first, matching: find.byType(SeamFade)), findsWidgets);
+      expect(find.descendant(of: scroll.first, matching: find.byType(SeamDissolve)), findsWidgets);
       await close(tester);
     });
 

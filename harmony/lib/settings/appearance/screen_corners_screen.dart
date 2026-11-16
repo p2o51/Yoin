@@ -66,14 +66,14 @@ class _ScreenCornersScreenState extends ConsumerState<ScreenCornersScreen> {
       },
       onFollow: () => notifier.select(null),
     );
-    if (widget.inPane) return page;
-    // The page is light in both themes: the status bar's icons go dark while it shows.
-    return ChromeBarSuppression(
-      child: AnnotatedRegion<SystemUiOverlayStyle>(
-        value: yoinStatusBarStyle(Brightness.light),
-        child: Scaffold(backgroundColor: Colors.black, body: page),
-      ),
+    // The page is light in both themes: the status bar's icons go dark while it shows (in the
+    // pane too, as Android's split Activity sets them for its window).
+    final region = AnnotatedRegion<SystemUiOverlayStyle>(
+      value: yoinStatusBarStyle(Brightness.light),
+      child: widget.inPane ? page : Scaffold(backgroundColor: Colors.black, body: page),
     );
+    if (widget.inPane) return region;
+    return ChromeBarSuppression(child: region);
   }
 }
 

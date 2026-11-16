@@ -61,7 +61,8 @@ class _ScrollEdgePreviewState extends State<ScrollEdgePreview> with TickerProvid
   @override
   void didUpdateWidget(ScrollEdgePreview old) {
     super.didUpdateWidget(old);
-    if (old.playing != widget.playing) _schedule();
+    // A new column count changes the block's height: measure again before the drift wraps on it.
+    if (old.playing != widget.playing || old.columns != widget.columns) _schedule();
   }
 
   @override
@@ -163,20 +164,25 @@ class _ScrollEdgePreviewState extends State<ScrollEdgePreview> with TickerProvid
                 ),
               ),
               Expanded(
-                child: ChromeSeam(
-                  style: widget.style,
-                  flow: _flow,
-                  fullReveal: true,
-                  background: SeamBackground([page]),
-                  child: SingleChildScrollView(
-                    controller: _scroll,
-                    physics: const NeverScrollableScrollPhysics(),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (var copy = 0; copy < ScrollEdgeTokens.blockRepeats; copy++)
-                          _CoverBlock(key: copy == 0 ? _block : null, columns: widget.columns),
-                      ],
+                // The drift is the preview's own: its scroll never reaches the page's listeners
+                // (a Settings seam, the landing), as Android's preview is no real scroll.
+                child: NotificationListener<Notification>(
+                  onNotification: (n) => n is ScrollNotification || n is ScrollMetricsNotification,
+                  child: ChromeSeam(
+                    style: widget.style,
+                    flow: _flow,
+                    fullReveal: true,
+                    background: SeamBackground([page]),
+                    child: SingleChildScrollView(
+                      controller: _scroll,
+                      physics: const NeverScrollableScrollPhysics(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var copy = 0; copy < ScrollEdgeTokens.blockRepeats; copy++)
+                            _CoverBlock(key: copy == 0 ? _block : null, columns: widget.columns),
+                        ],
+                      ),
                     ),
                   ),
                 ),
