@@ -15,6 +15,7 @@ import YoinWindowPlugin, { YoinWindowHost } from '../yoin/window/WindowPlugin';
 import YoinNetworkPlugin from '../yoin/network/NetworkPlugin';
 import YoinSharePlugin from '../yoin/share/SharePlugin';
 import YoinCloudSyncPlugin from '../yoin/sync/CloudSyncPlugin';
+import YoinContinueOnPlugin, { ContinueOnHost } from '../yoin/continueon/ContinueOnPlugin';
 import { window } from '@kit.ArkUI';
 
 export default class EntryAbility extends FlutterAbility {
@@ -32,7 +33,11 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinNetworkPlugin())
     flutterEngine.getPlugins()?.add(new YoinSharePlugin(this.context))
     flutterEngine.getPlugins()?.add(new YoinCloudSyncPlugin(this.context))
+    flutterEngine.getPlugins()?.add(new YoinContinueOnPlugin())
   }
+
+  /** Whether this ability's window already has Flutter's page (a hot continuation must not load it twice). */
+  private windowContentLoaded = false
 
   /**
    * 2in1 / free windows: once the content is up, the system title bar gives way to the app's own ground (only the
@@ -40,6 +45,7 @@ export default class EntryAbility extends FlutterAbility {
    */
   onWindowStageCreate(windowStage: window.WindowStage) {
     super.onWindowStageCreate(windowStage)
+    this.windowContentLoaded = true
     let attached = false
     windowStage.on('windowStageEvent', (event: window.WindowStageEventType) => {
       if (attached || event !== window.WindowStageEventType.SHOWN) {
@@ -50,9 +56,33 @@ export default class EntryAbility extends FlutterAbility {
     })
   }
 
+  /**
+   * Started by app continuation (Continue On, launchReason CONTINUATION): the system calls this instead of
+   * onWindowStageCreate, cold and hot. Cold, the window is empty: load Flutter's page as a normal start does. Hot,
+   * Flutter's page is already up and must not be loaded twice; the cursor came through onNewWant.
+   */
+  onWindowStageRestore(windowStage: window.WindowStage): void {
+    if (!this.windowContentLoaded) {
+      this.onWindowStageCreate(windowStage)
+    }
+  }
+
+  /** Continue On, the device handing off: the song's cursor into the wantParam (ContinueOnPlugin.ets). */
+  onContinue(wantParam: Record<string, Object>): Promise<AbilityConstant.OnContinueResult> {
+    return ContinueOnHost.fillHandoff(wantParam)
+  }
+
+  onForeground(): void {
+    super.onForeground()
+    // Offered or not, as Dart last said (the system may reset a mission's continue state).
+    ContinueOnHost.applyState()
+  }
+
   /** Cold start from Yoin's 播控中心 / lock-screen card: open Now Playing once Dart listens. */
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     super.onCreate(want, launchParam)
+    ContinueOnHost.bind(this.context)
+    ContinueOnHost.deliverFrom(want, launchParam)
     applyQaFlags(want)
     CardsHost.deliverFrom(want)
     if (wantsNowPlaying(want)) {
@@ -63,6 +93,7 @@ export default class EntryAbility extends FlutterAbility {
   /** EntryAbility is a singleton: a card tap while running arrives here. */
   onNewWant(want: Want, launchParams: AbilityConstant.LaunchParam): void {
     super.onNewWant(want, launchParams)
+    ContinueOnHost.deliverFrom(want, launchParams)
     applyQaFlags(want)
     CardsHost.deliverFrom(want)
     if (wantsNowPlaying(want)) {

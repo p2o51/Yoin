@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/platform_overrides.dart';
 import 'app/providers.dart';
 import 'cards/play_card.dart';
+import 'continueon/continue_on_controller.dart';
 import 'data/applemusic/apple_music_source.dart';
 import 'data/sync/cloud_sync_providers.dart';
 import 'data/profile/profile.dart';
@@ -66,6 +67,9 @@ class YoinApp extends ConsumerWidget {
     ref.listen(offlineDownloadsProvider, (_, _) {});
     // Cloud sync runs with the app (a cycle on coming to the front, an upload on leaving).
     ref.listen(cloudSyncLifecycleProvider, (_, _) {});
+    // Continue On lives with the app: it offers the hand-off while a song is
+    // loaded and takes one this device is started or brought back with.
+    ref.listen(continueOnProvider, (_, _) {});
     // The playing cover themes the whole app, in ONE cut (no theme tween:
     // owner 2026-11-04); equal schemes keep the same ThemeData instance.
     final seed = ref.watch(playbackThemeProvider.select((t) => t.seed));

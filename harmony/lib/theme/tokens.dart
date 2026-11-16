@@ -1384,3 +1384,29 @@ abstract final class TipSceneTokens {
   static const int noteLifeMs = 2400;
   static const int noteEchoMs = 220;
 }
+
+/// The Continue On card (Android ui/continueon/ContinueOnCard.kt): a hand-off's
+/// song, where the other device is in it, and "Continue here".
+abstract final class ContinueOnCardTokens {
+  /// Around the card in the window (horizontal, vertical), and its widest.
+  static const double outerHorizontal = 16;
+  static const double outerVertical = 24;
+  static const double maxWidth = 420;
+
+  /// YoinShapeTokens.ExtraLarge; shadowElevation 6.
+  static const double corner = 28;
+  static const double elevation = 6;
+  static const double padding = 16;
+
+  /// Between the song row and the actions.
+  static const double sectionGap = 14;
+  static const double cover = 64;
+  static const double coverGap = 14;
+
+  /// Between the note and the buttons, and between the buttons.
+  static const double actionGap = 8;
+  static const double loading = 40;
+
+  /// It rises from half its height and this scale.
+  static const double enterScale = 0.92;
+}

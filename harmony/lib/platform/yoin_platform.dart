@@ -9,6 +9,7 @@ import 'dart:io' show Directory, Platform;
 
 import 'applemusic/apple_music_auth.dart';
 import 'cards/cards_channel.dart';
+import 'continueon/continue_on_host.dart';
 import 'i18n/name_transliterator.dart';
 import 'network/network_bearer.dart';
 import 'playback/channel_playback_engine.dart';
@@ -42,6 +43,7 @@ final class YoinPlatform {
     required this.imageShare,
     required this.appFiles,
     required this.cloudSyncHost,
+    required this.continueOnHost,
   });
 
   final YoinHost host;
@@ -88,6 +90,10 @@ final class YoinPlatform {
   /// `yoin/cloud_sync`: Want + transient task; Windows: the shell and app data).
   final CloudSyncHost cloudSyncHost;
 
+  /// Continue On: offering this app on the user's other devices and taking a
+  /// hand-off from one (OHOS 应用接续, `yoin/continue_on`; Windows: none).
+  final ContinueOnHost continueOnHost;
+
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
     host: YoinHost.ohos,
@@ -104,6 +110,7 @@ final class YoinPlatform {
     imageShare: const ChannelImageShare(),
     appFiles: const ChannelAppFilesHost(),
     cloudSyncHost: const ChannelCloudSyncHost(),
+    continueOnHost: ChannelContinueOnHost(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -124,6 +131,7 @@ final class YoinPlatform {
     imageShare: const NoImageShare(),
     appFiles: DirectoryAppFilesHost(folder),
     cloudSyncHost: DesktopCloudSyncHost(folder),
+    continueOnHost: const NoContinueOnHost(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

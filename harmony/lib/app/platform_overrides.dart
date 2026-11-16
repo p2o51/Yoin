@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter_riverpod/misc.dart' show Override;
 
+import '../continueon/continue_on_controller.dart';
 import '../data/sync/cloud_sync_providers.dart';
 import '../offline/offline_providers.dart';
 import '../platform/cards/cards_channel.dart';
@@ -30,4 +31,5 @@ List<Override> platformOverrides(YoinPlatform platform) => [
   imageShareProvider.overrideWithValue(platform.imageShare),
   appFilesHostProvider.overrideWithValue(platform.appFiles),
   cloudSyncHostProvider.overrideWithValue(platform.cloudSyncHost),
+  continueOnHostProvider.overrideWithValue(platform.continueOnHost),
 ];
