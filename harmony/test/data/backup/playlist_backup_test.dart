@@ -299,6 +299,25 @@ void main() {
       expect((await store.get(backup.id))!.restores.single, outcome.record);
     });
 
+    test('should_returnTheOutcome_when_theRestoreHistoryCantBeSaved', () async {
+      final storage = _FailingWrites();
+      store = PlaylistBackupStore(storage);
+      final backup = await service().backUp(MediaId.subsonic('p1'));
+      final am = FakeTransferSource(provider: MediaId.providerAppleMusic);
+      profiles.sources = {...profiles.sources, 'am': am};
+      final picked = song('am1', 'Entropy', 'Beach Bunny', provider: MediaId.providerAppleMusic);
+      final rows = [
+        ReviewRow(position: 0, status: ReviewStatus.matched, candidates: [picked], chosen: 0, checked: true),
+      ];
+      const target = RestoreTarget(profileId: 'am', displayName: 'Apple Music', provider: MediaId.providerAppleMusic);
+      storage.failing = true;
+      // The playlist is made: its outcome comes back, so the restore isn't offered (and made) again.
+      final outcome = await service().create(backup, target, rows);
+      expect(am.created, hasLength(1));
+      expect(outcome.record.added, 1);
+      expect(outcome.record.failed, isFalse);
+    });
+
     test('should_recordFailedRestore_when_targetProfileIsGone', () async {
       final backup = await service().backUp(MediaId.subsonic('p1'));
       final rows = [
@@ -395,4 +414,19 @@ void main() {
       expect(progress, [1]);
     });
   });
+}
+
+/// Storage whose writes fail once [failing] (a full disk).
+final class _FailingWrites implements PlaylistBackupStorage {
+  final _memory = InMemoryPlaylistBackupStorage();
+  bool failing = false;
+
+  @override
+  Future<List<String>> readAll() => _memory.readAll();
+
+  @override
+  Future<void> write(String id, String? json) async {
+    if (failing) throw const FileSystemException('No space left on device');
+    await _memory.write(id, json);
+  }
 }

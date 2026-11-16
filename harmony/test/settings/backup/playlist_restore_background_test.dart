@@ -14,6 +14,8 @@ import 'package:yoin/offline/offline_providers.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/settings/backup/playlist_backup_screen.dart';
 import 'package:yoin/settings/backup/playlist_backup_view_model.dart';
+import 'package:yoin/settings/backup/restore_live_update.dart';
+import 'package:yoin/shell/shell_state.dart' show appNavigatorKey;
 
 import '../../support/backup_fakes.dart';
 import '../../support/fake_music_source.dart';
@@ -126,5 +128,46 @@ void main() {
     // Matched: the task and its notification go; the review waits in the app.
     expect(host.calls.last, 'cancel 7367794');
     expect(host.calls, contains('release'));
+  });
+
+  testWidgets('should_openTheBackupsPage_when_itsRestoreNotificationIsTapped', (tester) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final store = PlaylistBackupStore(InMemoryPlaylistBackupStorage());
+    await store.save(_backup());
+    final kv = InMemoryStore();
+    final host = RecordingTransferHost();
+    final profiles = FakeBackupProfiles(
+      all: const [Profile(id: 'home', provider: MediaId.providerSubsonic, displayName: 'Home')],
+      activeId: 'home',
+      sources: {'home': FakeTransferSource()},
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          keyValueStoreProvider.overrideWithValue(kv),
+          secretStoreProvider.overrideWithValue(kv),
+          musicSourceFactoryProvider.overrideWithValue((_) => FakeMusicSource()),
+          playlistBackupStoreProvider.overrideWithValue(store),
+          playlistBackupServiceProvider.overrideWithValue(PlaylistBackupService(profiles: profiles, store: store)),
+          backgroundTransferHostProvider.overrideWithValue(host),
+        ],
+        child: Consumer(
+          builder: (context, ref, _) {
+            ref.listen(restoreNoticeTapsProvider, (_, _) {});
+            return MaterialApp(navigatorKey: appNavigatorKey, home: const SizedBox());
+          },
+        ),
+      ),
+    );
+    // Another notification's tap opens nothing; a restore's opens its backup.
+    host.tapped.add('download:1');
+    await tester.pumpAndSettle();
+    expect(find.byType(PlaylistBackupScreen), findsNothing);
+    host.tapped.add(RestoreLiveUpdate.linkTo('b1'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PlaylistBackupScreen), findsOneWidget);
+    expect(find.text('Night drive'), findsWidgets);
   });
 }

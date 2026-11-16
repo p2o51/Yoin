@@ -307,7 +307,12 @@ class PlaylistBackupService {
       write = PlaylistWrite(created: null, added: 0, requested: ids.length, failure: failure);
     }
     final record = restoreRecord(target, rows, write, _clock());
-    await _store.recordRestore(backup.id, record);
+    try {
+      await _store.recordRestore(backup.id, record);
+    } catch (e) {
+      // The playlist is made (or not) all the same: its outcome stands, or a second try would make it twice.
+      debugPrint('PlaylistBackup: restore not recorded (${e.runtimeType})');
+    }
     if (write.created != null) onPlaylistCreated?.call(target.profileId);
     return RestoreOutcome(record, write);
   }

@@ -53,6 +53,9 @@ class _Host implements BackgroundTransferHost {
 
   @override
   Future<void> cancelNotice(int id) async {}
+
+  @override
+  Stream<String> get taps => const Stream.empty();
 }
 
 OfflineState _state(List<OfflineSong> songs) => OfflineState(songs: songs, activeProfileId: 'p1', ready: true);

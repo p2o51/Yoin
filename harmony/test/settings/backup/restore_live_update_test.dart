@@ -97,7 +97,13 @@ void main() {
     await tester.pump();
     expect(
       host.notices.last,
-      const TransferNotice(title: 'Matching on Apple Music', text: 'Night drive', percent: 26, chip: '12 / 45'),
+      const TransferNotice(
+        title: 'Matching on Apple Music',
+        text: 'Night drive',
+        percent: 26,
+        chip: '12 / 45',
+        link: 'playlistBackup:b1',
+      ),
     );
     update.dispose();
   });
@@ -155,7 +161,13 @@ void main() {
     await tester.pump();
     expect(
       host.notices.single,
-      const TransferNotice(title: 'Creating on Apple Music', text: 'Night drive', percent: null, chip: '40'),
+      const TransferNotice(
+        title: 'Creating on Apple Music',
+        text: 'Night drive',
+        percent: null,
+        chip: '40',
+        link: 'playlistBackup:b1',
+      ),
     );
     update.dispose();
   });
@@ -173,6 +185,8 @@ void main() {
     ]);
     expect(host.posted.single.text, '38 added');
     expect(host.posted.single.subText, 'Night drive');
+    // Tapped, the result opens its backup's page (Android's contentIntent).
+    expect(host.posted.single.link, 'playlistBackup:b1');
     update.dispose();
     await elapse(tester, const Duration(minutes: 5));
     expect(host.notices, hasLength(1));
@@ -301,5 +315,11 @@ void main() {
     await update.askToNotify();
     expect(host.calls, ['ask']);
     update.dispose();
+  });
+
+  test('should_readTheBackupBack_when_aRestoresLinkIsTapped', () {
+    expect(RestoreLiveUpdate.backupOf(RestoreLiveUpdate.linkTo('b 1')), 'b 1');
+    expect(RestoreLiveUpdate.backupOf('playlistBackup:'), isNull);
+    expect(RestoreLiveUpdate.backupOf('download:1'), isNull);
   });
 }

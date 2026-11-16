@@ -24,6 +24,9 @@ import '../../data/backup/playlist_backup_models.dart';
 import '../../data/backup/playlist_backup_service.dart';
 import '../../offline/offline_providers.dart';
 import '../../platform/background/background_transfer.dart';
+import '../../shell/shell_state.dart' show appNavigatorKey;
+import '../../ui/navigation/yoin_push_route.dart';
+import 'playlist_backup_screen.dart';
 import 'playlist_backup_strings.dart';
 
 /// Where a restore's progress shows outside the app (Android RestoreProgressSink).
@@ -102,6 +105,18 @@ class RestoreLiveUpdate implements RestoreProgressSink {
   /// The finished restore's notification (Android's NOTIFICATION_ID): one for every backup, a new result replaces it.
   static const resultNoticeId = 0x706c72;
 
+  static const _linkPrefix = 'playlistBackup:';
+
+  /// What tapping a restore's notification opens: its backup's page (Android's PlaylistBackupActivity intent).
+  static String linkTo(String backupId) => '$_linkPrefix$backupId';
+
+  /// The backup a tapped notification's [link] opens; null when it isn't a restore's.
+  static String? backupOf(String link) {
+    if (!link.startsWith(_linkPrefix)) return null;
+    final id = link.substring(_linkPrefix.length);
+    return id.isEmpty ? null : id;
+  }
+
   late final StreamSubscription<bool> _ended;
   TransferNotice? _wanted;
   TransferNotice? _shown;
@@ -141,6 +156,7 @@ class RestoreLiveUpdate implements RestoreProgressSink {
         text: backup.name,
         percent: percent,
         chip: strings.progress(done, total),
+        link: linkTo(backup.id),
       ),
       // The first count and the last one show at once; the rest at most every updateInterval.
       immediate: done == 0 || done >= total,
@@ -153,7 +169,13 @@ class RestoreLiveUpdate implements RestoreProgressSink {
     _declined = false;
     _retryAfter = null;
     _show(
-      TransferNotice(title: _strings().writing(target.displayName), text: backup.name, percent: null, chip: '$count'),
+      TransferNotice(
+        title: _strings().writing(target.displayName),
+        text: backup.name,
+        percent: null,
+        chip: '$count',
+        link: linkTo(backup.id),
+      ),
       immediate: true,
     );
   }
@@ -169,6 +191,7 @@ class RestoreLiveUpdate implements RestoreProgressSink {
       text: text,
       percent: null,
       subText: backup.name == text ? null : backup.name,
+      link: linkTo(backup.id),
     );
     _enqueue(() => host.notify(resultNoticeId, notice));
   }
@@ -283,3 +306,23 @@ final restoreProgressFactoryProvider = Provider<RestoreProgressSink Function(Str
   final shared = ref.watch(sharedBackgroundTransferProvider);
   return (backupId) => RestoreLiveUpdate(host: shared.lease('restore $backupId'));
 });
+
+/// A restore's notification tapped (also the tap that started the app): its backup's page opens, as Android's
+/// contentIntent does. Lives with the app (main.dart).
+final restoreNoticeTapsProvider = Provider<void>((ref) {
+  final subscription = ref.watch(sharedBackgroundTransferProvider).host.taps.listen((link) {
+    final backupId = RestoreLiveUpdate.backupOf(link);
+    if (backupId != null) unawaited(_openBackup(backupId));
+  });
+  ref.onDispose(subscription.cancel);
+});
+
+Future<void> _openBackup(String backupId) async {
+  // On a cold start the navigator comes up a few frames after the tap arrives.
+  for (var i = 0; i < 40 && appNavigatorKey.currentState == null; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+  await appNavigatorKey.currentState?.push(
+    YoinPushRoute<void>(builder: (_) => PlaylistBackupScreen(backupId: backupId)),
+  );
+}

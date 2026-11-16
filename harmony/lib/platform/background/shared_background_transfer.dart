@@ -130,5 +130,8 @@ final class _Lease implements BackgroundTransferHost {
   Future<void> cancelNotice(int id) => _shared.host.cancelNotice(id);
 
   @override
+  Stream<String> get taps => _shared.host.taps;
+
+  @override
   String toString() => 'TransferLease($name)';
 }

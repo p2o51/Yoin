@@ -20,7 +20,14 @@ import 'package:flutter/services.dart';
 /// What the progress notification says.
 @immutable
 final class TransferNotice {
-  const TransferNotice({required this.title, required this.text, required this.percent, this.chip, this.subText});
+  const TransferNotice({
+    required this.title,
+    required this.text,
+    required this.percent,
+    this.chip,
+    this.subText,
+    this.link,
+  });
 
   final String title;
   final String text;
@@ -34,12 +41,17 @@ final class TransferNotice {
   /// The status-bar capsule's short text ("12 / 45", Android's setShortCriticalText); null: none.
   final String? chip;
 
+  /// What tapping the notification opens, handed back through [BackgroundTransferHost.taps] (Android's
+  /// contentIntent); null: the app as it is.
+  final String? link;
+
   Map<String, Object> toMap() => {
     'title': title,
     'text': text,
     'percent': ?percent,
     'chip': ?chip,
     'subText': ?subText,
+    'link': ?link,
   };
 
   @override
@@ -49,10 +61,11 @@ final class TransferNotice {
       other.text == text &&
       other.percent == percent &&
       other.chip == chip &&
-      other.subText == subText;
+      other.subText == subText &&
+      other.link == link;
 
   @override
-  int get hashCode => Object.hash(title, text, percent, chip, subText);
+  int get hashCode => Object.hash(title, text, percent, chip, subText, link);
 
   @override
   String toString() => 'TransferNotice($title, $text, $percent%, $chip)';
@@ -81,6 +94,9 @@ abstract interface class BackgroundTransferHost {
 
   /// Takes the notification [id] posted by [notify] away.
   Future<void> cancelNotice(int id);
+
+  /// A notification with a [TransferNotice.link] was tapped: its link (also the one that started the app).
+  Stream<String> get taps;
 }
 
 /// HarmonyOS: `yoin/transfer` → backgroundTaskManager (MODE_DATA_TRANSFER) + notificationManager (live view).
@@ -91,15 +107,21 @@ final class ChannelBackgroundTransferHost implements BackgroundTransferHost {
 
   final MethodChannel _channel;
   final _ended = StreamController<bool>.broadcast();
+  final _taps = StreamController<String>.broadcast();
   bool _listening = false;
+  bool _ready = false;
 
   void _listen() {
     if (_listening) return;
     _listening = true;
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'ended') {
-        final args = call.arguments;
-        _ended.add(args is Map && args['byUser'] == true);
+      final args = call.arguments;
+      switch (call.method) {
+        case 'ended':
+          _ended.add(args is Map && args['byUser'] == true);
+        case 'tap':
+          final link = args is Map ? args['link'] : null;
+          if (link is String && link.isNotEmpty) _taps.add(link);
       }
       return null;
     });
@@ -168,6 +190,27 @@ final class ChannelBackgroundTransferHost implements BackgroundTransferHost {
       debugPrint('YoinTransfer: notice not removed: ${e.code}');
     }
   }
+
+  @override
+  Stream<String> get taps {
+    _listen();
+    if (!_ready) {
+      _ready = true;
+      // A tap that started the app waits on the native side until Dart listens.
+      unawaited(_sendReady());
+    }
+    return _taps.stream;
+  }
+
+  Future<void> _sendReady() async {
+    try {
+      await _channel.invokeMethod<void>('ready');
+    } on MissingPluginException {
+      // No native side (tests).
+    } on PlatformException catch (e) {
+      debugPrint('YoinTransfer: taps not ready: ${e.code}');
+    }
+  }
 }
 
 /// Nothing to hold: a desktop app keeps running behind other windows (and tests).
@@ -191,4 +234,7 @@ final class NoBackgroundTransferHost implements BackgroundTransferHost {
 
   @override
   Future<void> cancelNotice(int id) async {}
+
+  @override
+  Stream<String> get taps => const Stream.empty();
 }

@@ -321,6 +321,47 @@ void main() {
       expect(sink.calls.last, 'dispose');
     });
 
+    test('should_keepTheFailure_when_matchingFailsWithThePageClosed', () async {
+      final page = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      await settle();
+      notifier().openRestore();
+      final matching = notifier().restoreTo(
+        const RestoreTarget(profileId: 'gone', displayName: 'Gone', provider: 'subsonic'),
+      );
+      page.close();
+      await matching;
+      await settle();
+      // Nothing outside the app says it failed: coming back does.
+      expect(sink.calls, isNot(contains('dispose')));
+      final again = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
+      expect(state().restore, isA<RestoreFailed>());
+      notifier().openRestore();
+      expect(state().restore, isA<RestoreChoosingTarget>());
+      notifier().dismissSheet();
+      again.close();
+      await settle();
+      expect(sink.calls.last, 'dispose');
+    });
+
+    test('should_leaveOtherResultsAlone_when_aBackupWithNoRestoreIsDeleted', () async {
+      await open();
+      await notifier().delete();
+      expect(sink.calls, isNot(contains('clear')));
+    });
+
+    test('should_takeTheProgressAway_when_deletedMidMatch', () async {
+      await open();
+      notifier().openRestore();
+      am.gate = Completer<void>();
+      final matching = notifier().restoreTo(target);
+      await settle();
+      await notifier().delete();
+      expect(sink.calls.last, 'clear');
+      am.gate!.complete();
+      await matching;
+      expect(sink.calls.where((c) => c == 'clear'), hasLength(1));
+    });
+
     test('should_letTheStateGo_when_noRestoreIsUnderWay', () async {
       final page = container.listen(playlistBackupPageProvider('b1'), (_, _) {});
       await settle();

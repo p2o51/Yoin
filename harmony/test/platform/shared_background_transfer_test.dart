@@ -100,5 +100,18 @@ void main() {
     const writing = TransferNotice(title: 'Creating on Apple Music', text: 'Night drive', percent: null, chip: '12');
     expect(writing.toMap(), {'title': 'Creating on Apple Music', 'text': 'Night drive', 'chip': '12'});
     expect(_downloading.toMap(), {'title': 'Downloading', 'text': '1 of 3', 'percent': 30});
+    const linked = TransferNotice(title: 'Created', text: '3 added', percent: null, link: 'playlistBackup:b1');
+    expect(linked.toMap(), {'title': 'Created', 'text': '3 added', 'link': 'playlistBackup:b1'});
+  });
+
+  test('should_hearTheHostsTaps_when_aLeaseListens', () async {
+    final host = RecordingTransferHost();
+    final shared = SharedBackgroundTransfer(host);
+    final taps = <String>[];
+    final subscription = shared.lease('restore b1').taps.listen(taps.add);
+    host.tapped.add('playlistBackup:b1');
+    await Future<void>.delayed(Duration.zero);
+    expect(taps, ['playlistBackup:b1']);
+    await subscription.cancel();
   });
 }

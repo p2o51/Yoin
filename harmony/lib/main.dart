@@ -20,6 +20,7 @@ import 'offline/offline_providers.dart';
 import 'platform/window/window_caption.dart';
 import 'platform/yoin_platform.dart';
 import 'playback/playback_controller.dart';
+import 'settings/backup/restore_live_update.dart';
 import 'settings/stream_quality.dart';
 import 'shell/app_chrome.dart';
 import 'shell/shell_screen.dart';
@@ -83,6 +84,8 @@ class YoinApp extends ConsumerWidget {
     ref.listen(cloudSyncLifecycleProvider, (_, _) {});
     // Playlist backups follow their playlists each time the app comes to the front (never in the background).
     ref.listen(playlistBackupFollowerProvider, (_, _) {});
+    // A playlist restore's notification, tapped, opens its backup's page.
+    ref.listen(restoreNoticeTapsProvider, (_, _) {});
     // Continue On lives with the app: it offers the hand-off while a song is
     // loaded and takes one this device is started or brought back with.
     ref.listen(continueOnProvider, (_, _) {});

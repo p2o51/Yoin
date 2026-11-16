@@ -35,4 +35,9 @@ class RecordingTransferHost implements BackgroundTransferHost {
 
   @override
   Future<void> cancelNotice(int id) async => calls.add('cancel $id');
+
+  final tapped = StreamController<String>.broadcast();
+
+  @override
+  Stream<String> get taps => tapped.stream;
 }

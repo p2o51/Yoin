@@ -291,8 +291,9 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
     try {
       outcome = await _service.create(backup, review.target, review.rows);
     } catch (e) {
-      // The history couldn't be written (the playlist's own failure is recorded): back to the review.
-      debugPrint('PlaylistBackup: restore not recorded (${e.runtimeType})');
+      // Never expected (the write's own failure is an outcome, a history that can't be saved is let go):
+      // back to the review rather than writing forever.
+      debugPrint('PlaylistBackup: restore failed (${e.runtimeType})');
       _progress.clear();
       if (ref.mounted) _setRestore(review);
       return;
@@ -385,7 +386,8 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
   Future<void> delete() async {
     _generation++;
     _matching = false;
-    if (state.restore is! RestoreWriting) _progress.clear();
+    // A match under way goes with the backup; another backup's result stays in the notifications.
+    if (state.restore is RestoreMatching || state.restore is RestoreReviewing) _progress.clear();
     await ref.read(playlistBackupStoreProvider).delete(backupId);
     if (!ref.mounted) return;
     state = state.copyWith(deleted: true);
@@ -399,13 +401,15 @@ class PlaylistBackupNotifier extends Notifier<PlaylistBackupPageState> {
   }
 
   /// Moves the restore to [next]. Under way (matching, reviewing, writing), the state is kept with the page
-  /// closed, so coming back finds it live; settled (idle, choosing, done, failed), it goes with the page.
+  /// closed, so coming back finds it live; so is a match that failed meanwhile (nothing outside the app says
+  /// so), until its sheet is put away. Settled (idle, choosing, done: its result is in the notifications and
+  /// the history), it goes with the page.
   void _setRestore(RestoreUiState next, {bool clearSearch = false}) {
     state = clearSearch ? state.copyWith(restore: next, search: null) : state.copyWith(restore: next);
     switch (next) {
-      case RestoreMatching() || RestoreReviewing() || RestoreWriting():
+      case RestoreMatching() || RestoreReviewing() || RestoreWriting() || RestoreFailed():
         _keepAlive ??= ref.keepAlive();
-      case RestoreIdle() || RestoreChoosingTarget() || RestoreDone() || RestoreFailed():
+      case RestoreIdle() || RestoreChoosingTarget() || RestoreDone():
         _keepAlive?.close();
         _keepAlive = null;
     }

@@ -7,7 +7,7 @@ import {
   MethodChannel,
   MethodResult
 } from '@ohos/flutter_ohos';
-import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
+import { common, Want, wantAgent, WantAgent } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { notificationManager } from '@kit.NotificationKit';
@@ -21,6 +21,60 @@ const DOMAIN = 0x5909;
 const LIVE_VIEW_TYPE_TRANSFER = 8;
 /** The label of the plain notifications `notify` posts (a finished restore), apart from the task's own. */
 const NOTICE_LABEL = 'yoin_transfer_notice';
+/** The want parameter a notification's tap carries: the link Dart gave it (a restore's backup). */
+const LINK_KEY = 'yoinTransferLink';
+
+/**
+ * Taps on a notification that carries a link, on their way to Dart (EntryAbility hands over every want). A tap that
+ * cold-starts the app arrives before Dart listens, so the latest one waits here until Dart says `ready`.
+ */
+export class TransferTaps {
+  private static channel: MethodChannel | null = null;
+  private static ready = false;
+  private static pending: string | null = null;
+
+  static attach(channel: MethodChannel): void {
+    TransferTaps.channel = channel;
+    TransferTaps.ready = false;
+  }
+
+  static detach(): void {
+    TransferTaps.channel = null;
+    TransferTaps.ready = false;
+  }
+
+  static markReady(): void {
+    TransferTaps.ready = true;
+    const pending = TransferTaps.pending;
+    TransferTaps.pending = null;
+    if (pending !== null) {
+      TransferTaps.send(pending);
+    }
+  }
+
+  /** Reads a notification tap out of [want] (if it is one) and hands its link to Dart. */
+  static deliverFrom(want: Want): void {
+    const params = want.parameters;
+    if (params === undefined) {
+      return;
+    }
+    const link = params[LINK_KEY];
+    if (typeof link !== 'string' || (link as string).length === 0) {
+      return;
+    }
+    if (TransferTaps.channel !== null && TransferTaps.ready) {
+      TransferTaps.send(link as string);
+    } else {
+      TransferTaps.pending = link as string;
+    }
+  }
+
+  private static send(link: string): void {
+    const args: Map<string, Any> = new Map();
+    args.set('link', link);
+    TransferTaps.channel?.invokeMethod('tap', args);
+  }
+}
 
 /**
  * Serves `yoin/transfer` for Dart's `ChannelBackgroundTransferHost` (lib/platform/background/): while songs download
@@ -38,6 +92,8 @@ const NOTICE_LABEL = 'yoin_transfer_notice';
  * - `notificationsAllowed` {ask}: whether notifications are on; with ask, the system's dialog first when it can.
  * - `notify` {id, title, text, subText?}: a plain notification that outlives the task (a finished restore);
  *   `cancelNotice` {id} takes it away.
+ * - `hold` and `notify` take a link?: tapping the notification brings Yoin to the front and Dart hears `tap` {link}
+ *   (a restore's opens its backup's page, Android's contentIntent); `ready` releases a tap that started the app.
  *
  * Why not `request.agent` (the system's own download service): a hosted transfer suspends the app anyway, the task
  * would keep the signed stream address (the account's token) in the system's records, a Subsonic error (a 200 with
@@ -49,6 +105,8 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
   private task: HeldTask | null = null;
   private starting: Promise<HeldTask | null> | null = null;
   private agent: WantAgent | null = null;
+  /** A link's want agent, one per link (they must not share one: its parameters would follow the latest). */
+  private readonly linkAgents: Map<string, WantAgent> = new Map();
   private listening: boolean = false;
   private readonly onCancel = (info: backgroundTaskManager.ContinuousTaskCancelInfo): void => {
     const task = this.task;
@@ -74,6 +132,7 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
   onAttachedToEngine(binding: FlutterPluginBinding): void {
     this.channel = new MethodChannel(binding.getBinaryMessenger(), CHANNEL);
     this.channel.setMethodCallHandler(this);
+    TransferTaps.attach(this.channel);
   }
 
   onDetachedFromEngine(binding: FlutterPluginBinding): void {
@@ -89,6 +148,7 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
     }
     this.channel?.setMethodCallHandler(null);
     this.channel = null;
+    TransferTaps.detach();
   }
 
   onMethodCall(call: MethodCall, result: MethodResult): void {
@@ -98,10 +158,14 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
         const text = stringArg(call, 'text');
         const percent: Any = call.argument('percent');
         const chip = optionalStringArg(call, 'chip');
-        this.hold(title, text, typeof percent === 'number' ? percent as number : -1, chip)
-          .then((held: boolean) => result.success(held));
+        this.hold(title, text, typeof percent === 'number' ? percent as number : -1, chip,
+          optionalStringArg(call, 'link')).then((held: boolean) => result.success(held));
         return;
       }
+      case 'ready':
+        TransferTaps.markReady();
+        result.success(null);
+        return;
       case 'release':
         this.release().then(() => result.success(null));
         return;
@@ -113,7 +177,7 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
       case 'notify': {
         const id: Any = call.argument('id');
         this.notify(typeof id === 'number' ? id as number : 0, stringArg(call, 'title'), stringArg(call, 'text'),
-          optionalStringArg(call, 'subText')).then(() => result.success(null));
+          optionalStringArg(call, 'subText'), optionalStringArg(call, 'link')).then(() => result.success(null));
         return;
       }
       case 'cancelNotice': {
@@ -127,7 +191,8 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
   }
 
   /** [percent] below 0: no bar (work whose length isn't known). */
-  private async hold(title: string, text: string, percent: number, chip: string | null): Promise<boolean> {
+  private async hold(title: string, text: string, percent: number, chip: string | null,
+    link: string | null): Promise<boolean> {
     if (!ContinuousTasks.multipleSupported()) {
       // Before API 21 an ability holds one task: playback's. Downloads wait while the app is behind, as before.
       return false;
@@ -136,7 +201,7 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
     if (task === null) {
       return false;
     }
-    await this.publish(task, title, text, percent, chip);
+    await this.publish(task, title, text, percent, chip, link);
     return true;
   }
 
@@ -168,9 +233,15 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
    * status-bar capsule shows it. A capsule the system won't take is dropped rather than losing the progress.
    */
   private async publish(task: HeldTask, title: string, text: string, percent: number,
-    chip: string | null): Promise<void> {
+    chip: string | null, link: string | null): Promise<void> {
+    let agent: WantAgent | null = null;
     try {
-      await notificationManager.publish(liveViewRequest(task, title, text, percent, chip));
+      agent = await this.tapAgent(link);
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'tap not set: %{public}s', describe(e as BusinessError));
+    }
+    try {
+      await notificationManager.publish(liveViewRequest(task, title, text, percent, chip, agent));
     } catch (e) {
       if (chip === null) {
         hilog.warn(DOMAIN, TAG, 'progress not shown: %{public}s', describe(e as BusinessError));
@@ -178,7 +249,7 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
       }
       hilog.warn(DOMAIN, TAG, 'capsule not taken: %{public}s', describe(e as BusinessError));
       try {
-        await notificationManager.publish(liveViewRequest(task, title, text, percent, null));
+        await notificationManager.publish(liveViewRequest(task, title, text, percent, null, agent));
       } catch (again) {
         hilog.warn(DOMAIN, TAG, 'progress not shown: %{public}s', describe(again as BusinessError));
       }
@@ -204,8 +275,12 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
     }
   }
 
-  /** A plain notification (a finished restore's result): tapping it brings Yoin to the front and takes it away. */
-  private async notify(id: number, title: string, text: string, subText: string | null): Promise<void> {
+  /**
+   * A plain notification (a finished restore's result): tapping it brings Yoin to the front (on [link]'s page) and
+   * takes it away.
+   */
+  private async notify(id: number, title: string, text: string, subText: string | null,
+    link: string | null): Promise<void> {
     try {
       const normal: notificationManager.NotificationBasicContent = { title: title, text: text };
       if (subText !== null) {
@@ -219,7 +294,7 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
         id: id,
         label: NOTICE_LABEL,
         notificationSlotType: notificationManager.SlotType.SERVICE_INFORMATION,
-        wantAgent: await this.launchAgent(),
+        wantAgent: await this.tapAgent(link),
         tapDismissed: true,
         isAlertOnce: true
       };
@@ -283,11 +358,46 @@ export default class YoinTransferPlugin implements FlutterPlugin, MethodCallHand
     this.agent = agent;
     return agent;
   }
+
+  /** Tapping a notification with [link] brings Yoin to the front and hands Dart the link; without, just the front. */
+  private async tapAgent(link: string | null): Promise<WantAgent> {
+    if (link === null) {
+      return this.launchAgent();
+    }
+    const known = this.linkAgents.get(link);
+    if (known !== undefined) {
+      return known;
+    }
+    const parameters: Record<string, Object> = {};
+    parameters[LINK_KEY] = link;
+    const info: wantAgent.WantAgentInfo = {
+      wants: [{
+        bundleName: this.context.abilityInfo.bundleName,
+        abilityName: this.context.abilityInfo.name,
+        parameters: parameters
+      }],
+      actionType: wantAgent.OperationType.START_ABILITY,
+      requestCode: linkRequestCode(link),
+      actionFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
+    };
+    const agent = await wantAgent.getWantAgent(info);
+    this.linkAgents.set(link, agent);
+    return agent;
+  }
 }
 
-/** The task's live view: [percent] below 0, no bar; [chip], the status-bar capsule's text. */
+/** A request code of [link]'s own (2 and up; 1 is the plain launch's), so links never share an agent. */
+function linkRequestCode(link: string): number {
+  let hash = 0;
+  for (let i = 0; i < link.length; i++) {
+    hash = (hash * 31 + link.charCodeAt(i)) % 1000000007;
+  }
+  return 2 + hash % 1000000;
+}
+
+/** The task's live view: [percent] below 0, no bar; [chip], the status-bar capsule's text; [agent], what a tap does. */
 function liveViewRequest(task: HeldTask, title: string, text: string, percent: number,
-  chip: string | null): notificationManager.NotificationRequest {
+  chip: string | null, agent: WantAgent | null): notificationManager.NotificationRequest {
   const live: notificationManager.NotificationSystemLiveViewContent = {
     typeCode: LIVE_VIEW_TYPE_TRANSFER,
     title: title,
@@ -308,6 +418,9 @@ function liveViewRequest(task: HeldTask, title: string, text: string, percent: n
   }
   if (chip !== null) {
     live.capsule = { title: chip };
+  }
+  if (agent !== null) {
+    request.wantAgent = agent;
   }
   return request;
 }
