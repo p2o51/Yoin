@@ -13,6 +13,7 @@ import '../platform/i18n/name_transliterator.dart';
 import '../platform/share/image_share.dart';
 import '../platform/share/text_share.dart';
 import '../platform/storage/observed_store.dart';
+import '../platform/window/display_corners.dart';
 import '../platform/window/window_controls.dart';
 import '../platform/yoin_platform.dart';
 import '../settings/stream_quality.dart';
@@ -34,4 +35,5 @@ List<Override> platformOverrides(YoinPlatform platform) => [
   appFilesHostProvider.overrideWithValue(platform.appFiles),
   cloudSyncHostProvider.overrideWithValue(platform.cloudSyncHost),
   urlOpenerProvider.overrideWithValue(platform.urlOpener),
+  displayCornersProvider.overrideWithValue(platform.displayCorners),
 ];

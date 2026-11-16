@@ -7,7 +7,7 @@ import {
   MethodChannel,
   MethodResult
 } from '@ohos/flutter_ohos';
-import { promptAction, window } from '@kit.ArkUI';
+import { display, promptAction, window } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -114,6 +114,32 @@ export class YoinWindowHost {
     }
   }
 
+  /**
+   * The default display's corner radius in vp (the largest of its four corners), for Settings › Appearance ›
+   * Screen corners' "Match screen" (Android Display.getRoundedCorner). getRoundedCorner is API 23+ and only reports
+   * panels whose product configuration defines a radius; anything else is null and the slider sets it by hand.
+   */
+  static screenCornerRadius(): number | null {
+    if (deviceInfo.sdkApiVersion < 23) {
+      return null;
+    }
+    try {
+      const shown = display.getDefaultDisplaySync();
+      const corners = shown.getRoundedCorner();
+      let px = 0;
+      for (const corner of corners) {
+        px = Math.max(px, corner.radius);
+      }
+      if (px <= 0 || shown.densityPixels <= 0) {
+        return null;
+      }
+      return px / shown.densityPixels;
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'getRoundedCorner failed: %{public}s', JSON.stringify(e));
+      return null;
+    }
+  }
+
   static startMoving(): void {
     YoinWindowHost.win?.startMoving().catch((e: BusinessError) => {
       hilog.warn(DOMAIN, TAG, 'startMoving failed: %{public}d', e.code);
@@ -160,6 +186,9 @@ export default class YoinWindowPlugin implements FlutterPlugin, MethodCallHandle
     switch (call.method) {
       case 'caption':
         result.success(YoinWindowHost.caption());
+        return;
+      case 'screenCornerRadius':
+        result.success(YoinWindowHost.screenCornerRadius());
         return;
       case 'startMoving':
         YoinWindowHost.startMoving();

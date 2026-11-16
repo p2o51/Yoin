@@ -10,6 +10,7 @@ import '../playback/playback_context.dart';
 import '../theme/tokens.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/seam/seam.dart';
 import 'detail_listening.dart';
 import 'detail_play.dart';
 import 'detail_strings.dart';
@@ -62,25 +63,28 @@ class ArtistMostPlayed extends ConsumerWidget {
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: ArtistMostPlayedTokens.rowPadding),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  strings.artistMostPlayed,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    decoration: TextDecoration.underline,
-                    decorationColor: colors.onSurface,
-                    fontWeight: FontWeight.w500,
-                    color: colors.onSurface,
+          child: SeamFade(
+            fontSize: theme.textTheme.labelLarge?.fontSize ?? 14,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    strings.artistMostPlayed,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      decoration: TextDecoration.underline,
+                      decorationColor: colors.onSurface,
+                      fontWeight: FontWeight.w500,
+                      color: colors.onSurface,
+                    ),
                   ),
                 ),
-              ),
-              if (listening.playCount > 0)
-                Text(
-                  strings.artistPlays(listening.playCount),
-                  style: theme.textTheme.labelMedium?.copyWith(color: colors.onSurfaceVariant),
-                ),
-            ],
+                if (listening.playCount > 0)
+                  Text(
+                    strings.artistPlays(listening.playCount),
+                    style: theme.textTheme.labelMedium?.copyWith(color: colors.onSurfaceVariant),
+                  ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: ArtistMostPlayedTokens.headerGap),
@@ -130,48 +134,59 @@ class _PlayedRow extends StatelessWidget {
             children: [
               ConstrainedBox(
                 constraints: const BoxConstraints(minWidth: ArtistMostPlayedTokens.rankMinWidth),
-                child: Text(
-                  '$rank',
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.labelLarge?.copyWith(color: colors.onSurfaceVariant, fontFeatures: tabular),
+                child: SeamFade(
+                  fontSize: theme.textTheme.labelLarge?.fontSize ?? 14,
+                  child: Text(
+                    '$rank',
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.labelLarge?.copyWith(color: colors.onSurfaceVariant, fontFeatures: tabular),
+                  ),
                 ),
               ),
               const SizedBox(width: ArtistMostPlayedTokens.rowGap),
               SizedBox.square(
                 dimension: ArtistMostPlayedTokens.thumb,
-                child: MediaArtwork(
-                  url: coverUrl,
-                  fallbackIcon: YoinSymbols.musicNote,
-                  radius: ShapeTokens.thumb,
-                  decodeWidth: 120,
+                child: SeamDissolve(
+                  child: MediaArtwork(
+                    url: coverUrl,
+                    fallbackIcon: YoinSymbols.musicNote,
+                    radius: ShapeTokens.thumb,
+                    decodeWidth: 120,
+                  ),
                 ),
               ),
               const SizedBox(width: ArtistMostPlayedTokens.rowGap),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      row.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(color: colors.onSurface),
-                    ),
-                    if (album.isNotEmpty || duration != null)
-                      MetaLine(
-                        style: theme.textTheme.bodySmall?.copyWith(fontFeatures: tabular),
-                        groups: [
-                          if (album.isNotEmpty) MetaPlain(album),
-                          if (duration != null) album.isNotEmpty ? MetaMuted(duration) : MetaPlain(duration),
-                        ],
+                child: SeamFade(
+                  fontSize: theme.textTheme.titleMedium?.fontSize ?? 16,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        row.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(color: colors.onSurface),
                       ),
-                  ],
+                      if (album.isNotEmpty || duration != null)
+                        MetaLine(
+                          style: theme.textTheme.bodySmall?.copyWith(fontFeatures: tabular),
+                          groups: [
+                            if (album.isNotEmpty) MetaPlain(album),
+                            if (duration != null) album.isNotEmpty ? MetaMuted(duration) : MetaPlain(duration),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: ArtistMostPlayedTokens.rowGap),
-              Text(
-                strings.artistPlays(row.playCount),
-                style: theme.textTheme.labelLarge?.copyWith(color: colors.onSurfaceVariant, fontFeatures: tabular),
+              SeamFade(
+                fontSize: theme.textTheme.labelLarge?.fontSize ?? 14,
+                child: Text(
+                  strings.artistPlays(row.playCount),
+                  style: theme.textTheme.labelLarge?.copyWith(color: colors.onSurfaceVariant, fontFeatures: tabular),
+                ),
               ),
             ],
           ),

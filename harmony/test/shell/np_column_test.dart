@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:yoin/settings/appearance/screen_corners.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/ui/component/corner_mask.dart';
 import 'package:yoin/nowplaying/now_playing_overlay.dart';
@@ -195,5 +196,16 @@ void main() {
         .where((c) => c.clipBehavior != Clip.none);
     expect(clips, isEmpty, reason: 'nothing inside the layer clips the player');
     expect(find.ancestor(of: npNavigator, matching: find.byType(CornerMask)), findsOneWidget);
+  });
+
+  testWidgets('should_roundPanelWithScreenCorner_when_userSetOne', (tester) async {
+    await pump(tester, const Size(1280, 800));
+    final container = ProviderScope.containerOf(tester.element(find.byType(_Shell)));
+    await container.read(screenCornersProvider.notifier).select(40, persist: false);
+    np(tester).openPlayer();
+    await tester.pumpAndSettle();
+    final npNavigator = find.descendant(of: find.byType(NowPlayingLayer), matching: find.byType(Navigator)).first;
+    final mask = tester.widget<CornerMask>(find.ancestor(of: npNavigator, matching: find.byType(CornerMask)));
+    expect(mask.radius, 40, reason: 'Settings › Appearance › Screen corners, not a fixed 28');
   });
 }

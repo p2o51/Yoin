@@ -10,6 +10,7 @@ import '../theme/tokens.dart';
 import '../ui/component/equalizer_glyph.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/seam/seam.dart';
 import '../ui/component/song_list_item.dart';
 import 'detail_palette.dart';
 import 'detail_strings.dart';
@@ -37,13 +38,17 @@ class TrackCountLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = DetailStrings.of(context);
-    return MetaLine(
-      style: Theme.of(context).textTheme.labelMedium,
-      groups: [
-        MetaStat('$count', s.unitTrack(count)),
-        if (showDuration) ...durationStatGroups(totalSec, hourUnit: s.unitHour, minuteUnit: s.unitMinute),
-        ?trailing,
-      ],
+    final style = Theme.of(context).textTheme.labelMedium;
+    return SeamFade(
+      fontSize: style?.fontSize ?? 12,
+      child: MetaLine(
+        style: style,
+        groups: [
+          MetaStat('$count', s.unitTrack(count)),
+          if (showDuration) ...durationStatGroups(totalSec, hourUnit: s.unitHour, minuteUnit: s.unitMinute),
+          ?trailing,
+        ],
+      ),
     );
   }
 }
@@ -58,9 +63,12 @@ class DiscHeading extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsetsDirectional.only(start: 8, top: first ? 0 : 16, bottom: 6),
-    child: Text(
-      DetailStrings.of(context).discHeading(disc),
-      style: Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+    child: SeamFade(
+      fontSize: Theme.of(context).textTheme.labelLarge?.fontSize ?? 14,
+      child: Text(
+        DetailStrings.of(context).discHeading(disc),
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ),
     ),
   );
 }
@@ -106,64 +114,71 @@ class AlbumTrackRow extends ConsumerWidget {
             constraints: const BoxConstraints(minHeight: 56),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-              child: Row(
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(minWidth: 18),
-                    child: Align(
-                      alignment: AlignmentDirectional.centerEnd,
-                      widthFactor: 1,
-                      child: play.current
-                          ? EqualizerGlyph(
-                              playing: play.playing,
-                              color: page.accent,
-                              semanticsLabel: strings.cdNowPlaying,
-                            )
-                          : Text(
-                              '${track.trackNumber ?? index + 1}',
-                              style: text.labelMedium?.copyWith(color: colors.onSurfaceVariant, fontFeatures: _tabular),
-                            ),
+              // Text, numbers and glyphs only: the row fades into the chrome seam.
+              child: SeamFade(
+                fontSize: text.titleMedium?.fontSize ?? 16,
+                child: Row(
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minWidth: 18),
+                      child: Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        widthFactor: 1,
+                        child: play.current
+                            ? EqualizerGlyph(
+                                playing: play.playing,
+                                color: page.accent,
+                                semanticsLabel: strings.cdNowPlaying,
+                              )
+                            : Text(
+                                '${track.trackNumber ?? index + 1}',
+                                style: text.labelMedium?.copyWith(
+                                  color: colors.onSurfaceVariant,
+                                  fontFeatures: _tabular,
+                                ),
+                              ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SpringColorBuilder(
-                          color: play.current ? page.accent : colors.onSurface,
-                          builder: (color) => Text(
-                            track.title ?? '',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.titleMedium?.copyWith(color: color),
-                          ),
-                        ),
-                        if (featArtist != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            featArtist!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  if (duration.isNotEmpty) ...[
                     const SizedBox(width: 12),
-                    Text(
-                      duration,
-                      style: text.labelLarge?.copyWith(color: colors.onSurfaceVariant, fontFeatures: _tabular),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SpringColorBuilder(
+                            color: play.current ? page.accent : colors.onSurface,
+                            builder: (color) => Text(
+                              track.title ?? '',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.titleMedium?.copyWith(color: color),
+                            ),
+                          ),
+                          if (featArtist != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              featArtist!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
+                    if (duration.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      Text(
+                        duration,
+                        style: text.labelLarge?.copyWith(color: colors.onSurfaceVariant, fontFeatures: _tabular),
+                      ),
+                    ],
+                    if (showHeart) ...[
+                      const SizedBox(width: 4),
+                      TrackHeartToggle(track: track, accent: page.accent, onAccent: page.onAccent),
+                    ],
                   ],
-                  if (showHeart) ...[
-                    const SizedBox(width: 4),
-                    TrackHeartToggle(track: track, accent: page.accent, onAccent: page.onAccent),
-                  ],
-                ],
+                ),
               ),
             ),
           ),
@@ -320,55 +335,63 @@ class PlaylistTrackRow extends ConsumerWidget {
               children: [
                 SizedBox.square(
                   dimension: 44,
-                  child: MediaArtwork(
-                    url: coverUrl,
-                    fallbackIcon: YoinSymbols.musicNote,
-                    radius: ShapeTokens.thumb,
-                    decodeWidth: (44 * dpr).round(),
+                  child: SeamDissolve(
+                    child: MediaArtwork(
+                      url: coverUrl,
+                      fallbackIcon: YoinSymbols.musicNote,
+                      radius: ShapeTokens.thumb,
+                      decodeWidth: (44 * dpr).round(),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          HorizontalSpringReveal(
-                            visible: play.current,
-                            child: Padding(
-                              padding: const EdgeInsetsDirectional.only(end: 6),
-                              child: EqualizerGlyph(playing: play.playing, color: page.accent),
-                            ),
-                          ),
-                          Expanded(
-                            child: SpringColorBuilder(
-                              color: play.current ? page.accent : colors.onSurface,
-                              builder: (color) => Text(
-                                track.title ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: text.titleMedium?.copyWith(color: color),
+                  child: SeamFade(
+                    fontSize: text.titleMedium?.fontSize ?? 16,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            HorizontalSpringReveal(
+                              visible: play.current,
+                              child: Padding(
+                                padding: const EdgeInsetsDirectional.only(end: 6),
+                                child: EqualizerGlyph(playing: play.playing, color: page.accent),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      MetaLine(
-                        groups: [
-                          if (track.artist?.isNotEmpty ?? false) MetaPlain(track.artist!),
-                          if (track.album?.isNotEmpty ?? false) MetaMuted(track.album!),
-                        ],
-                      ),
-                    ],
+                            Expanded(
+                              child: SpringColorBuilder(
+                                color: play.current ? page.accent : colors.onSurface,
+                                builder: (color) => Text(
+                                  track.title ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.titleMedium?.copyWith(color: color),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        MetaLine(
+                          groups: [
+                            if (track.artist?.isNotEmpty ?? false) MetaPlain(track.artist!),
+                            if (track.album?.isNotEmpty ?? false) MetaMuted(track.album!),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 if (duration.isNotEmpty) ...[
                   const SizedBox(width: 12),
-                  Text(
-                    duration,
-                    style: text.labelLarge?.copyWith(color: colors.onSurfaceVariant, fontFeatures: _tabular),
+                  SeamFade(
+                    fontSize: text.labelLarge?.fontSize ?? 14,
+                    child: Text(
+                      duration,
+                      style: text.labelLarge?.copyWith(color: colors.onSurfaceVariant, fontFeatures: _tabular),
+                    ),
                   ),
                 ],
               ],

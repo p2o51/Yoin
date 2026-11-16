@@ -20,6 +20,7 @@ import 'storage/app_files.dart';
 import 'storage/channel_stores.dart';
 import 'storage/stores.dart';
 import 'sync/cloud_sync_host.dart';
+import 'window/display_corners.dart';
 import 'window/window_caption.dart';
 import 'window/window_controls.dart';
 import 'windows/windows_platform.dart';
@@ -46,6 +47,7 @@ final class YoinPlatform {
     required this.appFiles,
     required this.cloudSyncHost,
     required this.urlOpener,
+    required this.displayCorners,
   });
 
   final YoinHost host;
@@ -98,6 +100,8 @@ final class YoinPlatform {
   /// A web page in the system browser, through [cloudSyncHost]'s browser
   /// hand-off (the one seam both use).
   final UrlOpener urlOpener;
+  /// The panel's corner radius, for "Match screen" (OHOS `display.getRoundedCorner`).
+  final DisplayCorners displayCorners;
 
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
@@ -117,6 +121,7 @@ final class YoinPlatform {
     appFiles: const ChannelAppFilesHost(),
     cloudSyncHost: const ChannelCloudSyncHost(),
     urlOpener: const BrowserUrlOpener(ChannelCloudSyncHost()),
+    displayCorners: const ChannelDisplayCorners(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -139,6 +144,7 @@ final class YoinPlatform {
     appFiles: DirectoryAppFilesHost(folder),
     cloudSyncHost: DesktopCloudSyncHost(folder),
     urlOpener: BrowserUrlOpener(DesktopCloudSyncHost(folder)),
+    displayCorners: const NoDisplayCorners(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

@@ -12,6 +12,7 @@ import '../theme/system_bars.dart';
 import '../theme/tokens.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/seam/seam.dart';
 import 'album_scrapbook_page.dart' show AlbumPageDots, AlbumPageDotsTokens;
 import 'album_spectrum_layer.dart';
 import 'detail_page.dart';
@@ -414,10 +415,18 @@ class _Body extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final list = ListView(
-      physics: physics,
-      padding: EdgeInsets.fromLTRB(16, 4, 16, 112 + bottomInset),
-      children: content.listChildren,
+    final colors = Theme.of(context).colorScheme;
+    // The seam is the list's top edge (the docked band's lower edge): rows go
+    // under it in the user's Scroll edge style instead of being cut.
+    final list = DetailColorsBuilder(
+      builder: (context, page) => ChromeSeam(
+        background: SeamBackground([page.wash, colors.surface, colors.surfaceContainerLow]),
+        child: ListView(
+          physics: physics,
+          padding: EdgeInsets.fromLTRB(16, 4, 16, 112 + bottomInset),
+          children: content.listChildren,
+        ),
+      ),
     );
     return Stack(
       fit: StackFit.expand,

@@ -12,8 +12,8 @@ import '../home_metrics.dart';
 /// the scroll followers ([SeamFlow]), the tide painter and the per-text fade.
 /// Everything here repaints from listenables; nothing rebuilds per frame.
 ///
-/// TODO(harmony): Library and the detail pages need the same chrome seam;
-/// move this to lib/ui once a second screen uses it.
+/// The chrome seam under fixed bars (Library, the detail pages, Settings) is
+/// lib/ui/component/seam/chrome_seam.dart, built on these followers.
 
 /// Band growth with scroll: 0 at rest, 1 after [HomeSeamMetrics.revealDistance].
 double seamReveal(double scrolledPx) => (scrolledPx / HomeSeamMetrics.revealDistance).clamp(0.0, 1.0);
@@ -76,6 +76,22 @@ class SeamFlow extends ChangeNotifier {
 
   double get stretch => reduced ? 0 : seamStretch(speedDp);
   double get reveal => seamReveal(scrolledPx);
+
+  /// A new scroll position took over (another view, a restored offset): its
+  /// pixels become the reference without counting as travel or speed.
+  void jumpTo(double pixels) {
+    _offset = pixels;
+    scrolledPx = math.max(0, pixels);
+    notifyListeners();
+  }
+
+  /// A preview drives the followers itself (ScrollEdgePreview): [travel] more
+  /// px of phase and the speed behind stretch and disorder.
+  void drive({required double travel, required double speed}) {
+    travelPx += travel;
+    speedDp = speed;
+    notifyListeners();
+  }
 
   /// Feed with the scroll position's pixels.
   void onScroll(double pixels) {
@@ -167,15 +183,19 @@ class TidePainter extends CustomPainter {
 
 /// Provides the seam to [SeamFade]s below: the followers and the line's y (global).
 class SeamScope extends InheritedWidget {
-  const SeamScope({super.key, required this.flow, required this.lineY, required super.child});
+  const SeamScope({super.key, required this.flow, required this.lineY, this.line, required super.child});
 
   final SeamFlow flow;
   final double lineY;
 
+  /// The line's y read at paint time, when it moves without the flow (a
+  /// chrome seam inside a moving layer); [lineY] otherwise.
+  final double Function()? line;
+
   static SeamScope? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<SeamScope>();
 
   @override
-  bool updateShouldNotify(SeamScope old) => old.flow != flow || old.lineY != lineY;
+  bool updateShouldNotify(SeamScope old) => old.flow != flow || old.lineY != lineY || old.line != line;
 }
 
 /// seamFade: text that rises into the seam line fades out over a band below
@@ -189,7 +209,7 @@ class SeamFade extends SingleChildRenderObjectWidget {
   @override
   RenderSeamFade createRenderObject(BuildContext context) {
     final scope = SeamScope.maybeOf(context);
-    return RenderSeamFade(flow: scope?.flow, lineY: scope?.lineY ?? 0, fontSize: fontSize);
+    return RenderSeamFade(flow: scope?.flow, lineY: scope?.lineY ?? 0, line: scope?.line, fontSize: fontSize);
   }
 
   @override
@@ -198,20 +218,31 @@ class SeamFade extends SingleChildRenderObjectWidget {
     renderObject
       ..flow = scope?.flow
       ..lineY = scope?.lineY ?? 0
+      ..line = scope?.line
       ..fontSize = fontSize;
   }
 }
 
 class RenderSeamFade extends RenderProxyBox {
-  RenderSeamFade({SeamFlow? flow, required double lineY, required double fontSize})
+  RenderSeamFade({SeamFlow? flow, required double lineY, double Function()? line, required double fontSize})
       : _flow = flow,
         _lineY = lineY,
+        _line = line,
         _fontSize = fontSize;
 
   SeamFlow? _flow;
   double _lineY;
+  double Function()? _line;
   double _fontSize;
   bool _masking = false;
+
+  set line(double Function()? value) {
+    if (identical(value, _line)) return;
+    _line = value;
+    _onFlow();
+  }
+
+  double get _seamLine => _line?.call() ?? _lineY;
 
   set flow(SeamFlow? value) {
     if (identical(value, _flow)) return;
@@ -257,7 +288,7 @@ class RenderSeamFade extends RenderProxyBox {
     final band = _band;
     if (band <= 0) return false;
     final top = localToGlobal(Offset.zero).dy;
-    return top < _lineY + band;
+    return top < _seamLine + band;
   }
 
   void _onFlow() {
@@ -284,7 +315,7 @@ class RenderSeamFade extends RenderProxyBox {
     }
     final top = localToGlobal(Offset.zero).dy;
     final band = _band;
-    final lineLocal = _lineY - top;
+    final lineLocal = _seamLine - top;
     if (band <= 0 || lineLocal + band <= 0) {
       layer = null;
       super.paint(context, offset);

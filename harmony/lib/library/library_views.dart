@@ -11,6 +11,7 @@ import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/empty_state_panel.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/seam/seam.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import '../ui/component/yoin_fast_scroller.dart';
 import '../ui/component/yoin_loading_indicator.dart';
@@ -108,16 +109,20 @@ class LibrarySortRow extends ConsumerWidget {
                 constraints: const BoxConstraints(minHeight: 48),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: LibraryTokens.sortRowPressBleed, vertical: 10),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        librarySortLabel(strings, sort),
-                        style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurface),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(YoinSymbols.sort, size: 18, color: theme.colorScheme.onSurfaceVariant),
-                    ],
+                  // The label and its glyph fade into the chrome seam like text.
+                  child: SeamFade(
+                    fontSize: theme.textTheme.labelLarge?.fontSize ?? 14,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          librarySortLabel(strings, sort),
+                          style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurface),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(YoinSymbols.sort, size: 18, color: theme.colorScheme.onSurfaceVariant),
+                      ],
+                    ),
                   ),
                 ),
               ),

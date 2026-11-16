@@ -31,6 +31,10 @@ import 'apple_music_setup_screen.dart';
 import 'backup/playlist_backup_screen.dart';
 import 'backup/playlist_backup_strings.dart';
 import 'backup/playlist_backups_screen.dart';
+import 'appearance/appearance_group.dart';
+import 'appearance/appearance_strings.dart';
+import 'appearance/screen_corners_screen.dart';
+import 'appearance/scroll_edge_screen.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'licenses.dart';
@@ -169,6 +173,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         navigator.push(YoinPushRoute<void>(builder: (_) => const DownloadsScreen()));
       case VolumeLevelingPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const VolumeLevelingScreen()));
+      case ScrollEdgePane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const ScrollEdgeScreen()));
+      case ScreenCornersPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const ScreenCornersScreen()));
     }
   }
 
@@ -215,6 +223,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _AccountsSection(state: state, onOpen: _open),
                   const SizedBox(height: SettingsMetrics.sectionGap),
                   _FeaturesGroup(open: pane, listDetail: wide, onOpen: _open),
+                  const SizedBox(height: SettingsMetrics.sectionGap),
+                  // Scroll edge and Screen corners, between Features and Sync and storage as on Android.
+                  AppearanceGroup(open: pane, listDetail: wide, onOpen: _open),
                   const SizedBox(height: SettingsMetrics.sectionGap),
                   // Where your data goes (Android owner 2026-11-09, plan A), after Features as on Android.
                   _SyncStorageGroup(open: pane, listDetail: wide, onOpen: _open),
@@ -305,6 +316,8 @@ class _ListDetail extends StatelessWidget {
       StreamQualityPane(:final profileId) => StreamQualityScreen(key: ValueKey(('quality', profileId)), profileId: profileId, inPane: true),
       DownloadsPane(:final profileId) => DownloadsScreen(key: ValueKey(('downloads', profileId)), inPane: true),
       VolumeLevelingPane(:final profileId) => VolumeLevelingScreen(key: ValueKey(('leveling', profileId)), inPane: true),
+      ScrollEdgePane() => const ScrollEdgeScreen(inPane: true),
+      ScreenCornersPane() => const ScreenCornersScreen(inPane: true),
     };
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -483,12 +496,11 @@ class _HelpAboutGroup extends ConsumerWidget {
           trailing: chevron,
           onTap: () => onOpen(const TipsPane()),
         ),
-        // Runs the first-run landing again, accounts kept (after Tips, as on
-        // Android). Android's summary names the scroll-edge step, which
-        // HarmonyOS doesn't have: no summary until the owner's copy has one.
+        // Runs the first-run landing again, accounts kept (after Tips, as on Android).
         SettingsItem(
           icon: YoinSymbols.refresh,
           title: LandingStrings.of(context).welcomeGuide,
+          summary: AppearanceStrings.of(context).welcomeGuideSummary,
           onTap: () => openWelcomeGuide(context, ref),
         ),
         ExternalPageItem(

@@ -11,6 +11,7 @@ import '../shell/desktop_shortcuts.dart';
 import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/tokens.dart';
+import '../ui/component/seam/chrome_seam.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/component/yoin_pull_to_refresh.dart';
@@ -203,6 +204,7 @@ class _Content extends ConsumerWidget {
     final strings = LibraryStrings.of(context);
     final tab = state.selected;
     final canAddPlaylists = playlistAbilities(ref.watch(activeSourceProvider).value).canAdd;
+    final colors = Theme.of(context).colorScheme;
     return Column(
       children: [
         LibraryFilterRow(
@@ -214,50 +216,55 @@ class _Content extends ConsumerWidget {
         ),
         const SizedBox(height: 4),
         Expanded(
-          child: YoinPullToRefresh(
-            refreshing: state.isRefreshing,
-            onRefresh: vm.refresh,
-            child: SpringCrossFade(
-              childKey: tab,
-              child: switch (tab) {
-                LibraryTab.all => LibraryGridView(
-                  tab: tab,
-                  view: state.sorted.all,
-                  sort: state.sortOf(tab),
-                  controller: scrolls[tab]!,
-                  emptyText: strings.emptyAll,
-                  loading: !state.allSettled,
-                ),
-                LibraryTab.artists || LibraryTab.albums => LibraryGridView(
-                  tab: tab,
-                  view: state.sorted.of(tab),
-                  sort: state.sortOf(tab),
-                  controller: scrolls[tab]!,
-                  emptyText: tab == LibraryTab.artists ? strings.emptyArtists : strings.emptyAlbums,
-                ),
-                LibraryTab.playlists => Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    LibraryPlaylistsView(
-                      view: state.shownPlaylists,
-                      sort: state.sortOf(tab),
-                      controller: scrolls[tab]!,
-                    ),
-                    if (canAddPlaylists && state.shownPlaylists != null)
-                      PositionedDirectional(
-                        end: PlaylistFabTokens.endMargin,
-                        bottom: libraryBottomPadding(context),
-                        child: NewPlaylistFab(controller: scrolls[tab]!),
+          // Items dissolve (artwork) and fade (text) into the chips above
+          // instead of being cut at the views' top edge, in the user's style.
+          child: ChromeSeam(
+            background: SeamBackground([colors.surfaceContainer, colors.surface, colors.surfaceContainerLow]),
+            child: YoinPullToRefresh(
+              refreshing: state.isRefreshing,
+              onRefresh: vm.refresh,
+              child: SpringCrossFade(
+                childKey: tab,
+                child: switch (tab) {
+                  LibraryTab.all => LibraryGridView(
+                    tab: tab,
+                    view: state.sorted.all,
+                    sort: state.sortOf(tab),
+                    controller: scrolls[tab]!,
+                    emptyText: strings.emptyAll,
+                    loading: !state.allSettled,
+                  ),
+                  LibraryTab.artists || LibraryTab.albums => LibraryGridView(
+                    tab: tab,
+                    view: state.sorted.of(tab),
+                    sort: state.sortOf(tab),
+                    controller: scrolls[tab]!,
+                    emptyText: tab == LibraryTab.artists ? strings.emptyArtists : strings.emptyAlbums,
+                  ),
+                  LibraryTab.playlists => Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      LibraryPlaylistsView(
+                        view: state.shownPlaylists,
+                        sort: state.sortOf(tab),
+                        controller: scrolls[tab]!,
                       ),
-                  ],
-                ),
-                LibraryTab.songs => LibrarySongsView(
-                  songs: state.songs,
-                  more: state.songsMore,
-                  controller: scrolls[tab]!,
-                ),
-                LibraryTab.favorites => LibraryFavoritesView(favorites: state.favorites, controller: scrolls[tab]!),
-              },
+                      if (canAddPlaylists && state.shownPlaylists != null)
+                        PositionedDirectional(
+                          end: PlaylistFabTokens.endMargin,
+                          bottom: libraryBottomPadding(context),
+                          child: NewPlaylistFab(controller: scrolls[tab]!),
+                        ),
+                    ],
+                  ),
+                  LibraryTab.songs => LibrarySongsView(
+                    songs: state.songs,
+                    more: state.songsMore,
+                    controller: scrolls[tab]!,
+                  ),
+                  LibraryTab.favorites => LibraryFavoritesView(favorites: state.favorites, controller: scrolls[tab]!),
+                },
+              ),
             ),
           ),
         ),

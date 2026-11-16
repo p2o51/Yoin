@@ -52,10 +52,9 @@ abstract final class NowPlayingPanelTokens {
   /// A short window at least this wide gets the landscape player.
   static const double landscapeMinWidth = 560;
 
-  /// The panel's shadow (PanelShadowElevation) and its start corners
-  /// (the screen's corner; HarmonyOS gives Flutter no value: 28).
+  /// The panel's shadow (PanelShadowElevation). Its start corners take the
+  /// screen's corner (screenCornerRadiusProvider), as on Android.
   static const double shadowElevation = 16;
-  static const double corner = 28;
 
   /// Drag-to-dismiss toward the end: the phone's distance / velocity.
   static const double dismissDistance = 90;

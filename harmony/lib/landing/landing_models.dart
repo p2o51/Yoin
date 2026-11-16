@@ -22,9 +22,8 @@ enum LandingService {
   final String provider;
 }
 
-/// The landing's steps. Android's Spotoolfy and Spotify steps (no Spotify on
-/// HarmonyOS), its scroll-edge step (HarmonyOS has one scroll edge, no
-/// choice) and its screen-corner step (Android only) are not here.
+/// The landing's steps. Android's Spotoolfy and Spotify steps are not here
+/// (no Spotify on HarmonyOS).
 enum LandingStep {
   hello,
   pick,
@@ -32,6 +31,12 @@ enum LandingStep {
   subsonic,
   appleMusic,
   home,
+
+  /// The scroll edge's style (LandingEdgeStep.kt): the three, side by side.
+  edge,
+
+  /// The screen's corner radius (ScreenCorners), right after the edge.
+  corners,
   ready;
 
   /// The service a connect step adds, else null.
@@ -59,6 +64,8 @@ List<LandingStep> landingSteps(Set<LandingService> picked, {required bool hasAcc
   for (final service in LandingService.values)
     if (picked.contains(service)) LandingStep.connectStep(service),
   if (hasAccount) LandingStep.home,
+  LandingStep.edge,
+  LandingStep.corners,
   LandingStep.ready,
 ];
 
@@ -190,7 +197,7 @@ LandingPrimaryAction landingPrimaryAction(LandingUiState state) {
 }
 
 /// Which of the mascot's lines a step shows (LandingScreen.kt bubbleLines).
-enum LandingLine { hello, pick, about, subsonic, appleMusic, home, ready, readyNone }
+enum LandingLine { hello, pick, about, subsonic, appleMusic, home, edge, corners, ready, readyNone }
 
 LandingLine landingLineFor(LandingStep step, {required bool noAccounts}) => switch (step) {
   LandingStep.hello => LandingLine.hello,
@@ -199,5 +206,7 @@ LandingLine landingLineFor(LandingStep step, {required bool noAccounts}) => swit
   LandingStep.subsonic => LandingLine.subsonic,
   LandingStep.appleMusic => LandingLine.appleMusic,
   LandingStep.home => LandingLine.home,
+  LandingStep.edge => LandingLine.edge,
+  LandingStep.corners => LandingLine.corners,
   LandingStep.ready => noAccounts ? LandingLine.readyNone : LandingLine.ready,
 };

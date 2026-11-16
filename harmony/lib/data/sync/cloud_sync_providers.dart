@@ -20,6 +20,7 @@ import '../../platform/storage/observed_store.dart';
 import '../../platform/storage/stores.dart';
 import '../../platform/sync/cloud_sync_host.dart';
 import '../../settings/licenses.dart' show yoinVersionCode, yoinVersionName;
+import '../../ui/component/seam/seam_style.dart' show seamTopStyleProvider;
 import '../about/song_about_store.dart';
 import '../memory/memory_store.dart';
 import '../model/media_id.dart';
@@ -134,8 +135,11 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
       // Notes, album rows and titles refresh through MemoryStore.changes and
       // ratings through their notifier; the Home layout is read again.
       if (kinds.contains(SyncKinds.homeLayout)) ref.invalidate(homeLayoutProvider);
-      // The translation language (and the scroll edge style's own reader, once it exists) read again.
-      if (kinds.contains(SyncKinds.setting)) ref.invalidate(aiSettingsProvider);
+      // The translation language and the scroll edge style are read again.
+      if (kinds.contains(SyncKinds.setting)) {
+        ref.invalidate(aiSettingsProvider);
+        ref.invalidate(seamTopStyleProvider);
+      }
     },
     localChanges: _localChanges(store is ObservedKeyValueStore ? store.writes.where(isSyncedKey) : null, [
       backups.changes,

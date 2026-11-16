@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../home/home_section.dart';
 import '../settings/settings_view_model.dart';
+import '../ui/component/seam/seam_style.dart';
 import 'landing_models.dart';
 import 'landing_store.dart';
 
@@ -158,6 +159,9 @@ class LandingViewModel extends Notifier<LandingUiState> {
     if (state.connected.contains(service)) return;
     state = state.copyWith(connected: {...state.connected, service});
   }
+
+  /// The edge step's pick: applied and stored at once, like Settings › Scroll edge.
+  void setEdge(SeamTopStyle style) => ref.read(seamTopStyleProvider.notifier).select(style);
 
   void setSectionEnabled(HomeSection section, bool enabled) {
     _layoutEdited = true;

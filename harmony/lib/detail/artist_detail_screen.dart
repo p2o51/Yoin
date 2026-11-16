@@ -14,6 +14,7 @@ import '../theme/tokens.dart';
 import '../ui/component/expressive_segment_chip.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/seam/seam.dart';
 import '../ui/component/spring_cross_fade.dart';
 import 'artist_detail_view_model.dart';
 import 'artist_most_played.dart';
@@ -184,6 +185,7 @@ class _ArtistBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final colors = Theme.of(context).colorScheme;
     final listening = ref.watch(artistListeningProvider(artistId));
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -191,34 +193,41 @@ class _ArtistBody extends ConsumerWidget {
           constraints.maxWidth * DetailTokens.artistPortraitWidthFraction,
           DetailTokens.artistPortraitMax,
         );
-        return SingleChildScrollView(
-          controller: scroll,
-          padding: EdgeInsets.only(bottom: DetailTokens.artistBottomPadding + bottomInset),
-          child: Column(
-            children: [
-              SizedBox(
-                height: portrait + DetailTokens.artistBandExtra,
-                child: Center(
-                  child: _RingPortrait(portrait: portrait, url: heroUrl, scroll: scroll),
-                ),
-              ),
-              const SizedBox(height: 32),
-              // The personal layer: arrives after the page paints, grows in instead of popping.
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _VerticalSpringReveal(
-                  visible: listening.mostPlayed.isNotEmpty,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: ArtistMostPlayedTokens.bottomGap),
-                    child: ArtistMostPlayed(artist: content.artist, listening: listening),
+        // Scrolls under the fixed header through the chrome seam (the user's Scroll edge style).
+        return DetailColorsBuilder(
+          builder: (context, page) => ChromeSeam(
+            controller: scroll,
+            background: SeamBackground([page.wash, colors.surface, colors.surfaceContainerLow]),
+            child: SingleChildScrollView(
+              controller: scroll,
+              padding: EdgeInsets.only(bottom: DetailTokens.artistBottomPadding + bottomInset),
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: portrait + DetailTokens.artistBandExtra,
+                    child: Center(
+                      child: _RingPortrait(portrait: portrait, url: heroUrl, scroll: scroll),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 32),
+                  // The personal layer: arrives after the page paints, grows in instead of popping.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _VerticalSpringReveal(
+                      visible: listening.mostPlayed.isNotEmpty,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: ArtistMostPlayedTokens.bottomGap),
+                        child: ArtistMostPlayed(artist: content.artist, listening: listening),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _Discography(content: content, artistId: artistId),
+                  ),
+                ],
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _Discography(content: content, artistId: artistId),
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -379,23 +388,26 @@ class _Discography extends ConsumerWidget {
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                strings.artistDiscography,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  decoration: TextDecoration.underline,
-                  decorationColor: colors.onSurface,
+          child: SeamFade(
+            fontSize: theme.textTheme.titleMedium?.fontSize ?? 16,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  strings.artistDiscography,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    decoration: TextDecoration.underline,
+                    decorationColor: colors.onSurface,
+                  ),
                 ),
-              ),
-              const Spacer(),
-              Text(
-                strings.artistReleases(content.releases.length),
-                style: theme.textTheme.labelMedium?.copyWith(color: colors.onSurfaceVariant),
-              ),
-            ],
+                const Spacer(),
+                Text(
+                  strings.artistReleases(content.releases.length),
+                  style: theme.textTheme.labelMedium?.copyWith(color: colors.onSurfaceVariant),
+                ),
+              ],
+            ),
           ),
         ),
         if (kinds.length >= 2) ...[
@@ -543,11 +555,14 @@ class _ReleaseRow extends ConsumerWidget {
                 child: Padding(
                   padding: const EdgeInsetsDirectional.only(start: 8),
                   child: showYear
-                      ? Text(
-                          album.year?.toString() ?? '–',
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: colors.onSurfaceVariant,
-                            fontFeatures: const [FontFeature.tabularFigures()],
+                      ? SeamFade(
+                          fontSize: theme.textTheme.labelLarge?.fontSize ?? 14,
+                          child: Text(
+                            album.year?.toString() ?? '–',
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: colors.onSurfaceVariant,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ),
                           ),
                         )
                       : null,
@@ -555,31 +570,36 @@ class _ReleaseRow extends ConsumerWidget {
               ),
               SizedBox.square(
                 dimension: 56,
-                child: MediaArtwork(
-                  url: url,
-                  fallbackIcon: YoinSymbols.album,
-                  radius: ShapeTokens.cover,
-                  decodeWidth: 168,
+                child: SeamDissolve(
+                  child: MediaArtwork(
+                    url: url,
+                    fallbackIcon: YoinSymbols.album,
+                    radius: ShapeTokens.cover,
+                    decodeWidth: 168,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    VersionTitleRow.orTitle(
-                      name: albumTitleWithoutVersion(album.name, album.version),
-                      nameStyle: theme.textTheme.titleMedium!,
-                      version: album.version,
-                    ),
-                    MetaLine(
-                      groups: [
-                        if (isLatest) MetaKind(strings.artistLatest),
-                        MetaKind(kind, color: colors.onSurfaceVariant),
-                        if (songs != null) MetaStat('$songs', strings.unitSong(songs)),
-                      ],
-                    ),
-                  ],
+                child: SeamFade(
+                  fontSize: theme.textTheme.titleMedium?.fontSize ?? 16,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      VersionTitleRow.orTitle(
+                        name: albumTitleWithoutVersion(album.name, album.version),
+                        nameStyle: theme.textTheme.titleMedium!,
+                        version: album.version,
+                      ),
+                      MetaLine(
+                        groups: [
+                          if (isLatest) MetaKind(strings.artistLatest),
+                          MetaKind(kind, color: colors.onSurfaceVariant),
+                          if (songs != null) MetaStat('$songs', strings.unitSong(songs)),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],

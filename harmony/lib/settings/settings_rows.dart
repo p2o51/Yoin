@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../home/widgets/seam.dart' show SeamFade;
 import '../theme/motion.dart';
+import '../ui/component/seam/seam_dissolve.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'settings_metrics.dart';
@@ -116,13 +117,27 @@ class _SegmentState extends State<_Segment> with TickerProviderStateMixin {
           borderRadius: BorderRadius.all(Radius.circular(SettingsMetrics.segmentOuterRadius)),
         );
         final shape = ShapeBorder.lerp(rest, open, _corners.value.clamp(0.0, 1.0))!;
+        // Under the bar the segment breaks up in the Scroll edge style (its
+        // surface and icon, one print); its text fades (SeamFade).
         return Semantics(
           selected: widget.selected ? true : null,
-          child: Material(
-            color: Color.lerp(settingsRowColor(colors), settingsRowSelectedColor(colors), c),
-            shape: shape,
-            clipBehavior: Clip.antiAlias,
-            child: child,
+          child: SeamPrint(
+            child: Stack(
+              fit: StackFit.passthrough,
+              children: [
+                Positioned.fill(
+                  child: SeamDissolve(
+                    child: DecoratedBox(
+                      decoration: ShapeDecoration(
+                        color: Color.lerp(settingsRowColor(colors), settingsRowSelectedColor(colors), c),
+                        shape: shape,
+                      ),
+                    ),
+                  ),
+                ),
+                Material(type: MaterialType.transparency, shape: shape, clipBehavior: Clip.antiAlias, child: child),
+              ],
+            ),
           ),
         );
       },
@@ -140,7 +155,10 @@ class SettingsRowIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox.square(
         dimension: SettingsMetrics.rowIconBox,
-        child: Icon(icon, size: SettingsMetrics.rowIcon, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        // Part of its segment's print: it breaks up with the surface.
+        child: SeamDissolve(
+          child: Icon(icon, size: SettingsMetrics.rowIcon, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
       );
 }
 

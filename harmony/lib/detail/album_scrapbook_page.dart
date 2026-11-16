@@ -22,6 +22,7 @@ import '../settings/material_shapes.dart' show PolygonBorder, avatarShapes;
 import '../theme/tokens.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/seam/seam.dart';
 import 'album_scrapbook.dart';
 import 'album_scrapbook_editor.dart';
 import 'album_scrapbook_sheet_model.dart';
@@ -404,50 +405,61 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
             return _ScrapScope(
               motion: motion,
               colors: c,
-              child: NotificationListener<ScrollStartNotification>(
-                // A drag takes the page back from a focus scroll.
-                onNotification: (n) {
-                  if (n.dragDetails != null) _scrollSpring.stop();
-                  return false;
-                },
-                child: SingleChildScrollView(
-                  controller: _scroll,
-                  child: CustomPaint(
-                    painter: _DottedPaper(c.dots),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                      child: Padding(
-                        padding: EdgeInsets.only(
-                          top: ScrapbookLayout.topInset,
-                          bottom: ScrapbookLayout.bottomInset + bottomInset,
-                        ),
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: SizedBox(
-                            width: contentWidth,
-                            child: _ScrapMasonry(
-                              lanes: lanes,
-                              rowGap: wide ? ScrapbookLayout.rowGapWide : ScrapbookLayout.rowGap,
-                              children: [
-                                for (final piece in pieces)
-                                  _ScrapSpan(
-                                    key: ValueKey(piece.key),
-                                    fullLine: piece.fullLine,
-                                    child: KeyedSubtree(
-                                      key: _pieceKeys.putIfAbsent(piece.key, GlobalKey.new),
-                                      child: AnimatedBuilder(
-                                        animation: _pulse,
-                                        builder: (context, child) => Transform.scale(
-                                          scale: _pulsedKey == piece.key
-                                              ? 1 + ScrapbookLayout.focusSwell * _pulse.value
-                                              : 1,
-                                          child: child,
+              // Scrolls under the fixed header through the chrome seam (the user's
+              // Scroll edge style), as the track list does; the paper goes under with the pieces.
+              child: DetailColorsBuilder(
+                builder: (context, page) => ChromeSeam(
+                  background: SeamBackground([
+                    page.wash,
+                    Theme.of(context).colorScheme.surface,
+                    Theme.of(context).colorScheme.surfaceContainerLow,
+                  ]),
+                  child: NotificationListener<ScrollStartNotification>(
+                    // A drag takes the page back from a focus scroll.
+                    onNotification: (n) {
+                      if (n.dragDetails != null) _scrollSpring.stop();
+                      return false;
+                    },
+                    child: SingleChildScrollView(
+                      controller: _scroll,
+                      child: CustomPaint(
+                        painter: _DottedPaper(c.dots),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              top: ScrapbookLayout.topInset,
+                              bottom: ScrapbookLayout.bottomInset + bottomInset,
+                            ),
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              child: SizedBox(
+                                width: contentWidth,
+                                child: _ScrapMasonry(
+                                  lanes: lanes,
+                                  rowGap: wide ? ScrapbookLayout.rowGapWide : ScrapbookLayout.rowGap,
+                                  children: [
+                                    for (final piece in pieces)
+                                      _ScrapSpan(
+                                        key: ValueKey(piece.key),
+                                        fullLine: piece.fullLine,
+                                        child: KeyedSubtree(
+                                          key: _pieceKeys.putIfAbsent(piece.key, GlobalKey.new),
+                                          child: AnimatedBuilder(
+                                            animation: _pulse,
+                                            builder: (context, child) => Transform.scale(
+                                              scale: _pulsedKey == piece.key
+                                                  ? 1 + ScrapbookLayout.focusSwell * _pulse.value
+                                                  : 1,
+                                              child: child,
+                                            ),
+                                            child: _piece(piece, wide),
+                                          ),
                                         ),
-                                        child: _piece(piece, wide),
                                       ),
-                                    ),
-                                  ),
-                              ],
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -463,14 +475,21 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     );
   }
 
+  /// Each piece fades into the seam like text (AlbumScrapbookPage.kt seamFade);
+  /// the opening's cover breaks up as a graphic (seamDissolve, in _Opening).
   Widget _piece(ScrapPiece piece, bool wide) => switch (piece) {
     ScrapOpening() => _Opening(piece: piece, album: widget.album, coverUrl: widget.coverUrl, wide: wide),
-    ScrapTrackCluster() => _TrackCluster(piece: piece, album: widget.album, wide: wide),
-    ScrapContactSheet() => _ContactSheet(piece: piece, album: widget.album),
-    ScrapNotYet() => const _NotYet(),
-    ScrapReceipt() => _Receipt(piece: piece),
+    ScrapTrackCluster() => _scrapFade(_TrackCluster(piece: piece, album: widget.album, wide: wide)),
+    ScrapContactSheet() => _scrapFade(_ContactSheet(piece: piece, album: widget.album)),
+    ScrapNotYet() => _scrapFade(const _NotYet()),
+    ScrapReceipt() => _scrapFade(_Receipt(piece: piece)),
   };
 }
+
+/// A scrap that fades into the chrome seam over a body-text band.
+Widget _scrapFade(Widget child) => Builder(
+  builder: (context) => SeamFade(fontSize: Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14, child: child),
+);
 
 /// The pager drag as the pieces read it, and the page's colours.
 final class _ScrapMotion {
@@ -569,14 +588,16 @@ class _Opening extends ConsumerWidget {
           palette: palette,
           focusReview: focusReview,
         );
-        Widget reviewPiece() => review == null
-            ? _BlankReview(tilt: piece.reviewTilt, onTap: () => openSheet(focusReview: true))
-            : _ReviewClipping(
-                text: review,
-                writtenAt: piece.reviewAt,
-                tilt: piece.reviewTilt,
-                onTap: () => openSheet(focusReview: true),
-              );
+        Widget reviewPiece() => _scrapFade(
+          review == null
+              ? _BlankReview(tilt: piece.reviewTilt, onTap: () => openSheet(focusReview: true))
+              : _ReviewClipping(
+                  text: review,
+                  writtenAt: piece.reviewAt,
+                  tilt: piece.reviewTilt,
+                  onTap: () => openSheet(focusReview: true),
+                ),
+        );
         final besideGap = emblem * DetailTokens.scrapbookBadgeOverhangX + 8;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -601,9 +622,12 @@ class _Opening extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(title, style: Theme.of(context).textTheme.headlineSmall),
+                          SeamFade(
+                            fontSize: Theme.of(context).textTheme.headlineSmall?.fontSize ?? 24,
+                            child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
+                          ),
                           const SizedBox(height: 16),
-                          _ScrapLastPlay(albumId: album.id),
+                          _scrapFade(_ScrapLastPlay(albumId: album.id)),
                           if (reviewBeside) ...[
                             const SizedBox(height: 16),
                             ConstrainedBox(
@@ -627,7 +651,7 @@ class _Opening extends ConsumerWidget {
                           children: [
                             reviewPiece(),
                             const SizedBox(height: 16),
-                            _ScrapLastPlay(albumId: album.id),
+                            _scrapFade(_ScrapLastPlay(albumId: album.id)),
                           ],
                         ),
                       ),
@@ -719,11 +743,14 @@ class _CoverWithEmblem extends StatelessWidget {
               child: Semantics(
                 image: true,
                 label: album.name,
-                child: MediaArtwork(
-                  url: coverUrl,
-                  fallbackIcon: YoinSymbols.album,
-                  radius: ShapeTokens.hero,
-                  decodeWidth: math.min(640, (side * dpr).round()),
+                // The cover and the emblem break up at the chrome seam, each its own print.
+                child: SeamDissolve(
+                  child: MediaArtwork(
+                    url: coverUrl,
+                    fallbackIcon: YoinSymbols.album,
+                    radius: ShapeTokens.hero,
+                    decodeWidth: math.min(640, (side * dpr).round()),
+                  ),
                 ),
               ),
             ),
@@ -739,7 +766,10 @@ class _CoverWithEmblem extends StatelessWidget {
               child: Semantics(
                 button: true,
                 label: DetailStrings.of(context).scrapCdRate,
-                child: AlbumScoreEmblem(albumId: album.id, palette: palette, onTap: onEmblemTap, size: emblem),
+                child: SeamDissolve(
+                  round: true,
+                  child: AlbumScoreEmblem(albumId: album.id, palette: palette, onTap: onEmblemTap, size: emblem),
+                ),
               ),
             ),
           ),
