@@ -89,6 +89,13 @@ export class PlayingFormat {
 export type FormatListener = (format: PlayingFormat) => void;
 
 /**
+ * One line for the playback log (Dart's PlayTrace, Settings › Help and about › Export log): what the engine did and
+ * why — opens, gapless swaps, errors, focus changes, stalls, the system's keys. [line] never carries a URL; [detail]
+ * is free text (an error's message) Dart masks before it keeps it.
+ */
+export type TraceListener = (line: string, detail: string | null) => void;
+
+/**
  * Yoin's spatial-audio switch (Settings › Streaming quality, Dart `SpatialAudioMonitor` through `yoin/audio`).
  * Process-wide like the engine: it outlives the Flutter engine, and the next one sends it again at start.
  */
@@ -146,6 +153,7 @@ export class PlaybackEngine {
   private preloadToken: number = 0;
   private listeners: EngineListener[] = [];
   private formatListeners: FormatListener[] = [];
+  private traceListeners: TraceListener[] = [];
   /** The current source's channel count as its decoder reported it; 0 until it does (the spatial switch reads it). */
   private decodedChannels: number = 0;
   private released: boolean = false;
@@ -184,6 +192,21 @@ export class PlaybackEngine {
 
   addFormatListener(listener: FormatListener): void {
     this.formatListeners.push(listener);
+  }
+
+  addTraceListener(listener: TraceListener): void {
+    this.traceListeners.push(listener);
+  }
+
+  /** A line for the playback log (the session's keys come through here too). */
+  note(line: string, detail: string | null = null): void {
+    this.traceListeners.forEach((l: TraceListener) => {
+      try {
+        l(line, detail);
+      } catch (e) {
+        hilog.error(DOMAIN, TAG, 'trace listener threw: %{public}s', describe(e as BusinessError));
+      }
+    });
   }
 
   /**
@@ -579,6 +602,7 @@ export class PlaybackEngine {
     });
     this.listeners = [];
     this.formatListeners = [];
+    this.traceListeners = [];
   }
 
   // ---- navigation ----
@@ -617,6 +641,8 @@ export class PlaybackEngine {
     this.discardPreload();
     const gen = ++this.generation;
     const item = this.items[index];
+    const from = startMs > 0 ? ' from=' + startMs : '';
+    this.note(`open ${sourceLabel(item)} at=${index}/${this.items.length}${from}`);
     this.index = index;
     this.phase = 'loading';
     this.playing = false;
@@ -701,6 +727,7 @@ export class PlaybackEngine {
         hilog.info(DOMAIN, TAG, 'preloading the next item');
       } catch (e) {
         hilog.warn(DOMAIN, TAG, 'preload failed: %{public}s', describe(e as BusinessError));
+        this.note('preload failed', describe(e as BusinessError));
         if (token === this.preloadToken) {
           this.discardPreload();
         }
@@ -744,6 +771,7 @@ export class PlaybackEngine {
       spare.play().catch((e: BusinessError) => this.onCommandFailed('play', e));
     }
     hilog.info(DOMAIN, TAG, 'gapless: swapped to the preloaded item');
+    this.note(`gapless swap at=${index}/${this.items.length}`);
     this.emit();
     this.reportFormat(spare, item);
     // The finished item's player is silenced; the old AVPlayer waits as the next spare.
@@ -819,6 +847,7 @@ export class PlaybackEngine {
   private onSpareError(p: EnginePlayer, e: BusinessError): void {
     if (p === this.spare && this.preloadItem !== null) {
       hilog.warn(DOMAIN, TAG, 'preload error: %{public}s', describe(e));
+      this.note('preload error', describe(e));
       if (this.preloadItem.viaCache()) {
         // Loaded again when it starts, from the server.
         this.preloadItem.cacheBypassed = true;
@@ -835,6 +864,7 @@ export class PlaybackEngine {
     // From 'completed', play() starts over from the beginning.
     p.play().catch((e: BusinessError) => {
       hilog.warn(DOMAIN, TAG, 'replay failed, reloading: %{public}s', describe(e));
+      this.note('replay failed, reloading', describe(e));
       if (gen === this.generation && this.index >= 0) {
         this.load(this.index, 0);
       }
@@ -917,6 +947,12 @@ export class PlaybackEngine {
           this.onBecomingNoisy();
         }
       },
+      onBuffering: (start: boolean) => {
+        // A stall mid-song (the first buffer of a load is not one).
+        if (start && current() !== null && this.isSourceCurrent() && this.phase === 'ready' && this.playing) {
+          this.note('underrun: buffering');
+        }
+      },
     };
     return events;
   }
@@ -974,6 +1010,7 @@ export class PlaybackEngine {
         } else if (target >= 0) {
           this.load(target, 0);
         } else {
+          this.note('ended: end of the queue');
           this.phase = 'ended';
           if (this.durationMs !== null) {
             this.lastPositionMs = this.durationMs;
@@ -993,6 +1030,8 @@ export class PlaybackEngine {
    */
   private onInterrupt(event: audio.InterruptEvent): void {
     const p = this.player;
+    const forced = event.forceType === audio.InterruptForceType.INTERRUPT_FORCE;
+    this.note(`focus ${hintName(event.hintType)} ${forced ? 'forced' : 'shared'}`);
     if (event.forceType === audio.InterruptForceType.INTERRUPT_FORCE) {
       switch (event.hintType) {
         case audio.InterruptHint.INTERRUPT_HINT_PAUSE:
@@ -1051,6 +1090,7 @@ export class PlaybackEngine {
   private onBecomingNoisy(): void {
     if (this.playWhenReady || this.playing || this.resumeOnFocusGain) {
       hilog.info(DOMAIN, TAG, 'output device gone: pausing');
+      this.note('output device gone: pausing');
       this.pause();
     }
   }
@@ -1085,12 +1125,15 @@ export class PlaybackEngine {
       // The stream cache failed (its server gone with the Flutter engine, or it could not reach the server):
       // the same item again from the server, where it was (Android FLAG_IGNORE_CACHE_ON_ERROR).
       hilog.warn(DOMAIN, TAG, 'stream cache failed, streaming directly: %{public}s', describe(e));
+      this.note('stream cache failed, streaming directly', describe(e));
       item.cacheBypassed = true;
       this.load(this.index, this.readPosition());
       return;
     }
     // Never log the stream URL: it carries the account's token.
     hilog.error(DOMAIN, TAG, 'playback error: %{public}s', describe(e));
+    const code = e !== undefined && e !== null && typeof e.code === 'number' ? ' ' + e.code : '';
+    this.note('player error' + code, describe(e));
     this.lastPositionMs = this.readPosition();
     this.phase = 'error';
     this.playing = false;
@@ -1102,6 +1145,7 @@ export class PlaybackEngine {
 
   private onCommandFailed(command: string, e: BusinessError): void {
     hilog.warn(DOMAIN, TAG, '%{public}s failed: %{public}s', command, describe(e));
+    this.note(`${command} failed`, describe(e));
   }
 
   private startTicker(): void {
@@ -1192,6 +1236,36 @@ function movedIndex(i: number, from: number, to: number): number {
 /** Fills in a player once its factory resolves (events can arrive before that). */
 class PlayerHolder {
   player: EnginePlayer | null = null;
+}
+
+/** Where [item] opens from, for the playback log: the download, the stream cache, a registered player, the stream. */
+function sourceLabel(item: QueueItem): string {
+  const kind = EnginePlayers.kindOf(item.uri);
+  if (kind !== '') {
+    return kind;
+  }
+  if (item.localUri !== undefined) {
+    return 'file';
+  }
+  return item.viaCache() ? 'cache' : 'stream';
+}
+
+/** An interrupt hint's name for the playback log. */
+function hintName(hint: audio.InterruptHint): string {
+  switch (hint) {
+    case audio.InterruptHint.INTERRUPT_HINT_PAUSE:
+      return 'pause';
+    case audio.InterruptHint.INTERRUPT_HINT_RESUME:
+      return 'resume';
+    case audio.InterruptHint.INTERRUPT_HINT_STOP:
+      return 'stop';
+    case audio.InterruptHint.INTERRUPT_HINT_DUCK:
+      return 'duck';
+    case audio.InterruptHint.INTERRUPT_HINT_UNDUCK:
+      return 'unduck';
+    default:
+      return `hint ${hint}`;
+  }
 }
 
 /** Code and message for logs; any URL in the text is masked (it would carry the token). */

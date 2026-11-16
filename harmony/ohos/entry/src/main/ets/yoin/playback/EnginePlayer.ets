@@ -21,6 +21,8 @@ export interface EnginePlayerEvents {
   onInterrupt: (event: audio.InterruptEvent) => void;
   /** The output device went away (headphones unplugged). */
   onDeviceGone: () => void;
+  /** The player started (true) or stopped (false) buffering; players that don't say leave it out. */
+  onBuffering?: (start: boolean) => void;
 }
 
 /** The part of a media player the engine drives (AVPlayer's shape). */
@@ -71,6 +73,18 @@ export class AvEnginePlayer implements EnginePlayer {
     p.on('seekDone', (time: number) => events.onSeekDone(time));
     p.on('durationUpdate', (duration: number) => events.onDuration(duration));
     p.on('audioInterrupt', (event: audio.InterruptEvent) => events.onInterrupt(event));
+    // A stall while playing is the playback log's underrun (Android AudioOutputLog).
+    p.on('bufferingUpdate', (type: media.BufferingInfoType, value: number) => {
+      const buffering = events.onBuffering;
+      if (buffering === undefined) {
+        return;
+      }
+      if (type === media.BufferingInfoType.BUFFERING_START) {
+        buffering(true);
+      } else if (type === media.BufferingInfoType.BUFFERING_END) {
+        buffering(false);
+      }
+    });
     // Headphones unplugged / Bluetooth gone (Android setHandleAudioBecomingNoisy).
     p.on('audioOutputDeviceChangeWithInfo', (info: audio.AudioStreamDeviceChangeInfo) => {
       if (info.changeReason === audio.AudioStreamDeviceChangeReason.REASON_OLD_DEVICE_UNAVAILABLE) {

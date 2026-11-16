@@ -21,6 +21,7 @@ import 'offline/offline_providers.dart';
 import 'platform/posture/display_posture.dart';
 import 'platform/window/window_caption.dart';
 import 'platform/yoin_platform.dart';
+import 'playback/play_trace.dart';
 import 'playback/playback_controller.dart';
 import 'settings/backup/restore_live_update.dart';
 import 'settings/stream_quality.dart';
@@ -43,6 +44,9 @@ void main() {
   final platform = YoinPlatform.forHost();
   // Named haptics are static calls (YoinHaptics); they play on the platform's vibrator.
   YoinHaptics.install(platform.haptics);
+  // Settings › Help and about › Export log: from here on, playback events are kept (cacheDir/playtrace.log).
+  PlayTrace.shared.install(platform.appFiles.cacheDirectory);
+  PlayTrace.shared.log('app launch');
   // Every cover reads through one disk cache under the cache folder, and a
   // failed one asks again when the network recovers or the app comes back.
   ArtworkImages.install(

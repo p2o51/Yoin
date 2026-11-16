@@ -25,9 +25,10 @@ const SHARE_PREFIX = 'yoin-lyrics-';
 
 /**
  * Serves `yoin/share` for Dart's `ChannelTextShare` (a page's or a song's name and link, Android DetailMenu's
- * ACTION_SEND text) and `ChannelImageShare` (the lyrics card, Android LyricsShareCard's FileProvider share and
- * MediaStore save):
+ * ACTION_SEND text), `ChannelFileShare` (Help and about's Export log) and `ChannelImageShare` (the lyrics card,
+ * Android LyricsShareCard's FileProvider share and MediaStore save):
  * - `shareText` {text, title} opens the system share sheet on plain text (Share Kit);
+ * - `shareFile` {path, kind, title} opens it on a file the app wrote in its cache or files folder (Share Kit);
  * - `shareImage` {bytes, name, caption} writes the PNG to the cache and opens the system share sheet (Share Kit);
  * - `saveImage` {bytes, name} writes it to the cache and asks the system's save dialog to put it in the gallery
  *   (photoAccessHelper.showAssetsCreationDialog — the user confirms, no storage permission needed).
@@ -56,6 +57,20 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
   }
 
   onMethodCall(call: MethodCall, result: MethodResult): void {
+    if (call.method === 'shareFile') {
+      const path: Any = call.argument('path');
+      const kind: Any = call.argument('kind');
+      const title: Any = call.argument('title');
+      if (typeof path !== 'string' || !this.isSandboxed(path as string)) {
+        result.error('bad_args', 'shareFile needs a path in the app sandbox', null);
+        return;
+      }
+      this.shareFile(path as string, typeof kind === 'string' ? kind as string : 'text',
+        typeof title === 'string' ? title as string : '')
+        .then((ok: boolean) => result.success(ok))
+        .catch(() => result.success(false));
+      return;
+    }
     if (call.method === 'shareText') {
       const text: Any = call.argument('text');
       const title: Any = call.argument('title');
@@ -158,6 +173,42 @@ export default class YoinSharePlugin implements FlutterPlugin, MethodCallHandler
       return true;
     } catch (e) {
       hilog.warn(DOMAIN, TAG, 'shareText failed: %{public}d', (e as BusinessError).code ?? -1);
+      return false;
+    }
+  }
+
+  /** Whether [path] is a file in this app's cache or files folder (nothing else is handed to the sheet). */
+  private isSandboxed(path: string): boolean {
+    if (path.includes('/../')) {
+      return false;
+    }
+    const inside = (dir: string): boolean => path.startsWith(`${dir}/`);
+    // Dart reads its folders from the application context (`yoin/storage`), this plugin holds the ability's.
+    const app = this.context.getApplicationContext();
+    return (inside(this.context.cacheDir) || inside(this.context.filesDir) || inside(app.cacheDir) ||
+      inside(app.filesDir)) && fileIo.accessSync(path);
+  }
+
+  /**
+   * A file the app wrote (Help and about's Export log, Android's ACTION_SEND of a FileProvider uri): the share
+   * sheet (Share Kit) on its uri, as plain text for `kind` 'text'; [title] heads the preview.
+   */
+  private async shareFile(path: string, kind: string, title: string): Promise<boolean> {
+    try {
+      const data = new systemShare.SharedData({
+        utd: kind === 'text' ? uniformTypeDescriptor.UniformDataType.PLAIN_TEXT
+          : uniformTypeDescriptor.UniformDataType.FILE,
+        uri: fileUri.getUriFromPath(path),
+        title: title.length > 0 ? title : undefined,
+      });
+      const controller = new systemShare.ShareController(data);
+      await controller.show(this.context, {
+        previewMode: systemShare.SharePreviewMode.DEFAULT,
+        selectionMode: systemShare.SelectionMode.SINGLE,
+      });
+      return true;
+    } catch (e) {
+      hilog.warn(DOMAIN, TAG, 'shareFile failed: %{public}d', (e as BusinessError).code ?? -1);
       return false;
     }
   }

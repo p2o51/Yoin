@@ -316,6 +316,9 @@ class SettingsStrings {
   String get aboutFeedback => _zh ? '发送反馈' : 'Send feedback'; // settings_about_feedback
   String get aboutFeedbackOpenFailed =>
       _zh ? '无法打开反馈表单' : "Couldn't open the feedback form"; // settings_about_feedback_open_failed
+  String get aboutExportLog => _zh ? '导出日志' : 'Export log'; // settings_about_export_log
+  String get aboutExportLogSummary => _zh ? '播放诊断' : 'Playback diagnostics'; // settings_about_export_log_summary
+  String get aboutExportLogFailed => _zh ? '无法导出日志' : "Couldn't export the log"; // settings_about_export_log_failed
   String get licensesIntro => _zh
       ? 'Yoin 用到了下面这些字体和开源库，感谢它们的作者。点一项可以查看完整许可。'
       : 'Yoin is built with these fonts and open source libraries. Thanks to everyone who made them. Tap one to read its license.'; // settings_licenses_intro
