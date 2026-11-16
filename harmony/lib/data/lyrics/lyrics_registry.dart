@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'huawei_provider.dart';
 import 'lrclib_provider.dart';
 import 'lyric_provider.dart';
 import 'netease_provider.dart';
@@ -50,13 +51,15 @@ final class LyricsProviderSearchResult {
 ///   this order ([translationSwitchCandidates]).
 /// No caching, no translating, no extra timeouts (each provider has its own).
 ///
-/// Order: QQ Music → NetEase → LRCLIB. The first two cover Chinese / J- and
-/// K-pop and carry Simplified translations; LRCLIB is the FOSS fallback with
-/// the widest Western catalogue. Android also lists Huawei Music (manual
-/// search only) between NetEase and LRCLIB; it is not on HarmonyOS yet.
+/// Order: QQ Music → NetEase → Huawei Music (manual search only) → LRCLIB.
+/// The first three cover Chinese / J- and K-pop and carry Simplified
+/// translations; LRCLIB is the FOSS fallback with the widest Western
+/// catalogue. Huawei Music is never in the automatic chain nor offered as a
+/// translation switch ([LyricProvider.automatic] false), as on Android.
 class LyricsProviderRegistry {
   LyricsProviderRegistry({List<LyricProvider>? providers})
-    : providers = providers ?? [QQLyricsProvider(), NetEaseLyricsProvider(), LrclibLyricsProvider()];
+    : providers =
+          providers ?? [QQLyricsProvider(), NetEaseLyricsProvider(), HuaweiLyricsProvider(), LrclibLyricsProvider()];
 
   final List<LyricProvider> providers;
 
