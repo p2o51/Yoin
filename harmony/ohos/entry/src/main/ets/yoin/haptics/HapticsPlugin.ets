@@ -161,11 +161,12 @@ export default class YoinHapticsPlugin implements FlutterPlugin, MethodCallHandl
     }
     const builder = new vibrator.VibratorPatternBuilder();
     let events = 0;
-    (value as Array<Any>).forEach((entry: Any) => {
+    const pulses: Array<Any> = value as Array<Any>;
+    pulses.forEach((entry: Any) => {
       if (!(entry instanceof Map)) {
         return;
       }
-      const map = entry as Map<Any, Any>;
+      const map: Map<Any, Any> = entry as Map<Any, Any>;
       const at = clamp(readNumber(map, 'at', 0), 0, 1800000);
       const intensity = clamp(readNumber(map, 'intensity', 100), 0, 100);
       const frequency = clamp(readNumber(map, 'frequency', 50), 0, 100);
