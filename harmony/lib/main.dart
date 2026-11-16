@@ -10,6 +10,7 @@ import 'data/applemusic/apple_music_name_region.dart';
 import 'continueon/continue_on_card.dart';
 import 'continueon/continue_on_controller.dart';
 import 'data/applemusic/apple_music_source.dart';
+import 'data/cache/cover_cache.dart';
 import 'data/backup/playlist_backup_providers.dart';
 import 'data/sync/cloud_sync_providers.dart';
 import 'data/profile/profile.dart';
@@ -30,6 +31,8 @@ import 'theme/playback_theme.dart';
 import 'theme/system_bars.dart';
 import 'ui/adaptive/edge_split.dart';
 import 'ui/adaptive/yoin_window_info.dart';
+import 'ui/component/artwork_image.dart';
+import 'ui/component/artwork_retry.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,6 +43,12 @@ void main() {
   final platform = YoinPlatform.forHost();
   // Named haptics are static calls (YoinHaptics); they play on the platform's vibrator.
   YoinHaptics.install(platform.haptics);
+  // Every cover reads through one disk cache under the cache folder, and a
+  // failed one asks again when the network recovers or the app comes back.
+  ArtworkImages.install(
+    CoverDiskCache(directory: platform.appFiles.cacheDirectory, freeBytes: platform.appFiles.cacheFreeBytes),
+  );
+  ArtworkRetryWatcher.start(platform.networkBearer);
   runApp(
     ProviderScope(
       overrides: [

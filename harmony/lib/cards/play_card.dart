@@ -12,7 +12,6 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show BuildContext, Navigator;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
@@ -26,6 +25,8 @@ import '../platform/cards/cards_channel.dart';
 import '../shell/shell_state.dart';
 import '../theme/color_scheme.dart';
 import '../theme/theme.dart';
+import '../ui/component/artwork_image.dart';
+import '../ui/component/artwork_retry.dart';
 import 'memory_card.dart';
 
 /// Items the Play card holds (Android playItems(limit = 6): the hero plus a shelf).
@@ -56,11 +57,14 @@ List<ActivityEvent> selectPlayEvents(List<ActivityEvent> events, {int limit = pl
 
 /// Keeps the Play card in step with the active account's listening.
 final class PlayCardPublisher {
-  PlayCardPublisher(this._ref, this._host, {http.Client? client}) : _client = client ?? http.Client();
+  PlayCardPublisher(this._ref, this._host, {Future<Uint8List?> Function(String url)? coverBytes})
+    : _coverBytes = coverBytes ?? loadArtworkBytes;
 
   final Ref _ref;
   final CardsHost _host;
-  final http.Client _client;
+
+  /// A cover's bytes through the app's cover cache, so the card keeps them offline.
+  final Future<Uint8List?> Function(String url) _coverBytes;
 
   StreamSubscription<List<ActivityEvent>>? _events;
   Timer? _debounce;
@@ -69,7 +73,21 @@ final class PlayCardPublisher {
   Uint8List? _glyphDark;
   int _generation = 0;
 
+  /// The events last scheduled, and whether a cover was missing from the
+  /// last publish: a failed cover asks again when failed artwork does
+  /// (ArtworkRetrySignal: the network recovered, the app came back).
+  List<ActivityEvent>? _lastEvents;
+  bool _coversMissing = false;
+
+  void _retryCovers() {
+    final events = _lastEvents;
+    if (!_coversMissing || events == null) return;
+    _lastSignature = null;
+    _schedule(events);
+  }
+
   void start() {
+    ArtworkRetrySignal.generation.addListener(_retryCovers);
     _host.listen(_onAction).catchError((Object e) {
       // No host (tests, other platforms): the card simply does not exist.
       if (e is! MissingPluginException) debugPrint('cards: listen failed: $e');
@@ -80,9 +98,9 @@ final class PlayCardPublisher {
   }
 
   void dispose() {
+    ArtworkRetrySignal.generation.removeListener(_retryCovers);
     _debounce?.cancel();
     _events?.cancel();
-    _client.close();
   }
 
   void _attach(ActivityLog? log) {
@@ -96,6 +114,7 @@ final class PlayCardPublisher {
   }
 
   void _schedule(List<ActivityEvent> events) {
+    _lastEvents = events;
     _debounce?.cancel();
     // A burst of writes (play + visit) settles into one publish.
     _debounce = Timer(const Duration(milliseconds: 800), () => _publish(events));
@@ -127,6 +146,9 @@ final class PlayCardPublisher {
           cover: covers[i],
         ),
     ];
+    _coversMissing = [
+      for (var i = 0; i < chosen.length; i++) chosen[i].coverArtKey != null && covers[i] == null,
+    ].any((m) => m);
     try {
       await _host.publishPlay(items, glyphLight: _glyphLight!, glyphDark: _glyphDark!);
       _lastSignature = signature;
@@ -142,14 +164,7 @@ final class PlayCardPublisher {
     if (ref == null) return null;
     final url = source.resolveCoverUrl(ref, size: playCardCoverPx);
     if (url == null) return null;
-    try {
-      final res = await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
-      final type = res.headers['content-type'] ?? '';
-      if (res.statusCode != 200 || !type.startsWith('image/') || res.bodyBytes.length > 4 * 1024 * 1024) return null;
-      return res.bodyBytes;
-    } catch (_) {
-      return null;
-    }
+    return _coverBytes(url);
   }
 
   Future<void> _onAction(CardAction action) async {

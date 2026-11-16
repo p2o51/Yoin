@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/motion.dart';
+import '../../ui/component/artwork_retry.dart';
 
 /// A cover's backdrop colours (Android ExpressiveBackdropPalette BackdropColors).
 @immutable
@@ -44,17 +45,33 @@ class CoverPaletteCache {
     return value;
   }
 
-  /// Colours for [image]; null when it can't be read (a failed or 404 cover is final).
-  Future<BackdropColors?> colorsFor(String key, ImageProvider image) {
+  /// Colours for [image]; null when it can't be read. A cover with no usable
+  /// colours is remembered; one that failed to load is not: [onLoadFailed]
+  /// hears why, and the next call reads it again (an [ArtworkReadRetry]
+  /// decides when, like failed artwork).
+  Future<BackdropColors?> colorsFor(String key, ImageProvider image, {ValueChanged<Object>? onLoadFailed}) {
     if (_entries.containsKey(key)) return SynchronousFuture(peek(key));
-    return _inFlight[key] ??= _extract(image).then((colors) {
-      _inFlight.remove(key);
-      _entries[key] = colors;
-      while (_entries.length > capacity) {
-        _entries.remove(_entries.keys.first);
-      }
-      return colors;
-    });
+    final read = _inFlight[key] ??= _extract(image).then(
+      (colors) {
+        _inFlight.remove(key);
+        _entries[key] = colors;
+        while (_entries.length > capacity) {
+          _entries.remove(_entries.keys.first);
+        }
+        return colors;
+      },
+      onError: (Object error) {
+        _inFlight.remove(key);
+        throw error;
+      },
+    );
+    return read.then<BackdropColors?>(
+      (colors) => colors,
+      onError: (Object error) {
+        onLoadFailed?.call(error);
+        return null;
+      },
+    );
   }
 
   static Future<BackdropColors?> _extract(ImageProvider provider) async {
@@ -66,8 +83,8 @@ class CoverPaletteCache {
         if (!completer.isCompleted) completer.complete(info.image.clone());
         stream.removeListener(listener);
       },
-      onError: (_, _) {
-        if (!completer.isCompleted) completer.complete(null);
+      onError: (error, _) {
+        if (!completer.isCompleted) completer.completeError(error);
         stream.removeListener(listener);
       },
     );
@@ -297,8 +314,14 @@ class _BackdropColorBuilderState extends State<BackdropColorBuilder> with Single
   @override
   void didUpdateWidget(BackdropColorBuilder oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cacheKey != widget.cacheKey) _maybeRequest();
+    if (oldWidget.cacheKey != widget.cacheKey) {
+      _retry.reset();
+      _maybeRequest();
+    }
   }
+
+  /// A cover that failed to load is read again when failed artwork is.
+  final _retry = ArtworkReadRetry();
 
   void _maybeRequest() {
     final key = widget.cacheKey;
@@ -311,9 +334,23 @@ class _BackdropColorBuilderState extends State<BackdropColorBuilder> with Single
     }
     if (!(_gate?.value ?? true)) return;
     _requested = key;
-    _cache.colorsFor(key, image).then((colors) {
-      if (mounted && widget.cacheKey == key) _apply(colors);
-    });
+    _retry.requested();
+    _cache
+        .colorsFor(
+          key,
+          image,
+          onLoadFailed: (error) {
+            if (!mounted || widget.cacheKey != key) return;
+            _retry.failed(error, () {
+              if (!mounted || widget.cacheKey != key) return;
+              _requested = null;
+              _maybeRequest();
+            });
+          },
+        )
+        .then((colors) {
+          if (mounted && widget.cacheKey == key) _apply(colors);
+        });
   }
 
   Color? _pick(BackdropColors? colors) => widget.accent ? colors?.accent : colors?.base;
@@ -342,6 +379,7 @@ class _BackdropColorBuilderState extends State<BackdropColorBuilder> with Single
   @override
   void dispose() {
     _gate?.removeListener(_maybeRequest);
+    _retry.reset();
     _t.dispose();
     super.dispose();
   }

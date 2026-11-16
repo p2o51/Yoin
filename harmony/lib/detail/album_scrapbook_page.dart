@@ -20,6 +20,7 @@ import '../theme/motion.dart';
 import '../nowplaying/about_widgets.dart' show markdownBoldSpan;
 import '../settings/material_shapes.dart' show PolygonBorder, avatarShapes;
 import '../theme/tokens.dart';
+import '../ui/component/artwork_image.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/seam/seam.dart';
@@ -588,7 +589,7 @@ class _Opening extends ConsumerWidget {
     final url = coverUrl;
     return MemoryPaletteBuilder(
       cacheKey: url,
-      image: url == null ? null : ResizeImage(NetworkImage(url), width: 200, height: 200),
+      image: url == null ? null : artworkImageProvider(url, cacheWidth: 200, cacheHeight: 200),
       builder: (context, palette) {
         void openSheet({bool focusReview = false}) => showAlbumRateSheet(
           context,

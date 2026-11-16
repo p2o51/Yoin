@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../home/widgets/cover_palette.dart';
 import '../theme/motion.dart';
+import '../ui/component/artwork_image.dart';
 import 'memories_ui_state.dart';
 import 'palette/memory_palette.dart';
 
@@ -46,7 +47,7 @@ class MemoryPalettes extends ChangeNotifier {
       if (colors != null) entry.to = memoryPaletteOf(colors);
       return;
     }
-    final image = ResizeImage(NetworkImage(url), width: 200, height: 200);
+    final image = artworkImageProvider(url, cacheWidth: 200, cacheHeight: 200);
     _cache.colorsFor(url, image).then((colors) {
       if (_disposed || colors == null) return;
       entry

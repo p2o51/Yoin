@@ -30,6 +30,7 @@ import '../shell/bar_suppression.dart';
 import '../theme/color_scheme.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/artwork_image.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/yoin_push_route.dart';
@@ -774,7 +775,7 @@ class _VoiceCard extends StatelessWidget {
                         image: avatar == null || !NeoDbVoicesParsing.isWebLink(avatar)
                             ? null
                             : DecorationImage(
-                                image: ResizeImage(NetworkImage(avatar), width: 64, height: 64),
+                                image: artworkImageProvider(avatar, cacheWidth: 64, cacheHeight: 64),
                                 fit: BoxFit.cover,
                                 onError: (_, _) {},
                               ),

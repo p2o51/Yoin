@@ -8,6 +8,8 @@ import '../../data/model/model.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
 import '../home_metrics.dart';
+import '../../ui/component/artwork_image.dart';
+import '../../ui/component/artwork_swap.dart';
 import '../home_ui_state.dart';
 import 'backdrop_shapes.dart';
 import 'cover_palette.dart';
@@ -22,9 +24,12 @@ abstract final class HomeCoverRequest {
 /// A cover's URL and the decoded image a card shows (shared with the palette).
 @immutable
 final class HomeCoverImage {
-  const HomeCoverImage(this.url, this.image);
+  const HomeCoverImage(this.url, this.image, {this.decodeWidth});
   final String url;
   final ImageProvider image;
+
+  /// The px [image] is decoded at.
+  final int? decodeWidth;
 }
 
 /// Resolves [cover] through the active source; decodes at [side] × dpr.
@@ -34,7 +39,7 @@ HomeCoverImage? resolveHomeCover(WidgetRef ref, BuildContext context, CoverRef? 
   final url = source?.resolveCoverUrl(cover, size: requestSize);
   if (url == null) return null;
   final px = (side * MediaQuery.devicePixelRatioOf(context)).round().clamp(1, requestSize);
-  return HomeCoverImage(url, ResizeImage(NetworkImage(url), width: px));
+  return HomeCoverImage(url, artworkImageProvider(url, cacheWidth: px), decodeWidth: px);
 }
 
 IconData homeFallbackIcon(HomeCardKind kind) => switch (kind) {
@@ -45,8 +50,8 @@ IconData homeFallbackIcon(HomeCardKind kind) => switch (kind) {
     };
 
 /// ExpressiveMediaArtwork: the type icon on surfaceContainerHighest (tonal
-/// elevation 1), the image fading in over it on the effects spring. A failed
-/// cover leaves the icon. No border.
+/// elevation 1), the image coming in over it on the effects spring. A failed
+/// cover shows the icon while it retries ([ArtworkContent]). No border.
 class HomeArtwork extends StatelessWidget {
   const HomeArtwork({super.key, required this.image, required this.kind, required this.size, this.radius = ShapeTokens.thumb, this.circle = false});
 
@@ -62,12 +67,10 @@ class HomeArtwork extends StatelessWidget {
     final surface = ElevationOverlay.applySurfaceTint(colors.surfaceContainerHighest, colors.surfaceTint, HomeBackdropMetrics.tonalElevation);
     final content = ColoredBox(
       color: surface,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Center(child: Icon(homeFallbackIcon(kind), size: HomeBackdropMetrics.fallbackIcon, color: colors.onSurfaceVariant)),
-          if (image case final img?) _FadeInImage(key: ValueKey(img.url), image: img.image),
-        ],
+      child: ArtworkContent(
+        url: image?.url,
+        decodeWidth: image?.decodeWidth,
+        fallback: ArtworkFallbackIcon(homeFallbackIcon(kind), size: HomeBackdropMetrics.fallbackIcon),
       ),
     );
     return SizedBox.square(
@@ -77,47 +80,6 @@ class HomeArtwork extends StatelessWidget {
           : ClipRSuperellipse(borderRadius: BorderRadius.circular(radius), child: content),
     );
   }
-}
-
-class _FadeInImage extends StatefulWidget {
-  const _FadeInImage({super.key, required this.image});
-  final ImageProvider image;
-
-  @override
-  State<_FadeInImage> createState() => _FadeInImageState();
-}
-
-class _FadeInImageState extends State<_FadeInImage> with SingleTickerProviderStateMixin {
-  late final SpringValue _alpha = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultEffects);
-
-  @override
-  void initState() {
-    super.initState();
-    // Create eagerly: a lazy field first read in dispose() would build a ticker on a dead element.
-    _alpha;
-  }
-
-  @override
-  void dispose() {
-    _alpha.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Image(
-        image: widget.image,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        errorBuilder: (_, _, _) => const SizedBox.shrink(),
-        frameBuilder: (context, child, frame, sync) {
-          if (sync) {
-            _alpha.snapTo(1);
-          } else if (frame != null) {
-            _alpha.animateTo(1);
-          }
-          return FadeTransition(opacity: _alpha.animation, child: child);
-        },
-      );
 }
 
 /// WidgetBackdropArtwork: the entity shape filled with the cover's palette

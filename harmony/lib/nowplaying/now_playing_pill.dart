@@ -547,6 +547,10 @@ class _PillCover extends StatelessWidget {
                 radius: ShapeTokens.thumb,
                 requestSize: requestSize,
                 spring: YoinSprings.defaultEffects,
+                fallback: ColoredBox(
+                  color: colors.surfaceContainerHighest,
+                  child: Icon(YoinSymbols.musicNote, size: 18, color: colors.onSurfaceVariant),
+                ),
               ),
       ),
     );

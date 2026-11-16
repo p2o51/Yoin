@@ -10,6 +10,7 @@ import '../memories/album_score.dart';
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
 import '../theme/theme.dart';
+import '../ui/component/artwork_image.dart';
 import '../ui/component/spring_cross_fade.dart';
 import 'detail_palette.dart';
 import 'dot_dissolve.dart';
@@ -498,7 +499,7 @@ class AlbumHeroMetaRow extends StatelessWidget {
         width: width,
         child: MemoryPaletteBuilder(
           cacheKey: url,
-          image: url == null ? null : ResizeImage(NetworkImage(url), width: 200, height: 200),
+          image: url == null ? null : artworkImageProvider(url, cacheWidth: 200, cacheHeight: 200),
           builder: (context, palette) {
             void open({bool review = false}) => showAlbumRateSheet(
               context,

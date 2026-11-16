@@ -15,6 +15,7 @@ import '../playback/playback_controller.dart';
 import 'lyrics_logic.dart';
 import '../playback/play_mode.dart';
 import 'player_snapshot.dart';
+import 'skip_direction.dart';
 import 'up_next_timing.dart';
 import '../theme/tokens.dart';
 
@@ -567,8 +568,17 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     return _controller.play();
   }
 
-  Future<void> next() => _controller.next();
-  Future<void> previous() => _controller.previous();
+  /// NEXT / PREVIOUS also tell the cover which side the song comes from.
+  Future<void> next() {
+    ref.read(coverSkipDirectionProvider.notifier).forward();
+    return _controller.next();
+  }
+
+  Future<void> previous() {
+    ref.read(coverSkipDirectionProvider.notifier).back();
+    return _controller.previous();
+  }
+
   Future<void> skipTo(int index) => _controller.skipTo(index);
 
   Future<void> seekToFraction(double fraction) {

@@ -15,6 +15,10 @@ abstract interface class AppFilesHost {
   /// The folder for files the app can fetch again (the stream cache): the
   /// system may empty it when storage runs low. Null where this build keeps none.
   Future<Directory?> cacheDirectory();
+
+  /// The free space on the volume [cacheDirectory] is on, in bytes (the cover
+  /// cache's budget is 2 % of it); null when it can't be read.
+  Future<int?> cacheFreeBytes();
 }
 
 /// HarmonyOS: `context.filesDir` (the app's el2 sandbox, removed with the app).
@@ -29,6 +33,18 @@ final class ChannelAppFilesHost implements AppFilesHost {
   /// HarmonyOS: `context.cacheDir` (the app's el2 cache folder).
   @override
   Future<Directory?> cacheDirectory() => _folder('cacheDir');
+
+  /// HarmonyOS: `statfs.getFreeSizeSync(cacheDir)`.
+  @override
+  Future<int?> cacheFreeBytes() async {
+    try {
+      return await _channel.invokeMethod<int>('cacheFreeBytes');
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
 
   Future<Directory?> _folder(String method) async {
     try {
@@ -54,6 +70,11 @@ final class DirectoryAppFilesHost implements AppFilesHost {
   /// `cache/` inside [directory].
   @override
   Future<Directory?> cacheDirectory() async => Directory('${directory.path}${Platform.pathSeparator}cache');
+
+  /// Unknown in pure Dart (Windows: GetDiskFreeSpaceEx later): the cover cache
+  /// keeps Coil's minimum budget.
+  @override
+  Future<int?> cacheFreeBytes() async => null;
 }
 
 /// No folder: features that keep files stay off (tests and previews by default).
@@ -65,4 +86,7 @@ final class NoAppFilesHost implements AppFilesHost {
 
   @override
   Future<Directory?> cacheDirectory() async => null;
+
+  @override
+  Future<int?> cacheFreeBytes() async => null;
 }

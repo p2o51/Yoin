@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../../home/widgets/cover_palette.dart';
 import '../../theme/motion.dart';
+import '../../ui/component/artwork_retry.dart';
 
 /// One album's four palette anchors (prototype `m.palette`).
 @immutable
@@ -339,17 +340,37 @@ class _MemoryPaletteBuilderState extends State<MemoryPaletteBuilder> with Single
   @override
   void didUpdateWidget(MemoryPaletteBuilder oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cacheKey != widget.cacheKey) _request();
+    if (oldWidget.cacheKey != widget.cacheKey) {
+      _retry.reset();
+      _request();
+    }
   }
+
+  /// A cover that failed to load is read again when failed artwork is.
+  final _retry = ArtworkReadRetry();
 
   void _request() {
     final key = widget.cacheKey;
     final image = widget.image;
     if (widget.fixture != null || key == null || image == null || key == _requested) return;
     _requested = key;
-    _cache.colorsFor(key, image).then((colors) {
-      if (mounted && widget.cacheKey == key) _apply(colors);
-    });
+    _retry.requested();
+    _cache
+        .colorsFor(
+          key,
+          image,
+          onLoadFailed: (error) {
+            if (!mounted || widget.cacheKey != key) return;
+            _retry.failed(error, () {
+              if (!mounted || widget.cacheKey != key) return;
+              _requested = null;
+              _request();
+            });
+          },
+        )
+        .then((colors) {
+          if (mounted && widget.cacheKey == key) _apply(colors);
+        });
   }
 
   void _apply(BackdropColors? colors) {
@@ -378,6 +399,7 @@ class _MemoryPaletteBuilderState extends State<MemoryPaletteBuilder> with Single
 
   @override
   void dispose() {
+    _retry.reset();
     _t.dispose();
     super.dispose();
   }

@@ -16,6 +16,7 @@ import '../../data/memory/memory_ledger.dart';
 import '../../home/widgets/cover_palette.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
+import '../../ui/component/artwork_retry.dart';
 import '../../ui/component/desktop_input.dart';
 import 'memory_ledger_strings.dart';
 
@@ -84,15 +85,29 @@ class LedgerColorBook extends ChangeNotifier {
       if (colors != null) entry.to = LedgerAlbumColors(colors.base, colors.accent);
       return;
     }
+    _read(entry, url);
+  }
+
+  void _read(_ColorEntry entry, String url) {
     // The tip pages' made-up covers are painted, not fetched.
-    final image = ResizeImage(DemoArtwork.parse(url) ?? NetworkImage(url), width: 200, height: 200);
-    _cache.colorsFor(url, image).then((colors) {
-      if (_disposed || colors == null) return;
-      entry.to = LedgerAlbumColors(colors.base, colors.accent);
-      entry.t.snapTo(0);
-      entry.t.animateTo(1);
-      _notify();
-    });
+    final image = artworkImageProvider(url, cacheWidth: 200, cacheHeight: 200);
+    entry.retry.requested();
+    _cache
+        .colorsFor(
+          url,
+          image,
+          // A cover that failed to load is read again when failed artwork is.
+          onLoadFailed: (error) {
+            if (!_disposed) entry.retry.failed(error, () => _disposed ? null : _read(entry, url));
+          },
+        )
+        .then((colors) {
+          if (_disposed || colors == null) return;
+          entry.to = LedgerAlbumColors(colors.base, colors.accent);
+          entry.t.snapTo(0);
+          entry.t.animateTo(1);
+          _notify();
+        });
   }
 
   void _notify() {
@@ -103,6 +118,7 @@ class LedgerColorBook extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     for (final e in _entries.values) {
+      e.retry.reset();
       e.t.dispose();
     }
     super.dispose();
@@ -112,6 +128,7 @@ class LedgerColorBook extends ChangeNotifier {
 final class _ColorEntry {
   _ColorEntry(this.t);
   final SpringValue t;
+  final ArtworkReadRetry retry = ArtworkReadRetry();
   LedgerAlbumColors? to;
 }
 
