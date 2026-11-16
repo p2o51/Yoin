@@ -13,9 +13,40 @@ void main() {
       expect(const AiSettings().modelId, AiSettings.geminiGood);
       expect(const AiSettings(tier: AiTier.best).modelId, AiSettings.geminiBest);
       expect(const AiSettings(provider: AiProvider.deepSeek, tier: AiTier.best).modelId, AiSettings.deepSeekModel);
-      expect(const AiSettings(provider: AiProvider.qwen).modelId, AiSettings.qwenGood);
-      expect(const AiSettings(provider: AiProvider.qwen, tier: AiTier.best).modelId, AiSettings.qwenBest);
       expect(const AiSettings(provider: AiProvider.custom, customModel: ' gpt-x ').modelId, 'gpt-x');
+    });
+
+    test('should_useQwensOneModel_whicheverTierWasChosen', () {
+      const qwen = AiSettings(provider: AiProvider.qwen, tier: AiTier.best, qwenKey: 'sk');
+      expect(AiProvider.qwen.tiers, [AiTier.good]);
+      expect(qwen.activeTier, AiTier.good);
+      expect(qwen.modelId, 'qwen-flash');
+      expect(qwen.copyWith(tier: AiTier.good).modelId, 'qwen-flash');
+      expect(qwen.searchQueries, 1);
+    });
+
+    test('should_keepTheChosenTier_when_theServiceHasOnlyOne', () {
+      const qwen = AiSettings(provider: AiProvider.qwen, tier: AiTier.best);
+      // Back on a service with two tiers, the choice is still there.
+      final gemini = qwen.copyWith(provider: AiProvider.gemini);
+      expect(gemini.activeTier, AiTier.best);
+      expect(gemini.modelId, AiSettings.geminiBest);
+      // Custom has no tiers; the stored one is simply unused.
+      expect(qwen.copyWith(provider: AiProvider.custom).activeTier, AiTier.best);
+      expect(AiProvider.custom.tiers, isEmpty);
+      expect(AiProvider.gemini.tiers, AiTier.values);
+      expect(AiProvider.deepSeek.tiers, AiTier.values);
+    });
+
+    test('should_keepEachNewSearchServicesKeyToItself', () {
+      final custom = const AiSettings(
+        provider: AiProvider.custom,
+        searchService: AiSearchService.brave,
+      ).withSearchKey(AiSearchService.brave, 'br').withSearchKey(AiSearchService.doubao, 'db');
+      expect(custom.searchApiKey, 'br');
+      expect(custom.copyWith(searchService: AiSearchService.doubao).searchApiKey, 'db');
+      expect(custom.copyWith(searchService: AiSearchService.tavily).searchApiKey, '');
+      expect(custom.searchKind, AiSearchKind.external);
     });
 
     test('should_needEndpointAndModel_when_customIsChosen', () {
@@ -70,6 +101,8 @@ void main() {
         searchKeyDeepSeek: 'sd',
         searchKeyExa: 'se',
         searchKeyTavily: 'st',
+        searchKeyBrave: 'sb',
+        searchKeyDoubao: 'sdb',
         targetLanguage: 'Japanese',
       );
       await store.write(settings);
@@ -82,11 +115,13 @@ void main() {
         AiSettingsStore.searchDeepSeekKeyKey: 'sd',
         AiSettingsStore.searchExaKeyKey: 'se',
         AiSettingsStore.searchTavilyKeyKey: 'st',
+        AiSettingsStore.searchBraveKeyKey: 'sb',
+        AiSettingsStore.searchDoubaoKeyKey: 'sdb',
       });
       final prefs = jsonDecode(plain.values[AiSettingsStore.prefsKey]!) as Map<String, Object?>;
       expect(prefs['provider'], 'custom');
       expect(prefs['customModel'], 'claude-x');
-      for (final key in ['"g"', '"d"', '"q"', '"c"', '"sd"', '"se"', '"st"']) {
+      for (final key in ['"g"', '"d"', '"q"', '"c"', '"sd"', '"se"', '"st"', '"sb"', '"sdb"']) {
         expect(plain.values[AiSettingsStore.prefsKey], isNot(contains(key)));
       }
     });
@@ -97,6 +132,29 @@ void main() {
       const before = AiSettings(geminiKey: 'g');
       await store.write(before.copyWith(deepSeekKey: 'd'), previous: before);
       expect(secrets.writes, [AiSettingsStore.deepSeekKeyKey]);
+    });
+
+    test('should_keepTheNewSearchServices_when_writtenAndReadBack', () async {
+      for (final service in [AiSearchService.brave, AiSearchService.doubao]) {
+        final store = AiSettingsStore(InMemoryStore(), InMemoryStore());
+        final settings = AiSettings(searchService: service).withSearchKey(service, 'k-${service.name}');
+        await store.write(settings);
+        final read = await store.read();
+        expect(read.searchService, service);
+        expect(read.searchKeyFor(service), 'k-${service.name}');
+      }
+    });
+
+    test('should_loadSettingsWrittenBeforeBraveAndDoubao_withTheirKeysEmpty', () async {
+      final plain = InMemoryStore();
+      final secrets = InMemoryStore();
+      await plain.write(AiSettingsStore.prefsKey, jsonEncode({'provider': 'custom', 'searchService': 'exa'}));
+      await secrets.write(AiSettingsStore.searchExaKeyKey, 'se');
+      final read = await AiSettingsStore(plain, secrets).read();
+      expect(read.searchService, AiSearchService.exa);
+      expect(read.searchKeyExa, 'se');
+      expect(read.searchKeyBrave, '');
+      expect(read.searchKeyDoubao, '');
     });
 
     test('should_fallBackToDefaults_when_storedValuesAreUnknown', () async {

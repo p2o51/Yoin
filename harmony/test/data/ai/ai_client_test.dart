@@ -92,7 +92,7 @@ void main() {
       const qwen = AiSettings(provider: AiProvider.qwen, qwenKey: 'q', tier: AiTier.best);
       await client().generate(qwen, 'p', temperature: 0.8, useSearch: true);
       expect(calls.single.url.toString(), '${AiSettings.qwenBaseUrl}/chat/completions');
-      expect(body(calls.single)['model'], AiSettings.qwenBest);
+      expect(body(calls.single)['model'], AiSettings.qwenModel, reason: 'Qwen has one tier');
       expect(body(calls.single)['enable_thinking'], false);
       expect(body(calls.single)['enable_search'], true);
       expect(body(calls.single)['search_options'], {'forced_search': true});
@@ -289,6 +289,157 @@ void main() {
       expect(await client().search(custom.copyWith(searchService: AiSearchService.none), 'q'), isEmpty);
       expect(calls, hasLength(2));
     });
+
+    AiSettings searchWith(AiSearchService service, [String key = 's-key']) => AiSettings(
+      provider: AiProvider.custom,
+      customKey: 'sk',
+      customBaseUrl: 'https://x/v1',
+      customModel: 'm',
+      searchService: service,
+    ).withSearchKey(service, key);
+
+    test('should_readDoubaosWebResults_when_itAnswers', () async {
+      replies = [
+        json({
+          'ResponseMetadata': {'RequestId': 'r1'},
+          'Result': {
+            'ResultCount': 3,
+            'WebResults': [
+              {'Title': 'Lemon', 'Url': 'https://a', 'Content': 'x' * 2500, 'Summary': 's', 'SiteName': 'A'},
+              {'Title': 'Lemon 2', 'Url': 'https://b', 'Content': '', 'Summary': 'summary only'},
+              {'Title': 'Empty', 'Url': 'https://c', 'Content': '', 'Summary': ''},
+            ],
+          },
+        }),
+      ];
+      final hits = await client().search(searchWith(AiSearchService.doubao, 'db-key'), 'q' * 150);
+      expect(hits.map((h) => h.url), ['https://a', 'https://b']);
+      expect(hits[0].text.length, HttpAiClient.maxPageChars);
+      expect(hits[1].text, 'summary only');
+      final call = calls.single;
+      expect(call.url.toString(), 'https://open.feedcoopapi.com/search_api/web_search');
+      expect(call.headers['Authorization'], 'Bearer db-key');
+      expect((body(call)['Query'] as String).length, 100);
+      expect(body(call)['SearchType'], 'web');
+      expect(body(call)['Count'], HttpAiClient.searchResults);
+      expect(body(call)['Filter'], {'NeedContent': true});
+    });
+
+    test('should_surfaceDoubaosMessageAndCode_when_itRefuses', () async {
+      // A refused call still answers 200.
+      replies = [
+        json({
+          'ResponseMetadata': {
+            'RequestId': 'r2',
+            'Error': {'CodeN': 10400, 'Code': 'InvalidApiKey', 'Message': 'api key is invalid'},
+          },
+          'Result': null,
+        }),
+      ];
+      await expectLater(
+        client().search(searchWith(AiSearchService.doubao), 'q'),
+        throwsA(
+          isA<AiException>().having((e) => e.message, 'message', 'Doubao error: api key is invalid (InvalidApiKey)'),
+        ),
+        reason: 'a refused search must not come back as no pages',
+      );
+    });
+
+    test('should_surfaceDoubaosMessage_when_itRefusesWithAnHttpError', () async {
+      replies = [
+        json({
+          'ResponseMetadata': {
+            'Error': {'CodeN': 10401, 'Code': 'Unauthorized', 'Message': 'no access'},
+          },
+        }, 401),
+      ];
+      await expectLater(
+        client().search(searchWith(AiSearchService.doubao), 'q'),
+        throwsA(
+          isA<AiException>()
+              .having((e) => e.httpCode, 'httpCode', 401)
+              .having((e) => e.message, 'message', contains('no access (Unauthorized)')),
+        ),
+      );
+    });
+
+    test('should_readBravesLlmContext_when_thePlanHasIt', () async {
+      replies = [
+        json({
+          'grounding': {
+            'generic': [
+              {
+                'url': 'https://a',
+                'title': 'Lemon',
+                'snippets': ['Lyrics by Kenshi Yonezu', 'Produced by him'],
+              },
+              {'url': 'https://b', 'title': 'No text', 'snippets': <String>[]},
+            ],
+          },
+          'sources': <String, Object?>{},
+        }),
+      ];
+      final hits = await client().search(searchWith(AiSearchService.brave, 'br-key'), 'Lemon credits');
+      expect(hits.single.title, 'Lemon');
+      expect(hits.single.url, 'https://a');
+      expect(hits.single.text, 'Lyrics by Kenshi Yonezu\nProduced by him');
+      final call = calls.single;
+      expect(call.method, 'GET');
+      expect(call.url.host, 'api.search.brave.com');
+      expect(call.url.path, '/res/v1/llm/context');
+      expect(call.url.queryParameters['q'], 'Lemon credits');
+      expect(call.url.queryParameters['count'], '${HttpAiClient.searchResults}');
+      expect(call.headers['X-Subscription-Token'], 'br-key');
+      expect(call.headers['Accept'], 'application/json');
+    });
+
+    test('should_fallBackToBravesWebSearch_when_theLlmContextIsNotOnThePlan', () async {
+      replies = [
+        json({
+          'type': 'ErrorResponse',
+          'error': {'code': 'OPTION_NOT_IN_PLAN', 'detail': 'not in plan', 'status': 422},
+        }, 422),
+        json({
+          'type': 'search',
+          'web': {
+            'results': [
+              {
+                'title': 'Lemon',
+                'url': 'https://a',
+                'description': 'A 2018 single.',
+                'extra_snippets': ['Written by Yonezu.'],
+              },
+              {'title': 'Bare', 'url': 'https://b', 'description': ''},
+            ],
+          },
+        }),
+      ];
+      final hits = await client().search(searchWith(AiSearchService.brave), 'q');
+      expect(hits.single.url, 'https://a');
+      expect(hits.single.text, 'A 2018 single.\nWritten by Yonezu.');
+      expect(calls.first.url.path, '/res/v1/llm/context');
+      expect(calls.last.url.path, '/res/v1/web/search');
+      expect(calls.last.url.queryParameters['extra_snippets'], 'true');
+      expect(calls.last.url.queryParameters['count'], '${HttpAiClient.searchResults}');
+    });
+
+    test('should_notFallBack_when_braveRejectsTheKey', () async {
+      replies = [
+        json({
+          'type': 'ErrorResponse',
+          'error': {'code': 'SUBSCRIPTION_TOKEN_INVALID', 'detail': 'bad token'},
+        }, 401),
+      ];
+      await expectLater(
+        client().search(searchWith(AiSearchService.brave), 'q'),
+        throwsA(
+          isA<AiException>()
+              .having((e) => e.httpCode, 'httpCode', 401)
+              .having((e) => e.message, 'message', contains('bad token')),
+        ),
+      );
+      expect(calls, hasLength(1));
+    });
   });
 
   group('listModels', () {
@@ -333,6 +484,12 @@ void main() {
     test('should_readServiceMessage_when_errorBodyIsJson', () {
       expect(HttpAiClient.errorMessage('{"error":"nope"}'), 'nope');
       expect(HttpAiClient.errorMessage('{"message":"bad key"}'), 'bad key');
+      // Brave names the reason `detail`; 豆包 puts it in ResponseMetadata.
+      expect(HttpAiClient.errorMessage('{"error":{"code":"X","detail":"bad token"}}'), 'bad token');
+      expect(
+        HttpAiClient.errorMessage('{"ResponseMetadata":{"Error":{"Code":"Unauthorized","Message":"no access"}}}'),
+        'no access (Unauthorized)',
+      );
       expect(HttpAiClient.errorMessage('x' * 300), 'x' * 200);
     });
 

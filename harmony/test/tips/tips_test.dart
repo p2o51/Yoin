@@ -85,7 +85,12 @@ void main() {
 
     test('should_bringAllMemoriesBackUnread_when_itWasReadBeforeTheLift', () {
       // Read on 11-16, before the grid flew into the bar: the tip shows something new now.
-      expect(decodeReadTips(['memoryLedger@2026-11-12', 'aiServices@2026-11-16']), {HomeBubbleTip.aiServices});
+      expect(decodeReadTips(['memoryLedger@2026-11-12', 'aiServices@2026-11-17']), {HomeBubbleTip.aiServices});
+    });
+
+    test('should_bringAiFeaturesBackUnread_when_readBeforeTheChartOpenedOnCost', () {
+      // Read on 11-16: the AI page's chart now opens on cost against the overall score.
+      expect(decodeReadTips(['aiServices@2026-11-16', 'lyricsTools@2026-11-16']), {HomeBubbleTip.lyricsTools});
     });
 
     test('should_bringMemoriesTipsBackUnread_when_readBeforeTheDeckAurora', () {

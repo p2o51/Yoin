@@ -6,7 +6,10 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 import '../data/ai/ai_settings.dart';
 import '../nowplaying/haptics.dart';
 import '../theme/motion.dart';
+import 'ai_chart_labels.dart';
+import 'ai_settings_screen.dart' show AiSpringSwap;
 import 'ai_tier_benchmark.dart';
+import 'settings_components.dart';
 import 'settings_metrics.dart';
 import 'settings_strings.dart';
 
@@ -19,41 +22,121 @@ Color aiProviderColor(AiProvider provider, {required bool dark}) => switch (prov
   AiProvider.custom => dark ? const Color(0xFFFF8FCF) : const Color(0xFFC2338A),
 };
 
-/// Every tier as a dot on two of speed / cost / accuracy (TradeoffChart). No
-/// axis picker: the button beside the legend steps through [aiChartViews] and
-/// the dots spring to their new places. Untested tiers are hollow dots in the corner.
+/// Custom's search services on the chart (searchServiceColor), made the way
+/// [aiProviderColor] is: a pair per theme. DeepSeek keeps its service colour;
+/// No search, the baseline, is the scheme's [outline].
+Color aiSearchServiceColor(AiSearchService service, {required bool dark, required Color outline}) => switch (service) {
+  AiSearchService.deepSeek => aiProviderColor(AiProvider.deepSeek, dark: dark),
+  AiSearchService.exa => dark ? const Color(0xFFB9A3FF) : const Color(0xFF6A4CD6),
+  AiSearchService.tavily => aiProviderColor(AiProvider.gemini, dark: dark),
+  AiSearchService.brave => aiProviderColor(AiProvider.qwen, dark: dark),
+  AiSearchService.doubao => aiProviderColor(AiProvider.custom, dark: dark),
+  AiSearchService.none => outline,
+};
+
+/// Every dot the chart can show, in a fixed order: the tiers, then Custom's search services.
+final List<(AiChartPoint, AiChartSet)> _allDots = [
+  for (final p in AiTierBenchmark.points) (p, AiChartSet.tiers),
+  for (final p in AiSearchBenchmark.points) (p, AiChartSet.search),
+];
+
+/// One dot as drawn this frame. [label] is null for a dot that goes unnamed.
+class _Dot {
+  const _Dot({
+    required this.point,
+    required this.set,
+    required this.color,
+    required this.label,
+    required this.chosen,
+    required this.mine,
+    required this.named,
+  });
+
+  final AiChartPoint point;
+  final AiChartSet set;
+  final Color color;
+  final TextPainter? label;
+
+  /// Picked: the tier in use (its service's), or Custom's search service.
+  final bool chosen;
+
+  /// Drawn at full strength; another service's tiers are faded.
+  final bool mine;
+
+  /// Its name shows (alpha aside): the chosen service's tiers, or any search dot (faded in when chosen).
+  final bool named;
+}
+
+/// Every tier as a dot, or with Custom every search service Custom can use
+/// (DeepSeek writing with each) (TradeoffChart). It opens on cost against the
+/// overall score (accuracy and speed together); the button beside the legend
+/// steps through [aiChartViews], the other three being two of speed / cost /
+/// accuracy, and the dots spring to their new places. Each set has its own
+/// axis ranges ([AiChartSet.range]); going to or from Custom cross-fades the
+/// two sets. The chosen dot grows and haloes on a spring, so picking another
+/// tier or search moves the highlight. A dot whose numbers are estimates says
+/// so in its name.
 class AiTradeoffChart extends StatefulWidget {
-  const AiTradeoffChart({super.key, required this.provider, required this.tier});
+  const AiTradeoffChart({super.key, required this.provider, required this.tier, required this.searchService});
 
   final AiProvider provider;
+
+  /// The tier in use ([AiSettings.activeTier]).
   final AiTier tier;
+  final AiSearchService searchService;
 
   @override
   State<AiTradeoffChart> createState() => _AiTradeoffChartState();
 }
 
 class _AiTradeoffChartState extends State<AiTradeoffChart> with TickerProviderStateMixin {
-  static final List<AiTierPoint> _measured = AiTierBenchmark.points.where((p) => p.measured).toList();
-  static final List<AiTierPoint> _untested = AiTierBenchmark.points.where((p) => !p.measured).toList();
-
   int _view = 0;
   int _turns = 0;
 
-  // Fixed order and count: one pair of springs per measured tier.
+  AiChartPoint? get _chosen => chosenChartPoint(widget.provider, widget.tier, widget.searchService);
+
+  SpringValue _spring(double initial, SpringDescription spring) =>
+      SpringValue(vsync: this, initial: initial, spring: spring);
+
+  // Fixed order and count: one pair of springs per dot, each on its own set's ranges.
   late final List<(SpringValue, SpringValue)> _positions = [
-    for (final p in _measured)
+    for (final (p, set) in _allDots)
       (
-        SpringValue(vsync: this, initial: aiChartViews.first.$1.fraction(p) ?? 0, spring: YoinSprings.defaultSpatial),
-        SpringValue(vsync: this, initial: aiChartViews.first.$2.fraction(p) ?? 0, spring: YoinSprings.defaultSpatial),
+        _spring(aiChartViews.first.$1.fraction(p, set), YoinSprings.defaultSpatial),
+        _spring(aiChartViews.first.$2.fraction(p, set), YoinSprings.defaultSpatial),
       ),
   ];
-  late final SpringValue _turn = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
+
+  // 0 → 1 as a dot becomes the chosen one. Its size moves on the spatial spring; its halo and a
+  // search dot's name fade on the effects spring.
+  late final List<SpringValue> _emphasis = [
+    for (final (p, _) in _allDots) _spring(identical(p, _chosen) ? 1 : 0, YoinSprings.defaultSpatial),
+  ];
+  late final List<SpringValue> _glow = [
+    for (final (p, _) in _allDots) _spring(identical(p, _chosen) ? 1 : 0, YoinSprings.defaultEffects),
+  ];
+  late final SpringValue _searchShown = _spring(
+    AiChartSet.forProvider(widget.provider) == AiChartSet.search ? 1 : 0,
+    YoinSprings.defaultEffects,
+  );
+  late final SpringValue _turn = _spring(0, YoinSprings.defaultSpatial);
+
+  /// Each name's top-left from its dot, on the spatial spring; made at the first layout.
+  final List<(SpringValue, SpringValue)?> _labelAt = List.filled(_allDots.length, null);
+
+  bool get _reduce => MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+  void _go(SpringValue v, double target) => _reduce ? v.snapTo(target) : v.animateTo(target);
 
   @override
-  void initState() {
-    super.initState();
-    _positions;
-    _turn;
+  void didUpdateWidget(AiTradeoffChart old) {
+    super.didUpdateWidget(old);
+    final chosen = _chosen;
+    for (final (i, (p, _)) in _allDots.indexed) {
+      _go(_emphasis[i], identical(p, chosen) ? 1 : 0);
+      _go(_glow[i], identical(p, chosen) ? 1 : 0);
+    }
+    _go(_searchShown, AiChartSet.forProvider(widget.provider) == AiChartSet.search ? 1 : 0);
   }
 
   @override
@@ -62,29 +145,153 @@ class _AiTradeoffChartState extends State<AiTradeoffChart> with TickerProviderSt
       x.dispose();
       y.dispose();
     }
-    _turn.dispose();
+    for (final v in [..._emphasis, ..._glow, _searchShown, _turn]) {
+      v.dispose();
+    }
+    for (final at in _labelAt) {
+      at?.$1.dispose();
+      at?.$2.dispose();
+    }
     super.dispose();
   }
 
   void _flip() {
-    YoinHaptics.tick();
+    YoinHaptics.segmentTick();
     setState(() {
       _view = (_view + 1) % aiChartViews.length;
       _turns++;
     });
     final (xAxis, yAxis) = aiChartViews[_view];
-    final reduce = MediaQuery.disableAnimationsOf(context);
-    for (final (i, p) in _measured.indexed) {
+    for (final (i, (p, set)) in _allDots.indexed) {
       final (x, y) = _positions[i];
-      if (reduce) {
-        x.snapTo(xAxis.fraction(p) ?? 0);
-        y.snapTo(yAxis.fraction(p) ?? 0);
-      } else {
-        x.animateTo(xAxis.fraction(p) ?? 0);
-        y.animateTo(yAxis.fraction(p) ?? 0);
+      _go(x, xAxis.fraction(p, set));
+      _go(y, yAxis.fraction(p, set));
+    }
+    _go(_turn, _turns * 0.5);
+  }
+
+  /// The chart's plot in a canvas of [size]: room for the y values on the left and the x axis below.
+  static Rect plotIn(Size size) => Rect.fromLTRB(
+    SettingsMetrics.aiChartLeft,
+    SettingsMetrics.aiChartTop,
+    size.width - SettingsMetrics.aiChartRight,
+    size.height - SettingsMetrics.aiChartBottom,
+  );
+
+  List<_Dot> _dots(BuildContext context, TextStyle dotLabel, TextScaler scaler) {
+    final strings = SettingsStrings.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final dark = colors.surface.computeLuminance() < 0.5;
+    final chosen = _chosen;
+    TextPainter? name(String text, {required bool bold}) {
+      if (text.isEmpty) return null;
+      final weight = bold ? 700.0 : 500.0;
+      return TextPainter(
+        text: TextSpan(
+          text: text,
+          style: dotLabel.copyWith(
+            fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+            fontVariations: [FontVariation.weight(weight)],
+          ),
+        ),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+    }
+
+    return [
+      for (final (point, set) in _allDots)
+        switch (point) {
+          AiTierPoint() => _Dot(
+            point: point,
+            set: set,
+            color: aiProviderColor(point.provider, dark: dark),
+            // A service with one tier has no tier to name: its dot goes without. An estimated
+            // tier's name carries the mark the tier page puts on an estimated cost.
+            label: name(
+              point.provider.tiers.length <= 1
+                  ? ''
+                  : point.estimated
+                  ? strings.aiTierEstimated(strings.aiTier(point.tier))
+                  : strings.aiTier(point.tier),
+              bold: point.tier == widget.tier,
+            ),
+            chosen: identical(point, chosen),
+            mine: point.provider == widget.provider,
+            named: point.provider == widget.provider,
+          ),
+          AiSearchPoint() => _Dot(
+            point: point,
+            set: set,
+            color: aiSearchServiceColor(point.service, dark: dark, outline: colors.outline),
+            label: name(
+              point.estimated
+                  ? strings.aiTierEstimated(strings.aiSearchService(point.service))
+                  : strings.aiSearchService(point.service),
+              bold: true,
+            ),
+            chosen: identical(point, chosen),
+            mine: true,
+            named: true,
+          ),
+        },
+    ];
+  }
+
+  /// Where each name goes for the view on screen. Every name has a place
+  /// worked out, so picking a service shows its names where they belong
+  /// rather than sliding them there.
+  void _placeLabels(List<_Dot> dots, Size size) {
+    final plot = plotIn(size);
+    final (xAxis, yAxis) = aiChartViews[_view];
+    final centres = [
+      for (final d in dots)
+        Offset(
+          plot.left + xAxis.fraction(d.point, d.set) * plot.width,
+          plot.bottom - yAxis.fraction(d.point, d.set) * plot.height,
+        ),
+    ];
+    final targets = List<Offset>.filled(dots.length, Offset.zero);
+    for (final set in AiChartSet.values) {
+      final inSet = [
+        for (var i = 0; i < dots.length; i++)
+          if (dots[i].set == set) i,
+      ];
+      final setCentres = [for (final i in inSet) centres[i]];
+      // A tier's names are placed with its service's other tier (both show); a search
+      // service's name shows alone, so each is placed on its own.
+      final groups = <String, List<int>>{};
+      for (var k = 0; k < inSet.length; k++) {
+        if (dots[inSet[k]].label == null) continue;
+        final key = switch (dots[inSet[k]].point) {
+          AiTierPoint(:final provider) => provider.name,
+          AiSearchPoint(:final service) => service.name,
+        };
+        (groups[key] ??= []).add(k);
+      }
+      for (final group in groups.values) {
+        final placed = AiChartLabels.place(
+          plot: plot,
+          dots: setCentres,
+          dotRadius: SettingsMetrics.aiDotLabelKeepOff,
+          gap: SettingsMetrics.aiDotLabelGap,
+          labels: [for (final k in group) (k, dots[inSet[k]].label!.size)],
+        );
+        for (final (n, k) in group.indexed) {
+          targets[inSet[k]] = placed[n];
+        }
       }
     }
-    reduce ? _turn.snapTo(_turns * 0.5) : _turn.animateTo(_turns * 0.5);
+    for (final (i, target) in targets.indexed) {
+      final at = _labelAt[i];
+      if (at == null) {
+        _labelAt[i] = (_spring(target.dx, YoinSprings.defaultSpatial), _spring(target.dy, YoinSprings.defaultSpatial));
+      } else {
+        _go(at.$1, target.dx);
+        _go(at.$2, target.dy);
+      }
+    }
   }
 
   @override
@@ -94,51 +301,69 @@ class _AiTradeoffChartState extends State<AiTradeoffChart> with TickerProviderSt
     final colors = theme.colorScheme;
     final text = theme.textTheme;
     final dark = colors.surface.computeLuminance() < 0.5;
+    final scaler = MediaQuery.textScalerOf(context);
     final (xAxis, yAxis) = aiChartViews[_view];
+    final set = AiChartSet.forProvider(widget.provider);
     String axisName(AiAxis axis) => switch (axis) {
       AiAxis.speed => strings.aiAxisSpeed,
       AiAxis.cost => strings.aiAxisCost,
       AiAxis.accuracy => strings.aiAxisAccuracy,
+      AiAxis.overall => strings.aiAxisOverall,
     };
-    final listenables = <Listenable>[
-      for (final (x, y) in _positions) ...[x.animation, y.animation],
-    ];
+    // From the type scale: a bare TextStyle has no font family, and the canvas would draw the
+    // system font instead of the app's.
+    final dotLabel = text.labelMedium!.copyWith(color: colors.onSurface);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(
           height: SettingsMetrics.aiChartHeight,
-          child: AnimatedBuilder(
-            animation: Listenable.merge(listenables),
-            builder: (context, _) => CustomPaint(
-              painter: _ChartPainter(
-                provider: widget.provider,
-                tier: widget.tier,
-                dark: dark,
-                measured: _measured,
-                untested: _untested,
-                positions: [for (final (x, y) in _positions) Offset(x.value, y.value)],
-                xAxis: xAxis,
-                yAxis: yAxis,
-                xName: axisName(xAxis),
-                yName: axisName(yAxis),
-                tierName: strings.aiTier,
-                untestedText: strings.aiUntested,
-                grid: colors.outlineVariant,
-                surface: colors.surface,
-                small: text.labelSmall!.copyWith(
-                  fontSize: SettingsMetrics.aiChartEndText,
-                  color: colors.onSurfaceVariant,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final size = Size(constraints.maxWidth, SettingsMetrics.aiChartHeight);
+              final dots = _dots(context, dotLabel, scaler);
+              _placeLabels(dots, size);
+              return AnimatedBuilder(
+                animation: Listenable.merge([
+                  for (final (x, y) in _positions) ...[x.animation, y.animation],
+                  for (final at in _labelAt) ...[?at?.$1.animation, ?at?.$2.animation],
+                  ..._emphasis.map((v) => v.animation),
+                  ..._glow.map((v) => v.animation),
+                  _searchShown.animation,
+                ]),
+                builder: (context, _) => CustomPaint(
+                  key: const ValueKey('ai-chart'),
+                  size: size,
+                  painter: _ChartPainter(
+                    dots: dots,
+                    positions: [for (final (x, y) in _positions) Offset(x.value, y.value)],
+                    labelOffsets: [
+                      for (final at in _labelAt) at == null ? Offset.zero : Offset(at.$1.value, at.$2.value),
+                    ],
+                    emphasis: [for (final v in _emphasis) v.value],
+                    glow: [for (final v in _glow) v.value.clamp(0.0, 1.0)],
+                    searchShown: _searchShown.value.clamp(0.0, 1.0),
+                    xAxis: xAxis,
+                    yAxis: yAxis,
+                    xName: axisName(xAxis),
+                    yName: axisName(yAxis),
+                    grid: colors.outlineVariant,
+                    surface: colors.surface,
+                    small: text.labelSmall!.copyWith(
+                      fontSize: SettingsMetrics.aiChartEndText,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    axisStyle: text.labelMedium!.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontVariations: const [FontVariation.weight(600)],
+                      color: colors.onSurface,
+                    ),
+                    textDirection: Directionality.of(context),
+                    textScaler: scaler,
+                  ),
                 ),
-                axisStyle: text.labelMedium!.copyWith(
-                  fontWeight: FontWeight.w600,
-                  fontVariations: const [FontVariation.weight(600)],
-                  color: colors.onSurface,
-                ),
-                dotLabel: text.labelMedium!.copyWith(color: colors.onSurface),
-                textDirection: Directionality.of(context),
-              ),
-            ),
+              );
+            },
           ),
         ),
         const SizedBox(height: SettingsMetrics.aiChartGap),
@@ -147,7 +372,12 @@ class _AiTradeoffChartState extends State<AiTradeoffChart> with TickerProviderSt
             final showText = constraints.maxWidth >= SettingsMetrics.aiFlipTextMinWidth;
             return Row(
               children: [
-                Expanded(child: _Legend(dark: dark)),
+                Expanded(
+                  child: AiSpringSwap(
+                    childKey: set,
+                    child: _Legend(set: set, dark: dark),
+                  ),
+                ),
                 Semantics(
                   button: true,
                   label: showText ? null : strings.aiFlip,
@@ -190,41 +420,63 @@ class _AiTradeoffChartState extends State<AiTradeoffChart> with TickerProviderSt
             );
           },
         ),
+        SpringReveal(
+          visible: set == AiChartSet.search,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.only(
+              start: SettingsMetrics.aiSectionLabelInset,
+              top: SettingsMetrics.aiChartNoteTop,
+            ),
+            child: Text(
+              strings.aiSearchChartNote,
+              key: const ValueKey('ai-search-chart-note'),
+              style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant),
+            ),
+          ),
+        ),
       ],
     );
   }
 }
 
+/// The colours under the chart: the three tiered services, or Custom's search services.
 class _Legend extends StatelessWidget {
-  const _Legend({required this.dark});
+  const _Legend({required this.set, required this.dark});
 
+  final AiChartSet set;
   final bool dark;
 
   @override
   Widget build(BuildContext context) {
     final strings = SettingsStrings.of(context);
     final theme = Theme.of(context);
+    final outline = theme.colorScheme.outline;
+    final entries = switch (set) {
+      AiChartSet.tiers => [
+        for (final p in const [AiProvider.gemini, AiProvider.deepSeek, AiProvider.qwen])
+          (strings.aiProvider(p), aiProviderColor(p, dark: dark)),
+      ],
+      AiChartSet.search => [
+        for (final p in AiSearchBenchmark.points)
+          (strings.aiSearchService(p.service), aiSearchServiceColor(p.service, dark: dark, outline: outline)),
+      ],
+    };
     return Wrap(
+      key: ValueKey('ai-legend-${set.name}'),
       spacing: SettingsMetrics.aiLegendGap,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        for (final provider in const [AiProvider.gemini, AiProvider.deepSeek, AiProvider.qwen])
+        for (final (name, color) in entries)
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 width: SettingsMetrics.aiLegendDot,
                 height: SettingsMetrics.aiLegendDot,
-                decoration: ShapeDecoration(
-                  color: aiProviderColor(provider, dark: dark),
-                  shape: const CircleBorder(),
-                ),
+                decoration: ShapeDecoration(color: color, shape: const CircleBorder()),
               ),
               const SizedBox(width: SettingsMetrics.aiLegendDotGap),
-              Text(
-                strings.aiProvider(provider),
-                style: theme.textTheme.labelSmall!.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
+              Text(name, style: theme.textTheme.labelSmall!.copyWith(color: theme.colorScheme.onSurfaceVariant)),
             ],
           ),
       ],
@@ -234,62 +486,83 @@ class _Legend extends StatelessWidget {
 
 class _ChartPainter extends CustomPainter {
   _ChartPainter({
-    required this.provider,
-    required this.tier,
-    required this.dark,
-    required this.measured,
-    required this.untested,
+    required this.dots,
     required this.positions,
+    required this.labelOffsets,
+    required this.emphasis,
+    required this.glow,
+    required this.searchShown,
     required this.xAxis,
     required this.yAxis,
     required this.xName,
     required this.yName,
-    required this.tierName,
-    required this.untestedText,
     required this.grid,
     required this.surface,
     required this.small,
     required this.axisStyle,
-    required this.dotLabel,
     required this.textDirection,
+    required this.textScaler,
   });
 
-  final AiProvider provider;
-  final AiTier tier;
-  final bool dark;
-  final List<AiTierPoint> measured;
-  final List<AiTierPoint> untested;
+  final List<_Dot> dots;
   final List<Offset> positions;
+  final List<Offset> labelOffsets;
+  final List<double> emphasis;
+  final List<double> glow;
+  final double searchShown;
   final AiAxis xAxis;
   final AiAxis yAxis;
   final String xName;
   final String yName;
-  final String Function(AiTier) tierName;
-  final String untestedText;
   final Color grid;
   final Color surface;
   final TextStyle small;
   final TextStyle axisStyle;
-  final TextStyle dotLabel;
   final TextDirection textDirection;
+  final TextScaler textScaler;
+
+  double _setAlpha(AiChartSet set) => set == AiChartSet.search ? searchShown : 1 - searchShown;
 
   TextPainter _layout(String text, TextStyle style) => TextPainter(
     text: TextSpan(text: text, style: style),
     textDirection: textDirection,
+    textScaler: textScaler,
     maxLines: 1,
   )..layout();
 
-  void _drawEnd(Canvas canvas, String text, Offset anchor, {required bool alignEnd}) {
+  void _paintFaded(Canvas canvas, TextPainter t, Offset at, double alpha) {
+    if (alpha <= 0.001) return;
+    if (alpha >= 0.999) {
+      t.paint(canvas, at);
+      return;
+    }
+    canvas.saveLayer(at & t.size, Paint()..color = Color.fromRGBO(0, 0, 0, alpha));
+    t.paint(canvas, at);
+    canvas.restore();
+  }
+
+  void _drawEnd(Canvas canvas, String text, Offset anchor, {required bool alignEnd, double alpha = 1}) {
     final t = _layout(text, small);
-    t.paint(canvas, Offset(alignEnd ? anchor.dx - t.width : anchor.dx, anchor.dy));
+    _paintFaded(canvas, t, Offset(alignEnd ? anchor.dx - t.width : anchor.dx, anchor.dy), alpha);
+  }
+
+  /// Axis ends: worst at the origin, best at the far end. An end the two sets
+  /// print differently cross-fades with them.
+  void _drawEnds(Canvas canvas, AiAxis axis, {required bool worst, required Offset anchor, required bool alignEnd}) {
+    final tiers = axisValue(axis, AiChartSet.tiers, worst: worst);
+    final search = axisValue(axis, AiChartSet.search, worst: worst);
+    if (tiers == search) {
+      _drawEnd(canvas, tiers, anchor, alignEnd: alignEnd);
+    } else {
+      _drawEnd(canvas, tiers, anchor, alignEnd: alignEnd, alpha: _setAlpha(AiChartSet.tiers));
+      _drawEnd(canvas, search, anchor, alignEnd: alignEnd, alpha: _setAlpha(AiChartSet.search));
+    }
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-    const left = SettingsMetrics.aiChartLeft;
-    final right = size.width - SettingsMetrics.aiChartRight;
-    const top = SettingsMetrics.aiChartTop;
-    final bottom = size.height - SettingsMetrics.aiChartBottom;
+    final plot = _AiTradeoffChartState.plotIn(size);
+    final Rect(:left, :right, :top, :bottom) = plot;
     const steps = SettingsMetrics.aiChartGridSteps;
     final gridPaint = Paint()
       ..color = grid
@@ -302,29 +575,21 @@ class _ChartPainter extends CustomPainter {
     }
     Offset at(Offset f) => Offset(left + f.dx * (right - left), bottom - f.dy * (bottom - top));
 
-    // Axis ends: worst at the origin, best at the far end.
-    _drawEnd(
+    final xEnds = bottom + SettingsMetrics.aiChartXEndGap;
+    final yEnds = left - SettingsMetrics.aiChartYEndGap;
+    _drawEnds(canvas, xAxis, worst: true, anchor: Offset(left, xEnds), alignEnd: false);
+    _drawEnds(canvas, xAxis, worst: false, anchor: Offset(right, xEnds), alignEnd: true);
+    _drawEnds(
       canvas,
-      xAxis.endLabel(worst: true),
-      Offset(left, bottom + SettingsMetrics.aiChartXEndGap),
-      alignEnd: false,
-    );
-    _drawEnd(
-      canvas,
-      xAxis.endLabel(worst: false),
-      Offset(right, bottom + SettingsMetrics.aiChartXEndGap),
+      yAxis,
+      worst: true,
+      anchor: Offset(yEnds, bottom - SettingsMetrics.aiChartYWorstLift),
       alignEnd: true,
     );
-    _drawEnd(
-      canvas,
-      yAxis.endLabel(worst: true),
-      Offset(left - SettingsMetrics.aiChartYEndGap, bottom - SettingsMetrics.aiChartYWorstLift),
-      alignEnd: true,
-    );
-    _drawEnd(canvas, yAxis.endLabel(worst: false), Offset(left - SettingsMetrics.aiChartYEndGap, top), alignEnd: true);
+    _drawEnds(canvas, yAxis, worst: false, anchor: Offset(yEnds, top), alignEnd: true);
     final xText = _layout('$xName →', axisStyle);
     xText.paint(canvas, Offset((left + right - xText.width) / 2, bottom + SettingsMetrics.aiChartXLabelTop));
-    const gutter = left - SettingsMetrics.aiChartYEndGap;
+    final gutter = left - SettingsMetrics.aiChartYEndGap;
     final yText = _layout('↑$yName', axisStyle);
     if (yText.width <= gutter) {
       yText.paint(canvas, Offset(gutter - yText.width, (top + bottom - yText.height) / 2));
@@ -341,95 +606,49 @@ class _ChartPainter extends CustomPainter {
       canvas.restore();
     }
 
-    for (final (i, point) in untested.indexed) {
-      final mine = point.provider == provider;
-      final chosen = mine && point.tier == tier;
-      final c = Offset(
-        right - (SettingsMetrics.aiUntestedInset + i * SettingsMetrics.aiUntestedStep),
-        bottom - SettingsMetrics.aiUntestedInset,
-      );
-      _dashedCircle(
-        canvas,
-        c,
-        chosen ? SettingsMetrics.aiDotPicked : SettingsMetrics.aiDot,
-        aiProviderColor(point.provider, dark: dark).withValues(alpha: mine ? 1 : SettingsMetrics.aiUntestedDimAlpha),
-      );
-      if (mine && i == untested.length - 1) {
-        final t = _layout(untestedText, small);
-        t.paint(canvas, Offset(c.dx - SettingsMetrics.aiUntestedInset - t.width, c.dy - t.height / 2));
-      }
-    }
-
-    for (final (i, point) in measured.indexed) {
-      final mine = provider == AiProvider.custom || point.provider == provider;
-      final chosen = point.provider == provider && point.tier == tier;
-      final alpha = provider == AiProvider.qwen || !mine ? SettingsMetrics.aiDotDimAlpha : 1.0;
-      final color = aiProviderColor(point.provider, dark: dark);
+    // Set by set; in each, the chosen dot last: two dots can overlap, and the chosen one stays whole.
+    final order = [for (var i = 0; i < dots.length; i++) i]
+      ..sort((a, b) {
+        final bySet = dots[a].set.index.compareTo(dots[b].set.index);
+        if (bySet != 0) return bySet;
+        final byChosen = (dots[a].chosen ? 1 : 0).compareTo(dots[b].chosen ? 1 : 0);
+        return byChosen != 0 ? byChosen : a.compareTo(b);
+      });
+    for (final i in order) {
+      final dot = dots[i];
+      final shown = _setAlpha(dot.set);
+      if (shown <= 0.001) continue;
+      final e = emphasis[i];
+      final g = glow[i];
+      final alpha = (dot.mine ? 1.0 : SettingsMetrics.aiDotDimAlpha) * shown;
       final c = at(positions[i]);
-      if (chosen) {
+      if (g > 0) {
         canvas.drawCircle(
           c,
           SettingsMetrics.aiDotHalo,
-          Paint()..color = color.withValues(alpha: SettingsMetrics.aiDotHaloAlpha),
+          Paint()..color = dot.color.withValues(alpha: SettingsMetrics.aiDotHaloAlpha * g * shown),
         );
       }
       canvas.drawCircle(
         c,
-        chosen ? SettingsMetrics.aiDotRingPicked : SettingsMetrics.aiDotRing,
-        Paint()..color = surface,
+        SettingsMetrics.aiDotRing + SettingsMetrics.aiDotGrow * e,
+        Paint()..color = surface.withValues(alpha: surface.a * shown),
       );
       canvas.drawCircle(
         c,
-        chosen ? SettingsMetrics.aiDotPicked : SettingsMetrics.aiDot,
-        Paint()..color = color.withValues(alpha: alpha),
+        SettingsMetrics.aiDot + SettingsMetrics.aiDotGrow * e,
+        Paint()..color = dot.color.withValues(alpha: dot.color.a * alpha),
       );
-      if (point.provider == provider) {
-        final weight = chosen ? 700.0 : 500.0;
-        final t = _layout(
-          tierName(point.tier),
-          dotLabel.copyWith(
-            fontWeight: chosen ? FontWeight.w700 : FontWeight.w500,
-            fontVariations: [FontVariation.weight(weight)],
-          ),
-        );
-        t.paint(canvas, Offset(c.dx + SettingsMetrics.aiDotLabelGap, c.dy - t.height / 2));
+      final name = dot.label;
+      if (dot.named && name != null) {
+        // A search dot's name shows only on the chosen one, fading in as it is picked.
+        final nameAlpha = dot.set == AiChartSet.search ? g : 1.0;
+        _paintFaded(canvas, name, c + labelOffsets[i], nameAlpha * shown);
       }
     }
   }
 
-  /// A hollow dot drawn as dashes round its edge (PathEffect.dashPathEffect).
-  void _dashedCircle(Canvas canvas, Offset centre, double radius, Color color) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = SettingsMetrics.aiUntestedStroke;
-    final rect = Rect.fromCircle(center: centre, radius: radius);
-    final circumference = 2 * math.pi * radius;
-    const period = SettingsMetrics.aiUntestedDash + SettingsMetrics.aiUntestedDashGap;
-    for (var d = 0.0; d < circumference; d += period) {
-      final sweep = math.min(SettingsMetrics.aiUntestedDash, circumference - d) / radius;
-      canvas.drawArc(rect, d / radius - math.pi / 2, sweep, false, paint);
-    }
-  }
-
+  // Every frame of a spring brings new numbers; a rebuild with none brings new text or colours.
   @override
-  bool shouldRepaint(_ChartPainter old) =>
-      old.provider != provider ||
-      old.tier != tier ||
-      old.dark != dark ||
-      old.xAxis != xAxis ||
-      old.yAxis != yAxis ||
-      old.xName != xName ||
-      old.grid != grid ||
-      old.surface != surface ||
-      old.small != small ||
-      !_samePositions(old.positions, positions);
-
-  static bool _samePositions(List<Offset> a, List<Offset> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
+  bool shouldRepaint(_ChartPainter old) => true;
 }

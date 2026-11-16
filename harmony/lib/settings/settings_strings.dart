@@ -26,7 +26,7 @@ class SettingsStrings {
   String get aiTitlePage => _zh ? 'AI 功能' : 'AI features'; // settings_gemini_title_page
   String get aiSummaryEmpty =>
       _zh ? '歌曲信息、问 Gemini、歌词翻译与 Memories 标题' : 'Song info, Ask Gemini, translation and Memory titles'; // settings_gemini_summary_empty
-  String aiAnswerIn(String language) => _zh ? '回答语言：$language' : 'Answer in $language'; // settings_gemini_answer_in
+  String get aiAnswerLanguage => _zh ? '回答语言' : 'Answer language'; // ai_answer_language
   String get aiTiersLabel => _zh ? '档位' : 'Tier'; // ai_tiers_label
   String get aiKeyLabel => _zh ? 'API 密钥' : 'API key'; // ai_key_label
 
@@ -43,12 +43,19 @@ class SettingsStrings {
     AiTier.good => _zh ? '好' : 'Good',
     AiTier.best => _zh ? '最佳' : 'Best',
   };
+  String aiTierEstimated(String name) => _zh ? '$name（估）' : '$name (est.)'; // ai_tier_estimated
   String get aiCdTierDetails => _zh ? '档位区别' : 'How the tiers differ'; // ai_cd_tier_details
   String get aiFlip => _zh ? '换个角度' : 'Change view'; // ai_flip
   String get aiAxisSpeed => _zh ? '更快' : 'Faster'; // ai_axis_speed
   String get aiAxisCost => _zh ? '更省' : 'Cheaper'; // ai_axis_cost
   String get aiAxisAccuracy => _zh ? '更准' : 'More accurate'; // ai_axis_accuracy
-  String get aiUntested => _zh ? '还没测' : 'Not tested'; // ai_untested
+  String get aiAxisOverall => _zh ? '又准又快' : 'Accurate and fast'; // ai_axis_overall
+
+  /// Under the chart while Custom is chosen (Gemini 4 Carbon, 2026-11-14).
+  String get aiSearchChartNote => _zh
+      ? '测试时都用 deepseek-flash 写回答，只换搜索服务。Tavily 和 Brave 按 35 首歌估算，其余是 499 首歌实测。'
+      : 'Tested with deepseek-flash as the writing model, changing only the search service. Tavily and Brave are '
+            'estimated from 35 songs; the rest were measured on 499.'; // ai_search_chart_note
   String get aiGetKeyGemini => _zh ? '在 Google AI Studio 获取' : 'Get a key in Google AI Studio'; // ai_get_key_gemini
   String get aiGetKeyDeepSeek =>
       _zh ? '在 DeepSeek 开放平台获取' : 'Get a key on the DeepSeek platform'; // ai_get_key_deepseek
@@ -71,15 +78,27 @@ class SettingsStrings {
   String get aiSearchLabel => _zh ? '搜索服务' : 'Search'; // ai_search_label
   String get aiSearchNone => _zh ? '不搜索' : 'No search'; // ai_search_none
 
-  /// The search service's name (searchServiceName: DeepSeek, Exa, Tavily, ai_search_none).
+  /// The search service's name (searchServiceName: DeepSeek, Exa, Tavily, Brave, ai_search_doubao, ai_search_none).
   String aiSearchService(AiSearchService service) => switch (service) {
     AiSearchService.deepSeek => 'DeepSeek',
     AiSearchService.exa => 'Exa',
     AiSearchService.tavily => 'Tavily',
+    AiSearchService.brave => 'Brave',
+    AiSearchService.doubao => _zh ? '豆包' : 'Doubao', // ai_search_doubao
     AiSearchService.none => aiSearchNone,
   };
   String aiSearchKey(String name) => _zh ? '$name 密钥' : '$name key'; // ai_search_key
-  String aiGetSearchKey(String name) => _zh ? '获取 $name 密钥' : 'Get a $name key'; // ai_get_search_key
+
+  /// "Get a … key", one string per service: English's article follows the name (an Exa key).
+  /// ai_get_search_key_deepseek / _exa / _tavily / _brave / _doubao.
+  String aiGetSearchKey(AiSearchService service) => switch (service) {
+    AiSearchService.deepSeek => _zh ? '获取 DeepSeek 密钥' : 'Get a DeepSeek key',
+    AiSearchService.exa => _zh ? '获取 Exa 密钥' : 'Get an Exa key',
+    AiSearchService.tavily => _zh ? '获取 Tavily 密钥' : 'Get a Tavily key',
+    AiSearchService.brave => _zh ? '获取 Brave 密钥' : 'Get a Brave key',
+    AiSearchService.doubao => _zh ? '获取豆包密钥' : 'Get a Doubao key',
+    AiSearchService.none => '',
+  };
   String aiModelsError(String error) => _zh ? '拉取失败：$error' : "Couldn't fetch models: $error"; // ai_models_error
   String get aiTry => _zh ? '拿一首歌试试' : 'Try a song'; // ai_try
   String aiTiersTitle(String provider) => _zh ? '$provider 档位' : '$provider tiers'; // ai_tiers_title
@@ -91,6 +110,8 @@ class SettingsStrings {
   String aiSeconds(String seconds) => _zh ? '$seconds 秒' : '$seconds s'; // ai_seconds
   String aiCost(String cost) => '\$$cost'; // ai_cost (not translatable)
   String aiCostEstimated(String cost) => _zh ? '\$$cost（估）' : '\$$cost (est.)'; // ai_cost_estimated
+  String aiSecondsEstimated(String seconds) => _zh ? '$seconds 秒（估）' : '$seconds s (est.)'; // ai_seconds_estimated
+  String aiAccuracyEstimated(String accuracy) => _zh ? '$accuracy%（估）' : '$accuracy% (est.)'; // ai_accuracy_estimated
   String get aiSearchGoogle => _zh ? 'Google 搜索' : 'Google Search'; // ai_search_google
   String get aiSearchQwen => _zh ? '千问自带搜索' : "Qwen's own search"; // ai_search_qwen
   String get aiSearchDeepSeekOnce =>
@@ -98,21 +119,19 @@ class SettingsStrings {
   String get aiSearchDeepSeekTwice =>
       _zh ? 'DeepSeek 搜索 2 次，读全文' : 'DeepSeek Search twice, full pages'; // ai_search_deepseek_twice
   String get aiNoteGemini => _zh
-      ? '每月前 5,000 次搜索免费，超出后每千首约 \$31。没开结算的免费密钥不能搜索，会报 429。'
-      : "The first 5,000 searches each month are free; after that, about \$31 per 1,000 songs. A free key without "
+      ? '每月前 5,000 次搜索免费，超出后每千首约 \$25。没开结算的免费密钥不能搜索，会报 429。'
+      : "The first 5,000 searches each month are free; after that, about \$25 per 1,000 songs. A free key without "
             "billing can't search and gets error 429."; // ai_note_gemini
   String get aiNoteDeepSeek => _zh
       ? '国内可以直接用，不需要代理。搜索用同一个密钥，按次收费。'
       : 'Works in mainland China without a proxy. Search uses the same key and is charged per call.'; // ai_note_deepseek
-  String get aiNoteQwen =>
-      _zh ? '国内可以直接用，不需要代理。还没测过。' : 'Works in mainland China without a proxy. Not tested yet.'; // ai_note_qwen
+  String get aiNoteQwen => _zh
+      ? '国内可以直接用，不需要代理。搜索用同一个密钥，按次收费。'
+      : 'Works in mainland China without a proxy. Search uses the same key and is charged per call.'; // ai_note_qwen
   String get aiTiersSource => _zh
-      ? '速度和准确来自 35 首歌的测试，花费按当前价格算。'
-      : 'Speed and accuracy from a 35-song test; cost at current prices.'; // ai_tiers_source
-  String get aiTrySong => _zh ? '歌名' : 'Song'; // ai_try_song
-  String get aiTryArtist => _zh ? '艺人' : 'Artist'; // ai_try_artist
-  String get aiTryAlbum => _zh ? '专辑' : 'Album'; // ai_try_album
-  String get aiTryRun => _zh ? '试试' : 'Try'; // ai_try_run
+      ? '速度和准确来自 500 首歌的测试，花费按当前价格算。'
+      : 'Speed and accuracy from a 500-song test; cost at current prices.'; // ai_tiers_source
+  String get aiTryNoHistory => _zh ? '先播一首歌' : 'Play a song first'; // ai_try_no_history
   String get aiTryRunning => _zh ? '正在查…' : 'Searching…'; // ai_try_running
   String aiTryQueries(String queries) => _zh ? '搜了：$queries' : 'Searched: $queries'; // ai_try_queries
   String aiTryPages(int pages) => _zh ? '读了 $pages 个网页' : '$pages pages read'; // ai_try_pages
