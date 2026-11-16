@@ -11,6 +11,7 @@ import '../theme/tokens.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import 'haptics.dart';
 import 'note_controller.dart';
+import 'note_empty_doodle.dart';
 import 'note_line.dart';
 import 'note_logic.dart';
 import 'nowplaying_strings.dart';
@@ -234,17 +235,11 @@ class _NotePageState extends State<NotePage> with TickerProviderStateMixin {
     _firstBuild = false;
 
     if (rows.isEmpty) {
+      // One of the three doodles, picked at random per song (NoteEmptyState).
+      final song = _notes.current?.trackId;
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: _N.emptyMinHeight),
-            child: Center(
-              heightFactor: 1,
-              child: Text(strings.noteEmpty, style: text.titleSmall!.copyWith(color: colors.onSurfaceVariant)),
-            ),
-          ),
-        ),
+        child: NoteEmptyState(doodle: song == null ? NoteDoodle.stroke : noteDoodleFor(song), label: strings.noteEmpty),
       );
     }
 

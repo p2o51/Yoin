@@ -51,6 +51,20 @@ final class _Labels implements AboutLabels {
   String channelCount(int count) => count == 2 ? 'Stereo' : '$count channels';
   @override
   String get added => 'Added';
+  @override
+  String get arranger => 'Arranger';
+  @override
+  String get size => 'Size';
+  @override
+  String megabytes(String value) => '$value MB';
+  @override
+  String get bpm => 'BPM';
+  @override
+  String get playCount => 'Plays';
+  @override
+  String get comment => 'Comment';
+  @override
+  String get file => 'File';
 }
 
 /// Android AboutReceipt's rows / paragraphs / carousel pages, the quick
@@ -64,6 +78,7 @@ void main() {
         _row(SongAboutKinds.canonical, AboutFields.composer, ''),
         _row(SongAboutKinds.canonical, AboutFields.review, 'Long review.'),
       ],
+      null,
       const AboutSourceFacts(
         format: 'FLAC',
         bitDepth: 24,
@@ -97,6 +112,134 @@ void main() {
     );
     expect(rows.first.entry?.entryKey, AboutFields.lyricist);
     expect(rows.last.entry, isNull);
+  });
+
+  // Android AboutReceiptTest.
+  test('should_putCreditsThenAiThenEveryServerFact_when_allArePresent', () {
+    final lyricist = _row(SongAboutKinds.canonical, AboutFields.lyricist, 'AI guess');
+    final time = _row(SongAboutKinds.canonical, AboutFields.creationTime, '2019');
+    final rows = aboutReceiptRows(
+      [
+        lyricist,
+        time,
+        _row(SongAboutKinds.canonical, AboutFields.producer, 'P\n'),
+        _row(SongAboutKinds.canonical, AboutFields.review, 'a long review'),
+      ],
+      const LyricCredits([
+        LyricCredit('作词', '唐恬', headline: LyricCreditRole.lyricist),
+        LyricCredit('编曲', '钱雷', headline: LyricCreditRole.arranger),
+        LyricCredit('吉他', '高飞'),
+      ]),
+      const AboutSourceFacts(
+        format: 'FLAC',
+        bitRateKbps: 1000,
+        samplingRateHz: 44100,
+        bitDepth: 16,
+        serverRating: 4,
+        genre: 'Pop',
+        year: 2019,
+        trackNumber: 3,
+        discNumber: 1,
+        durationSec: 245,
+        channels: 2,
+        sizeBytes: 9437184,
+        playCount: 12,
+        bpm: 120,
+        composer: 'Server composer',
+        comment: 'Remaster',
+        added: '2024-01-02T03:04:05Z',
+        path: 'Pop/song.flac',
+      ),
+      _Labels(),
+    );
+    expect(
+      [for (final r in rows) '${r.label}=${r.value}'],
+      [
+        'about:lyricist=唐恬',
+        'about:composer=Server composer',
+        'Arranger=钱雷',
+        'about:producer=P',
+        'about:creation_time=2019',
+        'Genre=Pop',
+        'Year=2019',
+        'Track=3',
+        'Length=4:05',
+        'Quality=FLAC  16-bit  44.1 kHz  1000 kbps',
+        'Channels=Stereo',
+        'Size=9.0 MB',
+        'BPM=120',
+        'Plays=12',
+        'Server rating=★★★★☆',
+        'Added=2024-01-02',
+        'Comment=Remaster',
+        'File=Pop/song.flac',
+      ],
+    );
+    // Rows from the lyrics or the server have no AI row behind them; the AI's keep theirs.
+    expect(rows.first.entry, isNull);
+    expect(rows.firstWhere((r) => r.label == 'about:creation_time').entry, same(time));
+    expect(rows.firstWhere((r) => r.label == 'about:producer').entry?.entryKey, AboutFields.producer);
+  });
+
+  test('should_fallBackToAi_when_noSourceNamesTheRole', () {
+    final composer = _row(SongAboutKinds.canonical, AboutFields.composer, 'AI composer');
+    final rows = aboutReceiptRows([composer], null, null, _Labels());
+    expect([for (final r in rows) '${r.label}=${r.value}'], ['about:composer=AI composer']);
+    expect(rows.single.entry, same(composer));
+  });
+
+  test('should_showTheLyricsCredits_when_theAiHasNothing', () {
+    final rows = aboutReceiptRows(
+      const [],
+      const LyricCredits([LyricCredit('Lyrics by', 'Alice', headline: LyricCreditRole.lyricist)]),
+      null,
+      _Labels(),
+    );
+    expect([for (final r in rows) '${r.label}=${r.value}'], ['about:lyricist=Alice']);
+  });
+
+  test('should_previewTheFirstThreeRoles_when_moreCreditsFold', () {
+    const others = [
+      LyricCredit('吉他', 'A'),
+      LyricCredit('', 'Recorded at X'),
+      LyricCredit('混音', 'B'),
+      LyricCredit('母带', 'C'),
+    ];
+    expect(lyricCreditsMorePreview(others, 'Note'), '吉他、Note、混音…');
+  });
+
+  test('should_formatMegabytes_when_givenBytes', () {
+    expect(formatAboutMegabytes(9437184), '9.0');
+    expect(formatAboutMegabytes(5000000), '4.8');
+  });
+
+  test('should_readEveryServerFact_when_theSongIsSubsonic', () {
+    final facts = AboutSourceFacts.of(
+      Track(
+        id: MediaId.subsonic('1'),
+        sizeBytes: 1024,
+        playCount: 3,
+        bpm: 98,
+        composer: ' C ',
+        comment: ' ',
+        path: 'a/b.flac',
+        addedAt: '2024-01-01',
+      ),
+    )!;
+    expect(facts.sizeBytes, 1024);
+    expect(facts.playCount, 3);
+    expect(facts.bpm, 98);
+    expect(facts.composer, 'C');
+    expect(facts.comment, isNull);
+    expect(facts.path, 'a/b.flac');
+    expect(facts.added, '2024-01-01');
+  });
+
+  test('should_keepOnlyTheComposer_when_appleMusicNamesOne', () {
+    final facts = AboutSourceFacts.of(
+      Track(id: MediaId(MediaId.providerAppleMusic, 'x'), genre: 'Pop', year: 2020, composer: 'Max Martin'),
+    );
+    expect(facts, const AboutSourceFacts(composer: 'Max Martin'));
   });
 
   test('should_leaveFactsOut_when_trackIsNotSubsonic', () {

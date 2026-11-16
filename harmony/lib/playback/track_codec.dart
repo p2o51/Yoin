@@ -30,6 +30,12 @@ abstract final class TrackCodec {
         if (t.addedAt != null) 'added': t.addedAt,
         if (t.audioFormat != null) 'fmt': _formatToJson(t.audioFormat!),
         if (t.replayGain != null) 'rg': t.replayGain!.toJson(),
+        'size': ?t.sizeBytes,
+        'plays': ?t.playCount,
+        'bpm': ?t.bpm,
+        'composer': ?t.composer,
+        'comment': ?t.comment,
+        'path': ?t.path,
         if (t.artists.isNotEmpty)
           'artists': [
             for (final a in t.artists) {'n': a.name, 'id': ?a.id?.toString()},
@@ -64,6 +70,12 @@ abstract final class TrackCodec {
         audioFormat: _formatFromJson(m['fmt']),
         replayGain: ReplayGain.fromJson(m['rg']),
         artists: _artistsFromJson(m['artists']),
+        sizeBytes: m['size'] as int?,
+        playCount: m['plays'] as int?,
+        bpm: m['bpm'] as int?,
+        composer: m['composer'] as String?,
+        comment: m['comment'] as String?,
+        path: m['path'] as String?,
       );
     } on Object {
       return null;

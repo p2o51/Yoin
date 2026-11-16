@@ -279,6 +279,10 @@ abstract final class NowPlayingNoteTokens {
   static const double deletedRowHeight = 48;
   static const double emptyMinHeight = 64;
 
+  /// The empty page's doodle: its widest (narrower columns shrink it at its aspect ratio), the gap to the label.
+  static const double doodleMaxWidth = 240;
+  static const double doodleGap = 8;
+
   /// The "Writing…" row's dashed underline.
   static const double draftDash = 4;
   static const double draftDashGap = 3;
@@ -332,6 +336,11 @@ abstract final class NowPlayingAboutTokens {
   static const double receiptLabelWidth = 96;
   static const double receiptLabelGap = 12;
   static const double receiptLabelTop = 2;
+
+  /// The lyrics' other credits: the "N more" line's padding; the notices' padding and line gap.
+  static const double creditsTogglePadV = 10;
+  static const double noticesPadV = 10;
+  static const double noticeGap = 2;
 
   /// The dashed rule: dash length (the gap is 3/4 of it), stroke.
   static const double dash = 4;

@@ -22,14 +22,18 @@ final class LyricRow {
   int get hashCode => Object.hash(text, startMs, translation);
 }
 
-/// A song's lyrics, ready for the window and the full list.
+/// A song's lyrics, ready for the window and the full list, with the credits
+/// the source wrote into them (shown in About instead; Android Lyrics.credits).
 @immutable
 final class LyricSheet {
-  const LyricSheet(this.rows);
+  const LyricSheet(this.rows, {this.credits});
 
   static const empty = LyricSheet([]);
 
   final List<LyricRow> rows;
+
+  /// The production credits taken out of the lines; null when there were none.
+  final LyricCredits? credits;
 
   bool get isEmpty => rows.isEmpty;
 
@@ -37,41 +41,44 @@ final class LyricSheet {
   bool get isSynced => rows.any((r) => r.startMs != null);
 
   @override
-  bool operator ==(Object other) => other is LyricSheet && listEquals(other.rows, rows);
+  bool operator ==(Object other) => other is LyricSheet && listEquals(other.rows, rows) && other.credits == credits;
 
   @override
-  int get hashCode => Object.hashAll(rows);
+  int get hashCode => Object.hash(Object.hashAll(rows), credits);
 }
 
-/// Source lyrics → rows, credits stripped (SubsonicMappers toLyrics +
-/// LyricCreditsExtractor): synced lines sorted by start, unsynced text
-/// split on newlines into untimed rows.
+/// Source lyrics → rows, credits taken out and kept on the sheet
+/// (SubsonicMappers toLyrics + LyricCreditsExtractor.extract): synced lines
+/// sorted by start, unsynced text split on newlines into untimed rows.
 LyricSheet lyricSheetOf(Lyrics? lyrics) {
   switch (lyrics) {
     case null:
       return LyricSheet.empty;
     case SyncedLyrics(:final lines):
       final sorted = [...lines]..sort((a, b) => a.startMs.compareTo(b.startMs));
-      final removed = LyricCredits.scan([for (final l in sorted) l.text]);
+      final found = LyricCreditsExtractor.scan([for (final l in sorted) l.text]);
+      final removed = found?.removed ?? const <int>{};
       final kept = [
         for (var i = 0; i < sorted.length; i++)
           if (!removed.contains(i)) LyricRow(sorted[i].text, startMs: sorted[i].startMs),
       ];
-      if (kept.every((r) => r.text.trim().isEmpty)) return LyricSheet.empty;
-      return LyricSheet(kept);
+      if (kept.every((r) => r.text.trim().isEmpty)) {
+        return found?.credits == null ? LyricSheet.empty : LyricSheet(const [], credits: found!.credits);
+      }
+      return LyricSheet(kept, credits: found?.credits);
     case UnsyncedLyrics(:final text):
       final all = text.split('\n');
       final textIndices = [
         for (var i = 0; i < all.length; i++)
           if (all[i].trim().isNotEmpty) i,
       ];
-      final removedText = LyricCredits.scan([for (final i in textIndices) all[i].trim()]);
-      final removed = {for (final i in removedText) textIndices[i]};
+      final found = LyricCreditsExtractor.scan([for (final i in textIndices) all[i].trim()]);
+      final removed = {for (final i in found?.removed ?? const <int>{}) textIndices[i]};
       final rows = [
         for (var i = 0; i < all.length; i++)
           if (!removed.contains(i) && all[i].trim().isNotEmpty) LyricRow(all[i].trim()),
       ];
-      return LyricSheet(rows);
+      return LyricSheet(rows, credits: found?.credits);
   }
 }
 
@@ -89,22 +96,42 @@ int activeLyricIndex(List<LyricRow> rows, int positionMs) {
   return active;
 }
 
-/// Takes production credits out of lyrics (Android data/lyrics/LyricCreditsExtractor.kt).
-/// Only the head and tail blocks are scanned, each stopping at the first
-/// non-credit line; a block counts with a headline role (作词 / 作曲 / 编曲 /
-/// 制作人), three or more roles, or (tail) when the head counted; nothing is
-/// taken if fewer than two lines would remain.
-abstract final class LyricCredits {
+/// What [LyricCreditsExtractor.scan] took: the positions to drop and the
+/// credits they held (null when they held only junk).
+@immutable
+final class LyricCreditsFound {
+  const LyricCreditsFound(this.removed, this.credits);
+  final Set<int> removed;
+  final LyricCredits? credits;
+}
+
+/// Takes the production credits out of a song's lyrics (Android
+/// data/lyrics/LyricCreditsExtractor.kt; owner 2026-11-05: they read badly in
+/// the lyrics view and belong in About). NetEase and QQ write them into the
+/// lyrics themselves, at the start and often again at the end.
+/// - Only the head and the tail are scanned. Each scan stops at the first line
+///   that isn't a credit, so a sung line in the middle ("她说：别走") is never
+///   touched, and neither is dialogue right after the credits.
+/// - A credit is "role : names" (also "role - names" in English) whose role is
+///   a known word in Chinese, Japanese, Korean or English; "Chorus:", "Rap:"
+///   and singer markers ("宿涵：") are not roles.
+/// - A block counts only when it has a headline role (作词 / 作曲 / 编曲 /
+///   制作人), three or more roles, or (for the tail) the head block counted.
+/// - Once the head counted, a run of three or more credit lines between the
+///   sung lines goes too (Vsinger puts part of the credits after an intro).
+/// - If fewer than two lines would be left, nothing is taken.
+abstract final class LyricCreditsExtractor {
   static const int _minLinesLeft = 2;
   static const int _minRoles = 3;
   static const int _maxCjkRole = 12;
   static const int _maxLatinWords = 7;
   static const int _maxTitleLine = 160;
 
-  /// Indices of [texts] to drop (empty = keep everything).
-  static Set<int> scan(List<String> texts) {
-    if (texts.isEmpty) return const {};
+  /// Positions in [texts] to drop, and the credits they held; null when nothing is taken.
+  static LyricCreditsFound? scan(List<String> texts) {
+    if (texts.isEmpty) return null;
     final kinds = texts.map(_classify).toList();
+    // A parenthesised line only continues the credit right above it; anywhere else it is sung.
     for (var i = 0; i < kinds.length; i++) {
       if (kinds[i] is _Continuation) {
         final above = i > 0 ? kinds[i - 1] : null;
@@ -120,8 +147,25 @@ abstract final class LyricCredits {
     ], head: false).where((i) => !removed.contains(i)).toList();
     if (tail.isNotEmpty && _counts(tail, kinds, extra: headOk)) removed.addAll(tail);
     if (headOk) removed.addAll(_middleRuns(kinds, removed));
-    if (removed.isEmpty || texts.length - removed.length < _minLinesLeft) return const {};
-    return removed;
+    if (removed.isEmpty || texts.length - removed.length < _minLinesLeft) return null;
+
+    final sorted = removed.toList()..sort();
+    final roles = <LyricCredit>[];
+    final notices = <String>[];
+    for (final i in sorted) {
+      switch (kinds[i]) {
+        case _Credit(:final role, :final names, :final headline):
+          if (names.isNotEmpty) roles.add(LyricCredit(role, names, headline: headline));
+        case _Continuation(:final text):
+          if (roles.isNotEmpty) roles[roles.length - 1] = roles.last.withNames('${roles.last.names} $text');
+        case _Notice(:final text):
+          notices.add(text);
+        case _Junk() || _TitleLine() || _Lyric():
+          break;
+      }
+    }
+    final credits = LyricCredits(roles, notices: notices);
+    return LyricCreditsFound(sorted.toSet(), credits.isEmpty ? null : credits);
   }
 
   static List<int> _block(List<_Kind> kinds, List<int> order, {required bool head}) {
@@ -162,7 +206,7 @@ abstract final class LyricCredits {
 
   static bool _counts(List<int> run, List<_Kind> kinds, {required bool extra}) {
     final credits = run.map((i) => kinds[i]).whereType<_Credit>().where((c) => c.names.isNotEmpty).toList();
-    return extra || credits.any((c) => c.headline) || credits.length >= _minRoles;
+    return extra || credits.any((c) => c.headline != null) || credits.length >= _minRoles;
   }
 
   static _Kind _classify(String raw) {
@@ -174,8 +218,8 @@ abstract final class LyricCredits {
 
   static _Kind _classifyLine(String text) {
     if (text.isEmpty || _junk.hasMatch(text)) return const _Junk();
-    if (_code.hasMatch(text)) return _Credit(text, headline: false);
-    if (_continuation.hasMatch(text) && (text.length > 20 || text.contains('/'))) return const _Continuation();
+    if (_code.hasMatch(text)) return _Credit('', text);
+    if (_continuation.hasMatch(text) && (text.length > 20 || text.contains('/'))) return _Continuation(text);
 
     final match = _credit.firstMatch(text);
     if (match == null) {
@@ -183,30 +227,38 @@ abstract final class LyricCredits {
       if (dash != null) {
         final key = dash.group(1)!.trim();
         if (!_hasCjk.hasMatch(key) && _isLatinRole(key)) {
-          return _Credit(dash.group(2)!.trim(), headline: _isHeadline(key));
+          return _Credit(key, dash.group(2)!.trim(), headline: _headlineOf(key));
         }
       }
-      if (_prose.hasMatch(text)) return _Credit(text, headline: false);
-      if (_notice.hasMatch(text)) return const _Notice();
+      if (_prose.hasMatch(text)) return _Credit('', text);
+      if (_notice.hasMatch(text)) return _Notice(text);
       return const _Lyric();
     }
     final written = match.group(1)!.trim();
     final names = match.group(2)!.trim();
     if (names.isNotEmpty && _sentenceEnd.hasMatch(names)) return const _Lyric();
 
+    // Bilingual roles ("作词 Lyricist", "调声 Tuning", "录音版权Sub Publishing", Vsinger's albums): the
+    // Chinese part names the role, and is what About shows; the English part can vouch for it too.
     final bilingual = _bilingualKey.firstMatch(written);
     final key = bilingual?.group(1)?.trim() ?? written;
     final english = bilingual?.group(2)?.trim();
 
-    if (_isHeadline(key) || (english != null && _isHeadline(english))) return _Credit(names, headline: true);
-    if (_noticeRole.hasMatch(key)) return const _Notice();
+    final headline = _headlineOf(key) ?? (english == null ? null : _headlineOf(english));
+    if (headline != null) return _Credit(key, names, headline: headline);
+    if (_noticeRole.hasMatch(key)) return _Notice('$written：$names');
     final isRole = _hasCjk.hasMatch(key)
         ? (key.length <= _maxCjkRole && _cjkRole.hasMatch(key)) || (english != null && _isLatinRole(english))
         : _isLatinRole(key);
-    return isRole ? _Credit(names, headline: false) : const _Lyric();
+    return isRole ? _Credit(key, names) : const _Lyric();
   }
 
-  static bool _isHeadline(String key) => _headlines.any((p) => p.hasMatch(key));
+  static LyricCreditRole? _headlineOf(String key) {
+    for (final (role, pattern) in _headlines) {
+      if (pattern.hasMatch(key)) return role;
+    }
+    return null;
+  }
 
   static bool _isLatinRole(String key) {
     final words = key.toLowerCase().split(_nonWord).where((w) => w.isNotEmpty).toList();
@@ -232,10 +284,19 @@ abstract final class LyricCredits {
   static final _nonWord = RegExp(r'[^a-z&]+');
 
   static final _headlines = [
-    RegExp(r'^(作词|作詞|词|詞|填词|填詞|lyricist|lyricists|lyrics|lyrics by|written by|words by|작사)$', caseSensitive: false),
-    RegExp(r'^(作曲|曲|composer|composers|composed by|music by|작곡)$', caseSensitive: false),
-    RegExp(r'^(编曲|編曲|arranger|arrangers|arranged by|arrangement|편곡)$', caseSensitive: false),
-    RegExp(r'^(制作人|製作人|监制|監製|producer|producers|produced by|프로듀서|プロデューサー)$', caseSensitive: false),
+    (
+      LyricCreditRole.lyricist,
+      RegExp(r'^(作词|作詞|词|詞|填词|填詞|lyricist|lyricists|lyrics|lyrics by|written by|words by|작사)$', caseSensitive: false),
+    ),
+    (LyricCreditRole.composer, RegExp(r'^(作曲|曲|composer|composers|composed by|music by|작곡)$', caseSensitive: false)),
+    (
+      LyricCreditRole.arranger,
+      RegExp(r'^(编曲|編曲|arranger|arrangers|arranged by|arrangement|편곡)$', caseSensitive: false),
+    ),
+    (
+      LyricCreditRole.producer,
+      RegExp(r'^(制作人|製作人|监制|監製|producer|producers|produced by|프로듀서|プロデューサー)$', caseSensitive: false),
+    ),
   ];
 
   static final _cjkRole = RegExp(
@@ -281,15 +342,18 @@ final class _TitleLine extends _Kind {
 }
 
 final class _Credit extends _Kind {
-  const _Credit(this.names, {required this.headline});
+  const _Credit(this.role, this.names, {this.headline});
+  final String role;
   final String names;
-  final bool headline;
+  final LyricCreditRole? headline;
 }
 
 final class _Notice extends _Kind {
-  const _Notice();
+  const _Notice(this.text);
+  final String text;
 }
 
 final class _Continuation extends _Kind {
-  const _Continuation();
+  const _Continuation(this.text);
+  final String text;
 }

@@ -1,10 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/data/about/song_about_store.dart';
+import 'package:yoin/data/ai/ai_service.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/nowplaying/now_playing_spine.dart';
 import 'package:yoin/theme/tokens.dart';
 
 // The spine (书脊, NowPlayingSpine.kt): what it reads and how it steps.
+
+SongAboutEntry _row(String kind, String key, String answer) => SongAboutEntry(
+  titleKey: 't',
+  artistKey: 'a',
+  albumKey: 'l',
+  titleDisplay: 'T',
+  artistDisplay: 'A',
+  albumDisplay: 'L',
+  kind: kind,
+  entryKey: key,
+  answerText: answer,
+  createdAt: 0,
+  updatedAt: 0,
+);
 
 const _en = SpineLabels(zh: false);
 const _zh = SpineLabels(zh: true);
@@ -73,9 +89,66 @@ void main() {
       artist: 'Artist',
       title: 'Song',
       labels: _zh,
-      credits: const {SpineCreditRole.composer: 'A  B', SpineCreditRole.lyricist: ' C '},
+      credits: const LyricCredits([
+        LyricCredit('曲', 'A  B', headline: LyricCreditRole.composer),
+        LyricCredit('词', ' C ', headline: LyricCreditRole.lyricist),
+      ]),
     );
     expect(items, const [SpineItem('作词', 'C'), SpineItem('作曲', 'A B'), SpineItem('流派', 'Pop')]);
+  });
+
+  // Android SpineCreditsTest.
+  test('should_listCanonicalCreditsInAboutOrder_when_cached', () {
+    final items = spineItems(
+      entries: [
+        _row(SongAboutKinds.canonical, AboutFields.producer, 'P'),
+        _row(SongAboutKinds.canonical, AboutFields.lyricist, 'L\nL2'),
+        _row(SongAboutKinds.canonical, AboutFields.review, 'a long review'),
+        _row(SongAboutKinds.canonical, AboutFields.creationTime, '1971'),
+        _row(SongAboutKinds.ask, AboutFields.composer, 'not a credit'),
+      ],
+      facts: null,
+      albumName: 'Album',
+      artist: 'Artist',
+      title: 'Title',
+      labels: _en,
+    );
+    expect(items, const [
+      SpineItem('Creation Time', '1971'),
+      SpineItem('Lyricist', 'L L2'),
+      SpineItem('Producer', 'P'),
+    ]);
+  });
+
+  test('should_preferTheLyricsSourceCredits_when_itNamesTheRole', () {
+    final items = spineItems(
+      entries: [
+        _row(SongAboutKinds.canonical, AboutFields.lyricist, 'AI guess'),
+        _row(SongAboutKinds.canonical, AboutFields.producer, 'P'),
+      ],
+      credits: const LyricCredits([
+        LyricCredit('作词', '唐恬', headline: LyricCreditRole.lyricist),
+        LyricCredit('作曲', '钱雷', headline: LyricCreditRole.composer),
+      ]),
+      facts: null,
+      albumName: 'Album',
+      artist: 'Artist',
+      title: 'Title',
+      labels: _en,
+    );
+    expect(items, const [SpineItem('Lyricist', '唐恬'), SpineItem('Composer', '钱雷'), SpineItem('Producer', 'P')]);
+  });
+
+  test('should_fallBackToAlbumArtistTitle_when_theCachedCreditIsBlank', () {
+    final items = spineItems(
+      entries: [_row(SongAboutKinds.canonical, AboutFields.composer, '  ')],
+      facts: const SpineSourceFacts(),
+      albumName: 'Album',
+      artist: 'Artist',
+      title: 'Title',
+      labels: _en,
+    );
+    expect(items, const [SpineItem('', 'Album   Artist   Title')]);
   });
 
   test('should_showTheTrackAlone_when_theSongIsOnTheFirstDisc', () {

@@ -1409,16 +1409,24 @@ class _Stage extends ConsumerWidget {
                 ignoring: !restStage,
                 child: FadeTransition(
                   opacity: _Mapped(ratingRetreat, (r) => (1 - r).clamp(0.0, 1.0)),
-                  child: NowPlayingSpine(
-                    items: spineItems(
-                      facts: SpineSourceFacts.of(track),
-                      albumName: track.album ?? '',
-                      artist: track.artist ?? '',
-                      title: track.title ?? '',
-                      labels: SpineLabels.of(context),
+                  child: Consumer(
+                    builder: (context, ref, _) => NowPlayingSpine(
+                      items: spineItems(
+                        // The cached About rows only: the spine never asks the AI.
+                        entries: switch (ref.watch(nowPlayingAboutProvider.select((a) => a.about))) {
+                          AboutReady(:final entries) => entries,
+                          _ => const [],
+                        },
+                        credits: state.lyricCredits,
+                        facts: SpineSourceFacts.of(track),
+                        albumName: track.album ?? '',
+                        artist: track.artist ?? '',
+                        title: track.title ?? '',
+                        labels: SpineLabels.of(context),
+                      ),
+                      songKey: state.songKey,
+                      length: budget.cover,
                     ),
-                    songKey: state.songKey,
-                    length: budget.cover,
                   ),
                 ),
               ),
@@ -2241,6 +2249,11 @@ class _PagerSurface extends StatelessWidget {
   }
 }
 
+/// The credits the playing song's lyrics carry (NowPlayingUiState.lyricCredits).
+final _lyricCreditsProvider = Provider.autoDispose<LyricCredits?>(
+  (ref) => ref.watch(nowPlayingViewModelProvider.select((s) => s is NowPlayingContent ? s.lyricCredits : null)),
+);
+
 /// The playing song's About in the resting window (SongInfoDisplay): read-only;
 /// a tap falls through to the pager, which expands About.
 class _AboutCompactPage extends ConsumerWidget {
@@ -2252,12 +2265,14 @@ class _AboutCompactPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final about = ref.watch(nowPlayingAboutProvider.select((a) => a.about));
+    final credits = ref.watch(_lyricCreditsProvider);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
       child: SongInfoDisplay(
         state: about,
         onRetry: ref.read(nowPlayingAboutProvider.notifier).retry,
         onOpenSettings: () => _leaveTo(controller, openSettings),
+        credits: credits,
         facts: AboutSourceFacts.of(track),
         songKey: '${track.title ?? ''}\u0000${track.artist ?? ''}\u0000${track.album ?? ''}',
       ),
@@ -2286,6 +2301,7 @@ class _AboutFullPage extends ConsumerWidget {
         state: about.about,
         onRetry: vm.retry,
         onOpenSettings: () => _leaveTo(controller, openSettings),
+        credits: ref.watch(_lyricCreditsProvider),
         facts: AboutSourceFacts.of(track),
         actions: AboutEntryActions(
           regenerating: about.regenerating,

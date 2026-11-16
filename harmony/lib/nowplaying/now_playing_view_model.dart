@@ -115,6 +115,14 @@ final class NowPlayingContent extends NowPlayingUiState {
 
   String get songKey => track.id.toString();
 
+  /// The credits the lyrics source wrote into the lyrics, shown in About and on
+  /// the spine instead (Android NowPlayingUiState.lyricCredits); null until
+  /// the lyrics land, or when they named none.
+  LyricCredits? get lyricCredits => switch (lyrics) {
+    LyricsReady(:final sheet) => sheet.credits,
+    _ => null,
+  };
+
   @override
   bool operator ==(Object other) =>
       other is NowPlayingContent &&
@@ -531,7 +539,7 @@ class NowPlayingViewModel extends Notifier<NowPlayingUiState> {
     final translated = LyricSheet([
       for (var i = 0; i < base.rows.length; i++)
         LyricRow(base.rows[i].text, startMs: base.rows[i].startMs, translation: translations[i]),
-    ]);
+    ], credits: base.credits);
     _cacheLyrics(key, translated);
     _showTranslationFor = key;
     state = _copy(now, lyrics: LyricsReady(translated), translating: false, showTranslation: true);

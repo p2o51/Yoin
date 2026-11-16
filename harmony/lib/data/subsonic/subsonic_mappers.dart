@@ -97,6 +97,13 @@ Track? trackFromJson(SubsonicJson j) {
     audioFormat: audioFormatFromJson(j),
     replayGain: replayGainFromJson(_obj(j['replayGain'])),
     artists: artistCreditsFromJson(j['artists']),
+    // What the server says about the file, for About's receipt (Android EXTRA_SIZE … EXTRA_COMPOSER).
+    sizeBytes: _positive(j['size']),
+    playCount: _positive(j['playCount']),
+    bpm: _positive(j['bpm']),
+    composer: _text(j['displayComposer'])?.trim(),
+    comment: _text(j['comment'])?.trim(),
+    path: _text(j['path']),
   );
 }
 

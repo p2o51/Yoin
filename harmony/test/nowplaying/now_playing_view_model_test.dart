@@ -93,6 +93,21 @@ void main() {
     final s = c.read(nowPlayingViewModelProvider) as NowPlayingContent;
     expect(s.lyrics, isA<LyricsReady>());
     expect((s.lyrics as LyricsReady).sheet.rows.map((r) => r.text), ['one', 'two']);
+    // The credits travel with the lyrics, for About and the spine (NowPlayingUiState.lyricCredits).
+    expect(s.lyricCredits!.namesFor(LyricCreditRole.lyricist), 'A');
+    expect(s.lyricCredits!.namesFor(LyricCreditRole.composer), 'B');
+  });
+
+  test('should_haveNoCredits_when_theLyricsNameNone', () async {
+    c = make(
+      playingState(nowPlayingTracks(1)),
+      withSource: NowPlayingFakeSource(lyrics: {'t0': const UnsyncedLyrics('one\ntwo')}),
+    );
+    await c.read(activeSourceProvider.future);
+    await settle();
+    final s = c.read(nowPlayingViewModelProvider) as NowPlayingContent;
+    expect(s.lyrics, isA<LyricsReady>());
+    expect(s.lyricCredits, isNull);
   });
 
   test('should_ignoreStaleLyrics_when_songSkippedMidFetch', () async {

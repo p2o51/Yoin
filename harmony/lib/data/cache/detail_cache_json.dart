@@ -129,6 +129,12 @@ abstract final class DetailCacheJson {
     'aa': ?t.addedAt,
     'f': ?_format(t.audioFormat),
     'rg': ?t.replayGain?.toJson(),
+    'sz': ?t.sizeBytes,
+    'pc': ?t.playCount,
+    'bpm': ?t.bpm,
+    'cmp': ?t.composer,
+    'cmt': ?t.comment,
+    'p': ?t.path,
   };
 
   static Track? trackFrom(Object? json) {
@@ -154,6 +160,12 @@ abstract final class DetailCacheJson {
       addedAt: json['aa'] as String?,
       audioFormat: _formatFrom(json['f']),
       replayGain: ReplayGain.fromJson(json['rg']),
+      sizeBytes: _int(json['sz']),
+      playCount: _int(json['pc']),
+      bpm: _int(json['bpm']),
+      composer: json['cmp'] as String?,
+      comment: json['cmt'] as String?,
+      path: json['p'] as String?,
     );
   }
 

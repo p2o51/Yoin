@@ -106,8 +106,9 @@ final class AskFailed extends AskBarState {
   int get hashCode => Object.hash(message, keyMissing);
 }
 
-/// What the Subsonic server says about the song (SpineSourceFacts, the part
-/// HarmonyOS's Track carries); null for every other provider.
+/// What the service says about the song itself (SpineSourceFacts): on
+/// Subsonic everything the server sends; on Apple Music only the catalogue's
+/// composer; null for every other provider, or when there is nothing.
 @immutable
 final class AboutSourceFacts {
   const AboutSourceFacts({
@@ -122,7 +123,13 @@ final class AboutSourceFacts {
     this.discNumber,
     this.durationSec,
     this.channels,
+    this.sizeBytes,
+    this.playCount,
+    this.bpm,
+    this.composer,
+    this.comment,
     this.added,
+    this.path,
   });
 
   final String? format;
@@ -138,16 +145,30 @@ final class AboutSourceFacts {
   final int? discNumber;
   final int? durationSec;
   final int? channels;
+  final int? sizeBytes;
+  final int? playCount;
+  final int? bpm;
+
+  /// The composer the service names; About's composer when the lyrics name none.
+  final String? composer;
+  final String? comment;
 
   /// When the file came onto the server, ISO-8601 as the server sent it.
   final String? added;
 
-  /// [track]'s facts; null unless it is a Subsonic song (Track.spineSourceFacts).
+  /// The file's path on the server.
+  final String? path;
+
+  /// [track]'s facts (Track.spineSourceFacts): a Subsonic song's, or an Apple
+  /// Music song's composer; null otherwise.
   static AboutSourceFacts? of(Track track) {
+    if (track.id.provider == MediaId.providerAppleMusic) {
+      final composer = _nonBlank(track.composer);
+      return composer == null ? null : AboutSourceFacts(composer: composer);
+    }
     if (track.id.provider != MediaId.providerSubsonic) return null;
     final f = track.audioFormat;
     final codec = f?.codec;
-    final genre = track.genre?.trim();
     final rating = track.userRating;
     return AboutSourceFacts(
       format: codec == null ? null : codecLabel(codec),
@@ -155,14 +176,25 @@ final class AboutSourceFacts {
       samplingRateHz: f?.sampleRateHz,
       bitDepth: f?.bitDepth,
       serverRating: rating != null && rating >= 1 && rating <= 5 ? rating : null,
-      genre: genre == null || genre.isEmpty ? null : genre,
+      genre: _nonBlank(track.genre),
       year: (track.year ?? 0) > 0 ? track.year : null,
       trackNumber: (track.trackNumber ?? 0) > 0 ? track.trackNumber : null,
       discNumber: track.discNumber,
       durationSec: (track.durationSec ?? 0) > 0 ? track.durationSec : null,
       channels: f?.channels,
+      sizeBytes: (track.sizeBytes ?? 0) > 0 ? track.sizeBytes : null,
+      playCount: track.playCount,
+      bpm: track.bpm,
+      composer: _nonBlank(track.composer),
+      comment: _nonBlank(track.comment),
       added: track.addedAt,
+      path: _nonBlank(track.path),
     );
+  }
+
+  static String? _nonBlank(String? s) {
+    final t = s?.trim();
+    return t == null || t.isEmpty ? null : t;
   }
 
   @override
@@ -179,7 +211,13 @@ final class AboutSourceFacts {
       other.discNumber == discNumber &&
       other.durationSec == durationSec &&
       other.channels == channels &&
-      other.added == added;
+      other.sizeBytes == sizeBytes &&
+      other.playCount == playCount &&
+      other.bpm == bpm &&
+      other.composer == composer &&
+      other.comment == comment &&
+      other.added == added &&
+      other.path == path;
 
   @override
   int get hashCode => Object.hash(
@@ -194,7 +232,13 @@ final class AboutSourceFacts {
     discNumber,
     durationSec,
     channels,
+    sizeBytes,
+    playCount,
+    bpm,
+    composer,
+    comment,
     added,
+    path,
   );
 }
 
@@ -210,10 +254,17 @@ abstract interface class AboutLabels {
   String kbps(int value);
   String khz(String value);
   String bit(int value);
+  String get arranger;
   String get duration;
   String get channels;
   String channelCount(int count);
+  String get size;
+  String megabytes(String value);
+  String get bpm;
+  String get playCount;
   String get added;
+  String get comment;
+  String get file;
 }
 
 /// One line of the receipt; [entry] is the AI's row behind it (a long press), null otherwise.
@@ -265,11 +316,18 @@ String formatAboutDuration(int seconds) {
   return h > 0 ? '$h:${two(m)}:${two(s)}' : '$m:${two(s)}';
 }
 
-/// The receipt, in order (aboutReceiptRows): who wrote it (the AI's
-/// lyricist / composer / producer), when and where, then everything the
-/// Subsonic server says. HarmonyOS keeps no lyric credits, so the AI answers
-/// the credit lines (Android asks the lyrics' credits first).
-List<ReceiptRow> aboutReceiptRows(List<SongAboutEntry> entries, AboutSourceFacts? facts, AboutLabels labels) {
+/// 9_437_184 → "9.0" (formatMegabytes).
+String formatAboutMegabytes(int bytes) => (bytes / 1048576).toStringAsFixed(1);
+
+/// The receipt, in order (aboutReceiptRows): who wrote it (the lyrics'
+/// [credits] first, the server's composer next, then the AI), when and where
+/// (the AI), then everything the server says.
+List<ReceiptRow> aboutReceiptRows(
+  List<SongAboutEntry> entries,
+  LyricCredits? credits,
+  AboutSourceFacts? facts,
+  AboutLabels labels,
+) {
   final canonical = {
     for (final e in entries)
       if (e.isCanonical) e.entryKey: e,
@@ -287,9 +345,19 @@ List<ReceiptRow> aboutReceiptRows(List<SongAboutEntry> entries, AboutSourceFacts
     if (v != null) rows.add(ReceiptRow(label, v));
   }
 
-  ai(AboutFields.lyricist);
-  ai(AboutFields.composer);
-  ai(AboutFields.producer);
+  void credited(String key, LyricCreditRole role, [String? fallback]) {
+    final names = credits?.namesFor(role) ?? fallback;
+    if (names != null) {
+      add(labels.about(key), names);
+    } else {
+      ai(key);
+    }
+  }
+
+  credited(AboutFields.lyricist, LyricCreditRole.lyricist);
+  credited(AboutFields.composer, LyricCreditRole.composer, facts?.composer);
+  add(labels.arranger, credits?.namesFor(LyricCreditRole.arranger));
+  credited(AboutFields.producer, LyricCreditRole.producer);
   ai(AboutFields.creationTime);
   ai(AboutFields.creationLocation);
   if (facts != null) {
@@ -310,13 +378,24 @@ List<ReceiptRow> aboutReceiptRows(List<SongAboutEntry> entries, AboutSourceFacts
     // Two spaces between parts, as on the spine (oneLine would fold them).
     if (quality.isNotEmpty) rows.add(ReceiptRow(labels.quality, quality.join('  ')));
     add(labels.channels, facts.channels == null ? null : labels.channelCount(facts.channels!));
+    add(labels.size, facts.sizeBytes == null ? null : labels.megabytes(formatAboutMegabytes(facts.sizeBytes!)));
+    add(labels.bpm, facts.bpm?.toString());
+    add(labels.playCount, facts.playCount?.toString());
     final stars = facts.serverRating;
     if (stars != null) add(labels.serverRating, '${'★' * stars}${'☆' * (5 - stars)}');
     final added = facts.added;
     add(labels.added, added == null ? null : (added.length > 10 ? added.substring(0, 10) : added));
+    add(labels.comment, facts.comment);
+    add(labels.file, facts.path);
   }
   return rows;
 }
+
+/// The "N more · …" line under the receipt (cmp_lyric_credits_more's second
+/// part): the first three of [others]' roles, a free-form line called
+/// [noteLabel], joined with "、" and trailed by "…".
+String lyricCreditsMorePreview(List<LyricCredit> others, String noteLabel) =>
+    '${others.take(3).map((c) => c.role.isEmpty ? noteLabel : c.role).join('、')}…';
 
 /// The review first, then the answers and the listener's own entries, newest first (aboutParagraphs).
 List<AboutParagraph> aboutParagraphs(List<SongAboutEntry> entries, String reviewLabel) {

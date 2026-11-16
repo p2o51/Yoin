@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../data/about/song_about_store.dart';
+import '../data/ai/ai_service.dart' show AboutFields;
 import '../data/model/model.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
@@ -13,7 +15,8 @@ import '../ui/component/audio_format_tags.dart' show codecLabel;
 // The spine (书脊, NowPlayingSpine.kt, owner 2026-11-03): the band between a
 // height-capped cover and the rating bar on short windows. It reads the song
 // like a record's spine, one fact at a time, turned a quarter round: the
-// credits the lyrics carry, and on Subsonic the server's own facts. It
+// About credits (the lyrics' own first, then the AI's cached rows — never an
+// AI request), and on Subsonic the server's own facts. It
 // rotates on its own, very faint; a swipe across it steps, damped; a fact
 // longer than the band pans along it before the next. Never cut: the band's
 // ends fade.
@@ -85,8 +88,22 @@ final class SpineSourceFacts {
   }
 }
 
-/// The lyric credit roles the spine reads (About's order after the creation facts).
-enum SpineCreditRole { lyricist, composer, producer }
+/// The About credits the spine reads, in the About tab's order (the review is too long for it).
+const List<String> spineCreditKeys = [
+  AboutFields.creationTime,
+  AboutFields.creationLocation,
+  AboutFields.lyricist,
+  AboutFields.composer,
+  AboutFields.producer,
+];
+
+/// The lyric credit role that answers an About credit before the AI does; null for the rest.
+LyricCreditRole? _lyricCreditRole(String key) => switch (key) {
+  AboutFields.lyricist => LyricCreditRole.lyricist,
+  AboutFields.composer => LyricCreditRole.composer,
+  AboutFields.producer => LyricCreditRole.producer,
+  _ => null,
+};
 
 /// The labels the spine needs (Android res/values{,-zh-rCN}/strings_nowplaying.xml).
 class SpineLabels {
@@ -97,10 +114,14 @@ class SpineLabels {
 
   final bool zh;
 
-  String credit(SpineCreditRole role) => switch (role) {
-    SpineCreditRole.lyricist => zh ? '作词' : 'Lyricist', // np_about_lyricist
-    SpineCreditRole.composer => zh ? '作曲' : 'Composer', // np_about_composer
-    SpineCreditRole.producer => zh ? '制作人' : 'Producer', // np_about_producer
+  /// An About credit's label (np_about_creation_time … np_about_producer).
+  String about(String key) => switch (key) {
+    AboutFields.creationTime => zh ? '创作时间' : 'Creation Time',
+    AboutFields.creationLocation => zh ? '创作地点' : 'Creation Location',
+    AboutFields.lyricist => zh ? '作词' : 'Lyricist',
+    AboutFields.composer => zh ? '作曲' : 'Composer',
+    AboutFields.producer => zh ? '制作人' : 'Producer',
+    _ => key,
   };
   String get quality => zh ? '音质' : 'Quality'; // np_spine_quality
   String get serverRating => zh ? '服务器评分' : 'Server rating'; // np_spine_server_rating
@@ -114,21 +135,27 @@ class SpineLabels {
   String bit(int value) => '$value-bit'; // np_spine_bit
 }
 
-/// Everything the spine shows, in order: the lyrics' [credits] (lyricist,
-/// composer, producer), then the Subsonic [facts]; when there is neither, one
-/// line of album, artist and title.
+/// Everything the spine shows, in order (spineItems): the About credits —
+/// the lyrics' [credits] answer lyricist / composer / producer before the
+/// cached AI [entries] do (never an AI request) — then the Subsonic [facts];
+/// when there is neither, one line of album, artist and title.
 List<SpineItem> spineItems({
+  List<SongAboutEntry> entries = const [],
+  LyricCredits? credits,
   required SpineSourceFacts? facts,
   required String albumName,
   required String artist,
   required String title,
   required SpineLabels labels,
-  Map<SpineCreditRole, String> credits = const {},
 }) {
   final items = <SpineItem>[];
-  for (final role in SpineCreditRole.values) {
-    final names = credits[role]?.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (names != null && names.isNotEmpty) items.add(SpineItem(labels.credit(role), names));
+  for (final key in spineCreditKeys) {
+    final role = _lyricCreditRole(key);
+    final names =
+        (role == null ? null : credits?.namesFor(role)) ??
+        entries.where((e) => e.isCanonical && e.entryKey == key).firstOrNull?.answerText;
+    final value = names?.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (value != null && value.isNotEmpty) items.add(SpineItem(labels.about(key), value));
   }
   if (facts != null) {
     final quality = [

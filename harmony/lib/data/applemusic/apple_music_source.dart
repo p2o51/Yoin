@@ -391,6 +391,7 @@ Track _inAlbum(Track t, MediaId albumId, MediaId? artistId) => Track(
   discNumber: t.discNumber,
   year: t.year,
   genre: t.genre,
+  composer: t.composer,
 );
 
 final class _AppleMusicLibrary implements MusicLibrary, MusicTrackCodes, MusicLibraryCollection, MusicTrackLookup {
