@@ -16,8 +16,8 @@ import 'continue_on_strings.dart';
 /// The small card a Continue On hand-off shows before anything plays here
 /// (Android ui/continueon/ContinueOnCard.kt, owner 2026-11-08): the song,
 /// where the other device is in it, and "Continue here". Only that tap starts
-/// it and pauses the other device. Sits over the whole window, Now Playing
-/// included, clear of the navigation bar.
+/// it and pauses the other device. Sits over the whole window (main.dart),
+/// Now Playing and the first-run landing included, clear of the navigation bar.
 class ContinueOnCardHost extends ConsumerWidget {
   const ContinueOnCardHost({super.key});
 

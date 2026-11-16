@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/platform_overrides.dart';
 import 'app/providers.dart';
 import 'cards/play_card.dart';
+import 'continueon/continue_on_card.dart';
 import 'continueon/continue_on_controller.dart';
 import 'data/applemusic/apple_music_source.dart';
 import 'data/sync/cloud_sync_providers.dart';
@@ -90,7 +91,17 @@ class YoinApp extends ConsumerWidget {
           host: windowCaption,
           child: YoinSystemBars(
             // The first-run landing covers the whole chrome (bar and player included).
-            child: YoinWindowScope.measured(child: LandingHost(child: AppChrome(child: child!))),
+            child: YoinWindowScope.measured(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  LandingHost(child: AppChrome(child: child!)),
+                  // A Continue On hand-off's card, over everything, the first-run landing included (Android
+                  // MainActivity draws it above LandingHost): a device without the account still says so.
+                  const ContinueOnCardHost(),
+                ],
+              ),
+            ),
           ),
         ),
       ),

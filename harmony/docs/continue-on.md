@@ -15,7 +15,7 @@ HarmonyOS's own.
 | Cursor (what is handed over; the same keys and values as Android) | `lib/continueon/continue_on_cursor.dart` |
 | Pause channel (local TCP line protocol, the same as Android) | `lib/continueon/continue_on_pause_channel.dart` |
 | Both ends: offering, answering, the card's states, "Continue here" | `lib/continueon/continue_on_controller.dart` |
-| The card | `lib/continueon/continue_on_card.dart` (in `AppChrome`, over everything) |
+| The card | `lib/continueon/continue_on_card.dart` (in `main.dart`, over everything, the first-run landing included) |
 | Platform seam | `lib/platform/continueon/continue_on_host.dart` (Windows: `NoContinueOnHost`) |
 | ArkTS | `ohos/entry/src/main/ets/yoin/continueon/ContinueOnPlugin.ets`, `EntryAbility.ets` |
 | Single songs read back | `MusicTrackLookup` (Subsonic `getSong`, Apple Music `songs/{id}`) |

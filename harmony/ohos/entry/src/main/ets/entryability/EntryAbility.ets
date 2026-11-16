@@ -67,6 +67,12 @@ export default class EntryAbility extends FlutterAbility {
     }
   }
 
+  /** The window went: a later restore (continuation) has to load Flutter's page again. */
+  onWindowStageDestroy(): void {
+    this.windowContentLoaded = false
+    super.onWindowStageDestroy()
+  }
+
   /** Continue On, the device handing off: the song's cursor into the wantParam (ContinueOnPlugin.ets). */
   onContinue(wantParam: Record<string, Object>): Promise<AbilityConstant.OnContinueResult> {
     return ContinueOnHost.fillHandoff(wantParam)

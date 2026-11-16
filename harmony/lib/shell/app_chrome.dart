@@ -6,7 +6,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
-import '../continueon/continue_on_card.dart';
 import '../memories/memories_reveal_scope.dart';
 import '../nowplaying/flight.dart';
 import '../nowplaying/now_playing_overlay.dart';
@@ -184,8 +183,6 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
             playerUpValue: () => _controller.bar.value,
           ),
           _Flight(controller: _controller),
-          // A Continue On hand-off's card, over everything (Android draws it over the whole window).
-          const ContinueOnCardHost(),
         ],
       ),
     ),
