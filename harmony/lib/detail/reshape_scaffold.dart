@@ -85,7 +85,8 @@ final class ReshapeOverviews {
 
   /// The hero's meta for [layout] (Short: stacked beside the cover; Landscape
   /// beside it; Medium the hero row's; Wide under the identity column's
-  /// cover), also the liner notes after a pulled-up list. [interactive] false
+  /// cover), also the liner notes after a pulled-up list (asked for as
+  /// [DetailLayout.compact] there: the row form). [interactive] false
   /// while it is not the page's dominant layer.
   final Widget Function(DetailLayout layout, bool interactive) meta;
 
@@ -184,6 +185,10 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
   late final RevealScrollPhysics _physics = RevealScrollPhysics(_reveal);
   final _pager = PageController();
 
+  /// The pager's subtree, one element whichever layout builds it: a resize or
+  /// rotation that changes the layout keeps the page shown (Android's hoisted pagerState).
+  final _pagerKey = GlobalKey(debugLabel: 'reshape.pager');
+
   /// The pager position, 0 = overview, 1 = page 2.
   final _page = ValueNotifier<double>(0);
 
@@ -209,7 +214,8 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
   /// The Medium stamp's tap: back to the top on the spatial spring.
   late final AnimationController _scrollSpring = AnimationController.unbounded(vsync: this)
     ..addListener(() {
-      if (_mediumScroll.hasClients) _mediumScroll.position.jumpTo(_scrollSpring.value);
+      // The expressive spring overshoots: never past the list's top (no gap over the hero row).
+      if (_mediumScroll.hasClients) _mediumScroll.position.jumpTo(math.max(0.0, _scrollSpring.value));
     });
 
   /// The landscape handset's capsule band (the spectrum runs under it, edge to edge).
@@ -403,6 +409,7 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                     : !paged
                     ? body
                     : ReshapePager(
+                        key: _pagerKey,
                         openPage: _openPage,
                         child: AlbumPageFlightScope(
                           flight: flight,
@@ -614,7 +621,7 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                 geometry?.cover.width ??
                 (layout == DetailLayout.short ? albumShortCoverSide(w) : playlistLandscapeCoverSide(bodyHeight)),
             coverInPage: geometry == null,
-            pageStart: _bandInsets.left,
+            pageStart: rtl ? _bandInsets.right : _bandInsets.left,
           ),
           DetailLayout.medium => Listener(
             // A finger on the list takes over from the stamp's spring.
@@ -665,6 +672,7 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                 child: !paged
                     ? page0
                     : ReshapePager(
+                        key: _pagerKey,
                         openPage: _openPage,
                         child: AlbumPageFlightScope(
                           flight: flight,
@@ -1235,7 +1243,12 @@ class _SideBody extends StatelessWidget {
       ),
       child: AnimatedBuilder(
         animation: reveal,
-        child: _HeroBelow(reveal: reveal, builder: (links) => overviews.meta(layout, !links)),
+        // The list's full width: the row form (Last Play with its caption | the emblem), as Android's
+        // footer — never Short's narrow stacked column beside the cover.
+        child: _HeroBelow(
+          reveal: reveal,
+          builder: (links) => overviews.meta(short ? DetailLayout.compact : layout, !links),
+        ),
         builder: (context, child) => Opacity(
           // Late (the last 40 % of the reshape): mid-drag the hero's own copy is still fading out.
           opacity: footerFades

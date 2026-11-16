@@ -184,6 +184,11 @@ class _ArtistStar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // A provider without favourites has nothing to follow: no star, in the header or the hero (supportsFollow).
+    final canFollow = ref.watch(
+      activeSourceProvider.select((s) => s.value?.capabilities.contains(Capability.favorites) ?? false),
+    );
+    if (!canFollow) return const SizedBox.shrink();
     final on = ref.watch(favoriteOverridesProvider.select((m) => m[artist.id] ?? artist.isStarred));
     final theme = Theme.of(context);
     final colors = theme.colorScheme;

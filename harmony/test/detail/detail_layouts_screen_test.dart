@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/data/source/music_source.dart';
+import 'package:yoin_symbols/yoin_symbols.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/detail/album_hero_marks.dart';
@@ -44,8 +46,16 @@ final _playlist = Playlist(
 
 enum _Page { album, artist, playlist }
 
+/// A provider without favourites (Apple Music, Spotify's remote): nothing to follow.
+class _NoFavoritesSource extends LibraryFakeSource {
+  _NoFavoritesSource({super.albumDetails, super.artistDetails, super.playlistDetails});
+
+  @override
+  Set<Capability> get capabilities => const {Capability.search, Capability.playlistsRead};
+}
+
 /// Opens [page] in a [size] window (its own YoinWindowInfo, as the app measures it).
-Future<void> _open(WidgetTester tester, _Page page, Size size) async {
+Future<void> _open(WidgetTester tester, _Page page, Size size, {bool favorites = true}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -53,11 +63,17 @@ Future<void> _open(WidgetTester tester, _Page page, Size size) async {
   final c = ProviderContainer(
     overrides: [
       activeSourceProvider.overrideWith(
-        (ref) async => LibraryFakeSource(
-          albumDetails: {_album.id: _album},
-          artistDetails: {_artist.id: _artist},
-          playlistDetails: {_playlist.id: _playlist},
-        ),
+        (ref) async => favorites
+            ? LibraryFakeSource(
+                albumDetails: {_album.id: _album},
+                artistDetails: {_artist.id: _artist},
+                playlistDetails: {_playlist.id: _playlist},
+              )
+            : _NoFavoritesSource(
+                albumDetails: {_album.id: _album},
+                artistDetails: {_artist.id: _artist},
+                playlistDetails: {_playlist.id: _playlist},
+              ),
       ),
       textShareProvider.overrideWithValue(RecordingTextShare()),
       keyValueStoreProvider.overrideWithValue(InMemoryStore()),
@@ -137,6 +153,11 @@ void main() {
       // The cover docked as the stamp at the header's end; the rows are live.
       expect(tester.getRect(_cover(640)).width, closeTo(48, 0.5));
       expect(find.text('Song t1'), findsOneWidget);
+
+      // The liner notes at the list's end run its full width: Last Play keeps its caption there.
+      await tester.dragFrom(const Offset(210, 500), const Offset(0, -2000));
+      await _settle(tester);
+      expect(find.text('Last Play'), findsOneWidget);
       await _close(tester);
     });
 
@@ -194,6 +215,22 @@ void main() {
       expect(tester.getTopLeft(find.text('Song t1')).dx, greaterThan(cover.right));
       await _close(tester);
     });
+    testWidgets('should_keepScrapbookPage_when_layoutChangesWithWindow', (tester) async {
+      await _open(tester, _Page.album, const Size(420, 900));
+      final dots = tester.getRect(find.byType(AlbumPageDots));
+      await tester.tapAt(Offset(dots.right - 6, dots.center.dy));
+      await _settle(tester);
+      double page() => tester.widget<PageView>(find.byType(PageView)).controller!.page!;
+      expect(page(), closeTo(1, 0.01));
+
+      // A rotation or a resize that changes the layout keeps the page shown (one pager, hoisted).
+      for (final size in const [Size(1280, 800), Size(800, 1280), Size(844, 390), Size(420, 900)]) {
+        tester.view.physicalSize = size;
+        await _settle(tester);
+        expect(page(), closeTo(1, 0.01), reason: '$size');
+      }
+      await _close(tester);
+    });
   });
 
   group('Playlist', () {
@@ -235,6 +272,27 @@ void main() {
       expect(find.text('Joni Mitchell'), findsOneWidget);
       expect(find.text('Favorite'), findsOneWidget);
       expect(tester.getTopLeft(find.text('Joni Mitchell')).dy, greaterThan(100));
+      await _close(tester);
+    });
+
+    testWidgets('should_dropStar_when_providerHasNoFavorites', (tester) async {
+      // Medium: the hero would carry the star with its label; phone: the header would.
+      await _open(tester, _Page.artist, const Size(800, 1280), favorites: false);
+      expect(find.text('Joni Mitchell'), findsOneWidget);
+      expect(find.text('Favorite'), findsNothing);
+      expect(find.byIcon(YoinSymbols.star), findsNothing);
+      await _close(tester);
+
+      await _open(tester, _Page.artist, const Size(390, 844), favorites: false);
+      expect(find.byIcon(YoinSymbols.star), findsNothing);
+      await _close(tester);
+    });
+
+    testWidgets('should_showStarInHeader_when_phoneAndProviderHasFavorites', (tester) async {
+      await _open(tester, _Page.artist, const Size(390, 844));
+      expect(find.byIcon(YoinSymbols.star), findsOneWidget);
+      // The label is the hero's alone (Medium up).
+      expect(find.text('Favorite'), findsNothing);
       await _close(tester);
     });
 

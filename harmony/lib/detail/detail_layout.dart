@@ -25,11 +25,7 @@ enum DetailLayout {
   medium,
 
   /// ≥ 840 (a full window): the identity column beside the whole list.
-  wide;
-
-  /// Height < 480 or ≥ Medium width: the bar is the centred one or the edge
-  /// capsules, and the page is not the phone hero.
-  bool get isSide => this == short || this == landscape;
+  wide,
 }
 
 /// The layout for [window] (the page's own container: a column reads its
