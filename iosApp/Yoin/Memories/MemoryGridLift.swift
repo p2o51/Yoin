@@ -172,8 +172,12 @@ struct MemoryGridLiftLayer: View {
             let sources = p > 0.001 && !reduced ? pixels.map { lift.rect(of: $0)?.offsetBy(dx: dx, dy: dy) } : []
             ZStack(alignment: .top) {
                 if let under, barBottom > 0 {
-                    ProgressiveEdgeBlur(tint: under, strong: true)
-                        .frame(height: barBottom + TopEdgeBlur.overhang)
+                    // Solid to a little above the bar's foot, then a long eased fall-off past it
+                    // (51, 2026-11-16: longer and softer than the album's short edge).
+                    let h = barBottom + Self.tail
+                    ProgressiveEdgeBlur(tint: under, strong: true,
+                                        fadeFrom: Double(max(barBottom - Self.feather, 0) / h))
+                        .frame(height: h)
                         .opacity(Double(min(max(p / MemoryGridLiftMath.formed, 0), 1)))
                 }
                 Canvas { ctx, size in
@@ -233,7 +237,7 @@ struct MemoryGridLiftLayer: View {
         }
         // The formed bar's foot feathers into the blur under it (the album page's spectrum strip has no hard
         // edge either): the last stretch above the bar's bottom fades out, with no slope at either end.
-        let feather = min(Self.feather, barBottom * 0.4) * smoothstep(0.6, 1, p)
+        let feather = min(Self.feather, barBottom * 0.5) * smoothstep(0.6, 1, p)
         if feather > 0.5 {
             ctx.blendMode = .destinationOut
             let top = barBottom - feather
@@ -249,7 +253,9 @@ struct MemoryGridLiftLayer: View {
     }
 
     /// How far above the formed bar's bottom its squares fade out.
-    static let feather: CGFloat = 28
+    static let feather: CGFloat = 52
+    /// How far past the bar's bottom the blur under it eases out.
+    static let tail: CGFloat = 44
 
     private static func alpha(_ c: Color) -> Double {
         var a: CGFloat = 0
