@@ -155,6 +155,81 @@ abstract final class SettingsMetrics {
   static const double aiTierCornerSelected = 32;
   static const double aiTierPadding = 18;
 
+  // The page's parts (AiSettingsPage.kt / AiSubPages.kt, AI settings v2).
+  static const double aiSectionLabelInset = 4; // SectionLabel
+  static const double aiGroupGap = 8; // label → its row, Custom's fields
+  static const double aiKeyGap = 4; // key field → its link
+  static const double aiChipHeight = 44; // ChoiceChip: 44 high, corner 14 at rest, a pill when picked
+  static const double aiChipCorner = 14;
+  static const double aiChipPadding = 12;
+  static const double aiProviderChipPadding = 4; // the service row's weighted chips
+  static const double aiChipGap = 6;
+  static const double aiModelChipHeight = 36; // the fetched model ids
+  static const double aiModelChipCorner = 12;
+  static const int aiMaxModelChips = 24;
+  static const double aiThinkingTop = 20;
+  static const double aiLinkIcon = 16;
+  static const double aiLinkIconGap = 4;
+  static const double aiTryHeight = 52; // the 「拿一首歌试试」 / 「试试」 buttons
+  static const double aiTryIcon = 20;
+  static const double aiTryIconGap = 8;
+
+  // TradeoffChart: a 200-high plot, 52 gutter left for the y values, the x
+  // values and label 34 under the plot; dots 5.5 (7.5 picked) on a surface
+  // ring 2 wider, a 13 halo when picked; untested tiers hollow in the corner.
+  static const double aiChartHeight = 200;
+  static const double aiChartLeft = 52;
+  static const double aiChartRight = 8;
+  static const double aiChartTop = 8;
+  static const double aiChartBottom = 34;
+  static const int aiChartGridSteps = 4;
+  static const double aiChartGridStroke = 1;
+  static const double aiChartXEndGap = 4;
+  static const double aiChartYEndGap = 6;
+  static const double aiChartYWorstLift = 12;
+  static const double aiChartXLabelTop = 16;
+  static const double aiChartEndText = 10;
+  static const double aiChartGap = 4; // plot → legend
+  static const double aiDot = 5.5;
+  static const double aiDotPicked = 7.5;
+  static const double aiDotRing = 7.5;
+  static const double aiDotRingPicked = 9.5;
+  static const double aiDotHalo = 13;
+  static const double aiDotHaloAlpha = 0.18;
+  static const double aiDotDimAlpha = 0.3;
+  static const double aiDotLabelGap = 10;
+  static const double aiUntestedInset = 14;
+  static const double aiUntestedStep = 18;
+  static const double aiUntestedStroke = 2;
+  static const double aiUntestedDash = 6;
+  static const double aiUntestedDashGap = 4;
+  static const double aiUntestedDimAlpha = 0.45;
+  static const double aiLegendDot = 8;
+  static const double aiLegendDotGap = 4;
+  static const double aiLegendGap = 10;
+  static const double aiFlipHeight = 36;
+  static const double aiFlipPadding = 12;
+  static const double aiFlipPaddingNarrow = 9;
+  static const double aiFlipIcon = 18;
+  static const double aiFlipGap = 6;
+  static const double aiFlipTextMinWidth = 360;
+
+  // The tier page (AiTiersPageContent): two fact cards, corner 28 for the one in use.
+  static const double aiTiersGap = 16;
+  static const double aiFactsCorner = 20;
+  static const double aiFactsCornerPicked = 28;
+  static const double aiFactsPadding = 16;
+  static const double aiFactsGap = 10;
+
+  // 「拿一首歌试试」 (AiTryPageContent).
+  static const double aiTryFieldGap = 8;
+  static const double aiTryLoading = 32;
+  static const double aiTryLoadingGap = 12;
+  static const double aiTryResultGap = 12;
+  static const double aiTryCardCorner = 20;
+  static const double aiTryCardPadding = 16;
+  static const double aiTryFieldMaxWidth = 640;
+
   // List-detail on wide windows (SettingsTablet; main_split_config.xml splitRatio 0.33).
   static const double splitListFraction = 0.33;
   static const double splitListMinWidth = 360;

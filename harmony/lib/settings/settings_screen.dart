@@ -22,6 +22,7 @@ import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
 import 'ai_settings_screen.dart';
+import 'ai_sub_pages.dart';
 import 'apple_music_setup_screen.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
@@ -141,6 +142,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         openSubsonicManage(context, profileId);
       case AiPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const AiSettingsScreen()));
+      case AiTiersPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const AiTiersScreen()));
+      case AiTryPane():
+        navigator.push(YoinPushRoute<void>(builder: (_) => const AiTryScreen()));
       case TipsPane():
         navigator.push(YoinPushRoute<void>(builder: (_) => const TipsScreen()));
       case LicensesPane():
@@ -258,6 +263,8 @@ class _ListDetail extends StatelessWidget {
       AccountPane(:final profileId) =>
         SubsonicSetupScreen(key: ValueKey(profileId), profileId: profileId, inPane: true, onDone: onDone),
       AiPane() => const AiSettingsScreen(inPane: true),
+      AiTiersPane() => const AiTiersScreen(inPane: true),
+      AiTryPane() => const AiTryScreen(inPane: true),
       TipsPane() => const TipsScreen(inPane: true),
       LicensesPane() => const LicensesScreen(inPane: true),
       CloudSyncPane() => const CloudSyncScreen(inPane: true),
@@ -369,7 +376,7 @@ class _FeaturesGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SettingsGroup(
     title: SettingsStrings.of(context).sectionFeatures,
-    selected: {if (open is AiPane) 0},
+    selected: {if (open is AiPane || open is AiTiersPane || open is AiTryPane) 0},
     children: [
       AiSettingsRow(
         trailing: listDetail
