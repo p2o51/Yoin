@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
@@ -669,15 +670,16 @@ private fun YoinShell(
     // Scrolling the Home feed down takes the bottom bar out; up brings it back.
     // Only the plain feed under a bottom-bar form: the edge capsules stay, and
     // edit mode, Memories, Now Playing and the detail column all keep the bar.
-    // Opening a detail page brings the bar back too: it morphs into that
-    // page's twin bar, and the page's predictive back hands the bar back to
-    // this one, so it has to be there under the page (and stays there after).
     val barScrollHide = rememberShellBarScrollHide()
+    // Anything opening over the shell (a detail page above all) brings the
+    // bar back as it goes: the page's own bar stands where this one rests,
+    // and its predictive back hands the bar back to this one, so the bar has
+    // to be there under the page when the page leaves.
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { barScrollHide.show() }
     val barScrollHideEnabled = selectedSection == YoinSection.HOME &&
         homeSurface == HomeSurface.Feed &&
         !showNowPlaying &&
         !paneHasEntries &&
-        !experienceSession.detailChromeActive &&
         chromeForm != ShellChromeForm.EdgeSplit
     LaunchedEffect(barScrollHide, barScrollHideEnabled) {
         barScrollHide.enabled = barScrollHideEnabled
