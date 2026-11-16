@@ -1899,6 +1899,9 @@ final class SpotifyAudioOutput: AudioOutput {
                 // said "Open Spotify on this iPhone"): a seek, skip, pause or resume goes through the
                 // Web API to this iPhone's own device, once me/player shows it is the one playing.
                 // (Only a Web API *start* knocks this iPhone off Connect; see startHere.)
+                // Either way me/player is read every [pollSec] from here on (device 11-16, 09:03:52: a seek
+                // went over the Web API and the next read was the 10 s watch's).
+                pollHereWhileUnreachable()
                 if let web, let control, await self.commandOverWeb(control, aim: aim, gen: gen, web) { return }
                 guard gen == generation else { return }
                 playing = false
@@ -2198,10 +2201,21 @@ final class SpotifyAudioOutput: AudioOutput {
         Task { [weak self] in
             guard let self else { return }
             if await self.remote.connect(timeout: Self.localConnectSec) { return }
-            guard self.isHere, self.isDriving, !self.remote.isConnected else { return }
-            PlayTrace.log("SP App Remote unreachable: reading me/player every \(Int(Self.pollSec)) s")
-            self.startPolling()
+            self.pollHereWhileUnreachable()
         }
+    }
+
+    /// This iPhone driven with App Remote out of reach: me/player every [pollSec]. "Out of reach" is
+    /// App Remote not carrying the state, not only "not connected": a broken connection the SDK still
+    /// reads as connected left no reads but the 10 s watch.
+    private func pollHereWhileUnreachable() {
+        guard Self.pollsHere(isHere: isHere, driving: isDriving, remoteCarries: remoteCarries, silent: silent) else { return }
+        PlayTrace.log("SP App Remote unreachable: reading me/player every \(Int(Self.pollSec)) s")
+        startPolling()
+    }
+
+    nonisolated static func pollsHere(isHere: Bool, driving: Bool, remoteCarries: Bool, silent: Bool) -> Bool {
+        isHere && driving && !remoteCarries && !silent
     }
 
     /// A connection that reads as connected can stop carrying anything while Yoin stays in front (a
@@ -2490,12 +2504,14 @@ final class SpotifyAudioOutput: AudioOutput {
             return
         }
         // Playback moved to another device in Spotify: Yoin follows it there.
-        if let id = now.deviceId, id != target {
+        if let id = now.deviceId {
             let here = device.matches(now)
             // This iPhone stays unnamed and untargeted (App Remote's, as followTransfer and watch keep it):
             // its id as the target turned later commands into Web API starts aimed here (audit 11-15 #3).
             let newTarget: String? = here && !device.isMac ? nil : id
-            if newTarget != target {
+            // Another device Yoin already aims at but left unnamed reads as this iPhone (device 11-16 morning:
+            // the speaker's reads were taken for this iPhone's): named now.
+            if newTarget != target || (!here && SpotifyPlayingDevice.shared.name == nil) {
                 target = newTarget
                 SpotifyPlayingDevice.shared.name = here ? nil : now.deviceName
                 if !isHere {

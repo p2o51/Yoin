@@ -105,6 +105,42 @@ final class SpotifyForegroundDropTests: XCTestCase {
         XCTAssertTrue(SpotifyAudioOutput.replacesSilent(strikes: 1, decisive: true), "a song run past its end is enough")
     }
 
+    // #52, device 11-16 09:02:09: Devices › This iPhone with App Remote refused (POSIX 61) was followed
+    // only by the 10 s watch. me/player is read every 4 s instead.
+    func test_should_pollMeplayer_when_movedBackHereAndAppRemoteRefuses() async throws {
+        try await playA()
+        remote.dropForBackground()
+        app.refuseConnects = true
+        try await Task.sleep(for: .milliseconds(100))
+        let reads = WebStub.reads
+        NotificationCenter.default.post(name: SpotifyPlayingDevice.transferred, object: nil,
+                                        userInfo: ["id": "ip", "name": "iPhone", "type": "Smartphone"])
+        // Two reads in two poll periods (the watch alone reads once in 10 s).
+        try await waitUntil(SpotifyAudioOutput.pollSec * 2 + 1.5, "for the poll") { WebStub.reads >= reads + 2 }
+        XCTAssertEqual(app.wakes, 1, "Yoin doesn't open Spotify for it")
+    }
+
+    // Device 11-16 09:03:52: a seek with App Remote refused went over the Web API, and nothing read
+    // me/player after it but the 10 s watch.
+    func test_should_pollMeplayer_when_aCommandFindsAppRemoteRefused() async throws {
+        try await playA()
+        remote.dropForBackground()
+        app.refuseConnects = true
+        try await Task.sleep(for: .milliseconds(100))
+        let reads = WebStub.reads
+        engine.seek(to: 50)
+        try await waitUntil(3, "for the seek over the Web API") { WebStub.commands.contains { $0.hasSuffix("/me/player/seek") } }
+        // The command's own check and its read after, then the poll's.
+        try await waitUntil(SpotifyAudioOutput.pollSec * 2 + 1.5, "for the poll") { WebStub.reads >= reads + 4 }
+    }
+
+    func test_should_pollHere_onlyWhileAppRemoteCarriesNothing() {
+        XCTAssertTrue(SpotifyAudioOutput.pollsHere(isHere: true, driving: true, remoteCarries: false, silent: false))
+        XCTAssertFalse(SpotifyAudioOutput.pollsHere(isHere: true, driving: true, remoteCarries: true, silent: false))
+        XCTAssertFalse(SpotifyAudioOutput.pollsHere(isHere: false, driving: true, remoteCarries: false, silent: false), "a speaker polls on its own")
+        XCTAssertFalse(SpotifyAudioOutput.pollsHere(isHere: true, driving: false, remoteCarries: false, silent: false))
+    }
+
     // #6: a reconnect over a broken connection that the SDK still reads as connected isn't "connected".
     func test_should_notReadABrokenConnectionAsConnected_when_reconnecting() async throws {
         try await playA()
