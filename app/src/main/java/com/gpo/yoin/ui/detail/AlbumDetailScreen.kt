@@ -326,6 +326,7 @@ fun AlbumDetailScreen(
                 val barScheme = rememberCoverColorScheme(content?.coverArtUrl)
                     ?: MaterialTheme.colorScheme
             DetailBottomBar(
+                riseAfter = { enterIntro.slideReleased },
                     // Targets: the bar animates the change itself (YoinChromeGroup).
                     playContainer = barScheme.primary,
                     playContent = barScheme.onPrimary,
