@@ -8,12 +8,15 @@ import '../offline/downloads_screen.dart';
 import '../offline/offline_strings.dart';
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
+import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/component/error_strings.dart';
 import '../ui/component/expressive_text_field.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/yoin_push_route.dart';
 import 'account_identity.dart';
 import 'material_shapes.dart';
+import 'service_intro.dart';
 import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'settings_metrics.dart';
@@ -54,6 +57,9 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
   final _username = TextEditingController();
   final _password = TextEditingController();
   final _scroll = ScrollController();
+
+  /// Two columns: the hero side's own scroll (the bar's title reads it).
+  final _leadScroll = ScrollController();
   String _lastAddress = '';
   bool _seeded = false;
 
@@ -83,6 +89,7 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
     _username.dispose();
     _password.dispose();
     _scroll.dispose();
+    _leadScroll.dispose();
     super.dispose();
   }
 
@@ -124,55 +131,77 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
     }
     final managing = widget.profileId != null;
     final account = state.account;
-    final list = ListView(
-      controller: _scroll,
-      // The scroll clips itself; the pane's corners are painted over it.
-      clipBehavior: Clip.hardEdge,
-      padding: EdgeInsets.fromLTRB(
-        SettingsMetrics.pageHorizontal,
-        SettingsMetrics.pageTop,
-        SettingsMetrics.pageHorizontal,
-        SettingsMetrics.pageBottom + MediaQuery.paddingOf(context).bottom,
-      ),
-      children: [
-        _ServiceHero(account: account),
-        if (!managing) ...[
-          const SizedBox(height: SettingsMetrics.sectionGap),
-          _RequirementsGroup(requirements: [strings.introSubsonicNeed]),
-        ],
-        const SizedBox(height: SettingsMetrics.sectionGap),
-        _ConnectGroup(
-          provider: _provider,
-          address: _address,
-          username: _username,
-          password: _password,
-          onTest: _test,
-          onConnect: _connect,
+    final columns = setupUsesColumns(YoinWindowInfo.of(context));
+    // Two columns: the name a step down (Android compactTitle), so the hero fits the short side.
+    final compactTitle = managing || columns;
+    final hero = _ServiceHero(account: account, compactTitle: compactTitle);
+    final requirements = _RequirementsGroup(requirements: [strings.introSubsonicNeed]);
+    final connect = _ConnectGroup(
+      provider: _provider,
+      address: _address,
+      username: _username,
+      password: _password,
+      onTest: _test,
+      onConnect: _connect,
+    );
+    // Managing: the account's own settings under its connection.
+    final accountSettings = <Widget>[
+      if (managing) ...[
+        SettingsGroup(
+          title: strings.sectionPlayback,
+          children: [
+            StreamQualityRow(profileId: widget.profileId!),
+            // Subsonic reports ReplayGain (Capability.replayGain).
+            VolumeLevelingRow(profileId: widget.profileId!),
+          ],
         ),
-        if (managing) ...[
-          const SizedBox(height: SettingsMetrics.sectionGap),
+        // Downloads lists and removes the account in use's songs, so its
+        // row shows only on that account's page (ProfileServiceSettings).
+        if (account?.isActive ?? false)
           SettingsGroup(
-            title: strings.sectionPlayback,
-            children: [
-              StreamQualityRow(profileId: widget.profileId!),
-              // Subsonic reports ReplayGain (Capability.replayGain).
-              VolumeLevelingRow(profileId: widget.profileId!),
-            ],
+            title: OfflineStrings.of(context).sectionStorage,
+            children: [DownloadsRow(profileId: widget.profileId!)],
           ),
-          // Downloads lists and removes the account in use's songs, so its
-          // row shows only on that account's page (ProfileServiceSettings).
-          if (account?.isActive ?? false) ...[
-            const SizedBox(height: SettingsMetrics.sectionGap),
-            SettingsGroup(
-              title: OfflineStrings.of(context).sectionStorage,
-              children: [DownloadsRow(profileId: widget.profileId!)],
-            ),
+      ],
+    ];
+    final Widget body;
+    if (columns) {
+      // Landscape / wide: the service stays put on the left; the form first,
+      // then "What you get" (adding) or its settings (managing), on the right.
+      body = SetupColumns(
+        leadController: _leadScroll,
+        sideController: _scroll,
+        lead: [hero, if (!managing) requirements],
+        side: [connect, if (managing) ...accountSettings else const ServiceHighlightsGroup(service: SetupService.subsonic)],
+      );
+    } else {
+      // Adding: the pitch first, then connect. Managing: straight to the controls.
+      final blocks = <Widget>[
+        hero,
+        if (!managing) ...[const ServiceHighlightsGroup(service: SetupService.subsonic), requirements],
+        connect,
+        ...accountSettings,
+      ];
+      body = ListView(
+        controller: _scroll,
+        // The scroll clips itself; the pane's corners are painted over it.
+        clipBehavior: Clip.hardEdge,
+        padding: EdgeInsets.fromLTRB(
+          SettingsMetrics.pageHorizontal,
+          SettingsMetrics.pageTop,
+          SettingsMetrics.pageHorizontal,
+          SettingsMetrics.pageBottom + MediaQuery.paddingOf(context).bottom,
+        ),
+        children: [
+          for (var i = 0; i < blocks.length; i++) ...[
+            if (i > 0) const SizedBox(height: SettingsMetrics.sectionGap),
+            blocks[i],
           ],
         ],
-      ],
-    );
+      );
+    }
     if (widget.inPane) {
-      return SafeArea(top: false, bottom: false, child: list);
+      return SafeArea(top: false, bottom: false, child: body);
     }
     final title = account?.title ?? strings.introSubsonicName;
     return ChromeBarSuppression(
@@ -180,15 +209,23 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
         backgroundColor: settingsPageColor(colors),
         appBar: SettingsBar(
           title: title,
-          controller: _scroll,
+          // Two columns: the hero doesn't scroll with the form.
+          controller: columns ? _leadScroll : _scroll,
           // The hero's title sits under its mark.
-          titleTop: SettingsMetrics.pageTop + SettingsMetrics.heroMark + SettingsMetrics.heroGap,
+          titleTop:
+              (columns ? SettingsMetrics.setupColumnTop : SettingsMetrics.pageTop) +
+              SettingsMetrics.heroMark +
+              SettingsMetrics.heroGap,
           titleHeight: SettingsBar.lineHeight(
             context,
-            managing ? Theme.of(context).textTheme.headlineLarge! : Theme.of(context).textTheme.displaySmall!,
+            compactTitle ? Theme.of(context).textTheme.headlineLarge! : Theme.of(context).textTheme.displaySmall!,
           ),
         ),
-        body: SafeArea(top: false, bottom: false, child: SettingsSeam(controller: _scroll, child: list)),
+        body: SafeArea(
+          top: false,
+          bottom: false,
+          child: columns ? body : SettingsSeam(controller: _scroll, child: body),
+        ),
       ),
     );
   }
@@ -201,9 +238,12 @@ class _SubsonicSetupScreenState extends ConsumerState<SubsonicSetupScreen> {
 /// tagline. Managing ([account]): the account's own avatar — same shape,
 /// letter and badge as its card — its name a step smaller, and the service line.
 class _ServiceHero extends StatefulWidget {
-  const _ServiceHero({this.account});
+  const _ServiceHero({this.account, this.compactTitle = false});
 
   final AccountCard? account;
+
+  /// The name in headlineLarge, not displaySmall: a managed account's name, or two columns.
+  final bool compactTitle;
 
   @override
   State<_ServiceHero> createState() => _ServiceHeroState();
@@ -278,7 +318,7 @@ class _ServiceHeroState extends State<_ServiceHero> with SingleTickerProviderSta
             header: true,
             child: Text(
               account?.title ?? strings.introSubsonicName,
-              style: (account != null ? theme.textTheme.headlineLarge! : theme.textTheme.displaySmall!)
+              style: (widget.compactTitle ? theme.textTheme.headlineLarge! : theme.textTheme.displaySmall!)
                   .copyWith(color: theme.colorScheme.onSurface),
             ),
           ),
@@ -353,15 +393,25 @@ class _RequirementsGroup extends StatelessWidget {
 
 // ── Connect ──────────────────────────────────────────────────────────
 
-String _errorText(SettingsStrings strings, SetupError error) => switch (error) {
-      SetupError.addressRequired => strings.addressRequired,
-      SetupError.checkAddress => strings.checkAddress,
-      SetupError.usernameRequired => strings.usernameRequired,
-      SetupError.passwordRequired => strings.passwordRequired,
-      SetupError.serverError => strings.serverError,
-      SetupError.unreachable => strings.unreachable,
-      SetupError.saveFailed => strings.saveFailed,
-    };
+/// What the form says for [error] (strings_settings.xml).
+String setupErrorText(BuildContext context, SetupError error) {
+  final strings = SettingsStrings.of(context);
+  return switch (error) {
+    SetupError.addressRequired => strings.addressRequired,
+    SetupError.checkAddress => strings.checkAddress,
+    SetupError.usernameRequired => strings.usernameRequired,
+    SetupError.passwordRequired => strings.passwordRequired,
+    SetupError.serverError => strings.serverError,
+    SetupError.unreachable => strings.unreachable,
+    SetupError.saveFailed => strings.saveFailed,
+    SetupError.accountLimit => ServiceIntroStrings.of(context).accountLimit,
+  };
+}
+
+/// A failed test or connect: the server's own words, else which way it
+/// didn't answer (UserMessage.kt), else [setupErrorText].
+String setupFailureText(BuildContext context, SetupFailed failed) =>
+    failed.serverMessage ?? failed.line?.text(ErrorStrings.of(context)) ?? setupErrorText(context, failed.error);
 
 class _ConnectGroup extends ConsumerWidget {
   const _ConnectGroup({
@@ -387,7 +437,7 @@ class _ConnectGroup extends ConsumerWidget {
     final state = ref.watch(provider);
     final filled = address.text.trim().isNotEmpty && username.text.trim().isNotEmpty && password.text.trim().isNotEmpty;
     final canTest = filled && !state.isBusy;
-    final canSubmit = canTest && state.loaded;
+    final canSubmit = canTest && state.loaded && state.canAddProfile;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -427,7 +477,7 @@ class _ConnectGroup extends ConsumerWidget {
                           ),
                           child: _StatusRow(
                             icon: YoinSymbols.error,
-                            text: _errorText(strings, state.addressError!),
+                            text: setupErrorText(context, state.addressError!),
                             color: colors.error,
                           ),
                         ),
@@ -454,6 +504,14 @@ class _ConnectGroup extends ConsumerWidget {
                           padding: const EdgeInsets.only(top: SettingsMetrics.formGap),
                           child: _StatusLine(status: state.status),
                         ),
+                ),
+                // Five accounts already: Connect waits, and says why (settings_setup_limit_subsonic).
+                SpringReveal(
+                  visible: !state.canAddProfile,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: SettingsMetrics.formGap),
+                    child: SettingsNotice(text: ServiceIntroStrings.of(context).limitSubsonic),
+                  ),
                 ),
                 const SizedBox(height: SettingsMetrics.formGap),
                 Row(
@@ -568,11 +626,7 @@ class _StatusLine extends StatelessWidget {
           ],
         ),
       SetupReachable() => _StatusRow(icon: YoinSymbols.check, text: strings.reachable, color: colors.primary),
-      SetupFailed(:final error, :final serverMessage) => _StatusRow(
-          icon: YoinSymbols.error,
-          text: serverMessage ?? _errorText(strings, error),
-          color: colors.error,
-        ),
+      final SetupFailed failed => _StatusRow(icon: YoinSymbols.error, text: setupFailureText(context, failed), color: colors.error),
     };
     return SpringCrossFade(childKey: status.runtimeType, fit: StackFit.loose, child: child);
   }

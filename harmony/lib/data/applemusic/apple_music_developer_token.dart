@@ -12,6 +12,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../source/network_failure.dart';
 import 'apple_music_api.dart';
 
 /// Fetches and caches developer tokens from one token service.
@@ -76,11 +77,23 @@ final class AppleMusicDeveloperTokenProvider {
         ..headers['Accept'] = 'application/json';
       response = await http.Response.fromStream(await _client.send(request).timeout(timeout)).timeout(timeout);
     } on TimeoutException {
-      throw const AppleMusicApiException(AppleMusicFailure.network, detail: 'Developer token service timed out');
-    } on IOException {
-      throw const AppleMusicApiException(AppleMusicFailure.network, detail: 'Developer token service unreachable');
-    } on http.ClientException {
-      throw const AppleMusicApiException(AppleMusicFailure.network, detail: 'Developer token service unreachable');
+      throw const AppleMusicApiException(
+        AppleMusicFailure.network,
+        detail: 'Developer token service timed out',
+        networkKind: NetworkFailureKind.timeout,
+      );
+    } on IOException catch (e) {
+      throw AppleMusicApiException(
+        AppleMusicFailure.network,
+        detail: 'Developer token service unreachable',
+        networkKind: networkFailureKindOf(e),
+      );
+    } on http.ClientException catch (e) {
+      throw AppleMusicApiException(
+        AppleMusicFailure.network,
+        detail: 'Developer token service unreachable',
+        networkKind: networkFailureKindOf(e),
+      );
     }
     if (response.statusCode != 200) {
       throw AppleMusicApiException(

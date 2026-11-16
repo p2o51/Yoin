@@ -14,6 +14,9 @@ class ProfileRepository {
   final SecretStore _secrets;
   final Random _random;
 
+  /// How many accounts Yoin keeps (Android ProfileManager.MAX_PROFILES).
+  static const maxProfiles = 5;
+
   static const profilesKey = 'profiles.v1';
   static const activeKey = 'profiles.active.v1';
   static String credentialsKey(String profileId) => 'profile_credentials.$profileId';
@@ -35,8 +38,12 @@ class ProfileRepository {
 
   Future<void> setActive(String profileId) => _values.write(activeKey, profileId);
 
-  /// Saves a new profile with its credentials and makes it active.
+  /// Saves a new profile with its credentials and makes it active. Throws
+  /// [ProfileLimitReachedException], writing nothing, when [maxProfiles]
+  /// accounts are already kept.
   Future<Profile> add({required String provider, required String displayName, required ProfileCredentials credentials}) async {
+    final existing = await profiles();
+    if (existing.length >= maxProfiles) throw const ProfileLimitReachedException(maxProfiles);
     final profile = Profile(
       id: _newId(),
       provider: provider,
@@ -45,7 +52,7 @@ class ProfileRepository {
     );
     // Secret first: a listed profile must always have credentials.
     await _secrets.write(credentialsKey(profile.id), jsonEncode(credentials.toJson()));
-    await _saveList([...await profiles(), profile]);
+    await _saveList([...existing, profile]);
     await setActive(profile.id);
     return profile;
   }
@@ -69,4 +76,14 @@ class ProfileRepository {
       _values.write(profilesKey, jsonEncode([for (final p in profiles) p.toJson()]));
 
   String _newId() => List.generate(16, (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+}
+
+/// A sixth account was refused (Android ProfileLimitReachedException).
+final class ProfileLimitReachedException implements Exception {
+  const ProfileLimitReachedException(this.limit);
+
+  final int limit;
+
+  @override
+  String toString() => 'ProfileLimitReachedException: cannot add more than $limit profiles';
 }

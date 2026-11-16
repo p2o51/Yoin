@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/model/model.dart';
 import '../library/playlist_writes.dart';
+import '../ui/component/error_diagnostics.dart';
 import 'detail_cache.dart';
 
 /// One playlist row: a stable per-entry key so the same song twice is two rows.
@@ -20,8 +21,16 @@ final class PlaylistDetailLoading extends PlaylistDetailState {
 }
 
 final class PlaylistDetailError extends PlaylistDetailState {
-  const PlaylistDetailError({required this.notFound});
+  const PlaylistDetailError({required this.notFound, this.cause, this.diagnostics});
+
+  /// The server has no such playlist (vs. a failed read).
   final bool notFound;
+
+  /// What the failed read threw: the page says its line (`userMessageText`).
+  final Object? cause;
+
+  /// The scrubbed report Copy details copies ([diagnosticReport]), taken when it failed.
+  final String? diagnostics;
 }
 
 final class PlaylistDetailContent extends PlaylistDetailState {
@@ -168,9 +177,9 @@ class PlaylistDetailNotifier extends Notifier<PlaylistDetailState> {
       final playlist = await cache.playlist(playlistId);
       if (!ref.mounted || gen != _generation) return;
       state = playlist == null ? const PlaylistDetailError(notFound: true) : PlaylistDetailContent(playlist);
-    } catch (_) {
+    } catch (e) {
       if (!ref.mounted || gen != _generation) return;
-      state = const PlaylistDetailError(notFound: false);
+      state = PlaylistDetailError(notFound: false, cause: e, diagnostics: diagnosticReport(e));
     }
   }
 }

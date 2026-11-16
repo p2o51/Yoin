@@ -17,6 +17,7 @@ import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/seam/seam.dart';
 import '../ui/component/spring_cross_fade.dart';
+import '../ui/component/user_message.dart';
 import 'artist_detail_view_model.dart';
 import 'artist_most_played.dart';
 import 'detail_listening.dart';
@@ -80,8 +81,11 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
                         childKey: state.runtimeType,
                         child: switch (state) {
                           ArtistDetailLoading() => const DetailLoadingView(),
-                          ArtistDetailError(:final notFound) => DetailErrorView(
-                            message: notFound ? strings.artistNotFound : strings.artistLoadError,
+                          ArtistDetailError(:final notFound, :final cause, :final diagnostics) => DetailErrorView(
+                            message: notFound
+                                ? strings.artistNotFound
+                                : userMessageText(context, cause, strings.artistLoadError),
+                            diagnostics: notFound ? null : diagnostics,
                             onRetry: () => ref.read(artistDetailProvider(widget.artistId).notifier).retry(),
                           ),
                           ArtistDetailContent() => _ArtistBody(

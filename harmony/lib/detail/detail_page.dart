@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../shell/app_messages.dart';
+import '../ui/component/error_diagnostics.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import 'detail_palette.dart';
 import 'detail_strings.dart';
@@ -124,12 +125,15 @@ class DetailLoadingView extends StatelessWidget {
   Widget build(BuildContext context) => const Center(child: YoinLoadingIndicator());
 }
 
-/// DetailErrorState: message (bodyLarge, error) and Retry, padding 24, spacing 10.
+/// DetailErrorState: message (bodyLarge, error) and Retry, padding 24,
+/// spacing 10; with [diagnostics] ([diagnosticReport]) Copy details beside
+/// Retry, 12 apart.
 class DetailErrorView extends StatelessWidget {
-  const DetailErrorView({super.key, required this.message, required this.onRetry});
+  const DetailErrorView({super.key, required this.message, required this.onRetry, this.diagnostics});
 
   final String message;
   final VoidCallback onRetry;
+  final String? diagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +150,14 @@ class DetailErrorView extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: colors.error),
             ),
             const SizedBox(height: 10),
-            TextButton(onPressed: onRetry, child: Text(DetailStrings.of(context).retry)),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              spacing: 12,
+              children: [
+                TextButton(onPressed: onRetry, child: Text(DetailStrings.of(context).retry)),
+                if (diagnostics case final report?) CopyDiagnosticsButton(report: report),
+              ],
+            ),
           ],
         ),
       ),

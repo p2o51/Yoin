@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/activity/activity.dart';
 import '../data/model/model.dart';
+import '../ui/component/error_diagnostics.dart';
 import 'detail_cache.dart';
 
 /// Album page state (Android AlbumDetailUiState).
@@ -17,10 +18,16 @@ final class AlbumDetailLoading extends AlbumDetailState {
 }
 
 final class AlbumDetailError extends AlbumDetailState {
-  const AlbumDetailError({required this.notFound});
+  const AlbumDetailError({required this.notFound, this.cause, this.diagnostics});
 
   /// The server has no such album (vs. a failed read).
   final bool notFound;
+
+  /// What the failed read threw: the page says its line (`userMessageText`).
+  final Object? cause;
+
+  /// The scrubbed report Copy details copies ([diagnosticReport]), taken when it failed.
+  final String? diagnostics;
 }
 
 final class AlbumDetailContent extends AlbumDetailState {
@@ -85,9 +92,9 @@ class AlbumDetailNotifier extends Notifier<AlbumDetailState> {
       }
       state = AlbumDetailContent(album);
       _recordVisit(album);
-    } catch (_) {
+    } catch (e) {
       if (!ref.mounted || gen != _generation) return;
-      state = const AlbumDetailError(notFound: false);
+      state = AlbumDetailError(notFound: false, cause: e, diagnostics: diagnosticReport(e));
     }
   }
 

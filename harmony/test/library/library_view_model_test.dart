@@ -86,6 +86,17 @@ void main() {
     expect(await _settled(c), isA<LibraryError>().having((e) => e.error, 'error', isA<SourceNetworkException>()));
   });
 
+  test('should_carryScrubbedDiagnostics_when_libraryFails', () async {
+    final source = _library()
+      ..failures['getArtists'] = const SourceAuthException('Wrong password for u=gpo&t=abc&s=salt', code: 40);
+    final c = _container(source);
+    addTearDown(c.dispose);
+    final error = await _settled(c) as LibraryError;
+    expect(error.diagnostics, contains('Subsonic auth 40'));
+    expect(error.diagnostics, isNot(contains('salt')));
+    expect(error.diagnostics, isNot(contains('gpo')));
+  });
+
   test('should_loadAlbumsAndPlaylists_when_libraryShown', () async {
     final source = _library();
     final c = _container(source);
@@ -127,6 +138,8 @@ void main() {
     final content = _content(c);
     expect(content.selected, LibraryTab.all);
     expect(content.notice?.tab, LibraryTab.favorites);
+    // The snackbar says the failure's own line (here: unreachable).
+    expect(content.notice?.error, isA<SourceNetworkException>());
   });
 
   test('should_returnToAll_when_selectedChipTappedAgain', () async {
@@ -204,6 +217,7 @@ void main() {
     expect(content.playlists, hasLength(1));
     expect(content.isRefreshing, isFalse);
     expect(content.notice?.tab, LibraryTab.playlists);
+    expect(content.notice?.error, isA<SourceNetworkException>());
   });
 
   test('should_sortByActivityLog_when_recents', () async {

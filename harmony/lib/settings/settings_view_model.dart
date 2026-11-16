@@ -136,6 +136,12 @@ final class SettingsContent extends SettingsUiState {
 
   final List<AccountCard> accounts;
 
+  /// How many accounts Yoin keeps (ProfileManager.MAX_PROFILES).
+  static const maxProfiles = ProfileRepository.maxProfiles;
+
+  /// Another account fits: Settings offers Add (SettingsViewModel canAddProfile).
+  bool get canAddProfile => accounts.length < maxProfiles;
+
   /// null with no account.
   String? get activeId => accounts.where((a) => a.isActive).firstOrNull?.id;
 }

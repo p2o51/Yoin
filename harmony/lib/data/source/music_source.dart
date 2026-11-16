@@ -7,6 +7,9 @@ library;
 import 'package:flutter/foundation.dart';
 
 import '../model/model.dart';
+import 'network_failure.dart';
+
+export 'network_failure.dart' show NetworkFailureKind, networkFailureKindOf;
 
 enum Capability {
   favorites,
@@ -68,26 +71,38 @@ final class UnsupportedSourceOperation implements Exception {
 
 /// A source call failed in a way the UI can describe (server error, auth, network).
 sealed class SourceException implements Exception {
-  const SourceException(this.message);
+  const SourceException(this.message, {this.cause});
   final String message;
+
+  /// What the provider threw underneath, when it says more than [message]:
+  /// Apple Music's `AppleMusicApiException` (which line the UI says, and the
+  /// diagnostics), or the transport's exception. Never shown as text.
+  final Object? cause;
+
   @override
   String toString() => '$runtimeType: $message';
 }
 
 /// Wrong user / password / token.
 final class SourceAuthException extends SourceException {
-  const SourceAuthException(super.message);
+  const SourceAuthException(super.message, {this.code, super.cause});
+
+  /// The provider's own error code (Subsonic 40 / 41 / 50), when it sent one.
+  final int? code;
 }
 
 /// The server answered with an error that isn't auth.
 final class SourceServerException extends SourceException {
-  const SourceServerException(super.message, {this.code});
+  const SourceServerException(super.message, {this.code, super.cause});
   final int? code;
 }
 
 /// Couldn't reach the server (DNS, TLS, timeout, connection refused).
 final class SourceNetworkException extends SourceException {
-  const SourceNetworkException(super.message);
+  const SourceNetworkException(super.message, {this.kind = NetworkFailureKind.io, super.cause});
+
+  /// Which line the UI says (Android UserMessage.kt): unreachable, timeout or TLS.
+  final NetworkFailureKind kind;
 }
 
 abstract interface class MusicSource {

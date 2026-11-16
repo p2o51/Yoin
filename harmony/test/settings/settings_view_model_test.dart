@@ -8,6 +8,7 @@ import 'package:yoin/data/profile/profile.dart';
 import 'package:yoin/data/profile/profile_repository.dart';
 import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/platform/storage/stores.dart';
+import 'package:yoin/settings/settings_components.dart' show SpringReveal;
 import 'package:yoin/settings/settings_screen.dart';
 import 'package:yoin/settings/settings_view_model.dart';
 
@@ -206,6 +207,91 @@ void main() {
       await pump(tester);
       expect(find.text('Add'), findsOneWidget);
       expect(find.text('Settings'), findsWidgets);
+    });
+
+    // The account row is lazy: past the screen's edge the Add tile isn't built
+    // at all, so the row is scrolled to its end before the tile is looked for.
+    Future<SpringReveal> addTileAtRowEnd(WidgetTester tester) async {
+      await tester.drag(
+        find.byWidgetPredicate((w) => w is ListView && w.scrollDirection == Axis.horizontal),
+        const Offset(-3000, 0),
+      );
+      await tester.pumpAndSettle();
+      return tester.widget<SpringReveal>(
+        find.byWidgetPredicate((w) => w is SpringReveal && w.key == const ValueKey('add')),
+      );
+    }
+
+    testWidgets('should_countAccounts_when_accountsExist', (tester) async {
+      await tester.runAsync(twoAccounts);
+      await pump(tester);
+      expect(find.text('2 of 5'), findsOneWidget);
+    });
+
+    testWidgets('should_hideAddTile_when_fiveAccountsKept', (tester) async {
+      await tester.runAsync(() async {
+        for (var i = 0; i < ProfileRepository.maxProfiles; i++) {
+          await repo.add(
+            provider: MediaId.providerSubsonic,
+            displayName: 'u$i @ s$i.test',
+            credentials: SubsonicCredentials(baseUrl: 'https://s$i.test', username: 'u$i', password: 'p'),
+          );
+        }
+      });
+      await pump(tester);
+      expect(find.text('5 of 5'), findsOneWidget);
+      expect((await addTileAtRowEnd(tester)).visible, isFalse);
+      expect(find.text('Add', skipOffstage: false), findsNothing);
+    });
+
+    testWidgets('should_bringAddTileBack_when_accountRemovedAtLimit', (tester) async {
+      await tester.runAsync(() async {
+        for (var i = 0; i < ProfileRepository.maxProfiles; i++) {
+          await repo.add(
+            provider: MediaId.providerSubsonic,
+            displayName: 'u$i @ s$i.test',
+            credentials: SubsonicCredentials(baseUrl: 'https://s$i.test', username: 'u$i', password: 'p'),
+          );
+        }
+      });
+      await pump(tester);
+      expect((await addTileAtRowEnd(tester)).visible, isFalse);
+      expect(find.text('Add', skipOffstage: false), findsNothing);
+
+      await tester.drag(
+        find.byWidgetPredicate((w) => w is ListView && w.scrollDirection == Axis.horizontal),
+        const Offset(3000, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Options for u0'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Remove'));
+      await tester.runAsync(settle);
+      await tester.pumpAndSettle();
+
+      expect(find.text('4 of 5'), findsOneWidget);
+      // Back at the row's end.
+      expect((await addTileAtRowEnd(tester)).visible, isTrue);
+      expect(find.text('Add'), findsOneWidget);
+    });
+  });
+
+  group('content', () {
+    test('should_allowAdding_when_belowLimit', () {
+      AccountCard card(int i) => AccountCard(
+        id: '$i',
+        provider: MediaId.providerSubsonic,
+        displayName: 'd$i',
+        title: 't$i',
+        host: null,
+        isActive: i == 0,
+        avatarShape: i,
+      );
+      expect(SettingsContent(accounts: [for (var i = 0; i < 4; i++) card(i)]).canAddProfile, isTrue);
+      expect(SettingsContent(accounts: [for (var i = 0; i < 5; i++) card(i)]).canAddProfile, isFalse);
+      expect(SettingsContent.maxProfiles, 5);
     });
   });
 }

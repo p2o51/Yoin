@@ -5,7 +5,6 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
-import '../data/source/music_source.dart';
 import '../memories/ledger/memory_ledger_home_card.dart';
 import '../memories/ledger/memory_ledger_view_model.dart';
 import '../memories/memories_pull.dart';
@@ -15,6 +14,7 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/expressive/loading_indicator.dart';
+import '../ui/component/user_message.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import 'activity_bento.dart';
 import 'home_edit.dart';
@@ -1224,8 +1224,8 @@ class _ErrorPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = HomeStrings.of(context);
     final colors = Theme.of(context).colorScheme;
-    final err = error;
-    final message = err is SourceException && err.message.isNotEmpty ? err.message : strings.errorLoadFailed;
+    // The failure's own line (connectivity, Apple Music, the server's words), else Home's.
+    final message = userMessageText(context, error, strings.errorLoadFailed);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: HomeFeedMetrics.cappedMargin),

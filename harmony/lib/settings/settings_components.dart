@@ -35,22 +35,40 @@ ShapeBorder settingsSegmentShape(int index, int count) {
 
 /// A group's label: labelLarge in primary, 8dp inside the rows' edge.
 class SettingsGroupLabel extends StatelessWidget {
-  const SettingsGroupLabel({super.key, required this.title});
+  const SettingsGroupLabel({super.key, required this.title, this.trailingLabel});
 
   final String title;
+
+  /// A note at the label's end (labelMedium, onSurfaceVariant): Accounts' "2 of 5".
+  final String? trailingLabel;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final label = Semantics(
+      header: true,
+      child: SeamFade(
+        fontSize: theme.textTheme.labelLarge!.fontSize ?? 14,
+        child: Text(title, style: theme.textTheme.labelLarge!.copyWith(color: theme.colorScheme.primary)),
+      ),
+    );
+    final trailing = trailingLabel;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: SettingsMetrics.labelInset),
-      child: Semantics(
-        header: true,
-        child: SeamFade(
-          fontSize: theme.textTheme.labelLarge!.fontSize ?? 14,
-          child: Text(title, style: theme.textTheme.labelLarge!.copyWith(color: theme.colorScheme.primary)),
-        ),
-      ),
+      child: trailing == null
+          ? label
+          : Row(
+              children: [
+                Expanded(child: Align(alignment: AlignmentDirectional.centerStart, child: label)),
+                SeamFade(
+                  fontSize: theme.textTheme.labelMedium!.fontSize ?? 12,
+                  child: Text(
+                    trailing,
+                    style: theme.textTheme.labelMedium!.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -201,10 +219,14 @@ class SettingsBar extends StatelessWidget implements PreferredSizeWidget {
 /// fading on the effects spring (Compose expandVertically + fadeIn). The last
 /// child stays on screen while it folds.
 class SpringReveal extends StatefulWidget {
-  const SpringReveal({super.key, required this.visible, required this.child});
+  const SpringReveal({super.key, required this.visible, required this.child, this.axis = Axis.vertical});
 
   final bool visible;
   final Widget? child;
+
+  /// The direction it opens in: down (a line under a field) or along a row
+  /// (the account switcher's Add tile).
+  final Axis axis;
 
   @override
   State<SpringReveal> createState() => _SpringRevealState();
@@ -256,7 +278,8 @@ class _SpringRevealState extends State<SpringReveal> with TickerProviderStateMix
         return ClipRect(
           child: Align(
             alignment: AlignmentDirectional.topStart,
-            heightFactor: size,
+            heightFactor: widget.axis == Axis.vertical ? size : null,
+            widthFactor: widget.axis == Axis.horizontal ? size : null,
             child: Opacity(opacity: _alpha.value.clamp(0.0, 1.0), child: child),
           ),
         );

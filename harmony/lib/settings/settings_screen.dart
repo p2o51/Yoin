@@ -36,6 +36,7 @@ import 'appearance/appearance_group.dart';
 import 'appearance/appearance_strings.dart';
 import 'appearance/screen_corners_screen.dart';
 import 'appearance/scroll_edge_screen.dart';
+import 'service_intro.dart' show ServiceIntroStrings;
 import 'settings_colors.dart';
 import 'settings_components.dart';
 import 'licenses.dart';
@@ -583,12 +584,18 @@ class _AccountsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SettingsGroupLabel(title: strings.sectionAccounts),
+        SettingsGroupLabel(
+          title: strings.sectionAccounts,
+          // How many of the five accounts are kept (settings_accounts_count).
+          trailingLabel: state.accounts.isEmpty
+              ? null
+              : ServiceIntroStrings.of(context).accountsCount(state.accounts.length, SettingsContent.maxProfiles),
+        ),
         const SizedBox(height: SettingsMetrics.groupLabelGap),
         if (state.accounts.isEmpty)
           const _EmptyAccountsCard()
         else
-          _AccountCardRow(accounts: state.accounts, onOpen: onOpen),
+          _AccountCardRow(accounts: state.accounts, canAdd: state.canAddProfile, onOpen: onOpen),
       ],
     );
   }
@@ -632,9 +639,12 @@ class _EmptyAccountsCard extends StatelessWidget {
 /// padding, so cards are only ever cut by the screen edge; resting, the
 /// first card sits on the page margin.
 class _AccountCardRow extends StatelessWidget {
-  const _AccountCardRow({required this.accounts, required this.onOpen});
+  const _AccountCardRow({required this.accounts, required this.canAdd, required this.onOpen});
 
   final List<AccountCard> accounts;
+
+  /// Fewer than five accounts: the Add tile ends the row (it folds away at the limit).
+  final bool canAdd;
   final OpenSettingsPane onOpen;
 
   /// Card height from its content, so text never clips at large font scales.
@@ -661,11 +671,20 @@ class _AccountCardRow extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: bleed, vertical: SettingsMetrics.cardRowVertical),
             children: [
-              for (final card in accounts) ...[
+              for (final (i, card) in accounts.indexed) ...[
+                if (i > 0) const SizedBox(width: SettingsMetrics.cardGap),
                 _AccountCardTile(key: ValueKey(card.id), card: card, onOpen: onOpen),
-                const SizedBox(width: SettingsMetrics.cardGap),
               ],
-              const _AddAccountTile(),
+              SpringReveal(
+                key: const ValueKey('add'),
+                axis: Axis.horizontal,
+                visible: canAdd,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [SizedBox(width: SettingsMetrics.cardGap), _AddAccountTile()],
+                ),
+              ),
             ],
           ),
         ),

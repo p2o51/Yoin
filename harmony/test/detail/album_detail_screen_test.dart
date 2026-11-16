@@ -263,4 +263,24 @@ void main() {
     // Pure reveal rule the page uses on release.
     expect(PullUpMath.releaseToList(0.3, 0, 400), isTrue);
   });
+
+  testWidgets('should_sayTimeoutAndOfferCopyDetails_when_albumReadTimesOut', (tester) async {
+    final source = LibraryFakeSource(albumDetails: {_album.id: _album});
+    source.failures['getAlbum'] = const SourceNetworkException('slow', kind: NetworkFailureKind.timeout);
+    await _open(tester, source: source);
+
+    expect(find.text('The server is taking too long. Try again.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('Copy details'), findsOneWidget);
+    await _close(tester);
+  });
+
+  testWidgets('should_sayServerWords_when_albumReadRefused', (tester) async {
+    final source = LibraryFakeSource(albumDetails: {_album.id: _album});
+    source.failures['getAlbum'] = const SourceServerException('The requested data was not found', code: 70);
+    await _open(tester, source: source);
+
+    expect(find.text('The requested data was not found'), findsOneWidget);
+    await _close(tester);
+  });
 }

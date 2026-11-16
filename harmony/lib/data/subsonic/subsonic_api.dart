@@ -146,13 +146,17 @@ final class SubsonicApi {
       final response = await _client.send(http.Request('GET', uri)).timeout(timeout);
       status = response.statusCode;
       bytes = await response.stream.timeout(timeout).fold<List<int>>(<int>[], (acc, chunk) => acc..addAll(chunk));
-    } on TimeoutException {
-      throw SourceNetworkException('$endpoint timed out after ${timeout.inSeconds} s');
+    } on TimeoutException catch (e) {
+      throw SourceNetworkException(
+        '$endpoint timed out after ${timeout.inSeconds} s',
+        kind: NetworkFailureKind.timeout,
+        cause: e,
+      );
     } on IOException catch (e) {
       // SocketException, HandshakeException (a TlsException), HttpException.
-      throw SourceNetworkException(redact(e.toString()));
+      throw SourceNetworkException(redact(e.toString()), kind: networkFailureKindOf(e), cause: e);
     } on http.ClientException catch (e) {
-      throw SourceNetworkException(redact(e.toString()));
+      throw SourceNetworkException(redact(e.toString()), kind: networkFailureKindOf(e), cause: e);
     }
 
     final ok = status >= 200 && status < 300;
@@ -170,7 +174,7 @@ final class SubsonicApi {
       final message = redact(
         (error is Map ? error['message'] as String? : null) ?? 'Subsonic error${code == null ? '' : ' (code $code)'}',
       );
-      if (code != null && SubsonicErrorCode.auth.contains(code)) throw SourceAuthException(message);
+      if (code != null && SubsonicErrorCode.auth.contains(code)) throw SourceAuthException(message, code: code);
       throw SourceServerException(message, code: code);
     }
     if (!ok) throw SourceServerException('HTTP $status');

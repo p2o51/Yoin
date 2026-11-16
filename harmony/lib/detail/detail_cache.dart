@@ -319,13 +319,17 @@ final class DetailCache {
         final source = await _source();
         if (source == null) return;
         value = await read(source);
-      } on AppleMusicApiException catch (e) {
-        if (e.failure == AppleMusicFailure.rateLimited) {
+      } catch (e) {
+        // The Apple source hands its refusal over as a SourceException whose cause it is.
+        final apple = switch (e) {
+          AppleMusicApiException() => e,
+          SourceException(cause: final AppleMusicApiException cause) => cause,
+          _ => null,
+        };
+        if (apple?.failure == AppleMusicFailure.rateLimited) {
           final until = _clock() + rateLimitPauseMs;
           _pausedUntil[pauseKey] = math.max(until, _pausedUntil[pauseKey] ?? 0);
         }
-        return;
-      } catch (_) {
         return;
       }
       if (value == null || !current()) return;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/data/applemusic/apple_music_source.dart';
 import 'package:yoin/data/cache/detail_cache_store.dart';
 import 'package:yoin/data/model/model.dart';
 import 'package:yoin/detail/detail_cache.dart';
@@ -75,6 +76,28 @@ void main() {
     expect((await next.album(id))!.name, 'Blue'); // served from disk at once
     await settle();
     expect(next.cachedAlbum(id)!.name, 'Blue (Remastered)'); // converged in the background
+  });
+
+  test('should_pauseRevalidation_when_appleSourceRateLimits', () async {
+    final id2 = MediaId.subsonic('al2');
+    source.albumDetails[id2] = Album(id: id2, name: 'Green');
+    final first = cache();
+    await first.album(id);
+    await first.album(id2);
+    await settle();
+    await disk.flush();
+    now += DetailCache.revalidateAfterMs + 1;
+    // As AppleMusicSource throws it: the interface's exception, Apple's refusal its cause.
+    source.failures['getAlbum'] = sourceExceptionFor(
+      const AppleMusicApiException(AppleMusicFailure.rateLimited, status: 429),
+    );
+    final next = cache();
+    expect((await next.album(id))!.name, 'Blue');
+    await settle();
+    expect(reads('getAlbum'), 3); // the background refresh, refused
+    expect((await next.album(id2))!.name, 'Green');
+    await settle();
+    expect(reads('getAlbum'), 3); // paused: no refresh sent while Apple says it's busy
   });
 
   test('should_revalidatePlaylist_when_reopenedAfterHandoff', () async {
