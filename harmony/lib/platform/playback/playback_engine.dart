@@ -4,6 +4,8 @@
 /// screen, 播控中心, headset keys) so it keeps playing with the UI gone.
 library;
 
+import '../../data/model/model.dart' show AudioFormat, StreamDelivery;
+
 /// One queue entry, everything the native side needs without calling back.
 final class EngineItem {
   const EngineItem({
@@ -20,6 +22,8 @@ final class EngineItem {
     this.entryId,
     this.extra,
     this.gain = 1.0,
+    this.delivery,
+    this.fileDelivery,
   });
 
   /// [MediaId] string, echoed back in [EngineState.currentId].
@@ -58,6 +62,16 @@ final class EngineItem {
   /// gapless hand-over changes it with the song.
   final double gain;
 
+  /// What [uri] (and [cacheUri], the same bytes) sends: the file or a
+  /// transcode; null when unknown. Opaque to the native side, echoed by
+  /// [QueuePlaybackEngine.snapshot] and in [PlayingFormatEvent], so Now
+  /// Playing's format tags say what arrives.
+  final StreamDelivery? delivery;
+
+  /// What the downloaded [localUri] holds (the quality it was kept at);
+  /// null without a download.
+  final StreamDelivery? fileDelivery;
+
   Map<String, Object?> toMap() => {
         'id': id,
         'uri': uri,
@@ -72,6 +86,8 @@ final class EngineItem {
         'entryId': entryId,
         'extra': extra,
         'gain': gain,
+        if (delivery != null) 'delivery': delivery!.toMap(),
+        if (fileDelivery != null) 'fileDelivery': fileDelivery!.toMap(),
       };
 
   factory EngineItem.fromMap(Map<Object?, Object?> map) => EngineItem(
@@ -88,6 +104,8 @@ final class EngineItem {
           final num n => n.toDouble(),
           _ => 1.0,
         },
+        delivery: StreamDelivery.fromMap(map['delivery']),
+        fileDelivery: StreamDelivery.fromMap(map['fileDelivery']),
       );
 }
 
@@ -210,6 +228,7 @@ sealed class EngineEvent {
   static EngineEvent? fromMap(Map<Object?, Object?> map) => switch (map['type']) {
         'openNowPlaying' => const OpenNowPlayingEvent(),
         'networkAvailable' => const NetworkAvailableEvent(),
+        'playingFormat' => PlayingFormatEvent.fromMap(map),
         'command' => switch (map['name']) {
             'toggleFavorite' => ToggleFavoriteCommand(map['id'] as String?),
             final String name when SessionTransportCommand.names.contains(name) =>
@@ -297,6 +316,62 @@ final class OpenNowPlayingEvent extends EngineEvent {
 final class NetworkAvailableEvent extends EngineEvent {
   const NetworkAvailableEvent();
 }
+
+/// What the native player decodes for the entry it just opened (Android
+/// PlaybackService.playingFormat, from AVPlayer's track description), and
+/// whether it opened the downloaded file ([fromFile]) or the stream. Sent
+/// once per opened source; [decoded] fields are null where the player
+/// doesn't say.
+final class PlayingFormatEvent extends EngineEvent {
+  const PlayingFormatEvent({required this.id, this.entryId, required this.fromFile, required this.decoded});
+
+  final String id;
+  final String? entryId;
+  final bool fromFile;
+  final AudioFormat decoded;
+
+  /// The delivery of the source that opened: the download's or the stream's.
+  StreamDelivery? deliveryOf(EngineItem item) => fromFile ? item.fileDelivery : item.delivery;
+
+  static PlayingFormatEvent? fromMap(Map<Object?, Object?> map) {
+    final id = map['id'];
+    if (id is! String) return null;
+    final bitRate = _int(map['bitRate']);
+    return PlayingFormatEvent(
+      id: id,
+      entryId: map['entryId'] as String?,
+      fromFile: map['fromFile'] == true,
+      decoded: AudioFormat(
+        contentType: map['mime'] as String?,
+        // bit/s → kbps; 0 = unknown.
+        bitRateKbps: bitRate == null || bitRate <= 0 ? null : (bitRate / 1000).round(),
+        sampleRateHz: _positive(map['sampleRateHz']),
+        bitDepth: _positive(map['bitDepth']),
+        channels: _positive(map['channels']),
+      ),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is PlayingFormatEvent &&
+      other.id == id &&
+      other.entryId == entryId &&
+      other.fromFile == fromFile &&
+      other.decoded.contentType == decoded.contentType &&
+      other.decoded.bitRateKbps == decoded.bitRateKbps &&
+      other.decoded.sampleRateHz == decoded.sampleRateHz &&
+      other.decoded.bitDepth == decoded.bitDepth &&
+      other.decoded.channels == decoded.channels;
+
+  @override
+  int get hashCode => Object.hash(id, entryId, fromFile, decoded.contentType, decoded.channels);
+}
+
+int? _positive(Object? v) => switch (_int(v)) {
+  final int i when i > 0 => i,
+  _ => null,
+};
 
 /// The system heart was tapped; [id] is the item's MediaId string.
 final class ToggleFavoriteCommand extends EngineEvent {

@@ -19,6 +19,7 @@ import YoinHapticsPlugin from '../yoin/haptics/HapticsPlugin';
 import YoinSensorsPlugin from '../yoin/sensors/SensorsPlugin';
 import YoinTransferPlugin from '../yoin/background/TransferPlugin';
 import YoinCastPlugin from '../yoin/cast/CastPlugin';
+import YoinAudioPlugin from '../yoin/audio/AudioPlugin';
 import YoinContinueOnPlugin, { ContinueOnHost } from '../yoin/continueon/ContinueOnPlugin';
 import { window } from '@kit.ArkUI';
 
@@ -43,6 +44,8 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinTransferPlugin(this.context))
     flutterEngine.getPlugins()?.add(new YoinCastPlugin(this.context))
     flutterEngine.getPlugins()?.add(new YoinContinueOnPlugin())
+    // The output (streaming quality's Auto), spatial audio and the volume keys while a DLNA speaker plays.
+    flutterEngine.getPlugins()?.add(new YoinAudioPlugin(this.context))
   }
 
   /** Whether this ability's window already has Flutter's page (a hot continuation must not load it twice). */

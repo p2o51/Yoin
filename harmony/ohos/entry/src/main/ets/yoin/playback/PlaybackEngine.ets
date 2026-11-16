@@ -2,7 +2,7 @@ import { audio } from '@kit.AudioKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { clampGain, QueueItem } from './QueueItem';
-import { AvEnginePlayer, EnginePlayer, EnginePlayerEvents, EnginePlayers } from './EnginePlayer';
+import { AvEnginePlayer, DecodedFormat, EnginePlayer, EnginePlayerEvents, EnginePlayers } from './EnginePlayer';
 
 const DOMAIN = 0x5901;
 const TAG = 'YoinPlayback';
@@ -77,6 +77,26 @@ export class EngineSnapshot {
 
 export type EngineListener = (snapshot: EngineSnapshot) => void;
 
+/** What the player decodes for the entry it just opened, and from where (Dart's `PlayingFormatEvent`). */
+export class PlayingFormat {
+  id: string = '';
+  entryId: string | null = null;
+  /** The downloaded file opened, not the stream. */
+  fromFile: boolean = false;
+  decoded: DecodedFormat = new DecodedFormat();
+}
+
+export type FormatListener = (format: PlayingFormat) => void;
+
+/**
+ * Yoin's spatial-audio switch (Settings › Streaming quality, Dart `SpatialAudioMonitor` through `yoin/audio`).
+ * Process-wide like the engine: it outlives the Flutter engine, and the next one sends it again at start.
+ */
+export class SpatialChoice {
+  /** Multichannel songs play folded down to stereo, without the system's spatial rendering. */
+  static downmix: boolean = false;
+}
+
 /**
  * The queue, its play order (shuffle) and repeat, and one AVPlayer. It owns the queue (not Dart) so lock screen,
  * 播控中心, headset keys and auto-advance keep working with the UI gone. Loads are serialised through [opChain] and
@@ -125,6 +145,9 @@ export class PlaybackEngine {
   /** Bumped by every preload start / discard; a stale preload op does nothing. */
   private preloadToken: number = 0;
   private listeners: EngineListener[] = [];
+  private formatListeners: FormatListener[] = [];
+  /** The current source's channel count as its decoder reported it; 0 until it does (the spatial switch reads it). */
+  private decodedChannels: number = 0;
   private released: boolean = false;
   /** Another app asked us to duck (shared focus); every volume set meanwhile is ducked too. */
   private ducked: boolean = false;
@@ -157,6 +180,58 @@ export class PlaybackEngine {
 
   removeListener(listener: EngineListener): void {
     this.listeners = this.listeners.filter((l: EngineListener) => l !== listener);
+  }
+
+  addFormatListener(listener: FormatListener): void {
+    this.formatListeners.push(listener);
+  }
+
+  /**
+   * [SpatialChoice] changed: the song playing takes it at once (Android re-sets the player's audio attributes).
+   * A multichannel source plays with the audio effect off while the switch is off; everything else with the
+   * default effects, so stereo songs never change.
+   */
+  applySpatialChoice(): void {
+    const p = this.player;
+    if (p !== null && p instanceof AvEnginePlayer && this.isSourceCurrent()) {
+      (p as AvEnginePlayer).setAudioEffectNone(SpatialChoice.downmix && this.decodedChannels > 2);
+    }
+  }
+
+  /**
+   * Reads what [p] decodes for [item] once it is prepared (or swapped in), applies the spatial switch to it and
+   * tells the format listeners. Only AVPlayer describes its tracks; other players report nothing.
+   */
+  private reportFormat(p: EnginePlayer, item: QueueItem | null): void {
+    this.decodedChannels = 0;
+    if (item === null || !(p instanceof AvEnginePlayer)) {
+      return;
+    }
+    const av = p as AvEnginePlayer;
+    const opened: QueueItem = item;
+    const gen = this.generation;
+    const fromFile = av.openedFile();
+    av.decodedFormat().then((decoded: DecodedFormat | null) => {
+      if (gen !== this.generation || this.player !== p || decoded === null) {
+        return;
+      }
+      this.decodedChannels = decoded.channels;
+      this.applySpatialChoice();
+      const format = new PlayingFormat();
+      format.id = opened.id;
+      format.entryId = opened.entryId !== undefined ? opened.entryId : null;
+      format.fromFile = fromFile;
+      format.decoded = decoded;
+      this.formatListeners.forEach((l: FormatListener) => {
+        try {
+          l(format);
+        } catch (e) {
+          hilog.error(DOMAIN, TAG, 'format listener threw: %{public}s', describe(e as BusinessError));
+        }
+      });
+    }).catch((e: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'track description failed: %{public}s', describe(e));
+    });
   }
 
   currentItem(): QueueItem | null {
@@ -494,6 +569,7 @@ export class PlaybackEngine {
       }
     });
     this.listeners = [];
+    this.formatListeners = [];
   }
 
   // ---- navigation ----
@@ -660,6 +736,7 @@ export class PlaybackEngine {
     }
     hilog.info(DOMAIN, TAG, 'gapless: swapped to the preloaded item');
     this.emit();
+    this.reportFormat(spare, item);
     // The finished item's player is silenced; the old AVPlayer waits as the next spare.
     this.enqueue(async (): Promise<void> => {
       if (previous !== null && previous !== spare && previous.state() !== 'idle' && previous.state() !== 'released') {
@@ -865,6 +942,7 @@ export class PlaybackEngine {
           p.play().catch((e: BusinessError) => this.onCommandFailed('play', e));
         }
         this.emit();
+        this.reportFormat(p, item);
         break;
       }
       case 'playing':

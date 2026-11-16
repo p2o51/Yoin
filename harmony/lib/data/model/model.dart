@@ -392,9 +392,51 @@ sealed class PlaybackHandle {
 
 /// A URL the HarmonyOS AVPlayer can stream directly (Subsonic).
 final class DirectStream extends PlaybackHandle {
-  const DirectStream(this.uri, {this.headers = const {}});
+  const DirectStream(this.uri, {this.headers = const {}, this.delivery = StreamDelivery.original});
   final String uri;
   final Map<String, String> headers;
+
+  /// What [uri] sends: the file, or the transcode Streaming quality asked for
+  /// (Now Playing's format tags show what arrives).
+  final StreamDelivery delivery;
+}
+
+/// What the player asks the server for one song (Android StreamDelivery):
+/// the file as it is ([maxBitRateKbps] null), or a transcode in [format]
+/// at no more than [maxBitRateKbps].
+final class StreamDelivery {
+  const StreamDelivery({this.maxBitRateKbps, this.format});
+
+  /// The file as it is.
+  static const original = StreamDelivery();
+
+  final int? maxBitRateKbps;
+  final String? format;
+
+  bool get transcoded => maxBitRateKbps != null;
+
+  Map<String, Object?> toMap() => {'maxBitRateKbps': maxBitRateKbps, 'format': format};
+
+  /// Null for anything but a map (not sent: unknown).
+  static StreamDelivery? fromMap(Object? value) {
+    if (value is! Map) return null;
+    final kbps = value['maxBitRateKbps'];
+    final format = value['format'];
+    return StreamDelivery(
+      maxBitRateKbps: kbps is num && kbps > 0 ? kbps.round() : null,
+      format: format is String && format.isNotEmpty ? format : null,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is StreamDelivery && other.maxBitRateKbps == maxBitRateKbps && other.format == format;
+
+  @override
+  int get hashCode => Object.hash(maxBitRateKbps, format);
+
+  @override
+  String toString() => 'StreamDelivery($maxBitRateKbps, $format)';
 }
 
 /// Playback delegated to another controller (Spotify Connect later).

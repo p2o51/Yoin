@@ -91,10 +91,18 @@ final canDownloadProvider = Provider<bool>(
 
 /// The downloaded copy [songId] plays from, when the active account has it
 /// all; null otherwise (and wherever downloads aren't set up).
-String? offlinePlayableUri(Ref ref, MusicSource source, MediaId songId) {
+String? offlinePlayableUri(Ref ref, MusicSource source, MediaId songId) => offlinePlayable(ref, source, songId)?.uri;
+
+/// [offlinePlayableUri] with what the file holds: the quality it was kept at
+/// (Android pins the download's StreamDelivery when the file opens).
+({String uri, StreamDelivery delivery})? offlinePlayable(Ref ref, MusicSource source, MediaId songId) {
   if (source.downloads == null) return null;
   try {
-    return ref.read(offlineDownloadsProvider).playableUri(songId);
+    final downloads = ref.read(offlineDownloadsProvider);
+    final uri = downloads.playableUri(songId);
+    if (uri == null) return null;
+    final quality = downloads.playableQuality(songId) ?? DownloadSettings.defaultQuality;
+    return (uri: uri, delivery: StreamDelivery(maxBitRateKbps: quality.maxBitRateKbps, format: quality.format));
   } catch (_) {
     return null;
   }

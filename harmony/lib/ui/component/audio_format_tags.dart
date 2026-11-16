@@ -63,22 +63,74 @@ List<String> audioFormatTags(AudioFormat? format) {
   return [?codecTag(format), ?layout];
 }
 
+/// The tags of what is playing (AudioFormatTags.kt playingFormatTags).
+/// [source] is the file as the server describes it, [decoded] what the
+/// player's decoder reports (null until it does, and on a speaker that plays
+/// the url itself), [transcodeKbps] and [transcodeFormat] the transcode the
+/// player asked for (null for the file).
+///
+/// A transcode shows what arrives ("MP3 320"); the file's own tag is the
+/// caller's to say beside it ([transcodedFrom]). Otherwise the server's
+/// description with the decoder's channel count, which is what actually
+/// plays; where the decoder names another codec than the server, the decoder
+/// wins (the server transcoded on its own).
+List<String> playingFormatTags({
+  required AudioFormat? source,
+  required AudioFormat? decoded,
+  String? transcodeFormat,
+  int? transcodeKbps,
+}) {
+  if (transcodeKbps != null) {
+    // A codec name round-trips through codecForSuffix ("mp3", "opus", "aac").
+    return audioFormatTags(
+      AudioFormat(suffix: decoded?.codec ?? transcodeFormat, bitRateKbps: transcodeKbps, channels: decoded?.channels),
+    );
+  }
+  if (source == null) return audioFormatTags(decoded);
+  if (decoded == null) return audioFormatTags(source);
+  final sourceCodec = source.codec;
+  final decodedCodec = decoded.codec;
+  if (decodedCodec != null && sourceCodec != null && decodedCodec != sourceCodec) return audioFormatTags(decoded);
+  return audioFormatTags(
+    AudioFormat(
+      suffix: sourceCodec ?? decodedCodec,
+      bitRateKbps: source.bitRateKbps,
+      bitDepth: source.bitDepth ?? decoded.bitDepth,
+      sampleRateHz: source.sampleRateHz ?? decoded.sampleRateHz,
+      channels: decoded.channels ?? source.channels,
+    ),
+  );
+}
+
+/// The file's codec tag when [playingFormatTags] shows a transcode of it
+/// ("FLAC 16/44.1"), for "transcoded from" (np_format_transcoded_description).
+String? transcodedFrom(AudioFormat? source, int? transcodeKbps) =>
+    transcodeKbps == null || source == null ? null : codecTag(source);
+
 /// The tags as small tonal chips (6 radius, labelSmall, tabular figures).
+/// [accentTag] follows them in the primary tone ("Spatial" while the system
+/// spatializes the song). Nothing is drawn when [tags] is empty.
 class AudioFormatTagRow extends StatelessWidget {
-  const AudioFormatTagRow({super.key, required this.tags, required this.description});
+  const AudioFormatTagRow({super.key, required this.tags, required this.description, this.accentTag});
 
   final List<String> tags;
 
-  /// "Audio format FLAC 16/44.1" (np_format_description), for screen readers.
+  /// "Audio format FLAC 16/44.1" (np_format_description), or with "transcoded
+  /// from" (np_format_transcoded_description), for screen readers.
   final String description;
+  final String? accentTag;
 
   @override
   Widget build(BuildContext context) {
     if (tags.isEmpty) return const SizedBox.shrink();
     final colors = Theme.of(context).colorScheme;
-    final style = Theme.of(context).textTheme.labelSmall!.copyWith(
-      color: colors.onSecondaryContainer,
-      fontFeatures: const [FontFeature.tabularFigures()],
+    final base = Theme.of(context).textTheme.labelSmall!.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+    Widget chip(String tag, Color container, Color content) => DecoratedBox(
+      decoration: BoxDecoration(color: container, borderRadius: BorderRadius.circular(6)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        child: Text(tag, maxLines: 1, softWrap: false, style: base.copyWith(color: content)),
+      ),
     );
     return Semantics(
       label: description,
@@ -87,14 +139,8 @@ class AudioFormatTagRow extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         spacing: 4,
         children: [
-          for (final tag in tags)
-            DecoratedBox(
-              decoration: BoxDecoration(color: colors.secondaryContainer, borderRadius: BorderRadius.circular(6)),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                child: Text(tag, maxLines: 1, softWrap: false, style: style),
-              ),
-            ),
+          for (final tag in tags) chip(tag, colors.secondaryContainer, colors.onSecondaryContainer),
+          if (accentTag case final accent?) chip(accent, colors.primaryContainer, colors.onPrimaryContainer),
         ],
       ),
     );

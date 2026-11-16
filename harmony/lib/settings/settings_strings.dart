@@ -247,6 +247,40 @@ class SettingsStrings {
   String get streamQualityMobile => _zh ? '移动数据' : 'Mobile data'; // settings_stream_quality_mobile
   String streamQualitySummary(String wifi, String mobile) =>
       _zh ? 'Wi‑Fi $wifi，移动数据 $mobile' : 'Wi‑Fi $wifi, mobile data $mobile'; // settings_stream_quality_summary
+  String get streamQualityAuto => _zh ? '自动' : 'Auto'; // settings_stream_quality_auto
+  String streamQualityAutoDetail(String wired, String bluetooth, String speaker) => _zh
+      ? '有线 $wired　蓝牙 $bluetooth　扬声器 $speaker'
+      : 'Wired $wired   Bluetooth $bluetooth   Speaker $speaker'; // settings_stream_quality_auto_detail
+
+  // ── Playback › Streaming quality › Spatial audio ─────────────────────
+  String get spatialAudioTitle => _zh ? '空间音频' : 'Spatial audio'; // settings_spatial_audio_title
+  String get spatialAudioSwitch =>
+      _zh ? '把 5.1 / 7.1 歌曲空间化' : 'Spatialize 5.1 and 7.1 songs'; // settings_spatial_audio_switch
+  String get spatialAudioOff =>
+      _zh ? '已关闭。多声道歌曲缩混成立体声播放。' : 'Off. Multichannel songs play folded down to stereo.'; // settings_spatial_audio_off
+  String get spatialAudioUnsupported => _zh
+      ? '这台设备不支持空间音频，多声道歌曲缩混成立体声播放。'
+      : "This device can't spatialize. Multichannel songs play folded down to stereo."; // settings_spatial_audio_unsupported
+  String get spatialAudioSystemOff => _zh
+      ? '系统设置里的空间音频没开，多声道歌曲现在缩混成立体声播放。'
+      : 'Spatial audio is off in system settings, so multichannel songs play folded down to stereo.'; // settings_spatial_audio_system_off
+  String get spatialAudioOutput => _zh
+      ? '已就绪。当前输出不支持空间化，戴上支持空间音频的耳机后自动生效。'
+      : "Ready. The current output can't be spatialized; it starts on headphones that support spatial audio."; // settings_spatial_audio_output
+  String get spatialAudioReady => _zh
+      ? '已开启。当前输出上，多声道歌曲会被空间化。'
+      : 'On. Multichannel songs are spatialized on this output.'; // settings_spatial_audio_ready
+  String get spatialAudioReadyHead => _zh
+      ? '已开启。当前输出上，多声道歌曲会被空间化，可用头部追踪。'
+      : 'On. Multichannel songs are spatialized on this output, with head tracking available.'; // settings_spatial_audio_ready_head
+  String get spatialAudioSystemSettings =>
+      _zh ? '系统声音设置' : 'System sound settings'; // settings_spatial_audio_system_settings
+  String get spatialAudioSystemSettingsDetail => _zh
+      ? '空间音频和头部追踪在那里按耳机打开'
+      : 'Spatial audio and head tracking are switched on there, per headset'; // settings_spatial_audio_system_settings_detail
+  String get spatialAudioNote => _zh
+      ? '只对 5.1 / 7.1 的原始文件起作用，立体声歌曲不变。'
+      : "Only for songs that are 5.1 or 7.1 files, played as the original. Stereo songs aren't changed."; // settings_spatial_audio_note
   String get volumeLevelingTitle => _zh ? '音量平衡' : 'Volume leveling'; // settings_volume_leveling_title
   String get volumeLevelingOff => _zh ? '关' : 'Off'; // settings_volume_leveling_off
   String get volumeLevelingTrack => _zh ? '按曲目' : 'By track'; // settings_volume_leveling_track

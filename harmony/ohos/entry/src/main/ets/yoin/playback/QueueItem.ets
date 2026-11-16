@@ -51,6 +51,12 @@ export class QueueItem {
    * when the entry starts (or is swapped in gapless), so it changes with the song.
    */
   gain: number = 1;
+  /**
+   * What the stream ([uri] / [cacheUri]) and the downloaded [localUri] deliver (Dart's `StreamDelivery` maps:
+   * the file, or a transcode). Opaque here: echoed by getSnapshot so a re-created UI still knows what arrives.
+   */
+  delivery: Map<Any, Any> | null = null;
+  fileDelivery: Map<Any, Any> | null = null;
 
   /** Parses one item map; returns null when the required `id`/`uri` are missing so a bad entry cannot crash the queue. */
   static fromMap(value: Any): QueueItem | null {
@@ -77,6 +83,8 @@ export class QueueItem {
     item.entryId = readString(map, 'entryId');
     item.extra = readString(map, 'extra');
     item.gain = clampGain(readNumber(map, 'gain'));
+    item.delivery = readMap(map, 'delivery');
+    item.fileDelivery = readMap(map, 'fileDelivery');
     const headers: Any = map.get('headers');
     if (headers instanceof Map) {
       (headers as Map<Any, Any>).forEach((v: Any, k: Any) => {
@@ -129,6 +137,12 @@ export class QueueItem {
     map.set('entryId', this.entryId ?? null);
     map.set('extra', this.extra ?? null);
     map.set('gain', this.gain);
+    if (this.delivery !== null) {
+      map.set('delivery', this.delivery);
+    }
+    if (this.fileDelivery !== null) {
+      map.set('fileDelivery', this.fileDelivery);
+    }
     return map;
   }
 }
@@ -149,6 +163,11 @@ export function readString(map: Map<Any, Any>, key: string): string | undefined 
 export function readNumber(map: Map<Any, Any>, key: string): number | undefined {
   const v: Any = map.get(key);
   return typeof v === 'number' ? v as number : undefined;
+}
+
+export function readMap(map: Map<Any, Any>, key: string): Map<Any, Any> | null {
+  const v: Any = map.get(key);
+  return v instanceof Map ? v as Map<Any, Any> : null;
 }
 
 export function readBool(map: Map<Any, Any>, key: string): boolean | undefined {

@@ -2,9 +2,13 @@
 /// player/StreamQuality.kt, SubsonicStreamResolver.kt StreamDelivery).
 ///
 /// Two choices per account, one for Wi‑Fi and one for mobile data; the
-/// network a song opens on decides which (`yoin/network`). Android's Auto
-/// (follows the audio output) is left out: Harmony doesn't read the output
-/// yet, so mobile data defaults to a fixed 320 kbps instead.
+/// network a song opens on decides which (`yoin/network`). [StreamQuality.auto]
+/// follows what the sound goes out through (`yoin/audio`): wired gets the
+/// original, Bluetooth 320 kbps, the speaker 192 kbps.
+///
+/// Mobile data's default stays 320 kbps, not Android's Auto: the owner has not
+/// decided Harmony's default yet (2026-11-17). Auto is a choice the user can
+/// pick; change [StreamQualitySettings.defaultMobile] once it is decided.
 library;
 
 import 'package:flutter/foundation.dart';
@@ -13,10 +17,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../data/subsonic/subsonic_music_source.dart';
+import '../platform/audio/audio_host.dart';
 import '../platform/network/network_bearer.dart';
 import '../platform/storage/stores.dart';
 
 enum StreamQuality {
+  /// Follows the output ([forOutput]); never a cap by itself.
+  auto('auto', null),
   original('original', null),
   kbps320('320', 320),
   kbps192('192', 192),
@@ -30,7 +37,24 @@ enum StreamQuality {
   /// The transcode cap; null = the file as it is.
   final int? maxBitRateKbps;
 
+  /// The fixed choice this one means on [output]: itself unless [auto].
+  StreamQuality forOutput(AudioOutputKind output) => this == auto ? output.autoQuality : this;
+
   static StreamQuality? fromKey(String? key) => values.where((q) => q.key == key).firstOrNull;
+}
+
+/// What [StreamQuality.auto] asks for on each output (owner 2026-11-04:
+/// headphones that can carry more get more). HarmonyOS, like Android, tells an
+/// app the kind of output but not the Bluetooth codec it negotiated, so LDAC
+/// and AAC headphones get one choice between them.
+extension AudioOutputAutoQuality on AudioOutputKind {
+  StreamQuality get autoQuality => switch (this) {
+    // Lossless reaches the ear.
+    AudioOutputKind.wired => StreamQuality.original,
+    // Re-encoded on the way: 320 is past what most codecs carry.
+    AudioOutputKind.bluetooth => StreamQuality.kbps320,
+    AudioOutputKind.speaker => StreamQuality.kbps192,
+  };
 }
 
 /// The two kinds of network a choice is made for.
@@ -44,8 +68,9 @@ final class StreamQualitySettings {
   /// Wi‑Fi has no reason to send less than the file (Android's default).
   static const defaultWifi = StreamQuality.original;
 
-  /// Android's mobile default is Auto (follows the headphones); without the
-  /// output, the Bluetooth answer: 320 kbps.
+  /// 320 kbps, Auto's Bluetooth answer. Android's mobile default is Auto
+  /// (follows the headphones); Harmony keeps 320 until the owner decides
+  /// (pending, 2026-11-17) — Auto is offered as a choice meanwhile.
   static const defaultMobile = StreamQuality.kbps320;
 
   final StreamQuality wifi;
@@ -114,16 +139,19 @@ final class StreamQualityStore {
 }
 
 /// For [SubsonicMusicSource.streamPlanner]: the active account's choice for
-/// the network it opens on, read each time a song opens, so a change (of
-/// setting or of network) applies from the next song. Anything that goes
-/// wrong plays the file.
+/// the network it opens on (and, for Auto, the output the sound goes out
+/// through), read as the queue's songs are handed to the player, so a change
+/// (of setting, network or headphones) applies from the next queue. Anything
+/// that goes wrong plays the file.
 SubsonicStreamPlanner subsonicStreamPlanner(Ref ref) => (Track track) async {
       try {
         final profile = await ref.read(profileRepositoryProvider).activeProfile();
         if (profile == null) return null;
         final settings = await StreamQualityStore(ref.read(keyValueStoreProvider)).read(profile.id);
         final bearer = await ref.read(networkBearerProvider).current();
-        return planStream(settings.forBearer(bearer), track.audioFormat?.bitRateKbps);
+        var quality = settings.forBearer(bearer);
+        if (quality == StreamQuality.auto) quality = quality.forOutput(await ref.read(audioHostProvider).currentOutput());
+        return planStream(quality, track.audioFormat?.bitRateKbps);
       } catch (_) {
         return null;
       }

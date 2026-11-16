@@ -40,6 +40,20 @@ export interface EnginePlayer {
   setVolume(volume: number): void;
 }
 
+/**
+ * What the decoder reports for the audio track it opened (AVPlayer.getTrackDescription), for Dart's
+ * `PlayingFormatEvent`: Now Playing's tags take the decoder's channel count and codec over the server's word.
+ * Unknown numbers are 0, an unknown codec ''.
+ */
+export class DecodedFormat {
+  mime: string = '';
+  channels: number = 0;
+  sampleRateHz: number = 0;
+  bitDepth: number = 0;
+  /** bit/s. */
+  bitRate: number = 0;
+}
+
 /** Makes a player that reports to [events]. */
 export type EnginePlayerFactory = (events: EnginePlayerEvents) => Promise<EnginePlayer>;
 
@@ -157,6 +171,58 @@ export class AvEnginePlayer implements EnginePlayer {
   setVolume(volume: number): void {
     this.p.setVolume(volume);
   }
+
+  /** Whether the source set last is the downloaded file (not the stream). */
+  openedFile(): boolean {
+    return this.file !== null;
+  }
+
+  /** The audio track as the decoder describes it; null when it lists none (prepared / playing / paused only). */
+  async decodedFormat(): Promise<DecodedFormat | null> {
+    const tracks: Array<media.MediaDescription> = await this.p.getTrackDescription();
+    for (let i = 0; i < tracks.length; i++) {
+      const track: media.MediaDescription = tracks[i];
+      if (readNumber(track[media.MediaDescriptionKey.MD_KEY_TRACK_TYPE]) !== media.MediaType.MEDIA_TYPE_AUD) {
+        continue;
+      }
+      const f = new DecodedFormat();
+      const mime: Object = track[media.MediaDescriptionKey.MD_KEY_CODEC_MIME];
+      f.mime = typeof mime === 'string' ? mime as string : '';
+      f.channels = readNumber(track[media.MediaDescriptionKey.MD_KEY_AUD_CHANNEL_COUNT]);
+      f.sampleRateHz = readNumber(track[media.MediaDescriptionKey.MD_KEY_AUD_SAMPLE_RATE]);
+      f.bitDepth = readNumber(track[media.MediaDescriptionKey.MD_KEY_AUD_SAMPLE_DEPTH]);
+      f.bitRate = readNumber(track[media.MediaDescriptionKey.MD_KEY_BITRATE]);
+      return f;
+    }
+    return null;
+  }
+
+  /**
+   * Yoin's spatial switch for this source: [none] plays it with the audio effect chain bypassed (EFFECT_NONE),
+   * so the system's spatial renderer leaves it alone and the mixer folds its channels down to stereo; otherwise
+   * the default effects (spatial audio where the system has it on). Settable in prepared / playing / paused /
+   * completed only; a refusal keeps the default.
+   */
+  setAudioEffectNone(none: boolean): void {
+    const state = this.p.state;
+    if (state !== 'prepared' && state !== 'playing' && state !== 'paused' && state !== 'completed') {
+      return;
+    }
+    const mode = none ? audio.AudioEffectMode.EFFECT_NONE : audio.AudioEffectMode.EFFECT_DEFAULT;
+    if (this.p.audioEffectMode === mode) {
+      return;
+    }
+    try {
+      this.p.audioEffectMode = mode;
+    } catch (e) {
+      // Not in a state that takes it: the next prepared source sets it again.
+    }
+  }
+}
+
+/** A description value as a number; anything else is 0 (unknown). */
+function readNumber(value: Object | undefined): number {
+  return typeof value === 'number' ? value as number : 0;
 }
 
 /**

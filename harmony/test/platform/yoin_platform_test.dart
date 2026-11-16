@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/platform/applemusic/apple_music_auth.dart';
+import 'package:yoin/platform/audio/audio_host.dart';
 import 'package:yoin/platform/browser/url_opener.dart';
 import 'package:yoin/platform/cards/cards_channel.dart';
 import 'package:yoin/platform/playback/channel_playback_engine.dart';
@@ -27,6 +28,8 @@ void main() {
       expect(p.windowCaption, isA<ChannelWindowCaptionHost>());
       expect(p.textShare, isA<ChannelTextShare>());
       expect(p.urlOpener, isA<BrowserUrlOpener>());
+      expect(p.audio, isA<ChannelAudioHost>());
+      expect(p.volumeKeys, isA<ChannelVolumeKeyHost>());
     });
 
     test('should_usePureDartStandIns_when_hostIsWindows', () {
@@ -38,6 +41,9 @@ void main() {
       expect(p.cardsHost, isA<NoCardsHost>());
       expect(p.windowCaption, isA<SystemTitleBarHost>());
       expect(p.textShare, isA<NoTextShare>());
+      expect(p.audio, isA<FixedAudioHost>());
+      expect(p.audio.canChooseSpatialization, isFalse);
+      expect(p.volumeKeys, isA<NoVolumeKeyHost>());
       expect(p.urlOpener, isA<BrowserUrlOpener>());
     });
   });

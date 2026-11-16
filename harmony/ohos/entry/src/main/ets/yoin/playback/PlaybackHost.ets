@@ -1,7 +1,7 @@
 import { Any, EventSink } from '@ohos/flutter_ohos';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { EngineListener, EngineSnapshot, PlaybackEngine } from './PlaybackEngine';
+import { EngineListener, EngineSnapshot, FormatListener, PlaybackEngine, PlayingFormat } from './PlaybackEngine';
 import { QueueItem } from './QueueItem';
 import { SystemSession } from './SystemSession';
 import { NetworkWatch } from './NetworkWatch';
@@ -25,6 +25,12 @@ export class YoinPlaybackHost {
   private sink: EventSink | null = null;
   private openRequestedAt: number = 0;
   private listener: EngineListener = (s: EngineSnapshot) => this.sendState(s);
+  private formatListener: FormatListener = (f: PlayingFormat) => {
+    this.lastFormat = f;
+    this.sendFormat(f);
+  };
+  /** The last decoded format, sent again to a newly listening Dart (a re-created UI). */
+  private lastFormat: PlayingFormat | null = null;
   /** A network came up: Dart sends the plays it queued offline. */
   private network: NetworkWatch = new NetworkWatch();
 
@@ -32,6 +38,7 @@ export class YoinPlaybackHost {
     this.context = context;
     this.engine = new PlaybackEngine();
     this.engine.addListener(this.listener);
+    this.engine.addFormatListener(this.formatListener);
     this.session = new SystemSession(context, this.engine,
       (name: string, id: string) => this.sendCommand(name, id));
     this.network.start(() => this.sendNetworkAvailable());
@@ -79,6 +86,9 @@ export class YoinPlaybackHost {
   attachSink(sink: EventSink): void {
     this.sink = sink;
     this.sendState(this.engine.snapshot());
+    if (this.lastFormat !== null) {
+      this.sendFormat(this.lastFormat);
+    }
     if (this.openRequestedAt > 0 && Date.now() - this.openRequestedAt <= OPEN_REQUEST_TTL_MS) {
       this.sendOpenNowPlaying();
     }
@@ -126,6 +136,28 @@ export class YoinPlaybackHost {
     map.set('type', 'command');
     map.set('name', name);
     map.set('id', id);
+    sink.success(map);
+  }
+
+  /**
+   * What the player decodes for the entry it just opened (Dart's `PlayingFormatEvent`); with no Dart listening it
+   * waits in [lastFormat] for the next sink.
+   */
+  private sendFormat(f: PlayingFormat): void {
+    const sink = this.sink;
+    if (sink === null) {
+      return;
+    }
+    const map: Map<string, Any> = new Map();
+    map.set('type', 'playingFormat');
+    map.set('id', f.id);
+    map.set('entryId', f.entryId);
+    map.set('fromFile', f.fromFile);
+    map.set('mime', f.decoded.mime.length > 0 ? f.decoded.mime : null);
+    map.set('channels', f.decoded.channels);
+    map.set('sampleRateHz', f.decoded.sampleRateHz);
+    map.set('bitDepth', f.decoded.bitDepth);
+    map.set('bitRate', f.decoded.bitRate);
     sink.success(map);
   }
 

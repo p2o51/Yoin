@@ -546,7 +546,12 @@ final class _SubsonicPlayback implements MusicPlayback, MusicDownloads {
       ],
     ]);
     if (uri == null) throw const SourceNetworkException('Invalid server URL');
-    return DirectStream(uri.toString());
+    return DirectStream(
+      uri.toString(),
+      delivery: plan == null
+          ? StreamDelivery.original
+          : StreamDelivery(maxBitRateKbps: plan.maxBitRateKbps, format: plan.format),
+    );
   }
 
   /// A signed `stream.view` URL for keeping the song (Android

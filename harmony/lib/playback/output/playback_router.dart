@@ -16,6 +16,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../platform/audio/audio_host.dart';
 import '../../platform/cast/cast_host.dart';
 import '../../platform/playback/playback_engine.dart';
 import 'dlna_manager.dart';
@@ -84,6 +85,11 @@ final class OutputTransferException implements Exception {
   String toString() => 'OutputTransferException(${reason.name})';
 }
 
+/// How far one volume-key press moves a DLNA speaker's volume (0–100):
+/// Android's remote DeviceInfo takes one ADJUST_RAISE / LOWER per press, which
+/// DlnaMedia3Player turns into ±1.
+const dlnaVolumeKeyStep = 1;
+
 class PlaybackRouter implements QueuePlaybackEngine {
   PlaybackRouter(
     this.native, {
@@ -92,6 +98,7 @@ class PlaybackRouter implements QueuePlaybackEngine {
     RemoteQueueEngine? castPlayer,
     int Function()? nowMs,
     this.handoffTimeout = const Duration(seconds: 5),
+    this.volumeKeys = const NoVolumeKeyHost(),
   }) : dlna = dlna ?? DlnaManager(),
        _now = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch) {
     this.castPlayer = castPlayer ?? RemoteQueueEngine(onFailure: (message) => castFailure.value = message);
@@ -104,6 +111,16 @@ class PlaybackRouter implements QueuePlaybackEngine {
   late final RemoteQueueEngine castPlayer;
   final Duration handoffTimeout;
   final int Function() _now;
+
+  /// The phone's volume keys: taken over while a DLNA speaker with a volume
+  /// plays, so they move the speaker's (Android's remote DeviceInfo).
+  final VolumeKeyHost volumeKeys;
+  bool _volumeKeysOn = false;
+
+  /// The volume the keys last asked for while a command is on its way, so
+  /// quick presses add up instead of each starting from the last reading.
+  int? _volumeTarget;
+  int _volumeSeq = 0;
 
   /// Where the queue plays now.
   final ValueNotifier<OutputRoute> route = ValueNotifier(const LocalOutput());
@@ -151,7 +168,8 @@ class PlaybackRouter implements QueuePlaybackEngine {
       ..add(native.events.listen(_onNativeEvent, onError: (Object _) {}))
       ..add(dlna.player.states.listen((s) => _onRemoteState(dlna.player, s)))
       ..add(castPlayer.states.listen((s) => _onRemoteState(castPlayer, s)))
-      ..add(castHost.outputs.listen(_onSystemOutput, onError: (Object _) {}));
+      ..add(castHost.outputs.listen(_onSystemOutput, onError: (Object _) {}))
+      ..add(volumeKeys.presses.listen(_onVolumeKey, onError: (Object _) {}));
     dlna.connectedDevice.addListener(_onDlnaDevice);
     // A new router plays here. The system session may still mirror a renderer
     // an earlier isolate drove (the UI was re-created while the process lived
@@ -277,6 +295,7 @@ class PlaybackRouter implements QueuePlaybackEngine {
   void _setRoute(OutputRoute next) {
     if (route.value == next) return;
     route.value = next;
+    _syncVolumeKeys();
     native.pause().catchError((Object _) {});
     final remote = _remote;
     if (remote == null) {
@@ -290,6 +309,35 @@ class PlaybackRouter implements QueuePlaybackEngine {
         _mirror(latest);
       }
     }
+  }
+
+  // ---- volume keys ----
+
+  /// The keys go to the speaker while one with a volume plays; otherwise
+  /// they are the system's. The system's cast device keeps the system's own
+  /// handling (its panel moves the cast volume).
+  void _syncVolumeKeys() {
+    final on = route.value is DlnaOutput && dlna.player.hasVolume;
+    if (on == _volumeKeysOn) return;
+    _volumeKeysOn = on;
+    _volumeTarget = null;
+    volumeKeys.setIntercepting(on).catchError((Object _) {});
+  }
+
+  /// A volume key while the speaker plays: one step up or down, as Android's
+  /// remote volume (0–100, a key press adjusts by [dlnaVolumeKeyStep]).
+  void _onVolumeKey(int direction) {
+    if (route.value is! DlnaOutput) return;
+    final player = dlna.player;
+    if (!player.hasVolume) return;
+    final from = _volumeTarget ?? (player.volume * 100).round();
+    final target = (from + direction.sign * dlnaVolumeKeyStep).clamp(0, 100);
+    if (target == from && _volumeTarget != null) return;
+    _volumeTarget = target;
+    final seq = ++_volumeSeq;
+    player.setVolume(target / 100).catchError((Object _) {}).whenComplete(() {
+      if (seq == _volumeSeq) _volumeTarget = null;
+    });
   }
 
   // ---- hand-overs ----
@@ -658,6 +706,7 @@ class PlaybackRouter implements QueuePlaybackEngine {
     for (final sub in _subs) {
       sub.cancel();
     }
+    if (_volumeKeysOn) volumeKeys.setIntercepting(false).catchError((Object _) {});
     dlna.connectedDevice.removeListener(_onDlnaDevice);
   }
 }
@@ -676,4 +725,6 @@ EngineItem _withGain(EngineItem item, double gain) => EngineItem(
   entryId: item.entryId,
   extra: item.extra,
   gain: gain,
+  delivery: item.delivery,
+  fileDelivery: item.fileDelivery,
 );

@@ -19,10 +19,12 @@ import 'play_history.dart';
 import 'play_mode.dart';
 import 'playback_context.dart';
 import 'playback_strings.dart';
+import 'playing_format.dart';
 import 'playhead.dart';
 import 'queue_order.dart';
 import 'replay_gain.dart';
 import 'scrobble.dart';
+import 'spatial_audio.dart';
 import 'system_requests.dart';
 import 'track_codec.dart';
 
@@ -168,6 +170,13 @@ class PlaybackController extends Notifier<NowPlayingState> {
     ref.listen(replayGainProvider, (previous, next) {
       if (previous != null && next != null && previous != next) unawaited(_applyReplayGain(next));
     });
+    // Yoin's spatial switch reaches the native player from the start (Android
+    // reads the monitor as the player is built), not only once Settings opens.
+    try {
+      ref.read(spatialAudioProvider);
+    } catch (e) {
+      _log('spatial audio not watched: ${e.runtimeType}');
+    }
     try {
       final now = WidgetsBinding.instance.lifecycleState;
       _foreground = now == null || now == AppLifecycleState.resumed || now == AppLifecycleState.inactive;
@@ -223,6 +232,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
         for (var i = 0; i < built.length; i++) _withEntry(built[i].$3, entries[i].entryId, context: context),
       ];
       _entries = entries;
+      ref.read(entryDeliveriesProvider.notifier).replace(items);
       _queueProfileId = profileId;
       _lastRecordedTrackId = null;
       _order = _preferredMode.shuffled ? null : identityOrder(entries.length);
@@ -409,6 +419,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
       for (var i = 0; i < built.length; i++) _withEntry(built[i].$3, added[i].entryId, context: state.context),
     ];
     _entries = [..._entries]..insertAll(at, added);
+    ref.read(entryDeliveriesProvider.notifier).add(items);
     _order = orderAfterInsert(_orderOrIdentity(_entries.length - added.length), at, added.length,
         shuffle: state.shuffle, current: current);
     final revision = ++_revision;
@@ -617,6 +628,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
         _toggleFavorite(MediaId.tryParse(id) ?? state.current?.id, fromSystem: true).ignore();
       case NetworkAvailableEvent():
         _flushActive();
+      case PlayingFormatEvent():
+        ref.read(playingFormatProvider.notifier).report(event);
       case SessionTransportCommand():
         break; // The output router sends these to the remote renderer.
     }
@@ -637,6 +650,7 @@ class PlaybackController extends Notifier<NowPlayingState> {
         entries.add(_Entry(item.entryId ?? _newEntryId(), _withFavoriteOverride(track)));
       }
       _entries = entries;
+      ref.read(entryDeliveriesProvider.notifier).replace(snapshot.items);
       _revision = snapshot.state.revision ?? _revision;
       _order = snapshot.state.order;
       _queueProfileId = _activeProfileId ?? await _readProfileId();
@@ -824,14 +838,19 @@ class PlaybackController extends Notifier<NowPlayingState> {
     final handle = await source.playback.handleFor(track);
     if (handle is! DirectStream) return null; // External controllers arrive with Spotify.
     final cover = track.coverArt;
+    // A downloaded song plays from its file, offline and at the quality it
+    // was kept at, whatever the network would stream (OfflineFirstDataSource);
+    // the stream above is what plays if the download is removed meanwhile.
+    final download = offlinePlayable(ref, source, track.id);
     return EngineItem(
       id: track.id.toString(),
       uri: handle.uri,
       headers: handle.headers,
-      // A downloaded song plays from its file, offline and at the quality it
-      // was kept at, whatever the network would stream (OfflineFirstDataSource);
-      // the stream above is what plays if the download is removed meanwhile.
-      localUri: offlinePlayableUri(ref, source, track.id),
+      localUri: download?.uri,
+      // What arrives, for Now Playing's format tags (Android pins the
+      // stream's choice, or the download's quality when the file opens).
+      delivery: handle.delivery,
+      fileDelivery: download?.delivery,
       // Any other song streams through the stream cache (CacheDataSource).
       cacheUri: await streamCacheAddress(ref, track, handle.uri, handle.headers),
       title: track.title ?? '',
@@ -908,6 +927,8 @@ class PlaybackController extends Notifier<NowPlayingState> {
         entryId: entryId,
         extra: PlaybackContextCodec.attach(item.extra, context),
         gain: item.gain,
+        delivery: item.delivery,
+        fileDelivery: item.fileDelivery,
       );
 
   String _newEntryId() => '$_entryPrefix-${_entrySeq++}';
