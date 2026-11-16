@@ -16,11 +16,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
@@ -40,6 +42,7 @@ import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import java.util.UUID
+import kotlinx.coroutines.flow.first
 
 /**
  * The detail pages' bottom bar — the shell Button Group's morph target.
@@ -119,7 +122,15 @@ fun DetailBottomBar(
     var risen by rememberSaveable {
         mutableStateOf(context.findActivityOrNull()?.intent?.getBooleanExtra(DETAIL_EXTRA_BAR_RISES, false) != true)
     }
-    LaunchedEffect(Unit) { risen = true }
+    // The window composes and settles its first frames before it shows; rise
+    // once it holds focus, i.e. once it is on screen, or the rise plays unseen.
+    val platformWindow = LocalWindowInfo.current
+    LaunchedEffect(Unit) {
+        if (!risen) {
+            snapshotFlow { platformWindow.isWindowFocused }.first { it }
+            risen = true
+        }
+    }
     OverlayChromeVisibility(
         expanded = nowPlayingOpen,
         enabled = risen,
