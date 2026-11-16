@@ -13,6 +13,7 @@ import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/empty_state_panel.dart';
 import '../ui/component/expressive_segment_chip.dart';
+import '../ui/component/seam/seam.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/pane/detail_pane.dart';
@@ -252,7 +253,11 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
             ),
           ),
           Expanded(
-            child: SpringCrossFade(childKey: (state.filter, _phase(state)), child: _results(context, state, strings)),
+            // The results go under the filter row through the chrome seam, in the user's style.
+            child: ChromeSeam(
+              background: SeamBackground([colors.surfaceContainerHigh]),
+              child: SpringCrossFade(childKey: (state.filter, _phase(state)), child: _results(context, state, strings)),
+            ),
           ),
         ],
       ),

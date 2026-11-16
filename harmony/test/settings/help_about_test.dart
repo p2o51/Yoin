@@ -168,6 +168,9 @@ void main() {
       await pump(tester, const Size(1280, 900));
       expect(find.text('No account selected'), findsOneWidget);
 
+      // Below the Appearance group: scrolled into view first.
+      await tester.ensureVisible(find.text('Tips'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Tips'));
       await tester.pumpAndSettle();
       expect(find.byType(TipsScreen), findsOneWidget);

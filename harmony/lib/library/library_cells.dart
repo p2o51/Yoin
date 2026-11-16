@@ -12,6 +12,7 @@ import '../ui/component/artwork_image.dart';
 import '../ui/component/elastic_press.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
+import '../ui/component/seam/seam.dart';
 import '../ui/component/song_list_item.dart';
 import 'library_strings.dart';
 
@@ -105,24 +106,33 @@ class _SquareCell extends StatelessWidget {
           children: [
             SizedBox.square(
               dimension: constraints.maxWidth,
-              child: MediaArtwork(
-                url: url,
-                fallbackIcon: fallbackIcon,
-                radius: ShapeTokens.cover,
-                decodeWidth: (constraints.maxWidth * dpr).round(),
+              // The cover breaks up at the chrome seam (Scroll edge style); the text fades.
+              child: SeamDissolve(
+                child: MediaArtwork(
+                  url: url,
+                  fallbackIcon: fallbackIcon,
+                  radius: ShapeTokens.cover,
+                  decodeWidth: (constraints.maxWidth * dpr).round(),
+                ),
               ),
             ),
             const SizedBox(height: LibraryTokens.coverToTitle),
-            VersionTitleRow.orTitle(
-              name: title,
-              nameStyle: theme.textTheme.titleSmall!,
-              version: version,
+            SeamFade(
+              fontSize: theme.textTheme.titleSmall!.fontSize ?? 14,
+              child: VersionTitleRow.orTitle(
+                name: title,
+                nameStyle: theme.textTheme.titleSmall!,
+                version: version,
+              ),
             ),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            SeamFade(
+              fontSize: theme.textTheme.bodySmall?.fontSize ?? 12,
+              child: Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
             ),
           ],
         ),
@@ -151,27 +161,36 @@ class ArtistGridCell extends ConsumerWidget {
           children: [
             SizedBox.square(
               dimension: constraints.maxWidth,
-              child: MediaArtwork(
-                url: url,
-                fallbackIcon: YoinSymbols.artist,
-                circle: true,
-                decodeWidth: (constraints.maxWidth * dpr).round(),
+              child: SeamDissolve(
+                round: true,
+                child: MediaArtwork(
+                  url: url,
+                  fallbackIcon: YoinSymbols.artist,
+                  circle: true,
+                  decodeWidth: (constraints.maxWidth * dpr).round(),
+                ),
               ),
             ),
             const SizedBox(height: LibraryTokens.coverToTitle),
-            Text(
-              artist.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleSmall,
+            SeamFade(
+              fontSize: theme.textTheme.titleSmall?.fontSize ?? 14,
+              child: Text(
+                artist.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleSmall,
+              ),
             ),
             if (artist.albumCount != null)
-              Text(
-                LibraryStrings.of(context).artistGridAlbumCount(artist.albumCount!),
-                maxLines: 1,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+              SeamFade(
+                fontSize: 12,
+                child: Text(
+                  LibraryStrings.of(context).artistGridAlbumCount(artist.albumCount!),
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                ),
               ),
           ],
         ),
@@ -221,29 +240,38 @@ class LibraryListRow extends StatelessWidget {
             children: [
               SizedBox.square(
                 dimension: LibraryTokens.rowThumb,
-                child: MediaArtwork(
-                  url: url,
-                  fallbackIcon: fallbackIcon,
-                  circle: circle,
-                  radius: ShapeTokens.thumb,
-                  decodeWidth: (LibraryTokens.rowThumb * dpr).round(),
+                child: SeamDissolve(
+                  round: circle,
+                  child: MediaArtwork(
+                    url: url,
+                    fallbackIcon: fallbackIcon,
+                    circle: circle,
+                    radius: ShapeTokens.thumb,
+                    decodeWidth: (LibraryTokens.rowThumb * dpr).round(),
+                  ),
                 ),
               ),
               const SizedBox(width: LibraryTokens.rowGap),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    VersionTitleRow.orTitle(
-                      name: title,
-                      nameStyle: theme.textTheme.titleSmall!,
-                      version: version,
-                    ),
-                    if (meta.isNotEmpty) MetaLine(groups: meta),
-                  ],
+                child: SeamFade(
+                  fontSize: theme.textTheme.titleSmall!.fontSize ?? 14,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      VersionTitleRow.orTitle(
+                        name: title,
+                        nameStyle: theme.textTheme.titleSmall!,
+                        version: version,
+                      ),
+                      if (meta.isNotEmpty) MetaLine(groups: meta),
+                    ],
+                  ),
                 ),
               ),
-              if (trailing != null) ...[const SizedBox(width: LibraryTokens.rowGap), trailing!],
+              if (trailing != null) ...[
+                const SizedBox(width: LibraryTokens.rowGap),
+                SeamFade(fontSize: theme.textTheme.labelMedium?.fontSize ?? 12, child: trailing!),
+              ],
             ],
           ),
         ),
@@ -321,9 +349,12 @@ class LibrarySectionHeader extends StatelessWidget {
       top: SearchTokens.sectionHeaderTop,
       bottom: SearchTokens.sectionHeaderBottom,
     ),
-    child: Text(
-      text,
-      style: Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+    child: SeamFade(
+      fontSize: Theme.of(context).textTheme.labelLarge?.fontSize ?? 14,
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ),
     ),
   );
 }

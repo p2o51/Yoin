@@ -11,6 +11,7 @@ import '../platform/cards/cards_channel.dart';
 import '../platform/i18n/name_transliterator.dart';
 import '../platform/share/image_share.dart';
 import '../platform/storage/observed_store.dart';
+import '../platform/window/display_corners.dart';
 import '../platform/window/window_controls.dart';
 import '../platform/yoin_platform.dart';
 import '../settings/stream_quality.dart';
@@ -30,4 +31,5 @@ List<Override> platformOverrides(YoinPlatform platform) => [
   imageShareProvider.overrideWithValue(platform.imageShare),
   appFilesHostProvider.overrideWithValue(platform.appFiles),
   cloudSyncHostProvider.overrideWithValue(platform.cloudSyncHost),
+  displayCornersProvider.overrideWithValue(platform.displayCorners),
 ];

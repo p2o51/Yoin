@@ -82,6 +82,24 @@ final class AiPane extends SettingsPane {
   int get hashCode => 7;
 }
 
+/// Settings › Appearance › Scroll edge (ScrollEdgePage.kt).
+final class ScrollEdgePane extends SettingsPane {
+  const ScrollEdgePane();
+  @override
+  bool operator ==(Object other) => other is ScrollEdgePane;
+  @override
+  int get hashCode => 8;
+}
+
+/// Settings › Appearance › Screen corners (ScreenCornersPage.kt).
+final class ScreenCornersPane extends SettingsPane {
+  const ScreenCornersPane();
+  @override
+  bool operator ==(Object other) => other is ScreenCornersPane;
+  @override
+  int get hashCode => 9;
+}
+
 final class TipsPane extends SettingsPane {
   const TipsPane();
   @override

@@ -1384,3 +1384,188 @@ abstract final class TipSceneTokens {
   static const int noteLifeMs = 2400;
   static const int noteEchoMs = 220;
 }
+
+/// The chrome seam's Dots and Cookie styles (SeamDissolveTokens in
+/// SeamDissolve.kt: curve C and 曲奇浪口). The tide and the text fade share
+/// HomeSeamMetrics; the bottom field is not ported.
+abstract final class SeamTokens {
+  /// Curve C band G at rest / fully stretched.
+  static const double band = 12;
+  static const double bandStretched = 34;
+
+  /// The front's per-item bend and per-dot jitter, F.
+  static const double front = 3;
+  static const double frontStretched = 8;
+
+  /// Whole-print dot radius, in cells; the radius curve's gamma.
+  static const double dotRadius = 0.64;
+  static const double dotGamma = 0.8;
+
+  /// The halftone's screen frequency (the cover-swap halftone's).
+  static const double pitch = 6;
+
+  /// Disorder D = 1 − e^(−speed / this), dp/s (YoinMotion.SeamDisorderSpeed).
+  static const double disorderSpeed = 200;
+
+  // ── 曲奇浪口 ──
+  static const double cookieBand = 12;
+  static const double cookieBandStretched = 22;
+  static const double cookieMinBand = 0.05;
+  static const double cookieRest = 0.45;
+  static const double cookieLobe = 30;
+  static const int cookieMinLobes = 2;
+  static const double cookieAmplitude = 4;
+  static const double cookieAmplitudeStretched = 6;
+  static const double cookieAmplitudeOfBand = 0.34;
+  static const double cookieAmplitudeOfLobe = 0.2;
+  static const double cookieEntry = 12;
+  static const double cookieEnvelopeIn = 0.1;
+  static const double cookieEnvelopeOut = 0.9;
+  static const double cookieCharacterFrom = 0.5;
+  static const double cookieCharacterTo = 1.8;
+  static const double cookieMorphFrom = 0.2;
+  static const double cookieMorphTo = 0.8;
+  static const double cookieTipRadius = 4;
+  static const double cookieNotch = 0.08;
+  static const double cookieRoll = 0.25;
+  static const double cookieLagPhase = 0.5;
+  static const double cookieRipple = 0.12;
+  static const double cookieRippleWavelength = 260;
+  static const double cookieRippleTravel = 480;
+  static const double cookieShoulder = 0.2;
+  static const double cookieShoulderIn = 0.15;
+  static const double cookieShoulderReach = 10;
+  static const double cookieGuard = 16;
+  static const double cookieCorner = 4;
+  static const double cookieEdge = 0.6;
+  static const double cookieVeil = 0.5;
+  static const double cookieVeilDepth = 0.55;
+
+  /// The lip's front is sampled this often (dp) when cut as a path.
+  static const double cookieStep = 1;
+}
+
+/// Settings › Appearance › Scroll edge and its live previews (ScrollEdgePage.kt,
+/// ScrollEdgePreview.kt, LandingEdgeStep.kt).
+abstract final class ScrollEdgeTokens {
+  static const double introBottom = 20;
+  static const double footTop = 16;
+  static const double textInset = 8;
+  static const double cardGap = 10;
+  static const double cardCorner = 24;
+  static const double cardCornerSelected = 32;
+  static const double cardPadding = 8;
+  static const double cardPaddingBottom = 16;
+  static const double cardNameTop = 8;
+  static const double cardNameGap = 4;
+  static const double cardDescriptionStart = 44;
+  static const double cardDescriptionAlpha = 0.8;
+  static const double defaultBadgeRadius = 10;
+  static const double defaultBadgePaddingH = 9;
+  static const double defaultBadgePaddingV = 2;
+
+  /// The settings card's preview: this tall, a column per ~112dp (3..8).
+  static const double previewHeight = 150;
+  static const double previewColumnWidth = 112;
+  static const int previewMinColumns = 3;
+  static const int previewMaxColumns = 8;
+
+  // ── The preview itself ──
+  static const double previewCorner = 18;
+  static const double chipGap = 5;
+  static const double chipHeight = 14;
+  static const double chipRadius = 7;
+  static const List<double> chipWidths = [30, 24, 34, 28];
+  static const double chipsPaddingH = 10;
+  static const double chipsPaddingTop = 9;
+  static const double chipsPaddingBottom = 7;
+  static const double blockPaddingH = 10;
+  static const double rowGap = 10;
+  static const double columnGap = 7;
+  static const double lineHeight = 4;
+  static const double lineRadius = 2;
+  static const double firstLineTop = 5;
+  static const double secondLineTop = 3;
+  static const int blockRepeats = 3;
+  static const double restFraction = 0.42;
+  static const double cyclePeriodSec = 7;
+  static const double driftSlowDp = 14;
+  static const double driftFastDp = 30;
+  static const double seamSpeedPeakDp = 700;
+
+  // ── The landing's picker ──
+  static const double landingGap = 10;
+  static const double landingAspect = 100 / 132;
+  static const double landingCorner = 18;
+  static const double landingCornerSelected = 26;
+  static const double landingRing = 3;
+  static const double landingNameTop = 8;
+  static const double landingLineTop = 12;
+  static const double landingLineRadius = 20;
+  static const double landingLinePaddingH = 16;
+  static const double landingLinePaddingV = 12;
+}
+
+/// Settings › Appearance › Screen corners (ScreenCorners.kt, ScreenCornersPage.kt,
+/// ScreenCornerControl.kt).
+abstract final class ScreenCornerTokens {
+  /// No display report: the old stand-in.
+  static const double fallback = 28;
+
+  /// The slider's range.
+  static const double min = 0;
+  static const double max = 64;
+
+  /// The bar: the rating bar's family, a little taller as a page's main control.
+  static const double barHeight = 56;
+  static const double barValueEnd = 20;
+  static const double barHeadSquare = 0.6;
+  static const double barValueCrossFrom = 0.8;
+  static const double reportedDot = 2.5;
+  static const double reportedDotLift = 8;
+  static const double reportedDotCover = 0.2;
+  static const double valueRowHeight = 48;
+  static const double valueRowStart = 8;
+  static const double sliderGap = 4;
+  static const double hintTop = 8;
+
+  /// Haptics: a firmer tick every this many dp.
+  static const int segmentTick = 8;
+
+  /// The window trace: its stroke, and how long it lingers after the finger lifts.
+  static const double traceStroke = 3;
+  static const Duration traceLinger = Duration(milliseconds: 1200);
+
+  // ── The page ──
+  static const double headerHeight = 64;
+  static const double hintPaddingH = 28;
+  static const double hintPaddingV = 4;
+  static const double hintAlpha = 0.8;
+  static const double examplesPaddingV = 16;
+  static const double controlsPaddingH = 20;
+  static const double controlsPaddingBottom = 24;
+  static const double phoneMaxHeight = 320;
+  static const double phoneBorder = 2;
+  static const double phoneBorderAlpha = 0.35;
+  static const double examplesGap = 14;
+  static const double dotGap = 6;
+  static const double dot = 6;
+  static const double dotActiveWidth = 16;
+  static const double dotAlpha = 0.3;
+  static const double dotActiveAlpha = 0.9;
+
+  /// One example: wait, move in, hold, move out, rest, next.
+  static const Duration exampleLead = Duration(milliseconds: 400);
+  static const Duration exampleHold = Duration(milliseconds: 900);
+  static const Duration exampleRest = Duration(milliseconds: 300);
+
+  /// Reduced motion holds each example here.
+  static const double exampleReducedHold = 0.6;
+
+  /// The examples' poses at full progress.
+  static const double memoriesShrink = 0.22;
+  static const double memoriesRise = 0.06;
+  static const double memoriesFade = 0.35;
+  static const double backShrink = 0.14;
+  static const double backShift = 0.04;
+}

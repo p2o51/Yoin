@@ -165,8 +165,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('What goes on Home?'), findsOneWidget);
     expect(find.text('Jump Back In'), findsOneWidget);
-    await tester.tap(find.text('Next'));
-    await tester.pumpAndSettle();
+    for (var i = 0; i < 3; i++) {
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+    }
     expect(find.text('All set.'), findsOneWidget);
     expect(find.text('ann @ music.test'), findsOneWidget);
     expect(find.text('In use'), findsOneWidget);
@@ -186,6 +188,15 @@ void main() {
     expect(find.text('Apple Music needs a developer token.'), findsOneWidget);
     expect(find.text("Yoin's token service"), findsOneWidget);
     await tester.tap(find.text('Skip'));
+    await tester.pumpAndSettle();
+    // The scroll edge's style, then the screen's corners (LandingEdgeStep, ScreenCornerControl).
+    expect(find.text('When you scroll, how should things slip under the top bar?'), findsOneWidget);
+    expect(find.text('Cookie wave'), findsWidgets);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text("How round are your screen's corners?"), findsOneWidget);
+    expect(find.text('Match screen · 28 dp'), findsOneWidget);
+    await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
     expect(find.text('No account yet.'), findsOneWidget);
     expect(find.text('No accounts connected'), findsOneWidget);
@@ -264,6 +275,11 @@ void main() {
     }
     await tester.tap(find.text('Skip'));
     await tester.pumpAndSettle();
+    // Past the scroll edge and the screen corners.
+    for (var i = 0; i < 2; i++) {
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+    }
     await tester.tap(find.text('Open Yoin'));
     await settle(tester);
     expect(find.text('Open Yoin'), findsNothing);

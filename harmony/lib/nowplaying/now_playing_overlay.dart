@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../settings/appearance/screen_corners.dart';
 import '../ui/component/corner_mask.dart';
 import 'now_playing_presentation.dart';
 import 'now_playing_screen.dart';
 import 'overlay_controller.dart';
-
-/// Device corner radius fallback while the player moves (ScreenCorners.kt;
-/// HarmonyOS exposes no corner value to Flutter yet).
-const double screenCornerFallback = 28;
 
 /// The side panel's shadow at [strength] (1 = the panel, 0 = Full): the
 /// M3 level-5-ish key + ambient pair for [NowPlayingPanelTokens.shadowElevation],
@@ -34,16 +32,20 @@ List<BoxShadow> nowPlayingPanelShadows(double strength) {
 /// vertical drag on the whole player feeds the same controller as the
 /// chevron and system back. Hosts its own Navigator so the queue sheet
 /// opens above the player.
-class NowPlayingLayer extends StatefulWidget {
+///
+/// While it moves the player wears the screen's corner (ScreenCorners:
+/// Settings › Appearance › Screen corners, or the display's own), as do the
+/// side panel's start corners.
+class NowPlayingLayer extends ConsumerStatefulWidget {
   const NowPlayingLayer({super.key, required this.controller});
 
   final NowPlayingOverlayController controller;
 
   @override
-  State<NowPlayingLayer> createState() => _NowPlayingLayerState();
+  ConsumerState<NowPlayingLayer> createState() => _NowPlayingLayerState();
 }
 
-class _NowPlayingLayerState extends State<NowPlayingLayer> {
+class _NowPlayingLayerState extends ConsumerState<NowPlayingLayer> {
   final GlobalKey<NavigatorState> _navigator = GlobalKey(debugLabel: 'nowPlaying');
 
   @override
@@ -86,6 +88,7 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
+    final corner = ref.watch(screenCornerRadiusProvider);
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
@@ -94,8 +97,8 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
           builder: (context, constraints) {
             controller.height = constraints.maxHeight;
             controller.reduceMotion = MediaQuery.disableAnimationsOf(context);
-            if (controller.frame.panelFamily) return _panelFamily(controller);
-            return _fullWindow(controller);
+            if (controller.frame.panelFamily) return _panelFamily(controller, corner);
+            return _fullWindow(controller, corner);
           },
         );
       },
@@ -106,7 +109,7 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
   /// in from it; no scrim (the content beside stays usable), start corners
   /// and shadow fade out as it grows Full. The drag toward the end and the
   /// corner toggle / back feed the same controller.
-  Widget _panelFamily(NowPlayingOverlayController controller) {
+  Widget _panelFamily(NowPlayingOverlayController controller, double corner) {
     final child = GestureDetector(
       behavior: HitTestBehavior.translucent,
       onHorizontalDragUpdate: controller.canDragPanel ? (d) => controller.panelDragUpdate(d.delta.dx) : null,
@@ -182,7 +185,7 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
                     ColoredBox(
                       color: colors.surface,
                       child: CornerMask(
-                        radius: NowPlayingPanelTokens.corner * (1 - f),
+                        radius: corner * (1 - f),
                         topStart: true,
                         bottomStart: true,
                         gradient: LinearGradient(
@@ -204,7 +207,7 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
     );
   }
 
-  Widget _fullWindow(NowPlayingOverlayController controller) => Stack(
+  Widget _fullWindow(NowPlayingOverlayController controller, double corner) => Stack(
     fit: StackFit.expand,
     children: [
       // Scrim: black at 0.5 while expanded, on the effects spring.
@@ -224,7 +227,7 @@ class _NowPlayingLayerState extends State<NowPlayingLayer> {
           // tree's shape, so the whole player subtree was
           // reparented (re-laid out, re-rastered) at both ends.
           final player = ClipRSuperellipse(
-            borderRadius: BorderRadius.circular(screenCornerFallback),
+            borderRadius: BorderRadius.circular(corner),
             clipBehavior: controller.isMoving ? Clip.antiAlias : Clip.none,
             child: child,
           );

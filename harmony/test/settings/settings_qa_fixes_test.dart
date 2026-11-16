@@ -25,6 +25,7 @@ import 'package:yoin/settings/subsonic_setup_screen.dart';
 import 'package:yoin/settings/tips.dart';
 import 'package:yoin/tips/tip_screen.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
+import 'package:yoin/ui/component/seam/chrome_seam.dart';
 
 import '../support/fake_music_source.dart';
 import '../support/shipped_packages.dart';
@@ -244,11 +245,11 @@ void main() {
       expect(find.descendant(of: page, matching: find.byType(SettingsSeam)), findsOneWidget);
       final tide = find.descendant(
         of: page,
-        matching: find.byWidgetPredicate((w) => w is CustomPaint && w.foregroundPainter is SettingsTidePainter),
+        matching: find.byWidgetPredicate((w) => w is CustomPaint && w.foregroundPainter is ChromeTidePainter),
       );
-      final painter = tester.widget<CustomPaint>(tide).foregroundPainter! as SettingsTidePainter;
+      final painter = tester.widget<CustomPaint>(tide).foregroundPainter! as ChromeTidePainter;
       void paintTide(Canvas canvas) => painter.paint(canvas, const Size(400, 600));
-      expect(painter.flow.reveal, 0);
+      expect(painter.seam.reveal, 0);
       expect(masks(), isEmpty, reason: 'nothing masked at rest');
       expect(paintTide, isNot(paints..path()), reason: 'no tide at rest');
 
@@ -257,11 +258,11 @@ void main() {
       final position = tester.state<ScrollableState>(find.descendant(of: page, matching: find.byType(Scrollable)).first).position;
       final reach = [
         for (final e in find.descendant(of: page, matching: find.byType(SeamFade)).evaluate())
-          tester.getTopLeft(find.byWidget(e.widget)).dy - seamTop - settingsTideTextSeam(1) - 1,
+          tester.getTopLeft(find.byWidget(e.widget)).dy - seamTop - chromeTideTextSeam(1) - 1,
       ].firstWhere((d) => d > HomeSeamMetrics.revealDistance && d <= position.maxScrollExtent);
       position.jumpTo(reach);
       await tester.pumpAndSettle();
-      expect(painter.flow.reveal, greaterThan(0));
+      expect(painter.seam.reveal, greaterThan(0));
       expect(paintTide, paints..path()..path(), reason: 'two waves, the back one half clear');
       expect(masks(), isNotEmpty, reason: 'text under the line fades in the item');
       expect(tester.takeException(), isNull);

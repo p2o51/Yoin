@@ -5,11 +5,13 @@ import 'package:yoin/theme/tokens.dart';
 
 void main() {
   group('steps', () {
-    test('should_listOnlyHelloPickAboutReady_when_nothingPickedAndNoAccount', () {
+    test('should_listHelloPickAboutEdgeCornersReady_when_nothingPickedAndNoAccount', () {
       expect(landingSteps(const {}, hasAccount: false), [
         LandingStep.hello,
         LandingStep.pick,
         LandingStep.about,
+        LandingStep.edge,
+        LandingStep.corners,
         LandingStep.ready,
       ]);
     });
@@ -21,6 +23,8 @@ void main() {
         LandingStep.about,
         LandingStep.subsonic,
         LandingStep.appleMusic,
+        LandingStep.edge,
+        LandingStep.corners,
         LandingStep.ready,
       ]);
     });
@@ -32,6 +36,8 @@ void main() {
         LandingStep.about,
         LandingStep.subsonic,
         LandingStep.home,
+        LandingStep.edge,
+        LandingStep.corners,
         LandingStep.ready,
       ]);
     });
@@ -47,7 +53,7 @@ void main() {
 
     test('should_countDotsWithoutHello_when_onAStep', () {
       final state = LandingUiState.initial(LandingMode.firstRun).copyWith(index: 2);
-      expect(state.dotCount, 3);
+      expect(state.dotCount, 5);
       expect(state.dotIndex, 1);
     });
   });
@@ -93,6 +99,13 @@ void main() {
       );
     });
 
+    test('should_goNext_when_onTheEdgeOrCornersStep', () {
+      for (final step in [LandingStep.edge, LandingStep.corners]) {
+        expect(landingPrimaryFor(at(step)), const LandingPrimary(LandingPrimaryLabel.next, LandingPrimaryStyle.filled));
+        expect(landingPrimaryAction(at(step)), LandingPrimaryAction.next);
+      }
+    });
+
     test('should_openYoinAndFinish_when_ready', () {
       final state = at(LandingStep.ready);
       expect(landingPrimaryFor(state).label, LandingPrimaryLabel.openYoin);
@@ -105,6 +118,11 @@ void main() {
     test('should_sayNoAccountYet_when_readyWithoutAccounts', () {
       expect(landingLineFor(LandingStep.ready, noAccounts: true), LandingLine.readyNone);
       expect(landingLineFor(LandingStep.ready, noAccounts: false), LandingLine.ready);
+    });
+
+    test('should_askAboutEdgeThenCorners_when_onThoseSteps', () {
+      expect(landingLineFor(LandingStep.edge, noAccounts: true), LandingLine.edge);
+      expect(landingLineFor(LandingStep.corners, noAccounts: false), LandingLine.corners);
     });
   });
 

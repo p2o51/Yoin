@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../nowplaying/haptics.dart';
+import '../settings/appearance/appearance_strings.dart';
 import '../settings/apple_music_setup_view_model.dart';
 import '../settings/settings_view_model.dart';
 import '../settings/subsonic_setup_view_model.dart';
@@ -15,6 +16,7 @@ import '../shell/shell_state.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import 'landing_bubble.dart';
 import 'landing_connect.dart';
+import 'landing_edge_step.dart';
 import 'landing_home_step.dart';
 import 'landing_mascot.dart';
 import 'landing_models.dart';
@@ -326,8 +328,9 @@ class _LandingScreenState extends ConsumerState<LandingScreen>
         _motion.go(next.step, LandingSprings.spatial);
       }
     }
-    // The shell warms up beneath from the last step on, so Home is ready when the hand-off reveals it.
-    if (next.finishing || next.step == LandingStep.ready) widget.onShellWanted();
+    // The shell warms up beneath from the scroll-edge step on, so Home is ready when the hand-off reveals it.
+    final edge = next.steps.indexOf(LandingStep.edge);
+    if (next.finishing || (edge >= 0 && next.index >= edge) || next.step == LandingStep.ready) widget.onShellWanted();
     _syncBack();
   }
 
@@ -473,6 +476,8 @@ class _LandingScreenState extends ConsumerState<LandingScreen>
       onEnabled: _vm.setSectionEnabled,
       onMove: _vm.moveShownSection,
     ),
+    LandingStep.edge => ScrollEdgeScene(playing: _motion.to == LandingStep.edge, onSelect: _vm.setEdge),
+    LandingStep.corners => const ScreenCornersScene(),
     LandingStep.ready => ReadyScene(accounts: accounts),
   };
 
@@ -483,6 +488,8 @@ class _LandingScreenState extends ConsumerState<LandingScreen>
     LandingLine.subsonic => (strings.subsonicTitle, null),
     LandingLine.appleMusic => (strings.appleTitle, strings.appleBody),
     LandingLine.home => (strings.homeTitle, null),
+    LandingLine.edge => (AppearanceStrings.of(context).landingEdgeTitle, null),
+    LandingLine.corners => (AppearanceStrings.of(context).landingCornersTitle, null),
     LandingLine.ready => (strings.readyTitle, null),
     LandingLine.readyNone => (strings.readyNoneTitle, strings.readyNoneBody),
   };

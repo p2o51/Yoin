@@ -6,6 +6,7 @@ import '../../theme/tokens.dart';
 import 'equalizer_glyph.dart';
 import 'media_artwork.dart';
 import 'meta_line.dart';
+import 'seam/seam.dart';
 
 /// Unfolds [child] horizontally from the start + fades it (Compose
 /// expandHorizontally + fadeIn, Standard role): width on the standard
@@ -120,58 +121,67 @@ class SongListItem extends StatelessWidget {
             children: [
               SizedBox.square(
                 dimension: LibraryTokens.rowThumb,
-                child: MediaArtwork(
-                  url: coverUrl,
-                  fallbackIcon: YoinSymbols.musicNote,
-                  radius: ShapeTokens.thumb,
-                  decodeWidth: decodeWidth,
+                // At a chrome seam the thumbnail breaks up in the Scroll edge style; the text fades.
+                child: SeamDissolve(
+                  child: MediaArtwork(
+                    url: coverUrl,
+                    fallbackIcon: YoinSymbols.musicNote,
+                    radius: ShapeTokens.thumb,
+                    decodeWidth: decodeWidth,
+                  ),
                 ),
               ),
               const SizedBox(width: LibraryTokens.rowGap),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        HorizontalSpringReveal(
-                          visible: isCurrent,
-                          child: Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 6),
-                            child: EqualizerGlyph(playing: isPlaying, semanticsLabel: nowPlayingLabel),
-                          ),
-                        ),
-                        Expanded(
-                          child: SpringColorBuilder(
-                            color: isCurrent ? colors.primary : colors.onSurface,
-                            builder: (color) => Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: text.titleSmall?.copyWith(color: color),
+                child: SeamFade(
+                  fontSize: text.titleSmall?.fontSize ?? 14,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          HorizontalSpringReveal(
+                            visible: isCurrent,
+                            child: Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 6),
+                              child: EqualizerGlyph(playing: isPlaying, semanticsLabel: nowPlayingLabel),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    if ((artist?.isNotEmpty ?? false) || (album?.isNotEmpty ?? false))
-                      MetaLine(
-                        groups: [
-                          if (artist?.isNotEmpty ?? false) MetaPlain(artist!),
-                          if (album?.isNotEmpty ?? false) MetaMuted(album!),
+                          Expanded(
+                            child: SpringColorBuilder(
+                              color: isCurrent ? colors.primary : colors.onSurface,
+                              builder: (color) => Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.titleSmall?.copyWith(color: color),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
-                  ],
+                      if ((artist?.isNotEmpty ?? false) || (album?.isNotEmpty ?? false))
+                        MetaLine(
+                          groups: [
+                            if (artist?.isNotEmpty ?? false) MetaPlain(artist!),
+                            if (album?.isNotEmpty ?? false) MetaMuted(album!),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
               ),
               if (duration.isNotEmpty) ...[
                 const SizedBox(width: 6),
-                Text(
-                  duration,
-                  style: text.labelLarge?.copyWith(
-                    color: colors.onSurfaceVariant,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                SeamFade(
+                  fontSize: text.labelLarge?.fontSize ?? 14,
+                  child: Text(
+                    duration,
+                    style: text.labelLarge?.copyWith(
+                      color: colors.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
                 ),
               ],
