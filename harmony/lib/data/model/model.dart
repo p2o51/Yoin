@@ -201,26 +201,26 @@ final class Track {
 
   /// [clearUserRating] drops the rating (a null [userRating] keeps it).
   Track copyWith({bool? isStarred, int? userRating, bool clearUserRating = false}) => Track(
-    id: id,
-    title: title,
-    artist: artist,
-    artistId: artistId,
-    album: album,
-    albumId: albumId,
-    coverArt: coverArt,
-    durationSec: durationSec,
-    trackNumber: trackNumber,
-    discNumber: discNumber,
-    year: year,
-    genre: genre,
-    userRating: clearUserRating ? null : (userRating ?? this.userRating),
-    isStarred: isStarred ?? this.isStarred,
-    starredAt: starredAt,
-    addedAt: addedAt,
-    audioFormat: audioFormat,
-    replayGain: replayGain,
-    artists: artists,
-  );
+        id: id,
+        title: title,
+        artist: artist,
+        artistId: artistId,
+        album: album,
+        albumId: albumId,
+        coverArt: coverArt,
+        durationSec: durationSec,
+        trackNumber: trackNumber,
+        discNumber: discNumber,
+        year: year,
+        genre: genre,
+        userRating: clearUserRating ? null : (userRating ?? this.userRating),
+        isStarred: isStarred ?? this.isStarred,
+        starredAt: starredAt,
+        addedAt: addedAt,
+        audioFormat: audioFormat,
+        replayGain: replayGain,
+        artists: artists,
+      );
 }
 
 enum ReleaseType { album, ep, single, compilation }

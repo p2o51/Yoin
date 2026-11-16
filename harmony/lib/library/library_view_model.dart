@@ -325,8 +325,6 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
 
   // ------------------------------------------------------------- selection
 
-  /// Turns [tab] on (or, for the tab already on, back to All); a fetch that
-  /// fails steps back to the previous view and names it in a snackbar.
   /// Playlists' By You on or off (Android selectPlaylistsByYou); it can only
   /// turn on while the playlists are mixed.
   void selectPlaylistsByYou(bool selected) {
@@ -336,6 +334,8 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     state = content.copyWith(byYouSelected: selected);
   }
 
+  /// Turns [tab] on (or, for the tab already on, back to All); a fetch that
+  /// fails steps back to the previous view and names it in a snackbar.
   Future<void> selectTab(LibraryTab tab) async {
     final content = _content;
     if (content == null) return;

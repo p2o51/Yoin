@@ -141,6 +141,36 @@ void main() {
       expect(server.shareCalls, 1);
     });
 
+    test('should_notRetryWithSongs_when_playlistShareFailsInTransport', () async {
+      final server = _Server(
+        (ids) => http.Response('busy', 503),
+        playlist: {
+          'id': 'pl1',
+          'name': 'Mix',
+          'entry': [
+            {'id': 's1', 'title': 'One'},
+          ],
+        },
+      );
+      await expectLater(
+        server.source().links!.createShareLink(WebLinkKind.playlist, MediaId.subsonic('pl1')),
+        throwsA(isA<SourceServerException>()),
+      );
+      expect(server.shareCalls, 1);
+      expect(server.requests.where((u) => u.path.endsWith('getPlaylist.view')), isEmpty);
+    });
+
+    test('should_stopAsking_when_serverAnswersWithoutAShare', () async {
+      final server = _Server((ids) => http.Response(_ok({'shares': <String, Object?>{}}), 200));
+      final source = server.source();
+      await expectLater(
+        source.links!.createShareLink(WebLinkKind.album, MediaId.subsonic('al1')),
+        throwsA(isA<SourceServerException>()),
+      );
+      expect(await source.links!.createShareLink(WebLinkKind.album, MediaId.subsonic('al2')), isNull);
+      expect(server.shareCalls, 1);
+    });
+
     test('should_haveNoPublicPage_when_sourceIsSubsonic', () async {
       final server = _Server((ids) => _shared('https://x'));
       expect(await server.source().links!.webUrl(WebLinkKind.album, MediaId.subsonic('al1')), isNull);

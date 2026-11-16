@@ -56,6 +56,8 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
 
   /// Page 2, with [songId] brought into view there ([context] is under the pager).
   void _viewInScrapbook(BuildContext context, MediaId songId) {
+    // The sheet's row runs after the sheet has gone: the page (or that row) may have gone too.
+    if (!mounted || !context.mounted) return;
     _scrapbookFocus.value = songId;
     ReshapePager.read(context)?.openPage(1);
   }

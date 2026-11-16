@@ -988,7 +988,12 @@ class _TicketState extends ConsumerState<_Ticket> with TickerProviderStateMixin 
                           context,
                           t.track,
                           onAlbumPage: true,
-                          onViewInScrapbook: focus == null ? null : (id) => focus.value = id,
+                          onViewInScrapbook: focus == null
+                              ? null
+                              : (id) {
+                                  // The row runs after the sheet has gone: only while this page is still here.
+                                  if (context.mounted) focus.value = id;
+                                },
                         );
                       },
                       child: CustomPaint(

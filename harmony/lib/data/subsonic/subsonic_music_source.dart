@@ -369,14 +369,15 @@ final class _SubsonicMetadata implements MusicMetadata, MusicLinks {
       SubsonicJson body;
       try {
         body = await share([id.rawId]);
-      } on SourceServerException {
-        if (kind != WebLinkKind.playlist) rethrow;
+      } on SourceServerException catch (refused) {
+        // The server's own refusal (a Subsonic error), not a transport failure: Android's SubsonicException.
+        if (kind != WebLinkKind.playlist || refused.code == null) rethrow;
         final songIds = [for (final t in (await _library.getPlaylist(id))?.tracks ?? const <Track>[]) t.id.rawId];
         if (songIds.isEmpty) rethrow;
         body = await share(songIds);
       }
       final url = shareUrlFromJson(body);
-      if (url == null) throw const SourceServerException('createShare returned no share');
+      if (url == null) throw const SourceServerException('createShare returned no share', code: -1);
       return url;
     } on SourceException catch (error) {
       if (_isPermanentRefusal(error)) _sharesRefused = true;
