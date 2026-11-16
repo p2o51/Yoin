@@ -270,7 +270,7 @@ class _TabletopPaneState extends ConsumerState<_TabletopPane> with TickerProvide
                 labelsUnder: false,
                 waveVisible: true,
                 controlSize: controlSize,
-                beforePlayMode: _ExpandLyricsKey(
+                beforePlayMode: TabletopExpandLyricsKey(
                   expanded: _lyricsExpanded,
                   size: controlSize,
                   label: _lyricsExpanded ? tabletopStrings.cdCollapseLyrics : tabletopStrings.cdExpandLyrics,
@@ -325,8 +325,6 @@ class _TabletopPlayingFrom extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
     final strings = NowPlayingStrings.of(context);
     final (kind, name) = switch (context0) {
       AlbumPlaybackContext(:final name) => (strings.fromAlbum, name),
@@ -337,26 +335,42 @@ class _TabletopPlayingFrom extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _contextTarget(context0, controller),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: TabletopEyebrow(kind: kind, name: name),
+    );
+  }
+}
+
+/// The eyebrow's words: the kind of place over its name (none: the kind alone, a little stronger).
+class TabletopEyebrow extends StatelessWidget {
+  const TabletopEyebrow({super.key, required this.kind, this.name});
+
+  final String kind;
+  final String? name;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final name = this.name;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          kind,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: text.labelSmall!.copyWith(
+            color: colors.onSurfaceVariant.withValues(alpha: name == null ? 0.72 : 0.55),
+          ),
+        ),
+        if (name != null)
           Text(
-            kind,
+            name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: text.labelSmall!.copyWith(
-              color: colors.onSurfaceVariant.withValues(alpha: name == null ? 0.72 : 0.55),
-            ),
+            style: text.labelMedium!.copyWith(color: colors.onSurface),
           ),
-          if (name != null)
-            Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: text.labelMedium!.copyWith(color: colors.onSurface),
-            ),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -364,8 +378,14 @@ class _TabletopPlayingFrom extends StatelessWidget {
 /// The deck's expand-lyrics key (PlaybackControls onExpandLyrics): a round
 /// filled key, tertiaryContainer at rest and primary while the lyrics lead,
 /// its colours on the effects spring; UnfoldMore / UnfoldLess.
-class _ExpandLyricsKey extends StatefulWidget {
-  const _ExpandLyricsKey({required this.expanded, required this.size, required this.label, required this.onTap});
+class TabletopExpandLyricsKey extends StatefulWidget {
+  const TabletopExpandLyricsKey({
+    super.key,
+    required this.expanded,
+    required this.size,
+    required this.label,
+    required this.onTap,
+  });
 
   final bool expanded;
   final double size;
@@ -373,10 +393,10 @@ class _ExpandLyricsKey extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_ExpandLyricsKey> createState() => _ExpandLyricsKeyState();
+  State<TabletopExpandLyricsKey> createState() => _TabletopExpandLyricsKeyState();
 }
 
-class _ExpandLyricsKeyState extends State<_ExpandLyricsKey> with TickerProviderStateMixin {
+class _TabletopExpandLyricsKeyState extends State<TabletopExpandLyricsKey> with TickerProviderStateMixin {
   late final SpringValue _on = SpringValue(
     vsync: this,
     initial: widget.expanded ? 1 : 0,
@@ -384,7 +404,7 @@ class _ExpandLyricsKeyState extends State<_ExpandLyricsKey> with TickerProviderS
   );
 
   @override
-  void didUpdateWidget(_ExpandLyricsKey oldWidget) {
+  void didUpdateWidget(TabletopExpandLyricsKey oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (MediaQuery.disableAnimationsOf(context)) {
       _on.snapTo(widget.expanded ? 1 : 0);
@@ -435,17 +455,17 @@ class _ExpandLyricsKeyState extends State<_ExpandLyricsKey> with TickerProviderS
 /// scales up from 0.88 and the outgoing one down to it on the Expressive
 /// spring (AnimatedContent "nowPlayingPosture"; no shared elements — the
 /// hinge resizes the window mid-measure). Other swaps are left to their bodies.
-class _PostureSwap extends StatefulWidget {
-  const _PostureSwap({required this.tabletop, required this.child});
+class NowPlayingPostureSwap extends StatefulWidget {
+  const NowPlayingPostureSwap({super.key, required this.tabletop, required this.child});
 
   final bool tabletop;
   final Widget child;
 
   @override
-  State<_PostureSwap> createState() => _PostureSwapState();
+  State<NowPlayingPostureSwap> createState() => _NowPlayingPostureSwapState();
 }
 
-class _PostureSwapState extends State<_PostureSwap> with TickerProviderStateMixin {
+class _NowPlayingPostureSwapState extends State<NowPlayingPostureSwap> with TickerProviderStateMixin {
   /// 0 → 1 as the incoming body arrives.
   late final SpringValue _fade = SpringValue(vsync: this, initial: 1, spring: YoinSprings.fastEffects);
   late final SpringValue _scale = SpringValue(vsync: this, initial: 1, spring: YoinSprings.defaultSpatial);
@@ -459,7 +479,7 @@ class _PostureSwapState extends State<_PostureSwap> with TickerProviderStateMixi
   }
 
   @override
-  void didUpdateWidget(_PostureSwap oldWidget) {
+  void didUpdateWidget(NowPlayingPostureSwap oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tabletop == widget.tabletop) return;
     if (MediaQuery.disableAnimationsOf(context)) {

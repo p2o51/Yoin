@@ -5,8 +5,8 @@
 /// Only tips whose gesture or feature exists in this build are listed, in
 /// Android's order. Copy: Android's (strings_home.xml, key in the comment)
 /// where it holds on HarmonyOS; the rest was written for HarmonyOS by the
-/// owner's copy model (Gemini Carbon, .argon/harmony-tips-1116 and -1117)
-/// and is used as given.
+/// owner's copy model (Gemini Carbon, .argon/harmony-tips-1116, -1117 and
+/// -1117b) and is used as given.
 library;
 
 import 'dart:io' show Platform;
@@ -19,10 +19,13 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 /// the [text]. [updated] is the day the tip last changed what it shows: a
 /// tip read before that comes back unread.
 enum HomeBubbleTip {
+  // No foldable symbol in Yoin Symbols yet: the phone stands in for the half-folded one.
+  tabletop(YoinSymbols.smartphone, (2026, 11, 17), desktop: false),
+  spatialAudio(YoinSymbols.headphones, (2026, 11, 17)),
   lyricsTools(YoinSymbols.lyrics, (2026, 11, 16)),
   lyricsSelect(YoinSymbols.check, (2026, 11, 16)),
   memoriesDiary(YoinSymbols.article, (2026, 11, 16)),
-  cloudSync(YoinSymbols.cloud, (2026, 11, 16)),
+  cloudSync(YoinSymbols.cloud, (2026, 11, 17)),
   welcomeGuide(YoinSymbols.refresh, (2026, 11, 16)),
   keyboardShortcuts(YoinSymbols.keyboard, (2026, 11, 13)),
   volumeLeveling(YoinSymbols.volumeUp, (2026, 11, 13)),
@@ -33,7 +36,7 @@ enum HomeBubbleTip {
   settingsRegrouped(YoinSymbols.settings, (2026, 11, 17)),
   continueOn(YoinSymbols.tablet, (2026, 11, 17), desktop: false),
   screenCorners(YoinSymbols.smartphone, (2026, 11, 17)),
-  memoriesAllAccounts(YoinSymbols.memory, (2026, 11, 16)),
+  memoriesAllAccounts(YoinSymbols.memory, (2026, 11, 17)),
   devices(YoinSymbols.speaker, (2026, 11, 17)),
   accountQuickSwitch(YoinSymbols.person, (2026, 11, 6)),
   miniPlayerMenu(YoinSymbols.playCircle, (2026, 11, 16)),
@@ -71,6 +74,8 @@ enum HomeBubbleTip {
   }
 
   String title({required bool zh}) => switch (this) {
+    tabletop => zh ? '悬停正在播放' : 'Tabletop Now Playing', // Carbon 2026-11-17
+    spatialAudio => zh ? '空间音频' : 'Spatial audio', // Carbon 2026-11-17
     lyricsTools => zh ? '歌词工具' : 'Lyrics tools', // Carbon 2026-11-16
     lyricsSelect => zh ? '选择与编辑歌词' : 'Select and edit lyrics', // Carbon 2026-11-16
     memoriesDiary => zh ? '回忆日记' : 'Memory diary', // Carbon 2026-11-16
@@ -105,6 +110,19 @@ enum HomeBubbleTip {
   };
 
   String text({required bool zh}) => switch (this) {
+    // Carbon 2026-11-17 (.argon/harmony-tips-1117b).
+    tabletop =>
+      zh
+          ? '正在播放里把折叠屏半折立在桌上，上半屏显示封面与歌词，下半屏平放播放控制，点下方歌词按钮可让歌词铺满上半屏'
+          : 'In Now Playing on a foldable, fold the phone halfway and stand it on a table to put the cover and lyrics '
+                'upright above the controls, and tap the lyrics button below to fill the top half',
+    // Carbon 2026-11-17 (.argon/harmony-tips-1117b).
+    spatialAudio =>
+      zh
+          ? '设置 › 点开 Subsonic 账号 › 播放音质中，「把 5.1 / 7.1 歌曲空间化」默认开启；从那里打开「系统声音设置」为支持的耳机开启空间音频后，5.1 / 7.1 原始文件会空间化并在正在播放显示「空间音频」标签，立体声歌曲不变'
+          : 'In Settings › your Subsonic account › Streaming quality, Spatialize 5.1 and 7.1 songs is on by default; '
+                'turn on spatial audio for supported headphones in the linked system sound settings to spatialize 5.1 '
+                'and 7.1 originals without changing stereo, with a Spatial tag in Now Playing',
     // Carbon 2026-11-16.
     lyricsTools =>
       zh
@@ -124,13 +142,13 @@ enum HomeBubbleTip {
           ? '在首页下拉打开 Memories，点卡片上的「日记」展开日记；往下拖顶栏或在日记顶部下拉回到卡片，在卡片上往上滑回到首页'
           : 'Pull down on Home to open Memories and tap Diary on a card to expand its diary; drag the top bar down or '
                 'pull down from the top of the diary to return to the card, or swipe up on a card to return to Home',
-    // Carbon 2026-11-16.
+    // Carbon 2026-11-17 (Memory titles and Yoin's AI words sync now; .argon/harmony-tips-1117b).
     cloudSync =>
       zh
-          ? '在设置 › 同步与存储 › 云同步中登录 Google，通过你自己的 Google Drive 在 HarmonyOS 与 Android 设备间同步笔记、评分、评论、歌词翻译、首页布局与设置；密码、API 密钥与播放记录留在本地'
-          : 'Sign in with Google in Settings › Sync and storage › Cloud sync to keep notes, ratings, reviews, lyric '
-                'translations, Home layout, and settings in sync across HarmonyOS and Android via your Google Drive; '
-                'passwords, API keys, and listening history stay on each device',
+          ? '在设置 › 同步与存储 › 云同步中登录 Google，通过你自己的 Google Drive 在 HarmonyOS 与 Android 设备间同步笔记、评分、评论、Memories 标题与 AI 文字、歌词翻译、首页布局与设置；密码、API 密钥与播放记录留在本地'
+          : 'Sign in with Google in Settings › Sync and storage › Cloud sync to keep notes, ratings, reviews, Memory '
+                'titles and AI writing, lyric translations, Home layout, and settings in sync across HarmonyOS and '
+                'Android via your Google Drive; passwords, API keys, and listening history stay on each device',
     // Carbon 2026-11-16.
     welcomeGuide =>
       zh
@@ -187,7 +205,7 @@ enum HomeBubbleTip {
       zh
           ? '设置 > 外观 > 屏幕圆角，把页面与返回手势的圆角对上手机屏幕'
           : 'Match page and back-gesture corners to your screen in Settings > Appearance > Screen corners',
-    // home_tip_memories_all_accounts
+    // home_tip_memories_all_accounts (All Memories holds every account too since 11-17; the demo shows the switch).
     memoriesAllAccounts =>
       zh
           ? 'Memories 会显示你所有账号的回忆，播放或去专辑会先切换到该账号'

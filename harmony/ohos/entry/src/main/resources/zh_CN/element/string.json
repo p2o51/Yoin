@@ -38,7 +38,7 @@
     },
     {
       "name": "permission_vibrate_reason",
-      "value": "在点按、拖动和评分时提供触感反馈"
+      "value": "用于点按、拖动与评分时的触感反馈"
     }
   ]
 }

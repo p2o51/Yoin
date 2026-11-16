@@ -260,17 +260,27 @@ Future<bool?> showAccountSwitchNotice(
 );
 
 class AccountSwitchNoticeSheet extends StatelessWidget {
-  const AccountSwitchNoticeSheet({super.key, required this.owner, required this.subject, required this.purpose});
+  const AccountSwitchNoticeSheet({
+    super.key,
+    required this.owner,
+    required this.subject,
+    required this.purpose,
+    this.onAnswer,
+  });
 
   final MemoryOtherProfile owner;
   final String subject;
   final AccountSwitchPurpose purpose;
+
+  /// The answer (true: switch); null pops the sheet's route with it.
+  final ValueChanged<bool>? onAnswer;
 
   @override
   Widget build(BuildContext context) {
     final strings = MemoriesStrings.of(context);
     final theme = Theme.of(context);
     final opens = purpose == AccountSwitchPurpose.openAlbum;
+    void answer(bool yes) => onAnswer != null ? onAnswer!(yes) : Navigator.of(context).pop(yes);
     return Padding(
       padding: EdgeInsets.fromLTRB(
         OtherProfileTokens.noticeSide,
@@ -302,9 +312,9 @@ class AccountSwitchNoticeSheet extends StatelessWidget {
               spacing: OtherProfileTokens.noticeButtonGap,
               overflowSpacing: OtherProfileTokens.noticeButtonGap,
               children: [
-                TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(strings.switchCancel)),
+                TextButton(onPressed: () => answer(false), child: Text(strings.switchCancel)),
                 FilledButton(
-                  onPressed: () => Navigator.of(context).pop(true),
+                  onPressed: () => answer(true),
                   child: Text(opens ? strings.switchConfirmAlbum : strings.switchConfirmPlay),
                 ),
               ],

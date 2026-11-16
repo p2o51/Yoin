@@ -43,6 +43,8 @@ class TipIllustration extends StatelessWidget {
 
 /// The demo phone for [tip].
 Widget tipDemo(HomeBubbleTip tip, bool playing) => switch (tip) {
+  HomeBubbleTip.tabletop => TabletopDemo(playing: playing),
+  HomeBubbleTip.spatialAudio => SpatialAudioDemo(playing: playing),
   HomeBubbleTip.lyricsTools => LyricsToolsDemo(playing: playing),
   HomeBubbleTip.lyricsSelect => LyricsSelectDemo(playing: playing),
   HomeBubbleTip.memoriesDiary => MemoriesDiaryDemo(playing: playing),

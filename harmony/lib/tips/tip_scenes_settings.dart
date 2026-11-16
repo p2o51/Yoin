@@ -12,6 +12,7 @@ import '../landing/landing_mascot.dart';
 import '../landing/landing_strings.dart';
 import '../neodb/neodb_strings.dart';
 import '../playback/replay_gain.dart';
+import '../playback/spatial_audio.dart';
 import '../settings/ai_settings_screen.dart';
 import '../settings/ai_settings_view_model.dart';
 import '../settings/appearance/appearance_strings.dart';
@@ -23,6 +24,8 @@ import '../settings/licenses.dart' show yoinVersionName;
 import '../settings/settings_metrics.dart';
 import '../settings/settings_rows.dart';
 import '../settings/settings_strings.dart';
+import '../settings/stream_quality.dart';
+import '../settings/stream_quality_screen.dart';
 import '../settings/sync/cloud_sync_strings.dart';
 import '../settings/volume_leveling_screen.dart';
 import '../theme/tokens.dart';
@@ -653,4 +656,95 @@ class _ScreenCornersDemoState extends State<ScreenCornersDemo> with DemoSceneSta
       }),
     ),
   );
+}
+
+/// A Subsonic account's Streaming quality page, its real groups: the dot
+/// scrolls past Wi‑Fi and mobile data to Spatial audio and turns Yoin's
+/// switch off and on again while the status line says what the listener
+/// gets (headphones that spatialize, the system's switch on). The demo keeps
+/// its choice to itself: it never changes the real one.
+class SpatialAudioDemo extends StatefulWidget {
+  const SpatialAudioDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<SpatialAudioDemo> createState() => _SpatialAudioDemoState();
+}
+
+class _SpatialAudioDemoState extends State<SpatialAudioDemo> with DemoSceneState {
+  final ScrollController _scroll = ScrollController();
+  SpatialAudioMode _mode = SpatialAudioMode.auto;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _script(DemoFinger f) async {
+    put(() => _mode = SpatialAudioMode.auto);
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    await f.wait(800);
+    // Down past the two networks to the Spatial audio group.
+    final end = _scroll.hasClients ? _scroll.position.maxScrollExtent : 0.0;
+    await f.moveToPoint(0.5, 0.8);
+    await f.drag(
+      0.5,
+      0.3,
+      1100,
+      onProgress: (p) {
+        if (_scroll.hasClients) _scroll.jumpTo(end * p);
+      },
+    );
+    await f.wait(600);
+    await f.moveToKey(const ValueKey('spatial-switch'), fx: 0.88);
+    await f.tap(() => put(() => _mode = SpatialAudioMode.off));
+    await f.wait(1600);
+    await f.tap(() => put(() => _mode = SpatialAudioMode.auto));
+    await f.lift();
+    await f.wait(2000);
+    if (_scroll.hasClients) {
+      await _scroll.animateTo(0, duration: const Duration(milliseconds: 900), curve: Curves.easeInOut);
+    }
+    await f.wait(400);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = SettingsStrings.of(context);
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      child: DemoSettingsPage(
+        title: strings.streamQualityTitle,
+        scroll: _scroll,
+        children: [
+          StreamQualityGroup(
+            title: strings.streamQualityWifi,
+            selected: StreamQualitySettings.defaultWifi,
+            onSelect: (_) {},
+          ),
+          const SizedBox(height: SettingsMetrics.sectionGap),
+          StreamQualityGroup(
+            title: strings.streamQualityMobile,
+            selected: StreamQualitySettings.defaultMobile,
+            onSelect: (_) {},
+          ),
+          const SizedBox(height: SettingsMetrics.sectionGap),
+          SpatialAudioGroup(
+            // Headphones that spatialize, with the system's switch on for them.
+            state: SpatialAudioState(
+              mode: _mode,
+              supported: true,
+              outputSupported: true,
+              enabled: true,
+              canChoose: true,
+            ),
+            onModeChange: (mode) => put(() => _mode = mode),
+            onOpenSystemSettings: () {},
+          ),
+        ],
+      ),
+    );
+  }
 }

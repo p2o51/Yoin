@@ -925,7 +925,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
                 GeminiWash(thinking: about.thinking, keyHint: _keyHint),
                 // Into / out of the hinge layout: the posture swap (fade + scale).
                 // Keyed on the posture alone: a song arriving is not a posture swap.
-                _PostureSwap(
+                NowPlayingPostureSwap(
                   tabletop: widget.controller.frame.presentation == NowPlayingPresentation.tabletop,
                   child: switch (state) {
                     NowPlayingIdle() => Center(

@@ -4,11 +4,13 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
-import '../data/model/model.dart' show MediaId;
+import '../data/model/model.dart' show MediaId, Track;
 import '../nowplaying/devices/devices_pill.dart';
 import '../nowplaying/devices/devices_sheet.dart';
 import '../nowplaying/devices/devices_strings.dart';
@@ -17,13 +19,23 @@ import '../nowplaying/lyric_tools.dart';
 import '../nowplaying/lyrics_share.dart';
 import '../nowplaying/lyrics_view.dart';
 import '../nowplaying/note_line.dart';
-import '../nowplaying/now_playing_screen.dart' show NowPlayingWritePill;
+import '../nowplaying/now_playing_screen.dart'
+    show
+        NowPlayingPostureSwap,
+        NowPlayingWritePill,
+        TabletopEyebrow,
+        TabletopExpandLyricsKey,
+        tabletopCoverSize,
+        tabletopSplit;
 import '../nowplaying/now_playing_view_model.dart' show LyricsReady;
 import '../nowplaying/nowplaying_strings.dart';
 import '../nowplaying/play_mode_cycle.dart' show playModeSplitHoldMs;
+import '../nowplaying/tabletop_strings.dart';
 import '../nowplaying/transport.dart';
 import '../playback/play_mode.dart';
+import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/cover_art.dart';
 import '../ui/component/meta_line.dart' show formatTrackDuration;
 import '../ui/component/track_menu_sheet.dart';
 import 'demo_data.dart';
@@ -417,7 +429,7 @@ class _LyricsToolsDemoState extends State<LyricsToolsDemo> with DemoSceneState {
     return DemoPhone(
       playing: widget.playing,
       script: _script,
-      screenWidth: TipTokens.tallScreenWidth,
+      screenWidth: TipSceneTokens.tabletopScreenWidth,
       child: DemoPlayerScope(
         track: track,
         playing: widget.playing,
@@ -552,7 +564,7 @@ class _LyricsSelectDemoState extends State<LyricsSelectDemo> with DemoSceneState
     return DemoPhone(
       playing: widget.playing,
       script: _script,
-      screenWidth: TipTokens.tallScreenWidth,
+      screenWidth: TipSceneTokens.tabletopScreenWidth,
       child: DemoPlayerScope(
         track: track,
         playing: widget.playing,
@@ -741,6 +753,349 @@ class _DevicesDemoState extends State<DevicesDemo> with DemoSceneState {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Tabletop (Android NowPlayingScreen TabletopPlayingContent; the fold
+/// posture from yoin/posture): Now Playing is open, the phone folds halfway
+/// on its middle and the lower half leans back flat, and Now Playing swaps
+/// into the kickstand layout with the real posture swap — the cover, where
+/// it plays from, the song and a peek of the lyrics up top; the real
+/// transport with its expand-lyrics key and the Queue and Devices pills on
+/// the deck. The dot lets the lyrics fill the top half and brings the cover
+/// back, then the phone unfolds. Nothing plays.
+class TabletopDemo extends StatefulWidget {
+  const TabletopDemo({super.key, required this.playing});
+  final bool playing;
+
+  @override
+  State<TabletopDemo> createState() => _TabletopDemoState();
+}
+
+class _TabletopDemoState extends State<TabletopDemo> with DemoSceneState, TickerProviderStateMixin {
+  /// 0 flat → 1 half folded: the deck leans back.
+  late final SpringValue _fold = SpringValue(vsync: this, initial: 0, spring: YoinSprings.slowSpatial);
+
+  /// 0 the song leads the display → 1 the lyrics fill it (the real pane's emphasis).
+  late final SpringValue _emphasis = SpringValue(vsync: this, initial: 0, spring: YoinSprings.slowSpatial);
+  final ValueNotifier<bool> _autoFollow = ValueNotifier(true);
+  final ValueNotifier<TransportKey> _pressed = ValueNotifier(TransportKey.none);
+  bool _tabletop = false;
+  bool _expanded = false;
+
+  @override
+  void dispose() {
+    _fold.dispose();
+    _emphasis.dispose();
+    _autoFollow.dispose();
+    _pressed.dispose();
+    super.dispose();
+  }
+
+  void _spring(SpringValue value, double target) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      value.snapTo(target);
+    } else {
+      value.animateTo(target);
+    }
+  }
+
+  void _setExpanded(bool expanded) {
+    put(() => _expanded = expanded);
+    _spring(_emphasis, expanded ? 1 : 0);
+  }
+
+  Future<void> _script(DemoFinger f) async {
+    put(() {
+      _tabletop = false;
+      _expanded = false;
+    });
+    _fold.snapTo(0);
+    _emphasis.snapTo(0);
+    await f.wait(1200);
+    // Half folded: the kickstand layout, the deck leaning back.
+    put(() => _tabletop = true);
+    _spring(_fold, 1);
+    await f.wait(1600);
+    await f.moveToKey(const ValueKey('np-tabletop-expand-lyrics'));
+    await f.tap(() => _setExpanded(true));
+    await f.wait(2200);
+    await f.tap(() => _setExpanded(false));
+    await f.lift();
+    await f.wait(1400);
+    // Opened flat again: the deck stands up, then Now Playing is the phone's own.
+    _spring(_fold, 0);
+    await f.wait(TipSceneTokens.unfoldMs);
+    put(() => _tabletop = false);
+    await f.wait(1400);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final track = demoTrack(0, demoAlbums[0]);
+    return DemoPhone(
+      playing: widget.playing,
+      script: _script,
+      screenWidth: TipSceneTokens.tabletopScreenWidth,
+      child: DemoPlayerScope(
+        track: track,
+        playing: widget.playing,
+        positionMs: TipSceneTokens.lyricsStartMs,
+        builder: (context, player) => NowPlayingPostureSwap(
+          tabletop: _tabletop,
+          child: _tabletop
+              ? AnimatedBuilder(
+                  animation: _fold.animation,
+                  builder: (context, _) => _DemoTabletop(
+                    track: track,
+                    player: player,
+                    playing: widget.playing,
+                    fold: _fold.value.clamp(0.0, 1.0),
+                    emphasis: _emphasis,
+                    expanded: _expanded,
+                    onExpand: () => _setExpanded(!_expanded),
+                    autoFollow: _autoFollow,
+                    pressed: _pressed,
+                  ),
+                )
+              : DemoNowPlaying(track: track, clock: player.clock, playing: widget.playing),
+        ),
+      ),
+    );
+  }
+}
+
+/// The kickstand layout in the phone (the real pane's geometry, with no
+/// hinge reading: a 50 / 50 split): the display up top, the deck below,
+/// leaning back by [fold] about the crease.
+class _DemoTabletop extends StatelessWidget {
+  const _DemoTabletop({
+    required this.track,
+    required this.player,
+    required this.playing,
+    required this.fold,
+    required this.emphasis,
+    required this.expanded,
+    required this.onExpand,
+    required this.autoFollow,
+    required this.pressed,
+  });
+
+  final Track track;
+  final DemoPlayerScopeState player;
+  final bool playing;
+  final double fold;
+  final SpringValue emphasis;
+  final bool expanded;
+  final VoidCallback onExpand;
+  final ValueNotifier<bool> autoFollow;
+  final ValueNotifier<TransportKey> pressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final strings = NowPlayingStrings.of(context);
+    final tabletopStrings = TabletopStrings.of(context);
+    final mq = MediaQuery.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final split = tabletopSplit(constraints.maxHeight, null);
+        final cover = tabletopCoverSize(constraints.maxWidth, split.display);
+        final controlSize = fitTransportControlSize(
+          rowWidth: constraints.maxWidth - 2 * TabletopTokens.deckPaddingH,
+          controlSize: TabletopTokens.controlSize,
+          playKeyWidth: transportPlayKeyMaxWidth(context),
+          hasExtraKey: true,
+        );
+        final display = Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: TabletopTokens.displayPaddingH,
+                vertical: TabletopTokens.displayPaddingV,
+              ),
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(TabletopTokens.coverAir),
+                    child: CoverArt(cover: track.coverArt, size: cover, radius: ShapeTokens.nowPlayingCover),
+                  ),
+                  const SizedBox(width: TabletopTokens.coverToText),
+                  Expanded(
+                    child: AnimatedBuilder(
+                      animation: emphasis.animation,
+                      builder: (context, _) {
+                        final e = emphasis.value;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TabletopEyebrow(kind: strings.fromAlbum, name: track.album),
+                            const SizedBox(height: TabletopTokens.eyebrowGap),
+                            Text(
+                              track.title ?? '',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textScaler: TextScaler.noScaling,
+                              style: text.headlineSmall!.copyWith(
+                                fontSize: TabletopTokens.titleSize - TabletopTokens.titleShrink * e,
+                                color: colors.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: TabletopTokens.titleToArtist),
+                            Text(
+                              track.artist ?? '',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textScaler: TextScaler.noScaling,
+                              style: text.titleMedium!.copyWith(
+                                fontSize: TabletopTokens.artistSize - TabletopTokens.artistShrink * e,
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: TabletopTokens.artistToLyrics),
+                            Expanded(
+                              child: LayoutBuilder(
+                                builder: (context, box) => Center(
+                                  child: SizedBox(
+                                    height: lerpDouble(
+                                      math.min(TabletopTokens.collapsedLyrics, box.maxHeight),
+                                      box.maxHeight,
+                                      e,
+                                    ),
+                                    child: MediaQuery(
+                                      data: mq.copyWith(
+                                        textScaler: TextScaler.linear(
+                                          mq.textScaler.scale(1) *
+                                              (TabletopTokens.lyricScale + TabletopTokens.lyricScaleGrowth * e),
+                                        ),
+                                      ),
+                                      child: LyricsView(
+                                        mode: LyricsListMode.full,
+                                        lyrics: const LyricsReady(demoLyrics),
+                                        songKey: 'tip-tabletop',
+                                        clock: player.clock,
+                                        onSeek: player.seek,
+                                        autoFollow: autoFollow,
+                                        horizontalInset: -NowPlayingTokens.columnPadding,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            PositionedDirectional(
+              top: TabletopTokens.closeInset,
+              end: TabletopTokens.closeInset,
+              child: IconButton(
+                tooltip: tabletopStrings.cdClose,
+                onPressed: () {},
+                icon: Icon(YoinSymbols.chevronDown, color: colors.onSurfaceVariant),
+              ),
+            ),
+          ],
+        );
+        final deck = Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: TabletopTokens.deckPaddingH - NowPlayingTokens.columnPadding,
+            vertical: TabletopTokens.deckPaddingV,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TransportControls(
+                isPlaying: playing,
+                isWavePlaying: playing,
+                playMode: PlayMode.repeatAll,
+                clock: player.clock,
+                durationMs: (track.durationSec ?? 0) * 1000,
+                labelsUnder: false,
+                waveVisible: true,
+                controlSize: controlSize,
+                beforePlayMode: TabletopExpandLyricsKey(
+                  expanded: expanded,
+                  size: controlSize,
+                  label: expanded ? tabletopStrings.cdCollapseLyrics : tabletopStrings.cdExpandLyrics,
+                  onTap: onExpand,
+                ),
+                onPlayPause: () {},
+                onNext: () {},
+                onPrevious: () {},
+                onSetPlayMode: (_) {},
+                onSeek: (fraction) => player.seek((fraction * (track.durationSec ?? 0) * 1000).round()),
+                pressed: pressed,
+              ),
+              const SizedBox(height: TabletopTokens.controlsToPills),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                child: SizedBox(
+                  height: TabletopTokens.pillHeight,
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        NowPlayingPillButton(
+                          icon: YoinSymbols.queue,
+                          label: strings.pillQueue,
+                          onTap: () {},
+                          background: colors.primary,
+                          foreground: colors.onPrimary,
+                        ),
+                        const SizedBox(width: NowPlayingTokens.pillGap),
+                        NowPlayingDevicesPill(label: DevicesStrings.of(context).pillDevices, onTap: () {}),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+        return ColoredBox(
+          color: colors.surface,
+          child: Column(
+            children: [
+              SizedBox(height: split.display, child: display),
+              Expanded(
+                // Behind the leaning deck: the table's side of the phone.
+                child: ColoredBox(
+                  color: Color.lerp(colors.surface, colors.surfaceContainerHighest, fold)!,
+                  child: Transform(
+                    alignment: Alignment.topCenter,
+                    transform: Matrix4.identity()
+                      ..setEntry(3, 2, TipSceneTokens.foldPerspective)
+                      ..rotateX(TipSceneTokens.foldTilt * fold),
+                    child: DecoratedBox(
+                      // The crease, darker the further the deck leans.
+                      decoration: BoxDecoration(
+                        color: colors.surface,
+                        border: Border(
+                          top: BorderSide(
+                            color: colors.outlineVariant.withValues(alpha: fold),
+                            width: TipSceneTokens.creaseWidth,
+                          ),
+                        ),
+                      ),
+                      child: deck,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

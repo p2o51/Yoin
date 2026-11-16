@@ -1770,6 +1770,16 @@ abstract final class TipSceneTokens {
 
   /// All Memories: room under the list, so its grid can scroll all the way up into the bar.
   static const double ledgerRoom = 520;
+
+  /// Tabletop: how far the half-folded deck leans back (radians), the perspective it is seen in,
+  /// the crease's line, and how long the deck takes to stand up before the layout swaps back (ms).
+  static const double foldTilt = 0.6;
+  static const double foldPerspective = 0.001;
+
+  /// The Tabletop phone's screen is laid out this wide (a wide flip phone's inner screen, Pura X–like).
+  static const double tabletopScreenWidth = 480;
+  static const double creaseWidth = 1;
+  static const int unfoldMs = 700;
 }
 
 /// Another account's things (Android MemoryOtherProfileLine.kt,

@@ -18,9 +18,9 @@ class DevicesStrings {
   // The sheet (strings_component.xml).
   String get title => _zh ? '设备' : 'Devices'; // cmp_devices_title
 
-  /// cmp_devices_subtitle_subsonic without "Chromecast" (HarmonyOS has none;
-  /// the system cast row stands in for it). Flagged for the owner's copy model.
-  String get subtitleSubsonic => _zh ? '此设备与 DLNA · 同一 Wi-Fi' : 'This device and DLNA · Same Wi-Fi';
+  /// cmp_devices_subtitle_subsonic with HarmonyOS's own cast in Chromecast's
+  /// place (Gemini Carbon 2026-11-17, .argon/harmony-tips-1117b, as given).
+  String get subtitleSubsonic => _zh ? '此设备、投播与 DLNA · 同一 Wi-Fi' : 'This device, Cast and DLNA · Same Wi-Fi';
   String get subtitleOther => _zh ? '播放设备' : 'Playback devices'; // cmp_devices_subtitle_other
   String get cdRefresh => _zh ? '刷新设备' : 'Refresh devices'; // cmp_devices_cd_refresh
   String get thisDevice => _zh ? '此设备' : 'This device'; // cmp_devices_this_device

@@ -20,6 +20,7 @@ import '../memories/memories_strings.dart';
 import '../memories/memories_ui_state.dart' show MemoryOtherProfile;
 import '../memories/memory_card_face.dart' show MemoryPillButton;
 import '../memories/memory_other_profile_line.dart';
+import '../memories/other_profiles.dart' show AccountSwitchNoticeSheet, AccountSwitchPurpose;
 import '../memories/palette/memory_palette.dart' show MemoryPaletteTones;
 import '../settings/account_identity.dart';
 import '../settings/settings_colors.dart';
@@ -274,7 +275,14 @@ class _EditHomeDemoState extends State<EditHomeDemo> with DemoSceneState {
 /// A memory's card in the phone: the cover, the album, a line written about
 /// it, and the real Diary and Go to album pills.
 class _DemoMemoryCard extends StatelessWidget {
-  const _DemoMemoryCard({required this.album, required this.onDiary, this.owner, this.targets = true});
+  const _DemoMemoryCard({
+    required this.album,
+    required this.onDiary,
+    this.owner,
+    this.targets = true,
+    this.onGoAlbum,
+    this.goTarget,
+  });
 
   /// False for a second card on the same screen (a target names one part).
   final bool targets;
@@ -285,11 +293,22 @@ class _DemoMemoryCard extends StatelessWidget {
   /// Another account's memory: its "From …" line under the buttons.
   final MemoryOtherProfile? owner;
 
+  /// Go to album's tap (in the phone), and the demo target it is when named.
+  final VoidCallback? onGoAlbum;
+  final String? goTarget;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final strings = MemoriesStrings.of(context);
+    final goTarget = this.goTarget;
+    final go = MemoryPillButton(
+      label: strings.cardGoAlbum,
+      color: colors.secondaryContainer,
+      onColor: colors.onSecondaryContainer,
+      onTap: onGoAlbum ?? () {},
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -315,12 +334,7 @@ class _DemoMemoryCard extends StatelessWidget {
                 onTap: onDiary,
               ),
             ),
-            MemoryPillButton(
-              label: strings.cardGoAlbum,
-              color: colors.secondaryContainer,
-              onColor: colors.onSecondaryContainer,
-              onTap: () {},
-            ),
+            _target(goTarget != null, goTarget ?? '', go),
           ],
         ),
         if (owner case final owner?) ...[
@@ -356,6 +370,8 @@ class _DemoMemories extends StatelessWidget {
     required this.onDiary,
     this.owner,
     this.targets = true,
+    this.onGoAlbum,
+    this.goTarget,
   });
 
   /// False for a second deck page on the same screen (a target names one part).
@@ -367,6 +383,10 @@ class _DemoMemories extends StatelessWidget {
 
   /// Another account's memory (the card's "From …" line).
   final MemoryOtherProfile? owner;
+
+  /// The card's Go to album (see [_DemoMemoryCard]).
+  final VoidCallback? onGoAlbum;
+  final String? goTarget;
 
   @override
   Widget build(BuildContext context) {
@@ -420,7 +440,14 @@ class _DemoMemories extends StatelessWidget {
               opacity: (1 - p * 2).clamp(0.0, 1.0),
               child: Transform.translate(
                 offset: Offset(0, TipSceneTokens.diaryRise * p),
-                child: _DemoMemoryCard(album: album, onDiary: onDiary, owner: owner, targets: targets),
+                child: _DemoMemoryCard(
+                  album: album,
+                  onDiary: onDiary,
+                  owner: owner,
+                  targets: targets,
+                  onGoAlbum: onGoAlbum,
+                  goTarget: goTarget,
+                ),
               ),
             ),
           ),
@@ -551,7 +578,10 @@ class _PullForMemoriesDemoState extends State<PullForMemoriesDemo> with DemoScen
 
 /// Memories deals every account's memories (Android MemoriesAllAccountsDemo):
 /// a swipe brings the next card, one from another account, which says whose
-/// it is under its buttons (the real "From …" line).
+/// it is under its buttons (the real "From …" line). Its Go to album asks
+/// first with the real one-off switch notice (All Memories opens another
+/// account's album the same way since 2026-11-17); the phone's answer only
+/// closes it.
 class MemoriesAllAccountsDemo extends StatefulWidget {
   const MemoriesAllAccountsDemo({super.key, required this.playing});
   final bool playing;
@@ -565,6 +595,9 @@ class _MemoriesAllAccountsDemoState extends State<MemoriesAllAccountsDemo>
   /// 0 = this account's card, 1 = the next one, from another account.
   late final SpringValue _shift = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
 
+  /// The switch notice is up.
+  bool _notice = false;
+
   @override
   void dispose() {
     _shift.dispose();
@@ -572,14 +605,25 @@ class _MemoriesAllAccountsDemoState extends State<MemoriesAllAccountsDemo>
   }
 
   Future<void> _script(DemoFinger f) async {
+    final confirm = MemoriesStrings.of(context).switchConfirmAlbum;
     _shift.snapTo(0);
+    put(() => _notice = false);
     await f.wait(900);
     await f.moveToPoint(0.8, 0.45);
     await f.drag(0.25, 0.45, 600, release: false, onProgress: (p) => _shift.snapTo(p * TipSceneTokens.swipeTravel));
     _shift.animateTo(1);
     await f.release();
     await f.lift();
-    await f.wait(2800);
+    await f.wait(1600);
+    // Go to album on the other account's card: Yoin asks before it switches.
+    await f.moveTo('otherGoAlbum');
+    await f.tap(() => put(() => _notice = true));
+    await f.lift();
+    await f.wait(1800);
+    await f.moveToText(confirm);
+    await f.tap(() => put(() => _notice = false));
+    await f.lift();
+    await f.wait(1600);
   }
 
   @override
@@ -609,7 +653,25 @@ class _MemoriesAllAccountsDemoState extends State<MemoriesAllAccountsDemo>
                 ),
                 FractionalTranslation(
                   translation: Offset(1 - _shift.value, 0),
-                  child: _DemoMemories(album: demoAlbums[2], diary: 0, onDiary: () {}, owner: owner, targets: false),
+                  child: _DemoMemories(
+                    album: demoAlbums[2],
+                    diary: 0,
+                    onDiary: () {},
+                    owner: owner,
+                    targets: false,
+                    onGoAlbum: () => put(() => _notice = true),
+                    goTarget: 'otherGoAlbum',
+                  ),
+                ),
+                DemoSheet(
+                  open: _notice,
+                  onDismiss: () => put(() => _notice = false),
+                  child: AccountSwitchNoticeSheet(
+                    owner: owner,
+                    subject: demoAlbums[2].name,
+                    purpose: AccountSwitchPurpose.openAlbum,
+                    onAnswer: (_) => put(() => _notice = false),
+                  ),
                 ),
               ],
             ),

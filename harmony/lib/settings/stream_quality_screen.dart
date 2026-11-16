@@ -101,13 +101,13 @@ class StreamQualityScreen extends ConsumerWidget {
       // Opened from the account's page: back returns there.
       paneBack: inPane,
       children: [
-        _QualityGroup(
+        StreamQualityGroup(
           title: strings.streamQualityWifi,
           selected: settings?.wifi,
           onSelect: (q) => select(StreamNetwork.wifi, q),
         ),
         const SizedBox(height: SettingsMetrics.sectionGap),
-        _QualityGroup(
+        StreamQualityGroup(
           title: strings.streamQualityMobile,
           selected: settings?.mobile,
           onSelect: (q) => select(StreamNetwork.mobile, q),
@@ -198,8 +198,9 @@ class SpatialAudioGroup extends StatelessWidget {
   }
 }
 
-class _QualityGroup extends StatelessWidget {
-  const _QualityGroup({required this.title, required this.selected, required this.onSelect});
+/// One network's choices (Wi‑Fi or mobile data), each a radio row.
+class StreamQualityGroup extends StatelessWidget {
+  const StreamQualityGroup({super.key, required this.title, required this.selected, required this.onSelect});
 
   final String title;
   final StreamQuality? selected;

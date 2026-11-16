@@ -6,6 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/home/home_bubble_tips.dart';
 import 'package:yoin/memories/ledger/memory_grid_view.dart';
+import 'package:yoin/memories/other_profiles.dart' show AccountSwitchNoticeSheet;
+import 'package:yoin/nowplaying/now_playing_screen.dart' show TabletopExpandLyricsKey;
+import 'package:yoin/playback/spatial_audio.dart' show SpatialAudioMode;
+import 'package:yoin/settings/stream_quality_screen.dart' show SpatialAudioGroup;
 import 'package:yoin/nowplaying/devices/devices_sheet.dart';
 import 'package:yoin/settings/appearance/screen_corners_screen.dart';
 import 'package:yoin/settings/appearance/scroll_edge_screen.dart';
@@ -60,11 +64,19 @@ void main() {
       expect(unreadTips({HomeBubbleTip.editHome}, tips), [HomeBubbleTip.name, HomeBubbleTip.playModes]);
     });
 
-    test('should_leaveServiceWidgetsAndContinueOnOut_when_onADesktop', () {
+    test('should_leaveServiceWidgetsContinueOnAndTabletopOut_when_onADesktop', () {
       expect(HomeBubbleTip.available('ohos'), HomeBubbleTip.values);
       expect(HomeBubbleTip.available('windows'), isNot(contains(HomeBubbleTip.homeScreenWidgets)));
       expect(HomeBubbleTip.available('windows'), isNot(contains(HomeBubbleTip.continueOn)));
-      expect(HomeBubbleTip.available('windows').length, HomeBubbleTip.values.length - 2);
+      expect(HomeBubbleTip.available('windows'), isNot(contains(HomeBubbleTip.tabletop)));
+      expect(HomeBubbleTip.available('windows').length, HomeBubbleTip.values.length - 3);
+    });
+
+    test('should_bringCloudSyncAndAllAccountsBackUnread_when_readBeforeRound3', () {
+      // Read on 11-16: Cloud sync now lists Memory words, and All Memories holds every account.
+      expect(decodeReadTips(['cloudSync@2026-11-16', 'memoriesAllAccounts@2026-11-16', 'lyricsTools@2026-11-16']), {
+        HomeBubbleTip.lyricsTools,
+      });
     });
 
     test('should_bringAllMemoriesBackUnread_when_itWasReadBeforeTheLift', () {
@@ -271,6 +283,52 @@ void main() {
       expect(find.text('Appearance'), findsOneWidget);
       expect(find.text('NeoDB', skipOffstage: false), findsOneWidget);
       expect(find.text('Help and about', skipOffstage: false), findsOneWidget);
+      await leave(tester);
+    });
+
+    testWidgets('should_swapIntoTheKickstandLayout_when_theTabletopDemoFolds', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.tabletop);
+      final expand = find.byKey(const ValueKey('np-tabletop-expand-lyrics'));
+      expect(expand, findsNothing);
+      expect(await playUntil(tester, () => expand.evaluate().isNotEmpty), isTrue);
+      expect(find.text('PLAYING FROM ALBUM'), findsOneWidget);
+      // The dot lets the lyrics lead.
+      expect(
+        await playUntil(
+          tester,
+          () => tester.widget<TabletopExpandLyricsKey>(find.byType(TabletopExpandLyricsKey)).expanded,
+        ),
+        isTrue,
+      );
+      // And the phone unfolds again.
+      expect(await playUntil(tester, () => expand.evaluate().isEmpty), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_turnSpatialAudioOffAndOn_when_theSpatialAudioDemoTaps', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.spatialAudio);
+      // The group is further down the page: built once the dot scrolls to it.
+      final group = find.byType(SpatialAudioGroup, skipOffstage: false);
+      SpatialAudioMode? mode() => group.evaluate().isEmpty ? null : tester.widget<SpatialAudioGroup>(group).state.mode;
+      expect(await playUntil(tester, () => mode() == SpatialAudioMode.auto), isTrue);
+      expect(await playUntil(tester, () => mode() == SpatialAudioMode.off), isTrue);
+      expect(find.text('Off. Multichannel songs play folded down to stereo.'), findsOneWidget);
+      expect(await playUntil(tester, () => mode() == SpatialAudioMode.auto), isTrue);
+      expect(tester.takeException(), isNull);
+      await leave(tester);
+    });
+
+    testWidgets('should_askBeforeSwitching_when_theAllAccountsDemoGoesToTheAlbum', (tester) async {
+      await pumpDemo(tester, HomeBubbleTip.memoriesAllAccounts);
+      final notice = find.byType(AccountSwitchNoticeSheet);
+      expect(notice, findsNothing);
+      expect(await playUntil(tester, () => notice.evaluate().isNotEmpty), isTrue);
+      expect(find.text('Switch and open'), findsOneWidget);
+      // Its answer stays in the phone: the sheet goes, the tip page stays.
+      expect(await playUntil(tester, () => notice.evaluate().isEmpty), isTrue);
+      expect(find.byType(TipIllustration), findsOneWidget);
+      expect(tester.takeException(), isNull);
       await leave(tester);
     });
 

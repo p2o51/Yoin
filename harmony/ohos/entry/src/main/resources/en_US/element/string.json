@@ -38,7 +38,7 @@
     },
     {
       "name": "permission_vibrate_reason",
-      "value": "Gives touch feedback when you tap, drag and rate"
+      "value": "Used for touch feedback when tapping, dragging and rating"
     }
   ]
 }
