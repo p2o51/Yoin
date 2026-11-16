@@ -141,6 +141,9 @@ void main() {
     expect(find.text('At a piano in Matala.'), findsOneWidget);
     final ask = (await SongAboutStore.shared(kv).all()).where((r) => r.kind == SongAboutKinds.ask).single;
     expect(ask.promptText, 'What does this song sample?');
+    // One Send asks once: one answer call and one heading call, nothing doubled.
+    expect(client.prompts.where((p) => p.startsWith('Answer the following question')), hasLength(1));
+    expect(client.prompts.where((p) => p.startsWith('Write a concise visual heading')), hasLength(1));
     // Back at rest, and the prompt already asked is not offered again.
     expect(find.text('Ask Gemini'), findsOneWidget);
     await tester.tap(find.text('Ask Gemini'));

@@ -217,8 +217,11 @@ class _AskGeminiBarState extends State<AskGeminiBar> with TickerProviderStateMix
                     textAlignVertical: TextAlignVertical.top,
                     keyboardType: TextInputType.multiline,
                     textInputAction: TextInputAction.send,
+                    // Send asks once: Flutter calls onEditingComplete and then onSubmitted for the
+                    // same key, so only onSubmitted asks; the empty hook keeps the keyboard up on an
+                    // empty Send, as Android's onSend does.
                     onSubmitted: (_) => _submit(),
-                    onEditingComplete: _submit,
+                    onEditingComplete: () {},
                     inputFormatters: [FilteringTextInputFormatter.deny('\n', replacementString: '')],
                     style: style,
                     cursorColor: colors.onPrimaryContainer,

@@ -388,6 +388,7 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
               label: strings.aiCustomModel,
               placeholder: '',
               textInputAction: TextInputAction.done,
+              endInset: SettingsMetrics.aiPullReserve,
             ),
             PositionedDirectional(
               end: 0,

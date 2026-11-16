@@ -158,6 +158,7 @@ abstract final class SettingsMetrics {
   // The page's parts (AiSettingsPage.kt / AiSubPages.kt, AI settings v2).
   static const double aiSectionLabelInset = 4; // SectionLabel
   static const double aiGroupGap = 8; // label → its row, Custom's fields
+  static const double aiPullReserve = 68; // the model field's text stops short of Fetch (64 dp button + 4)
   static const double aiKeyGap = 4; // key field → its link
   static const double aiChipHeight = 44; // ChoiceChip: 44 high, corner 14 at rest, a pill when picked
   static const double aiChipCorner = 14;

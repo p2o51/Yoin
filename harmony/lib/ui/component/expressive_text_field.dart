@@ -17,7 +17,10 @@ class ExpressiveTextField extends StatefulWidget {
     this.autofillHints,
     this.onSubmitted,
     this.errorText,
+    this.endInset = _padH,
   });
+
+  static const double _padH = 16;
 
   final TextEditingController controller;
   final String label;
@@ -30,6 +33,10 @@ class ExpressiveTextField extends StatefulWidget {
 
   /// Shown under the box in error colour when non-null.
   final String? errorText;
+
+  /// Room after the text: a button laid over the box's end (the AI page's Fetch) asks for more,
+  /// so a long value stops short of it instead of running under it.
+  final double endInset;
 
   @override
   State<ExpressiveTextField> createState() => _ExpressiveTextFieldState();
@@ -76,7 +83,7 @@ class _ExpressiveTextFieldState extends State<ExpressiveTextField> with TickerPr
                 ),
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: EdgeInsetsDirectional.fromSTEB(ExpressiveTextField._padH, 14, widget.endInset, 14),
                 child: TextField(
                   controller: widget.controller,
                   focusNode: _focus,

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/about/song_about_repository.dart';
+import '../data/about/song_about_store.dart';
 import '../data/ai/ai_client.dart';
 import '../data/ai/ai_service.dart';
 import '../data/ai/ai_settings.dart';
@@ -75,12 +76,19 @@ final class StoredAiSettingsActions implements AiSettingsActions {
   @override
   void setTargetLanguage(String language) {
     final before = _ref.read(aiSettingsProvider).value?.targetLanguage;
+    // Read before the write: the page (and its WidgetRef) may be gone by the time it lands.
+    SongAboutStore? about;
+    try {
+      about = _ref.read(songAboutStoreProvider);
+    } catch (_) {
+      // No app storage (a harness): nothing to clear.
+    }
     unawaited(
       _settings.setTargetLanguage(language).then((_) async {
         // Answers the AI wrote in the old language would linger otherwise (AiSettingsViewModel
         // clearGeneratedAbout); the listener's own About entries stay.
         if (before != null && AiLanguages.normalize(before) != AiLanguages.normalize(language)) {
-          await _ref.read(songAboutStoreProvider).deleteGenerated();
+          await about?.deleteGenerated();
         }
       }),
     );

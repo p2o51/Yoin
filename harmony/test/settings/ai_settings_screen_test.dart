@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/app/providers.dart';
+import 'package:yoin/data/about/song_about_store.dart';
 import 'package:yoin/data/ai/ai_client.dart';
 import 'package:yoin/data/ai/ai_settings.dart';
 import 'package:yoin/platform/storage/stores.dart';
@@ -81,6 +82,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Answer in Japanese'), findsOneWidget);
     expect(prefs()['targetLanguage'], 'Japanese');
+  });
+
+  testWidgets('should_clearAiAboutButKeepOwn_when_answerLanguageChanged', (tester) async {
+    SongAboutEntry row(String kind, String key) => SongAboutEntry(
+      titleKey: 'blue',
+      artistKey: 'joni',
+      albumKey: 'blue',
+      titleDisplay: 'Blue',
+      artistDisplay: 'Joni',
+      albumDisplay: 'Blue',
+      kind: kind,
+      entryKey: key,
+      titleText: kind == SongAboutKinds.own ? 'Mine' : null,
+      answerText: 'text',
+      createdAt: 1,
+      updatedAt: 1,
+    );
+    final about = SongAboutStore.shared(plain);
+    await about.upsertAll([
+      row(SongAboutKinds.canonical, 'review'),
+      row(SongAboutKinds.ask, 'why'),
+      row(SongAboutKinds.own, 'mine'),
+    ]);
+    await pump(tester, const AiSettingsScreen());
+
+    await tap(tester, 'ai-answer-in');
+    await tester.tap(find.text('Japanese').last);
+    await tester.pumpAndSettle();
+
+    final left = await about.all();
+    expect(left.map((r) => r.kind), [SongAboutKinds.own]);
   });
 
   testWidgets('should_keepEachServicesKey_when_switchingServices', (tester) async {
