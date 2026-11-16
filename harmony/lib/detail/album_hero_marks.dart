@@ -8,6 +8,7 @@ import '../data/model/model.dart';
 import '../memories/album_score.dart';
 import '../memories/memory_rate_sheet.dart';
 import '../memories/palette/memory_palette.dart';
+import '../theme/motion.dart';
 import '../ui/component/artwork_image.dart';
 import '../ui/component/spring_cross_fade.dart';
 import 'detail_listening.dart';
@@ -36,6 +37,12 @@ abstract final class AlbumHeroTokens {
   /// AlbumPageEmblemSize.
   static const double emblem = 64;
 
+  /// Between the meta blocks (AlbumHeroMetaBlocks spacedBy).
+  static const double blockGap = 14;
+
+  /// Last Play: caption → day, day → time.
+  static const double lastPlayCaptionGap = 4;
+
   /// The pen: FilledTonalIconButton 40dp with an 18dp Edit glyph.
   static const double pen = 40;
   static const double penGlyph = 18;
@@ -60,10 +67,15 @@ abstract final class AlbumHeroTokens {
 /// surface at 0.65. [leaving] (0 = whole, 1 = gone) follows the pull-up: the
 /// blocks stay where they are and break up into fine dots (DotDissolve);
 /// reduced motion fades them instead.
+///
+/// [hugging]: the whole mark hugging a side cover instead (huggingPose: a
+/// landscape hero, a page in the detail column whose sides are not screen
+/// edges) — the caller sizes it to [albumHuggingMark]'s box.
 class AlbumButterfly extends StatelessWidget {
-  const AlbumButterfly({super.key, required this.leaving});
+  const AlbumButterfly({super.key, required this.leaving, this.hugging = false});
 
   final double leaving;
+  final bool hugging;
 
   @override
   Widget build(BuildContext context) {
@@ -81,6 +93,9 @@ class AlbumButterfly extends StatelessWidget {
               blockA: page.accent,
               blockB: page.secondary,
               line: surface.withValues(alpha: AlbumHeroTokens.butterflyLineAlpha),
+              scale: hugging ? 1 : AlbumHeroTokens.butterflyScale,
+              offsetYFraction: hugging ? 0 : AlbumHeroTokens.butterflyOffsetYFraction,
+              squashX: hugging ? 1 : AlbumHeroTokens.butterflySquashX,
             ),
             size: Size.infinite,
           ),
@@ -93,12 +108,25 @@ class AlbumButterfly extends StatelessWidget {
 /// Paints the butterfly into a box as wide as the page and as tall as the
 /// hero band (cover side + 56). It runs past the box; the hero layer clips it
 /// at the header's bottom edge.
+///
+/// [scale] / [offsetYFraction] / [squashX] are the MarkPose (the Compact
+/// pose by default; 1 / 0 / 1 for the hugging one, drawn into a mark-sized box).
 class AlbumButterflyPainter extends CustomPainter {
-  AlbumButterflyPainter({required this.blockA, required this.blockB, required this.line});
+  AlbumButterflyPainter({
+    required this.blockA,
+    required this.blockB,
+    required this.line,
+    this.scale = AlbumHeroTokens.butterflyScale,
+    this.offsetYFraction = AlbumHeroTokens.butterflyOffsetYFraction,
+    this.squashX = AlbumHeroTokens.butterflySquashX,
+  });
 
   final Color blockA;
   final Color blockB;
   final Color line;
+  final double scale;
+  final double offsetYFraction;
+  final double squashX;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -109,15 +137,15 @@ class AlbumButterflyPainter extends CustomPainter {
     final s = math.min(w, h) / YoinMarkArms.viewBox;
     canvas.save();
     // MarkPose(left 0, top 0, width w, height band) in Compose's withTransform order.
-    canvas.translate(0, AlbumHeroTokens.butterflyOffsetYFraction * h);
+    canvas.translate(0, offsetYFraction * h);
     canvas.translate(w / 2, h / 2);
-    canvas.scale(AlbumHeroTokens.butterflyScale);
+    canvas.scale(scale);
     canvas.translate(-w / 2, -h / 2);
     canvas.translate((w - YoinMarkArms.viewBox * s) / 2, (h - YoinMarkArms.viewBox * s) / 2);
     canvas.scale(s);
     final hub = YoinMarkArms.hub;
     canvas.translate(hub.dx, hub.dy);
-    canvas.scale(AlbumHeroTokens.butterflySquashX, 1);
+    canvas.scale(squashX, 1);
     canvas.translate(-hub.dx, -hub.dy);
     m.drawArm(canvas, 0, blockA, line);
     m.drawArm(canvas, 2, blockB, line);
@@ -125,7 +153,13 @@ class AlbumButterflyPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(AlbumButterflyPainter old) => old.blockA != blockA || old.blockB != blockB || old.line != line;
+  bool shouldRepaint(AlbumButterflyPainter old) =>
+      old.blockA != blockA ||
+      old.blockB != blockB ||
+      old.line != line ||
+      old.scale != scale ||
+      old.offsetYFraction != offsetYFraction ||
+      old.squashX != squashX;
 }
 
 /// The two Yoin mark arms the album backdrop uses, parsed once (Android
@@ -444,4 +478,215 @@ class AlbumRatedCoverage extends ConsumerWidget {
 String? albumRatedCoverageText(AlbumScore score, DetailStrings strings) {
   if (score.albumRating != null || score.average == null || score.trackCount == 0) return null;
   return strings.albumRated(score.ratedCount, score.trackCount);
+}
+
+// ---------------------------------------------------------------------------
+// The hero's meta blocks beside a side cover (Short, Landscape, Medium, Wide).
+// ---------------------------------------------------------------------------
+
+/// Last Play + score emblem + comment (Android AlbumHeroMetaBlocks), for the
+/// layouts that set the meta beside or under a side cover. Row form: Last
+/// Play | emblem across, the comment under them; [stacked] (Short's narrow
+/// column beside the cover): one block per line, Last Play a size smaller and
+/// without its caption. 14 between blocks. [interactive] false while the
+/// pulled-up list is the dominant layer (its taps go nowhere).
+class AlbumHeroMetaBlocks extends StatelessWidget {
+  const AlbumHeroMetaBlocks({
+    super.key,
+    required this.albumId,
+    required this.albumName,
+    this.coverUrl,
+    this.stacked = false,
+    this.interactive = true,
+  });
+
+  final MediaId albumId;
+  final String albumName;
+  final String? coverUrl;
+  final bool stacked;
+  final bool interactive;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = coverUrl;
+    return IgnorePointer(
+      ignoring: !interactive,
+      child: MemoryPaletteBuilder(
+        cacheKey: url,
+        image: url == null ? null : artworkImageProvider(url, cacheWidth: 200, cacheHeight: 200),
+        builder: (context, palette) {
+          void open({bool review = false}) => showAlbumRateSheet(
+            context,
+            albumId: albumId,
+            albumName: albumName,
+            palette: palette,
+            focusReview: review,
+            coverUrl: url,
+          );
+          final lastPlay = AlbumLastPlayBlock(albumId: albumId, compact: stacked);
+          final emblem = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Semantics(
+                button: true,
+                label: DetailStrings.of(context).albumCdRate,
+                child: AlbumScoreEmblem(albumId: albumId, palette: palette, onTap: open, size: AlbumHeroTokens.emblem),
+              ),
+              AlbumRatedCoverage(albumId: albumId),
+            ],
+          );
+          final comment = AlbumHeroComment(albumId: albumId, onEdit: () => open(review: true));
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            spacing: AlbumHeroTokens.blockGap,
+            children: stacked
+                ? [lastPlay, emblem, comment]
+                : [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Flexible(child: lastPlay),
+                        emblem,
+                      ],
+                    ),
+                    comment,
+                  ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Last Play (Android AlbumHeroMetaBlocks lastPlay): the underlined caption,
+/// the day ("Yesterday", "Never" before the first play) and the 24-hour time
+/// under it. The first play turns "Never" into a day: the word cross-fades
+/// and the time row grows in on the spatial spring. [compact] (Short's
+/// column beside the cover): no caption, a size smaller.
+class AlbumLastPlayBlock extends ConsumerWidget {
+  const AlbumLastPlayBlock({super.key, required this.albumId, this.compact = false, this.now});
+
+  final MediaId albumId;
+  final bool compact;
+
+  /// Today, for "Today / Yesterday" (tests); null = the clock.
+  final DateTime? now;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = DetailStrings.of(context);
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final at = ref.watch(albumLastPlayedProvider(albumId));
+    final labels = at == null ? null : lastPlayLabels(at, strings, now: now);
+    final dayStyle = (compact ? theme.textTheme.bodyMedium : theme.textTheme.bodyLarge)?.copyWith(
+      color: colors.onSurface,
+    );
+    final timeStyle = (compact ? theme.textTheme.bodySmall : theme.textTheme.bodyMedium)?.copyWith(
+      color: colors.onSurfaceVariant,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final day = labels?.$1 ?? strings.albumNever;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!compact)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AlbumHeroTokens.lastPlayCaptionGap),
+            child: Text(
+              strings.albumLastPlay,
+              style: theme.textTheme.labelLarge?.copyWith(
+                decoration: TextDecoration.underline,
+                decorationColor: colors.onSurface,
+                fontWeight: FontWeight.w500,
+                color: colors.onSurface,
+              ),
+            ),
+          ),
+        SpringCrossFade(
+          childKey: day,
+          fit: StackFit.loose,
+          child: Text(day, key: ValueKey(day), style: dayStyle),
+        ),
+        SpringSizeReveal(
+          visible: labels != null,
+          child: Padding(
+            padding: const EdgeInsets.only(top: AlbumHeroTokens.lastPlayCaptionGap),
+            child: Text(labels?.$2 ?? '', style: timeStyle),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// expandVertically + fade from the top on the spatial / effects springs
+/// (AnimatedVisibility(expandVertically, fadeIn)); keeps its child while it
+/// leaves. [axis] horizontal: expandHorizontally from the start edge.
+class SpringSizeReveal extends StatefulWidget {
+  const SpringSizeReveal({super.key, required this.visible, required this.child, this.axis = Axis.vertical});
+
+  final bool visible;
+  final Widget child;
+  final Axis axis;
+
+  @override
+  State<SpringSizeReveal> createState() => _SpringSizeRevealState();
+}
+
+class _SpringSizeRevealState extends State<SpringSizeReveal> with TickerProviderStateMixin {
+  late final SpringValue _size = SpringValue(
+    vsync: this,
+    initial: widget.visible ? 1 : 0,
+    spring: YoinSprings.defaultSpatial,
+  );
+  late final SpringValue _alpha = SpringValue(
+    vsync: this,
+    initial: widget.visible ? 1 : 0,
+    spring: YoinSprings.defaultEffects,
+  );
+  late Widget _shown = widget.child;
+
+  @override
+  void didUpdateWidget(SpringSizeReveal old) {
+    super.didUpdateWidget(old);
+    if (widget.visible) _shown = widget.child;
+    if (old.visible != widget.visible) {
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _size.snapTo(widget.visible ? 1 : 0);
+        _alpha.snapTo(widget.visible ? 1 : 0);
+      } else {
+        _size.animateTo(widget.visible ? 1 : 0);
+        _alpha.animateTo(widget.visible ? 1 : 0);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _size.dispose();
+    _alpha.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: Listenable.merge([_size.animation, _alpha.animation]),
+    child: _shown,
+    builder: (context, child) {
+      final f = _size.value.clamp(0.0, 1.2);
+      if (f <= 0.001 && !widget.visible) return const SizedBox.shrink();
+      final vertical = widget.axis == Axis.vertical;
+      return ClipRect(
+        child: Align(
+          alignment: vertical ? Alignment.topCenter : AlignmentDirectional.centerStart,
+          heightFactor: vertical ? f : null,
+          widthFactor: vertical ? null : f,
+          child: Opacity(opacity: _alpha.value.clamp(0.0, 1.0), child: child),
+        ),
+      );
+    },
+  );
 }

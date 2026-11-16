@@ -54,7 +54,14 @@ final class FlowingTitle {
 /// while pressed. Links only work while [enabled]. Unbounded height,
 /// never ellipsized.
 class FlowingTitles extends StatefulWidget {
-  const FlowingTitles({super.key, required this.titles, required this.onTap, this.enabled = true, this.emptyText});
+  const FlowingTitles({
+    super.key,
+    required this.titles,
+    required this.onTap,
+    this.enabled = true,
+    this.emptyText,
+    this.style,
+  });
 
   final List<FlowingTitle> titles;
   final ValueChanged<int> onTap;
@@ -62,6 +69,9 @@ class FlowingTitles extends StatefulWidget {
 
   /// Shown when there are no titles (the album name).
   final String? emptyText;
+
+  /// In place of headlineMedium (a landscape hero's headlineSmall).
+  final TextStyle? style;
 
   @override
   State<FlowingTitles> createState() => _FlowingTitlesState();
@@ -121,7 +131,7 @@ class _FlowingTitlesState extends State<FlowingTitles> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final style = theme.textTheme.headlineMedium!;
+    final style = widget.style ?? theme.textTheme.headlineMedium!;
     final colors = theme.colorScheme;
     if (widget.titles.isEmpty) {
       return Text(widget.emptyText ?? '', style: style.copyWith(color: colors.onSurface));

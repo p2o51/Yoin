@@ -640,6 +640,118 @@ abstract final class DetailTokens {
   static const double artistBottomPadding = 120;
 }
 
+/// Detail pages outside the Compact pull-up (Android AlbumDetailScreen /
+/// AlbumSpectrumBar / PlaylistDetailScreen / ArtistDetailScreen on main,
+/// adaptive-principles §1): Short portrait, landscape handset, the Medium
+/// overview and the Wide identity column.
+abstract final class DetailLayoutTokens {
+  /// The page column's width cap on Medium (YoinPageWidths.Feed) and its inset.
+  static const double pageMaxWidth = 720;
+  static const double pageInset = 16;
+
+  /// albumHeroFitsPortrait: what the portrait hero needs besides its cover band
+  /// (chrome: status bar, header, dots, bar + nav; text: meta, count, one title line × font scale).
+  static const double portraitChromeReserve = 220;
+  static const double portraitTextReserve = 250;
+
+  /// Compact hero band: the cover plus this (albumHeroBandPx).
+  static const double heroBand = 56;
+
+  /// Short portrait: the cover on the 16 line, min(width × fraction, width − chrome − meta, max).
+  static const double shortCoverStart = 16;
+  static const double shortCoverFraction = 0.62;
+  static const double shortCoverMax = 260;
+  static const double shortMetaMinWidth = 112;
+  static const double shortHorizontalChrome = 48;
+  static const double shortHeroGap = 16;
+  static const double shortTitlesGap = 24;
+
+  /// Short / Landscape covers sit this far under the header.
+  static const double sideCoverTopGap = 4;
+
+  /// Landscape handset (Album): cover min(256, height − header − 24) at start 48, 40 to the meta.
+  static const double landscapeCoverSide = 256;
+  static const double landscapeCoverBottomRoom = 24;
+  static const double albumLandscapeCoverStart = 48;
+  static const double landscapeGutter = 40;
+  static const double landscapeMetaMaxWidth = 300;
+  static const double landscapeHeroEnd = 8;
+  static const double landscapeMetaGap = 16;
+
+  /// The landscape bar's stamp (AlbumBarLandscapeStampSize).
+  static const double landscapeStamp = 44;
+
+  /// Playlist landscape: start 44, top 24, room under the cover 36, 20 meta → titles.
+  static const double playlistLandscapeCoverStart = 44;
+  static const double playlistLandscapeTop = 24;
+  static const double playlistLandscapeCoverBottomRoom = 36;
+  static const double playlistLandscapeTitlesGap = 20;
+
+  /// Medium overview: a fixed 240 cover beside the meta, 24 apart, 24 under the row; list top 4.
+  static const double mediumCoverSide = 240;
+  static const double mediumHeroGap = 24;
+  static const double mediumHeroBottom = 24;
+  static const double listTopPadding = 4;
+
+  /// Playlist Medium: the cover steps in this far for its sleeves; the row starts 8 down.
+  static const double playlistMediumSleeveRoom = 40;
+  static const double playlistMediumTop = 8;
+
+  /// Wide full window: identity column 400 (cover 360 centred, 16 to the meta) beside a list capped at 800.
+  static const double wideIdentityWidth = 400;
+  static const double wideCoverSide = 360;
+  static const double wideMargin = 40;
+  static const double wideEnd = 24;
+  static const double wideTop = 24;
+  static const double wideBottom = 120;
+  static const double wideMetaGap = 16;
+  static const double wideListMaxWidth = 800;
+  static const double wideListTop = 16;
+
+  /// A list's bottom room: the bar's height and margins above the nav inset.
+  static const double listBottomPadding = 112;
+
+  /// The liner notes after a pulled-up list: 8 in, 28 down; they fade in over the last 40 %.
+  static const double footerInset = 8;
+  static const double footerTop = 28;
+  static const double footerFadeStart = 0.6;
+
+  /// The whole mark hugging a side cover (Landscape, a column): 1.3 × the cover, the arms
+  /// reaching 0.46 of its side from the centre, kept 8 off the page edge.
+  static const double huggingMarkScale = 1.3;
+  static const double huggingArmReach = 0.46;
+  static const double huggingEdgeClearance = 8;
+
+  /// Playlist sleeves keep this far off the edge of their room.
+  static const double sleeveEdgeClearance = 8;
+
+  /// Artist: Medium / Wide hero (portrait 180 / 220, ring reach 0.62 / 0.78, set 24 / 64 in, 56 apart).
+  static const double artistMediumPortrait = 180;
+  static const double artistWidePortrait = 220;
+  static const double artistMediumRingReach = 0.62;
+  static const double artistWideRingReach = 0.78;
+  static const double artistMediumHeroInset = 24;
+  static const double artistWideHeroInset = 64;
+  static const double artistWideHeroGap = 56;
+  static const double artistIdentityGap = 6;
+  static const double artistFollowLabelGap = 4;
+
+  /// Artist landscape: portrait 220 at start 40 (ring reach 0.62), top 28, end 24, 48 to Most Played.
+  static const double artistLandscapePortrait = 220;
+  static const double artistLandscapeRingReach = 0.62;
+  static const double artistLandscapeStart = 40;
+  static const double artistLandscapeTop = 28;
+  static const double artistLandscapeEnd = 24;
+  static const double artistLandscapeGap = 48;
+  static const double artistLandscapeSectionGap = 20;
+  static const double artistLandscapeBottom = 24;
+
+  /// Artist Wide desktop: Most Played 480 beside the discography, 48 apart, the row set 40 in.
+  static const double artistDesktopMostPlayed = 480;
+  static const double artistDesktopMostPlayedGap = 48;
+  static const double artistDesktopInset = 40;
+}
+
 /// Android MetaLine (component/MetaLine.kt): groups never joined by a glyph.
 abstract final class MetaLineTokens {
   /// Gap between groups.

@@ -80,4 +80,70 @@ void main() {
     expect(find.text('Add to queue'), findsOneWidget);
     expect(find.text('Shuffle play'), findsNothing);
   });
+
+  testWidgets('should_promotePageActionsBesideShuffle_when_centredDetailPose', (tester) async {
+    _window(tester, const Size(900, 1200));
+    final tapped = <String>[];
+    await tester.pumpWidget(
+      _bar(
+        DetailPlayActions(
+          onPlay: () {},
+          onShuffle: () => tapped.add('shuffle'),
+          menuItems: [
+            DetailMenuAction(icon: YoinSymbols.queue, label: 'Add to queue', onTap: () {}),
+            DetailMenuAction(
+              icon: YoinSymbols.artist,
+              label: 'Go to artist',
+              promotable: true,
+              onTap: () => tapped.add('artist'),
+            ),
+            DetailMenuAction(
+              icon: YoinSymbols.share,
+              label: 'Share',
+              promotable: true,
+              onTap: () => tapped.add('share'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Shuffle, Go to artist and Share as round buttons, in that order, after the split.
+    final shuffle = find.bySemanticsLabel('Shuffle play');
+    final artist = find.bySemanticsLabel('Go to artist');
+    final share = find.bySemanticsLabel('Share');
+    expect(tester.getCenter(shuffle).dx, lessThan(tester.getCenter(artist).dx));
+    expect(tester.getCenter(artist).dx, lessThan(tester.getCenter(share).dx));
+    await tester.tap(share);
+    await tester.pumpAndSettle();
+    expect(tapped, ['share']);
+
+    // ▾ keeps only what was not pulled out.
+    await tester.tap(_splitMaterials.at(1));
+    await tester.pumpAndSettle();
+    expect(find.text('Add to queue'), findsOneWidget);
+    expect(find.text('Go to artist'), findsNothing);
+    expect(find.text('Share'), findsNothing);
+  });
+
+  testWidgets('should_keepPromotableRowsInMenu_when_portraitBar', (tester) async {
+    _window(tester, const Size(412, 915));
+    await tester.pumpWidget(
+      _bar(
+        DetailPlayActions(
+          onPlay: () {},
+          onShuffle: () {},
+          menuItems: [DetailMenuAction(icon: YoinSymbols.share, label: 'Share', promotable: true, onTap: () {})],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('Share'), findsNothing);
+
+    await tester.tap(_splitMaterials.at(1));
+    await tester.pumpAndSettle();
+    expect(find.text('Shuffle play'), findsOneWidget);
+    expect(find.text('Share'), findsOneWidget);
+  });
 }

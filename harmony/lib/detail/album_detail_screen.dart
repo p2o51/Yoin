@@ -13,9 +13,11 @@ import '../shell/detail_chrome.dart';
 import '../theme/tokens.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/user_message.dart';
+import '../ui/navigation/pane/detail_pane.dart';
 import 'album_detail_view_model.dart';
 import 'album_hero_marks.dart';
 import 'album_scrapbook_page.dart';
+import 'detail_layout.dart';
 import 'detail_listening.dart';
 import 'detail_page.dart';
 import 'detail_palette.dart';
@@ -145,12 +147,74 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
         ),
       );
     }
+    final albumName = albumTitleWithoutVersion(state.album.name, state.album.version);
+    final titles = [
+      for (final t in tracks)
+        FlowingTitle(
+          t.title ?? '',
+          feat: switch (state.featArtistOf(t)) {
+            final a? => strings.albumFeat(a),
+            null => null,
+          },
+        ),
+    ];
+    // In the detail column the page's sides are not screen edges: the blocks hug the cover whole
+    // instead of bleeding off the sides (albumBarGeometry pageEdgesAreScreenEdges).
+    final inColumn = DetailPane.isInColumn(context);
     return ReshapeContent(
       coverUrl: coverUrl,
       fallbackIcon: YoinSymbols.album,
       listChildren: list,
       // The album's family mark behind the cover (owner 2026-11-06: one mark, three readings).
-      backdrop: (cover, leaving) => AlbumButterfly(leaving: leaving),
+      backdrop: (cover, leaving) => inColumn
+          ? Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fromRect(
+                  rect: albumHuggingMark(cover),
+                  child: AlbumButterfly(leaving: leaving, hugging: true),
+                ),
+              ],
+            )
+          : AlbumButterfly(leaving: leaving),
+      // Short portrait, landscape handset, the Medium overview and the Wide identity column.
+      // The cover forms the stamp everywhere but Wide; no butterfly on Short or tablets
+      // (owner 2026-11-07, 2026-11-14) — only the landscape hero keeps it, hugging the cover.
+      overviews: ReshapeOverviews(
+        hasShort: true,
+        barLayouts: const {DetailLayout.compact, DetailLayout.short, DetailLayout.landscape, DetailLayout.medium},
+        meta: (layout, interactive) => AlbumHeroMetaBlocks(
+          albumId: state.album.id,
+          albumName: albumName,
+          coverUrl: coverUrl,
+          stacked: layout == DetailLayout.short,
+          interactive: interactive,
+        ),
+        titles: (layout, links) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (tracks.isNotEmpty) ...[
+              TrackCountLine(count: state.trackCount, totalSec: state.totalDurationSec),
+              const SizedBox(height: 6),
+            ],
+            FlowingTitles(
+              enabled: links,
+              emptyText: albumName,
+              style: layout == DetailLayout.landscape ? Theme.of(context).textTheme.headlineSmall : null,
+              titles: titles,
+              onTap: playFrom,
+            ),
+          ],
+        ),
+        huggingMark: (leaving) => AlbumButterfly(leaving: leaving, hugging: true),
+        // View in Scrapbook from elsewhere, or Now Playing's Manage in Scrapbook: this page opened for it.
+        attached: Builder(
+          builder: (takerContext) => ScrapbookFocusTaker(
+            songIds: [for (final t in tracks) t.id],
+            onTake: (focus) => _viewInScrapbook(takerContext, focus),
+          ),
+        ),
+      ),
       // Page 2: the scrapbook of what the listener left on this album.
       secondPage: (context, page) =>
           AlbumScrapbookPage(album: state.album, coverUrl: coverUrl, page: page, focus: _scrapbookFocus),
@@ -297,11 +361,13 @@ List<DetailMenuAction> albumMenuItems(BuildContext context, WidgetRef ref, Album
       DetailMenuAction(
         icon: YoinSymbols.artist,
         label: strings.albumGoToArtist,
+        promotable: true,
         onTap: () => DetailRoutes.openArtist(context, artistId, name: album.artist),
       ),
     DetailMenuAction(
       icon: YoinSymbols.share,
       label: strings.share,
+      promotable: true,
       onTap: () => DetailShare.share(
         container,
         kind: WebLinkKind.album,
