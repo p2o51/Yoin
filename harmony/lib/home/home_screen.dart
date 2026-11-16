@@ -18,6 +18,7 @@ import '../ui/component/expressive/loading_indicator.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
 import 'activity_bento.dart';
 import 'home_edit.dart';
+import 'home_edit_wiggle.dart';
 import 'home_feed_density.dart';
 import 'home_jbi_hidden.dart';
 import 'home_header.dart';
@@ -120,6 +121,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
 
   /// 0 → 1: the lift's scale and shadow (fast spatial up, default spatial down).
   late final SpringValue _lift = SpringValue(vsync: this, initial: 0, spring: YoinSprings.fastSpatial);
+
+  /// Edit mode's wiggle: one clock for the page, read by every card in paint.
+  late final HomeEditWiggle _wiggle = HomeEditWiggle(vsync: this);
+
+  /// The bar's Add scrolls the "Hidden" tray into view on this spring.
+  late final SpringValue _trayScroll = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
+  bool _trayScrolling = false;
   final Map<HomeSection, GlobalKey> _bodyKeys = {};
   final Map<HomeSection, LayerLink> _links = {};
   final Map<HomeSection, OverlayPortalController> _portals = {};
@@ -170,6 +178,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _frameBlend;
     _edit;
     _rows;
+    _wiggle;
+    _trayScroll.animation.addListener(_onTrayScroll);
     (_lift.animation as AnimationController).addStatusListener((_) => _maybeLower());
     _lifecycle = AppLifecycleListener(onHide: () {
       if (mounted) ref.read(homeEditProvider.notifier).exit();
@@ -192,6 +202,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _lifecycle?.dispose();
     _edit.dispose();
     _editBack.dispose();
+    _wiggle.dispose();
+    _trayScroll.dispose();
     for (final s in _shift.values) {
       s.dispose();
     }
@@ -287,6 +299,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final signals = ref.watch(homeMemorySignalsProvider);
     final editing = ref.watch(homeEditProvider).editing;
     ref.listen(homeEditProvider.select((e) => e.editing), (_, on) => _onEditing(on));
+    ref.listen(homeEditProvider.select((e) => e.trayRequests), (_, _) => _scrollToTray());
     // A changed preset (a step, Undo, Reset) springs its section to the new stop.
     ref.listen(homeLayoutProvider, (previous, next) {
       if (previous != null) _rows.onLayoutChange(previous, next);
@@ -372,7 +385,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                   ? (d) => _maybeEnterEdit(LongPressStartDetails(globalPosition: d.globalPosition))
                   : null,
               onTap: editing ? ref.read(homeEditProvider.notifier).exit : null,
-              child: HomeRowsScope(engine: _rows, child: list),
+              // Every press while editing brings the sway back; a finger down holds the idle rule.
+              child: Listener(
+                onPointerDown: (_) {
+                  // A finger takes the page from the bar's Add scroll.
+                  _trayScrolling = false;
+                  _wiggle.pointerDown = true;
+                  if (ref.read(homeEditProvider).editing) _wiggle.touch();
+                },
+                onPointerUp: (_) => _wiggle.pointerDown = false,
+                onPointerCancel: (_) => _wiggle.pointerDown = false,
+                child: HomeRowsScope(engine: _rows, child: list),
+              ),
             ),
           );
         },
@@ -448,6 +472,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     // What the other accounts play most (a switch away); none with one account.
     final otherProfileItems = ref.watch(otherProfileItemsProvider).value ?? const <OtherProfileItem>[];
     final visible = layout.visibleV1Sections;
+    // The wiggle follows P and the feed's order (Home is muted with its tickers when covered).
+    _wiggle.update(editing: ref.read(homeEditProvider).editing, progress: e, order: visible, reduced: _reduced);
     // The signals are the same account's, or none (a switch in flight).
     final mine = signals.scope == content.scopeKey;
     // Cards the user put away for a while ("not now") stay off the shelf.
@@ -511,7 +537,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                     children: [
                       HomeSectionTitle(HomeStrings.of(context).sectionMemoryGrid),
                       const SizedBox(height: HomeSectionMetrics.shelfSpacing),
-                      MemoryLedgerHomeCard(state: ledger),
+                      HomeEditBlockWiggle(child: MemoryLedgerHomeCard(state: ledger)),
                     ],
                   )),
             2
@@ -526,7 +552,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       if (body == null && !editingNow) continue;
       if (body == null) {
         final i = visible.indexOf(section);
-        out.add(_editItem(section, frame, spacing, e, i, visible, padded(HomeEditPlaceholder(section: section)), resizable: false));
+        out.add(_editItem(
+          section,
+          frame,
+          spacing,
+          e,
+          i,
+          visible,
+          // No cards: the whole block sways (homeEditBlockWiggle).
+          padded(HomeEditBlockWiggle(child: HomeEditPlaceholder(section: section))),
+          resizable: false,
+        ));
         continue;
       }
       // A section that lands after the feed is up grows in; the first paint does not.
@@ -599,6 +635,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               ? HomeRowsHandle(section: section, engine: _rows, track: track, progress: e)
               : null,
           lift: lifted ? _lift.value.clamp(0.0, 1.0) : 0,
+          onPlateTap: () {
+            _wiggle.touch();
+            _wiggle.impulse(section, HomeWiggleMetrics.kickTap);
+          },
           section: section,
           start: frame.start,
           end: frame.end,
@@ -615,7 +655,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                   onEnd: _endDrag,
                 )
               : null,
-          child: child!,
+          child: HomeEditWiggleScope(
+            wiggle: _wiggle,
+            section: section,
+            // A lifted section stills as it rises.
+            liftGain: () => _lifted == section ? 1 - _lift.value.clamp(0.0, 1.0) : 1,
+            safeArea: _wiggleSafeArea,
+            child: child!,
+          ),
         ),
       ),
     );
@@ -649,6 +696,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if (!ref.read(homeEditProvider).editing || _hideMenuBase != null) return;
     if (_dragging != null || _rows.dragging || jbiHideKey(card) == null) return;
     YoinHaptics.click();
+    _wiggle.touch();
+    _wiggle.impulseCard(HomeSection.jumpBackIn, card.stableId, HomeWiggleMetrics.kickTap);
     final strings = HomeStrings.of(context);
     _hideMenuBase = ModalRoute.of(context);
     final JbiHideSpan? span;
@@ -757,7 +806,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final header = _headerKey.currentContext?.findRenderObject() as RenderBox?;
     // The header (the account avatar's hold, Memories' bubble) is not ours.
     if (header != null && header.hasSize && details.globalPosition.dy < header.localToGlobal(Offset(0, header.size.height)).dy) return;
+    // The ripple (and its entry kicks) spreads from the section the finger landed on.
+    _wiggle.origin = _sectionAt(details.globalPosition.dy);
     ref.read(homeEditProvider.notifier).enter();
+  }
+
+  /// The feed section whose box holds the global [y], if one is built there.
+  HomeSection? _sectionAt(double y) {
+    for (final entry in _itemKeys.entries) {
+      final box = entry.value.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached || !box.hasSize) continue;
+      final top = box.localToGlobal(Offset.zero).dy;
+      if (y >= top && y <= top + box.size.height) return entry.key;
+    }
+    return null;
+  }
+
+  /// The band the wiggle lives in: clear of the status bar and of the bar, by [HomeWiggleMetrics.safeGap].
+  (double, double) _wiggleSafeArea() {
+    if (!mounted) return (0, double.infinity);
+    final media = MediaQuery.of(context);
+    return (
+      media.viewPadding.top + HomeWiggleMetrics.safeGap,
+      media.size.height - _feedBottomInset - HomeWiggleMetrics.safeGap,
+    );
+  }
+
+  /// The bar's Add: the "Hidden" tray at the feed's end scrolls into view on the spatial spring.
+  void _scrollToTray() {
+    if (!_scroll.hasClients || !ref.read(homeEditProvider).editing) return;
+    final position = _scroll.position;
+    _wiggle.touch();
+    if (_reduced) {
+      position.jumpTo(position.maxScrollExtent);
+      return;
+    }
+    _trayScrolling = true;
+    _trayScroll.snapTo(position.pixels);
+    _trayScroll.animateTo(position.maxScrollExtent);
+  }
+
+  void _onTrayScroll() {
+    if (!_trayScrolling || !_scroll.hasClients) return;
+    final position = _scroll.position;
+    // The end can move as the feed's lazy sections are measured: follow it.
+    if ((_trayScroll.value - position.maxScrollExtent).abs() > 1 && position.pixels >= position.maxScrollExtent - 1) {
+      _trayScroll.animateTo(position.maxScrollExtent);
+    }
+    position.jumpTo(_trayScroll.value.clamp(position.minScrollExtent, position.maxScrollExtent));
+    if ((_trayScroll.value - position.maxScrollExtent).abs() < 0.5) _trayScrolling = false;
   }
 
   void _startDrag(HomeSection section, List<HomeSection> order, double pointerY) {
@@ -770,8 +867,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if (!_measure(order, tops, heights, require: order.indexOf(section))) return;
     final body = _bodyKeys[section]?.currentContext?.findRenderObject() as RenderBox?;
     if (body == null || !body.hasSize) return;
-    YoinHaptics.longPress();
+    // Picking a section up (Android HomeEditGestures DragStartHaptic).
+    YoinHaptics.dragStart();
+    ref.read(homeEditProvider.notifier).carrying = true;
     _raise(section, body.size);
+    // Carried: the others sway at the drag envelope; the lifted one stills.
+    _wiggle
+      ..held = section
+      ..carrying = true
+      ..stopKicks(section);
     setState(() {
       _dragging = section;
       _dragDy = 0;
@@ -853,7 +957,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       }
       _shiftOf(_dragOrder[i]).animateTo(to);
     }
-    if (target != _dragTarget) YoinHaptics.tick();
+    if (target != _dragTarget) YoinHaptics.segmentTick();
     setState(() {
       _dragDy += dy;
       _dragTarget = target;
@@ -901,6 +1005,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   void _endDrag() {
     final section = _dragging;
     if (section == null) return;
+    _releaseCarry();
     _stopAutoScroll();
     final a = _dragOrder.indexOf(section);
     final b = _dragTarget;
@@ -932,6 +1037,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       _lift.spring = YoinSprings.defaultSpatial;
       _lift.animateTo(0);
     }
+    _wiggle
+      ..carrying = false
+      ..held = null
+      ..touch();
+    if (b == a) {
+      // Dropped where it was lifted.
+      _wiggle.impulse(section, HomeWiggleMetrics.kickTap);
+    } else {
+      // The carried block lands with a kick; every block whose place changed nods.
+      _wiggle.impulse(section, HomeWiggleMetrics.kickDrop);
+      final lo = a < b ? a + 1 : b, hi = a < b ? b : a - 1;
+      for (var i = lo; i <= hi; i++) {
+        _wiggle.impulse(_dragOrder[i], HomeWiggleMetrics.kickNeighbour);
+      }
+    }
     if (b != a) ref.read(homeEditProvider.notifier).move(section, b);
     _maybeLower();
   }
@@ -941,14 +1061,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if (_autoScroll.isActive) _autoScroll.stop();
   }
 
+  /// The carry is over: the bar's left slot answers again.
+  void _releaseCarry() {
+    if (mounted) ref.read(homeEditProvider.notifier).carrying = false;
+  }
+
   void _cancelDrag() {
     if (_dragging == null) return;
+    _releaseCarry();
     _stopAutoScroll();
     for (final s in _dragOrder) {
       _shiftOf(s).animateTo(0);
     }
     setState(() => _dragging = null);
     _lift.animateTo(0);
+    _wiggle
+      ..carrying = false
+      ..held = null;
   }
 }
 

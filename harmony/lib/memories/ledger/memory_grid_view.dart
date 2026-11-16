@@ -115,6 +115,146 @@ final class _ColorEntry {
   LedgerAlbumColors? to;
 }
 
+/// Where the grid's squares are on screen (Android MemoryGridLift): the grid
+/// registers its pieces here as they mount; the top bar's lift layer reads
+/// them while it paints. Plain fields: only paint reads them.
+class MemoryGridLift {
+  /// The whole grid view.
+  BuildContext? grid;
+
+  /// A week or day wall.
+  LiftWall? wall;
+
+  /// A month's quad, by cell index.
+  final Map<int, BuildContext> quads = {};
+
+  /// The grid's top and height in [into]'s space, while it is laid out.
+  (double top, double height)? gridIn(RenderBox into) {
+    final box = _box(grid);
+    if (box == null || !into.attached) return null;
+    return (into.globalToLocal(box.localToGlobal(Offset.zero)).dy, math.max(1.0, box.size.height));
+  }
+
+  /// Where [pixel] sits now in [into]'s space; null when its part of the grid isn't laid out.
+  Rect? rectOf(LiftPixel pixel, RenderBox into) {
+    if (!into.attached) return null;
+    if (pixel.mark < 0) {
+      final w = wall;
+      final box = _box(w?.context);
+      if (w == null || box == null) return null;
+      final side = (box.size.width - w.gap * (w.columns - 1)) / w.columns;
+      final column = w.columnMajor ? pixel.index ~/ w.rows : pixel.index % w.columns;
+      final row = w.columnMajor ? pixel.index % w.rows : pixel.index ~/ w.columns;
+      final local = Offset(column * (side + w.gap), row * (side + w.gap));
+      return into.globalToLocal(box.localToGlobal(local)) & Size(side, side);
+    }
+    final box = _box(quads[pixel.index]);
+    if (box == null) return null;
+    const gap = MemoryLedgerTokens.monthQuadGap;
+    final side = (box.size.width - gap) / 2;
+    final local = Offset((pixel.mark % 2) * (side + gap), (pixel.mark ~/ 2) * (side + gap));
+    return into.globalToLocal(box.localToGlobal(local)) & Size(side, side);
+  }
+
+  static RenderBox? _box(BuildContext? context) {
+    if (context == null || !context.mounted) return null;
+    final box = context.findRenderObject();
+    return box is RenderBox && box.attached && box.hasSize ? box : null;
+  }
+}
+
+/// A week or day wall as the lift needs it.
+final class LiftWall {
+  const LiftWall(
+    this.context, {
+    required this.columns,
+    required this.rows,
+    required this.columnMajor,
+    required this.gap,
+  });
+  final BuildContext context;
+  final int columns;
+  final int rows;
+  final bool columnMajor;
+  final double gap;
+}
+
+/// One square that rises: a week's or day's whole cell ([mark] -1), or one album of a month's quad.
+@immutable
+final class LiftPixel {
+  const LiftPixel(this.index, this.cell, this.mark);
+  final int index;
+  final MemoryGridCell cell;
+  final int mark;
+}
+
+/// The grid's squares with something in them, oldest first.
+List<LiftPixel> liftPixels(MemoryGrid grid) => switch (grid.scale) {
+  MemoryGridScale.month => [
+    for (var i = 0; i < grid.cells.length; i++)
+      for (var m = 0; m < grid.cells[i].marks.length; m++) LiftPixel(i, grid.cells[i], m),
+  ],
+  MemoryGridScale.week || MemoryGridScale.day => [
+    for (var i = 0; i < grid.cells.length; i++)
+      if (!grid.cells[i].future && grid.cells[i].marks.isNotEmpty) LiftPixel(i, grid.cells[i], -1),
+  ],
+};
+
+/// A week's or day's cell as the grid paints it (the lift draws its flying copies with it).
+void paintLedgerCell(
+  Canvas canvas,
+  MemoryGridCell cell,
+  Rect rect,
+  double radius,
+  LedgerColorBook colors,
+  Color faint,
+) => _drawCell(canvas, cell, rect, radius, colors, faint);
+
+/// One album of a month's quad as the grid paints it.
+void paintLedgerMark(Canvas canvas, MemoryGridMark mark, Rect rect, double radius, LedgerColorBook colors) =>
+    _drawMark(canvas, mark, rect, radius, colors);
+
+/// Registers its context with the lift while it is mounted.
+class _LiftAnchor extends StatefulWidget {
+  const _LiftAnchor({required this.register, required this.child});
+
+  /// Called with the anchor's context: [on] true as it mounts, false as it leaves.
+  final void Function(BuildContext context, bool on) register;
+  final Widget child;
+
+  @override
+  State<_LiftAnchor> createState() => _LiftAnchorState();
+}
+
+class _LiftAnchorState extends State<_LiftAnchor> {
+  @override
+  void initState() {
+    super.initState();
+    widget.register(context, true);
+  }
+
+  @override
+  void didUpdateWidget(_LiftAnchor old) {
+    super.didUpdateWidget(old);
+    widget.register(context, true);
+  }
+
+  @override
+  void deactivate() {
+    widget.register(context, false);
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    widget.register(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 /// Where the grid sits: Home's card (compact) or the All Memories page.
 enum MemoryGridPlacement { home, page }
 
@@ -131,6 +271,7 @@ class MemoryGridView extends StatelessWidget {
     required this.placement,
     this.selected,
     this.onCellClick,
+    this.lift,
   });
 
   final MemoryGrid grid;
@@ -138,6 +279,9 @@ class MemoryGridView extends StatelessWidget {
   final MemoryGridPlacement placement;
   final int? selected;
   final ValueChanged<int>? onCellClick;
+
+  /// The page's lift: the grid's pieces register where they are.
+  final MemoryGridLift? lift;
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +292,8 @@ class MemoryGridView extends StatelessWidget {
         : grid.cells;
     final offset = grid.cells.length - cells.length;
     final faint = scheme.onSurface.withValues(alpha: 0.07);
-    return ListenableBuilder(
+    final lift = this.lift;
+    final view = ListenableBuilder(
       listenable: colors,
       builder: (context, _) => switch (grid.scale) {
         MemoryGridScale.month => _MonthQuads(
@@ -161,6 +306,7 @@ class MemoryGridView extends StatelessWidget {
           selected: selected,
           onCellClick: onCellClick,
           captions: !home,
+          lift: lift,
         ),
         MemoryGridScale.week || MemoryGridScale.day => _CellWall(
           cells: cells,
@@ -170,8 +316,20 @@ class MemoryGridView extends StatelessWidget {
           outline: scheme.primary,
           selected: selected,
           onCellClick: onCellClick,
+          lift: lift,
         ),
       },
+    );
+    if (lift == null) return view;
+    return _LiftAnchor(
+      register: (context, on) {
+        if (on) {
+          lift.grid = context;
+        } else if (identical(lift.grid, context)) {
+          lift.grid = null;
+        }
+      },
+      child: view,
     );
   }
 }
@@ -220,8 +378,10 @@ class _CellWall extends StatelessWidget {
     required this.outline,
     required this.selected,
     required this.onCellClick,
+    this.lift,
   });
 
+  final MemoryGridLift? lift;
   final List<MemoryGridCell> cells;
   final bool week;
   final LedgerColorBook colors;
@@ -229,6 +389,21 @@ class _CellWall extends StatelessWidget {
   final Color outline;
   final int? selected;
   final ValueChanged<int>? onCellClick;
+
+  Widget _anchored(Widget child) {
+    final lift = this.lift;
+    if (lift == null) return child;
+    return _LiftAnchor(
+      register: (context, on) {
+        if (on) {
+          lift.wall = LiftWall(context, columns: _columns, rows: _rows, columnMajor: !week, gap: _gap);
+        } else if (identical(lift.wall?.context, context)) {
+          lift.wall = null;
+        }
+      },
+      child: child,
+    );
+  }
 
   int get _columns => week ? 13 : 17;
   int get _rows => week ? 2 : 7;
@@ -249,7 +424,7 @@ class _CellWall extends StatelessWidget {
                 final index = week ? row * _columns + column : column * _rows + row;
                 if (index < cells.length && !cells[index].isEmpty) onCellClick!(index);
               },
-        child: CustomPaint(size: Size(c.maxWidth, height), painter: _WallPainter(this, cell)),
+        child: _anchored(CustomPaint(size: Size(c.maxWidth, height), painter: _WallPainter(this, cell))),
       );
     },
   );
@@ -297,7 +472,10 @@ class _MonthQuads extends StatelessWidget {
     required this.selected,
     required this.onCellClick,
     required this.captions,
+    this.lift,
   });
+
+  final MemoryGridLift? lift;
 
   final List<MemoryGridCell> cells;
   final int offset;
@@ -342,6 +520,21 @@ class _MonthQuads extends StatelessWidget {
     );
   }
 
+  Widget _anchoredQuad(int index, Widget child) {
+    final lift = this.lift;
+    if (lift == null) return child;
+    return _LiftAnchor(
+      register: (context, on) {
+        if (on) {
+          lift.quads[index] = context;
+        } else if (identical(lift.quads[index], context)) {
+          lift.quads.remove(index);
+        }
+      },
+      child: child,
+    );
+  }
+
   Widget _quad(
     BuildContext context,
     MemoryGridCell cell,
@@ -361,7 +554,10 @@ class _MonthQuads extends StatelessWidget {
           onTap: tap,
           child: Column(
             children: [
-              AspectRatio(aspectRatio: 1, child: CustomPaint(painter: _QuadPainter(this, cell, index == selected))),
+              AspectRatio(
+                aspectRatio: 1,
+                child: _anchoredQuad(index, CustomPaint(painter: _QuadPainter(this, cell, index == selected))),
+              ),
               Text(
                 strings.monthShort(cell.start),
                 style: label.copyWith(color: scheme.onSurfaceVariant),

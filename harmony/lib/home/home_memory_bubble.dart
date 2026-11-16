@@ -13,10 +13,12 @@
 /// going inactive tucks it away and starts the idle clock over. A finger held
 /// on it keeps it. Going to the background puts it away unseen.
 ///
-/// Not ported: Android's Yoin mark that blooms beside the title (Harmony has
-/// no YoinMark yet), the camera-cutout placement (Flutter can't read the
-/// cutout here: the arrow takes the page's centre), and the accessibility
-/// "time to take action" timeout (no Flutter / HarmonyOS API for it).
+/// It never speaks over the header's cold-start bloom (the same mark, the
+/// same place: [HomeIntroLatch.running]).
+///
+/// Not ported: the camera-cutout placement (Flutter can't read the cutout
+/// here: the arrow takes the page's centre), and the accessibility "time to
+/// take action" timeout (no Flutter / HarmonyOS API for it).
 library;
 
 import 'dart:math' as math;
@@ -40,6 +42,7 @@ import '../theme/tokens.dart';
 import '../ui/component/desktop_input.dart';
 import 'home_bubble_tips.dart';
 import 'home_edit.dart';
+import 'home_greeting_intro.dart';
 import 'home_selection.dart';
 import 'home_strings.dart';
 import 'home_view_model.dart';
@@ -332,6 +335,7 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
     ref.listenManual(tipReadProvider, (_, read) => _director.tips = unreadTips(read, tips));
     ref.listenManual(homeMemoryPillProvider, (_, next) => _director.setPill(next), fireImmediately: true);
     ref.listenManual(homeEditProvider.select((e) => e.editing), (_, _) => _syncReadable());
+    HomeIntroLatch.running.addListener(_syncReadable);
     _director.addListener(_onDirector);
     final state = WidgetsBinding.instance.lifecycleState;
     _lifecycleResumed = state == null || state == AppLifecycleState.resumed;
@@ -362,6 +366,7 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
     _nowPlaying?.removeListener(_syncReadable);
     _reveal?.removeListener(_syncReadable);
     _scroll?.removeListener(_syncReadable);
+    HomeIntroLatch.running.removeListener(_syncReadable);
     _director.removeListener(_onDirector);
     _director.dispose();
     for (final s in [_unroll, _fly, _fade, _capsule, _swapMove, _swapFade, _fillT]) {
@@ -426,6 +431,8 @@ class _HomeMemoryBubbleState extends ConsumerState<HomeMemoryBubble> with Ticker
         revealClosed &&
         // Edit Home closes the bubble.
         !ref.read(homeEditProvider).editing &&
+        // Not over the header's cold-start bloom.
+        !HomeIntroLatch.running.value &&
         scrolled <= HomeBubbleTokens.arrowScrollFade;
     _director.setReadable(readable);
   }

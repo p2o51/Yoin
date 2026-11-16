@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../detail/detail_routes.dart';
 import '../memories/copy/memory_copy.dart';
 import '../theme/tokens.dart';
+import 'home_edit.dart';
+import 'home_edit_wiggle.dart';
 import 'home_header.dart';
 import 'home_metrics.dart';
 import 'home_selection.dart';
@@ -48,16 +50,21 @@ class RediscoverSection extends StatelessWidget {
           child: HomeSectionTitle(HomeStrings.of(context).sectionRediscover),
         ),
         const SizedBox(height: HomeSectionMetrics.shelfSpacing),
-        EdgeFadeShelf(
-          height: HomeRediscoverMetrics.cardHeight * scale,
-          padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end),
-          gap: gap,
-          scrollable: shelf && shown.length > 1,
-          itemCount: shown.length,
-          itemBuilder: (context, i) => SizedBox(
-            key: ValueKey(shown[i].albumId),
-            width: width.clamp(0.0, double.infinity),
-            child: RediscoverCard(item: shown[i], nowMs: nowMs),
+        // Edit mode: the bleeding shelf is cut back to its plate.
+        HomeEditShelfClip(
+          escapeStart: frame.start,
+          escapeEnd: frame.end,
+          child: EdgeFadeShelf(
+            height: HomeRediscoverMetrics.cardHeight * scale,
+            padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end),
+            gap: gap,
+            scrollable: shelf && shown.length > 1,
+            itemCount: shown.length,
+            itemBuilder: (context, i) => SizedBox(
+              key: ValueKey(shown[i].albumId),
+              width: width.clamp(0.0, double.infinity),
+              child: RediscoverCard(item: shown[i], nowMs: nowMs),
+            ),
           ),
         ),
       ],
@@ -82,45 +89,48 @@ class RediscoverCard extends ConsumerWidget {
     final image = resolveHomeCover(ref, context, item.cover,
         requestSize: HomeCoverRequest.standard, side: HomeRediscoverMetrics.backdrop * HomeBackdropMetrics.artworkFraction);
     final shape = RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.card));
-    return ElasticPress(
-      onTap: () => DetailRoutes.openAlbum(context, item.albumId, preview: item.album),
-      child: BackdropColorBuilder(
-        cacheKey: image?.url,
-        image: image?.image,
-        fallback: colors.secondaryContainer,
-        builder: (context, base, child) => Material(
-          color: Color.lerp(colors.surfaceContainerLow, base, HomeTokens.cardWashFraction),
-          shape: shape,
-          clipBehavior: Clip.antiAlias,
-          child: child,
-        ),
+    return HomeEditCard(
+      kickKey: item.albumId,
+      child: ElasticPress(
+        onTap: () => DetailRoutes.openAlbum(context, item.albumId, preview: item.album),
         child: BackdropColorBuilder(
           cacheKey: image?.url,
           image: image?.image,
-          fallback: dark ? colors.tertiary : colors.secondary,
-          accent: dark,
-          builder: (context, ink, _) => Padding(
-            padding: const EdgeInsets.all(HomeRediscoverMetrics.padding),
-            child: Row(
-              children: [
-                SizedBox.square(
-                  dimension: HomeRediscoverMetrics.backdrop,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      BackdropCover(cover: item.cover, kind: HomeCardKind.album, size: HomeRediscoverMetrics.backdrop),
-                      if (item.score != null)
-                        PositionedDirectional(
-                          end: -HomeRediscoverMetrics.badgeHang,
-                          bottom: 0,
-                          child: _ScoreBadge(score: MemoryScores.text(item.score!), kind: item.scoreKind, ink: ink),
-                        ),
-                    ],
+          fallback: colors.secondaryContainer,
+          builder: (context, base, child) => Material(
+            color: Color.lerp(colors.surfaceContainerLow, base, HomeTokens.cardWashFraction),
+            shape: shape,
+            clipBehavior: Clip.antiAlias,
+            child: child,
+          ),
+          child: BackdropColorBuilder(
+            cacheKey: image?.url,
+            image: image?.image,
+            fallback: dark ? colors.tertiary : colors.secondary,
+            accent: dark,
+            builder: (context, ink, _) => Padding(
+              padding: const EdgeInsets.all(HomeRediscoverMetrics.padding),
+              child: Row(
+                children: [
+                  SizedBox.square(
+                    dimension: HomeRediscoverMetrics.backdrop,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        BackdropCover(cover: item.cover, kind: HomeCardKind.album, size: HomeRediscoverMetrics.backdrop),
+                        if (item.score != null)
+                          PositionedDirectional(
+                            end: -HomeRediscoverMetrics.badgeHang,
+                            bottom: 0,
+                            child: _ScoreBadge(score: MemoryScores.text(item.score!), kind: item.scoreKind, ink: ink),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: HomeRediscoverMetrics.padding),
-                Expanded(child: _RediscoverCopy(item: item, nowMs: nowMs, ink: ink)),
-              ],
+                  const SizedBox(width: HomeRediscoverMetrics.padding),
+                  Expanded(child: _RediscoverCopy(item: item, nowMs: nowMs, ink: ink)),
+                ],
+              ),
             ),
           ),
         ),

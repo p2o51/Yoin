@@ -134,6 +134,68 @@ abstract final class HomeEditMetrics {
 
   /// The feed's cache extent while a section is lifted: the whole feed.
   static const double dragCacheExtent = 100000;
+
+  /// The header through P (HomeEditHeader.kt): "Home" fades out over [titleOut],
+  /// "Edit Home" in over [titleIn]; the header's controls are gone by P ½.
+  static const (double, double) titleOut = (0.2, 0.6);
+  static const (double, double) titleIn = (0.4, 0.8);
+  static const (double, double) iconsOut = (0.0, 0.5);
+
+  /// A full-bleed shelf cut back to its plate fades over this much inside the plate's edges (HomePlateTrial.ShelfFade).
+  static const double shelfFade = 12;
+}
+
+/// Edit Home's wiggle (HomeEditTokens.kt §3, HomeEditGeometry.kt).
+abstract final class HomeWiggleMetrics {
+  /// The sway's frequency, detuned per section by up to ± [swayDetune].
+  static const double swayHz = 2.4;
+  static const double swayDetune = 0.07;
+
+  /// Block-mode sway is this × Θ (the kick gets the full Θ).
+  static const double blockSwayFactor = 0.6;
+
+  /// The envelope while a section is carried.
+  static const double dragEnvelope = 0.6;
+
+  /// IdleSettle: this long without a touch and the sway settles.
+  static const int idleMs = 6000;
+
+  /// The sway fades out over this distance from the status bar and the bar; the safe area keeps [safeGap] off them.
+  static const double bandFade = 48;
+  static const double safeGap = 8;
+
+  /// Block-mode amplitude Θ: this corner displacement over the plate's half-diagonal, clamped (degrees).
+  static const double thetaCorner = 2;
+  static const double thetaMinDeg = 0.15;
+  static const double thetaMaxDeg = 0.8;
+
+  /// Card amplitude A_c = [cardAmpDeg] × [cardAmpWidth] / card width (about 1 dp at the card's edge), clamped.
+  static const double cardAmpDeg = 1.1;
+  static const double cardAmpWidth = 100;
+  static const double cardAmpMinDeg = 0.35;
+  static const double cardAmpMaxDeg = 1.1;
+
+  /// Rotations smaller than this are not drawn; an envelope at or below [swayFloor] sways nothing.
+  static const double minAngleDeg = 0.0005;
+  static const double swayFloor = 0.0005;
+
+  /// Kicks: normalised (a kick of amplitude a first peaks at a), started at a × [kickGain] on the kick spring.
+  static const double kickGain = 31.6;
+  static const double kickEntry = 1;
+  static const double kickTap = 0.5;
+  static const double kickDrop = 0.7;
+  static const double kickNeighbour = 0.35;
+
+  /// A block's entry kick fires when its ripple reaches this.
+  static const double entryKickAt = 0.85;
+
+  /// The entry ripple: each block further from the entry one starts this much later, at most [rippleMaxSteps] steps.
+  static const double rippleStep = 0.06;
+  static const int rippleMaxSteps = 4;
+
+  /// The kick spring (YoinMotion.homeEditKickSpring): damping .3, stiffness 450.
+  static const double kickDamping = 0.3;
+  static const double kickStiffness = 450;
 }
 
 /// Edit Home's row resize (HomeRowsResize.kt HomeRowsTokens, d1-rows.md §3).

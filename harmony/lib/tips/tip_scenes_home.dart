@@ -20,6 +20,9 @@ import '../memories/memory_card_face.dart' show MemoryPillButton;
 import '../memories/memory_other_profile_line.dart';
 import '../memories/palette/memory_palette.dart' show MemoryPaletteTones;
 import '../settings/account_identity.dart';
+import '../shell/bar_edit_pose.dart';
+import '../shell/yoin_bottom_bar.dart';
+import '../shell/yoin_section.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/component/cover_art.dart';
@@ -180,7 +183,8 @@ class _EditHomeDemoState extends State<EditHomeDemo> with DemoSceneState {
       _dragDy = 0.0;
     });
     await f.wait(700);
-    await f.moveTo('done');
+    // Done is the bar's right half in the edit pose (BarEditPose).
+    await f.moveTo('bar', fx: 0.75);
     await f.tap(() => put(() => _editing = false));
     await f.lift();
     await f.wait(1200);
@@ -197,48 +201,59 @@ class _EditHomeDemoState extends State<EditHomeDemo> with DemoSceneState {
         onLongPress: () => put(() => _editing = true),
         child: ColoredBox(
           color: Theme.of(context).colorScheme.surface,
-          child: Column(
+          child: Stack(
+            fit: StackFit.expand,
             children: [
-              _DemoHomeHeader(avatar: _avatar(context, 0)),
-              Expanded(
-                child: Stack(
-                  children: [
-                    for (var slot = 0; slot < 3; slot++)
-                      Positioned(
-                        left: TipSceneTokens.pagePaddingH,
-                        right: TipSceneTokens.pagePaddingH,
-                        top: slot * TipSceneTokens.sectionSlot,
-                        height: TipSceneTokens.sectionSlot,
-                        child: IgnorePointer(child: DemoTarget('slot$slot', child: const SizedBox.expand())),
-                      ),
-                    for (final id in [..._order.where((id) => id != _held), ?_held])
-                      DemoSpring(
-                        key: ValueKey('section$id'),
-                        target: _order.indexOf(id) * TipSceneTokens.sectionSlot,
-                        builder: (context, top) => Positioned(
-                          left: TipSceneTokens.pagePaddingH,
-                          right: TipSceneTokens.pagePaddingH,
-                          top: top + (id == _held ? _dragDy : 0),
-                          child: _DemoSection(
-                            title: titles[id],
-                            covers: [for (final i in _sectionAlbums[id]) demoAlbums[i]],
-                            editing: _editing,
-                            lift: id == _held ? 1 : 0,
+              Column(
+                children: [
+                  _DemoHomeHeader(avatar: _avatar(context, 0)),
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        for (var slot = 0; slot < 3; slot++)
+                          Positioned(
+                            left: TipSceneTokens.pagePaddingH,
+                            right: TipSceneTokens.pagePaddingH,
+                            top: slot * TipSceneTokens.sectionSlot,
+                            height: TipSceneTokens.sectionSlot,
+                            child: IgnorePointer(child: DemoTarget('slot$slot', child: const SizedBox.expand())),
                           ),
-                        ),
-                      ),
-                  ],
-                ),
+                        for (final id in [..._order.where((id) => id != _held), ?_held])
+                          DemoSpring(
+                            key: ValueKey('section$id'),
+                            target: _order.indexOf(id) * TipSceneTokens.sectionSlot,
+                            builder: (context, top) => Positioned(
+                              left: TipSceneTokens.pagePaddingH,
+                              right: TipSceneTokens.pagePaddingH,
+                              top: top + (id == _held ? _dragDy : 0),
+                              child: _DemoSection(
+                                title: titles[id],
+                                covers: [for (final i in _sectionAlbums[id]) demoAlbums[i]],
+                                editing: _editing,
+                                lift: id == _held ? 1 : 0,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              DemoSpring(
-                target: _editing ? 1 : 0,
-                builder: (context, e) => Opacity(
-                  opacity: e.clamp(0.0, 1.0),
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: TipSceneTokens.barBottom),
-                    child: DemoTarget(
-                      'done',
-                      child: FilledButton(onPressed: () => put(() => _editing = false), child: Text(strings.done)),
+              // The real bar: editing, its destinations become [Undo] [Done] (nothing to undo in the demo).
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: TipSceneTokens.barBottom,
+                child: DemoTarget(
+                  'bar',
+                  child: YoinBottomBar(
+                    selected: YoinSection.home,
+                    onSelect: (_) {},
+                    editPose: BarEditPose(
+                      editing: _editing,
+                      leftSlot: BarEditLeftSlot.undoDisabled,
+                      onLeftSlot: () {},
+                      onDone: () => put(() => _editing = false),
                     ),
                   ),
                 ),

@@ -235,7 +235,7 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
         _ProviderRow(
           selected: s.provider,
           onSelect: (p) {
-            YoinHaptics.tick();
+            YoinHaptics.segmentTick();
             widget.actions.setProvider(p);
           },
           wrapper: widget.providerWrapper,
@@ -298,7 +298,7 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
                     label: strings.aiTier(tier),
                     selected: widget.settings.tier == tier,
                     onTap: () {
-                      YoinHaptics.tick();
+                      YoinHaptics.segmentTick();
                       widget.actions.setTier(tier);
                     },
                   ),
@@ -353,7 +353,7 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
                   text: format == AiApiFormat.openAi ? strings.aiFormatOpenAi : strings.aiFormatAnthropic,
                   selected: s.customFormat == format,
                   onTap: () {
-                    YoinHaptics.tick();
+                    YoinHaptics.segmentTick();
                     widget.actions.setCustomFormat(format);
                   },
                 ),
@@ -442,7 +442,7 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
                             height: SettingsMetrics.aiModelChipHeight,
                             rest: SettingsMetrics.aiModelChipCorner,
                             onTap: () {
-                              YoinHaptics.tick();
+                              YoinHaptics.segmentTick();
                               widget.actions.setCustomModel(id);
                             },
                           ),
@@ -473,7 +473,7 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
                           text: strings.aiThinking(level),
                           selected: s.customThinking == level,
                           onTap: () {
-                            YoinHaptics.tick();
+                            YoinHaptics.segmentTick();
                             widget.actions.setCustomThinking(level);
                           },
                         ),
@@ -498,7 +498,7 @@ class _AiSettingsBodyState extends State<AiSettingsBody> {
                 text: strings.aiSearchService(service),
                 selected: s.searchService == service,
                 onTap: () {
-                  YoinHaptics.tick();
+                  YoinHaptics.segmentTick();
                   widget.actions.setSearchService(service);
                 },
               ),

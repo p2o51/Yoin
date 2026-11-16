@@ -54,6 +54,9 @@ abstract final class BarTokens {
   /// CenteredBar: horizontal margin inside a narrow pane (bar = pane − 40, max 600).
   static const double centeredHorizontalMargin = 20;
 
+  /// Edit pose: a press squares Undo / Add / Done off to this corner (M3 Expressive's small shape).
+  static const double editPressedCorner = 8;
+
   /// CenteredBar: width cap.
   static const double centeredMaxWidth = 600;
 
@@ -1104,6 +1107,22 @@ abstract final class MemoryLedgerTokens {
   // ---- Home's Memories card ----
   static const double homeCardMax = 560;
   static const double homeCardCorner = 28;
+
+  // ---- the grid's lift into the top bar (MemoryGridLift.kt) ----
+  /// Past this many rows the bar's squares would be specks; extra squares then share places.
+  static const int liftMaxBarRows = 8;
+
+  /// How far into the lift the bar counts as formed (white bar content, light status bar icons).
+  static const double liftFormed = 0.5;
+
+  /// The spread of the squares' take-offs, oldest first (share of the lift).
+  static const double liftLag = 0.1;
+
+  /// A square's corner in flight, as a share of its side (gone as it lands).
+  static const double liftCorner = 0.18;
+
+  /// The black veil under the formed bar's title.
+  static const double liftVeil = 0.24;
 }
 
 /// Now Playing FOCUS (tap the cover; NowPlayingBudget.kt focus solver,
@@ -1761,4 +1780,33 @@ abstract final class ScreenCornerTokens {
   static const double memoriesFade = 0.35;
   static const double backShrink = 0.14;
   static const double backShift = 0.04;
+}
+
+/// Home's cold-start intro (Android HomeGreetingTitle.kt): the Yoin mark
+/// blooms where the title sits, spins away, and the two lines rise in.
+abstract final class HomeIntroTokens {
+  /// The mark's box, and its nudge left of the title's start.
+  static const double markSize = 56;
+  static const double markOffsetX = -2;
+
+  /// Each arm opens this long after the last; the mark leaves at [exitAtMs].
+  static const int armStaggerMs = 70;
+  static const int exitAtMs = 950;
+
+  /// The greeting rises this long after the exit starts, the title after the greeting.
+  static const int greetingAfterExitMs = 100;
+  static const int titleAfterGreetingMs = 80;
+
+  /// An arm's bloom: from this turn (degrees) and zero scale, on [bloom].
+  static const double armStartTurn = -80;
+  static const SpringToken bloom = SpringToken(0.55, 260);
+
+  /// The exit: a shift left, a turn (degrees) and a shrink.
+  static const double exitShift = 6;
+  static const double exitTurn = 70;
+  static const double exitShrink = 0.6;
+
+  /// How far the greeting and the title rise in.
+  static const double greetingRise = 12;
+  static const double titleRise = 16;
 }

@@ -124,13 +124,13 @@ class _LandingSectionListState extends State<LandingSectionList> with TickerProv
     _dragOffset.snapTo(0);
     _orderAtLift = _order;
     _liveOrder = [..._orderAtLift];
-    YoinHaptics.longPress();
+    YoinHaptics.dragStart();
   }
 
   void _move(int from, int to) {
     _liveOrder.insert(to, _liveOrder.removeAt(from));
     widget.onMove(from, to);
-    YoinHaptics.tick();
+    YoinHaptics.segmentTick();
   }
 
   void _dragBy(double dy) {
@@ -210,12 +210,12 @@ class _LandingSectionListState extends State<LandingSectionList> with TickerProv
               if (index > 0)
                 CustomSemanticsAction(label: home.editMoveUp): () {
                   widget.onMove(index, index - 1);
-                  YoinHaptics.tick();
+                  YoinHaptics.segmentTick();
                 },
               if (index < count - 1)
                 CustomSemanticsAction(label: home.editMoveDown): () {
                   widget.onMove(index, index + 1);
-                  YoinHaptics.tick();
+                  YoinHaptics.segmentTick();
                 },
             },
             child: GestureDetector(
@@ -247,7 +247,7 @@ class _LandingSectionListState extends State<LandingSectionList> with TickerProv
                 onHandleDrag: _dragBy,
                 onHandleDragEnd: _drop,
                 onEnabled: (on) {
-                  YoinHaptics.click();
+                  YoinHaptics.toggle(on: on);
                   widget.onEnabled(section, on);
                 },
               ),

@@ -500,10 +500,10 @@ final class YoinHomeRowsFeedback implements HomeRowsFeedback {
   const YoinHomeRowsFeedback();
 
   @override
-  void segmentTick() => YoinHaptics.tick();
+  void segmentTick() => YoinHaptics.segmentTick();
 
   @override
-  void threshold() => YoinHaptics.contextClick();
+  void threshold() => YoinHaptics.threshold();
 
   @override
   void confirm() => YoinHaptics.confirm();

@@ -10,10 +10,12 @@ import 'dart:io' show Directory, Platform;
 import 'applemusic/apple_music_auth.dart';
 import 'browser/url_opener.dart';
 import 'cards/cards_channel.dart';
+import 'haptics/haptics_host.dart';
 import 'i18n/name_transliterator.dart';
 import 'network/network_bearer.dart';
 import 'playback/channel_playback_engine.dart';
 import 'playback/playback_engine.dart';
+import 'sensors/motion_sensors.dart';
 import 'share/image_share.dart';
 import 'share/text_share.dart';
 import 'storage/app_files.dart';
@@ -48,6 +50,8 @@ final class YoinPlatform {
     required this.cloudSyncHost,
     required this.urlOpener,
     required this.displayCorners,
+    required this.haptics,
+    required this.motionSensors,
   });
 
   final YoinHost host;
@@ -102,6 +106,13 @@ final class YoinPlatform {
   final UrlOpener urlOpener;
   /// The panel's corner radius, for "Match screen" (OHOS `display.getRoundedCorner`).
   final DisplayCorners displayCorners;
+  /// The vibrator: Yoin's named haptics and composed beat plans (OHOS
+  /// `yoin/haptics` → @ohos.vibrator presets and patterns; Windows: none).
+  final HapticsHost haptics;
+
+  /// The rotation-vector sensor for the groove emblem's tilt (OHOS
+  /// `yoin/sensors` → @ohos.sensor; Windows: none).
+  final MotionSensors motionSensors;
 
   /// HarmonyOS: the ArkTS plugins in ohos/entry/src/main/ets/yoin/.
   factory YoinPlatform.ohos() => YoinPlatform(
@@ -122,6 +133,8 @@ final class YoinPlatform {
     cloudSyncHost: const ChannelCloudSyncHost(),
     urlOpener: const BrowserUrlOpener(ChannelCloudSyncHost()),
     displayCorners: const ChannelDisplayCorners(),
+    haptics: ChannelHapticsHost(),
+    motionSensors: ChannelMotionSensors(),
   );
 
   /// Windows (and any desktop without plugins): pure Dart, no channels.
@@ -145,6 +158,8 @@ final class YoinPlatform {
     cloudSyncHost: DesktopCloudSyncHost(folder),
     urlOpener: BrowserUrlOpener(DesktopCloudSyncHost(folder)),
     displayCorners: const NoDisplayCorners(),
+    haptics: const NoHapticsHost(),
+    motionSensors: const NoMotionSensors(),
   );
 
   /// The bundle for [operatingSystem] (default: this process's). HarmonyOS

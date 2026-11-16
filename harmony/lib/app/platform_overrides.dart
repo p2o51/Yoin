@@ -10,6 +10,7 @@ import '../offline/offline_providers.dart';
 import '../platform/browser/url_opener.dart';
 import '../platform/cards/cards_channel.dart';
 import '../platform/i18n/name_transliterator.dart';
+import '../platform/sensors/motion_sensors.dart';
 import '../platform/share/image_share.dart';
 import '../platform/share/text_share.dart';
 import '../platform/storage/observed_store.dart';
@@ -36,4 +37,5 @@ List<Override> platformOverrides(YoinPlatform platform) => [
   cloudSyncHostProvider.overrideWithValue(platform.cloudSyncHost),
   urlOpenerProvider.overrideWithValue(platform.urlOpener),
   displayCornersProvider.overrideWithValue(platform.displayCorners),
+  motionSensorsProvider.overrideWithValue(platform.motionSensors),
 ];

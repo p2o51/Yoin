@@ -35,6 +35,10 @@
     {
       "name": "card_memory_empty",
       "value": "No memories yet"
+    },
+    {
+      "name": "permission_vibrate_reason",
+      "value": "Gives touch feedback when you tap, drag and rate"
     }
   ]
 }

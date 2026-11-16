@@ -5,6 +5,7 @@ import '../data/activity/activity.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
+import 'home_edit_wiggle.dart';
 import 'home_feed_density.dart';
 import 'home_header.dart';
 import 'home_metrics.dart';
@@ -36,7 +37,8 @@ class ActivitiesSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final entries = content.activityEntries;
     final strings = HomeStrings.of(context);
-    if (entries.isEmpty) return HomeEmptyCard(title: strings.activitiesEmptyTitle);
+    // No cards: the whole block sways in edit mode (homeEditBlockWiggle).
+    if (entries.isEmpty) return HomeEditBlockWiggle(child: HomeEmptyCard(title: strings.activitiesEmptyTitle));
     final units = bentoRecipeFor(frame) == BentoRecipe.units;
     final scale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, double.infinity);
     final title = Padding(
@@ -322,18 +324,21 @@ class _BentoCard extends ConsumerWidget {
     final shapeBorder = shape ?? RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.card));
     final image = resolveHomeCover(ref, context, entry.cover,
         requestSize: HomeCoverRequest.standard, side: artworkSide * HomeBackdropMetrics.artworkFraction);
-    return ElasticPress(
-      onTap: () => openHomeTarget(context, ref, entry.target),
-      child: BackdropColorBuilder(
-        cacheKey: image?.url,
-        image: image?.image,
-        fallback: colors.secondaryContainer,
-        child: child,
-        builder: (context, base, child) => Material(
-          color: Color.lerp(low, base, HomeTokens.cardWashFraction),
-          shape: shapeBorder,
-          clipBehavior: Clip.antiAlias,
+    return HomeEditCard(
+      kickKey: entry.stableId,
+      child: ElasticPress(
+        onTap: () => openHomeTarget(context, ref, entry.target),
+        child: BackdropColorBuilder(
+          cacheKey: image?.url,
+          image: image?.image,
+          fallback: colors.secondaryContainer,
           child: child,
+          builder: (context, base, child) => Material(
+            color: Color.lerp(low, base, HomeTokens.cardWashFraction),
+            shape: shapeBorder,
+            clipBehavior: Clip.antiAlias,
+            child: child,
+          ),
         ),
       ),
     );

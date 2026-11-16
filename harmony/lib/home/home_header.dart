@@ -8,7 +8,7 @@ import '../settings/settings_screen.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import 'home_account_switcher.dart';
-import 'home_edit.dart';
+import 'home_greeting_intro.dart';
 import 'home_memory_bubble.dart';
 import 'home_metrics.dart';
 import 'home_selection.dart';
@@ -55,8 +55,9 @@ class HomeHeader extends ConsumerWidget {
   /// The account card's "Edit Home" entry.
   final VoidCallback? onEditHome;
 
-  /// Edit Home's progress (0 = normal, 1 = editing): the title crossfades to
-  /// "Edit Home" and the account control gives way to Undo and Done.
+  /// Edit Home's progress P (0 = normal, 1 = editing): the title crossfades to
+  /// "Edit Home" and the account control fades away over the first half (Undo
+  /// and Done are the bar's, BarEditPose).
   final Animation<double>? editProgress;
 
   /// null = no account: a Settings gear instead of the avatar.
@@ -95,24 +96,24 @@ class HomeHeader extends ConsumerWidget {
               child: MemoryBubbleTitle(
                 child: Padding(
                   padding: const EdgeInsetsDirectional.only(end: HomeTokens.headerTitleBreathing),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SeamFade(
-                        fontSize: greetingStyle.fontSize!,
-                        child: Text(strings.greeting(part), style: greetingStyle, maxLines: 1, softWrap: false),
+                  // On a cold start the Yoin mark blooms here first (HomeGreetingTitle.kt).
+                  child: HomeIntroTitle(
+                    greeting: SeamFade(
+                      fontSize: greetingStyle.fontSize!,
+                      child: Text(strings.greeting(part), style: greetingStyle, maxLines: 1, softWrap: false),
+                    ),
+                    title: SeamFade(
+                      fontSize: titleStyle.fontSize!,
+                      child: _EditCrossfade(
+                        progress: editProgress,
+                        normal: Text(strings.title, style: titleStyle, maxLines: 1, softWrap: false),
+                        editing: Text(strings.editTitle, style: titleStyle, maxLines: 1, softWrap: false),
+                        alignment: AlignmentDirectional.centerStart,
+                        // "Home" fades out early, "Edit Home" later (HomeEditHeader.kt).
+                        out: HomeEditMetrics.titleOut,
+                        into: HomeEditMetrics.titleIn,
                       ),
-                      SeamFade(
-                        fontSize: titleStyle.fontSize!,
-                        child: _EditCrossfade(
-                          progress: editProgress,
-                          normal: Text(strings.title, style: titleStyle, maxLines: 1, softWrap: false),
-                          editing: Text(strings.editTitle, style: titleStyle, maxLines: 1, softWrap: false),
-                          alignment: AlignmentDirectional.centerStart,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -123,6 +124,8 @@ class HomeHeader extends ConsumerWidget {
               child: _EditCrossfade(
                 progress: editProgress,
                 alignment: AlignmentDirectional.centerEnd,
+                // The header's controls are gone, and stop taking input, at P one half.
+                out: HomeEditMetrics.iconsOut,
                 normal: title == null
                     ? IconButton(
                         icon: Icon(YoinSymbols.settings, color: colors.onSurfaceVariant),
@@ -134,7 +137,7 @@ class HomeHeader extends ConsumerWidget {
                         fallback: AccountMonogram(name: title),
                         onEditHome: onEditHome,
                       ),
-                editing: const HomeEditActions(),
+                editing: const SizedBox.shrink(),
               ),
             ),
           ],
@@ -146,15 +149,30 @@ class HomeHeader extends ConsumerWidget {
   }
 }
 
-/// [normal] and [editing] on the edit progress: the one leaving fades out
-/// and stops taking input past halfway; without a progress, [normal] alone.
+/// [normal] and [editing] on the edit progress: [normal] fades out over the
+/// [out] window and [editing] in over [into] (smoothstep); the one leaving
+/// stops taking input past halfway. Without a progress, [normal] alone.
 class _EditCrossfade extends StatelessWidget {
-  const _EditCrossfade({required this.progress, required this.normal, required this.editing, required this.alignment});
+  const _EditCrossfade({
+    required this.progress,
+    required this.normal,
+    required this.editing,
+    required this.alignment,
+    this.out = (0.0, 1.0),
+    this.into = (0.0, 1.0),
+  });
 
   final Animation<double>? progress;
   final Widget normal;
   final Widget editing;
   final AlignmentGeometry alignment;
+  final (double, double) out;
+  final (double, double) into;
+
+  static double _window((double, double) w, double e) {
+    final t = ((e - w.$1) / (w.$2 - w.$1)).clamp(0.0, 1.0);
+    return t * t * (3 - 2 * t);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -170,12 +188,12 @@ class _EditCrossfade extends StatelessWidget {
           children: [
             IgnorePointer(
               ignoring: e > 0.5,
-              child: Opacity(opacity: 1 - e, child: normal),
+              child: Opacity(opacity: 1 - _window(out, e), child: normal),
             ),
             if (e > 0.001)
               IgnorePointer(
                 ignoring: e < 0.5,
-                child: Opacity(opacity: e, child: editing),
+                child: Opacity(opacity: _window(into, e), child: editing),
               ),
           ],
         );

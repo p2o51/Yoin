@@ -1,28 +1,54 @@
-import 'package:flutter/services.dart';
+import 'dart:async';
 
-/// Yoin's named haptics (Android ui/experience/YoinHaptics.kt). Every control
-/// asks for one of these by name.
-///
-/// TODO(harmony): back these with a `yoin/haptics` ArkTS channel mapped to
-/// HarmonyOS vibrator presets (spec gap); until then Flutter's
-/// [HapticFeedback], a no-op where the embedder doesn't implement it.
+import '../platform/haptics/haptics_host.dart';
+
+/// Yoin's named haptics (Android ui/experience/Haptics.kt `YoinHaptics`).
+/// Every control asks for one of these by name; [host] plays it on the
+/// device's vibrator (HarmonyOS presets through `yoin/haptics`, chosen in
+/// main.dart from the platform bundle; silent until then and in tests).
 abstract final class YoinHaptics {
-  /// PLAY, Home / Library taps, the Play split.
-  static void click() => HapticFeedback.lightImpact();
+  /// The vibrator. main.dart installs the platform's; tests may swap in a
+  /// [RecordingHapticsHost].
+  static HapticsHost host = const NoHapticsHost();
 
-  /// The pill, the Queue pill.
-  static void contextClick() => HapticFeedback.mediumImpact();
+  /// Plays every haptic on [platform] from now on, and asks it once what its
+  /// motor can do (patterns for the groove award).
+  static void install(HapticsHost platform) {
+    host = platform;
+    if (platform is ChannelHapticsHost) unawaited(platform.init());
+  }
 
-  /// NEXT / PREVIOUS, play mode, scrub end, rating steps, un-star.
-  static void tick() => HapticFeedback.selectionClick();
+  /// PLAY, Home / Library taps, the Play split (KEYBOARD_TAP).
+  static void click() => host.perform(YoinHaptic.click);
 
-  /// A scrub tap's release.
-  static void lightTick() => HapticFeedback.selectionClick();
+  /// The pill, the Queue pill (CONTEXT_CLICK).
+  static void contextClick() => host.perform(YoinHaptic.contextClick);
 
-  /// Starring.
-  static void confirm() => HapticFeedback.mediumImpact();
+  /// NEXT / PREVIOUS, play mode, scrub end, rating steps, un-star (CLOCK_TICK).
+  static void tick() => host.perform(YoinHaptic.tick);
 
-  static void longPress() => HapticFeedback.heavyImpact();
+  /// A scrub tap's release (TEXT_HANDLE_MOVE).
+  static void lightTick() => host.perform(YoinHaptic.lightTick);
 
-  static void reject() => HapticFeedback.vibrate();
+  /// Starring (CONFIRM).
+  static void confirm() => host.perform(YoinHaptic.confirm);
+
+  static void longPress() => host.perform(YoinHaptic.longPress);
+
+  static void reject() => host.perform(YoinHaptic.reject);
+
+  /// Picking something up to drag it (DRAG_START).
+  static void dragStart() => host.perform(YoinHaptic.dragStart);
+
+  /// A dragged item crossing into the next slot (SEGMENT_TICK).
+  static void segmentTick() => host.perform(YoinHaptic.segmentTick);
+
+  /// One of many small things landing in quick succession (SEGMENT_FREQUENT_TICK).
+  static void frequentTick() => host.perform(YoinHaptic.frequentTick);
+
+  /// A drag passing a limit, the rubber band starts (GESTURE_THRESHOLD_ACTIVATE).
+  static void threshold() => host.perform(YoinHaptic.threshold);
+
+  /// A switch flipping (TOGGLE_ON / TOGGLE_OFF).
+  static void toggle({required bool on}) => host.perform(on ? YoinHaptic.toggleOn : YoinHaptic.toggleOff);
 }

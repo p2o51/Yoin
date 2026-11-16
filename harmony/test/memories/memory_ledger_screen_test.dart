@@ -132,6 +132,24 @@ void main() {
     expect(find.text('Nothing written in October'), findsNothing);
   });
 
+  testWidgets('should_liftGridIntoBar_when_scrolledPastIt', (tester) async {
+    await pump(tester, const MemoryLedgerScreen(), size: const Size(392, 700));
+    final grid = find.byType(MemoryGridView);
+    Opacity gridOpacity() => tester.widget<Opacity>(find.ancestor(of: grid, matching: find.byType(Opacity)).first);
+    expect(gridOpacity().opacity, 1);
+    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    // The squares flew up: the grid stepped aside and the bar formed (white title, light status icons).
+    expect(gridOpacity().opacity, 0);
+    final bar = tester.widget<AppBar>(find.byType(AppBar));
+    expect(bar.systemOverlayStyle!.statusBarIconBrightness, Brightness.light);
+    await tester.drag(find.byType(ListView), const Offset(0, 800));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(gridOpacity().opacity, 1);
+  });
+
   testWidgets('should_countWritings_when_homeCardShown', (tester) async {
     await pump(
       tester,

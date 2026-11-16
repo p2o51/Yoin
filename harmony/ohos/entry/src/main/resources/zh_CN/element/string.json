@@ -35,6 +35,10 @@
     {
       "name": "card_memory_empty",
       "value": "暂无 Memories"
+    },
+    {
+      "name": "permission_vibrate_reason",
+      "value": "在点按、拖动和评分时提供触感反馈"
     }
   ]
 }

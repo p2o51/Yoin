@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../memories/memory_title_editor.dart';
 import '../theme/tokens.dart';
 import 'home_actions.dart';
+import 'home_edit_wiggle.dart';
 import 'home_header.dart';
 import 'home_jbi_hidden.dart';
 import 'home_jbi_template.dart';
@@ -261,9 +262,12 @@ class JbiCoverCell extends ConsumerWidget {
   final double coverSide;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => ElasticPress(
-        onTap: () => _tapCard(context, ref, card),
-        child: _CoverBlock(card: card, coverSide: coverSide),
+  Widget build(BuildContext context, WidgetRef ref) => HomeEditCard(
+        kickKey: card.stableId,
+        child: ElasticPress(
+          onTap: () => _tapCard(context, ref, card),
+          child: _CoverBlock(card: card, coverSide: coverSide),
+        ),
       );
 }
 
@@ -312,17 +316,20 @@ class JbiSignalCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final block = SizedBox(width: coverSide, child: _CoverBlock(card: card, coverSide: coverSide));
     final copy = _SignalCopy(card: card, coverSide: coverSide, commentMaxLines: HomeJbiMetrics.signalCommentMaxLines);
-    return ElasticPress(
-      onTap: () => _tapCard(context, ref, card),
-      child: tall
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [block, const SizedBox(height: HomeJbiMetrics.tallCopyGap), copy],
-            )
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [block, const SizedBox(width: HomeJbiMetrics.signalCopyGap), Expanded(child: copy)],
-            ),
+    return HomeEditCard(
+      kickKey: card.stableId,
+      child: ElasticPress(
+        onTap: () => _tapCard(context, ref, card),
+        child: tall
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [block, const SizedBox(height: HomeJbiMetrics.tallCopyGap), copy],
+              )
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [block, const SizedBox(width: HomeJbiMetrics.signalCopyGap), Expanded(child: copy)],
+              ),
+      ),
     );
   }
 }

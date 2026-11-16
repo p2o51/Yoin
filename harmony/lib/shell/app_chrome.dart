@@ -6,6 +6,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../home/home_edit.dart';
+import '../home/home_section.dart';
 import '../memories/memories_reveal_scope.dart';
 import '../nowplaying/flight.dart';
 import '../nowplaying/now_playing_overlay.dart';
@@ -25,11 +27,13 @@ import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import '../ui/navigation/pane/pane_split.dart';
 import 'app_messages.dart';
+import 'bar_edit_pose.dart';
 import 'bar_suppression.dart';
 import 'chrome_back.dart';
 import 'desktop_shortcuts.dart';
 import 'detail_chrome.dart';
 import 'shell_state.dart';
+import 'yoin_section.dart';
 import 'yoin_bottom_bar.dart';
 
 /// The window's chrome, above the Navigator (adaptive-principles §2: one
@@ -53,6 +57,7 @@ class AppChrome extends ConsumerStatefulWidget {
 
 class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateMixin {
   late final NowPlayingOverlayController _controller = NowPlayingOverlayController(vsync: this);
+
   /// Arbitrated above every other window-level owner (principle 8): the
   /// side panel / player takes system back before the detail column.
   late final ChromeBackEntry _back = ChromeBackEntry(
@@ -227,6 +232,18 @@ class _ChromeBar extends ConsumerWidget {
     final memoriesHide = ref.watch(memoriesRevealHandleProvider).barHide;
     final selected = ref.watch(shellSectionProvider);
     final onSelect = ref.read(shellSectionProvider.notifier).select;
+    // Home being edited: [Undo|Add] [Done] where the destinations were (BarEditPose).
+    final edit = ref.watch(homeEditProvider);
+    final hidden = ref.watch(homeLayoutProvider.select((l) => hiddenSections(l).length));
+    final editController = ref.read(homeEditProvider.notifier);
+    final editPose = selected == YoinSection.home && edit.editing
+        ? BarEditPose(
+            editing: true,
+            leftSlot: resolveEditLeftSlot(edit.undo.length, hidden),
+            onLeftSlot: editController.barLeftSlot,
+            onDone: editController.done,
+          )
+        : null;
     return AnimatedBuilder(
       // The controller too: the flight landing releases the bar (barComposed).
       animation: Listenable.merge([
@@ -278,6 +295,7 @@ class _ChromeBar extends ConsumerWidget {
                 paneOpen: DetailPaneController.columnOpen.value,
                 // Long-press Library: its search, as Ctrl+K opens it (YoinNavHost onLibraryLongClick).
                 onLibraryLongPress: () => openLibrarySearchShortcut(ProviderScope.containerOf(context, listen: false)),
+                editPose: editPose,
                 pillBuilder: (context, onPress) => NowPlayingPill(
                   onPressChanged: onPress,
                   onLongPress: (track) {

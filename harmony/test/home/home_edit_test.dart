@@ -13,6 +13,8 @@ import 'package:yoin/home/home_section.dart';
 import 'package:yoin/home/home_shelves.dart';
 import 'package:yoin/home/home_view_model.dart';
 import 'package:yoin/home/jump_back_in.dart';
+import 'package:yoin/nowplaying/haptics.dart';
+import 'package:yoin/platform/haptics/haptics_host.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/shell/shell_state.dart';
 import 'package:yoin/shell/yoin_section.dart';
@@ -183,7 +185,8 @@ void main() {
       await tester.longPress(find.text('Jump Back In'));
       await frames(tester, 30);
       expect(c.read(homeEditProvider).editing, isTrue);
-      expect(find.text('Done'), findsOneWidget);
+      // Undo and Done are the bar's now (BarEditPose), not the header's.
+      expect(find.text('Edit Home'), findsWidgets);
       // The tray sits under every section's plate (On Your Other Accounts' placeholder among them).
       await tester.dragUntilVisible(find.text('Hidden'), find.byType(HomeScreen), const Offset(0, -300));
       expect(find.text('Hidden'), findsOneWidget);
@@ -204,7 +207,8 @@ void main() {
       await frames(tester, 20);
       expect(find.byType(JumpBackInSection), findsNothing);
       expect(find.byTooltip('Show Jump Back In'), findsOneWidget);
-      await tester.tap(find.byTooltip('Undo'));
+      // The bar's left slot: Undo while there is history.
+      c.read(homeEditProvider.notifier).barLeftSlot();
       await frames(tester, 20);
       expect(find.byType(JumpBackInSection), findsOneWidget);
       await tester.tap(find.byTooltip('Hide Jump Back In'));
@@ -212,6 +216,56 @@ void main() {
       await tester.tap(find.byTooltip('Show Jump Back In'));
       await frames(tester, 20);
       expect(find.byType(JumpBackInSection), findsOneWidget);
+      await done(tester, c);
+    });
+
+    testWidgets('should_toggleHapticAndHoldUndo_when_hiddenOrCarrying', (tester) async {
+      final haptics = RecordingHapticsHost();
+      YoinHaptics.host = haptics;
+      addTearDown(() => YoinHaptics.host = const NoHapticsHost());
+      final c = await pumpHome(tester);
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      await tester.tap(find.byTooltip('Hide Jump Back In'));
+      await frames(tester, 20);
+      // Hide / show are Android's TOGGLE_OFF / TOGGLE_ON.
+      expect(haptics.performed.last, YoinHaptic.toggleOff);
+      // Mid-carry the bar's Undo waits (Android barLeftSlotClick).
+      final edit = c.read(homeEditProvider.notifier)..carrying = true;
+      edit.barLeftSlot();
+      await frames(tester, 20);
+      expect(c.read(homeEditProvider).canUndo, isTrue);
+      expect(find.byType(JumpBackInSection), findsNothing);
+      edit.carrying = false;
+      edit.barLeftSlot();
+      await frames(tester, 20);
+      expect(find.byType(JumpBackInSection), findsOneWidget);
+      await tester.tap(find.byTooltip('Hide Jump Back In'));
+      await frames(tester, 20);
+      await tester.tap(find.byTooltip('Show Jump Back In'));
+      await frames(tester, 20);
+      expect(haptics.performed.last, YoinHaptic.toggleOn);
+      await done(tester, c);
+    });
+
+    testWidgets('should_scrollToTheTray_when_barAddsWithNothingToUndo', (tester) async {
+      final c = await pumpHome(tester, size: const Size(400, 700));
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      await tester.tap(find.byTooltip('Hide Jump Back In'));
+      await frames(tester, 20);
+      // A new session: nothing to undo, one hidden section — the bar offers Add.
+      c.read(homeEditProvider.notifier).done();
+      await frames(tester, 30);
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      expect(c.read(homeEditProvider).canUndo, isFalse);
+      c.read(homeEditProvider.notifier).barLeftSlot();
+      await frames(tester, 60);
+      expect(c.read(homeEditProvider).trayRequests, 1);
+      final position = tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      expect(position.pixels, closeTo(position.maxScrollExtent, 2));
+      expect(find.byTooltip('Show Jump Back In'), findsOneWidget);
       await done(tester, c);
     });
 
@@ -225,10 +279,10 @@ void main() {
       expect(find.byType(HomeScreen), findsOneWidget);
       c.read(homeEditProvider.notifier).enter();
       await frames(tester, 30);
-      await tester.tap(find.text('Done'));
+      // The bar's Done.
+      c.read(homeEditProvider.notifier).done();
       await frames(tester, 30);
       expect(c.read(homeEditProvider).editing, isFalse);
-      expect(find.text('Done'), findsNothing);
       await done(tester, c);
     });
 
@@ -370,7 +424,6 @@ void main() {
       await frames(tester, 30);
       expect(find.bySemanticsLabel('Hide Jump Back In'), findsOneWidget);
       expect(find.bySemanticsLabel('Reorder Jump Back In'), findsOneWidget);
-      expect(find.bySemanticsLabel('Undo'), findsOneWidget);
       semantics.dispose();
       await done(tester, c);
     });

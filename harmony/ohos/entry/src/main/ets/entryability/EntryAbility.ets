@@ -15,6 +15,8 @@ import YoinWindowPlugin, { YoinWindowHost } from '../yoin/window/WindowPlugin';
 import YoinNetworkPlugin from '../yoin/network/NetworkPlugin';
 import YoinSharePlugin from '../yoin/share/SharePlugin';
 import YoinCloudSyncPlugin from '../yoin/sync/CloudSyncPlugin';
+import YoinHapticsPlugin from '../yoin/haptics/HapticsPlugin';
+import YoinSensorsPlugin from '../yoin/sensors/SensorsPlugin';
 import { window } from '@kit.ArkUI';
 
 export default class EntryAbility extends FlutterAbility {
@@ -32,6 +34,8 @@ export default class EntryAbility extends FlutterAbility {
     flutterEngine.getPlugins()?.add(new YoinNetworkPlugin())
     flutterEngine.getPlugins()?.add(new YoinSharePlugin(this.context))
     flutterEngine.getPlugins()?.add(new YoinCloudSyncPlugin(this.context))
+    flutterEngine.getPlugins()?.add(new YoinHapticsPlugin())
+    flutterEngine.getPlugins()?.add(new YoinSensorsPlugin())
   }
 
   /**
