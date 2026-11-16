@@ -62,6 +62,11 @@ developer token in them is a fake JWT that is never signed.
     when it has one.
   - Search uses the catalogue: songs (with their albums and artists), albums, artists and playlists,
     25 of each.
+  - Home's Made For You (`MusicMadeForYou`, Android main 2026-11-15): the personal mixes
+    (`pl.pm-…`) among `/v1/me/recommendations`, in Apple's order, picked by id because the groups'
+    titles are localized. A mix listed without attributes is read from `/v1/catalog/<sf>/playlists?ids=`.
+    A personal mix is a catalogue playlist made for the account, so every read of one carries the Music
+    User Token, and its tracklist is read without `include` (Apple answers 500 / 504 with it).
 - **Robustness from Android.**
   - The storefront is read once, single-flight: Android once sent 46 storefront reads in parallel and
     got 429s back.
@@ -72,7 +77,7 @@ developer token in them is a fake JWT that is never signed.
     the first request sent.
   - The developer token is cached until 60 s before its `exp`, concurrent callers share one fetch,
     and the cache is dropped on a 401.
-  - The Music User Token goes only on `/v1/me/...` requests.
+  - The Music User Token goes only on `/v1/me/...` requests and personal mixes (`pl.pm-…`).
   - Errors never contain a token, a query string or a response body.
 - **Errors.** Failures map onto the interface's exceptions:
 

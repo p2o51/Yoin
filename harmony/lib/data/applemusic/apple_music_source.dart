@@ -242,14 +242,18 @@ final class AppleMusicSource implements MusicSource {
     return ['v1', 'catalog', await _storefrontId(), kind, appleId(id)];
   }
 
+  /// One page of [path]. Personal (the Music User Token) for `/v1/me/…` and
+  /// for a personal mix (`pl.pm-…`): a catalog playlist made for this user,
+  /// which only reads with the account's token (Android main).
   Future<AppleMusicJson> _page(
     List<String> path, {
     Map<String, String> query = const {},
     String? next,
     Set<String> excluded = const {},
+    bool? personal,
   }) => _api.resourcePage(
     path,
-    personal: path.length > 1 && path[1] == 'me',
+    personal: personal ?? ((path.length > 1 && path[1] == 'me') || path.any((s) => s.startsWith(personalMixPrefix))),
     query: query,
     next: next,
     excludedQueryParameters: excluded,
@@ -406,9 +410,40 @@ Track _inAlbum(Track t, MediaId albumId, MediaId? artistId) => Track(
   composer: t.composer,
 );
 
-final class _AppleMusicLibrary implements MusicLibrary, MusicTrackCodes, MusicLibraryCollection, MusicTrackLookup {
+final class _AppleMusicLibrary
+    implements MusicLibrary, MusicTrackCodes, MusicLibraryCollection, MusicTrackLookup, MusicMadeForYou {
   _AppleMusicLibrary(this._s);
   final AppleMusicSource _s;
+
+  /// Home's Made For You (Android main, owner 2026-11-15): the personal mixes
+  /// Apple Music makes for this account (Favorites Mix, New Music Mix, Chill
+  /// Mix, Get Up! Mix…), from `GET /v1/me/recommendations`. Its groups and
+  /// their titles are localized and come and go, so the mixes are picked by id
+  /// (`pl.pm-`), in Apple's order. A mix listed without attributes is read
+  /// from the catalog.
+  @override
+  Future<List<MadeForYouPlaylist>> madeForYou() => _s._guard(() async {
+    final listed = madeForYouMixes(await _s._all(const ['v1', 'me', 'recommendations']));
+    final bare = [
+      for (final mix in listed)
+        if (mix.title.isEmpty) appleId(mix.id),
+    ];
+    if (bare.isEmpty) return listed;
+    final response = await _s._page(
+      ['v1', 'catalog', await _s._storefrontId(), 'playlists'],
+      query: {'ids': bare.join(',')},
+      personal: true,
+    );
+    final read = <MediaId, MadeForYouPlaylist>{};
+    for (final r in resources(response)) {
+      final mix = madeForYouMix(r);
+      if (mix != null) read[mix.id] = mix;
+    }
+    return [
+      for (final mix in listed)
+        if (mix.title.isNotEmpty) mix else ?read[mix.id],
+    ].where((mix) => mix.title.isNotEmpty).toList();
+  });
 
   @override
   Future<bool> ping() => _s._guard(() async {
@@ -680,7 +715,13 @@ final class _AppleMusicLibrary implements MusicLibrary, MusicTrackCodes, MusicLi
     final resource = resources(await _s._page(path)).firstOrNull;
     final playlist = resource == null ? null : _s._listedPlaylist(resource);
     if (playlist == null) return null;
-    final query = isLibraryId(id) ? _libraryTracksQuery : const {'include': _songRelationships};
+    // Apple answers a personal mix's tracklist with a 500 or a 504 (after 5 s) when it asks for the songs' albums
+    // and artists, and serves the bare tracklist (Android main 2026-11-15).
+    final query = isLibraryId(id)
+        ? _libraryTracksQuery
+        : id.rawId.startsWith(personalMixPrefix)
+        ? const <String, String>{}
+        : const {'include': _songRelationships};
     final tracks = _s._remember(songsFrom(await _s._all([...path, 'tracks'], query: query)));
     return playlistWithTracks(playlist, await _s._regionalTracks(tracks));
   }

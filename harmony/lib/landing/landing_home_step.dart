@@ -497,6 +497,11 @@ class _SketchPainter extends CustomPainter {
             box(4 + c * 7.4, 8 + r * 7.4, 5.6, 5.6, 0.9 - (c + r) * 0.1, 1.4);
           }
         }
+      case HomeSection.madeForYou:
+        for (var c = 0; c <= 2; c++) {
+          box(3 + c * 10.5, 10, 9, 9, 0.9 - c * 0.25, 2);
+          box(3 + c * 10.5, 22, 7, 2.4, 0.35, 1.2);
+        }
     }
   }
 

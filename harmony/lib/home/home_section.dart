@@ -16,7 +16,13 @@ enum HomeSection {
   yourPlaylists('your_playlists'),
   otherProfiles('other_profiles'),
   lyricHighlight('lyric_highlight', takesPresets: true),
-  memoryGrid('memory_grid');
+  memoryGrid('memory_grid'),
+
+  // Android main (owner 2026-11-15,「为你推荐」): the playlists the service
+  // makes for the account — Apple Music's personal mixes here
+  // (home_made_for_you.dart). Hidden for services that have none, so on by
+  // default and for customized layouts too.
+  madeForYou('made_for_you');
 
   const HomeSection(this.id, {this.supportsRows = false, this.appendEnabled = true, bool takesPresets = false})
       : _takesPresets = takesPresets;
@@ -40,7 +46,8 @@ enum HomeSection {
     recentlyPlayed ||
     yourPlaylists ||
     otherProfiles ||
-    memoryGrid => true,
+    memoryGrid ||
+    madeForYou => true,
     // On every device (Android owner 2026-11-08): without Gemini Nano it shows the user's own picks.
     lyricHighlight => true,
   };

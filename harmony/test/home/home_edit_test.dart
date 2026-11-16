@@ -39,6 +39,7 @@ void main() {
         HomeSection.otherProfiles,
         HomeSection.lyricHighlight,
         HomeSection.memoryGrid,
+        HomeSection.madeForYou,
       ]);
       final moved = withSectionMoved(hidden, visible, HomeSection.yourPlaylists, 0);
       expect(moved.visibleV1Sections.first, HomeSection.yourPlaylists);
@@ -219,6 +220,9 @@ void main() {
       expect(find.byType(JumpBackInSection), findsOneWidget);
       await tester.tap(find.byTooltip('Hide Jump Back In'));
       await frames(tester, 20);
+      // Below every section's plate (Made For You's placeholder among them): scrolled to first.
+      await tester.ensureVisible(find.byTooltip('Show Jump Back In'));
+      await frames(tester, 10);
       await tester.tap(find.byTooltip('Show Jump Back In'));
       await frames(tester, 20);
       expect(find.byType(JumpBackInSection), findsOneWidget);
@@ -248,6 +252,9 @@ void main() {
       expect(find.byType(JumpBackInSection), findsOneWidget);
       await tester.tap(find.byTooltip('Hide Jump Back In'));
       await frames(tester, 20);
+      // Below every section's plate (Made For You's placeholder among them): scrolled to first.
+      await tester.ensureVisible(find.byTooltip('Show Jump Back In'));
+      await frames(tester, 10);
       await tester.tap(find.byTooltip('Show Jump Back In'));
       await frames(tester, 20);
       expect(haptics.performed.last, YoinHaptic.toggleOn);

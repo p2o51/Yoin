@@ -27,6 +27,7 @@ import 'home_feed_density.dart';
 import 'home_jbi_hidden.dart';
 import 'home_lyric_count_handle.dart';
 import 'home_header.dart';
+import 'home_made_for_you.dart';
 import 'home_memory_signals.dart';
 import 'home_metrics.dart';
 import 'home_rows_handle.dart';
@@ -211,20 +212,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       onHide: () {
         if (mounted) ref.read(homeEditProvider.notifier).exit();
       },
-      // Each return to Home (after a while) brings other lyric cards.
-      onShow: _lyricHomeShown,
+      // Each return to Home (after a while) brings other lyric cards, and reads Made For You again.
+      onShow: _homeShown,
     );
     _scroll.addListener(() => _flow.onScroll(_scroll.position.pixels));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _onState(ref.read(homeViewModelProvider));
-      _lyricHomeShown();
+      _homeShown();
     });
   }
 
   /// Home came back into view (Android LifecycleStartEffect → onHomeShown): from the
   /// background, from Library, or from a page pushed over it.
-  void _lyricHomeShown() {
-    if (mounted) ref.read(lyricHighlightCardsProvider.notifier).onHomeShown();
+  void _homeShown() {
+    if (!mounted) return;
+    ref.read(lyricHighlightCardsProvider.notifier).onHomeShown();
+    ref.read(madeForYouProvider.notifier).onHomeShown();
   }
 
   @override
@@ -472,7 +475,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
         fit: StackFit.expand,
         children: [
           // Back from a page pushed over Home, or from Library (Android: Home started again).
-          _UncoveredProbe(onUncovered: _lyricHomeShown),
+          _UncoveredProbe(onUncovered: _homeShown),
           MemoriesPullDetector(
             scroll: _scroll,
             enabled: state is HomeContent && !editing,
@@ -542,6 +545,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     // Lyric Cards: the user's own picks (no Gemini Nano here), or the first-use intro.
     final lyricCards = ref.watch(lyricHighlightCardsProvider);
     final lyricIntro = ref.watch(lyricHighlightIntroProvider);
+    // Made For You: the service's playlists for this account (none for Subsonic: the section hides).
+    final madeForYou = ref.watch(madeForYouProvider);
     final visible = layout.visibleV1Sections;
     // The wiggle follows P and the feed's order (Home is muted with its tickers when covered).
     _wiggle.update(editing: ref.read(homeEditProvider).editing, progress: e, order: visible, reduced: _reduced);
@@ -615,6 +620,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           ),
         HomeSection.otherProfiles => (
           otherProfileItems.isEmpty ? null : OtherProfilesSection(items: otherProfileItems, frame: frame),
+          2,
+        ),
+        // The service's playlists for the account; a tap opens the playlist.
+        HomeSection.madeForYou => (
+          madeForYou.isEmpty ? null : MadeForYouSection(playlists: madeForYou, frame: frame),
           2,
         ),
         // Lines the user picked, two to four cards; a tap plays from one.
