@@ -1,4 +1,5 @@
 package com.gpo.yoin.ui.nowplaying
+import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.pointerPressPreview
 import com.gpo.yoin.ui.component.handPointer
 import android.os.SystemClock
@@ -60,6 +61,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -1968,6 +1970,8 @@ private fun CompactPlayingContent(
                         },
                         // 16:9: the expanded page keeps TEXT tabs, tools at their end.
                         textOnly = lyricOneLine,
+                        aboutBusy = aboutUiState is AboutUiState.Loading &&
+                            rememberAboutHasSourceRows(state.lyricCredits, state.spineFacts),
                         tools = if (
                             tabsSelected == NowPlayingDetailPage.Lyrics &&
                             (lyricOneLine || toolsInCompactTabs)
@@ -4706,6 +4710,9 @@ internal fun StageTabs(
     // swapping to the big button group, with the lyric tools at the row's end.
     textOnly: Boolean = false,
     tools: (@Composable () -> Unit)? = null,
+    // Gemini is loading About over credits / facts already shown: a small
+    // indicator sits between the About and Note tabs (owner 2026-11-16).
+    aboutBusy: Boolean = false,
 ) {
     Box(
         modifier = modifier
@@ -4718,7 +4725,7 @@ internal fun StageTabs(
                 modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CompactTextTabs(selected = selected, onSelect = onSelect)
+                CompactTextTabs(selected = selected, onSelect = onSelect, aboutBusy = aboutBusy)
                 Spacer(modifier = Modifier.weight(1f))
                 tools?.invoke()
             }
@@ -4737,7 +4744,7 @@ internal fun StageTabs(
                     },
                 verticalAlignment = if (tools != null) Alignment.CenterVertically else Alignment.Top,
             ) {
-                CompactTextTabs(selected = selected, onSelect = onSelect)
+                CompactTextTabs(selected = selected, onSelect = onSelect, aboutBusy = aboutBusy)
                 if (tools != null) {
                     Spacer(modifier = Modifier.weight(1f))
                     tools()
@@ -4748,6 +4755,7 @@ internal fun StageTabs(
             FullscreenTabGroup(
                 selected = selected,
                 onSelect = onSelect,
+                aboutBusy = aboutBusy,
                 modifier = Modifier.graphicsLayer {
                     alpha = detailProgress
                     translationY = 8.dp.toPx() * (1f - detailProgress)
@@ -4762,15 +4770,41 @@ private fun CompactTextTabs(
     selected: NowPlayingDetailPage,
     onSelect: (NowPlayingDetailPage) -> Unit,
     modifier: Modifier = Modifier,
+    aboutBusy: Boolean = false,
 ) {
+    val busyProgress by animateFloatAsState(
+        targetValue = if (aboutBusy) 1f else 0f,
+        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+        label = "aboutBusy",
+    )
     val lyricsLabel = stringResource(R.string.np_text_tab_lyrics)
     val aboutLabel = stringResource(R.string.np_text_tab_about)
     val noteLabel = stringResource(R.string.np_text_tab_note)
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        // Gaps are each tab's own start padding, so the About indicator can
+        // open from nothing without a spacer's gap popping in.
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         NowPlayingDetailPage.entries.forEach { page ->
+            if (page == NowPlayingDetailPage.Note && busyProgress > 0f) {
+                Box(
+                    modifier = Modifier.width(CompactTabBusySlot * busyProgress.coerceAtLeast(0f)),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    YoinLoadingIndicator(
+                        size = CompactTabBusySize,
+                        modifier = Modifier
+                            .wrapContentSize(unbounded = true)
+                            .graphicsLayer {
+                                val p = busyProgress.coerceIn(0f, 1f)
+                                alpha = p
+                                scaleX = p
+                                scaleY = p
+                            },
+                    )
+                }
+            }
             val isSelected = page == selected
             // Same language as the title/artist rows: a left-anchored
             // text-width stretch (press dips, selection widens) instead of a
@@ -4797,6 +4831,7 @@ private fun CompactTextTabs(
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
+                    .padding(start = if (page.ordinal == 0) 0.dp else 12.dp)
                     .graphicsLayer {
                         alpha = if (isSelected) 1f else 0.5f
                         scaleX = stretch
@@ -6532,3 +6567,7 @@ private val RunOnFadeStops = listOf(1f, 0.896f, 0.648f, 0.352f, 0.104f, 0f).map 
 
 /** New lyrics landing this long after an apply still get its reveal. */
 private const val LyricsRevealWaitMs = 15_000L
+
+/** The compact text tabs' About-loading slot (indicator + its gap) and indicator size. */
+private val CompactTabBusySlot = 32.dp
+private val CompactTabBusySize = 20.dp
