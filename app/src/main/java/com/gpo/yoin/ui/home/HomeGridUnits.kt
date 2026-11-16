@@ -79,6 +79,13 @@ internal fun homeGridContentDp(units: Int): Float = homeGridHeightDp(units) - Ho
 /** Recently Added's track rows at [units] units: three a unit. */
 internal fun homeGridTrackRows(units: Int): Int = 3 * units.coerceAtLeast(1)
 
+/** Recently Added's narrowest track column on the grid. */
+internal const val HomeGridTrackColumnMinDp = 280f
+
+/** Recently Added's track columns on the grid: ⌊W / 280⌋, at least 1 (a half 2, a full row 3–4). */
+internal fun homeGridTrackColumns(widthDp: Float): Int =
+    kotlin.math.max(1, kotlin.math.floor(widthDp / HomeGridTrackColumnMinDp).toInt())
+
 /** One track row's height at [units] units, dp: the rows and their gaps fill the content box exactly. */
 internal fun homeGridTrackRowDp(units: Int, gapDp: Float = HomeGridTokens.TrackRowGap.value): Float {
     val rows = homeGridTrackRows(units)
@@ -398,4 +405,114 @@ internal fun homeShelfCellHeight(): Dp? = if (LocalHomeGridHeight.current != nul
 internal fun homeShelfColumnCount(cards: Int): Int {
     val rows = homeShelfRows()
     return if (cards <= 0) 0 else (cards + rows - 1) / rows
+}
+
+// ── Packing cards into unit rows ──────────────────────────────────────────
+
+/** A card placed on the grid: [index] into the caller's list, [row], first [column], [span] columns. */
+internal data class HomeGridCell(val index: Int, val row: Int, val column: Int, val span: Int)
+
+/**
+ * Cards of [spans] columns each, row-major into [rows] rows of [columns]: a
+ * card that doesn't fit what is left of a row starts the next; a span wider
+ * than the row is one column. Cards past the last row are left out; no row
+ * starts with a gap. Pure.
+ */
+internal fun homeGridPack(spans: List<Int>, columns: Int, rows: Int): List<HomeGridCell> {
+    val cols = columns.coerceAtLeast(1)
+    val out = ArrayList<HomeGridCell>()
+    var row = 0
+    var column = 0
+    for ((index, raw) in spans.withIndex()) {
+        val span = raw.coerceIn(1, cols)
+        if (column + span > cols) {
+            row++
+            column = 0
+        }
+        if (row >= rows) break
+        out += HomeGridCell(index, row, column, span)
+        column += span
+    }
+    return out
+}
+
+/**
+ * Activities on the grid: one row of cards a unit. The lead entry (the hero,
+ * when there is one) spans two columns; after it the rows alternate a wide
+ * card (two columns) and small ones (one), so a row reads as a bento, not a
+ * strip of equal tiles. Every card is one unit tall; the phone's one-line
+ * strips don't fill a unit and become small cards here. [columns] from
+ * [homeGridActivityColumns]. Pure.
+ */
+internal fun homeGridActivitySpans(count: Int, columns: Int): List<Int> {
+    if (columns <= 1) return List(count) { 1 }
+    val out = ArrayList<Int>(count)
+    var column = 0
+    var inRow = 0
+    repeat(count) {
+        val span = if (inRow % 2 == 0 && columns - column >= 2) 2 else 1
+        out += span
+        column += span
+        inRow++
+        if (column >= columns) {
+            column = 0
+            inRow = 0
+        }
+    }
+    return out
+}
+
+/** The narrowest one-column Activities card on the grid, dp. */
+internal const val HomeGridActivityColumnMinDp = 160f
+
+/** Activities' columns on the grid: ⌊(W + gap) / (160 + gap)⌋, at least 2. */
+internal fun homeGridActivityColumns(widthDp: Float, gapDp: Float = HomeGridTokens.ColumnGap.value): Int =
+    kotlin.math.max(2, kotlin.math.floor((widthDp + gapDp) / (HomeGridActivityColumnMinDp + gapDp)).toInt())
+
+/**
+ * A row's [columns] cells across [widthPx], [gapPx] apart, snapped to whole
+ * px: (left, width) of a cell starting at [column] spanning [span]. Pure.
+ */
+internal fun homeGridCellX(column: Int, span: Int, columns: Int, widthPx: Int, gapPx: Int): Pair<Int, Int> {
+    val cols = columns.coerceAtLeast(1)
+    val cell = (widthPx - gapPx * (cols - 1)).toFloat() / cols
+    val left = kotlin.math.round(column * (cell + gapPx)).toInt()
+    val right = kotlin.math.round((column + span) * (cell + gapPx) - gapPx).toInt()
+    return left to (right - left).coerceAtLeast(0)
+}
+
+/**
+ * [cells] laid out on the grid: every cell exactly one unit tall, rows
+ * [HomeGridTokens.Gap] apart, [columns] equal columns [gap] apart across
+ * the width. [stretchLast]: the last cell takes what is left of its row.
+ */
+@Composable
+internal fun HomeGridCells(
+    cells: List<HomeGridCell>,
+    columns: Int,
+    gap: Dp,
+    modifier: Modifier = Modifier,
+    stretchLast: Boolean = false,
+    content: @Composable (HomeGridCell) -> Unit,
+) {
+    androidx.compose.ui.layout.Layout(
+        content = { cells.forEach { cell -> androidx.compose.runtime.key(cell.index) { content(cell) } } },
+        modifier = modifier,
+    ) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val gapPx = gap.roundToPx()
+        val unit = HomeGridTokens.Unit.roundToPx()
+        val rowGap = HomeGridTokens.Gap.roundToPx()
+        val placed = measurables.mapIndexed { i, measurable ->
+            val cell = cells[i]
+            val span = if (stretchLast && i == cells.lastIndex) columns - cell.column else cell.span
+            val (x, w) = homeGridCellX(cell.column, span, columns, width, gapPx)
+            Triple(measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, unit)), x, cell.row * (unit + rowGap))
+        }
+        val rows = (cells.maxOfOrNull { it.row } ?: -1) + 1
+        val height = if (rows <= 0) 0 else rows * unit + (rows - 1) * rowGap
+        layout(width, height.coerceIn(constraints.minHeight, constraints.maxHeight)) {
+            placed.forEach { (placeable, x, y) -> placeable.placeRelative(x, y) }
+        }
+    }
 }

@@ -223,4 +223,61 @@ class HomeGridUnitsTest {
         assertEquals(314f, homeGridContentDp(2), 0f)
     }
 
+
+    @Test
+    fun should_pickTrackColumnsBy280() {
+        assertEquals(2, homeGridTrackColumns(598f))
+        assertEquals(4, homeGridTrackColumns(1216f))
+        assertEquals(3, homeGridTrackColumns(900f))
+        assertEquals(1, homeGridTrackColumns(200f))
+        // 1 unit shows 6 tracks in a half, 2 units 12.
+        assertEquals(6, homeGridTrackRows(1) * homeGridTrackColumns(598f))
+        assertEquals(12, homeGridTrackRows(2) * homeGridTrackColumns(598f))
+    }
+
+    @Test
+    fun should_packRowMajor_wideCardsTwoColumns() {
+        // 5 columns, 2 rows: 1 1 2 1 | 2 2 ... the 2 that doesn't fit row 0's last slot starts row 1.
+        val cells = homeGridPack(listOf(1, 1, 2, 1, 2, 2, 1, 1), columns = 5, rows = 2)
+        assertEquals(
+            listOf(
+                HomeGridCell(0, 0, 0, 1),
+                HomeGridCell(1, 0, 1, 1),
+                HomeGridCell(2, 0, 2, 2),
+                HomeGridCell(3, 0, 4, 1),
+                HomeGridCell(4, 1, 0, 2),
+                HomeGridCell(5, 1, 2, 2),
+                HomeGridCell(6, 1, 4, 1),
+            ),
+            cells,
+        )
+        // One row: only what fits; a span wider than the row is one column.
+        assertEquals(listOf(HomeGridCell(0, 0, 0, 1)), homeGridPack(listOf(3, 1), columns = 1, rows = 1))
+        assertTrue(homeGridPack(listOf(1, 1), columns = 3, rows = 0).isEmpty())
+    }
+
+    @Test
+    fun should_alternateWideAndSmall_forActivities() {
+        assertEquals(listOf(2, 1, 2, 1, 2, 1), homeGridActivitySpans(6, columns = 3))
+        assertEquals(listOf(2, 1, 2, 1, 1, 2, 1), homeGridActivitySpans(7, columns = 7))
+        assertEquals(listOf(1, 1, 1), homeGridActivitySpans(3, columns = 1))
+        // Every row fills exactly: no card hangs past the row's end.
+        val spans = homeGridActivitySpans(20, columns = 7)
+        val cells = homeGridPack(spans, columns = 7, rows = 10)
+        assertTrue(cells.all { it.column + it.span <= 7 })
+        assertEquals(3, homeGridActivityColumns(598f))
+        assertEquals(7, homeGridActivityColumns(1216f))
+    }
+
+    @Test
+    fun should_snapCellsToTheRowEdges() {
+        val (left0, width0) = homeGridCellX(0, 1, columns = 5, widthPx = 1196, gapPx = 24)
+        val (left4, width4) = homeGridCellX(4, 1, columns = 5, widthPx = 1196, gapPx = 24)
+        assertEquals(0, left0)
+        assertEquals(1196, left4 + width4)
+        assertEquals(width0, width4)
+        val (_, wide) = homeGridCellX(0, 2, columns = 5, widthPx = 1196, gapPx = 24)
+        assertEquals(2 * width0 + 24, wide)
+    }
+
 }

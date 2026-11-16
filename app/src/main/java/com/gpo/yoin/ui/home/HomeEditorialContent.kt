@@ -23,6 +23,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -2002,6 +2003,21 @@ private fun ActivityBento(
     onEntryClick: (HomeEntryTarget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Two columns (HomeGridUnits.kt): one row of cards a unit, every card exactly a unit tall.
+    val grid = LocalHomeGridHeight.current
+    if (grid != null) {
+        ActivityUnitRows(
+            hero = hero,
+            candidates = candidates,
+            units = grid.units.coerceIn(HomeSection.Activities.unitRange),
+            heroFootnoteExtra = heroFootnoteExtra,
+            heroVersion = heroVersion,
+            extractBackdropColors = extractBackdropColors,
+            onEntryClick = onEntryClick,
+            modifier = modifier,
+        )
+        return
+    }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -2304,6 +2320,63 @@ private fun ActivityUnitGrid(
 }
 
 private val ActivityBentoGap = 10.dp
+
+/**
+ * Activities on the grid: the title row, then [units] rows of cards, each
+ * exactly one unit tall. The lead (the hero, when there is one) and every
+ * other card after it span two columns, the rest one ([homeGridActivitySpans]);
+ * the last card takes what is left of its row. No strips: a one-line strip
+ * can't fill a unit, so those entries are small cards here.
+ */
+@Composable
+private fun ActivityUnitRows(
+    hero: HomeMomentEntry?,
+    candidates: List<HomeMomentEntry>,
+    units: Int,
+    heroFootnoteExtra: List<MetaGroup>,
+    heroVersion: String?,
+    extractBackdropColors: Boolean,
+    onEntryClick: (HomeEntryTarget) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        HomeSectionTitle(text = stringResource(HomeSection.Activities.titleRes))
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columns = homeGridActivityColumns(maxWidth.value)
+            val entries = remember(hero, candidates) { listOfNotNull(hero) + candidates }
+            val cells = remember(entries.size, columns, units) {
+                homeGridPack(homeGridActivitySpans(entries.size, columns), columns, units)
+            }
+            HomeGridCells(cells = cells, columns = columns, gap = HomeGridTokens.ColumnGap, stretchLast = true) { cell ->
+                val entry = entries[cell.index]
+                val onClick = { onEntryClick(entry.target) }
+                val editCard = Modifier.homeEditCard(cell.index)
+                when {
+                    hero != null && cell.index == 0 -> ActivityHeroCard(
+                        entry = entry,
+                        footnoteExtra = heroFootnoteExtra,
+                        version = heroVersion,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = onClick,
+                        modifier = editCard,
+                    )
+                    cell.span >= 2 -> ActivityWideCard(
+                        entry = entry,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = onClick,
+                        modifier = editCard,
+                    )
+                    else -> ActivitySmallCard(
+                        entry = entry,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = onClick,
+                        modifier = editCard,
+                    )
+                }
+            }
+        }
+    }
+}
 
 internal data class ActivityCardColors(
     val container: Color,
@@ -2738,7 +2811,7 @@ private fun RecentlyAddedSection(
     val gridUnits = grid?.units?.coerceIn(HomeSection.RecentlyAdded.unitRange)
     val half = LocalHomeColumn.current.half
     val maxColumns = if (gridUnits != null) {
-        if (half) 1 else 2
+        homeGridTrackColumns(frame.contentWidth.value.let { if (half) (it - HomeSpanTokens.ColumnGap.value) / 2f else it })
     } else {
         recentlyAddedTrackColumns(windowInfo.feedUnits, windowInfo.feedCoverColumns, singleRowShelf)
     }
@@ -2782,7 +2855,10 @@ private fun RecentlyAddedSection(
                     // read in the layout pass only, so a column spring
                     // never re-subcomposes the shelf. A page wide when paged.
                     modifier = Modifier.layout { measurable, constraints ->
-                        val width = pageWidth?.roundToPx() ?: recentlyAddedGridWidth(
+                        // On the grid a full row's tracks take the whole content width (no cap).
+                        val width = pageWidth?.roundToPx() ?: if (grid != null) {
+                            (frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2).roundToPx()
+                        } else recentlyAddedGridWidth(
                             // Less the plate's content inset (V2; else 0).
                             contentWidth = frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2,
                             isCompactHeight = singleRowShelf,

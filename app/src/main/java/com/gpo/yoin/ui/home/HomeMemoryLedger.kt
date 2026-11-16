@@ -48,7 +48,9 @@ internal fun MemoryLedgerSection(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val openLabel = stringResource(R.string.memory_ledger_open)
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // Two columns: the content starts right under the shared 40dp title row.
+    val titleGap = if (LocalHomeGridHeight.current != null) 0.dp else 12.dp
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(titleGap)) {
         HomeSectionTitle(text = stringResource(HomeSection.MemoryGrid.titleRes))
         Column(
             modifier = Modifier
