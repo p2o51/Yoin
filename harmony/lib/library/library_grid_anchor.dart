@@ -10,7 +10,10 @@ import 'package:flutter/widgets.dart';
 // opening or a short shelf growing its cells would otherwise show whatever
 // row now sits at that offset — with half the columns, rows from twice as far
 // down. The grid instead brings the row of the item the user scrolled to back
-// to the top, in the same layout pass (no frame of the wrong rows).
+// to the top, in the same layout pass (no frame of the wrong rows). As on
+// Android (a lazy grid's scrollToItem), "the top" is the grid's top padding
+// line, where its rows sit at rest: the row lands [LibraryGridLayout.top]
+// below the grid's edge, not flush against it.
 
 /// One layout of a Library grid: what its rows look like now.
 @immutable
@@ -26,7 +29,8 @@ final class LibraryGridLayout {
   /// A row and the gap under it.
   final double stride;
 
-  /// Fixed scroll extent before the head (the grid's top padding).
+  /// The grid's top padding: rows are read, and brought back, at this line
+  /// below the grid's edge (Android's content padding).
   final double top;
 
   @override
@@ -42,12 +46,14 @@ final class LibraryGridLayout {
 }
 
 /// The place in a grid as rows: [index] is the first item of the row at the
-/// top (-1: still within the head — padding and sort row — above the first
-/// row), [offset] how far past that row's top (or the grid's top) it sits.
+/// top padding line (-1: the head — the sort row — still there, above the
+/// first row), [offset] how far that row's top (or the grid's top) has
+/// scrolled past the line.
 typedef LibraryGridPlace = ({int index, double offset});
 
-/// Where the grid sits at [pixels] with its first row [leading] px down,
-/// rows [stride] apart, [columns] per row, [itemCount] items.
+/// Where the grid sits at [pixels], its first row reaching the top padding
+/// line at [leading] px (the head's height), rows [stride] apart, [columns]
+/// per row, [itemCount] items.
 LibraryGridPlace libraryGridPlaceAt({
   required double pixels,
   required double leading,
@@ -108,9 +114,6 @@ class LibraryGridAnchor {
   /// The layout (and head) the position's pixels were last placed for.
   (LibraryGridLayout, double)? _settled;
 
-  /// A position was just created for the grid (it is built again).
-  bool _fresh = false;
-
   /// The head's measured height (the sort row; 0 without one), from [LibraryGridHead].
   double get head => _head;
 
@@ -137,7 +140,8 @@ class LibraryGridAnchor {
     if (layout == null) return null;
     return libraryGridPlaceAt(
       pixels: pixels,
-      leading: layout.top + _head,
+      // Row 0 reaches the padding line once the head has scrolled past it.
+      leading: _head,
       stride: layout.stride,
       columns: layout.columns,
       itemCount: _itemCount,
@@ -169,20 +173,20 @@ class LibraryGridAnchor {
 
   /// Where the position should be for the layout just laid out, or null to
   /// stay: only when the layout changed since the pixels were placed (or, for
-  /// an exact anchor, the grid was built again).
+  /// an exact anchor, the grid was built again: [fresh], the position's first
+  /// layout — kept by the position, as a grid fading out on the same
+  /// controller lays out too).
   @visibleForTesting
-  double? restoreTarget() {
+  double? restoreTarget({bool fresh = false}) {
     final layout = _layout;
     if (layout == null) return null;
     final now = (layout, _head);
     final was = _settled;
-    final fresh = _fresh;
-    _fresh = false;
     _settled = now;
     if (was == null && !(fresh && exact)) return null;
     if (was == now && !(fresh && exact)) return null;
     if (exact && fresh && width <= 0) return null;
-    final leading = layout.top + _head;
+    final leading = _head;
     if (index < 0) return exact ? math.min(offset, leading) : 0;
     final lastRow = math.max(0, (_itemCount - 1) ~/ math.max(1, layout.columns));
     final row = math.min(index ~/ math.max(1, layout.columns), lastRow);
@@ -197,14 +201,19 @@ class LibraryGridAnchor {
 /// A [ScrollController] for a Library grid that keeps its [anchor] (see
 /// [LibraryGridAnchor]). The grid feeds the anchor its layout each build
 /// ([LibraryGridAnchor.layOut]) and its head's height ([LibraryGridHead]).
+///
+/// [anchor] may outlive the controller: the search's grids keep theirs in
+/// [LibraryGridAnchor]s held beside the query, so a search that stepped aside
+/// for the detail column comes back where it was left.
 class LibraryGridScrollController extends ScrollController {
-  LibraryGridScrollController({bool exact = false}) : anchor = LibraryGridAnchor(exact: exact);
+  LibraryGridScrollController({bool exact = false, LibraryGridAnchor? anchor})
+    : assert(anchor == null || anchor.exact == exact),
+      anchor = anchor ?? LibraryGridAnchor(exact: exact);
 
   final LibraryGridAnchor anchor;
 
   @override
   ScrollPosition createScrollPosition(ScrollPhysics physics, ScrollContext context, ScrollPosition? oldPosition) {
-    anchor._fresh = true;
     return _AnchoredScrollPosition(
       anchor: anchor,
       physics: physics,
@@ -230,9 +239,13 @@ class _AnchoredScrollPosition extends ScrollPositionWithSingleContext {
 
   final LibraryGridAnchor anchor;
 
+  /// No layout yet: the grid is built (again).
+  bool _fresh = true;
+
   @override
   bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
-    final target = anchor.restoreTarget();
+    final target = anchor.restoreTarget(fresh: _fresh);
+    _fresh = false;
     if (target != null && hasPixels) {
       final clamped = target.clamp(minScrollExtent, math.max(minScrollExtent, maxScrollExtent));
       // A correction relays the viewport out at the anchored row, this pass.
@@ -266,9 +279,17 @@ class LibraryGridHead extends SingleChildRenderObjectWidget {
 
 /// [LibraryGridHead]'s render object.
 class RenderLibraryGridHead extends RenderProxyBox {
-  RenderLibraryGridHead(this.anchor);
+  RenderLibraryGridHead(this._anchor);
 
-  LibraryGridAnchor anchor;
+  LibraryGridAnchor _anchor;
+  LibraryGridAnchor get anchor => _anchor;
+
+  /// Another grid's anchor: it learns the head's height on the next layout.
+  set anchor(LibraryGridAnchor value) {
+    if (identical(value, _anchor)) return;
+    _anchor = value;
+    markNeedsLayout();
+  }
 
   @override
   void performLayout() {

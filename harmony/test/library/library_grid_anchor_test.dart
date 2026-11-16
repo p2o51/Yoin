@@ -53,17 +53,17 @@ void main() {
 
     test('should_stay_when_theLayoutIsUnchanged', () {
       final anchor = laidOut(LibraryGridAnchor(), wide);
-      anchor.record(56 + 150 * 4 + 30);
+      anchor.record(48 + 150 * 4 + 30);
       expect(anchor.restoreTarget(), isNull);
     });
 
     test('should_bringTheRowFlushToTheTop_when_columnsChange', () {
       final anchor = laidOut(LibraryGridAnchor(), wide);
-      anchor.record(56 + 150 * 4 + 30); // row 4 → item 44
+      anchor.record(48 + 150 * 4 + 30); // row 4 → item 44
       expect(anchor.index, 44);
       anchor.layOut(narrow, 300);
       // Item 44 sits on row 6 of seven columns.
-      expect(anchor.restoreTarget(), 56 + 160 * 6);
+      expect(anchor.restoreTarget(), 48 + 160 * 6);
       expect(anchor.restoreTarget(), isNull, reason: 'settled');
     });
 
@@ -76,40 +76,58 @@ void main() {
 
     test('should_ignoreScrolls_when_theLayoutIsNotYetPlaced', () {
       final anchor = laidOut(LibraryGridAnchor(), wide);
-      anchor.record(56 + 150 * 2);
+      anchor.record(48 + 150 * 2);
       anchor.layOut(narrow, 300);
-      anchor.record(56 + 160 * 9); // the old pixels under the new layout: not the user's place
+      anchor.record(48 + 160 * 9); // the old pixels under the new layout: not the user's place
       expect(anchor.index, 22);
     });
 
     test('should_moveToTheSection_when_fastScrollerJumped', () {
       final anchor = laidOut(LibraryGridAnchor(), wide);
-      anchor.jumped(56 + 150 * 2 + 70, [0, 25, 40]); // row 2 = items 22..32; section at 25
+      anchor.jumped(48 + 150 * 2 + 70, [0, 25, 40]); // row 2 = items 22..32; section at 25
       expect(anchor.index, 25);
       anchor.layOut(narrow, 300);
-      expect(anchor.restoreTarget(), 56 + 160 * 3, reason: 'item 25 on row 3 of seven');
+      expect(anchor.restoreTarget(), 48 + 160 * 3, reason: 'item 25 on row 3 of seven');
     });
 
     test('should_landExactly_when_backAtTheWidthItWasLeftAt', () {
       final anchor = laidOut(LibraryGridAnchor(exact: true), wide);
-      anchor.record(56 + 150 * 4 + 30);
+      anchor.record(48 + 150 * 4 + 30);
       anchor.layOut(narrow, 300);
       // Another width: the same share of the row, 30 / 150 of 160.
-      expect(anchor.restoreTarget(), closeTo(56 + 160 * 6 + 32, 1e-9));
+      expect(anchor.restoreTarget(), closeTo(48 + 160 * 6 + 32, 1e-9));
       anchor.layOut(wide, 300);
-      expect(anchor.restoreTarget(), 56 + 150 * 4 + 30);
+      expect(anchor.restoreTarget(), 48 + 150 * 4 + 30);
     });
 
     test('should_restoreExactly_when_builtAgain', () {
-      final controller = LibraryGridScrollController(exact: true);
-      addTearDown(controller.dispose);
-      final anchor = laidOut(controller.anchor, wide);
-      anchor.record(56 + 150 * 4 + 30);
+      final anchor = laidOut(LibraryGridAnchor(exact: true), wide);
+      anchor.record(48 + 150 * 4 + 30);
       // A type switched away from and back: a new position over the same layout.
       anchor.layOut(wide, 300);
-      expect(anchor.restoreTarget(), isNull);
+      expect(anchor.restoreTarget(), isNull, reason: 'the same position: nothing changed');
+      expect(anchor.restoreTarget(fresh: true), 48 + 150 * 4 + 30, reason: 'a new position lands where it was left');
+    });
+
+    test('should_keepTheRestoredPixels_when_aPlainGridIsBuiltAgainAtTheSameLayout', () {
+      final anchor = laidOut(LibraryGridAnchor(), wide);
+      anchor.record(48 + 150 * 4 + 30);
+      expect(anchor.restoreTarget(fresh: true), isNull);
+    });
+
+    test('should_startAtTheTop_when_builtAgainAfterAReset', () {
+      final anchor = laidOut(LibraryGridAnchor(exact: true), wide);
+      anchor.record(48 + 150 * 4 + 30);
       anchor.reset();
       expect(anchor.index, -1);
+      expect(anchor.restoreTarget(fresh: true), isNull, reason: 'no place to go back to');
+    });
+
+    test('should_takeTheGivenAnchor_when_aControllerIsMadeForIt', () {
+      final anchor = LibraryGridAnchor(exact: true);
+      final controller = LibraryGridScrollController(exact: true, anchor: anchor);
+      addTearDown(controller.dispose);
+      expect(controller.anchor, same(anchor));
     });
   });
 }

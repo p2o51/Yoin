@@ -133,6 +133,36 @@ class _SearchRoute extends PageRoute<void> with DetailPaneYieldingRoute<void> {
   }
 }
 
+/// Where the search's Artists and Albums grids were left, one exact anchor
+/// per scope and type (Android LibrarySearchScrollMemory.gridAnchor). Kept
+/// beside the query, not in the surface: a result opened in the detail
+/// column collapses the surface with its query kept, and the grid comes back
+/// where it was left. Another query (a blank one ends the search) forgets
+/// them all.
+final class LibrarySearchGridAnchors {
+  final _anchors = <(LibrarySearchScope, LibrarySearchFilter), LibraryGridAnchor>{};
+
+  /// The anchor of [scope]'s [filter] grid.
+  LibraryGridAnchor of(LibrarySearchScope scope, LibrarySearchFilter filter) =>
+      _anchors.putIfAbsent((scope, filter), () => LibraryGridAnchor(exact: true));
+
+  /// Every grid starts at the top again.
+  void forget() {
+    for (final anchor in _anchors.values) {
+      anchor.reset();
+    }
+  }
+}
+
+/// The search grids' anchors, forgotten when the query changes.
+final librarySearchGridAnchorsProvider = Provider<LibrarySearchGridAnchors>((ref) {
+  final anchors = LibrarySearchGridAnchors();
+  ref.listen(librarySearchProvider.select((s) => s.query), (previous, query) {
+    if (previous != query) anchors.forget();
+  });
+  return anchors;
+});
+
 /// The expanded search: field, type chips, results.
 class LibrarySearchSurface extends ConsumerStatefulWidget {
   const LibrarySearchSurface({super.key});
@@ -144,7 +174,7 @@ class LibrarySearchSurface extends ConsumerStatefulWidget {
 class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
   final _field = TextEditingController();
   late final LibrarySearchNotifier _search = ref.read(librarySearchProvider.notifier);
-  final _scrolls = <LibrarySearchFilter, ScrollController>{};
+  final _scrolls = <(LibrarySearchScope, LibrarySearchFilter), ScrollController>{};
 
   /// The route this surface lives on (read while mounted; dispose can't).
   DetailPaneYieldingRoute<dynamic>? _route;
@@ -186,13 +216,18 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
     super.dispose();
   }
 
-  /// The Artists and Albums grids keep an exact anchor: after a rotation or a
-  /// resize, back at the width they were left at, they land exactly there;
-  /// a type switched away from and back finds its place too.
-  ScrollController _scrollFor(LibrarySearchFilter f) => _scrolls.putIfAbsent(
-    f,
+  /// One scroll per scope and type. The Artists and Albums grids keep an
+  /// exact anchor ([LibrarySearchGridAnchors]): after a rotation or a resize,
+  /// back at the width they were left at, they land exactly there; a type or
+  /// scope switched away from and back, or the surface come back from the
+  /// detail column, finds its place too.
+  ScrollController _scrollFor(LibrarySearchScope scope, LibrarySearchFilter f) => _scrolls.putIfAbsent(
+    (scope, f),
     () => switch (f) {
-      LibrarySearchFilter.artists || LibrarySearchFilter.albums => LibraryGridScrollController(exact: true),
+      LibrarySearchFilter.artists || LibrarySearchFilter.albums => LibraryGridScrollController(
+        exact: true,
+        anchor: ref.read(librarySearchGridAnchorsProvider).of(scope, f),
+      ),
       LibrarySearchFilter.all || LibrarySearchFilter.songs || LibrarySearchFilter.playlists => ScrollController(),
     },
   );
@@ -204,9 +239,9 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
     final colors = Theme.of(context).colorScheme;
     ref.listen(librarySearchProvider.select((s) => s.query), (previous, query) {
       // A new query starts every filter's list at the top.
+      // (The grids' anchors forget their places with it: librarySearchGridAnchorsProvider.)
       if (previous != query) {
         for (final c in _scrolls.values) {
-          if (c is LibraryGridScrollController) c.anchor.reset();
           if (c.hasClients) c.jumpTo(0);
         }
       }
@@ -353,7 +388,7 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
     };
     if (empty) return EmptyStatePanel(message: strings.emptySearch);
     final bottom = SearchTokens.resultsBottomReserve + MediaQuery.paddingOf(context).bottom;
-    final controller = _scrollFor(state.filter);
+    final controller = _scrollFor(state.scope, state.filter);
     switch (state.filter) {
       case LibrarySearchFilter.artists:
         return _grid(

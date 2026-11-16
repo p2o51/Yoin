@@ -17,6 +17,7 @@ import 'package:yoin/shell/yoin_section.dart';
 import 'package:yoin/theme/theme.dart';
 import 'package:yoin/theme/tokens.dart';
 import 'package:yoin/ui/component/yoin_fast_scroller.dart';
+import 'package:yoin/ui/navigation/pane/detail_pane.dart';
 
 import '../support/fake_playback_engine.dart';
 import '../support/library_fake_source.dart';
@@ -99,7 +100,7 @@ List<LibraryItem> _albumItems(ProviderContainer c) =>
 /// The cell of [item] (its cover's square is the cell's width).
 Rect _cell(WidgetTester tester, LibraryItem item) => tester.getRect(find.byKey(ValueKey(item.key)));
 
-/// The first cell of the top row's top, against the grid's own top.
+/// The first cell of the top row's top, against the grid's own top (rows come back at its 8 top padding).
 double _topOf(WidgetTester tester, LibraryItem item) => _cell(tester, item).top - tester.getTopLeft(_albumsView()).dy;
 
 void main() {
@@ -184,10 +185,14 @@ void main() {
       for (final (w, h) in const [(800.0, 1280.0), (600.0, 1000.0), (412.0, 900.0), (1440.0, 900.0), (1280.0, 800.0)]) {
         _window(tester, w, h);
         await tester.pump();
-        expect(_topOf(tester, anchored), closeTo(0, 0.5), reason: 'at $w × $h the anchored row leads');
+        expect(
+          _topOf(tester, anchored),
+          closeTo(LibraryTokens.gridTopPadding, 0.5),
+          reason: 'at $w × $h the anchored row leads',
+        );
         expect(anchor.index, _albumItems(c).indexOf(anchored), reason: 'a relayout is no scroll');
         await _settle(tester);
-        expect(_topOf(tester, anchored), closeTo(0, 0.5));
+        expect(_topOf(tester, anchored), closeTo(LibraryTokens.gridTopPadding, 0.5));
       }
     });
 
@@ -207,7 +212,7 @@ void main() {
 
       _window(tester, 1280, 800);
       await _settle(tester);
-      expect(_topOf(tester, anchored), closeTo(0, 0.5));
+      expect(_topOf(tester, anchored), closeTo(LibraryTokens.gridTopPadding, 0.5));
     });
 
     testWidgets('should_returnToTheTop_when_restingAtTheTop', (tester) async {
@@ -269,7 +274,7 @@ void main() {
       final anchor = _anchor(tester);
       final place = libraryGridPlaceAt(
         pixels: position.pixels,
-        leading: LibraryTokens.gridTopPadding + anchor.head,
+        leading: anchor.head,
         stride: anchor.rowPx,
         columns: 11,
         itemCount: view.items.length,
@@ -285,7 +290,11 @@ void main() {
 
       _window(tester, 800, 1280);
       await tester.pump();
-      expect(_topOf(tester, anchored), closeTo(0, 0.5), reason: "the section's first item leads the new rows");
+      expect(
+        _topOf(tester, anchored),
+        closeTo(LibraryTokens.gridTopPadding, 0.5),
+        reason: "the section's first item leads the new rows",
+      );
     });
 
     testWidgets('should_findItsPlace_when_theViewComesBackAtAnotherWidth', (tester) async {
@@ -306,7 +315,7 @@ void main() {
       c.read(libraryViewModelProvider.notifier).selectTab(LibraryTab.albums);
       await _settle(tester);
 
-      expect(_topOf(tester, anchored), closeTo(0, 0.5));
+      expect(_topOf(tester, anchored), closeTo(LibraryTokens.gridTopPadding, 0.5));
     });
   });
 
@@ -332,12 +341,58 @@ void main() {
       final turned = tester.state<ScrollableState>(grid).position.pixels;
       // The same share of the anchored row scrolled past, on the new rows (11 columns).
       final stride = libraryCellExtent((1280 - 32 - 12 * 10) / 11, TextScaler.noScaling) + LibraryTokens.gridGutterV;
-      expect(turned, closeTo(LibraryTokens.gridTopPadding + (anchor.index ~/ 11 + share) * stride, 0.01));
+      expect(turned, closeTo((anchor.index ~/ 11 + share) * stride, 0.01));
 
       _window(tester, 800, 1280);
       await _settle(tester);
       expect(tester.state<ScrollableState>(grid).position.pixels, closeTo(left, 0.01));
       await _closeSearch(tester);
+    });
+
+    testWidgets('should_landExactly_when_backFromTheDetailColumn', (tester) async {
+      _window(tester, 1280, 800);
+      addTearDown(tester.view.reset);
+      final source = LibraryFakeSource(searchResults: SearchResults(albums: _albums(300)));
+      final c = await _openSearch(tester, source);
+      c.read(librarySearchProvider.notifier).setFilter(LibrarySearchFilter.albums);
+      await _settle(tester);
+      final grid = find.descendant(of: find.byType(GridView), matching: find.byType(Scrollable));
+      await tester.drag(grid, const Offset(0, -1234));
+      await _settle(tester);
+      final left = tester.state<ScrollableState>(grid).position.pixels;
+      expect(left, greaterThan(0));
+
+      // A result went to the detail column: the surface collapses, its query kept.
+      final route = ModalRoute.of(tester.element(find.byType(LibrarySearchSurface)))! as DetailPaneYieldingRoute;
+      route.yieldToDetailColumn();
+      await _settle(tester);
+      expect(find.byType(LibrarySearchSurface), findsNothing);
+      expect(c.read(librarySearchProvider).query, 'a');
+
+      await tester.tap(find.text('pill'));
+      await _settle(tester);
+      expect(tester.state<ScrollableState>(grid).position.pixels, closeTo(left, 0.01));
+      await _closeSearch(tester);
+    });
+
+    test('should_keepOneAnchorPerScope_when_theSameTypeIsShownInBoth', () {
+      final anchors = LibrarySearchGridAnchors();
+      final library = anchors.of(LibrarySearchScope.library, LibrarySearchFilter.albums);
+      expect(anchors.of(LibrarySearchScope.library, LibrarySearchFilter.albums), same(library));
+      expect(anchors.of(LibrarySearchScope.catalog, LibrarySearchFilter.albums), isNot(same(library)));
+      expect(anchors.of(LibrarySearchScope.library, LibrarySearchFilter.artists), isNot(same(library)));
+    });
+
+    test('should_forgetEveryPlace_when_theQueryChanges', () {
+      final c = ProviderContainer(overrides: [activeSourceProvider.overrideWith((ref) async => LibraryFakeSource())]);
+      addTearDown(c.dispose);
+      final anchors = c.read(librarySearchGridAnchorsProvider);
+      final anchor = anchors.of(LibrarySearchScope.library, LibrarySearchFilter.albums)
+        ..index = 40
+        ..width = 800;
+      c.read(librarySearchProvider.notifier).search('a');
+      expect(anchor.index, -1);
+      expect(anchor.width, 0);
     });
 
     testWidgets('should_startAtTheTop_when_aNewQueryLands', (tester) async {
