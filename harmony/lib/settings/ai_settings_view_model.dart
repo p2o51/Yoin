@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/about/song_about_repository.dart';
 import '../data/ai/ai_client.dart';
 import '../data/ai/ai_service.dart';
 import '../data/ai/ai_settings.dart';
@@ -70,7 +73,18 @@ final class StoredAiSettingsActions implements AiSettingsActions {
   void setSearchKey(AiSearchService service, String key) => _settings.setSearchKey(service, key);
 
   @override
-  void setTargetLanguage(String language) => _settings.setTargetLanguage(language);
+  void setTargetLanguage(String language) {
+    final before = _ref.read(aiSettingsProvider).value?.targetLanguage;
+    unawaited(
+      _settings.setTargetLanguage(language).then((_) async {
+        // Answers the AI wrote in the old language would linger otherwise (AiSettingsViewModel
+        // clearGeneratedAbout); the listener's own About entries stay.
+        if (before != null && AiLanguages.normalize(before) != AiLanguages.normalize(language)) {
+          await _ref.read(songAboutStoreProvider).deleteGenerated();
+        }
+      }),
+    );
+  }
 
   @override
   void pullModels() => _ref.read(aiModelListProvider.notifier).pull();

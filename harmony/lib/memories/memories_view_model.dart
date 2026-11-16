@@ -20,6 +20,7 @@ import '../playback/local_ratings.dart';
 import 'copy/memory_copy.dart';
 import 'copy/memory_voice.dart';
 import 'memories_ui_state.dart';
+import 'memory_ai.dart';
 import 'memory_composition.dart';
 
 /// Wall clock for Memories (dates, "two days ago", days since first play).
@@ -249,25 +250,50 @@ class MemoriesViewModel extends Notifier<MemoriesUiState> {
     final titles = store == null || store.profileId != inputs.profileId
         ? const <MediaId, MemoryTitleRow>{}
         : await store.titles();
+    // Yoin's AI words (Android MemoriesDeckCoordinator): the deck is where the
+    // AI title is generated and the narration written; without a service the
+    // cached title (else the album name) and the template stand.
+    final ai = store == null || store.profileId != inputs.profileId ? null : await _memoryAi();
     final now = ref.read(memoriesClockProvider)();
     final dayOf = ref.read(memoriesDayOfProvider);
     final language = ref.read(memoriesAppLanguageProvider);
-    return [
-      for (final c in candidates)
-        composeAlbumMemory(
-          candidate: c,
-          trackRatings: inputs.trackRatings,
-          ratingRow: inputs.albumRatings[c.albumId],
-          notes: [
-            for (final n in inputs.songNotes)
-              if (n.albumId == c.albumId || (c.album?.tracks.any((t) => t.id == n.trackId) ?? false)) n,
-          ],
-          nowMs: now,
-          dayOf: dayOf,
-          appLanguage: language,
-          userTitle: titles[c.albumId]?.title,
-        ),
-    ];
+    Future<MemoryEntry> compose(AlbumMemoryCandidate c) async {
+      final ratingRow = inputs.albumRatings[c.albumId];
+      final notes = [
+        for (final n in inputs.songNotes)
+          if (n.albumId == c.albumId || (c.album?.tracks.any((t) => t.id == n.trackId) ?? false)) n,
+      ];
+      final album = c.album;
+      final aiTitle = ai == null
+          ? null
+          : album != null
+          ? await ai.title(album, memoryTitleWriting(ratingRow, notes))
+          : await ai.cachedTitle(c.albumId);
+      final draft = draftAlbumMemory(
+        candidate: c,
+        trackRatings: inputs.trackRatings,
+        ratingRow: ratingRow,
+        notes: notes,
+        nowMs: now,
+        dayOf: dayOf,
+        appLanguage: language,
+        aiTitle: aiTitle,
+        userTitle: titles[c.albumId]?.title,
+      );
+      final brief = draft.narrationBrief;
+      final narration = ai == null || brief == null ? null : await ai.narrate(c.albumId, brief);
+      return draft.entry(aiNarration: narration);
+    }
+
+    return Future.wait([for (final c in candidates) compose(c)]);
+  }
+
+  Future<MemoryAi?> _memoryAi() async {
+    try {
+      return await ref.read(memoryAiProvider.future);
+    } catch (_) {
+      return null;
+    }
   }
 }
 

@@ -167,6 +167,57 @@ class AiService {
     return parsed;
   }
 
+  /// A title for a Memory from the words the user wrote on the album
+  /// (generateAlbumMemoryTitle): no search, quick. The one place the user's
+  /// own words go to the model (design.md's titling exemption).
+  Future<String> generateAlbumMemoryTitle(
+    AiSettings ai, {
+    required String albumName,
+    String? artist,
+    int? year,
+    required String writingKind,
+    required String writingText,
+  }) async {
+    final raw = await _client.generate(
+      ai,
+      memoryTitlePrompt(
+        albumName: albumName,
+        artist: artist,
+        year: year,
+        writingKind: writingKind,
+        writingText: writingText,
+      ),
+      temperature: 0.2,
+      useSearch: false,
+    );
+    var title = raw.trim();
+    if (title.length >= 2 && title.startsWith('"') && title.endsWith('"')) {
+      title = title.substring(1, title.length - 1);
+    }
+    title = title.replaceAll('\n', ' ');
+    if (title.isEmpty) throw const AiException('No content in AI response');
+    return title;
+  }
+
+  /// Yoin's narration and its closing question for a Memory's diary page,
+  /// from the listening facts only (generateAlbumMemoryNarration): no search;
+  /// past [memoryNarrationTimeout] the local template stands in.
+  Future<MemoryNarrationText> generateAlbumMemoryNarration(
+    AiSettings ai, {
+    required String languageName,
+    required List<String> facts,
+    String? alreadySaid,
+  }) async {
+    final raw = await _client.generate(
+      ai,
+      memoryNarrationPrompt(languageName: languageName, facts: facts, alreadySaid: alreadySaid),
+      temperature: 0.4,
+      useSearch: false,
+      timeout: memoryNarrationTimeout,
+    );
+    return parseMemoryNarration(raw) ?? (throw const AiException('No usable narration in AI response'));
+  }
+
   /// The model ids Custom's endpoint offers.
   Future<List<String>> listCustomModels(AiSettings ai) =>
       _client.listModels(ai.customFormat, ai.customBaseUrl, ai.customKey);
@@ -289,6 +340,126 @@ Return strictly one tagged block per source line:
 Lines:
 $indexed''';
 }
+
+/// Narration + closing question for a Memory (GeminiService.MemoryNarrationText).
+@immutable
+final class MemoryNarrationText {
+  const MemoryNarrationText(this.narration, this.question);
+
+  final String narration;
+  final String question;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MemoryNarrationText && other.narration == narration && other.question == question;
+
+  @override
+  int get hashCode => Object.hash(narration, question);
+}
+
+/// The Memories narration prompt's version; part of the narration cache key
+/// (MEMORY_NARRATION_PROMPT_VERSION). Bump it with every prompt change.
+const int memoryNarrationPromptVersion = 2;
+
+/// The Memories deck waits on the narration this long at most.
+const Duration memoryNarrationTimeout = Duration(seconds: 8);
+
+/// GeminiService.buildMemoryTitlePrompt, word for word.
+String memoryTitlePrompt({
+  required String albumName,
+  String? artist,
+  int? year,
+  required String writingKind,
+  required String writingText,
+}) {
+  final artistLine = (artist == null || artist.trim().isEmpty) ? 'Unknown artist' : artist;
+  final yearLine = year?.toString() ?? 'Unknown year';
+  return '''
+You are titling a private music-journal entry. The user wrote the following
+$writingKind about an album; give it a short title.
+
+Album: $albumName
+Artist: $artistLine
+Year: $yearLine
+
+Their $writingKind:
+$writingText
+
+Write ONE title that captures the heart of what they wrote, drawing on what
+you know about this album's sound and background where it sharpens the title.
+Same language as their text. At most 14 CJK characters or 34 latin characters.
+No quotes, no emoji, no trailing period, no line break.
+Output only the title itself.''';
+}
+
+/// GeminiService.buildMemoryNarrationPrompt (v2, the prototype's voice), word for word.
+String memoryNarrationPrompt({required String languageName, required List<String> facts, String? alreadySaid}) {
+  final factLines = facts.map((f) => '- $f').join('\n');
+  final said = alreadySaid == null || alreadySaid.trim().isEmpty
+      ? ''
+      : '\nThe title already on the page reads: "$alreadySaid". Do not repeat any fact it states.\n';
+  return '''
+You are Yoin, a music app. You write a few words at the top of a listener's
+private diary page for one album, speaking to the listener directly.
+
+Listening facts recorded in the app (the only things you may mention):
+$factLines
+$said
+Rules:
+- Write in $languageName.
+- NARRATION: one or two short sentences, second person, past tense, built only
+  from the facts above. Pick the one or two facts that say most about how they
+  listened; do not list them all.
+- QUESTION: one short question that follows directly from the last fact you
+  stated, so the listener wants to write their own words. It ends with "?" in
+  English or "？" in Chinese.
+- Never judge, praise or describe the music, the artist, the album or its
+  sound. Never guess at feelings, moods or reasons.
+- Never quote, paraphrase or allude to anything the listener wrote. You have
+  not read it.
+- Never name the mechanism: no words such as "memory", "memories",
+  "remember", "记忆", "回忆".
+- Keep track names, months and relative dates as given.
+- No quotation marks around your text, no emoji, no hashtags, no line breaks.
+
+The voice, from other albums (never reuse their facts):
+[NARRATION]37 plays since March, the last one two days ago.[/NARRATION]
+[QUESTION]You gave it a 9.5. What earned it?[/QUESTION]
+[NARRATION]你跨了三个季节回来听，最高分是《Undertow》的 9.0。[/NARRATION]
+[QUESTION]那整张专辑呢？[/QUESTION]
+
+Output exactly this and nothing else:
+[NARRATION]...[/NARRATION]
+[QUESTION]...[/QUESTION]''';
+}
+
+/// `[NARRATION]…[/NARRATION]` + `[QUESTION]…[/QUESTION]`; null when either is
+/// missing or blank, or the question isn't one (parseMemoryNarration).
+MemoryNarrationText? parseMemoryNarration(String rawText) {
+  String? clean(String? text) {
+    if (text == null) return null;
+    var t = text.replaceAll(RegExp(r'\s*\n\s*'), ' ').trim();
+    const quotes = '"“”';
+    while (t.isNotEmpty && quotes.contains(t[0])) {
+      t = t.substring(1);
+    }
+    while (t.isNotEmpty && quotes.contains(t[t.length - 1])) {
+      t = t.substring(0, t.length - 1);
+    }
+    t = t.trim();
+    return t.isEmpty ? null : t;
+  }
+
+  final narration = clean(extractTagContent(rawText, 'NARRATION'));
+  final question = clean(extractTagContent(rawText, 'QUESTION'));
+  if (narration == null || question == null) return null;
+  if (!question.endsWith('?') && !question.endsWith('？')) return null;
+  return MemoryNarrationText(narration, question);
+}
+
+/// The cached form of a narration; [parseMemoryNarration] reads it back.
+String encodeMemoryNarration(MemoryNarrationText text) =>
+    '[NARRATION]${text.narration}[/NARRATION]\n[QUESTION]${text.question}[/QUESTION]';
 
 final RegExp _tagMarker = RegExp(r'\[\s*/?\s*[A-Z][A-Z0-9_]*\s*\]', caseSensitive: false);
 final RegExp _lineTranslation = RegExp(r'\[\s*L(\d+)\s*\]([\s\S]*?)\[\s*/\s*L\1\s*\]', caseSensitive: false);

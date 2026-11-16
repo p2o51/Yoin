@@ -13,12 +13,15 @@ import '../../platform/storage/observed_store.dart';
 import '../../platform/storage/stores.dart';
 import '../../platform/sync/cloud_sync_host.dart';
 import '../../settings/licenses.dart' show yoinVersionCode, yoinVersionName;
+import '../about/song_about_store.dart';
+import '../ai/ai_settings.dart';
 import '../memory/memory_store.dart';
 import '../model/media_id.dart';
 import '../profile/profile_repository.dart';
 import 'adapters/account_descriptor_sync_adapter.dart';
 import 'adapters/home_layout_sync_adapter.dart';
 import 'adapters/memory_sync_adapters.dart';
+import 'adapters/song_about_sync_adapter.dart';
 import 'adapters/track_rating_sync_adapter.dart';
 import 'auth/google_oauth.dart';
 import 'cloud_sync_manager.dart';
@@ -44,18 +47,20 @@ bool isSyncedKey(String key) =>
     key.startsWith('album_ratings.v1.') ||
     key.startsWith('memory_titles.v1.') ||
     key.startsWith('home_layout.v1.') ||
+    key == SongAboutStore.key ||
     key == ProfileRepository.profilesKey;
 
 /// The v1 allowlist as HarmonyOS holds it: one adapter per kind this app
 /// keeps (Android YoinSyncAdapters). Kinds HarmonyOS doesn't have (settings,
-/// AI translations, About/Ask, AI Memory copy and titles, playlist backups)
-/// are carried in the replica untouched and published again, never dropped.
+/// AI translations, AI Memory copy and titles, playlist backups) are carried
+/// in the replica untouched and published again, never dropped.
 List<SyncAdapter> yoinSyncAdapters({
   required SyncDatabase db,
   required MemoryStoreFor memory,
   required TrackRatingAccess ratings,
   required ProfileRepository profiles,
   required KeyValueStore store,
+  Future<String> Function()? aboutLanguage,
 }) => [
   SongNoteSyncAdapter(memory),
   TrackRatingSyncAdapter(ratings),
@@ -64,6 +69,10 @@ List<SyncAdapter> yoinSyncAdapters({
   HomeLayoutSyncAdapter(store: store, profiles: profiles.profiles),
   AlbumTitleSyncAdapter(memory),
   AccountDescriptorSyncAdapter(db: db, profiles: profiles.profiles, credentials: (p) => profiles.credentials(p.id)),
+  SongAboutSyncAdapter(
+    store: SongAboutStore.shared(store),
+    language: aboutLanguage ?? () async => AiLanguages.defaultTarget,
+  ),
 ];
 
 final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
@@ -85,6 +94,7 @@ final cloudSyncProvider = Provider<CloudSyncManager>((ref) {
       ratings: ratings,
       profiles: profiles,
       store: store,
+      aboutLanguage: () async => AiLanguages.normalize((await ref.read(aiSettingsProvider.future)).targetLanguage),
     ),
     binder: (db) => AccountBinder(db: db, profiles: profiles.profiles, credentials: (p) => profiles.credentials(p.id)),
     deviceName: host.deviceName,

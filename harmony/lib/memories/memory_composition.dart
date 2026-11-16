@@ -2,12 +2,13 @@
 /// rows (Android AlbumMemoryComposition + MemoriesDeckCoordinator
 /// .resolveAlbumMemory). Pure: the clock, zone and app language come in.
 ///
-/// HarmonyOS has no Gemini key (yet): Yoin's AI title is never generated,
-/// so the album name takes the title slot, and the narration is always the
-/// local template, as on Android without a key. A title the user gave the
-/// memory ([userTitle], MemoryStore titles) takes the slot over either.
+/// The title is the user's own ([userTitle], MemoryStore titles), else Yoin's
+/// AI title ([aiTitle], memory_ai.dart), else the album name. The narration
+/// is the AI's when one is passed ([AlbumMemoryDraft.entry]), else the local
+/// template, as on Android without a key.
 library;
 
+import '../data/ai/ai_service.dart' show MemoryNarrationText;
 import '../data/memory/album_memory_candidate.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
@@ -15,11 +16,59 @@ import '../playback/local_ratings.dart';
 import 'copy/memory_copy.dart';
 import 'copy/memory_voice.dart';
 import 'memories_ui_state.dart';
+import 'memory_ai.dart' show MemoryTitleWriting;
 
 /// The deck holds at most this many cards (Android MEMORY_DECK_SIZE).
 const int memoryDeckSize = 6;
 
 MemoryEntry composeAlbumMemory({
+  required AlbumMemoryCandidate candidate,
+  required Map<MediaId, LocalRating> trackRatings,
+  required AlbumRatingRow? ratingRow,
+  required List<SongNote> notes,
+  required int nowMs,
+  MemoryDayOf dayOf = localMemoryDay,
+  MemoryProseLanguage appLanguage = MemoryProseLanguage.en,
+  String? aiTitle,
+  String? userTitle,
+  MemoryNarrationText? aiNarration,
+}) => draftAlbumMemory(
+  candidate: candidate,
+  trackRatings: trackRatings,
+  ratingRow: ratingRow,
+  notes: notes,
+  nowMs: nowMs,
+  dayOf: dayOf,
+  appLanguage: appLanguage,
+  aiTitle: aiTitle,
+  userTitle: userTitle,
+).entry(aiNarration: aiNarration);
+
+/// The words an album's AI title is made from (the deck's titleOccupant):
+/// the review, else the newest note; null when the user wrote nothing.
+MemoryTitleWriting? memoryTitleWriting(AlbumRatingRow? ratingRow, List<SongNote> notes) {
+  if (ratingRow?.hasReview ?? false) return MemoryTitleWriting(kind: 'album review', text: ratingRow!.review!);
+  final written = [
+    for (final n in notes)
+      if (!n.isBlank) n,
+  ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  return written.isEmpty ? null : MemoryTitleWriting(kind: 'note', text: written.first.content);
+}
+
+/// One album Memory before Yoin's narration is chosen: its card with the
+/// local template ([entry]), and the facts the AI may narrate from
+/// ([narrationBrief]; null with a review or no listening signal).
+final class AlbumMemoryDraft {
+  AlbumMemoryDraft._(this._build, this.narrationBrief);
+
+  final MemoryEntry Function(MemoryNarrationText? aiNarration) _build;
+  final MemoryNarrationBrief? narrationBrief;
+
+  /// The card; [aiNarration] replaces the template's narration and question.
+  MemoryEntry entry({MemoryNarrationText? aiNarration}) => _build(aiNarration);
+}
+
+AlbumMemoryDraft draftAlbumMemory({
   required AlbumMemoryCandidate candidate,
   required Map<MediaId, LocalRating> trackRatings,
   required AlbumRatingRow? ratingRow,
@@ -114,46 +163,49 @@ MemoryEntry composeAlbumMemory({
   final today = dayOf(nowMs);
   final voice = MemoryVoice.compose(input, today, appLanguage: appLanguage);
 
-  return MemoryEntry(
-    sessionId: candidate.sessionId,
-    albumId: candidate.albumId,
-    albumName: album?.name ?? candidate.albumName,
-    artistName: candidate.artistName,
-    year: album?.year ?? candidate.year,
-    coverArt: album?.coverArt ?? candidate.coverArt,
-    scoreKind: scoreKind,
-    score: albumScore ?? average,
-    albumRating: albumScore,
-    // The user's own title over Yoin's (Android resolveAlbumMemoryTitle: user > AI > album name).
-    memoryTitle: _written(userTitle) ?? voice.title,
-    memoryTitleKind: _written(userTitle) != null ? MemoryTitleKind.user : voice.titleKind,
-    yoinTitle: voice.titleKind == MemoryTitleKind.ai ? voice.title : null,
-    proseLanguage: voice.language,
-    review: review,
-    writings: writings,
-    yoinNarration: voice.narration,
-    yoinQuestion: voice.question,
-    excerptCandidates: MemoryExcerpt.candidates(
-      input,
-      capped: false,
-      today: today,
-      zhDates: appLanguage == MemoryProseLanguage.zh,
+  return AlbumMemoryDraft._(
+    (ai) => MemoryEntry(
+      sessionId: candidate.sessionId,
+      albumId: candidate.albumId,
+      albumName: album?.name ?? candidate.albumName,
+      artistName: candidate.artistName,
+      year: album?.year ?? candidate.year,
+      coverArt: album?.coverArt ?? candidate.coverArt,
+      scoreKind: scoreKind,
+      score: albumScore ?? average,
+      albumRating: albumScore,
+      // The user's own title over Yoin's (Android resolveAlbumMemoryTitle: user > AI > album name).
+      memoryTitle: _written(userTitle) ?? voice.title,
+      memoryTitleKind: _written(userTitle) != null ? MemoryTitleKind.user : voice.titleKind,
+      yoinTitle: voice.titleKind == MemoryTitleKind.ai ? voice.title : null,
+      proseLanguage: voice.language,
+      review: review,
+      writings: writings,
+      yoinNarration: ai?.narration ?? voice.narration,
+      yoinQuestion: ai?.question ?? voice.question,
+      excerptCandidates: MemoryExcerpt.candidates(
+        input,
+        capped: false,
+        today: today,
+        zhDates: appLanguage == MemoryProseLanguage.zh,
+      ),
+      excerptCandidatesMedium: MemoryExcerpt.candidates(
+        input,
+        capped: true,
+        today: today,
+        zhDates: appLanguage == MemoryProseLanguage.zh,
+      ),
+      tracks: tracks,
+      diaryTracks: diaryTracks(tracks, writings),
+      playbackSongs: songs,
+      noteCount: writings.length,
+      ratedTrackCount: input.ratedTracks,
+      totalTrackCount: input.totalTracks,
+      playsInYoin: listening?.plays,
+      firstHeardAt: listening == null ? null : plays!.firstPlayedAt,
+      lastHeardAt: listening == null ? null : plays!.lastPlayedAt,
     ),
-    excerptCandidatesMedium: MemoryExcerpt.candidates(
-      input,
-      capped: true,
-      today: today,
-      zhDates: appLanguage == MemoryProseLanguage.zh,
-    ),
-    tracks: tracks,
-    diaryTracks: diaryTracks(tracks, writings),
-    playbackSongs: songs,
-    noteCount: writings.length,
-    ratedTrackCount: input.ratedTracks,
-    totalTrackCount: input.totalTracks,
-    playsInYoin: listening?.plays,
-    firstHeardAt: listening == null ? null : plays!.firstPlayedAt,
-    lastHeardAt: listening == null ? null : plays!.lastPlayedAt,
+    MemoryVoice.narrationBrief(input, voice, today),
   );
 }
 

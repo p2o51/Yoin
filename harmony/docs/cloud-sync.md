@@ -17,7 +17,8 @@ Cloud project) read each other's data.
 | `album_title` (your Memory title) | ✔ | Restore Yoin's title = tombstone. |
 | `home_layout` | ✔ | The sections JSON travels verbatim. Restore default now deletes the saved layout (as Android), so it syncs as “default”. |
 | `account` | ✔ | Provider, name, created time, “user @ host”. Never credentials. |
-| `setting`, `lyrics_translation`, `song_about`, `memory_copy`, `memory_title`, `playlist_backup` | carried | HarmonyOS has no such feature yet: the records are kept in the replica and published again unchanged, so an Android phone never loses them through this device. |
+| `song_about` (About, Ask answers, your own About entries) | ✔ | Global like Android's table; the AI's rows are stamped with the answer language and only applied in that language, your own entries in every language. Deletes never propagate (a removed row is a blank one). |
+| `setting`, `lyrics_translation`, `memory_copy`, `memory_title`, `playlist_backup` | carried | HarmonyOS has no such feature yet: the records are kept in the replica and published again unchanged, so an Android phone never loses them through this device. |
 
 Play history, credentials, the Apple Music token service and caches never leave
 the device. Apple Music accounts never auto-bind (start syncing or link by hand),
