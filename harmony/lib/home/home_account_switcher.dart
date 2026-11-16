@@ -470,9 +470,16 @@ class _AccountCardOverlay extends StatefulWidget {
 
 class _AccountCardOverlayState extends State<_AccountCardOverlay> with TickerProviderStateMixin {
   late final SpringValue _p = SpringValue(vsync: this, initial: 0, spring: YoinSprings.defaultSpatial);
-  late final ChromeBackEntry _back = ChromeBackEntry(() => scheduleMicrotask(() {
-    if (mounted) close();
-  }));
+
+  /// Back closes the card first (Android shows it as a dialog window), not a
+  /// shell surface under it as well.
+  late final ChromeBackEntry _back = ChromeBackEntry(
+    () => scheduleMicrotask(() {
+      if (mounted) close();
+    }),
+    owns: () => !_closing,
+    priority: ChromeBackPriority.dialog,
+  );
   VoidCallback? _after;
   bool _closing = false;
   final Object _barToken = Object();

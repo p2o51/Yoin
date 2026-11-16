@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/ui/component/corner_mask.dart';
 import 'package:yoin/nowplaying/now_playing_overlay.dart';
 import 'package:yoin/nowplaying/now_playing_presentation.dart';
+import 'package:yoin/nowplaying/now_playing_screen.dart';
 import 'package:yoin/nowplaying/overlay_controller.dart';
 import 'package:yoin/shell/app_chrome.dart';
 import 'package:yoin/shell/chrome_back.dart';
@@ -36,7 +37,6 @@ class _ShellState extends ConsumerState<_Shell> with TickerProviderStateMixin {
     priority: ChromeBackPriority.detailColumn,
   );
   int handOvers = 0;
-  bool _noted = false;
 
   @override
   void initState() {
@@ -44,14 +44,11 @@ class _ShellState extends ConsumerState<_Shell> with TickerProviderStateMixin {
     DetailPaneController.active = pane;
     pane.addListener(_sync);
     backOrder.bindShell(homeSelected: () => true, memoriesOpen: () => false, detailColumnOpen: () => pane.hasEntries);
-    pane.onPageShown = () => backOrder.note(ShellBackOwner.detailColumn, open: true);
+    pane.onPageShown = backOrder.columnPageShown;
   }
 
   void _sync() {
-    if (pane.hasEntries != _noted) {
-      _noted = pane.hasEntries;
-      backOrder.note(ShellBackOwner.detailColumn, open: _noted);
-    }
+    backOrder.syncShell();
     if (pane.hasEntries) _back.attach(appNavigatorKey.currentState!);
   }
 
@@ -300,6 +297,30 @@ void main() {
       expect(shell.pane.holdsColumn, isFalse);
     });
   }
+
+  testWidgets('should_closeThePlayersSheetFirst_when_itOpenedInThePanelBesideANewerColumn', (tester) async {
+    // Opened: side panel, column — then a sheet over the panel (Android: a
+    // ModalBottomSheet window, which takes back before anything under it).
+    final shell = await panelThenColumn(tester);
+    final player = np(tester);
+    final screen = tester.element(find.byType(NowPlayingScreen));
+    showModalBottomSheet<void>(context: screen, builder: (_) => const Text('sheet'));
+    await tester.pumpAndSettle();
+    expect(find.text('sheet'), findsOneWidget);
+    expect(shell.backOrder.owner, ShellBackOwner.nowPlaying);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('sheet'), findsNothing, reason: 'the sheet over the player leaves first');
+    expect(shell.pane.hasEntries, isTrue);
+    expect(player.panelOpen, isTrue);
+    expect(shell.backOrder.recency.last, ShellBackOwner.detailColumn, reason: 'a sheet is not going deeper');
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(shell.pane.holdsColumn, isFalse, reason: 'then the newer column');
+    expect(player.panelOpen, isTrue);
+  });
 
   testWidgets('should_paintPanelCornersWithoutClipOrPhysicalShadow_when_panelOpen', (tester) async {
     // QA r2_33 / r3_03: PhysicalShape and then an anti-aliased clip around

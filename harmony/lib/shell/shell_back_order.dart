@@ -31,16 +31,21 @@ enum ShellBackOwner {
 /// is noted as the newest, so back undoes that step first. One missing from
 /// [recency] ranks oldest, ties falling back to Now Playing > detail column
 /// > Memories.
+///
+/// A sheet open inside the player (the queue, a song's sheet, About: on
+/// Android ModalBottomSheet windows that take back before anything under
+/// them) makes the player answer first too, whatever its place in the order.
 ShellBackOwner resolveShellBackOwner({
   required bool nowPlayingOpen,
   required bool homeSelected,
   bool nowPlayingIsPanel = false,
+  bool nowPlayingSheetOpen = false,
   bool homeEditing = false,
   bool memoriesOpen = false,
   bool detailColumnOpen = false,
   List<ShellBackOwner> recency = const [],
 }) {
-  if (nowPlayingOpen && !nowPlayingIsPanel) return ShellBackOwner.nowPlaying;
+  if (nowPlayingOpen && (!nowPlayingIsPanel || nowPlayingSheetOpen)) return ShellBackOwner.nowPlaying;
   if (homeSelected && homeEditing) {
     return nowPlayingOpen ? ShellBackOwner.nowPlaying : ShellBackOwner.homeEdit;
   }
@@ -75,7 +80,8 @@ extension ShellBackRecency on List<ShellBackOwner> {
 /// The window's one back ledger: the side-by-side surfaces' recency, and
 /// each owner's live state, read when a back arrives. Owners note
 /// themselves where they open, close or go deeper (Now Playing in the
-/// chrome, the column and Memories in the shell, edit mode in Home); their
+/// chrome; the column and Memories in the shell through [syncShell] and
+/// [columnPageShown]; edit mode in Home); their
 /// [ChromeBackEntry]s each own back exactly while [owner] names them, so
 /// one back reaches one surface and each surface keeps its own close
 /// motion and controller.
@@ -87,10 +93,15 @@ class ShellBackLedger {
 
   bool Function() _nowPlayingOpen = _closed;
   bool Function() _nowPlayingIsPanel = _closed;
+  bool Function() _nowPlayingSheetOpen = _closed;
   bool Function() _homeSelected = _open;
   bool Function() _homeEditing = _closed;
   bool Function() _memoriesOpen = _closed;
   bool Function() _detailColumnOpen = _closed;
+
+  /// The shell's surfaces as last noted ([syncShell] notes transitions).
+  bool _memoriesNoted = false;
+  bool _columnNoted = false;
 
   static bool _closed() => false;
   static bool _open() => true;
@@ -98,14 +109,20 @@ class ShellBackLedger {
   /// [owner] opened or was entered further (it becomes the newest), or closed.
   void note(ShellBackOwner owner, {required bool open}) => _recency.noteShellSurface(owner, open: open);
 
-  void bindNowPlaying({required bool Function() open, required bool Function() isPanel}) {
+  void bindNowPlaying({
+    required bool Function() open,
+    required bool Function() isPanel,
+    bool Function() sheetOpen = _closed,
+  }) {
     _nowPlayingOpen = open;
     _nowPlayingIsPanel = isPanel;
+    _nowPlayingSheetOpen = sheetOpen;
   }
 
   void unbindNowPlaying() {
     _nowPlayingOpen = _closed;
     _nowPlayingIsPanel = _closed;
+    _nowPlayingSheetOpen = _closed;
     note(ShellBackOwner.nowPlaying, open: false);
   }
 
@@ -119,10 +136,36 @@ class ShellBackLedger {
     _detailColumnOpen = detailColumnOpen;
   }
 
+  /// Notes the shell's surfaces that opened or closed since the last call
+  /// (call it from their listeners and on a section switch). Memories counts
+  /// only over Home (Android `memoriesOpen`): leaving Home takes it out of
+  /// the order, and coming back to it open makes it the newest again.
+  void syncShell() {
+    final memories = _homeSelected() && _memoriesOpen();
+    if (memories != _memoriesNoted) {
+      _memoriesNoted = memories;
+      note(ShellBackOwner.memories, open: memories);
+    }
+    final column = _detailColumnOpen();
+    if (column != _columnNoted) {
+      _columnNoted = column;
+      note(ShellBackOwner.detailColumn, open: column);
+    }
+  }
+
+  /// A page was shown in the column (opened as its root — also into a
+  /// column already open — or pushed onto it): the newest thing entered.
+  void columnPageShown() {
+    _columnNoted = true;
+    note(ShellBackOwner.detailColumn, open: true);
+  }
+
   void unbindShell() {
     _homeSelected = _open;
     _memoriesOpen = _closed;
     _detailColumnOpen = _closed;
+    _memoriesNoted = false;
+    _columnNoted = false;
     note(ShellBackOwner.memories, open: false);
     note(ShellBackOwner.detailColumn, open: false);
   }
@@ -135,6 +178,7 @@ class ShellBackLedger {
   ShellBackOwner get owner => resolveShellBackOwner(
     nowPlayingOpen: _nowPlayingOpen(),
     nowPlayingIsPanel: _nowPlayingIsPanel(),
+    nowPlayingSheetOpen: _nowPlayingSheetOpen(),
     homeSelected: _homeSelected(),
     homeEditing: _homeEditing(),
     memoriesOpen: _memoriesOpen(),

@@ -49,10 +49,6 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
     priority: ChromeBackPriority.memories,
   );
 
-  /// The open state last noted in [_backOrder] (notes go on transitions).
-  bool _memoriesNoted = false;
-  bool _columnNoted = false;
-
   /// 1 = the shell is the top page; 0 = a page pushed over it (from Memories) has the bar.
   late final SpringValue _uncovered = SpringValue(vsync: this, initial: 1, spring: YoinSprings.standardDefaultSpatial);
 
@@ -83,14 +79,11 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
     );
     // A page shown in the column — also into one already open — is the
     // newest thing entered: back leaves it first.
-    _pane.onPageShown = () => _backOrder.note(ShellBackOwner.detailColumn, open: true);
+    _pane.onPageShown = _backOrder.columnPageShown;
   }
 
   void _syncPaneBack() {
-    if (_pane.hasEntries != _columnNoted) {
-      _columnNoted = _pane.hasEntries;
-      _backOrder.note(ShellBackOwner.detailColumn, open: _columnNoted);
-    }
+    _backOrder.syncShell();
     final navigator = appNavigatorKey.currentState;
     if (_pane.hasEntries && navigator != null) {
       _paneBack.attach(navigator);
@@ -103,10 +96,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
 
   /// Back belongs to Memories exactly while it is open or opening.
   void _syncMemoriesBack() {
-    if (_memories.ownsBack != _memoriesNoted) {
-      _memoriesNoted = _memories.ownsBack;
-      _backOrder.note(ShellBackOwner.memories, open: _memoriesNoted);
-    }
+    _backOrder.syncShell();
     final navigator = appNavigatorKey.currentState;
     if (_memories.ownsBack && navigator != null) {
       _memoriesBack.attach(navigator);
@@ -136,7 +126,11 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with TickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(shellSectionProvider, (_, section) => _homeVisibility.animateTo(section == YoinSection.home ? 1 : 0));
+    ref.listen(shellSectionProvider, (_, section) {
+      _homeVisibility.animateTo(section == YoinSection.home ? 1 : 0);
+      // Memories counts in the back order only over Home.
+      _backOrder.syncShell();
+    });
     // A page over the shell takes the bar back from Memories (and gives it back when it pops).
     final top = ModalRoute.isCurrentOf(context) ?? true;
     _pane.shellIsTop = top;

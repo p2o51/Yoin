@@ -148,6 +148,10 @@ class NowPlayingOverlayController extends ChangeNotifier {
   /// Back layering seen from outside (the queue sheet hooks in here).
   bool Function()? handleInnerBack;
 
+  /// A sheet is open over the player (the queue, a song's sheet, About):
+  /// it takes the window's back before any surface beside the player.
+  bool Function()? innerSheetOpen;
+
   /// The note composer's back level (the screen hooks in here): while it
   /// is being written in, back only puts the pen down — before the stage,
   /// focus and Full → panel.

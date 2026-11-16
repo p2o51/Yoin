@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/shell/chrome_back.dart';
 import 'package:yoin/shell/shell_back_order.dart';
@@ -154,6 +155,64 @@ void main() {
       ShellBackOwner.homeEdit,
       ShellBackOwner.detailColumn,
     ]);
+  });
+
+  testWidgets('should_goToTheBackground_when_noShellOwnerHoldsBackAtTheRoot', (tester) async {
+    // Android returns ShellBackOwner.None and the system takes the back
+    // (Memories open while Library is in front, after a shortcut).
+    await pumpApp(tester);
+    var systemPops = 0;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'SystemNavigator.pop') systemPops++;
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    final ledger = ShellBackLedger()
+      ..bindShell(homeSelected: () => false, memoriesOpen: () => true, detailColumnOpen: () => false)
+      ..syncShell();
+    var memoriesBacks = 0;
+    final memories = ChromeBackEntry(
+      () => memoriesBacks++,
+      owns: () => ledger.owns(ShellBackOwner.memories),
+      priority: ChromeBackPriority.memories,
+    );
+    addTearDown(memories.dispose);
+    memories.attach(nav.currentState!);
+
+    await back(tester);
+    expect(memoriesBacks, 0);
+    expect(systemPops, 1, reason: 'the back is not swallowed');
+  });
+
+  testWidgets('should_popThePushedPage_when_noArbitratedEntryOnItOwnsBack', (tester) async {
+    await pumpApp(tester);
+    nav.currentState!.push(MaterialPageRoute<void>(builder: (_) => const Text('page')));
+    await tester.pumpAndSettle();
+    final entry = ChromeBackEntry(() {}, owns: () => false, priority: ChromeBackPriority.nowPlaying);
+    addTearDown(entry.dispose);
+    entry.attach(nav.currentState!);
+
+    await back(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('page'), findsNothing);
+    expect(find.text('shell'), findsOneWidget);
+  });
+
+  testWidgets('should_closeOnlyTheDialogCard_when_itIsOpenOverAShellOwner', (tester) async {
+    await pumpApp(tester);
+    final s = arbitrated(tester);
+    s.open[ShellBackOwner.detailColumn] = true;
+    s.ledger.note(ShellBackOwner.detailColumn, open: true);
+    var cardOpen = true;
+    final card = ChromeBackEntry(() => cardOpen = false, owns: () => cardOpen, priority: ChromeBackPriority.dialog);
+    addTearDown(card.dispose);
+    card.attach(nav.currentState!);
+
+    await back(tester);
+    expect(cardOpen, isFalse);
+    expect(s.closed, isEmpty, reason: 'one back, one surface: the card, as Android\'s dialog window');
+    await back(tester);
+    expect(s.closed, [ShellBackOwner.detailColumn]);
   });
 
   testWidgets('should_stillCallUnarbitratedEntry_when_back', (tester) async {

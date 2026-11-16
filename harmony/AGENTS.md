@@ -56,6 +56,8 @@ how they map onto Flutter + ArkTS. Toolchain, build and install commands: `READM
   `ShellBackLedger` (`lib/shell/shell_back_order.dart`, Android `ShellBackResolver`) names them: the
   full-window player first, then Home edit; the side-by-side surfaces close newest first, and going
   deeper into an open one (a page shown or pushed in the column, lyrics / focus) makes it newest again.
+  A sheet over the player (Android's ModalBottomSheet window) and the account card (a dialog there) take
+  back first; when no owner holds it, `ChromeBackEntry` passes the back on (pop, or background at the root).
 
 ## Adaptive
 

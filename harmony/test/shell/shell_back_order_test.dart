@@ -235,6 +235,58 @@ void main() {
       expect(ledger.owner, ShellBackOwner.detailColumn);
     });
 
+    test('should_answerWithThePlayer_when_aSheetIsOpenOverThePanelBesideANewerSurface', () {
+      final owner = resolveShellBackOwner(
+        nowPlayingOpen: true,
+        nowPlayingIsPanel: true,
+        nowPlayingSheetOpen: true,
+        homeSelected: true,
+        detailColumnOpen: true,
+        recency: const [ShellBackOwner.nowPlaying, ShellBackOwner.detailColumn],
+      );
+      expect(owner, ShellBackOwner.nowPlaying);
+    });
+
+    test('should_noteMemoriesOnlyOverHome_when_theSectionSwitches', () {
+      var home = true;
+      var memories = false;
+      var column = false;
+      final ledger = ShellBackLedger()
+        ..bindShell(homeSelected: () => home, memoriesOpen: () => memories, detailColumnOpen: () => column);
+      memories = true;
+      ledger.syncShell();
+      column = true;
+      ledger.syncShell();
+      expect(ledger.recency, [ShellBackOwner.memories, ShellBackOwner.detailColumn]);
+      expect(ledger.owner, ShellBackOwner.detailColumn);
+
+      // Library in front (a shortcut): Memories leaves the order (Android memoriesOpen).
+      home = false;
+      ledger.syncShell();
+      expect(ledger.recency, [ShellBackOwner.detailColumn]);
+      // Home again with Memories still open: it is the newest surface again.
+      home = true;
+      ledger.syncShell();
+      expect(ledger.recency, [ShellBackOwner.detailColumn, ShellBackOwner.memories]);
+      expect(ledger.owner, ShellBackOwner.memories);
+    });
+
+    test('should_noteTheColumnNewestWithoutANoteOnClose_when_aPageIsShownInTheOpenColumn', () {
+      var column = false;
+      final ledger = ShellBackLedger()
+        ..bindShell(homeSelected: () => true, memoriesOpen: () => true, detailColumnOpen: () => column);
+      column = true;
+      ledger.columnPageShown();
+      ledger.syncShell();
+      ledger.syncShell();
+      expect(ledger.recency, [ShellBackOwner.detailColumn, ShellBackOwner.memories]);
+      ledger.columnPageShown();
+      expect(ledger.recency, [ShellBackOwner.memories, ShellBackOwner.detailColumn]);
+      column = false;
+      ledger.syncShell();
+      expect(ledger.recency, [ShellBackOwner.memories]);
+    });
+
     test('should_forgetTheShellsSurfaces_when_theShellUnbinds', () {
       final ledger = ShellBackLedger()
         ..bindShell(homeSelected: () => true, memoriesOpen: () => true, detailColumnOpen: () => true)

@@ -88,7 +88,11 @@ class _AppChromeState extends ConsumerState<AppChrome> with TickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _backOrder.bindNowPlaying(open: () => _controller.expanded, isPanel: () => _controller.panelOpen);
+    _backOrder.bindNowPlaying(
+      open: () => _controller.expanded,
+      isPanel: () => _controller.panelOpen,
+      sheetOpen: () => _controller.innerSheetOpen?.call() ?? false,
+    );
     _controller.addListener(_syncBack);
     DetailPaneController.columnOpen.addListener(_syncPanelFloor);
     _syncPanelFloor();
