@@ -142,7 +142,8 @@ void main() {
         ),
       );
       expect(_names(sorted.playlists), ['Winter', 'Summer', 'Spring']);
-      expect(sorted.playlists!.sections.map((s) => (s.label as MonthLabel).month), [12, 7, 3]);
+      // Nothing opened yet: the scroller is its handle alone, as Android's.
+      expect(sorted.playlists!.sections, isEmpty);
     });
 
     test('should_cutTimelineSections_when_playlistsAreRecentlyAdded', () {

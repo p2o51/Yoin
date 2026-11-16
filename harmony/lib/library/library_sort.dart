@@ -353,11 +353,9 @@ SortedView sortItems(
     case LibrarySort.recentlyAdded:
       sections = timelineSections([for (final e in entries) e.addedAtMs]);
     case LibrarySort.recents:
-      final anyRecord = entries.any((e) => e.lastSeenMs != null);
-      sections = anyRecord
-          ? recentsSections([for (final e in entries) e.lastSeenMs], nowMs: inputs.nowMs)
-          // No record at all: Recents falls back to Recently added, and so do its sections.
-          : timelineSections([for (final e in entries) e.addedAtMs]);
+      // No record at all: the order falls back to Recently added, the
+      // scroller to its handle alone (Android LibraryScrollIndexer).
+      sections = recentsSections([for (final e in entries) e.lastSeenMs], nowMs: inputs.nowMs);
   }
   return SortedView([for (final e in entries) e.item], sections);
 }

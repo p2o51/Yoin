@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../app/providers.dart';
 import '../data/activity/activity.dart';
 import '../data/model/model.dart';
 import '../home/home_grid_pool_store.dart';
@@ -135,7 +134,7 @@ class PlaylistDeletions extends Notifier<PlaylistDeletionState> {
     } catch (_) {
       return false;
     }
-    await _forgetStored(key);
+    await _forgetStored(writes, key);
     return true;
   }
 
@@ -144,9 +143,10 @@ class PlaylistDeletions extends Notifier<PlaylistDeletionState> {
   /// In's stored pools, so Home's next read doesn't bring it back. Best
   /// effort: the service no longer has it, and Home drops it from the feed
   /// up anyway (HomeViewModel).
-  Future<void> _forgetStored(PlaylistDeletionKey key) async {
+  Future<void> _forgetStored(PlaylistWrites writes, PlaylistDeletionKey key) async {
     try {
-      final log = await ref.read(activityLogProvider.future);
+      // The account the deletion was made on, even if another is in use by now.
+      final log = await writes.activityLogOf(key.account);
       await log?.forget(ActivityEntityType.playlist, key.id.rawId);
     } catch (_) {}
     final account = key.account;

@@ -44,6 +44,20 @@ final class ActivityEvent {
   /// Plays and visits of the same entity collapse onto this key (newest wins).
   String get entityKey => '${entityType.name}:$entityId';
 
+  /// This row under another [title] (a playlist renamed since it was played).
+  ActivityEvent withTitle(String title) => ActivityEvent(
+    entityType: entityType,
+    actionType: actionType,
+    entityId: entityId,
+    title: title,
+    timestampMs: timestampMs,
+    subtitle: subtitle,
+    coverArtKey: coverArtKey,
+    songId: songId,
+    albumId: albumId,
+    artistId: artistId,
+  );
+
   Map<String, Object?> toJson() => {
         'e': entityType.name,
         'a': actionType.name,
@@ -83,6 +97,11 @@ abstract interface class ActivityLog {
   /// (a playlist deleted), so the Activities don't bring it back (Android
   /// ActivityEventDao.deletePlaylist).
   Future<void> forget(ActivityEntityType entityType, String entityId);
+
+  /// [entityType] [entityId]'s row takes [title]: a playlist renamed on its
+  /// page, so the Activities don't keep the name it had when it was played
+  /// (Android ActivityEventDao.renamePlaylist).
+  Future<void> retitle(ActivityEntityType entityType, String entityId, String title);
 
   static const cap = 400;
 }
@@ -138,6 +157,28 @@ final class StoredActivityLog implements ActivityLog {
         await _store.write(_key, jsonEncode([for (final r in rows) r.toJson()]));
       } catch (_) {
         // Best effort, as logging.
+      }
+    });
+    _tail = done;
+    return done;
+  }
+
+  @override
+  Future<void> retitle(ActivityEntityType entityType, String entityId, String title) {
+    final done = _tail.then((_) async {
+      try {
+        final rows = await _load();
+        var changed = false;
+        for (final (i, r) in rows.indexed) {
+          if (r.entityType != entityType || r.entityId != entityId || r.title == title) continue;
+          rows[i] = r.withTitle(title);
+          changed = true;
+        }
+        if (!changed) return;
+        _changes.add(List.unmodifiable(rows));
+        await _store.write(_key, jsonEncode([for (final r in rows) r.toJson()]));
+      } catch (_) {
+        // Best effort: the service has the name.
       }
     });
     _tail = done;

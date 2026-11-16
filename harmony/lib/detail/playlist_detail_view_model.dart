@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/model/model.dart';
 import '../library/playlist_deletions.dart';
+import '../library/playlist_renames.dart';
 import '../library/playlist_writes.dart';
 import '../shell/app_messages.dart';
 import '../ui/component/component_strings.dart';
@@ -157,7 +159,9 @@ class PlaylistDetailNotifier extends Notifier<PlaylistDetailState> {
   PlaylistDetailState build() {
     // A write anywhere (Add to playlist from a row's sheet, a rename here): the page re-reads in place.
     ref.listen(playlistsRevisionProvider, (_, _) {
-      if (state is PlaylistDetailContent) _load(ref.read(detailCacheProvider));
+      // Not once Delete has closed the page: a read then would find the
+      // playlist gone and put "not found" on the page on its way out.
+      if (!_deleted && state is PlaylistDetailContent) _load(ref.read(detailCacheProvider));
     });
     // Kept current, so an edit knows its account the moment it is made.
     ref.listen(playlistAccountProvider, (_, _) {});
@@ -182,6 +186,7 @@ class PlaylistDetailNotifier extends Notifier<PlaylistDetailState> {
     final writes = _writes;
     final account = writes.accountNow();
     final post = ref.read(appMessageSinkProvider);
+    final renames = ref.read(playlistRenamesProvider.notifier);
     _renamesOut++;
     // The page already wears the name, so the write goes on if the page closes under it.
     _renaming = () async {
@@ -199,6 +204,8 @@ class PlaylistDetailNotifier extends Notifier<PlaylistDetailState> {
       _renamesOut--;
       if (ok) {
         post(lines.strings.playlistRenamed);
+        // Home's rows that keep a name of their own (Activities, Jump Back In) take this one.
+        unawaited(renames.renamed(account, playlistId, trimmed));
         return trimmed;
       }
       // Only while this name is still the one on the page: a later rename is not undone.
@@ -215,6 +222,8 @@ class PlaylistDetailNotifier extends Notifier<PlaylistDetailState> {
   bool delete(PlaylistDeletionLines lines) {
     if (_deleted) return false;
     _deleted = true;
+    // A read still out lands on a closing page: dropped (it may find the playlist gone).
+    _generation++;
     ref.read(playlistDeletionsProvider.notifier).delete(playlistId, lines);
     return true;
   }
@@ -261,7 +270,7 @@ class PlaylistDetailNotifier extends Notifier<PlaylistDetailState> {
         _publish();
         return;
       }
-      await writes.remove(playlistId, [position]);
+      await writes.remove(playlistId, [(track: entry.track.id, position: position)]);
     } catch (e) {
       _removing.remove(rowKey);
       _publish();

@@ -215,4 +215,23 @@ void main() {
     expect(kept.cachedAtMs, 5);
     expect(jsonDecode((await kv.read(HomeGridPoolStore.keyFor('p1', MediaId.providerSubsonic)))!), isA<Map>());
   });
+
+  test('should_changeTheRowsOfTheAccountTheEditWasMadeOn_when_anotherAccountIsInUseByThen', () async {
+    ActivityEvent visit(String id) => ActivityEvent(
+      entityType: ActivityEntityType.playlist,
+      actionType: ActivityActionType.visited,
+      entityId: id,
+      title: id,
+      timestampMs: 1,
+    );
+    final earlier = StoredActivityLog(kv, profileId: 'p0');
+    await earlier.record(visit('pl2'));
+    await log.record(visit('pl2'));
+    final writes = c.read(playlistWritesProvider);
+    expect(await writes.activityLogOf('p1'), same(log));
+    await (await writes.activityLogOf('p0'))!.forget(ActivityEntityType.playlist, 'pl2');
+    expect(await StoredActivityLog(kv, profileId: 'p0').recent(), isEmpty);
+    expect([for (final e in await log.recent()) e.entityId], ['pl2']);
+    expect(await writes.activityLogOf(null), isNull);
+  });
 }

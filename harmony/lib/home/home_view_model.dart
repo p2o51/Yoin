@@ -9,6 +9,7 @@ import '../data/home/home_snapshot_store.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../library/playlist_deletions.dart';
+import '../library/playlist_renames.dart';
 import '../playback/playback_controller.dart';
 import 'home_grid_pool_store.dart';
 import 'home_metrics.dart';
@@ -68,12 +69,20 @@ class HomeViewModel extends Notifier<HomeUiState> {
   final Set<PlaylistDeletionKey> _deletedPlaylists = {};
   int _deletionsSeen = 0;
 
+  /// The names playlists were renamed to on their pages while Home was up
+  /// ([PlaylistRenames]): Jump Back In's pools a load still holds were read
+  /// before (Android renamedPlaylists).
+  final Map<PlaylistDeletionKey, String> _renamedPlaylists = {};
+  int _renamesSeen = 0;
+
   @override
   HomeUiState build() {
     final source = ref.watch(activeSourceProvider);
     ref.onDispose(_stop);
     _deletionsSeen = ref.read(playlistDeletionsProvider).lastSeq;
     ref.listen(playlistDeletionsProvider, (_, next) => _onPlaylistDeletions(next));
+    _renamesSeen = ref.read(playlistRenamesProvider).lastSeq;
+    ref.listen(playlistRenamesProvider, (_, next) => _onPlaylistRenames(next));
     // A feed up (the snapshot painted while the source came up, or a reload)
     // stays through the rebuild: the load replaces it, never a spinner between.
     final previous = stateOrNull;
@@ -202,6 +211,42 @@ class HomeViewModel extends Notifier<HomeUiState> {
     _save(kept);
   }
 
+  /// A playlist renamed on its page, as the service took it (Android
+  /// observePlaylistRenames): the feed up takes the new name where it shows
+  /// that playlist (an Activities row, a Jump Back In card, Your Playlists),
+  /// without reading Home again. The stored rows took it too (PlaylistRenames).
+  void _onPlaylistRenames(PlaylistRenameState next) {
+    final renamed = next.after(_renamesSeen);
+    _renamesSeen = next.lastSeq;
+    if (renamed.isEmpty) return;
+    final current = state;
+    var content = current is HomeContent ? current : null;
+    final account = content?.scopeKey.split('|').last;
+    for (final r in renamed) {
+      _renamedPlaylists[PlaylistDeletionKey(r.account, r.id)] = r.name;
+      if (content != null && (r.account == null || r.account == account)) {
+        content = homeContentWithPlaylistName(content, r.id, r.name);
+      }
+    }
+    if (content == null || identical(content, current)) return;
+    state = content;
+    if (content.scopeKey.isNotEmpty) _contentCache[content.scopeKey] = content;
+    _save(content);
+  }
+
+  /// [content]'s Jump Back In cards under the names their playlists were
+  /// renamed to on its account (a pool read before the rename still has the old one).
+  HomeContent _withRenamedCards(HomeContent content) {
+    if (_renamedPlaylists.isEmpty) return content;
+    final account = content.scopeKey.split('|').last;
+    var grid = content.grid;
+    for (final MapEntry(:key, :value) in _renamedPlaylists.entries) {
+      if (key.account != null && key.account != account) continue;
+      grid = homeCardsWithPlaylistName(grid, key.id, value);
+    }
+    return identical(grid, content.grid) ? content : content.copyWith(grid: grid);
+  }
+
   /// [content] without the playlists deleted on its account.
   HomeContent _withoutDeleted(HomeContent content) {
     if (_deletedPlaylists.isEmpty) return content;
@@ -215,7 +260,7 @@ class HomeViewModel extends Notifier<HomeUiState> {
 
   void _publish(int generation, HomeContent content) {
     if (!_live(generation)) return;
-    content = _withoutDeleted(content);
+    content = _withRenamedCards(_withoutDeleted(content));
     final current = state;
     if (current is HomeContent && current.sameFeedAs(content)) return;
     state = content;
@@ -495,6 +540,52 @@ HomeContent homeContentWithoutPlaylists(HomeContent content, Set<MediaId> ids) {
         if (!ids.contains(p.id)) p,
     ],
   );
+}
+
+/// [content] with playlist [id] called [name] wherever it shows it: its
+/// Activities rows (a row keeps the name the playlist had when it was
+/// played), its Jump Back In cards and Your Playlists (Android
+/// HomeUiState.Content.withPlaylistName). The same content when none shows it
+/// under another name.
+HomeContent homeContentWithPlaylistName(HomeContent content, MediaId id, String name) {
+  bool activityIsIt(ActivityEvent e) =>
+      e.entityType == ActivityEntityType.playlist && content.provider == id.provider && e.entityId == id.rawId;
+  final grid = homeCardsWithPlaylistName(content.grid, id, name);
+  if (!content.activities.any((e) => activityIsIt(e) && e.title != name) &&
+      identical(grid, content.grid) &&
+      !content.playlists.any((p) => p.id == id && p.name != name)) {
+    return content;
+  }
+  return content.copyWith(
+    activities: [for (final e in content.activities) activityIsIt(e) ? e.withTitle(name) : e],
+    grid: grid,
+    playlists: [for (final p in content.playlists) p.id == id ? p.withName(name) : p],
+  );
+}
+
+/// [cards] with playlist [id]'s under [name]; the same list when none shows it under another.
+List<HomeWidgetCard> homeCardsWithPlaylistName(List<HomeWidgetCard> cards, MediaId id, String name) {
+  bool isIt(HomeWidgetCard card) => switch (card.target) {
+    HomeOpenPlaylist(:final playlist) => playlist.id == id && (card.title != name || playlist.name != name),
+    _ => false,
+  };
+  if (!cards.any(isIt)) return cards;
+  return [
+    for (final card in cards)
+      if (!isIt(card))
+        card
+      else
+        HomeWidgetCard(
+          stableId: card.stableId,
+          kind: card.kind,
+          title: name,
+          subtitle: card.subtitle,
+          target: HomeOpenPlaylist((card.target as HomeOpenPlaylist).playlist.withName(name)),
+          cover: card.cover,
+          version: card.version,
+          signal: card.signal,
+        ),
+  ];
 }
 
 /// The hero footnote from an album: year, songs (> 0), minutes (> 60 s), version.

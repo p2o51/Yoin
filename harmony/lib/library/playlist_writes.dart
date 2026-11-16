@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/activity/activity.dart';
 import '../data/model/model.dart';
 import '../data/source/music_source.dart';
 import '../detail/detail_cache.dart';
@@ -95,6 +96,16 @@ class PlaylistWrites {
     }
   }
 
+  /// [account]'s activity log (null: no account): the one up while it is the
+  /// account in use, else one read from storage. An edit answered after a
+  /// switch then changes the rows of the account it was made on, not the
+  /// next one's.
+  Future<ActivityLog?> activityLogOf(String? account) async {
+    if (account == null) return null;
+    if (await isAccountInUse(account)) return _ref.read(activityLogProvider.future);
+    return StoredActivityLog(_ref.read(keyValueStoreProvider), profileId: account);
+  }
+
   Future<void> rename(MediaId playlist, String name) async {
     final (_, writes) = await _writes();
     await writes.renamePlaylist(playlist, name.trim());
@@ -107,9 +118,20 @@ class PlaylistWrites {
     _changed(playlist);
   }
 
-  Future<void> remove(MediaId playlist, List<int> positions) async {
-    final (_, writes) = await _writes();
-    await writes.removeFromPlaylist(playlist, positions);
+  /// Takes [items] out of [playlist]: each song at the position the page
+  /// listed it. Subsonic's updatePlaylist removes by index and checks
+  /// nothing, so each index is found in the playlist as the service holds it
+  /// now, never taken from the page (Android SubsonicMusicSource
+  /// removeTracksFromPlaylist): another client may have edited it since, and
+  /// index 1 of a stale [A, B] is A on the service's [X, A, B]. A song listed
+  /// twice loses the entry nearest the one tapped; one already gone sends
+  /// nothing.
+  Future<void> remove(MediaId playlist, List<({MediaId track, int position})> items) async {
+    final (source, writes) = await _writes();
+    if (items.isEmpty) return;
+    final current = [for (final t in (await source.library.getPlaylist(playlist))?.tracks ?? const <Track>[]) t.id];
+    final indexes = {for (final item in items) ?playlistIndexNearest(current, item.track, item.position)};
+    if (indexes.isNotEmpty) await writes.removeFromPlaylist(playlist, [...indexes]..sort((a, b) => b.compareTo(a)));
     _changed(playlist);
   }
 
@@ -122,3 +144,16 @@ class PlaylistWrites {
 }
 
 final playlistWritesProvider = Provider<PlaylistWrites>(PlaylistWrites.new);
+
+/// Where [song] sits in [songs], a playlist's songs as the service lists
+/// them: at [position] when it is there, else its entry nearest to it (a song
+/// can be listed twice); null when the playlist no longer has it (Android
+/// playlistIndexNearest).
+int? playlistIndexNearest(List<MediaId> songs, MediaId song, int position) {
+  int? best;
+  for (final (i, id) in songs.indexed) {
+    if (id != song) continue;
+    if (best == null || (i - position).abs() < (best - position).abs()) best = i;
+  }
+  return best;
+}

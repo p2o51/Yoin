@@ -138,6 +138,34 @@ void main() {
       expect(c2.read(playlistsRevisionProvider), 0);
     });
 
+    test('should_removeTheSongWhereTheServiceHasItNow_when_thePagesPositionIsStale', () async {
+      // Another client put X first: the page's position 1 ('b') is 'a' on the service now.
+      final p = source.playlists[pl1]!;
+      source.playlists[pl1] = Playlist(
+        id: pl1,
+        name: p.name,
+        canWrite: true,
+        tracks: [Track(id: MediaId.subsonic('x')), ...p.tracks],
+      );
+      await c.read(playlistWritesProvider).remove(pl1, [(track: MediaId.subsonic('b'), position: 1)]);
+      expect(source.calls, ['remove:pl1:2']);
+      expect([for (final t in source.playlists[pl1]!.tracks) t.id.rawId], ['x', 'a', 'c']);
+      expect(c.read(playlistsRevisionProvider), 1);
+    });
+
+    test('should_sendNothing_when_theSongIsGoneFromTheServiceAlready', () async {
+      await c.read(playlistWritesProvider).remove(pl1, [(track: MediaId.subsonic('z'), position: 1)]);
+      expect(source.calls, isEmpty);
+    });
+
+    test('should_takeTheNearestEntry_when_theSongIsListedTwice', () {
+      final ids = [for (final r in ['a', 'b', 'a', 'c', 'a']) MediaId.subsonic(r)];
+      expect(playlistIndexNearest(ids, MediaId.subsonic('a'), 2), 2);
+      expect(playlistIndexNearest(ids, MediaId.subsonic('a'), 3), 2);
+      expect(playlistIndexNearest(ids, MediaId.subsonic('a'), 5), 4);
+      expect(playlistIndexNearest(ids, MediaId.subsonic('z'), 0), isNull);
+    });
+
     test('should_tellAddFromEdit_when_readingAbilities', () {
       expect(playlistAbilities(PlaylistFakeSource()), (canAdd: true, canEdit: true));
       expect(playlistAbilities(PlaylistFakeSource(edit: false)), (canAdd: true, canEdit: false));

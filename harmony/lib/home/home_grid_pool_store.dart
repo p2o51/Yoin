@@ -124,6 +124,30 @@ class HomeGridPoolStore {
     return done;
   }
 
+  /// Playlist [rawId] in the stored pools takes [name]: renamed on its page,
+  /// so Jump Back In's next read shows the new name (Android
+  /// HomeGridPoolDao.renamePlaylist). Best effort.
+  Future<void> renamePlaylist(String profileId, String provider, String rawId, String name) {
+    final done = _tail.then((_) async {
+      try {
+        final key = keyFor(profileId, provider);
+        final raw = await _store.read(key);
+        if (raw == null) return;
+        final pools = HomeGridPools.fromJson((jsonDecode(raw) as Map).cast<String, Object?>(), provider: provider);
+        if (!pools.playlists.any((p) => p.id.rawId == rawId && p.name != name)) return;
+        final renamed = HomeGridPools(
+          albums: pools.albums,
+          tracks: pools.tracks,
+          playlists: [for (final p in pools.playlists) p.id.rawId == rawId ? p.withName(name) : p],
+          cachedAtMs: pools.cachedAtMs,
+        );
+        await _store.write(key, jsonEncode(renamed.toJson()));
+      } catch (_) {}
+    });
+    _tail = done;
+    return done;
+  }
+
   /// Best effort: a failed write never costs the shelf.
   Future<void> write(String profileId, String provider, HomeGridPools pools) {
     final done = _tail.then((_) async {

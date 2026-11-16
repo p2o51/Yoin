@@ -7,6 +7,7 @@ import 'package:yoin/data/model/model.dart';
 import 'package:yoin/data/source/music_source.dart';
 import 'package:yoin/detail/playlist_detail_view_model.dart';
 import 'package:yoin/library/playlist_deletions.dart';
+import 'package:yoin/library/playlist_renames.dart';
 import 'package:yoin/library/playlist_writes.dart';
 import 'package:yoin/shell/app_messages.dart';
 
@@ -54,10 +55,13 @@ class _EditSource extends FakeMusicSource implements MusicWriteActions, MusicPla
     tracks: [for (final s in songs) Track(id: MediaId.subsonic(s), title: s, durationSec: 100)],
   );
 
+  /// The service deleted it: reads find nothing.
+  bool gone = false;
+
   @override
-  Future<Playlist?> getPlaylist(MediaId id) async => playlist;
+  Future<Playlist?> getPlaylist(MediaId id) async => gone ? null : playlist;
   @override
-  Future<List<Playlist>> getPlaylists() async => [playlist];
+  Future<List<Playlist>> getPlaylists() async => [if (!gone) playlist];
 
   Future<void> _write(String call) async {
     calls.add(call);
@@ -81,7 +85,10 @@ class _EditSource extends FakeMusicSource implements MusicWriteActions, MusicPla
   }
 
   @override
-  Future<void> deletePlaylist(MediaId playlistId) => _write('delete');
+  Future<void> deletePlaylist(MediaId playlistId) async {
+    await _write('delete');
+    gone = true;
+  }
 
   @override
   Future<Playlist> createPlaylist(String name, {List<MediaId> tracks = const [], String? description}) =>
@@ -274,10 +281,14 @@ void main() {
       await _settle();
       expect(source.calls, ['rename:Night']);
       expect(shown().playlist.name, 'Night');
+      expect(c.read(playlistRenamesProvider).renamed, isEmpty);
       gate.complete();
       await _settle();
       expect(shown().playlist.name, 'Night');
       expect(messages, ['Renamed']);
+      // Taken: Home's rows that keep a name of their own hear of it, on this account.
+      final taken = c.read(playlistRenamesProvider).renamed.single;
+      expect((taken.account, taken.id, taken.name), ('p1', id, 'Night'));
     });
 
     test('should_putTheOldNameBack_when_theServiceRefuses', () async {
@@ -288,6 +299,7 @@ void main() {
       await _settle();
       expect(shown().playlist.name, 'Road');
       expect(messages, ["Couldn't rename playlist"]);
+      expect(c.read(playlistRenamesProvider).renamed, isEmpty);
     });
 
     test('should_sendNothing_when_theNameIsBlankOrUnchanged', () async {
@@ -382,6 +394,8 @@ void main() {
       expect(c.read(playlistDeletionsProvider).pending, isEmpty);
       expect(c.read(playlistDeletionsProvider).doneAfter(0), [PlaylistDeletionKey('p1', id)]);
       expect(messages, ['Playlist deleted']);
+      // The page on its way out keeps what it showed: no read puts "not found" on it.
+      expect(c.read(playlistDetailProvider(id)), isA<PlaylistDetailContent>());
     });
 
     test('should_handTheDeletionOverOnce_when_deleteIsConfirmedTwice', () async {

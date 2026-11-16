@@ -196,7 +196,7 @@ class _HeroMeta extends StatelessWidget {
     // Songs without durations leave the line out rather than show "–" under a count that is there.
     final duration = total > 0
         ? (h > 0 ? strings.durationHoursMinutes(h, m) : strings.durationMinutes(m))
-        : (state.trackCount == 0 ? '–' : null);
+        : (state.trackCount == 0 ? '—' : null);
     final owner = state.playlist.owner?.trim();
     final comment = state.playlist.comment?.trim();
     return Column(
