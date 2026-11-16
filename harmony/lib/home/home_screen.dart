@@ -387,6 +387,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               // Every press while editing brings the sway back; a finger down holds the idle rule.
               child: Listener(
                 onPointerDown: (_) {
+                  // A finger takes the page from the bar's Add scroll.
+                  _trayScrolling = false;
                   _wiggle.pointerDown = true;
                   if (ref.read(homeEditProvider).editing) _wiggle.touch();
                 },
@@ -858,7 +860,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if (!_measure(order, tops, heights, require: order.indexOf(section))) return;
     final body = _bodyKeys[section]?.currentContext?.findRenderObject() as RenderBox?;
     if (body == null || !body.hasSize) return;
-    YoinHaptics.longPress();
+    // Picking a section up (Android HomeEditGestures DragStartHaptic).
+    YoinHaptics.dragStart();
+    ref.read(homeEditProvider.notifier).carrying = true;
     _raise(section, body.size);
     // Carried: the others sway at the drag envelope; the lifted one stills.
     _wiggle
@@ -946,7 +950,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       }
       _shiftOf(_dragOrder[i]).animateTo(to);
     }
-    if (target != _dragTarget) YoinHaptics.tick();
+    if (target != _dragTarget) YoinHaptics.segmentTick();
     setState(() {
       _dragDy += dy;
       _dragTarget = target;
@@ -994,6 +998,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   void _endDrag() {
     final section = _dragging;
     if (section == null) return;
+    _releaseCarry();
     _stopAutoScroll();
     final a = _dragOrder.indexOf(section);
     final b = _dragTarget;
@@ -1049,8 +1054,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if (_autoScroll.isActive) _autoScroll.stop();
   }
 
+  /// The carry is over: the bar's left slot answers again.
+  void _releaseCarry() {
+    if (mounted) ref.read(homeEditProvider.notifier).carrying = false;
+  }
+
   void _cancelDrag() {
     if (_dragging == null) return;
+    _releaseCarry();
     _stopAutoScroll();
     for (final s in _dragOrder) {
       _shiftOf(s).animateTo(0);

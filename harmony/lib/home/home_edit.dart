@@ -68,6 +68,9 @@ class HomeEditController extends Notifier<HomeEditState> {
     return const HomeEditState();
   }
 
+  /// A section is being carried (Home sets it): the bar's left slot does nothing meanwhile.
+  bool carrying = false;
+
   void enter() {
     if (state.editing) return;
     YoinHaptics.longPress();
@@ -75,6 +78,7 @@ class HomeEditController extends Notifier<HomeEditState> {
   }
 
   void exit() {
+    carrying = false;
     if (!state.editing) return;
     state = const HomeEditState();
   }
@@ -89,7 +93,8 @@ class HomeEditController extends Notifier<HomeEditState> {
   /// The bar's left slot: Undo while there is history, else Add (scrolls to
   /// the tray) while sections are hidden, else nothing.
   void barLeftSlot() {
-    if (!state.editing) return;
+    // Mid-carry the bar's Undo / Add wait (Android barLeftSlotClick): the feed's order is in the finger's hands.
+    if (!state.editing || carrying) return;
     switch (resolveEditLeftSlot(state.undo.length, hiddenSections(ref.read(homeLayoutProvider)).length)) {
       case BarEditLeftSlot.undo:
         undo();
@@ -115,12 +120,12 @@ class HomeEditController extends Notifier<HomeEditState> {
   }
 
   void hide(HomeSection section) {
-    YoinHaptics.click();
+    YoinHaptics.toggle(on: false);
     _apply(withSectionEnabled(ref.read(homeLayoutProvider), section, false));
   }
 
   void show(HomeSection section) {
-    YoinHaptics.click();
+    YoinHaptics.toggle(on: true);
     _apply(withSectionEnabled(ref.read(homeLayoutProvider), section, true));
   }
 

@@ -261,9 +261,10 @@ final class DetailCache {
       }
     }
 
-    final source = await _source();
-    if (source == null) throw const NoActiveSourceException();
     try {
+      // No account up (a cold start that timed out, unreadable credentials): the copies below still answer.
+      final source = await _source();
+      if (source == null) throw const NoActiveSourceException();
       final value = await read(source);
       if (value != null && current()) {
         _put(key, value, fetched: true);

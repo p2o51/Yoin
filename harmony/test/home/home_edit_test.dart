@@ -13,6 +13,8 @@ import 'package:yoin/home/home_section.dart';
 import 'package:yoin/home/home_shelves.dart';
 import 'package:yoin/home/home_view_model.dart';
 import 'package:yoin/home/jump_back_in.dart';
+import 'package:yoin/nowplaying/haptics.dart';
+import 'package:yoin/platform/haptics/haptics_host.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/shell/shell_state.dart';
 import 'package:yoin/shell/yoin_section.dart';
@@ -204,6 +206,35 @@ void main() {
       await tester.tap(find.byTooltip('Show Jump Back In'));
       await frames(tester, 20);
       expect(find.byType(JumpBackInSection), findsOneWidget);
+      await done(tester, c);
+    });
+
+    testWidgets('should_toggleHapticAndHoldUndo_when_hiddenOrCarrying', (tester) async {
+      final haptics = RecordingHapticsHost();
+      YoinHaptics.host = haptics;
+      addTearDown(() => YoinHaptics.host = const NoHapticsHost());
+      final c = await pumpHome(tester);
+      c.read(homeEditProvider.notifier).enter();
+      await frames(tester, 30);
+      await tester.tap(find.byTooltip('Hide Jump Back In'));
+      await frames(tester, 20);
+      // Hide / show are Android's TOGGLE_OFF / TOGGLE_ON.
+      expect(haptics.performed.last, YoinHaptic.toggleOff);
+      // Mid-carry the bar's Undo waits (Android barLeftSlotClick).
+      final edit = c.read(homeEditProvider.notifier)..carrying = true;
+      edit.barLeftSlot();
+      await frames(tester, 20);
+      expect(c.read(homeEditProvider).canUndo, isTrue);
+      expect(find.byType(JumpBackInSection), findsNothing);
+      edit.carrying = false;
+      edit.barLeftSlot();
+      await frames(tester, 20);
+      expect(find.byType(JumpBackInSection), findsOneWidget);
+      await tester.tap(find.byTooltip('Hide Jump Back In'));
+      await frames(tester, 20);
+      await tester.tap(find.byTooltip('Show Jump Back In'));
+      await frames(tester, 20);
+      expect(haptics.performed.last, YoinHaptic.toggleOn);
       await done(tester, c);
     });
 

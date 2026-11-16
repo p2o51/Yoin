@@ -70,7 +70,11 @@ class HomeViewModel extends Notifier<HomeUiState> {
     final previous = stateOrNull;
     final keep = previous is HomeContent ? previous : null;
     return switch (source) {
-      AsyncData(:final value) => _start(value, keep: keep),
+      // Reloading (an account switch or edit): the value is still the previous
+      // account's source, never to be read under the new one's scope.
+      _ when source.isLoading => _awaitSource(keep),
+      // Another provider's feed (an account switch) never stands in for this one's.
+      AsyncData(:final value) => _start(value, keep: value == null || keep?.provider != value.provider ? null : keep),
       // Credentials unreadable: a sourceless load (local tier only) publishes once.
       AsyncError() => _start(null, keep: keep),
       _ => _awaitSource(keep),
@@ -78,17 +82,25 @@ class HomeViewModel extends Notifier<HomeUiState> {
   }
 
   /// The source isn't up yet: paint the account's snapshot meanwhile.
+  /// A feed kept up (a reload of the same account) stays; another account's
+  /// (a switch: the source is rebuilding) gives way to this one's.
   HomeUiState _awaitSource(HomeContent? keep) {
-    if (keep != null) return keep;
     final generation = _generation;
     Future.microtask(() => _paintSnapshotEarly(generation));
-    return const HomeLoading();
+    return keep ?? const HomeLoading();
   }
 
   Future<void> _paintSnapshotEarly(int generation) async {
     final profile = await ref.read(profileRepositoryProvider).activeProfile().catchError((_) => null);
-    if (profile == null || !_live(generation) || state is HomeContent) return;
+    if (profile == null || !_live(generation)) return;
     final scopeKey = '${profile.provider}|${profile.id}';
+    final up = state;
+    if (up is HomeContent) {
+      if (up.scopeKey == scopeKey) return;
+      // The account switched: its feed must not sit under the new one.
+      _snapshotOnly = false;
+      state = const HomeLoading();
+    }
     final cached = _contentCache[scopeKey];
     if (cached != null) {
       state = cached.copyWith(accountTitle: profile.displayName);
@@ -122,7 +134,7 @@ class HomeViewModel extends Notifier<HomeUiState> {
   /// Retry (Error page) or an explicit refresh: reloads the active scope.
   void refresh() {
     final source = ref.read(activeSourceProvider);
-    if (source is AsyncLoading) return;
+    if (source.isLoading) return;
     if (state is! HomeContent) state = const HomeLoading();
     _start(source.value);
   }

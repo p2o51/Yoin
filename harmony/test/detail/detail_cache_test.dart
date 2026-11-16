@@ -95,6 +95,17 @@ void main() {
     expect((await cache().playlist(pid))!.name, 'Mix');
   });
 
+  test('should_serveCopy_when_noSourceComesUp', () async {
+    await cache().playlist(pid);
+    await settle();
+    now += DetailCache.handoffMs + 1;
+    // A cold start whose account never came up: the disk copy, not an error page.
+    final sourceless = DetailCache(() async => null, disk: disk, profileId: () async => 'p1', clock: () => now);
+    expect((await sourceless.playlist(pid))!.name, 'Mix');
+    // Nothing kept anywhere: still the "no account" error.
+    await expectLater(sourceless.album(MediaId.subsonic('none')), throwsA(isA<NoActiveSourceException>()));
+  });
+
   test('should_notWriteBack_when_evictedWhileInFlight', () async {
     source.albumGate = Completer();
     final c = cache();

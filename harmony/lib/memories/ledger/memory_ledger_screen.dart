@@ -228,19 +228,24 @@ class _MemoryLedgerScreenState extends ConsumerState<MemoryLedgerScreen> with Ti
               )
             : Stack(
                 children: [
-                  Align(
-                    alignment: Alignment.topCenter,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: layout.maxWidth),
-                      child: ListView(
-                        controller: _scroll,
-                        padding: EdgeInsets.fromLTRB(
-                          MemoryLedgerTokens.pageSide,
-                          _barBottom + MemoryLedgerTokens.pageTop,
-                          MemoryLedgerTokens.pageSide,
-                          MemoryLedgerTokens.pageBottom + MediaQuery.paddingOf(context).bottom,
+                  // The list's viewport starts under the bar (Android pads it by barHeight): nothing scrolls
+                  // behind the transparent bar; only the lift's squares fly up into it.
+                  Padding(
+                    padding: EdgeInsets.only(top: _barBottom),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: layout.maxWidth),
+                        child: ListView(
+                          controller: _scroll,
+                          padding: EdgeInsets.fromLTRB(
+                            MemoryLedgerTokens.pageSide,
+                            MemoryLedgerTokens.pageTop,
+                            MemoryLedgerTokens.pageSide,
+                            MemoryLedgerTokens.pageBottom + MediaQuery.paddingOf(context).bottom,
+                          ),
+                          children: _body(context, state, layout, strings),
                         ),
-                        children: _body(context, state, layout, strings),
                       ),
                     ),
                   ),

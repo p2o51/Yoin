@@ -119,4 +119,47 @@ void main() {
     final back = homeContentFromSnapshot(written!.feed, scopeKey: '', provider: 'subsonic', nowMs: 0);
     expect(back.playlists.single.id.rawId, 'fresh');
   });
+
+  test('should_dropOldAccountsFeed_when_accountSwitches', () async {
+    var source = Completer<MusicSource?>()..complete(HomeFakeSource(playlists: [playlist('mine')]));
+    final c = ProviderContainer(
+      overrides: [
+        keyValueStoreProvider.overrideWithValue(InMemoryStore()),
+        secretStoreProvider.overrideWithValue(InMemoryStore()),
+        playbackEngineProvider.overrideWithValue(FakePlaybackEngine()),
+        activeSourceProvider.overrideWith((ref) => source.future),
+        activityLogProvider.overrideWith((ref) async => MemoryActivityLog()),
+        homeClockProvider.overrideWithValue(() => homeTestNow),
+        homeActivityDebounceProvider.overrideWithValue(const Duration(milliseconds: 5)),
+        homeSnapshotStoreProvider.overrideWithValue(snapshots()),
+      ],
+    );
+    addTearDown(c.dispose);
+    final repo = c.read(profileRepositoryProvider);
+    const credentials = SubsonicCredentials(baseUrl: 'https://music.test', username: 'u', password: 'p');
+    await repo.add(provider: MediaId.providerSubsonic, displayName: 'First', credentials: credentials);
+    c.listen(homeViewModelProvider, (_, _) {});
+    await settle(() {
+      final s = c.read(homeViewModelProvider);
+      return s is HomeContent && s.playlists.isNotEmpty;
+    });
+
+    // Another Subsonic account takes over; its source is still coming up.
+    final second = await repo.add(provider: MediaId.providerSubsonic, displayName: 'Second', credentials: credentials);
+    await repo.setActive(second.id);
+    source = Completer<MusicSource?>();
+    c.invalidate(activeSourceProvider);
+    await settle(() => c.read(homeViewModelProvider) is! HomeContent);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(c.read(homeViewModelProvider), isA<HomeLoading>());
+    source.complete(HomeFakeSource());
+    await settle(() => c.read(homeViewModelProvider) is HomeContent);
+    final after = c.read(homeViewModelProvider) as HomeContent;
+    expect(after.accountTitle, 'Second');
+    expect(after.playlists, isEmpty);
+    await store.whenIdle();
+    // Nothing of the first account was written as the second's snapshot.
+    final written = await snapshots().read(second.id);
+    expect(written?.feed[HomeFeedKeys.playlists] ?? const [], isEmpty);
+  });
 }

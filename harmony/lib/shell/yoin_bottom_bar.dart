@@ -493,7 +493,11 @@ class _YoinBottomBarState extends State<YoinBottomBar> with TickerProviderStateM
                             alignment: AlignmentDirectional.centerStart,
                             minWidth: g.pillWidth < _pillMinLayout ? _pillMinLayout : g.pillWidth,
                             maxWidth: g.pillWidth < _pillMinLayout ? _pillMinLayout : g.pillWidth,
-                            child: widget.pillBuilder!(context, (down) => _pillPress.animateTo(down ? 1 : 0)),
+                            // Fading out on the way into the edit pose: no press, tap or haptic (Android enabled = !editing).
+                            child: IgnorePointer(
+                              ignoring: widget.editPose?.editing ?? false,
+                              child: widget.pillBuilder!(context, (down) => _pillPress.animateTo(down ? 1 : 0)),
+                            ),
                           ),
                         ),
                       )
